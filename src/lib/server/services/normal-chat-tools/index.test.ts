@@ -9,6 +9,7 @@ import { recordParallelUsage } from "$lib/server/services/analytics";
 import { createArtifact } from "$lib/server/services/artifacts";
 import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
+import { buildHistoryToolDigest } from "$lib/server/services/chat-turn/conversation-history";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -5651,6 +5652,121 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		});
 	});
 
+	// A call that did not work names why from the tool's closed list of reasons, on
+	// the entry's metadata: the model reads what it always read.
+	describe("names why a call did not work", () => {
+		it("names the call past the per-turn cap reply_limit_reached, and only that one", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+			const { tools, getToolCalls } = artifactTools();
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				);
+			}
+
+			const over = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "One too many", body: "content" },
+				{ toolCallId: "call-over", messages: [] },
+			);
+
+			expect(over).toMatchObject({ success: false });
+			expect(JSON.stringify(over)).not.toContain("reply_limit_reached");
+			const entry = getToolCalls().find((item) => item.callId === "call-over");
+			expect(entry?.status).toBe("done");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "reply_limit_reached",
+			});
+			expect(
+				getToolCalls().filter((item) => item.metadata?.reasonCode),
+			).toHaveLength(1);
+		});
+
+		it("records a create call whose input did not fit, so its row can say the call was adjusted, and the history digest stays what it was", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "x".repeat(201), body: "b" },
+				{ toolCallId: "call-bad-create", messages: [] },
+			);
+
+			expect(result).toEqual({ success: false, error: expect.any(String) });
+			expect(JSON.stringify(result)).not.toContain("request_adjusted");
+			const entries = getToolCalls();
+			expect(entries).toHaveLength(1);
+			const [entry] = entries;
+			expect(entry).toEqual({
+				callId: "call-bad-create",
+				name: "create_artifact",
+				input: {},
+				status: "done",
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			// No summary, no digest and no candidates: the digest a later turn replays
+			// is the "Completed." of a call that left no entry.
+			expect(buildHistoryToolDigest(entry)).toEqual(
+				buildHistoryToolDigest({ status: "done" }),
+			);
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("records an edit call whose input did not fit, likewise", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.edit_artifact.execute?.(
+				{
+					artifactId: "unseeded-id",
+					ops: Array.from({ length: 41 }, () => ({})),
+				},
+				{ toolCallId: "call-bad-edit", messages: [] },
+			);
+
+			expect(result).toEqual({ success: false, error: expect.any(String) });
+			expect(JSON.stringify(result)).not.toContain("request_adjusted");
+			const [entry] = getToolCalls();
+			expect(getToolCalls()).toHaveLength(1);
+			expect(entry).toEqual({
+				callId: "call-bad-edit",
+				name: "edit_artifact",
+				input: {},
+				status: "done",
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("names an edit that sent patches and ops together request_adjusted, through the real tool", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.edit_artifact.execute?.(
+				{ artifactId: "unseeded-id", patches: [{}], ops: [{}] },
+				{ toolCallId: "call-both", messages: [] },
+			);
+
+			expect(result).toEqual({
+				success: false,
+				error: "Send patches or ops, never both in the same call.",
+			});
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "request_adjusted",
+			});
+		});
+	});
+
 	// A gap found after the shell shipped: unlike produce_file
 	// (MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS /
 	// MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN), create_artifact had no per-turn
@@ -6783,6 +6899,122 @@ describe("read_generated_file tool — what a call records it read", () => {
 		expect(entry.metadata).toMatchObject({ ok: false, found: false });
 		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
 	});
+
+	describe("names why a read found nothing", () => {
+		it("names a file that was not found, and the payload says what it always said", async () => {
+			readGeneratedFileForToolMock.mockResolvedValue({
+				result: readResult({
+					contentText: null,
+					notFound: true,
+					source: null,
+					conversation: null,
+				}),
+				readArtifactId: null,
+			});
+			const { execute, getToolCalls } = readTool();
+
+			const payload = await execute("call-miss-reason");
+
+			expect(payload).toMatchObject({
+				found: false,
+				error:
+					"No file matching the requested filename or title was found in this conversation or the user's documents.",
+			});
+			expect(JSON.stringify(payload)).not.toContain("file_not_found");
+			const [entry] = getToolCalls();
+			expect(entry.status).toBe("done");
+			expect(entry.metadata).toMatchObject({
+				ok: false,
+				found: false,
+				reasonCode: "file_not_found",
+			});
+		});
+
+		it("names several files that match ambiguous, and the payload says what it always said", async () => {
+			readGeneratedFileForToolMock.mockResolvedValue({
+				result: readResult({
+					contentText: null,
+					ambiguous: true,
+					source: null,
+					conversation: null,
+				}),
+				readArtifactId: null,
+			});
+			const { execute, getToolCalls } = readTool();
+
+			const payload = await execute("call-ambiguous-reason");
+
+			expect(payload).toMatchObject({
+				found: false,
+				ambiguous: true,
+				error:
+					"Several files match; call again with one exact filename from candidates.",
+			});
+			expect(JSON.stringify(payload)).not.toContain('"ambiguous":"ambiguous"');
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				found: false,
+				ambiguous: true,
+				reasonCode: "ambiguous",
+			});
+		});
+
+		it("names nothing for a file that was read", async () => {
+			readGeneratedFileForToolMock.mockResolvedValue({
+				result: readResult(),
+				readArtifactId: READ_ID,
+			});
+			const { execute, getToolCalls } = readTool();
+
+			await execute("call-found-reason");
+
+			expect(getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it("records a call whose input did not fit, so its row can say the call was adjusted, and the history digest stays what it was", async () => {
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			// An empty `query` is the kind of input the schema turns down.
+			const payload = await tools.read_generated_file.execute(
+				{ query: "" } as never,
+				{ toolCallId: "call-bad-input", messages: [] },
+			);
+
+			// The model still gets the one-line schema message, as before.
+			expect(payload).toEqual({ found: false, error: expect.any(String) });
+			expect(JSON.stringify(payload)).not.toContain("request_adjusted");
+			expect(readGeneratedFileForToolMock).not.toHaveBeenCalled();
+
+			// The call recorded no entry before. Its entry has no summary, no digest
+			// and no candidates, so the digest a later turn replays is still
+			// "Completed.", with `ok` true, exactly as for a call that left no entry.
+			const entries = getToolCalls();
+			expect(entries).toHaveLength(1);
+			const [entry] = entries;
+			expect(entry).toEqual({
+				callId: "call-bad-input",
+				name: "read_generated_file",
+				input: {},
+				status: "done",
+				// The recorder files a missing summary as null; there is no digest.
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			expect(entry).not.toHaveProperty("resultDigest");
+			expect(entry).not.toHaveProperty("candidates");
+			expect(buildHistoryToolDigest(entry)).toEqual(
+				buildHistoryToolDigest({ status: "done" }),
+			);
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+	});
 });
 
 // With `includeAttachments`, memory_context hands the model the full text of
@@ -7126,9 +7358,185 @@ describe("memory_context names what happened", () => {
 	});
 });
 
+// A call that did not work names why from map_route's closed list of reasons,
+// on the entry's metadata; the model reads what it always read.
+describe("map_route tool names why a call did not work", () => {
+	const ORS_CONFIG = {
+		parallelApiKey: "parallel-key",
+		parallelBaseUrl: "https://api.parallel.ai",
+		orsBaseUrl: "http://127.0.0.1:8080/ors",
+		geocoderBaseUrl: "http://127.0.0.1:2322",
+		model1MaxModelContext: 64_000,
+		model2MaxModelContext: 200_000,
+	} as unknown as ReturnType<typeof getConfig>;
+
+	afterEach(() => {
+		getConfigMock.mockReset();
+		vi.unstubAllGlobals();
+	});
+
+	function routeTools() {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+	}
+
+	it("names a place that did not resolve, with the words that did not", async () => {
+		getConfigMock.mockReturnValue(ORS_CONFIG);
+		// A geocoder that answers, with nothing for the place.
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response("[]", {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+			),
+		);
+		const { tools, getToolCalls } = routeTools();
+
+		const result = await requireTool(tools.map_route).execute(
+			{
+				action: "route",
+				origin: "Atlantis",
+				destination: { lat: 48.85, lng: 2.35 },
+			},
+			{ toolCallId: "call-route-place", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			success: false,
+			message: 'I couldn\'t find a place matching "Atlantis".',
+		});
+		expect(JSON.stringify(result)).not.toContain("place_not_found");
+		const [entry] = getToolCalls();
+		expect(entry?.status).toBe("done");
+		expect(entry?.outputSummary).toBe(
+			'I couldn\'t find a place matching "Atlantis".',
+		);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "place_not_found",
+			reasonPlace: "Atlantis",
+		});
+	});
+
+	it("names a server with no geocoder not_set_up, and says no place", async () => {
+		getConfigMock.mockReturnValue({ ...ORS_CONFIG, geocoderBaseUrl: "" });
+		const { tools, getToolCalls } = routeTools();
+
+		const result = await requireTool(tools.map_route).execute(
+			{ action: "geocode", query: "Berlin" },
+			{ toolCallId: "call-route-geocoder-off", messages: [] },
+		);
+
+		expect(result).toMatchObject({ success: false });
+		expect(JSON.stringify(result)).not.toContain("not_set_up");
+		const metadata = getToolCalls()[0]?.metadata;
+		expect(metadata).toMatchObject({ ok: false, reasonCode: "not_set_up" });
+		expect(metadata).not.toHaveProperty("reasonPlace");
+	});
+
+	it("names a call the model left something out of request_adjusted", async () => {
+		getConfigMock.mockReturnValue(ORS_CONFIG);
+		const { tools, getToolCalls } = routeTools();
+
+		await requireTool(tools.map_route).execute(
+			{ action: "route", origin: { lat: 1, lng: 2 } },
+			{ toolCallId: "call-route-missing", messages: [] },
+		);
+
+		expect(getToolCalls()[0]?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "request_adjusted",
+		});
+	});
+
+	it("names a route service that threw as unavailable", async () => {
+		let armed = false;
+		getConfigMock.mockImplementation(() => {
+			if (armed) throw new Error("config store is down");
+			return ORS_CONFIG;
+		});
+		const { tools, getToolCalls } = routeTools();
+		armed = true;
+
+		const result = await requireTool(tools.map_route).execute(
+			{ action: "geocode", query: "Berlin" },
+			{ toolCallId: "call-route-threw", messages: [] },
+		);
+
+		expect(result).toMatchObject({ success: false });
+		expect(getToolCalls()[0]?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "route_service_unavailable",
+		});
+	});
+});
+
 describe("use_skill tool", () => {
 	beforeEach(() => {
 		resolveSkillInstructionsForUseMock.mockReset();
+	});
+
+	it.each([
+		[
+			"not_found",
+			"skill_not_found",
+			'No skill named "Plan Critic" was found. Only call use_skill with a name from "## Skills available".',
+		],
+		[
+			"disabled",
+			"skill_turned_off",
+			'Skill "Plan Critic" is not currently enabled.',
+		],
+	] as const)("names a lookup that failed as %s %s on the entry, and the payload says what it always said", async (reason, code, error) => {
+		resolveSkillInstructionsForUseMock.mockResolvedValue({ ok: false, reason });
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.use_skill.execute(
+			{ name: "Plan Critic" },
+			{ toolCallId: "tool-call-skill-reason", messages: [] },
+		);
+
+		expect(result).toEqual({ found: false, error });
+		expect(JSON.stringify(result)).not.toContain(code);
+		const [entry] = getToolCalls();
+		expect(entry?.outputSummary).toBe(error);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			found: false,
+			reasonCode: code,
+		});
+	});
+
+	it("names nothing for a skill that loaded", async () => {
+		resolveSkillInstructionsForUseMock.mockResolvedValue({
+			ok: true,
+			skillId: "system:grill-with-docs",
+			skillOwnership: "system",
+			skillKind: "skill_pack",
+			displayName: "Plan Critic",
+			envelope: "Skill instructions.",
+		});
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.use_skill.execute(
+			{ name: "Plan Critic" },
+			{ toolCallId: "tool-call-skill-ok", messages: [] },
+		);
+
+		expect(getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("names the real catalogue heading", () => {
@@ -7390,6 +7798,66 @@ describe("suggest_instruction tool", () => {
 		expect(getToolCalls()[0]?.instructionSuggestion).toMatchObject({
 			text: "Always answer in Hungarian.",
 		});
+	});
+
+	it("names each refusal on the entry with the reason the model was told, and an offer with nothing", async () => {
+		const { tools, getToolCalls } = buildTools();
+		const call = (text: string, id: string) =>
+			tools.suggest_instruction.execute(
+				{ text },
+				{ toolCallId: id, messages: [] },
+			);
+
+		const empty = await call("   ", "tool-call-suggest-r1");
+		const tooLong = await call(
+			"a".repeat(INSTRUCTIONS_MAX_CHARS + 1),
+			"tool-call-suggest-r2",
+		);
+		await call("Be brief.", "tool-call-suggest-r3");
+		const again = await call("Be shorter.", "tool-call-suggest-r4");
+
+		// What the model was told is as it was: its `reason` is the same word.
+		expect(empty).toMatchObject({ reason: "empty_text" });
+		expect(tooLong).toMatchObject({ reason: "text_too_long" });
+		expect(again).toMatchObject({ reason: "already_offered" });
+		for (const payload of [empty, tooLong, again]) {
+			expect(JSON.stringify(payload)).not.toContain("reasonCode");
+		}
+		const entries = getToolCalls();
+		expect(entries.map((entry) => entry.metadata?.reasonCode)).toEqual([
+			"empty_text",
+			"text_too_long",
+			undefined,
+			"already_offered",
+		]);
+		expect(entries.map((entry) => entry.metadata?.reason)).toEqual([
+			"empty_text",
+			"text_too_long",
+			undefined,
+			"already_offered",
+		]);
+		expect(entries[2]?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names no code for a failure of the tool itself", async () => {
+		getConversationProjectIdMock.mockRejectedValueOnce(
+			new Error("database is locked"),
+		);
+		const { tools, getToolCalls } = buildTools();
+
+		const result = await tools.suggest_instruction.execute(
+			{ text: "Only suggest trains.", scope: "project" },
+			{ toolCallId: "tool-call-suggest-r5", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: false,
+			offered: false,
+			errorCode: "suggest_instruction_failed",
+		});
+		const [entry] = getToolCalls();
+		expect(entry?.status).toBe("failed");
+		expect(entry?.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("describes the offer the user will see, and that nothing is saved until they look", () => {

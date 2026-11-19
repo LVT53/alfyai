@@ -186,6 +186,86 @@ describe("runCreateArtifactTool — no kind registered yet (Slice 5a)", () => {
 	});
 });
 
+// A call that did not work names why from create_artifact's closed list of
+// reasons, on the entry's metadata; the model reads what it always read.
+describe("runCreateArtifactTool — the reason a call did not work", () => {
+	afterEach(() => {
+		delete CREATE_ARTIFACT_HANDLERS.slides;
+	});
+
+	const run = () =>
+		runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "Deck",
+			body: "content",
+			artifactType: "slides",
+			abortSignal: new AbortController().signal,
+		});
+
+	it("names a kind with no handler kind_not_creatable, and the payload says what it said", async () => {
+		const result = await run();
+
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error:
+				"Slides items cannot be made yet. Say so, and offer the closest alternative you can actually do.",
+		});
+		expect(result.metadata).toEqual({
+			ok: false,
+			reasonCode: "kind_not_creatable",
+		});
+	});
+
+	it.each([
+		"request_adjusted",
+		"too_large",
+		"stopped",
+	] as const)("names a refusal its handler called %s, beside a payload that does not say so", async (code) => {
+		CREATE_ARTIFACT_HANDLERS.slides = async () => ({
+			ok: false,
+			reason: "Nothing was created for a reason in words.",
+			code,
+		});
+
+		const result = await run();
+
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error: "Nothing was created for a reason in words.",
+		});
+		expect(JSON.stringify(result.modelPayload)).not.toContain(code);
+		expect(result.metadata).toEqual({
+			ok: false,
+			artifactKind: "slides",
+			reasonCode: code,
+		});
+	});
+
+	it("names nothing for a refusal its handler gave no code for: the row words it as a failure", async () => {
+		CREATE_ARTIFACT_HANDLERS.slides = async () => ({
+			ok: false,
+			reason: "Could not create the deck.",
+		});
+
+		const result = await run();
+
+		expect(result.metadata).toEqual({ ok: false, artifactKind: "slides" });
+	});
+
+	it("names nothing for a call that worked", async () => {
+		CREATE_ARTIFACT_HANDLERS.slides = async (params) => ({
+			ok: true,
+			value: { artifactId: "artifact-1", title: params.title },
+		});
+
+		const result = await run();
+
+		expect(result.metadata).not.toHaveProperty("reasonCode");
+	});
+});
+
 describe("runCreateArtifactTool — a registered handler", () => {
 	afterEach(() => {
 		delete CREATE_ARTIFACT_HANDLERS.document;
@@ -450,6 +530,8 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			error: "no html fence and no complete html document in the answer",
 		});
 		expect(result.metadata.ok).toBe(false);
+		// A generation that failed is no request to correct: the row has no code for it.
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	// LV's note (ruling 77): the tool text said "Apps: the HTML document", so the real
@@ -478,6 +560,8 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			expect(result.modelPayload.error).toContain("Nothing was created");
 		}
 		expect(result.metadata.ok).toBe(false);
+		// The model's markup is the model's request to correct, and the row says so.
+		expect(result.metadata.reasonCode).toBe("request_adjusted");
 	});
 
 	it("takes a brief that merely names a tag in words", async () => {

@@ -59,7 +59,7 @@ import {
 } from "$lib/server/services/web-grounding";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
-import { DISPLAY_OUTPUT_KEY } from "$lib/shared/tool-reasons";
+import { DISPLAY_OUTPUT_KEY, REASON_PLACE_KEY } from "$lib/shared/tool-reasons";
 import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
@@ -231,6 +231,7 @@ import {
 	modelSafeToolError,
 	reasonMetadata,
 	reasonMetadataOf,
+	recordSchemaFailure,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
@@ -1801,6 +1802,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						// The model is answered as before; the row learns the call was
+						// changed to fit (an entry with nothing the digest would read).
+						recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "read_generated_file",
+						});
 						return {
 							found: false,
 							error,
@@ -1848,6 +1855,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// "project files read" count at finalize. Never
 										// in the model payload.
 										...toolReadArtifactIdsMetadata([readArtifactId]),
+										// Why the read found nothing: no file by that name, or
+										// several that match.
+										...(result.notFound
+											? reasonMetadata("read_generated_file", "file_not_found")
+											: result.ambiguous
+												? reasonMetadata("read_generated_file", "ambiguous")
+												: {}),
 									},
 								},
 							};
@@ -1907,6 +1921,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "create_artifact",
+						});
 						return {
 							success: false,
 							error,
@@ -1931,7 +1949,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							status: "done",
 							outputSummary: message,
 							sourceType: "tool",
-							metadata: { ok: false, error: message },
+							metadata: {
+								ok: false,
+								error: message,
+								...reasonMetadata("create_artifact", "reply_limit_reached"),
+							},
 						});
 						return payload;
 					}
@@ -2073,6 +2095,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "edit_artifact",
+						});
 						return { success: false, error } satisfies EditArtifactModelPayload;
 					}
 					const safeInput = parsedInput.data;
@@ -3163,8 +3189,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													},
 													providerDeps,
 												);
-										const { modelPayload, candidates, map } =
-											await runRoutingTool(safeInput, { provider });
+										const {
+											modelPayload,
+											candidates,
+											map,
+											reason,
+											reasonPlace,
+										} = await runRoutingTool(safeInput, { provider });
 										return {
 											modelPayload,
 											entry: {
@@ -3181,6 +3212,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													attribution: modelPayload.attribution,
+													// Why a call did not work, and the place words that did not
+													// resolve: beside the payload, never in it.
+													...(reason
+														? reasonMetadata("map_route", reason)
+														: {}),
+													...(reasonPlace !== undefined
+														? { [REASON_PLACE_KEY]: reasonPlace }
+														: {}),
 												},
 												...(map ? { map } : {}),
 											},
@@ -3213,6 +3252,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													ok: false,
 													evidenceReady: false,
 													error: message,
+													// The routing service could not be asked at all. A tool's
+													// own time limit is the envelope's `timed_out`, and a Stop
+													// and the deadline override either.
+													...(isToolTimeoutError(error)
+														? {}
+														: reasonMetadata(
+																"map_route",
+																"route_service_unavailable",
+															)),
 												},
 											},
 										};
@@ -3270,6 +3318,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											skillId: null,
 											skillOwnership: null,
 											skillDisplayName: null,
+											// No such skill, or one the person turned off.
+											...reasonMetadata(
+												"use_skill",
+												result.reason === "disabled"
+													? "skill_turned_off"
+													: "skill_not_found",
+											),
 										},
 									},
 								};
@@ -3381,6 +3436,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								evidenceReady: false,
 								offered: false,
 								reason,
+								// The same word the model was told, as the row's code.
+								...reasonMetadata("suggest_instruction", reason),
 							},
 							instructionSuggestion: null,
 						});

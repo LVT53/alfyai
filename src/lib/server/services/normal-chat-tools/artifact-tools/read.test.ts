@@ -80,6 +80,15 @@ describe("runReadArtifactTool", () => {
 				{ artifactId: "a1", title: "Other plan" },
 			]);
 		}
+		// The row says the item is not there from a code on the entry's metadata;
+		// the summary and the payload the model reads are what they were.
+		expect(result.outputSummary).toBe("Not found");
+		expect(result.metadata).toEqual({
+			ok: false,
+			found: false,
+			reasonCode: "item_not_found",
+		});
+		expect(JSON.stringify(result.modelPayload)).not.toContain("item_not_found");
 	});
 
 	it("reads a File-type id from this conversation and says the type, with a short summary", async () => {
@@ -106,6 +115,7 @@ describe("runReadArtifactTool", () => {
 		if (result.modelPayload.success) {
 			expect(result.modelPayload.body?.length).toBeLessThan(1000);
 		}
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("never returns a body belonging to another user (delegates ownership to getArtifact)", async () => {
