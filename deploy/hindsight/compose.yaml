@@ -22,6 +22,7 @@ services:
       - native-model.env
     environment:
       HINDSIGHT_API_DATABASE_URL: postgresql://hindsight:${HINDSIGHT_DB_PASSWORD_URI:?Set a URI-encoded private database password}@postgres:5432/hindsight
+      HINDSIGHT_API_WORKER_ID: "${HINDSIGHT_API_WORKER_ID:?Set a persistent native worker ID}"
       HINDSIGHT_API_LLM_TRACE_ENABLED: "false"
       HINDSIGHT_API_LLM_TRACE_DELETE_WITH_DOCUMENT: "true"
       HINDSIGHT_API_OTEL_TRACES_ENABLED: "false"

@@ -37,9 +37,27 @@ class MasterKeyProvisioning(unittest.TestCase):
             native = (directory / "native-tenants.env").read_text()
             self.assertIn("HINDSIGHT_TENANT_MASTER_KEYS", app)
             self.assertIn("HINDSIGHT_API_TENANT_MASTER_KEYS", native)
+            settings = (directory / "native-db.env").read_text()
+            worker_id = next((line for line in settings.splitlines() if line.startswith("HINDSIGHT_API_WORKER_ID=")), "")
+            self.assertRegex(worker_id, r"^HINDSIGHT_API_WORKER_ID=alfyai-memory-[a-f0-9]{32}$")
             self.assertEqual((directory / "alfyai-tenants.env").stat().st_mode & 0o777, 0o600)
             with self.assertRaises(FileExistsError):
                 provision.write_master_bindings(directory)
+            self.assertTrue((directory / "native-db.env").read_text() == settings)
+
+    def test_explicit_worker_identity_is_saved_only_in_native_settings(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = pathlib.Path(root)
+            provision.write_master_bindings(directory, worker_id="alfyai-memory-stage")
+            self.assertIn("HINDSIGHT_API_WORKER_ID=alfyai-memory-stage\n", (directory / "native-db.env").read_text())
+            self.assertNotIn("WORKER_ID", (directory / "alfyai-tenants.env").read_text())
+
+    def test_malformed_worker_identity_is_rejected_before_writing(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = pathlib.Path(root)
+            with self.assertRaises(ValueError):
+                provision.write_master_bindings(directory, worker_id="invalid\nentry")
+            self.assertEqual(list(directory.iterdir()), [])
 
     def test_database_password_round_trips_through_the_compose_connection(self):
         import json
@@ -54,12 +72,17 @@ class MasterKeyProvisioning(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             directory = pathlib.Path(root)
             with patch.object(provision.secrets, "token_urlsafe", return_value="synth@/:%pass"):
-                provision.write_master_bindings(directory)
+                provision.write_master_bindings(directory, worker_id="alfyai-memory-stage")
             shutil.copy(pathlib.Path(__file__).with_name("compose.yaml"), directory)
             (directory / "native-model.env").touch()
+            command = ["docker", "compose", "--env-file", "native-db.env", "config", "--format", "json"]
+            env = {
+                key: value for key, value in os.environ.items()
+                if not key.startswith("HINDSIGHT_DB_PASSWORD") and key != "HINDSIGHT_API_WORKER_ID"
+            }
             result = subprocess.run(
-                ["docker", "compose", "--env-file", "native-db.env", "config", "--format", "json"],
-                cwd=directory, env={k: v for k, v in os.environ.items() if not k.startswith("HINDSIGHT_DB_PASSWORD")},
+                command,
+                cwd=directory, env=env,
                 check=True, capture_output=True, text=True,
             )
             services = json.loads(result.stdout)["services"]
@@ -67,4 +90,13 @@ class MasterKeyProvisioning(unittest.TestCase):
             database_url = services["hindsight"]["environment"]["HINDSIGHT_API_DATABASE_URL"]
             self.assertEqual(unquote(urlsplit(database_url).password), password)
             self.assertEqual(password, "synth@/:%pass")
+            self.assertEqual(services["hindsight"]["environment"]["HINDSIGHT_API_WORKER_ID"], "alfyai-memory-stage")
             self.assertEqual((directory / "native-db.env").stat().st_mode & 0o777, 0o600)
+            env_file = directory / "native-db.env"
+            env_file.write_text("\n".join(
+                line for line in env_file.read_text().splitlines()
+                if not line.startswith("HINDSIGHT_API_WORKER_ID=")
+            ) + "\n")
+            result = subprocess.run(command, cwd=directory, env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Set a persistent native worker ID", result.stderr)
