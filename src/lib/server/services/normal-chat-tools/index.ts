@@ -1804,8 +1804,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
 						// The model is answered as before; the row learns the call was
 						// changed to fit (an entry with nothing the digest would read),
-						// and the engine still counts the call uncertain, as it did when
-						// the call recorded nothing.
+						// and the engine knows nothing ran, so the model reads the message
+						// and the turn goes on (`recordSchemaFailure`).
 						return recordSchemaFailure(recorder, {
 							callId: options.toolCallId,
 							name: "read_generated_file",

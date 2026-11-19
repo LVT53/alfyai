@@ -5729,10 +5729,11 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 			});
 		});
 
-		it("holds a call whose input did not fit as uncertain, as it was while the call recorded nothing", async () => {
-			// A call with no row is `uncertain` and the engine ends the turn at it; the
-			// row it records now says "done", so the fact is recorded with it, bound to
-			// the payload the model is answered with.
+		it("holds a call whose input did not fit as a refusal before the tool ran: nothing ran, so the turn goes on", async () => {
+			// A call with no row is `uncertain` and the engine ends the turn at it, and
+			// the row it records for the tool row's sake says only "done": the call says
+			// what it is, a proven non-execution, bound to the payload the model is
+			// answered with (2026-11-19, the owner: "Yes, fix it here").
 			const recorder = createToolCallRecorder();
 			const { tools } = artifactTools({ recorder });
 
@@ -5750,8 +5751,12 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 
 			expect(create).toEqual({ success: false, error: expect.any(String) });
 			expect(edit).toEqual({ success: false, error: expect.any(String) });
-			expect(recorder.getExecutionCertainty?.(create)).toBe("uncertain");
-			expect(recorder.getExecutionCertainty?.(edit)).toBe("uncertain");
+			expect(recorder.getExecutionCertainty?.(create)).toBe(
+				"definitely_not_executed",
+			);
+			expect(recorder.getExecutionCertainty?.(edit)).toBe(
+				"definitely_not_executed",
+			);
 		});
 
 		it("records an edit call whose input did not fit, likewise", async () => {
@@ -7050,7 +7055,7 @@ describe("read_generated_file tool — what a call records it read", () => {
 			});
 		});
 
-		it("holds a call whose input did not fit as uncertain, as it was while the call recorded nothing", async () => {
+		it("holds a call whose input did not fit as a refusal before the tool ran: nothing ran, so the turn goes on", async () => {
 			const recorder = createToolCallRecorder();
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
@@ -7065,9 +7070,12 @@ describe("read_generated_file tool — what a call records it read", () => {
 			);
 
 			expect(payload).toEqual({ found: false, error: expect.any(String) });
-			// The engine ends a turn at its first uncertain call: the row says "done"
-			// now, so the fact is recorded beside it, for this very payload.
-			expect(recorder.getExecutionCertainty?.(payload)).toBe("uncertain");
+			// The engine ends a turn at its first uncertain call, and the row says only
+			// "done": the fact that nothing ran is recorded beside it, for this very
+			// payload.
+			expect(recorder.getExecutionCertainty?.(payload)).toBe(
+				"definitely_not_executed",
+			);
 		});
 	});
 });

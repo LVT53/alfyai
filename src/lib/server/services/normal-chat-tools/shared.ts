@@ -437,13 +437,16 @@ export type SchemaFailureTool =
  * "done" status, an empty input and no summary, digest or candidates, so a later
  * turn still replays "Completed." (`buildHistoryToolDigest`).
  *
- * The engine must go on treating the call as it did while it recorded nothing:
- * a call with no row is `uncertain`, and the engine ends the turn at the first
- * uncertain call. A row with a "done" status would read as a success
- * (`classifyExecution`, `chat-turn/prepared-normal-chat-turn.ts`), so the call
- * says what it is: the entry is recorded with the execution fact `uncertain`,
- * bound to the payload the tool answers with, and the payload is handed back to
- * be returned as it is (the fact is keyed by that very object).
+ * The call is a refusal made before the tool did any work, so the entry is
+ * recorded with the execution fact `definitely_not_executed`, bound to the payload
+ * the tool answers with (the fact is keyed by that very object, so the payload is
+ * handed back to be returned as it is). Nothing ran, the model reads the schema's
+ * message in its next step and the turn goes on, as it does for a call a tool
+ * turned down with `ToolCallRefusedError` (`chat-turn/AGENTS.md`, "A Turn's Final
+ * Answer"). A call with no row is `uncertain` and a row that says only "done" reads
+ * as a success (`classifyExecution`, `chat-turn/prepared-normal-chat-turn.ts`), and
+ * the engine ends a turn at an uncertain call: until 2026-11-19 a malformed call the
+ * model could have corrected ended the reply empty.
  */
 export function recordSchemaFailure<TPayload extends object>(
 	recorder: ToolCallRecorder,
@@ -460,7 +463,7 @@ export function recordSchemaFailure<TPayload extends object>(
 				...reasonMetadata(params.name, "request_adjusted"),
 			},
 		},
-		{ state: "uncertain", result: params.payload },
+		{ state: "definitely_not_executed", result: params.payload },
 	);
 	return params.payload;
 }
