@@ -108,3 +108,11 @@ One synthetic account learned a fact from an ordinary chat with Memory enabled. 
 The English deliberate-history reply after Clear also described the cleared value as current. The actual history result included the original chat and earlier synthetic verification chats that carried a then-current answer. The same restored Memory remained empty at Clear, and ordinary current probes carried neither marker. This demonstrates that an expressly authorized history search can still surface an outdated statement from a retained transcript. The model gave that statement present-tense wording.
 
 The streamed replies were projected with the app’s decoder and answer reducer from actual SSE responses. The fresh test app and request-capture relay were stopped, the previous isolated app resumed direct model routing, and canonical staging and production reported healthy. [Redacted history-boundary receipts](staging-app-evidence/gpu-history-boundary-results.json)
+
+### Exact named-chat replay
+
+The isolated runtime from `447cde74bea65e12addb17e4f9d593d5466e08ed` replayed the same authored questions against a separate SQLite copy of the mixed fixture. The original chat and neighboring verification chats were still present. The copied app’s delivery worker remained paused to preserve the original fixture’s native state.
+
+- English and Hungarian named-history questions in the plain route, plus the Hungarian named-history stream, returned the exact original authored chat as their only historical candidate. Actual tool payloads carried `past_chat_only`. All three replies attributed their answer to that earlier chat. The complete provider requests and replies omitted the cleared value.
+- English and Hungarian ordinary current questions in the plain route, plus the English current stream, reported the current value as unknown. Neither factual marker reached their provider requests or replies. An actual attempt to search history on an ordinary current question received `history_request_required`.
+- The six replay scenarios produced eleven captured provider requests. The synthetic app and relay were stopped, the previous isolated app resumed direct model routing, and the canonical endpoints reported healthy. [Redacted named-chat replay receipts](staging-app-evidence/gpu-named-history-results.json)
