@@ -1198,6 +1198,119 @@ it("review-authored corrections retain their original action date and bounded so
 			.every((j) => j.status === "succeeded"),
 	).toBe(true);
 });
+it("holds a review-only edit without current support while reconciling an inactive migration", async () => {
+	const { db, s } = await legacyItem("retired");
+	const expiresAt = new Date(Date.now() + 60_000);
+	db.insert(s.projects)
+		.values({ id: "other-project", userId: h.userId, name: "Other project" })
+		.run();
+	db.insert(s.memoryProfileItems)
+		.values([
+			{
+				id: "older-current",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "older-current",
+				category: "about_you",
+				statement: "My bicycle is green",
+				expiresAt,
+			},
+			{
+				id: "wrong-scope-match",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "wrong-scope-match",
+				category: "about_you",
+				statement: "My bicycle is green",
+				scopeType: "project",
+				scopeId: "other-project",
+			},
+			{
+				id: "newer-current",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "newer-current",
+				category: "about_you",
+				statement: "My dog is Rex",
+			},
+		])
+		.run();
+	for (const [id, editedStatement] of [
+		["older", "My bicycle is green"],
+		["newer", "My dog is Rex"],
+		["unlocated", null],
+	] as const) {
+		db.insert(s.memoryReviewItems)
+			.values({
+				id,
+				userId: h.userId,
+				subjectKey: id,
+				subjectLabel: id,
+				question: "Review",
+				reason: "Synthetic",
+				affectedItemIdsJson: id === "unlocated" ? '["missing"]' : '["item"]',
+			})
+			.run();
+		db.insert(s.memoryReviewResolutions)
+			.values({
+				id,
+				userId: h.userId,
+				reviewItemId: id,
+				resolutionType: editedStatement ? "edit_fact" : "do_not_remember",
+				editedStatement,
+				createdAt: new Date("2021-01-02"),
+			})
+			.run();
+	}
+	await allowMigrationHistory();
+	const f = await nativeFixture();
+	const m = await import("./migration");
+	const { memoryDeliveryJob } = await import("./delivery-job");
+	const { readPublishedMemory } = await import("./publication");
+	const manifest = await m.prepareMemoryMigration(h.userId);
+	await h.engine.drain(memoryDeliveryJob);
+	expect(m.inspectMemoryMigration(h.userId).holdHistory).toBe(true);
+	expect(m.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(true);
+	const bank = db.select().from(s.memoryBanks).get();
+	if (!bank) throw new Error("Missing synthetic bank");
+	const published = () =>
+		readPublishedMemory(h.userId, bank.id).map((row) => row.text);
+	expect(published()).toEqual(
+		expect.arrayContaining(["My bicycle is green", "My dog is Rex"]),
+	);
+
+	vi.spyOn(Date, "now").mockReturnValue(expiresAt.getTime());
+	expect(m.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(false);
+	expect(() => m.cutoverMemoryMigration(h.userId, manifest.id)).toThrow(
+		"memory_migration_not_ready",
+	);
+	expect(m.inspectMemoryMigration(h.userId).exceptions).toContainEqual(
+		expect.objectContaining({
+			id: "authored:review:older",
+			reason: "review_current_support_missing",
+		}),
+	);
+	expect((await m.prepareMemoryMigration(h.userId)).id).toBe(manifest.id);
+	expect(m.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(false);
+	await h.engine.drain(memoryDeliveryJob);
+	expect(db.select().from(s.memorySourceRevisions).all()).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				eventId: "authored:review:older",
+				state: "revoked",
+			}),
+			expect.objectContaining({
+				eventId: "authored:review:newer",
+				state: "accepted",
+			}),
+		]),
+	);
+	expect([...f.facts.values()].map(({ text }) => text)).toEqual([
+		"My dog is Rex",
+	]);
+	expect(published()).toEqual(["My dog is Rex"]);
+	expect(m.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(true);
+});
 it("missing accepted source checkpoints cannot be called a complete migration", async () => {
 	const { db, s } = await seed();
 	const p = await import("./migration-policy");

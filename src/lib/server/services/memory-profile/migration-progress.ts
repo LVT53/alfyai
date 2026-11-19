@@ -49,6 +49,7 @@ interface MigrationAction {
 	itemId?: string;
 	reviewResolutionId?: string;
 }
+const REVIEW_CURRENT_SUPPORT_MISSING = "review_current_support_missing";
 interface MigrationInventory {
 	version: 1;
 	userId: string;
@@ -442,6 +443,19 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					scope: itemScope,
 				});
 		}
+		function matchesReviewScope(
+			item: (typeof r.items)[number],
+			authoredScope: MemoryScope,
+		) {
+			const currentScope = scope(item.scopeType, item.scopeId);
+			return (
+				currentScope !== null &&
+				memoryScopeKey(currentScope) === memoryScopeKey(authoredScope)
+			);
+		}
+		const reviewEditsWithoutCurrentSupport: MigrationInventory["exceptions"] =
+			[];
+		const now = Date.now();
 		for (const resolution of r.resolutions.filter(
 			(x) => x.resetGeneration === resetGeneration,
 		)) {
@@ -506,6 +520,25 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				const authoredScope = item
 					? scope(item.scopeType, item.scopeId, resolution.createdAt)
 					: null;
+				if (
+					authoredScope &&
+					!r.items.some(
+						(current) =>
+							current.resetGeneration === resetGeneration &&
+							current.status === "active" &&
+							!current.deletedAt &&
+							!current.suppressedAt &&
+							(!current.expiresAt || current.expiresAt.getTime() > now) &&
+							current.statement === resolution.editedStatement &&
+							matchesReviewScope(current, authoredScope),
+					)
+				) {
+					reviewEditsWithoutCurrentSupport.push({
+						id: `authored:review:${resolution.id}`,
+						reason: REVIEW_CURRENT_SUPPORT_MISSING,
+						sourceIds: ids,
+					});
+				}
 				addAction(
 					{
 						id: `authored:review:${resolution.id}`,
@@ -561,6 +594,10 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				);
 			}
 		}
+		// Under an unresolved withdrawal boundary, a review-only assertion is
+		// historical evidence. It needs current support before import.
+		if (result.holdHistory)
+			result.exceptions.push(...reviewEditsWithoutCurrentSupport);
 		const historyBoundary = latestManifest(userId)?.createdAt ?? new Date();
 		if (result.holdHistory)
 			for (const s of result.sources)
@@ -702,9 +739,16 @@ export function verifyMemoryMigration(userId: string, id: string) {
 				),
 			)
 			.all();
+		const unsupportedReviewEdits = (entry: MigrationInventory) =>
+			entry.exceptions
+				.filter(({ reason }) => reason === REVIEW_CURRENT_SUPPORT_MISSING)
+				.map(({ id }) => id)
+				.sort();
 		const changed =
 			saved.fingerprint !== inventory.fingerprint ||
 			manifest.epoch !== inventory.epoch ||
+			JSON.stringify(unsupportedReviewEdits(saved)) !==
+				JSON.stringify(unsupportedReviewEdits(inventory)) ||
 			saved.sources.some(
 				(source, i) =>
 					source.eligibility !== inventory.sources[i]?.eligibility ||
