@@ -107,11 +107,14 @@ describe("structural answers containing file payload examples", () => {
 		'{"program":',
 		'{"version":1,"blocks"',
 		'{"version":1,"template"',
-	])("does not buffer a structural JSON prefix %s as a tool diagnostic", (text) => {
-		expect(getLeakedToolDiagnosticPrefixLength(text, { leading: false })).toBe(
-			0,
-		);
-	});
+	])(
+		"does not buffer a structural JSON prefix %s as a tool diagnostic",
+		(text) => {
+			expect(
+				getLeakedToolDiagnosticPrefixLength(text, { leading: false }),
+			).toBe(0);
+		},
+	);
 	it("continues removing explicit private/control syntax", () => {
 		expect(
 			normalizeAssistantOutputWithSkillControl("<think>private</think>Answer", {

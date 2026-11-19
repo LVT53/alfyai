@@ -432,70 +432,71 @@ async function runPrepared(settings: {
 }
 
 describe("Task 2 real SDK / prepared bounded web chain", () => {
-	it.each([
-		false,
-		true,
-	])("bounds largest single/sequential/parallel NEW reads and closes losslessly (stream=%s)", async (streaming) => {
-		for (const kind of ["single", "sequential", "parallel"] as const) {
-			resetToolResultCacheForTests();
-			const run = await runPrepared({ streaming, kind });
-			expect(run.snapshot.completion).toMatchObject({
-				outcome: "answered",
-				closingAttempted: true,
-			});
-			expect(projectNormalChatOutput(run.snapshot.events).answer).toBe(
-				"Answer from bounded evidence.",
-			);
-			expect(run.upstream).toBe(
-				kind === "parallel" ? 3 : kind === "sequential" ? 2 : 1,
-			);
-			expect(
-				run.snapshot.executions.map((e) => ({
-					tool: e.toolName,
-					state: e.state,
-					failure:
-						(e.output as { coverage?: string })?.coverage === "none"
-							? e.output
-							: undefined,
-				})),
-			).toEqual(
-				run.snapshot.executions.map((e) => ({
-					tool: e.toolName,
-					state: "succeeded",
-					failure: undefined,
-				})),
-			);
-			for (const execution of run.snapshot.executions) {
-				const observed = run.observed.find(
-					(o) => JSON.stringify(o.payload) === JSON.stringify(execution.output),
-				);
-				expect(observed).toBeTruthy();
-				expect(execution.modelOutput).toEqual({
-					type: "json",
-					value: observed?.payload,
+	it.each([false, true])(
+		"bounds largest single/sequential/parallel NEW reads and closes losslessly (stream=%s)",
+		async (streaming) => {
+			for (const kind of ["single", "sequential", "parallel"] as const) {
+				resetToolResultCacheForTests();
+				const run = await runPrepared({ streaming, kind });
+				expect(run.snapshot.completion).toMatchObject({
+					outcome: "answered",
+					closingAttempted: true,
 				});
-				const finalPrompt = run.wire.at(-1)?.prompt;
-				const results = finalPrompt
-					?.filter((m) => m.role === "tool")
-					.flatMap((m) => m.content);
-				expect(
-					results?.find(
-						(part): part is LanguageModelV3ToolResultPart =>
-							part.type === "tool-result" &&
-							part.toolCallId === execution.callId,
-					)?.output,
-				).toEqual(execution.modelOutput);
-				expect(JSON.stringify(execution.output)).not.toContain(
-					"OMITTED_BRIEF_FACT",
+				expect(projectNormalChatOutput(run.snapshot.events).answer).toBe(
+					"Answer from bounded evidence.",
 				);
+				expect(run.upstream).toBe(
+					kind === "parallel" ? 3 : kind === "sequential" ? 2 : 1,
+				);
+				expect(
+					run.snapshot.executions.map((e) => ({
+						tool: e.toolName,
+						state: e.state,
+						failure:
+							(e.output as { coverage?: string })?.coverage === "none"
+								? e.output
+								: undefined,
+					})),
+				).toEqual(
+					run.snapshot.executions.map((e) => ({
+						tool: e.toolName,
+						state: "succeeded",
+						failure: undefined,
+					})),
+				);
+				for (const execution of run.snapshot.executions) {
+					const observed = run.observed.find(
+						(o) =>
+							JSON.stringify(o.payload) === JSON.stringify(execution.output),
+					);
+					expect(observed).toBeTruthy();
+					expect(execution.modelOutput).toEqual({
+						type: "json",
+						value: observed?.payload,
+					});
+					const finalPrompt = run.wire.at(-1)?.prompt;
+					const results = finalPrompt
+						?.filter((m) => m.role === "tool")
+						.flatMap((m) => m.content);
+					expect(
+						results?.find(
+							(part): part is LanguageModelV3ToolResultPart =>
+								part.type === "tool-result" &&
+								part.toolCallId === execution.callId,
+						)?.output,
+					).toEqual(execution.modelOutput);
+					expect(JSON.stringify(execution.output)).not.toContain(
+						"OMITTED_BRIEF_FACT",
+					);
+				}
+				expect(run.wire.filter((call) => !call.tools?.length)).toHaveLength(1);
+				const captured = parseNormalChatContinuation(
+					serializeNormalChatContinuation(run.snapshot),
+				);
+				expect(captured.executions).toEqual(run.snapshot.executions);
 			}
-			expect(run.wire.filter((call) => !call.tools?.length)).toHaveLength(1);
-			const captured = parseNormalChatContinuation(
-				serializeNormalChatContinuation(run.snapshot),
-			);
-			expect(captured.executions).toEqual(run.snapshot.executions);
-		}
-	});
+		},
+	);
 	it("keeps proposal leases and views identical under reversed upstream completion", async () => {
 		const first = await runPrepared({ streaming: false, kind: "parallel" });
 		resetToolResultCacheForTests();
@@ -511,133 +512,139 @@ describe("Task 2 real SDK / prepared bounded web chain", () => {
 			first.snapshot.executions.map((e) => e.output),
 		);
 	});
-	it.each([
-		false,
-		true,
-	])("keeps returned failure and upstream error settled through the exact prepared result (stream=%s)", async (streaming) => {
-		for (const kind of ["error", "empty", "validation"] as const) {
-			const run = await runPrepared({ streaming, kind });
+	it.each([false, true])(
+		"keeps returned failure and upstream error settled through the exact prepared result (stream=%s)",
+		async (streaming) => {
+			for (const kind of ["error", "empty", "validation"] as const) {
+				const run = await runPrepared({ streaming, kind });
+				expect(run.snapshot.completion).toMatchObject({
+					outcome: "answered",
+					closingAttempted: true,
+				});
+				const execution = run.snapshot.executions[0];
+				expect(execution.state).toBe("failed");
+				expect(execution.output).toMatchObject({
+					success: false,
+					coverage: "none",
+					bounded: true,
+				});
+				expect(run.base.getExecutionCertainty?.(run.returned[0])).toBe(
+					"failed",
+				);
+				expect(run.observed[0].payload).toBe(run.returned[0]);
+				expect(execution.modelOutput).toEqual({
+					type: "json",
+					value: run.returned[0],
+				});
+				expect(
+					run.wire
+						.at(-1)
+						?.prompt.filter((message) => message.role === "tool")
+						.flatMap((message) => message.content)
+						.find(
+							(part): part is LanguageModelV3ToolResultPart =>
+								part.type === "tool-result" &&
+								part.toolCallId === execution.callId,
+						)?.output,
+				).toEqual(execution.modelOutput);
+				expect(
+					estimateTokenCount(stableStringify(run.returned[0])),
+				).toBeLessThanOrEqual(
+					run.grants[0].grant?.maxFailurePayloadTokens ?? 0,
+				);
+			}
+		},
+	);
+	it.each([false, true])(
+		"counts accumulated retained reasoning and refuses an oversized next dispatch (stream=%s)",
+		async (streaming) => {
+			const run = await runPrepared({ streaming, kind: "reasoning" });
+			expect(run.wire).toHaveLength(1);
 			expect(run.snapshot.completion).toMatchObject({
-				outcome: "answered",
+				stopCause: "context_capacity",
 				closingAttempted: true,
 			});
-			const execution = run.snapshot.executions[0];
-			expect(execution.state).toBe("failed");
-			expect(execution.output).toMatchObject({
-				success: false,
-				coverage: "none",
-				bounded: true,
-			});
-			expect(run.base.getExecutionCertainty?.(run.returned[0])).toBe("failed");
-			expect(run.observed[0].payload).toBe(run.returned[0]);
-			expect(execution.modelOutput).toEqual({
-				type: "json",
-				value: run.returned[0],
-			});
-			expect(
-				run.wire
-					.at(-1)
-					?.prompt.filter((message) => message.role === "tool")
-					.flatMap((message) => message.content)
-					.find(
-						(part): part is LanguageModelV3ToolResultPart =>
-							part.type === "tool-result" &&
-							part.toolCallId === execution.callId,
-					)?.output,
-			).toEqual(execution.modelOutput);
-			expect(
-				estimateTokenCount(stableStringify(run.returned[0])),
-			).toBeLessThanOrEqual(run.grants[0].grant?.maxFailurePayloadTokens ?? 0);
-		}
-	});
-	it.each([
-		false,
-		true,
-	])("counts accumulated retained reasoning and refuses an oversized next dispatch (stream=%s)", async (streaming) => {
-		const run = await runPrepared({ streaming, kind: "reasoning" });
-		expect(run.wire).toHaveLength(1);
+			expect(JSON.stringify(run.snapshot.steps)).toContain(
+				"retained reasoning",
+			);
+		},
+	);
+});
+
+it.each([false, true])(
+	"Task 2 resizes cached results under new step leases without changing old captures (stream=%s)",
+	async (streaming) => {
+		const run = await runPrepared({ streaming, kind: "cache" });
+		expect(run.upstream).toBe(1);
+		expect(run.grants[1].grant?.maxPayloadTokens).toBeLessThan(
+			run.grants[0].grant?.maxPayloadTokens ?? 0,
+		);
+		expect(run.snapshot.executions[1].output).toMatchObject({
+			cached: true,
+			bounded: true,
+		});
+		expect(run.snapshot.executions[0].output).not.toHaveProperty("cached");
+		expect(run.snapshot.executions.map((e) => e.output)).toEqual(run.returned);
+		expect(run.snapshot.completion?.outcome).toBe("answered");
+	},
+);
+
+it.each([false, true])(
+	"Task 2 funds an ordinary unfunded proposal refusal before upstream work and closes (stream=%s)",
+	async (streaming) => {
+		const run = await runPrepared({ streaming, kind: "denial" });
+		expect(run.grants[0]?.grant?.maxFailurePayloadTokens).toBeGreaterThan(0);
+
+		expect(run.grants[0]?.grant).toMatchObject({
+			kind: "denied",
+			maxPayloadTokens: 0,
+		});
+		expect(run.upstream).toBe(0);
+		expect(run.snapshot.executions[0].state).toBe("definitely_not_executed");
+		expect(run.snapshot.executions[0].output).toMatchObject({
+			bounded: true,
+			coverage: "none",
+			success: false,
+		});
+		expect(run.base.getExecutionCertainty?.(run.returned[0])).toBe(
+			"definitely_not_executed",
+		);
+		const execution = run.snapshot.executions[0];
+		expect(execution.callId).toBe(denialCallId);
+		expect(execution.input).toEqual({ query: denialQuery });
+		expect(run.base.getEntries()).toHaveLength(1);
+		expect(run.base.getEntries()[0]).toMatchObject({
+			callId: denialCallId,
+			input: { query: denialQuery },
+			candidates: [],
+		});
+		expect(run.observed[0]?.payload).toBe(run.returned[0]);
+		expect(execution.output).toEqual(run.returned[0]);
+		expect(execution.modelOutput).toEqual({
+			type: "json",
+			value: run.returned[0],
+		});
+		expect(
+			run.wire
+				.at(-1)
+				?.prompt.filter((message) => message.role === "tool")
+				.flatMap((message) => message.content)
+				.find(
+					(part): part is LanguageModelV3ToolResultPart =>
+						part.type === "tool-result" && part.toolCallId === denialCallId,
+				)?.output,
+		).toEqual(execution.modelOutput);
+		expect(run.wire[0]?.maxOutputTokens).toBe(
+			run.snapshot.prepared.maxOutputTokens,
+		);
+
 		expect(run.snapshot.completion).toMatchObject({
-			stopCause: "context_capacity",
+			outcome: "answered",
+			workingStopCause: "context_capacity",
 			closingAttempted: true,
 		});
-		expect(JSON.stringify(run.snapshot.steps)).toContain("retained reasoning");
-	});
-});
-
-it.each([
-	false,
-	true,
-])("Task 2 resizes cached results under new step leases without changing old captures (stream=%s)", async (streaming) => {
-	const run = await runPrepared({ streaming, kind: "cache" });
-	expect(run.upstream).toBe(1);
-	expect(run.grants[1].grant?.maxPayloadTokens).toBeLessThan(
-		run.grants[0].grant?.maxPayloadTokens ?? 0,
-	);
-	expect(run.snapshot.executions[1].output).toMatchObject({
-		cached: true,
-		bounded: true,
-	});
-	expect(run.snapshot.executions[0].output).not.toHaveProperty("cached");
-	expect(run.snapshot.executions.map((e) => e.output)).toEqual(run.returned);
-	expect(run.snapshot.completion?.outcome).toBe("answered");
-});
-
-it.each([
-	false,
-	true,
-])("Task 2 funds an ordinary unfunded proposal refusal before upstream work and closes (stream=%s)", async (streaming) => {
-	const run = await runPrepared({ streaming, kind: "denial" });
-	expect(run.grants[0]?.grant?.maxFailurePayloadTokens).toBeGreaterThan(0);
-
-	expect(run.grants[0]?.grant).toMatchObject({
-		kind: "denied",
-		maxPayloadTokens: 0,
-	});
-	expect(run.upstream).toBe(0);
-	expect(run.snapshot.executions[0].state).toBe("definitely_not_executed");
-	expect(run.snapshot.executions[0].output).toMatchObject({
-		bounded: true,
-		coverage: "none",
-		success: false,
-	});
-	expect(run.base.getExecutionCertainty?.(run.returned[0])).toBe(
-		"definitely_not_executed",
-	);
-	const execution = run.snapshot.executions[0];
-	expect(execution.callId).toBe(denialCallId);
-	expect(execution.input).toEqual({ query: denialQuery });
-	expect(run.base.getEntries()).toHaveLength(1);
-	expect(run.base.getEntries()[0]).toMatchObject({
-		callId: denialCallId,
-		input: { query: denialQuery },
-		candidates: [],
-	});
-	expect(run.observed[0]?.payload).toBe(run.returned[0]);
-	expect(execution.output).toEqual(run.returned[0]);
-	expect(execution.modelOutput).toEqual({
-		type: "json",
-		value: run.returned[0],
-	});
-	expect(
-		run.wire
-			.at(-1)
-			?.prompt.filter((message) => message.role === "tool")
-			.flatMap((message) => message.content)
-			.find(
-				(part): part is LanguageModelV3ToolResultPart =>
-					part.type === "tool-result" && part.toolCallId === denialCallId,
-			)?.output,
-	).toEqual(execution.modelOutput);
-	expect(run.wire[0]?.maxOutputTokens).toBe(
-		run.snapshot.prepared.maxOutputTokens,
-	);
-
-	expect(run.snapshot.completion).toMatchObject({
-		outcome: "answered",
-		workingStopCause: "context_capacity",
-		closingAttempted: true,
-	});
-});
+	},
+);
 
 it("Task 2 keeps admitted views exact on human reuse without a new lease or upstream read", async () => {
 	const prior = await runPrepared({ streaming: false, kind: "single" });

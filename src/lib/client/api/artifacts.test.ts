@@ -1777,7 +1777,7 @@ describe("latest-moment announcements", () => {
 	}
 
 	function authorAndKind(change: ArtifactChange | undefined) {
-		if (!change || change.type !== "version") return null;
+		if (change?.type !== "version") return null;
 		return [change.author ?? null, change.kind ?? null];
 	}
 

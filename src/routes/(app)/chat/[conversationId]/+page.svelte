@@ -996,7 +996,7 @@ let returnToDockedOnExpandedClose = $derived.by(() => {
 		workspaceDocuments.find(
 			(document) => document.id === activeWorkspaceDocumentId,
 		) ?? null;
-	if (!activeDocument || activeDocument.mimeType !== "text/html") return true;
+	if (activeDocument?.mimeType !== "text/html") return true;
 	return !atlasJobs.some(
 		(job) => job.outputs.htmlChatGeneratedFileId === activeDocument.id,
 	);
@@ -4935,7 +4935,7 @@ function handleStartEdit(payload: { messageId: string }) {
 		return;
 	}
 	const target = $messages.find((m) => m.id === payload.messageId);
-	if (!target || target.role !== "user") return;
+	if (target?.role !== "user") return;
 	editingMessage = { id: target.id, text: target.content };
 }
 

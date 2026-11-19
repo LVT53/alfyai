@@ -392,19 +392,22 @@ describe("buildSettledWriteItem", () => {
 		["failed", "failed", "Failed"],
 		["cancelled", "skipped", "Cancelled"],
 		["expired", "skipped", "Expired"],
-	] as const)("draws a write that %s as a %s row", (status, rowStatus, verb) => {
-		const settled = write({ status });
-		const item = buildSettledWriteItem(
-			settled,
-			buildWriteCardView(settled, en, "en"),
-			en,
-		);
+	] as const)(
+		"draws a write that %s as a %s row",
+		(status, rowStatus, verb) => {
+			const settled = write({ status });
+			const item = buildSettledWriteItem(
+				settled,
+				buildWriteCardView(settled, en, "en"),
+				en,
+			);
 
-		expect(item.status).toBe(rowStatus);
-		expect(item.verb).toBe(verb);
-		expect(item.object).toBe("Dentist");
-		expect(item.iconType).toBe("calendar");
-	});
+			expect(item.status).toBe(rowStatus);
+			expect(item.verb).toBe(verb);
+			expect(item.object).toBe("Dentist");
+			expect(item.iconType).toBe("calendar");
+		},
+	);
 
 	it("gives a chevron only to a row with something to show", () => {
 		const bare = write({ status: "executed" });

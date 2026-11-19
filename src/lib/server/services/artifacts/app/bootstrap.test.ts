@@ -436,28 +436,29 @@ describe("APP_BOOTSTRAP_SCRIPT: no WebRTC, no frame with content", () => {
 		return Object.getOwnPropertyDescriptor(window, name);
 	}
 
-	it.each(
-		REMOVED,
-	)("%s is undefined, cannot be written, redefined or deleted", (name) => {
-		const { window } = createSandbox(APP_BOOTSTRAP_SCRIPT, present());
-		expect(descriptorOf(window, name)).toEqual({
-			value: undefined,
-			writable: false,
-			enumerable: false,
-			configurable: false,
-		});
-		expect(() =>
-			Object.defineProperty(window, name, { value: function Other() {} }),
-		).toThrow(TypeError);
-		expect(() => {
-			(window as unknown as Record<string, unknown>)[name] =
-				function Other() {};
-		}).toThrow(TypeError);
-		expect(Reflect.deleteProperty(window, name)).toBe(false);
-		expect((window as unknown as Record<string, unknown>)[name]).toBe(
-			undefined,
-		);
-	});
+	it.each(REMOVED)(
+		"%s is undefined, cannot be written, redefined or deleted",
+		(name) => {
+			const { window } = createSandbox(APP_BOOTSTRAP_SCRIPT, present());
+			expect(descriptorOf(window, name)).toEqual({
+				value: undefined,
+				writable: false,
+				enumerable: false,
+				configurable: false,
+			});
+			expect(() =>
+				Object.defineProperty(window, name, { value: function Other() {} }),
+			).toThrow(TypeError);
+			expect(() => {
+				(window as unknown as Record<string, unknown>)[name] =
+					function Other() {};
+			}).toThrow(TypeError);
+			expect(Reflect.deleteProperty(window, name)).toBe(false);
+			expect((window as unknown as Record<string, unknown>)[name]).toBe(
+				undefined,
+			);
+		},
+	);
 
 	it("names a constructor the browser does not have as undefined too, so nothing is left to be defined later", () => {
 		const { window } = createSandbox(APP_BOOTSTRAP_SCRIPT, {});
@@ -594,15 +595,18 @@ describe("APP_BOOTSTRAP_SCRIPT: no WebRTC, no frame with content", () => {
 			"<p",
 			"<port",
 			"text <i",
-		])("refuses a write that ends in %s, where the rest of a frame tag could come from the next write or from the document", (text) => {
-			const policy = withPolicy();
-			expect(() => html(policy, text, "Document write")).toThrow(
-				/An app cannot/,
-			);
-			expect(() => html(policy, text, "Document writeln")).toThrow(
-				/An app cannot/,
-			);
-		});
+		])(
+			"refuses a write that ends in %s, where the rest of a frame tag could come from the next write or from the document",
+			(text) => {
+				const policy = withPolicy();
+				expect(() => html(policy, text, "Document write")).toThrow(
+					/An app cannot/,
+				);
+				expect(() => html(policy, text, "Document writeln")).toThrow(
+					/An app cannot/,
+				);
+			},
+		);
 
 		it("allows that same ending in a sink that has no 'next' to continue it", () => {
 			const policy = withPolicy();

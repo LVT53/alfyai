@@ -703,45 +703,45 @@ describe("renderHistoryTurn", () => {
 			});
 		});
 
-		it.each([
-			"running",
-			"failed",
-		] as const)("renders an ask call that did not finish (%s) like any other call", (status) => {
-			const unfinished = askCall({
-				status,
-				outputSummary: null,
-				resultDigest: null,
-			});
-			const native = renderHistoryTurn(
-				turn("Plan the party", {
+		it.each(["running", "failed"] as const)(
+			"renders an ask call that did not finish (%s) like any other call",
+			(status) => {
+				const unfinished = askCall({
+					status,
+					outputSummary: null,
+					resultDigest: null,
+				});
+				const native = renderHistoryTurn(
+					turn("Plan the party", {
+						content: "A party at home it is.",
+						thinkingSegments: [unfinished],
+					}),
+					"native",
+				);
+				// The call, its result, then the words: no card, no answer.
+				expect(native.map((message) => message.role)).toEqual([
+					"user",
+					"assistant",
+					"tool",
+					"assistant",
+				]);
+				expect(native[3]).toEqual({
+					role: "assistant",
 					content: "A party at home it is.",
-					thinkingSegments: [unfinished],
-				}),
-				"native",
-			);
-			// The call, its result, then the words: no card, no answer.
-			expect(native.map((message) => message.role)).toEqual([
-				"user",
-				"assistant",
-				"tool",
-				"assistant",
-			]);
-			expect(native[3]).toEqual({
-				role: "assistant",
-				content: "A party at home it is.",
-			});
-			const flat = renderHistoryTurn(
-				turn("Plan the party", {
-					content: "A party at home it is.",
-					thinkingSegments: [unfinished],
-				}),
-				"flatten",
-			);
-			const text = JSON.stringify(flat);
-			expect(text).toContain("[used ask_user:");
-			expect(text).not.toContain("[asked the user");
-			expect(text).not.toContain("the user's answer");
-		});
+				});
+				const flat = renderHistoryTurn(
+					turn("Plan the party", {
+						content: "A party at home it is.",
+						thinkingSegments: [unfinished],
+					}),
+					"flatten",
+				);
+				const text = JSON.stringify(flat);
+				expect(text).toContain("[used ask_user:");
+				expect(text).not.toContain("[asked the user");
+				expect(text).not.toContain("the user's answer");
+			},
+		);
 	});
 
 	it("appends attachment names and provenance prefixes to user turns and skips empty assistant rows", () => {

@@ -93,18 +93,16 @@ describe("auditAppHtml", () => {
 			expect(check.detail).toContain(needle);
 		});
 
-		it.each([
-			"localStorage",
-			"sessionStorage",
-			"indexedDB",
-			"document.cookie",
-		])("no-web-storage flags %s", (needle) => {
-			const check = checkFor(
-				auditAppHtml(`<script>${needle}.getItem('x')</script>`),
-				"no-web-storage",
-			);
-			expect(check.passed).toBe(false);
-		});
+		it.each(["localStorage", "sessionStorage", "indexedDB", "document.cookie"])(
+			"no-web-storage flags %s",
+			(needle) => {
+				const check = checkFor(
+					auditAppHtml(`<script>${needle}.getItem('x')</script>`),
+					"no-web-storage",
+				);
+				expect(check.passed).toBe(false);
+			},
+		);
 	});
 
 	describe("the note rules", () => {
@@ -232,10 +230,15 @@ describe("auditAppHtml", () => {
 			["Libre Baskerville", "'Libre Baskerville', Arial"],
 			["Garamond", "Garamond, Arial"],
 			["a Garamond with a name in front", "'EB Garamond', Arial"],
-		])("fails %s, in a font-family declaration and in the font shorthand", (_name, family) => {
-			expect(serif(`h1 { font-family: ${family}; }`).passed).toBe(false);
-			expect(serif(`h1 { font: 400 22px/1.2 ${family}; }`).passed).toBe(false);
-		});
+		])(
+			"fails %s, in a font-family declaration and in the font shorthand",
+			(_name, family) => {
+				expect(serif(`h1 { font-family: ${family}; }`).passed).toBe(false);
+				expect(serif(`h1 { font: 400 22px/1.2 ${family}; }`).passed).toBe(
+					false,
+				);
+			},
+		);
 
 		it.each([
 			["the sans generic", "sans-serif"],
@@ -248,10 +251,13 @@ describe("auditAppHtml", () => {
 				"names that only begin like a serif's",
 				"'Georgian Sans', 'Timesheet Sans', sans-serif",
 			],
-		])("passes %s, in a font-family declaration and in the font shorthand", (_name, family) => {
-			expect(serif(`h1 { font-family: ${family}; }`).passed).toBe(true);
-			expect(serif(`h1 { font: 400 22px/1.2 ${family}; }`).passed).toBe(true);
-		});
+		])(
+			"passes %s, in a font-family declaration and in the font shorthand",
+			(_name, family) => {
+				expect(serif(`h1 { font-family: ${family}; }`).passed).toBe(true);
+				expect(serif(`h1 { font: 400 22px/1.2 ${family}; }`).passed).toBe(true);
+			},
+		);
 
 		it("reads capitals, a space before the colon and a family list over several lines", () => {
 			expect(serif("h1 { FONT-FAMILY : GEORGIA }").passed).toBe(false);
@@ -334,18 +340,17 @@ describe("auditAppHtml", () => {
 	// are violations (a sandbox-escape attempt, handled by generate.ts's
 	// retry-then-refuse, not just a card line).
 	describe("ruling 58's four sandbox rules", () => {
-		it.each([
-			"alert(",
-			"confirm(",
-			"prompt(",
-		])("no-dialogs flags %s", (call) => {
-			const check = checkFor(
-				auditAppHtml(`<script>${call}'x');</script>`),
-				"no-dialogs",
-			);
-			expect(check.passed).toBe(false);
-			expect(check.severity).toBe("glitch");
-		});
+		it.each(["alert(", "confirm(", "prompt("])(
+			"no-dialogs flags %s",
+			(call) => {
+				const check = checkFor(
+					auditAppHtml(`<script>${call}'x');</script>`),
+					"no-dialogs",
+				);
+				expect(check.passed).toBe(false);
+				expect(check.severity).toBe("glitch");
+			},
+		);
 
 		it("no-dialogs does not flag an unrelated identifier containing the word", () => {
 			expect(

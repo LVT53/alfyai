@@ -1054,39 +1054,42 @@ describe("a HEIC photo, which the document reader is handed as a PNG", () => {
 	it.each([
 		["a cancel", "cancelled", "cancelled"],
 		["a lost lease", "stale_worker", "queued"],
-	] as const)("removes the PNG an extractor is holding when it is stopped by %s", async (_how, _code, status) => {
-		const { drain, extractionJob, cancel, recover } = await engine();
-		const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
-		const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
-			mimeType: "image/heic",
-		});
-		const { held, holding } = holdingExtractor();
-
-		const running = drain(extractionJob);
-		// An attempt that ends without holding the file fails the assertions below,
-		// and not with a wait that never ends.
-		await Promise.race([holding, running]);
-		expect(readJob(job.id).checkpoint).not.toBeNull();
-		// One file per attempt, in the host's temp directory, named for the attempt,
-		// and on the disk for as long as the extractor holds it.
-		const [attempt] = readAttempts(job.id);
-		expect(held).toEqual([readerFileOf(attempt.id)]);
-		expect(existsSync(held[0])).toBe(true);
-
-		if (status === "cancelled") {
-			await cancel(extractionJob, job.id, { userId });
-		} else {
-			// Another worker takes the claim out from under this one.
-			await recover(extractionJob, {
-				staleBefore: new Date(Date.now() + 60_000),
+	] as const)(
+		"removes the PNG an extractor is holding when it is stopped by %s",
+		async (_how, _code, status) => {
+			const { drain, extractionJob, cancel, recover } = await engine();
+			const artifactId = await seedStoredDocument("IMG_0042.HEIC", tinyHeic);
+			const job = await enqueueJob(artifactId, "IMG_0042.HEIC", {
+				mimeType: "image/heic",
 			});
-		}
-		await running;
+			const { held, holding } = holdingExtractor();
 
-		expect(existsSync(held[0])).toBe(false);
-		expect(readJob(job.id).status).toBe(status);
-		expect(existsSync(join(storageDir, "IMG_0042.HEIC"))).toBe(true);
-	});
+			const running = drain(extractionJob);
+			// An attempt that ends without holding the file fails the assertions below,
+			// and not with a wait that never ends.
+			await Promise.race([holding, running]);
+			expect(readJob(job.id).checkpoint).not.toBeNull();
+			// One file per attempt, in the host's temp directory, named for the attempt,
+			// and on the disk for as long as the extractor holds it.
+			const [attempt] = readAttempts(job.id);
+			expect(held).toEqual([readerFileOf(attempt.id)]);
+			expect(existsSync(held[0])).toBe(true);
+
+			if (status === "cancelled") {
+				await cancel(extractionJob, job.id, { userId });
+			} else {
+				// Another worker takes the claim out from under this one.
+				await recover(extractionJob, {
+					staleBefore: new Date(Date.now() + 60_000),
+				});
+			}
+			await running;
+
+			expect(existsSync(held[0])).toBe(false);
+			expect(readJob(job.id).status).toBe(status);
+			expect(existsSync(join(storageDir, "IMG_0042.HEIC"))).toBe(true);
+		},
+	);
 
 	// B5. A cancel that lands while the photo is being decoded calls the decode
 	// off: its thread is stopped before it can answer, so no PNG is ever made.

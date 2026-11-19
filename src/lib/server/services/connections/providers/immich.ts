@@ -493,7 +493,7 @@ export async function immichEnableWrites(
 		throw new ImmichError("A password is required", "invalid_config");
 	}
 	const conn = await getConnection(params.userId, params.connectionId);
-	if (!conn || conn.provider !== "immich") {
+	if (conn?.provider !== "immich") {
 		throw new ImmichError(
 			"Immich connection not found",
 			"connection_not_found",

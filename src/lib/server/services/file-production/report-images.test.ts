@@ -148,11 +148,14 @@ describe("resolveReportImages", () => {
 			() =>
 				pngResponse(Buffer.concat([PNG, Buffer.alloc(MAX_REPORT_IMAGE_BYTES)])),
 		],
-	])("leaves %s out, so the report draws its placeholder", async (_name, respond) => {
-		const fetchImpl = vi.fn().mockImplementation(async () => respond());
-		const images = await resolveReportImages(source, { fetchImpl });
-		expect(images.size).toBe(0);
-	});
+	])(
+		"leaves %s out, so the report draws its placeholder",
+		async (_name, respond) => {
+			const fetchImpl = vi.fn().mockImplementation(async () => respond());
+			const images = await resolveReportImages(source, { fetchImpl });
+			expect(images.size).toBe(0);
+		},
+	);
 
 	it("leaves a picture out when the request fails, and does not throw", async () => {
 		const fetchImpl = vi

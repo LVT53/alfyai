@@ -61,7 +61,7 @@ export const POST: RequestHandler = async (event) => {
 		artifactId,
 		conversationId,
 	});
-	if (!artifact || artifact.kind !== "document") {
+	if (artifact?.kind !== "document") {
 		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}
 	// createArtifact allows conversationId: null (slice-0.md §The boundary);

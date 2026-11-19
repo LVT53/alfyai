@@ -429,42 +429,44 @@ describe("offline HTTP orchestration", () => {
 		["missing", undefined],
 		["wrong version", { ...completion, version: 2 }],
 		["missing identity", { ...completion, segmentId: "" }],
-	])("plain known text cannot replace %s completion", async (_name, receipt) => {
-		await expect(
-			runCase(plainClient(receipt), plainSpec(), MODEL_MATRIX.deepseek, {
+	])(
+		"plain known text cannot replace %s completion",
+		async (_name, receipt) => {
+			await expect(
+				runCase(plainClient(receipt), plainSpec(), MODEL_MATRIX.deepseek, {
+					conversationId: "synthetic-c1",
+					streamId: "synthetic-s1",
+				}),
+			).rejects.toThrow(/Plain completion/);
+		},
+	);
+	test.each(["incomplete", "failed", "stopped"])(
+		"plain %s with a matching warning never passes ordinary known-answer acceptance",
+		async (outcome) => {
+			const receipt = { ...completion, outcome, stopCause: "length" };
+			const warning = {
+				code: "normal_chat_completion",
+				outcome,
+				stopCause: "length",
+			};
+			const record: Record<string, unknown> = {
 				conversationId: "synthetic-c1",
 				streamId: "synthetic-s1",
-			}),
-		).rejects.toThrow(/Plain completion/);
-	});
-	test.each([
-		"incomplete",
-		"failed",
-		"stopped",
-	])("plain %s with a matching warning never passes ordinary known-answer acceptance", async (outcome) => {
-		const receipt = { ...completion, outcome, stopCause: "length" };
-		const warning = {
-			code: "normal_chat_completion",
-			outcome,
-			stopCause: "length",
-		};
-		const record: Record<string, unknown> = {
-			conversationId: "synthetic-c1",
-			streamId: "synthetic-s1",
-		};
-		await expect(
-			runCase(
-				plainClient(receipt, warning),
-				plainSpec(),
-				MODEL_MATRIX.deepseek,
-				record,
-			),
-		).rejects.toThrow(/not answered/);
-		expect(record.completion).toEqual(receipt);
-		expect(record.warning).toEqual(warning);
-		expect(record.segmentId).toBe("seg-1");
-		expect(record.auditRequired).toBe(true);
-	});
+			};
+			await expect(
+				runCase(
+					plainClient(receipt, warning),
+					plainSpec(),
+					MODEL_MATRIX.deepseek,
+					record,
+				),
+			).rejects.toThrow(/not answered/);
+			expect(record.completion).toEqual(receipt);
+			expect(record.warning).toEqual(warning);
+			expect(record.segmentId).toBe("seg-1");
+			expect(record.auditRequired).toBe(true);
+		},
+	);
 	test.each([
 		undefined,
 		{ code: "other", outcome: "incomplete", stopCause: "length" },
@@ -474,19 +476,22 @@ describe("offline HTTP orchestration", () => {
 			outcome: "incomplete",
 			stopCause: "natural_stop",
 		},
-	])("plain incomplete receipt requires its exact additive warning (%j)", async (warning) => {
-		await expect(
-			runCase(
-				plainClient(
-					{ ...completion, outcome: "incomplete", stopCause: "length" },
-					warning,
+	])(
+		"plain incomplete receipt requires its exact additive warning (%j)",
+		async (warning) => {
+			await expect(
+				runCase(
+					plainClient(
+						{ ...completion, outcome: "incomplete", stopCause: "length" },
+						warning,
+					),
+					plainSpec(),
+					MODEL_MATRIX.deepseek,
+					{ conversationId: "synthetic-c1", streamId: "synthetic-s1" },
 				),
-				plainSpec(),
-				MODEL_MATRIX.deepseek,
-				{ conversationId: "synthetic-c1", streamId: "synthetic-s1" },
-			),
-		).rejects.toThrow(/Plain warning/);
-	});
+			).rejects.toThrow(/Plain warning/);
+		},
+	);
 	test("plain successful completion rejects a contradictory warning", async () => {
 		await expect(
 			runCase(
@@ -672,18 +677,21 @@ describe("independent review identity and attempt-policy regressions", () => {
 		{ model_id: MODEL_MATRIX.kimi },
 		{ provider_model_name: "deepseek-pro" },
 		{ provider_model_name: "unexpected-answerer" },
-	])("every attempt must match the requested provider/model/name policy (%j)", (patch) => {
-		const audit = {
-			turns: [{ ...turn, attempt_ids_json: '["a","closing"]' }],
-			attempts: [
-				attempt,
-				{ ...attempt, ...patch, attempt_id: "closing", phase: "closing" },
-			],
-		};
-		expect(() =>
-			inspectAudit(audit, [{ ...identity, costUsdMicros: 6 }]),
-		).toThrow();
-	});
+	])(
+		"every attempt must match the requested provider/model/name policy (%j)",
+		(patch) => {
+			const audit = {
+				turns: [{ ...turn, attempt_ids_json: '["a","closing"]' }],
+				attempts: [
+					attempt,
+					{ ...attempt, ...patch, attempt_id: "closing", phase: "closing" },
+				],
+			};
+			expect(() =>
+				inspectAudit(audit, [{ ...identity, costUsdMicros: 6 }]),
+			).toThrow();
+		},
+	);
 	test("two permitted attempts pass; observed metadata cannot replace requested identity", () => {
 		const audit = {
 			turns: [{ ...turn, attempt_ids_json: '["a","closing"]' }],
@@ -708,60 +716,63 @@ describe("independent review identity and attempt-policy regressions", () => {
 		"wrong-outcome",
 		"wrong-message",
 		"ambiguous",
-	])("plain saved completion rejects %s linkage despite equal answer text", async (mode) => {
-		let reads = 0;
-		const savedCompletion = {
-			...completion,
-			...(mode === "wrong-turn"
-				? { turnId: "other" }
-				: mode === "wrong-segment"
-					? { segmentId: "other" }
-					: mode === "wrong-outcome"
-						? { outcome: "incomplete" }
-						: {}),
-		};
-		const row = {
-			id: "m1",
-			role: "assistant",
-			content: "PRODUCT=391",
-			modelId: MODEL_MATRIX.deepseek,
-			thinkingSegments: [
-				{ type: "tool_call", name: "run_python", status: "done" },
-			],
-			...(mode !== "missing"
-				? {
-						normalChatOutput: {
-							version: 1,
-							events: [{ type: "completion", completion: savedCompletion }],
-						},
-					}
-				: {}),
-		};
-		const client = {
-			json: vi.fn(async (path: string) => {
-				if (path === "/api/chat/send")
-					return { response: { text: "PRODUCT=391" }, completion };
-				if (path.endsWith("/usage"))
-					return { status: "ready", costUsd: 0.000088 };
-				return {
-					messages: reads++
-						? mode === "ambiguous"
-							? [row, { ...row, id: "m2" }]
-							: [row]
-						: [],
-				};
-			}),
-		};
-		await expect(
-			runCase(client, syntheticPlan("unit")[1], MODEL_MATRIX.deepseek, {
-				conversationId: "synthetic-c1",
-				streamId: "synthetic-s1",
-				...(mode === "wrong-message"
-					? { assistantMessageId: "different-saved-message" }
+	])(
+		"plain saved completion rejects %s linkage despite equal answer text",
+		async (mode) => {
+			let reads = 0;
+			const savedCompletion = {
+				...completion,
+				...(mode === "wrong-turn"
+					? { turnId: "other" }
+					: mode === "wrong-segment"
+						? { segmentId: "other" }
+						: mode === "wrong-outcome"
+							? { outcome: "incomplete" }
+							: {}),
+			};
+			const row = {
+				id: "m1",
+				role: "assistant",
+				content: "PRODUCT=391",
+				modelId: MODEL_MATRIX.deepseek,
+				thinkingSegments: [
+					{ type: "tool_call", name: "run_python", status: "done" },
+				],
+				...(mode !== "missing"
+					? {
+							normalChatOutput: {
+								version: 1,
+								events: [{ type: "completion", completion: savedCompletion }],
+							},
+						}
 					: {}),
-			}),
-		).rejects.toThrow(/saved|ambiguous/i);
-	});
+			};
+			const client = {
+				json: vi.fn(async (path: string) => {
+					if (path === "/api/chat/send")
+						return { response: { text: "PRODUCT=391" }, completion };
+					if (path.endsWith("/usage"))
+						return { status: "ready", costUsd: 0.000088 };
+					return {
+						messages: reads++
+							? mode === "ambiguous"
+								? [row, { ...row, id: "m2" }]
+								: [row]
+							: [],
+					};
+				}),
+			};
+			await expect(
+				runCase(client, syntheticPlan("unit")[1], MODEL_MATRIX.deepseek, {
+					conversationId: "synthetic-c1",
+					streamId: "synthetic-s1",
+					...(mode === "wrong-message"
+						? { assistantMessageId: "different-saved-message" }
+						: {}),
+				}),
+			).rejects.toThrow(/saved|ambiguous/i);
+		},
+	);
 });
 
 describe("least-privilege stage model metadata preflight", () => {
@@ -916,15 +927,16 @@ describe("least-privilege stage model metadata preflight", () => {
 			},
 		],
 	];
-	test.each(
-		invalidMetadataCases,
-	)("rejects %s metadata before binding/generation", (_label, change) => {
-		const value = metadata();
-		change(value);
-		expect(() => parseModelMetadata(JSON.stringify(value), families)).toThrow(
-			"Invalid trusted stage model metadata",
-		);
-	});
+	test.each(invalidMetadataCases)(
+		"rejects %s metadata before binding/generation",
+		(_label, change) => {
+			const value = metadata();
+			change(value);
+			expect(() => parseModelMetadata(JSON.stringify(value), families)).toThrow(
+				"Invalid trusted stage model metadata",
+			);
+		},
+	);
 	test("every supplied unselected row is still validated; selected coverage is mandatory", () => {
 		const value = metadata();
 		value.models[2].name = "unexpected";
@@ -1076,20 +1088,23 @@ describe("least-privilege stage model metadata preflight", () => {
 		});
 		expect(result.report.records).toEqual([]);
 	});
-	test.each([
-		403, 500,
-	])("admin-path HTTP%d is reported as observed, with safe normal-account guidance", async (status) => {
-		const result = await startup({ status });
-		expect(result.report.setupFailure).toMatchObject({
-			phase: "model-bindings",
-			code: "admin-metadata-unavailable",
-			httpStatus: status,
-		});
-		expect(result.report.setupFailure.hint).toContain("--model-metadata-json");
-		expect(result.report.records).toEqual([]);
-		expect(result.paths.some((p) => p === "/api/conversations")).toBe(false);
-		expect(result.serialized).not.toContain("PRIVATE-");
-	});
+	test.each([403, 500])(
+		"admin-path HTTP%d is reported as observed, with safe normal-account guidance",
+		async (status) => {
+			const result = await startup({ status });
+			expect(result.report.setupFailure).toMatchObject({
+				phase: "model-bindings",
+				code: "admin-metadata-unavailable",
+				httpStatus: status,
+			});
+			expect(result.report.setupFailure.hint).toContain(
+				"--model-metadata-json",
+			);
+			expect(result.report.records).toEqual([]);
+			expect(result.paths.some((p) => p === "/api/conversations")).toBe(false);
+			expect(result.serialized).not.toContain("PRIVATE-");
+		},
+	);
 	test("setup transport errors are bounded and do not expose raw exception content", async () => {
 		const result = await startup({ thrown: true });
 		expect(result.report.setupFailure).toMatchObject({
@@ -1102,143 +1117,150 @@ describe("least-privilege stage model metadata preflight", () => {
 });
 
 describe("matrix intent survives a human answer", () => {
-	test.each(
-		Object.values(MODEL_MATRIX),
-	)("initial and resumed requests retain %s and reasoning depth", async (modelId) => {
-		const paused = { ...completion, outcome: "paused" };
-		const resumed = { ...completion, segmentId: "resume-segment" };
-		const stream = (
-			terminal: typeof completion,
-			answer: string,
-			messageId: string,
-		) => {
-			const scope = {
-				version: 1,
-				turnId: terminal.turnId,
-				segmentId: terminal.segmentId,
-				attemptId: "a",
-				stepId: "step",
-			};
-			const events = [
-				{
-					type: "data-stream-metadata",
-					data: { modelId, assistantMessageId: messageId },
-				},
-				{
-					type: "data-tool-call",
-					data: {
-						callId: "call",
-						name: answer ? "run_python" : "ask_user",
-						status: "done",
-					},
-				},
-				{
-					type: "data-normal-chat-output",
-					data: {
-						...scope,
-						sequence: 1,
-						type: "block_start",
-						blockId: "answer",
-						kind: "text",
-					},
-				},
-				{
-					type: "data-normal-chat-output",
-					data: {
-						...scope,
-						sequence: 2,
-						type: "block_delta",
-						blockId: "answer",
-						text: answer,
-					},
-				},
-				{
-					type: "data-normal-chat-output",
-					data: { ...scope, sequence: 3, type: "step_settled", role: "answer" },
-				},
-				{
-					type: "data-normal-chat-output",
-					data: {
-						...scope,
-						sequence: 4,
-						type: "completion",
-						completion: terminal,
-					},
-				},
-				{ type: "finish", finishReason: "stop" },
-			];
-			return new Response(
-				events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
-			);
-		};
-		let reads = 0;
-		const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
-		const client = {
-			json: vi.fn(async (path: string) => {
-				if (path.endsWith("/questions"))
-					return {
-						questions: [
-							{
-								id: "question",
-								status: "waiting",
-								questions: [{ options: [{ label: "17 times 23" }] }],
-							},
-						],
-					};
-				if (path.endsWith("/usage"))
-					return { status: "ready", costUsd: 0.000088 };
-				return {
-					messages: reads++
-						? [
-								{
-									id: "resume-message",
-									role: "assistant",
-									content: "PRODUCT=391",
-									normalChatOutput: {
-										version: 1,
-										events: [{ type: "completion", completion: resumed }],
-									},
-								},
-							]
-						: [],
+	test.each(Object.values(MODEL_MATRIX))(
+		"initial and resumed requests retain %s and reasoning depth",
+		async (modelId) => {
+			const paused = { ...completion, outcome: "paused" };
+			const resumed = { ...completion, segmentId: "resume-segment" };
+			const stream = (
+				terminal: typeof completion,
+				answer: string,
+				messageId: string,
+			) => {
+				const scope = {
+					version: 1,
+					turnId: terminal.turnId,
+					segmentId: terminal.segmentId,
+					attemptId: "a",
+					stepId: "step",
 				};
-			}),
-			request: vi.fn(async (path: string, init: { body: string }) => {
-				const body = JSON.parse(init.body);
-				requests.push({ path, body });
-				expect(body.model).toBe(modelId);
-				expect(body.reasoningDepth).toBe("thorough");
-				return stream(
-					path.endsWith("/answer") ? resumed : paused,
-					path.endsWith("/answer") ? "PRODUCT=391" : "",
-					path.endsWith("/answer") ? "resume-message" : "pause-message",
+				const events = [
+					{
+						type: "data-stream-metadata",
+						data: { modelId, assistantMessageId: messageId },
+					},
+					{
+						type: "data-tool-call",
+						data: {
+							callId: "call",
+							name: answer ? "run_python" : "ask_user",
+							status: "done",
+						},
+					},
+					{
+						type: "data-normal-chat-output",
+						data: {
+							...scope,
+							sequence: 1,
+							type: "block_start",
+							blockId: "answer",
+							kind: "text",
+						},
+					},
+					{
+						type: "data-normal-chat-output",
+						data: {
+							...scope,
+							sequence: 2,
+							type: "block_delta",
+							blockId: "answer",
+							text: answer,
+						},
+					},
+					{
+						type: "data-normal-chat-output",
+						data: {
+							...scope,
+							sequence: 3,
+							type: "step_settled",
+							role: "answer",
+						},
+					},
+					{
+						type: "data-normal-chat-output",
+						data: {
+							...scope,
+							sequence: 4,
+							type: "completion",
+							completion: terminal,
+						},
+					},
+					{ type: "finish", finishReason: "stop" },
+				];
+				return new Response(
+					events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
 				);
-			}),
-		};
-		const record = {
-			conversationId: "synthetic-pause",
-			streamId: "initial-stream",
-		};
-		const result = await runCase(
-			client,
-			syntheticPlan("unit").find(
-				(s: { key: string }) => s.key === "pause-resume",
-			),
-			modelId,
-			record,
-		);
-		expect(requests.map((r) => r.path)).toEqual([
-			"/api/chat/stream",
-			"/api/conversations/synthetic-pause/questions/question/answer",
-		]);
-		expect(requests[1].body).toMatchObject({
-			model: modelId,
-			reasoningDepth: requests[0].body.reasoningDepth,
-		});
-		expect(result.modelId).toBe(modelId);
-		expect(result.requestedModelId).toBe(modelId);
-		expect(result.pausedSegment.requestedModelId).toBe(modelId);
-	});
+			};
+			let reads = 0;
+			const requests: Array<{ path: string; body: Record<string, unknown> }> =
+				[];
+			const client = {
+				json: vi.fn(async (path: string) => {
+					if (path.endsWith("/questions"))
+						return {
+							questions: [
+								{
+									id: "question",
+									status: "waiting",
+									questions: [{ options: [{ label: "17 times 23" }] }],
+								},
+							],
+						};
+					if (path.endsWith("/usage"))
+						return { status: "ready", costUsd: 0.000088 };
+					return {
+						messages: reads++
+							? [
+									{
+										id: "resume-message",
+										role: "assistant",
+										content: "PRODUCT=391",
+										normalChatOutput: {
+											version: 1,
+											events: [{ type: "completion", completion: resumed }],
+										},
+									},
+								]
+							: [],
+					};
+				}),
+				request: vi.fn(async (path: string, init: { body: string }) => {
+					const body = JSON.parse(init.body);
+					requests.push({ path, body });
+					expect(body.model).toBe(modelId);
+					expect(body.reasoningDepth).toBe("thorough");
+					return stream(
+						path.endsWith("/answer") ? resumed : paused,
+						path.endsWith("/answer") ? "PRODUCT=391" : "",
+						path.endsWith("/answer") ? "resume-message" : "pause-message",
+					);
+				}),
+			};
+			const record = {
+				conversationId: "synthetic-pause",
+				streamId: "initial-stream",
+			};
+			const result = await runCase(
+				client,
+				syntheticPlan("unit").find(
+					(s: { key: string }) => s.key === "pause-resume",
+				),
+				modelId,
+				record,
+			);
+			expect(requests.map((r) => r.path)).toEqual([
+				"/api/chat/stream",
+				"/api/conversations/synthetic-pause/questions/question/answer",
+			]);
+			expect(requests[1].body).toMatchObject({
+				model: modelId,
+				reasoningDepth: requests[0].body.reasoningDepth,
+			});
+			expect(result.modelId).toBe(modelId);
+			expect(result.requestedModelId).toBe(modelId);
+			expect(result.pausedSegment.requestedModelId).toBe(modelId);
+		},
+	);
 });
 
 describe("full delivered Document content uses public Markdown export", () => {
@@ -1306,23 +1328,28 @@ describe("full delivered Document content uses public Markdown export", () => {
 			documentExportFileId: "export-file",
 		});
 	});
-	test.each([
-		"tail",
-		"middle",
-	])("full comparison rejects lost or changed %s even if delivery otherwise succeeds", async (mutation) => {
-		const evidence = syntheticPlan("unit").find(
-			(s: { key: string }) => s.key === "evidence-create",
-		).evidence;
-		const body =
-			mutation === "tail"
-				? evidence.slice(0, evidence.indexOf("Archive key:"))
-				: evidence.replace("Entry 25:", "Entry 999:");
-		await expect(
-			verifyDocumentExport(clientFor(body), "document-id", evidence, record()),
-		).rejects.toThrow(
-			"Full delivered Document body differs from synthetic evidence",
-		);
-	});
+	test.each(["tail", "middle"])(
+		"full comparison rejects lost or changed %s even if delivery otherwise succeeds",
+		async (mutation) => {
+			const evidence = syntheticPlan("unit").find(
+				(s: { key: string }) => s.key === "evidence-create",
+			).evidence;
+			const body =
+				mutation === "tail"
+					? evidence.slice(0, evidence.indexOf("Archive key:"))
+					: evidence.replace("Entry 25:", "Entry 999:");
+			await expect(
+				verifyDocumentExport(
+					clientFor(body),
+					"document-id",
+					evidence,
+					record(),
+				),
+			).rejects.toThrow(
+				"Full delivered Document body differs from synthetic evidence",
+			);
+		},
+	);
 	test("marker-looking fenced content must survive the public export unchanged", async () => {
 		const expected =
 			"# Marker example\n\n```html\n<!--b:literal-->\n<p>Keep me</p>\n```\n";
@@ -1343,17 +1370,16 @@ describe("full delivered Document content uses public Markdown export", () => {
 			),
 		).rejects.toThrow("Full delivered Document body differs");
 	});
-	test.each([
-		{ conversationId: "wrong" },
-		{ status: "failed" },
-		{ files: [] },
-	])("invalid or failed export cannot pass full delivery (%j)", async (patch) => {
-		const client = clientFor("unchanged", patch);
-		await expect(
-			verifyDocumentExport(client, "document-id", "unchanged", record()),
-		).rejects.toThrow();
-		expect(client.request).not.toHaveBeenCalled();
-	});
+	test.each([{ conversationId: "wrong" }, { status: "failed" }, { files: [] }])(
+		"invalid or failed export cannot pass full delivery (%j)",
+		async (patch) => {
+			const client = clientFor("unchanged", patch);
+			await expect(
+				verifyDocumentExport(client, "document-id", "unchanged", record()),
+			).rejects.toThrow();
+			expect(client.request).not.toHaveBeenCalled();
+		},
+	);
 });
 
 describe("file delivery fixture obeys the existing intake contract", () => {
@@ -1471,34 +1497,33 @@ describe("file delivery fixture obeys the existing intake contract", () => {
 			),
 		};
 	};
-	test.each([
-		"exact",
-		"missing-tail",
-		"wrong-product",
-		"old-short",
-	])("full download comparison: %s", async (variant) => {
-		const fixture = spec();
-		const exact = fixture.fileContent ?? "missing substantive fixture";
-		const body =
-			variant === "missing-tail"
-				? exact.slice(0, exact.indexOf("Archive key:"))
-				: variant === "wrong-product"
-					? exact.replace("PRODUCT=391", "PRODUCT=390")
-					: variant === "old-short"
-						? "# Synthetic result\n\nPRODUCT=391\n"
-						: exact;
-		const client = deliveryClient(body);
-		const run = runCase(client, fixture, MODEL_MATRIX.deepseek, {
-			conversationId: "synthetic-file-conversation",
-			streamId: "file-stream",
-		});
-		if (variant === "exact") {
-			expect((await run).fileId).toBe("synthetic-file");
-			expect(client.request).toHaveBeenCalledWith(
-				"/api/chat/files/synthetic-file/download",
-			);
-		} else await expect(run).rejects.toThrow("Delivered file content mismatch");
-	});
+	test.each(["exact", "missing-tail", "wrong-product", "old-short"])(
+		"full download comparison: %s",
+		async (variant) => {
+			const fixture = spec();
+			const exact = fixture.fileContent ?? "missing substantive fixture";
+			const body =
+				variant === "missing-tail"
+					? exact.slice(0, exact.indexOf("Archive key:"))
+					: variant === "wrong-product"
+						? exact.replace("PRODUCT=391", "PRODUCT=390")
+						: variant === "old-short"
+							? "# Synthetic result\n\nPRODUCT=391\n"
+							: exact;
+			const client = deliveryClient(body);
+			const run = runCase(client, fixture, MODEL_MATRIX.deepseek, {
+				conversationId: "synthetic-file-conversation",
+				streamId: "file-stream",
+			});
+			if (variant === "exact") {
+				expect((await run).fileId).toBe("synthetic-file");
+				expect(client.request).toHaveBeenCalledWith(
+					"/api/chat/files/synthetic-file/download",
+				);
+			} else
+				await expect(run).rejects.toThrow("Delivered file content mismatch");
+		},
+	);
 });
 
 describe("expected stop accounting keeps unknown costs unknown", () => {
@@ -1582,13 +1607,16 @@ describe("expected stop accounting keeps unknown costs unknown", () => {
 		{ costUsdMicros: 0 },
 		{ turnId: "wrong" },
 		{ modelId: MODEL_MATRIX.kimi },
-	])("pending exception rejects missing/contradictory manifest or receipt (%j)", (patch) => {
-		expect(() =>
-			inspectAudit({ turns: [turn()], attempts: [attempt()] }, [
-				{ ...identity(), ...patch },
-			]),
-		).toThrow();
-	});
+	])(
+		"pending exception rejects missing/contradictory manifest or receipt (%j)",
+		(patch) => {
+			expect(() =>
+				inspectAudit({ turns: [turn()], attempts: [attempt()] }, [
+					{ ...identity(), ...patch },
+				]),
+			).toThrow();
+		},
+	);
 	test.each([
 		{ outcome: "answered" },
 		{ outcome: "paused" },
@@ -1596,14 +1624,17 @@ describe("expected stop accounting keeps unknown costs unknown", () => {
 		{ stop_cause: "transport_error" },
 		{ accounting_status: "ready" },
 		{ attempt_ids_json: '["missing"]' },
-	])("durable pending state must independently match expected user stop (%j)", (patch) => {
-		expect(() =>
-			inspectAudit(
-				{ turns: [{ ...turn(), ...patch }], attempts: [attempt()] },
-				[identity()],
-			),
-		).toThrow();
-	});
+	])(
+		"durable pending state must independently match expected user stop (%j)",
+		(patch) => {
+			expect(() =>
+				inspectAudit(
+					{ turns: [{ ...turn(), ...patch }], attempts: [attempt()] },
+					[identity()],
+				),
+			).toThrow();
+		},
+	);
 	test.each([
 		{ cost_usd_micros: 0 },
 		{ cost_usd_micros: undefined },
@@ -1611,14 +1642,17 @@ describe("expected stop accounting keeps unknown costs unknown", () => {
 		{ input_tokens: -1 },
 		{ provider_model_name: "unexpected" },
 		{ model_id: MODEL_MATRIX.kimi },
-	])("unknown usage cannot be free, final, corrupt, or substituted (%j)", (patch) => {
-		expect(() =>
-			inspectAudit(
-				{ turns: [turn()], attempts: [{ ...attempt(), ...patch }] },
-				[identity()],
-			),
-		).toThrow();
-	});
+	])(
+		"unknown usage cannot be free, final, corrupt, or substituted (%j)",
+		(patch) => {
+			expect(() =>
+				inspectAudit(
+					{ turns: [turn()], attempts: [{ ...attempt(), ...patch }] },
+					[identity()],
+				),
+			).toThrow();
+		},
+	);
 	test("pending row with entirely known attempts still fails reconciliation", () => {
 		const known = {
 			...attempt(),
@@ -1689,63 +1723,64 @@ describe("expected stop accounting keeps unknown costs unknown", () => {
 			rmSync(folder, { recursive: true, force: true });
 		}
 	});
-	test.each([
-		"user_stop",
-		"natural_stop",
-	])("stop control records only explicit receipt user_stop (%s)", async (cause) => {
-		const stopped = { ...completion, outcome: "stopped", stopCause: cause };
-		const scope = {
-			version: 1,
-			turnId: completion.turnId,
-			segmentId: completion.segmentId,
-			attemptId: "stop-a",
-			stepId: "stop-step",
-		};
-		const payload = [
-			{
-				type: "data-stream-metadata",
-				data: { modelId: MODEL_MATRIX.deepseek },
-			},
-			{
-				type: "data-tool-call",
-				data: { callId: "stop-call", name: "run_python", status: "done" },
-			},
-			{
-				type: "data-normal-chat-output",
-				data: {
-					...scope,
-					sequence: 1,
-					type: "completion",
-					completion: stopped,
+	test.each(["user_stop", "natural_stop"])(
+		"stop control records only explicit receipt user_stop (%s)",
+		async (cause) => {
+			const stopped = { ...completion, outcome: "stopped", stopCause: cause };
+			const scope = {
+				version: 1,
+				turnId: completion.turnId,
+				segmentId: completion.segmentId,
+				attemptId: "stop-a",
+				stepId: "stop-step",
+			};
+			const payload = [
+				{
+					type: "data-stream-metadata",
+					data: { modelId: MODEL_MATRIX.deepseek },
 				},
-			},
-			{ type: "finish", finishReason: "stop" },
-		];
-		const client = {
-			json: vi.fn(async () => ({ messages: [] })),
-			request: vi.fn(
-				async () =>
-					new Response(
-						payload.map((p) => `data: ${JSON.stringify(p)}\n\n`).join(""),
-					),
-			),
-		};
-		const run = runCase(
-			client,
-			syntheticPlan("unit").find(
-				(s: { key: string }) => s.key === "stop-control",
-			),
-			MODEL_MATRIX.deepseek,
-			{ conversationId: "stop-c", streamId: "stop-stream" },
-		);
-		if (cause === "user_stop")
-			expect(await run).toMatchObject({
-				scenario: "stop-control",
-				control: "stopped-after-tool",
-				completion: { outcome: "stopped", stopCause: "user_stop" },
-			});
-		else await expect(run).rejects.toThrow("Stop control did not end stopped");
-	});
+				{
+					type: "data-tool-call",
+					data: { callId: "stop-call", name: "run_python", status: "done" },
+				},
+				{
+					type: "data-normal-chat-output",
+					data: {
+						...scope,
+						sequence: 1,
+						type: "completion",
+						completion: stopped,
+					},
+				},
+				{ type: "finish", finishReason: "stop" },
+			];
+			const client = {
+				json: vi.fn(async () => ({ messages: [] })),
+				request: vi.fn(
+					async () =>
+						new Response(
+							payload.map((p) => `data: ${JSON.stringify(p)}\n\n`).join(""),
+						),
+				),
+			};
+			const run = runCase(
+				client,
+				syntheticPlan("unit").find(
+					(s: { key: string }) => s.key === "stop-control",
+				),
+				MODEL_MATRIX.deepseek,
+				{ conversationId: "stop-c", streamId: "stop-stream" },
+			);
+			if (cause === "user_stop")
+				expect(await run).toMatchObject({
+					scenario: "stop-control",
+					control: "stopped-after-tool",
+					completion: { outcome: "stopped", stopCause: "user_stop" },
+				});
+			else
+				await expect(run).rejects.toThrow("Stop control did not end stopped");
+		},
+	);
 });
 
 test("Document export always hydrates a succeeded brief submission before reading files", async () => {

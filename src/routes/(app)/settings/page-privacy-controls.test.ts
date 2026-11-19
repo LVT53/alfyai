@@ -187,23 +187,24 @@ describe("settings page privacy controls: a password the limiter turned away", (
 	});
 
 	for (const language of ["en", "hu"] as const) {
-		it.each(
-			ACTIONS,
-		)(`reads the throttle of %s in the reader's language (${language})`, async (_name, titleKey, call) => {
-			vi.mocked(call).mockRejectedValueOnce(throttled());
-			const { title } = await openModal(language, titleKey);
+		it.each(ACTIONS)(
+			`reads the throttle of %s in the reader's language (${language})`,
+			async (_name, titleKey, call) => {
+				vi.mocked(call).mockRejectedValueOnce(throttled());
+				const { title } = await openModal(language, titleKey);
 
-			const confirm = screen.getAllByRole("button", { name: title }).at(-1);
-			if (!confirm) throw new Error("Confirm button not found");
-			await fireEvent.click(confirm);
+				const confirm = screen.getAllByRole("button", { name: title }).at(-1);
+				if (!confirm) throw new Error("Confirm button not found");
+				await fireEvent.click(confirm);
 
-			expect(
-				(await screen.findAllByText(SENTENCE[language])).length,
-			).toBeGreaterThan(0);
-			expect(
-				screen.queryByText(/Too many failed attempts/),
-			).not.toBeInTheDocument();
-		});
+				expect(
+					(await screen.findAllByText(SENTENCE[language])).length,
+				).toBeGreaterThan(0);
+				expect(
+					screen.queryByText(/Too many failed attempts/),
+				).not.toBeInTheDocument();
+			},
+		);
 	}
 
 	it("reads it the same way when Download my data is pressed inside a destructive dialog", async () => {

@@ -51,67 +51,71 @@ function mineruFootnote(text: string): string {
 }
 
 describe("MinerU 4.1 results — the capture corpus", () => {
-	it.each(
-		V41_SAMPLES,
-	)("$slug: renderMineruMarkdown reproduces markdown.md ($equivalence)", async (sample) => {
-		const rendered = renderMineruMarkdown(await loadV41(sample.slug), {
-			sourceFilename: sample.filename,
-		});
-		const mineruMarkdown = await readV41(sample.slug, "markdown.md");
+	it.each(V41_SAMPLES)(
+		"$slug: renderMineruMarkdown reproduces markdown.md ($equivalence)",
+		async (sample) => {
+			const rendered = renderMineruMarkdown(await loadV41(sample.slug), {
+				sourceFilename: sample.filename,
+			});
+			const mineruMarkdown = await readV41(sample.slug, "markdown.md");
 
-		if (sample.equivalence === "identical") {
-			expect(rendered).toBe(mineruMarkdown);
-			return;
-		}
-		// Not byte-identical: prove the ONLY difference is anchor lines.
-		expect(rendered).not.toBe(mineruMarkdown);
-		expect(stripAnchorLines(mineruMarkdown)).toBe(rendered);
-	});
+			if (sample.equivalence === "identical") {
+				expect(rendered).toBe(mineruMarkdown);
+				return;
+			}
+			// Not byte-identical: prove the ONLY difference is anchor lines.
+			expect(rendered).not.toBe(mineruMarkdown);
+			expect(stripAnchorLines(mineruMarkdown)).toBe(rendered);
+		},
+	);
 
-	it.each(
-		V41_SAMPLES,
-	)("$slug: reports no unknown block types", async (sample) => {
-		const result = buildStructuredExtractionResult({
-			content: await loadV41(sample.slug),
-			sourceFilename: sample.filename,
-		});
+	it.each(V41_SAMPLES)(
+		"$slug: reports no unknown block types",
+		async (sample) => {
+			const result = buildStructuredExtractionResult({
+				content: await loadV41(sample.slug),
+				sourceFilename: sample.filename,
+			});
 
-		expect(result.stats.unknownTypes).toEqual({});
-		expect(result.blocks.some((block) => block.unknownType)).toBe(false);
-	});
+			expect(result.stats.unknownTypes).toEqual({});
+			expect(result.blocks.some((block) => block.unknownType)).toBe(false);
+		},
+	);
 
-	it.each(
-		V41_SAMPLES,
-	)("$slug: page offsets partition the markdown and every block quotes it", async (sample) => {
-		const result = buildStructuredExtractionResult({
-			content: await loadV41(sample.slug),
-			sourceFilename: sample.filename,
-		});
+	it.each(V41_SAMPLES)(
+		"$slug: page offsets partition the markdown and every block quotes it",
+		async (sample) => {
+			const result = buildStructuredExtractionResult({
+				content: await loadV41(sample.slug),
+				sourceFilename: sample.filename,
+			});
 
-		expect(result.pages).toHaveLength(result.pageCount);
-		expect(result.pages[0].start).toBe(0);
-		expect(result.pages[result.pages.length - 1].end).toBe(
-			result.markdown.length,
-		);
-		for (let index = 0; index + 1 < result.pages.length; index++) {
-			expect(result.pages[index].end).toBe(result.pages[index + 1].start);
-		}
-		for (const block of result.blocks) {
-			expect(result.markdown.slice(block.start, block.end)).toBe(block.text);
-		}
-	});
+			expect(result.pages).toHaveLength(result.pageCount);
+			expect(result.pages[0].start).toBe(0);
+			expect(result.pages[result.pages.length - 1].end).toBe(
+				result.markdown.length,
+			);
+			for (let index = 0; index + 1 < result.pages.length; index++) {
+				expect(result.pages[index].end).toBe(result.pages[index + 1].start);
+			}
+			for (const block of result.blocks) {
+				expect(result.markdown.slice(block.start, block.end)).toBe(block.text);
+			}
+		},
+	);
 
-	it.each(
-		V41_SAMPLES,
-	)("$slug: keeps one figure per image or chart", async (sample) => {
-		const rendered = renderPromptMarkdown(await loadV41(sample.slug), {
-			sourceFilename: sample.filename,
-		});
+	it.each(V41_SAMPLES)(
+		"$slug: keeps one figure per image or chart",
+		async (sample) => {
+			const rendered = renderPromptMarkdown(await loadV41(sample.slug), {
+				sourceFilename: sample.filename,
+			});
 
-		expect(rendered.figures).toHaveLength(sample.figureCount);
-		// The prompt text never carries a markdown image link, only handles.
-		expect(rendered.markdown).not.toContain("![](");
-	});
+			expect(rendered.figures).toHaveLength(sample.figureCount);
+			// The prompt text never carries a markdown image link, only handles.
+			expect(rendered.markdown).not.toContain("![](");
+		},
+	);
 
 	it("never lets MinerU's HTML footnote wrapper reach the prompt text", async () => {
 		for (const sample of V41_SAMPLES) {
@@ -319,44 +323,44 @@ describe("MinerU 4.1 blocks — chart", () => {
 		expect(rendered.markdown).toBe("Inlined chart");
 	});
 
-	it.each([
-		"image",
-		"chart",
-	])("keeps every caption of a %s once: the first in its handle, the rest after it", (type) => {
-		// A figure's captions are separate boxes on the page (a sub-caption per
-		// panel, a second line that the layout model cut apart), and each is a
-		// caption of its own in `captions[]`. The handle names the figure by the
-		// first; the others are not dropped.
-		const block = {
-			type,
-			content: "",
-			image_source: "images/f.jpg",
-			captions: [
-				{ content: "Figure 3. Throughput by tier" },
-				{ content: "(b) Cold start, 12 pages" },
-			],
-			footnotes: [{ content: "Source: the spike corpus" }],
-		};
-		const rendered = renderPromptMarkdown(contentOf([block]));
+	it.each(["image", "chart"])(
+		"keeps every caption of a %s once: the first in its handle, the rest after it",
+		(type) => {
+			// A figure's captions are separate boxes on the page (a sub-caption per
+			// panel, a second line that the layout model cut apart), and each is a
+			// caption of its own in `captions[]`. The handle names the figure by the
+			// first; the others are not dropped.
+			const block = {
+				type,
+				content: "",
+				image_source: "images/f.jpg",
+				captions: [
+					{ content: "Figure 3. Throughput by tier" },
+					{ content: "(b) Cold start, 12 pages" },
+				],
+				footnotes: [{ content: "Source: the spike corpus" }],
+			};
+			const rendered = renderPromptMarkdown(contentOf([block]));
 
-		expect(rendered.markdown).toBe(
-			"[Figure 1: Figure 3. Throughput by tier]\n\n(b) Cold start, 12 pages\n\nSource: the spike corpus",
-		);
-		expect(rendered.figures).toMatchObject([
-			{ index: 1, caption: "Figure 3. Throughput by tier" },
-		]);
-		for (const text of [
-			"Figure 3. Throughput by tier",
-			"(b) Cold start, 12 pages",
-			"Source: the spike corpus",
-		]) {
-			expect(rendered.markdown.split(text).length - 1, text).toBe(1);
-		}
-		// MinerU's own rendering has always kept them all, in this order.
-		expect(renderMineruMarkdown(contentOf([block]))).toBe(
-			"![](images/f.jpg)\n\nFigure 3. Throughput by tier\n\n(b) Cold start, 12 pages\n\nSource: the spike corpus",
-		);
-	});
+			expect(rendered.markdown).toBe(
+				"[Figure 1: Figure 3. Throughput by tier]\n\n(b) Cold start, 12 pages\n\nSource: the spike corpus",
+			);
+			expect(rendered.figures).toMatchObject([
+				{ index: 1, caption: "Figure 3. Throughput by tier" },
+			]);
+			for (const text of [
+				"Figure 3. Throughput by tier",
+				"(b) Cold start, 12 pages",
+				"Source: the spike corpus",
+			]) {
+				expect(rendered.markdown.split(text).length - 1, text).toBe(1);
+			}
+			// MinerU's own rendering has always kept them all, in this order.
+			expect(renderMineruMarkdown(contentOf([block]))).toBe(
+				"![](images/f.jpg)\n\nFigure 3. Throughput by tier\n\n(b) Cold start, 12 pages\n\nSource: the spike corpus",
+			);
+		},
+	);
 
 	it("keeps every caption of a figure that has no handle", () => {
 		const rendered = renderPromptMarkdown(

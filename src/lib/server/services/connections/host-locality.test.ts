@@ -21,13 +21,12 @@ describe("isPrivateHostname", () => {
 		expect(isPrivateHostname(host)).toBe(true);
 	});
 
-	it.each([
-		["api.deepseek.com"],
-		["1.2.3.4"],
-		["example.com"],
-	])("returns false for %s", (host) => {
-		expect(isPrivateHostname(host)).toBe(false);
-	});
+	it.each([["api.deepseek.com"], ["1.2.3.4"], ["example.com"]])(
+		"returns false for %s",
+		(host) => {
+			expect(isPrivateHostname(host)).toBe(false);
+		},
+	);
 
 	it("returns false for an empty string", () => {
 		expect(isPrivateHostname("")).toBe(false);

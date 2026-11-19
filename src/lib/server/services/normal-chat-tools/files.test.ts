@@ -1156,27 +1156,27 @@ describe("runFilesTool — write actions against a onedrive connection are refus
 		{ action: "delete" as const, extra: { path: "/a.txt" } },
 		{ action: "create_folder" as const, extra: { path: "/NewFolder" } },
 		{ action: "share_link" as const, extra: { path: "/a.txt" } },
-	])("$action against a onedrive connection: clean not-supported message, no pending write, no secret decrypted", async ({
-		action,
-		extra,
-	}) => {
-		const conn = makeOneDriveConn({ allowWrites: true });
-		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+	])(
+		"$action against a onedrive connection: clean not-supported message, no pending write, no secret decrypted",
+		async ({ action, extra }) => {
+			const conn = makeOneDriveConn({ allowWrites: true });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 
-		const outcome = await runFilesTool(
-			"user-1",
-			{ action, ...extra },
-			LOCAL_MODEL_ID,
-		);
+			const outcome = await runFilesTool(
+				"user-1",
+				{ action, ...extra },
+				LOCAL_MODEL_ID,
+			);
 
-		expect(outcome.modelPayload.success).toBe(false);
-		expect(outcome.modelPayload.action).toBe(action);
-		expect(outcome.modelPayload.message).toContain("OneDrive");
-		expect(outcome.modelPayload.message.toLowerCase()).toContain("read-only");
-		expect(createPendingWriteMock).not.toHaveBeenCalled();
-		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
-		expect(getConnectionSecretMock).not.toHaveBeenCalled();
-	});
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.action).toBe(action);
+			expect(outcome.modelPayload.message).toContain("OneDrive");
+			expect(outcome.modelPayload.message.toLowerCase()).toContain("read-only");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+			expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		},
+	);
 });
 
 // Task 8 — the shared Option A local-distill gate (already proven for

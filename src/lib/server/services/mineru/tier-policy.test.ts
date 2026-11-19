@@ -218,30 +218,32 @@ describe("decideTier: the server shapes", () => {
 			throw new Error("decideTier did not throw");
 		}
 
-		it.each(
-			EXPLICIT,
-		)("%s is a retryable unavailable, not a missing tier", (_name, input) => {
-			const mapping = mapMineruError(
-				thrownBy(() => decideTier({ ...input, availableTiers: [] })),
-			);
-			expect(mapping.rule).toBe("client:tier-list-unreadable");
-			expect(mapping.known).toBe(true);
-			expect(mapping.taxonomy).toBe("unavailable");
-			expect(mapping.retryable).toBe(true);
-		});
-
-		it.each(
-			EXPLICIT,
-		)("%s is still a missing tier against a list that was read and lacks it", (_name, input) => {
-			for (const availableTiers of [BASIC_SERVER, FLASH_SERVER]) {
+		it.each(EXPLICIT)(
+			"%s is a retryable unavailable, not a missing tier",
+			(_name, input) => {
 				const mapping = mapMineruError(
-					thrownBy(() => decideTier({ ...input, availableTiers })),
+					thrownBy(() => decideTier({ ...input, availableTiers: [] })),
 				);
-				expect(mapping.rule).toBe("client:tier-not-available");
-				expect(mapping.taxonomy).toBe("tier_unavailable");
-				expect(mapping.retryable).toBe(false);
-			}
-		});
+				expect(mapping.rule).toBe("client:tier-list-unreadable");
+				expect(mapping.known).toBe(true);
+				expect(mapping.taxonomy).toBe("unavailable");
+				expect(mapping.retryable).toBe(true);
+			},
+		);
+
+		it.each(EXPLICIT)(
+			"%s is still a missing tier against a list that was read and lacks it",
+			(_name, input) => {
+				for (const availableTiers of [BASIC_SERVER, FLASH_SERVER]) {
+					const mapping = mapMineruError(
+						thrownBy(() => decideTier({ ...input, availableTiers })),
+					);
+					expect(mapping.rule).toBe("client:tier-not-available");
+					expect(mapping.taxonomy).toBe("tier_unavailable");
+					expect(mapping.retryable).toBe(false);
+				}
+			},
+		);
 
 		it("still lets a soft preference, auto and a native document go on without a tier", () => {
 			expect(

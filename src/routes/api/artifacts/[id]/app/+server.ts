@@ -42,11 +42,7 @@ export const GET: RequestHandler = async (event) => {
 		artifactId,
 		conversationId,
 	});
-	if (
-		!artifact ||
-		artifact.kind !== "app" ||
-		typeof artifact.body !== "string"
-	) {
+	if (artifact?.kind !== "app" || typeof artifact.body !== "string") {
 		// One reason for absent, foreign, incognito-from-outside, and
 		// non-App: a 403 here would confirm an id exists (slice-0.md §Failure
 		// modes; ruling 19 names requireApiUser as the 401 layer, not this one).

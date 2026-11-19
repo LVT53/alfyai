@@ -340,22 +340,25 @@ describe("runReadArtifactTool — what the turn keeps of a read", () => {
 			"a document with no reader of its own",
 			{ kind: "app" as const, title: "Tip calculator" },
 		],
-	])("puts the item's title on the call's record for %s", async (_name, overrides) => {
-		getArtifactMock.mockResolvedValue(detail(overrides));
+	])(
+		"puts the item's title on the call's record for %s",
+		async (_name, overrides) => {
+			getArtifactMock.mockResolvedValue(detail(overrides));
 
-		const result = await runReadArtifactTool({
-			userId: "user-1",
-			conversationId: "conv-1",
-			artifactId: "artifact-1",
-			abortSignal: new AbortController().signal,
-		});
+			const result = await runReadArtifactTool({
+				userId: "user-1",
+				conversationId: "conv-1",
+				artifactId: "artifact-1",
+				abortSignal: new AbortController().signal,
+			});
 
-		expect(result.metadata).toMatchObject({
-			ok: true,
-			artifactId: "artifact-1",
-			artifactTitle: overrides.title,
-		});
-	});
+			expect(result.metadata).toMatchObject({
+				ok: true,
+				artifactId: "artifact-1",
+				artifactTitle: overrides.title,
+			});
+		},
+	);
 
 	it("puts the title on the record of a read a kind's own reader answered", async () => {
 		READ_ARTIFACT_HANDLERS.document = async () => ({

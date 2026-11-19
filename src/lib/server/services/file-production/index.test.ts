@@ -2772,63 +2772,68 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			exitCode: 1,
 			stderr: "Traceback (most recent call last):\nMemoryError",
 		},
-	])("does not keep output after a non-zero exit for $name", async (testCase) => {
-		const { createOrReuseFileProductionJob, getConversationFileProductionJob } =
-			await import("./index");
-		const created = await createOrReuseFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-1",
-			title: `Crashed ${testCase.filename}`,
-			origin: "unified_produce",
-			idempotencyKey: `turn-1:crashed-${testCase.filename}-${testCase.exitCode}-${testCase.stderr.length}`,
-			sourceMode: "program",
-			requestJson: {
+	])(
+		"does not keep output after a non-zero exit for $name",
+		async (testCase) => {
+			const {
+				createOrReuseFileProductionJob,
+				getConversationFileProductionJob,
+			} = await import("./index");
+			const created = await createOrReuseFileProductionJob({
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				title: `Crashed ${testCase.filename}`,
+				origin: "unified_produce",
+				idempotencyKey: `turn-1:crashed-${testCase.filename}-${testCase.exitCode}-${testCase.stderr.length}`,
 				sourceMode: "program",
-				program: {
-					language: "python",
-					sourceCode: "# writes part of the file, then raises",
-					filename: testCase.filename,
+				requestJson: {
+					sourceMode: "program",
+					program: {
+						language: "python",
+						sourceCode: "# writes part of the file, then raises",
+						filename: testCase.filename,
+					},
+					outputs: [{ type: testCase.outputType }],
 				},
-				outputs: [{ type: testCase.outputType }],
-			},
-			now: new Date("2026-05-03T20:07:50.000Z"),
-		});
-		const content = await testCase.content();
-		const executeCode = vi.fn(async () => ({
-			files: [
-				{
-					filename: testCase.filename,
-					mimeType: testCase.mimeType,
-					content,
-					sizeBytes: content.length,
-				},
-			],
-			stdout: "",
-			stderr: testCase.stderr,
-			exitCode: testCase.exitCode,
-			error: `Execution failed with exit code ${testCase.exitCode}: ${testCase.stderr}`,
-		}));
-		const storeGeneratedFile = vi.fn();
+				now: new Date("2026-05-03T20:07:50.000Z"),
+			});
+			const content = await testCase.content();
+			const executeCode = vi.fn(async () => ({
+				files: [
+					{
+						filename: testCase.filename,
+						mimeType: testCase.mimeType,
+						content,
+						sizeBytes: content.length,
+					},
+				],
+				stdout: "",
+				stderr: testCase.stderr,
+				exitCode: testCase.exitCode,
+				error: `Execution failed with exit code ${testCase.exitCode}: ${testCase.stderr}`,
+			}));
+			const storeGeneratedFile = vi.fn();
 
-		await drainFileProductionJobs({
-			executeCode,
-			storeGeneratedFile,
-			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
-		});
+			await drainFileProductionJobs({
+				executeCode,
+				storeGeneratedFile,
+				syncGeneratedFilesToMemory: vi.fn(async () => undefined),
+			});
 
-		const job = await getConversationFileProductionJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			jobId: created.job.id,
-		});
-		expect(storeGeneratedFile).not.toHaveBeenCalled();
-		expect(job).toMatchObject({
-			status: "failed",
-			error: { code: "program_execution_failed" },
-			warnings: [],
-		});
-	});
+			const job = await getConversationFileProductionJob({
+				userId: "user-1",
+				conversationId: "conv-1",
+				jobId: created.job.id,
+			});
+			expect(storeGeneratedFile).not.toHaveBeenCalled();
+			expect(job).toMatchObject({
+				status: "failed",
+				error: { code: "program_execution_failed" },
+				warnings: [],
+			});
+		},
+	);
 
 	it("fails single-file program contracts that produce extra scratch outputs", async () => {
 		const { db } = await import("$lib/server/db");

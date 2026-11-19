@@ -34,7 +34,6 @@ import { t } from "$lib/i18n";
 // biome-ignore lint/style/useImportType: Svelte renders this component and binds its exported visit methods.
 import KnowledgeMemoryView from "./_components/KnowledgeMemoryView.svelte";
 import DocumentsList from "./_components/DocumentsList.svelte";
-// biome-ignore lint/style/useImportType: this component must remain a runtime import for SSR rendering.
 import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";
 import type { SpotlightId } from "$lib/app-places";
 import type {

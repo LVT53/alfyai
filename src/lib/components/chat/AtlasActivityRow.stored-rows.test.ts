@@ -269,24 +269,25 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 });
 
 describe("every v3 phase has a label", () => {
-	it.each(
-		ATLAS_V3_PHASES,
-	)("parses and labels the v3 %s phase in EN and HU", (phase) => {
-		expect(parseAtlasActivityDetails({ pipelineVersion: 3, phase }).phase).toBe(
-			phase,
-		);
-		const key = `atlasActivity.phase.${phase}` as const;
-		expect((chatDict.en as Record<string, string>)[key]).toBeTruthy();
-		expect((chatDict.hu as Record<string, string>)[key]).toBeTruthy();
-		for (const locale of ["en", "hu"] as const) {
+	it.each(ATLAS_V3_PHASES)(
+		"parses and labels the v3 %s phase in EN and HU",
+		(phase) => {
 			expect(
-				resolveRunningJobPhase({
-					status: "running",
-					stage: phase,
-					progressDetailsJson: JSON.stringify({ pipelineVersion: 3, phase }),
-					locale,
-				}),
-			).toBe((chatDict[locale] as Record<string, string>)[key]);
-		}
-	});
+				parseAtlasActivityDetails({ pipelineVersion: 3, phase }).phase,
+			).toBe(phase);
+			const key = `atlasActivity.phase.${phase}` as const;
+			expect((chatDict.en as Record<string, string>)[key]).toBeTruthy();
+			expect((chatDict.hu as Record<string, string>)[key]).toBeTruthy();
+			for (const locale of ["en", "hu"] as const) {
+				expect(
+					resolveRunningJobPhase({
+						status: "running",
+						stage: phase,
+						progressDetailsJson: JSON.stringify({ pipelineVersion: 3, phase }),
+						locale,
+					}),
+				).toBe((chatDict[locale] as Record<string, string>)[key]);
+			}
+		},
+	);
 });

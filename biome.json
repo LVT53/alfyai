@@ -1,11 +1,12 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.4.12/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
 	"files": {
 		"includes": [
 			"src/**",
 			"scripts/**",
 			"tests/**",
-			"!tests/e2e/.last-run.json"
+			"!tests/e2e/.last-run.json",
+			"!**/*.md"
 		]
 	},
 	"css": {
@@ -13,7 +14,20 @@
 			"tailwindDirectives": true
 		}
 	},
+	"linter": {
+		"domains": {
+			"playwright": "none"
+		}
+	},
 	"overrides": [
+		{
+			"includes": ["tests/e2e/**/*.spec.ts"],
+			"linter": {
+				"domains": {
+					"playwright": "recommended"
+				}
+			}
+		},
 		{
 			"includes": ["**/*.svelte"],
 			"linter": {

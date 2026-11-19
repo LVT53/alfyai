@@ -67,21 +67,22 @@ describe("fetchServerHealth", () => {
 
 	// During the restart the app process is away and the reverse proxy answers its
 	// own page: that is what tells a restart from a phone that lost its signal.
-	it.each([
-		502, 503, 504,
-	])("says the proxy is down when it answers its own %s page", async (status) => {
-		const health = await fetchServerHealth(
-			vi.fn(
-				async () =>
-					new Response("<html><body>Back soon</body></html>", {
-						status,
-						headers: { "Content-Type": "text/html" },
-					}),
-			),
-		);
+	it.each([502, 503, 504])(
+		"says the proxy is down when it answers its own %s page",
+		async (status) => {
+			const health = await fetchServerHealth(
+				vi.fn(
+					async () =>
+						new Response("<html><body>Back soon</body></html>", {
+							status,
+							headers: { "Content-Type": "text/html" },
+						}),
+				),
+			);
 
-		expect(health).toEqual({ state: "proxy_down" });
-	});
+			expect(health).toEqual({ state: "proxy_down" });
+		},
+	);
 
 	it("says the proxy is down for a gateway status with no body, or a body that is not the health JSON", async () => {
 		for (const body of [null, "{}", '{"error":"upstream"}', "nope"]) {

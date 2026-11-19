@@ -130,174 +130,180 @@ it.each([
 	{ step: "file read", wasStopped: false, lateStop: false },
 	{ step: "assignment", wasStopped: true, lateStop: false },
 	{ step: "assignment", wasStopped: false, lateStop: true },
-])("preserves model truth but exposes durable $step failure (stopped=$wasStopped) after saving", async ({
-	step,
-	wasStopped,
-	lateStop,
-}) => {
-	vi.doMock("./finalize-steps", () => ({
-		persistUserTurnAttachments: vi.fn(async () => undefined),
-		persistAssistantTurnState: vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-		})),
-		persistAssistantEvidence: vi.fn(async () => undefined),
-		runPostTurnTasks: vi.fn(async () => undefined),
-		recordAssistantTurnAnalytics: vi.fn(async () => undefined),
-		nameConversationAfterTurn: vi.fn(),
-	}));
-	const life = module.beginCompletionLifetime(input);
-	await life.register(attempt);
-	const state = snapshot(life.scope, true);
-	if (!state.completion) throw new Error("Fixture missing completion");
-	state.events = [
-		{
-			version: 1,
-			...life.scope,
-			attemptId: "a",
-			stepId: "step",
-			phase: "working",
-			sequence: 0,
-			type: "completion",
-			completion: state.completion,
-		},
-	];
-	life.capture(state);
-	await life.finish(); // The real model result has already sealed before finalization.
-	const beforeAttempts = database.db
-		.select()
-		.from(schema.normalChatAttempts)
-		.all();
-	const { finalizeChatTurn } = await import("./finalize");
-	const failure = new Error("association fault");
-	let assignmentEntered = () => {};
-	let rejectAssignment: (reason: unknown) => void = () => {};
-	const entered = new Promise<void>((resolve) => {
-		assignmentEntered = resolve;
-	});
-	const held = new Promise<void>((_resolve, reject) => {
-		rejectAssignment = reject;
-	});
-	const completion = finalizeChatTurn({
-		turnKind: "stream",
-		responseLanguage: "en",
-		userId: "u",
-		conversationId: "c",
-		streamId: input.requestId,
-		persistUserMessage: false,
-		userMessageContent: "Make file",
-		normalizedMessage: "Make file",
-		upstreamMessage: "Make file",
-		assistantResponse: "Actual canonical answer",
-		assistantMetadata: { wasStopped },
-		attachmentIds: [],
-		activeDocumentArtifactId: null,
-		contextStatus: null,
-		initialTaskState: null,
-		initialContextDebug: null,
-		analytics: null,
-		assistantMirrorContent: "Actual canonical answer",
-		maintenanceReason: "chat_stream",
-		completionTurn: {
-			segmentId: life.scope.segmentId,
-			getSnapshot: life.getSnapshot,
-			finish: life.finish,
-		},
-		generatedOutputReconciliation: {
-			fileProductionToolCalls: [
-				{
-					name: "produce_file",
-					input: {},
-					status: "failed",
-					metadata: { jobId: "new" },
-				},
-			],
-			getFileProductionJobs: async () => {
-				if (step === "selection") throw failure;
-				return [{ id: "new", files: [] }];
+])(
+	"preserves model truth but exposes durable $step failure (stopped=$wasStopped) after saving",
+	async ({ step, wasStopped, lateStop }) => {
+		vi.doMock("./finalize-steps", () => ({
+			persistUserTurnAttachments: vi.fn(async () => undefined),
+			persistAssistantTurnState: vi.fn(async () => ({
+				activeWorkingSet: [],
+				taskState: null,
+				contextDebug: null,
+			})),
+			persistAssistantEvidence: vi.fn(async () => undefined),
+			runPostTurnTasks: vi.fn(async () => undefined),
+			recordAssistantTurnAnalytics: vi.fn(async () => undefined),
+			nameConversationAfterTurn: vi.fn(),
+		}));
+		const life = module.beginCompletionLifetime(input);
+		await life.register(attempt);
+		const state = snapshot(life.scope, true);
+		if (!state.completion) throw new Error("Fixture missing completion");
+		state.events = [
+			{
+				version: 1,
+				...life.scope,
+				attemptId: "a",
+				stepId: "step",
+				phase: "working",
+				sequence: 0,
+				type: "completion",
+				completion: state.completion,
 			},
-			assignFileProductionJobsToAssistantMessage: async () => {
-				if (step === "assignment") {
-					if (lateStop) {
-						assignmentEntered();
-						await held;
-					} else throw failure;
-				}
-			},
-			getChatFilesForAssistantMessage: async () => {
-				if (step === "file read") throw failure;
-				return [];
-			},
-		},
-	});
-	const rejected = expect(completion).rejects.toMatchObject({
-		message: failure.message,
-		cause: failure,
-	});
-	if (lateStop) {
-		await entered;
-		const { requestActiveChatStreamStop, registerActiveChatStream } =
-			await import("./active-streams");
-		registerActiveChatStream({
-			streamId: input.requestId,
+		];
+		life.capture(state);
+		await life.finish(); // The real model result has already sealed before finalization.
+		const beforeAttempts = database.db
+			.select()
+			.from(schema.normalChatAttempts)
+			.all();
+		const { finalizeChatTurn } = await import("./finalize");
+		const failure = new Error("association fault");
+		let assignmentEntered = () => {};
+		let rejectAssignment: (reason: unknown) => void = () => {};
+		const entered = new Promise<void>((resolve) => {
+			assignmentEntered = resolve;
+		});
+		const held = new Promise<void>((_resolve, reject) => {
+			rejectAssignment = reject;
+		});
+		const completion = finalizeChatTurn({
+			turnKind: "stream",
+			responseLanguage: "en",
 			userId: "u",
 			conversationId: "c",
-			controller: new AbortController(),
+			streamId: input.requestId,
+			persistUserMessage: false,
+			userMessageContent: "Make file",
+			normalizedMessage: "Make file",
+			upstreamMessage: "Make file",
+			assistantResponse: "Actual canonical answer",
+			assistantMetadata: { wasStopped },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "Actual canonical answer",
+			maintenanceReason: "chat_stream",
+			completionTurn: {
+				segmentId: life.scope.segmentId,
+				getSnapshot: life.getSnapshot,
+				finish: life.finish,
+			},
+			generatedOutputReconciliation: {
+				fileProductionToolCalls: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "failed",
+						metadata: { jobId: "new" },
+					},
+				],
+				getFileProductionJobs: async () => {
+					if (step === "selection") throw failure;
+					return [{ id: "new", files: [] }];
+				},
+				assignFileProductionJobsToAssistantMessage: async () => {
+					if (step === "assignment") {
+						if (lateStop) {
+							assignmentEntered();
+							await held;
+						} else throw failure;
+					}
+				},
+				getChatFilesForAssistantMessage: async () => {
+					if (step === "file read") throw failure;
+					return [];
+				},
+			},
 		});
-		expect(await module.observeCompletionTurn(input)).toMatchObject({
-			state: "pending",
+		const rejected = expect(completion).rejects.toMatchObject({
+			message: failure.message,
+			cause: failure,
 		});
-		requestActiveChatStreamStop({ streamId: input.requestId, userId: "u" });
-		rejectAssignment(failure);
-	}
-	await rejected;
-	const saved = database.db.select().from(schema.messages).get();
-	expect(saved?.content).toBe("Actual canonical answer");
-	if (!saved?.metadataJson) throw new Error("Missing saved assistant metadata");
-	const marker = {
-		version: 1,
-		status: "failed",
-		cause: "file_association_failed",
-		wasStopped: wasStopped || lateStop,
-	};
-	expect(JSON.parse(saved.metadataJson).normalChatFinalization).toEqual(marker);
-	expect(JSON.parse(saved.metadataJson).normalChatOutput.events).toEqual(
-		state.events,
-	);
-	const messages = await import("../messages");
-	expect((await messages.listMessages("c"))[0]).toMatchObject({
-		id: saved.id,
-		content: "Actual canonical answer",
-		normalChatFinalization: marker,
-	});
-	const observed = await module.observeCompletionTurn(input);
-	expect(observed).toMatchObject({
-		state: "terminal",
-		assistantMessageId: saved.id,
-		normalChatFinalization: marker,
-		modelCompletion: state.completion,
-		completion: { outcome: wasStopped || lateStop ? "stopped" : "failed" },
-	});
-	const ledger = await import("./turn-ledger");
-	ledger.recordFileAssociationFailure({
-		mode: "tracked",
-		...life.scope,
-		messageId: saved.id,
-		wasStopped,
-	});
-	await life.finish(saved.id); // Late ordinary finish must not erase failure or conflict.
-	expect(await module.observeCompletionTurn(input)).toEqual(observed);
-	expect(database.db.select().from(schema.normalChatTurns).get()).toMatchObject(
-		{ outcome: "answered", messageId: saved.id, accountingStatus: "ready" },
-	);
-	expect(database.db.select().from(schema.normalChatAttempts).all()).toEqual(
-		beforeAttempts,
-	);
-	const wire = await observeWire();
-	expect(wire.observation).toEqual(observed);
-	vi.doUnmock("./finalize-steps");
-});
+		if (lateStop) {
+			await entered;
+			const { requestActiveChatStreamStop, registerActiveChatStream } =
+				await import("./active-streams");
+			registerActiveChatStream({
+				streamId: input.requestId,
+				userId: "u",
+				conversationId: "c",
+				controller: new AbortController(),
+			});
+			expect(await module.observeCompletionTurn(input)).toMatchObject({
+				state: "pending",
+			});
+			requestActiveChatStreamStop({ streamId: input.requestId, userId: "u" });
+			rejectAssignment(failure);
+		}
+		await rejected;
+		const saved = database.db.select().from(schema.messages).get();
+		expect(saved?.content).toBe("Actual canonical answer");
+		if (!saved?.metadataJson)
+			throw new Error("Missing saved assistant metadata");
+		const marker = {
+			version: 1,
+			status: "failed",
+			cause: "file_association_failed",
+			wasStopped: wasStopped || lateStop,
+		};
+		expect(JSON.parse(saved.metadataJson).normalChatFinalization).toEqual(
+			marker,
+		);
+		expect(JSON.parse(saved.metadataJson).normalChatOutput.events).toEqual(
+			state.events,
+		);
+		const messages = await import("../messages");
+		expect((await messages.listMessages("c"))[0]).toMatchObject({
+			id: saved.id,
+			content: "Actual canonical answer",
+			normalChatFinalization: marker,
+		});
+		const observed = await module.observeCompletionTurn(input);
+		expect(observed).toMatchObject({
+			state: "terminal",
+			assistantMessageId: saved.id,
+			normalChatFinalization: marker,
+			modelCompletion: state.completion,
+			completion: { outcome: wasStopped || lateStop ? "stopped" : "failed" },
+		});
+		const ledger = await import("./turn-ledger");
+		ledger.recordFileAssociationFailure({
+			mode: "tracked",
+			...life.scope,
+			messageId: saved.id,
+			wasStopped,
+		});
+		await life.finish(saved.id); // Late ordinary finish must not erase failure or conflict.
+		expect(await module.observeCompletionTurn(input)).toEqual(observed);
+		expect(
+			database.db.select().from(schema.normalChatTurns).get(),
+		).toMatchObject({
+			outcome: "answered",
+			messageId: saved.id,
+			accountingStatus: "ready",
+		});
+		expect(database.db.select().from(schema.normalChatAttempts).all()).toEqual(
+			beforeAttempts,
+		);
+		const wire = await observeWire();
+		expect(wire.observation).toEqual(observed);
+		vi.doUnmock("./finalize-steps");
+	},
+);
 
 it("keeps delayed message accounting pending until late registered usage settles once", async () => {
 	const life = module.beginCompletionLifetime(input);
@@ -396,114 +402,118 @@ it("accepts priced final usage before a later terminal snapshot", async () => {
 	});
 });
 
-it.each([
-	false,
-	true,
-])("settles priced SDK calls with terminal facts separate from attempts (closing=%s)", async (closing) => {
-	const { MockLanguageModelV3 } = await import("ai/test");
-	const { runNormalChatCompletion } = await import(
-		"../normal-chat-model/completion"
-	);
-	const life = module.beginCompletionLifetime(input);
-	let generations = 0;
-	const model = new MockLanguageModelV3({
-		doGenerate: async () => {
-			const truncated = closing && generations++ === 0;
-			return {
-				content: [
-					{ type: "text" as const, text: truncated ? "Partial" : "Answer" },
-				],
-				finishReason: {
-					unified: truncated ? ("length" as const) : ("stop" as const),
-					raw: truncated ? "length" : "stop",
-				},
-				usage: {
-					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-					outputTokens: { total: 1, text: 1, reasoning: 0 },
-				},
-				warnings: [],
-				response: { id: "synthetic", timestamp: new Date(), modelId: "first" },
-			};
-		},
-	});
-	const provider = {
-		id: "p1",
-		name: "first",
-		displayName: "First",
-		baseUrl: "https://test.invalid",
-		modelName: "first",
-		apiKey: "synthetic",
-		maxOutputTokens: 1000,
-		maxModelContext: 32000,
-	};
-	const driver = runNormalChatCompletion(
-		{
-			provider,
-			modelId: "provider:p1:m1",
-			messages: [{ role: "user", content: "Synthetic request" }],
-			completionPolicy: {
-				...life.scope,
-				deadlineAt: Date.now() + 10000,
-				totalTimeoutMs: 10000,
-				onSnapshot: life.capture,
-				forAttempt: async (context) => {
-					await life.register({
-						attemptId: context.attemptId,
-						phase: context.phase,
-						providerId: context.provider.id,
-						modelId: context.modelId,
-						providerModelName: context.provider.modelName,
-					});
-					return {};
+it.each([false, true])(
+	"settles priced SDK calls with terminal facts separate from attempts (closing=%s)",
+	async (closing) => {
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const { runNormalChatCompletion } = await import(
+			"../normal-chat-model/completion"
+		);
+		const life = module.beginCompletionLifetime(input);
+		let generations = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				const truncated = closing && generations++ === 0;
+				return {
+					content: [
+						{ type: "text" as const, text: truncated ? "Partial" : "Answer" },
+					],
+					finishReason: {
+						unified: truncated ? ("length" as const) : ("stop" as const),
+						raw: truncated ? "length" : "stop",
+					},
+					usage: {
+						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+						outputTokens: { total: 1, text: 1, reasoning: 0 },
+					},
+					warnings: [],
+					response: {
+						id: "synthetic",
+						timestamp: new Date(),
+						modelId: "first",
+					},
+				};
+			},
+		});
+		const provider = {
+			id: "p1",
+			name: "first",
+			displayName: "First",
+			baseUrl: "https://test.invalid",
+			modelName: "first",
+			apiKey: "synthetic",
+			maxOutputTokens: 1000,
+			maxModelContext: 32000,
+		};
+		const driver = runNormalChatCompletion(
+			{
+				provider,
+				modelId: "provider:p1:m1",
+				messages: [{ role: "user", content: "Synthetic request" }],
+				completionPolicy: {
+					...life.scope,
+					deadlineAt: Date.now() + 10000,
+					totalTimeoutMs: 10000,
+					onSnapshot: life.capture,
+					forAttempt: async (context) => {
+						await life.register({
+							attemptId: context.attemptId,
+							phase: context.phase,
+							providerId: context.provider.id,
+							modelId: context.modelId,
+							providerModelName: context.provider.modelName,
+						});
+						return {};
+					},
 				},
 			},
-		},
-		{
-			model,
-			maxModelContext: 32000,
-			providerOptions: undefined,
-			stopWhen: undefined,
-			metadata: (name) => ({
-				modelId: "provider:p1:m1",
-				providerId: "p1",
-				providerName: provider.name,
-				displayName: "First",
-				requestedModelName: "first",
-				responseModelName: name,
-			}),
-			mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
-		},
-		false,
-	);
-	for (;;) {
-		const next = await driver.next();
-		if (next.done) break;
-	}
-	await expect(life.finish()).resolves.toBeUndefined();
-	const rows = database.db.select().from(schema.normalChatAttempts).all();
-	expect(rows).toHaveLength(closing ? 2 : 1);
-	expect(rows.map((row) => row.phase)).toEqual(
-		closing ? ["working", "closing"] : ["working"],
-	);
-	for (const row of rows)
-		expect(row).toMatchObject({
-			usageFinal: true,
-			costUsdMicros: 3,
-			outcome: closing && row.phase === "working" ? "incomplete" : "answered",
-			safeStopCause:
-				closing && row.phase === "working" ? "length" : "natural_stop",
-		});
-	expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(
-		closing ? 2 : 1,
-	);
-	expect(database.db.select().from(schema.normalChatTurns).get()).toMatchObject(
-		{
+			{
+				model,
+				maxModelContext: 32000,
+				providerOptions: undefined,
+				stopWhen: undefined,
+				metadata: (name) => ({
+					modelId: "provider:p1:m1",
+					providerId: "p1",
+					providerName: provider.name,
+					displayName: "First",
+					requestedModelName: "first",
+					responseModelName: name,
+				}),
+				mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+			},
+			false,
+		);
+		for (;;) {
+			const next = await driver.next();
+			if (next.done) break;
+		}
+		await expect(life.finish()).resolves.toBeUndefined();
+		const rows = database.db.select().from(schema.normalChatAttempts).all();
+		expect(rows).toHaveLength(closing ? 2 : 1);
+		expect(rows.map((row) => row.phase)).toEqual(
+			closing ? ["working", "closing"] : ["working"],
+		);
+		for (const row of rows)
+			expect(row).toMatchObject({
+				usageFinal: true,
+				costUsdMicros: 3,
+				outcome: closing && row.phase === "working" ? "incomplete" : "answered",
+				safeStopCause:
+					closing && row.phase === "working" ? "length" : "natural_stop",
+			});
+		expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(
+			closing ? 2 : 1,
+		);
+		expect(
+			database.db.select().from(schema.normalChatTurns).get(),
+		).toMatchObject({
 			outcome: "answered",
 			stopCause: "natural_stop",
 			workingStopCause: closing ? "length" : "natural_stop",
-		},
-	);
-});
+		});
+	},
+);
 
 async function observeWire(requestId = input.requestId, userId = input.userId) {
 	const { doReconnect } = await import("./stream-reconnect");
@@ -561,44 +571,44 @@ it("returns an abandoned unsaved ledger terminal over the observer wire after re
 	expect(result.chunks).toContain("[DONE]");
 });
 
-it.each([
-	false,
-	true,
-])("observes a settled turn with its actual saved reference (saved=%s)", async (saved) => {
-	const life = module.beginCompletionLifetime(input);
-	await life.register(attempt);
-	if (saved)
-		database.db
-			.insert(schema.messages)
-			.values({
-				id: "saved",
-				conversationId: "c",
-				role: "assistant",
-				content: "Canonical",
-			})
-			.run();
-	life.capture(snapshot(life.scope, false));
-	await life.finish(saved ? "saved" : undefined);
-	const result = await observeWire();
-	expect(result.observation).toMatchObject({
-		state: "terminal",
-		assistantMessageId: saved ? "saved" : null,
-		completion: saved
-			? { outcome: "answered", stopCause: "natural_stop" }
-			: { outcome: "failed", stopCause: "uncertain_execution" },
-		...(!saved ? { modelCompletion: { outcome: "answered" } } : {}),
-	});
-	expect(result.chunks).not.toContain("data-waiting");
-	if (saved) {
-		database.db.delete(schema.messages).run();
-		expect((await observeWire()).observation).toMatchObject({
+it.each([false, true])(
+	"observes a settled turn with its actual saved reference (saved=%s)",
+	async (saved) => {
+		const life = module.beginCompletionLifetime(input);
+		await life.register(attempt);
+		if (saved)
+			database.db
+				.insert(schema.messages)
+				.values({
+					id: "saved",
+					conversationId: "c",
+					role: "assistant",
+					content: "Canonical",
+				})
+				.run();
+		life.capture(snapshot(life.scope, false));
+		await life.finish(saved ? "saved" : undefined);
+		const result = await observeWire();
+		expect(result.observation).toMatchObject({
 			state: "terminal",
-			assistantMessageId: null,
-			completion: { outcome: "failed" },
-			modelCompletion: { outcome: "answered" },
+			assistantMessageId: saved ? "saved" : null,
+			completion: saved
+				? { outcome: "answered", stopCause: "natural_stop" }
+				: { outcome: "failed", stopCause: "uncertain_execution" },
+			...(!saved ? { modelCompletion: { outcome: "answered" } } : {}),
 		});
-	}
-});
+		expect(result.chunks).not.toContain("data-waiting");
+		if (saved) {
+			database.db.delete(schema.messages).run();
+			expect((await observeWire()).observation).toMatchObject({
+				state: "terminal",
+				assistantMessageId: null,
+				completion: { outcome: "failed" },
+				modelCompletion: { outcome: "answered" },
+			});
+		}
+	},
+);
 
 it("observes an admitted live pending owner without sealing it or promising a saved row", async () => {
 	const life = module.beginCompletionLifetime(input);
@@ -794,114 +804,119 @@ it("records each attempt's own model-call time, fixed by the capture that shows 
 	}
 });
 
-it.each([
-	false,
-	true,
-])("records the time of every SDK call on its attempt and billing rows (closing=%s)", async (closing) => {
-	vi.useFakeTimers({ toFake: ["Date"] });
-	try {
-		vi.setSystemTime(Date.parse("2026-11-12T10:00:00Z"));
-		const { MockLanguageModelV3 } = await import("ai/test");
-		const { runNormalChatCompletion } = await import(
-			"../normal-chat-model/completion"
-		);
-		const life = module.beginCompletionLifetime(input);
-		// A truncated working call, then the closing call; or one answering call.
-		const takes = closing ? [1200, 800] : [1500];
-		let call = 0;
-		const model = new MockLanguageModelV3({
-			doGenerate: async () => {
-				const truncated = closing && call === 0;
-				vi.setSystemTime(Date.now() + takes[call++]);
-				return {
-					content: [
-						{ type: "text" as const, text: truncated ? "Partial" : "Answer" },
-					],
-					finishReason: {
-						unified: truncated ? ("length" as const) : ("stop" as const),
-						raw: truncated ? "length" : "stop",
-					},
-					usage: {
-						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-						outputTokens: { total: 1, text: 1, reasoning: 0 },
-					},
-					warnings: [],
-					response: {
-						id: "synthetic",
-						timestamp: new Date(),
-						modelId: "first",
-					},
-				};
-			},
-		});
-		const provider = {
-			id: "p1",
-			name: "first",
-			displayName: "First",
-			baseUrl: "https://test.invalid",
-			modelName: "first",
-			apiKey: "synthetic",
-			maxOutputTokens: 1000,
-			maxModelContext: 32000,
-		};
-		const driver = runNormalChatCompletion(
-			{
-				provider,
-				modelId: "provider:p1:m1",
-				messages: [{ role: "user", content: "Synthetic request" }],
-				completionPolicy: {
-					...life.scope,
-					deadlineAt: Date.now() + 10000,
-					totalTimeoutMs: 10000,
-					onSnapshot: life.capture,
-					forAttempt: async (context) => {
-						await life.register({
-							attemptId: context.attemptId,
-							phase: context.phase,
-							providerId: context.provider.id,
-							modelId: context.modelId,
-							providerModelName: context.provider.modelName,
-						});
-						return {};
+it.each([false, true])(
+	"records the time of every SDK call on its attempt and billing rows (closing=%s)",
+	async (closing) => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(Date.parse("2026-11-12T10:00:00Z"));
+			const { MockLanguageModelV3 } = await import("ai/test");
+			const { runNormalChatCompletion } = await import(
+				"../normal-chat-model/completion"
+			);
+			const life = module.beginCompletionLifetime(input);
+			// A truncated working call, then the closing call; or one answering call.
+			const takes = closing ? [1200, 800] : [1500];
+			let call = 0;
+			const model = new MockLanguageModelV3({
+				doGenerate: async () => {
+					const truncated = closing && call === 0;
+					vi.setSystemTime(Date.now() + takes[call++]);
+					return {
+						content: [
+							{ type: "text" as const, text: truncated ? "Partial" : "Answer" },
+						],
+						finishReason: {
+							unified: truncated ? ("length" as const) : ("stop" as const),
+							raw: truncated ? "length" : "stop",
+						},
+						usage: {
+							inputTokens: {
+								total: 1,
+								noCache: 1,
+								cacheRead: 0,
+								cacheWrite: 0,
+							},
+							outputTokens: { total: 1, text: 1, reasoning: 0 },
+						},
+						warnings: [],
+						response: {
+							id: "synthetic",
+							timestamp: new Date(),
+							modelId: "first",
+						},
+					};
+				},
+			});
+			const provider = {
+				id: "p1",
+				name: "first",
+				displayName: "First",
+				baseUrl: "https://test.invalid",
+				modelName: "first",
+				apiKey: "synthetic",
+				maxOutputTokens: 1000,
+				maxModelContext: 32000,
+			};
+			const driver = runNormalChatCompletion(
+				{
+					provider,
+					modelId: "provider:p1:m1",
+					messages: [{ role: "user", content: "Synthetic request" }],
+					completionPolicy: {
+						...life.scope,
+						deadlineAt: Date.now() + 10000,
+						totalTimeoutMs: 10000,
+						onSnapshot: life.capture,
+						forAttempt: async (context) => {
+							await life.register({
+								attemptId: context.attemptId,
+								phase: context.phase,
+								providerId: context.provider.id,
+								modelId: context.modelId,
+								providerModelName: context.provider.modelName,
+							});
+							return {};
+						},
 					},
 				},
-			},
-			{
-				model,
-				maxModelContext: 32000,
-				providerOptions: undefined,
-				stopWhen: undefined,
-				metadata: (name) => ({
-					modelId: "provider:p1:m1",
-					providerId: "p1",
-					providerName: provider.name,
-					displayName: "First",
-					requestedModelName: "first",
-					responseModelName: name,
-				}),
-				mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
-			},
-			false,
-		);
-		for (;;) {
-			const next = await driver.next();
-			if (next.done) break;
+				{
+					model,
+					maxModelContext: 32000,
+					providerOptions: undefined,
+					stopWhen: undefined,
+					metadata: (name) => ({
+						modelId: "provider:p1:m1",
+						providerId: "p1",
+						providerName: provider.name,
+						displayName: "First",
+						requestedModelName: "first",
+						responseModelName: name,
+					}),
+					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+				},
+				false,
+			);
+			for (;;) {
+				const next = await driver.next();
+				if (next.done) break;
+			}
+			await expect(life.finish()).resolves.toBeUndefined();
+			const rows = database.db.select().from(schema.normalChatAttempts).all();
+			expect(rows.map((row) => row.generationTimeMs)).toEqual(takes);
+			const billed = database.db.select().from(schema.usageEvents).all();
+			expect(
+				rows.map(
+					(row) =>
+						billed.find((event) => event.id === `turn-attempt:${row.attemptId}`)
+							?.generationTimeMs,
+				),
+			).toEqual(takes);
+		} finally {
+			vi.useRealTimers();
 		}
-		await expect(life.finish()).resolves.toBeUndefined();
-		const rows = database.db.select().from(schema.normalChatAttempts).all();
-		expect(rows.map((row) => row.generationTimeMs)).toEqual(takes);
-		const billed = database.db.select().from(schema.usageEvents).all();
-		expect(
-			rows.map(
-				(row) =>
-					billed.find((event) => event.id === `turn-attempt:${row.attemptId}`)
-						?.generationTimeMs,
-			),
-		).toEqual(takes);
-	} finally {
-		vi.useRealTimers();
-	}
-});
+	},
+);
 
 // The ledger rows go with their conversation, so the settle also writes one
 // content-free status line, the first time only (an incognito chat's has no

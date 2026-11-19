@@ -766,14 +766,12 @@ describe("askCallPausedTheReply", () => {
 		).toBe(false);
 	});
 
-	it.each([
-		"running",
-		"failed",
-		undefined,
-		null,
-	])("is false for an ask call that did not finish (status %s)", (status) => {
-		expect(askCallPausedTheReply({ ...paused, status })).toBe(false);
-	});
+	it.each(["running", "failed", undefined, null])(
+		"is false for an ask call that did not finish (status %s)",
+		(status) => {
+			expect(askCallPausedTheReply({ ...paused, status })).toBe(false);
+		},
+	);
 
 	it("is false for another tool, whatever its metadata says", () => {
 		expect(askCallPausedTheReply({ ...paused, name: "research_web" })).toBe(

@@ -178,9 +178,9 @@ test.describe("Incognito, one-way — desktop", () => {
 		await expect(page.locator(".home-greeting-full")).toHaveCount(0);
 		await expect(page.getByTestId("home-board")).toHaveCount(0);
 
-		const greeting = (
-			await page.getByTestId("home-greeting").innerText()
-		).trim();
+		const greeting =
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
+			(await page.getByTestId("home-greeting").innerText()).trim();
 		expect(INCOGNITO_GREETINGS.en).toContain(greeting);
 
 		await expect(page.getByTestId("message-input")).toHaveAttribute(

@@ -102,103 +102,110 @@ describe("conversation detail read model — query counting (O1)", () => {
 			returnedCount: 20,
 			assistantCount: 10,
 		},
-	])("bounds history and optional accounting to the selected page ($messageCount messages, window $windowLimit)", async ({
-		messageCount,
-		windowLimit,
-		firstMessage,
-		returnedCount,
-		assistantCount,
-	}) => {
-		// Preserve the original 89-row/default-window measurement and contrast
-		// it with a small page over a much larger history. Neither enrichment
-		// nor its query count may grow with rows outside that selected page.
-		seedConversationWithMessages(messageCount);
-		const analytics = await import("$lib/server/services/analytics");
-		const projectionSpy = vi.spyOn(analytics, "getMessageReadUsageProjections");
-		const prepareSpy = vi.spyOn(Database.prototype, "prepare");
-		try {
-			const { getConversationDetail } = await import("./read-model");
-			const detail = await getConversationDetail({
-				userId: "user-1",
-				conversationId: "conv-1",
-				messageWindowLimit: windowLimit,
-			});
+	])(
+		"bounds history and optional accounting to the selected page ($messageCount messages, window $windowLimit)",
+		async ({
+			messageCount,
+			windowLimit,
+			firstMessage,
+			returnedCount,
+			assistantCount,
+		}) => {
+			// Preserve the original 89-row/default-window measurement and contrast
+			// it with a small page over a much larger history. Neither enrichment
+			// nor its query count may grow with rows outside that selected page.
+			seedConversationWithMessages(messageCount);
+			const analytics = await import("$lib/server/services/analytics");
+			const projectionSpy = vi.spyOn(
+				analytics,
+				"getMessageReadUsageProjections",
+			);
+			const prepareSpy = vi.spyOn(Database.prototype, "prepare");
+			try {
+				const { getConversationDetail } = await import("./read-model");
+				const detail = await getConversationDetail({
+					userId: "user-1",
+					conversationId: "conv-1",
+					messageWindowLimit: windowLimit,
+				});
 
-			expect(detail?.messages).toHaveLength(returnedCount);
-			expect(detail?.hasMoreMessages).toBe(messageCount > returnedCount);
-			const selectedIndexes = Array.from(
-				{ length: returnedCount },
-				(_, i) => firstMessage + i,
-			);
-			expect(
-				detail?.messages.map(({ id, content }) => ({ id, content })),
-			).toEqual(
-				selectedIndexes.map((i) => ({
-					id: `msg-${i}`,
-					content: `Message ${i}`,
-				})),
-			);
-			const assistantIds = selectedIndexes
-				.filter((i) => i % 2 === 1)
-				.map((i) => `msg-${i}`);
-			expect(assistantIds).toHaveLength(assistantCount);
-			// Passthrough: real analytics and SQLite still execute. This also
-			// excludes the assistant lookahead msg-979 from the 1000-row case.
-			expect(projectionSpy).toHaveBeenCalledExactlyOnceWith(
-				"conv-1",
-				assistantIds,
-			);
-
-			const messageQueries = prepareSpy.mock.calls
-				.map(([sqlText]) => String(sqlText))
-				.filter(
-					(text) =>
-						/^select\b/i.test(text) && /\b(?:from|join) "messages"/i.test(text),
+				expect(detail?.messages).toHaveLength(returnedCount);
+				expect(detail?.hasMoreMessages).toBe(messageCount > returnedCount);
+				const selectedIndexes = Array.from(
+					{ length: returnedCount },
+					(_, i) => firstMessage + i,
 				);
-			const core = messageQueries.filter(
-				(text) =>
-					/from "messages"/i.test(text) &&
-					/order by/i.test(text) &&
-					/limit \?/i.test(text),
-			);
-			const identity = messageQueries.filter(
-				(text) =>
-					/from "messages"/i.test(text) &&
-					/join "usage_events"/i.test(text) &&
-					/join "message_analytics"/i.test(text),
-			);
-			const ledger = messageQueries.filter(
-				(text) =>
-					/from "normal_chat_turns"/i.test(text) &&
-					/join "normal_chat_attempts"/i.test(text),
-			);
-			expect(core).toHaveLength(1);
-			expect(core[0]).not.toMatch(/offset|join|\bor\b/i);
-			expect(core[0]).toMatch(
-				/where "messages"\."conversation_id" = \? order by/i,
-			);
-			expect(identity).toHaveLength(1);
-			expect(ledger).toHaveLength(1);
-			// An extra or unclassified message SELECT still fails: in particular,
-			// a second full-history scan cannot hide behind the optional category.
-			expect(messageQueries).toHaveLength(
-				core.length + identity.length + ledger.length,
-			);
-			for (const query of [...identity, ...ledger]) {
-				expect(query).toMatch(/"messages"\."conversation_id" =/i);
-				expect(query).toMatch(/"messages"\."role" = \?/i);
-				expect(query).not.toMatch(/\bor\b/i);
-				const selectedIds = query.match(/"messages"\."id" in \(([^)]+)\)/i);
-				expect(selectedIds).not.toBeNull();
 				expect(
-					selectedIds?.[1].split(",").map((value) => value.trim()),
-				).toEqual(Array(assistantCount).fill("?"));
+					detail?.messages.map(({ id, content }) => ({ id, content })),
+				).toEqual(
+					selectedIndexes.map((i) => ({
+						id: `msg-${i}`,
+						content: `Message ${i}`,
+					})),
+				);
+				const assistantIds = selectedIndexes
+					.filter((i) => i % 2 === 1)
+					.map((i) => `msg-${i}`);
+				expect(assistantIds).toHaveLength(assistantCount);
+				// Passthrough: real analytics and SQLite still execute. This also
+				// excludes the assistant lookahead msg-979 from the 1000-row case.
+				expect(projectionSpy).toHaveBeenCalledExactlyOnceWith(
+					"conv-1",
+					assistantIds,
+				);
+
+				const messageQueries = prepareSpy.mock.calls
+					.map(([sqlText]) => String(sqlText))
+					.filter(
+						(text) =>
+							/^select\b/i.test(text) &&
+							/\b(?:from|join) "messages"/i.test(text),
+					);
+				const core = messageQueries.filter(
+					(text) =>
+						/from "messages"/i.test(text) &&
+						/order by/i.test(text) &&
+						/limit \?/i.test(text),
+				);
+				const identity = messageQueries.filter(
+					(text) =>
+						/from "messages"/i.test(text) &&
+						/join "usage_events"/i.test(text) &&
+						/join "message_analytics"/i.test(text),
+				);
+				const ledger = messageQueries.filter(
+					(text) =>
+						/from "normal_chat_turns"/i.test(text) &&
+						/join "normal_chat_attempts"/i.test(text),
+				);
+				expect(core).toHaveLength(1);
+				expect(core[0]).not.toMatch(/offset|join|\bor\b/i);
+				expect(core[0]).toMatch(
+					/where "messages"\."conversation_id" = \? order by/i,
+				);
+				expect(identity).toHaveLength(1);
+				expect(ledger).toHaveLength(1);
+				// An extra or unclassified message SELECT still fails: in particular,
+				// a second full-history scan cannot hide behind the optional category.
+				expect(messageQueries).toHaveLength(
+					core.length + identity.length + ledger.length,
+				);
+				for (const query of [...identity, ...ledger]) {
+					expect(query).toMatch(/"messages"\."conversation_id" =/i);
+					expect(query).toMatch(/"messages"\."role" = \?/i);
+					expect(query).not.toMatch(/\bor\b/i);
+					const selectedIds = query.match(/"messages"\."id" in \(([^)]+)\)/i);
+					expect(selectedIds).not.toBeNull();
+					expect(
+						selectedIds?.[1].split(",").map((value) => value.trim()),
+					).toEqual(Array(assistantCount).fill("?"));
+				}
+			} finally {
+				projectionSpy.mockRestore();
+				prepareSpy.mockRestore();
 			}
-		} finally {
-			projectionSpy.mockRestore();
-			prepareSpy.mockRestore();
-		}
-	});
+		},
+	);
 
 	it("records the total prepared-statement count for one conversation-detail open (Step 0 measurement)", async () => {
 		seedConversationWithMessages(89);

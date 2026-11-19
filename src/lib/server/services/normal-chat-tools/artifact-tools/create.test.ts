@@ -459,26 +459,29 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 	it.each([
 		'<!DOCTYPE html><html lang="en"><head><title>Tip</title></head><body><h1>Tip</h1></body></html>',
 		"```html\n<!doctype html>\n<html><body>x</body></html>\n```",
-	])("refuses a body that is the App's HTML, names the fix, and never hands it to the generator", async (html) => {
-		const result = await runCreateArtifactTool({
-			userId: "user-1",
-			conversationId: "conv-1",
-			turnId: "turn-1",
-			title: "Tip calculator",
-			body: html,
-			artifactType: "app",
-			abortSignal: new AbortController().signal,
-		});
+	])(
+		"refuses a body that is the App's HTML, names the fix, and never hands it to the generator",
+		async (html) => {
+			const result = await runCreateArtifactTool({
+				userId: "user-1",
+				conversationId: "conv-1",
+				turnId: "turn-1",
+				title: "Tip calculator",
+				body: html,
+				artifactType: "app",
+				abortSignal: new AbortController().signal,
+			});
 
-		expect(createAppFromBrief).not.toHaveBeenCalled();
-		expect(result.modelPayload.success).toBe(false);
-		if (!result.modelPayload.success) {
-			expect(result.modelPayload.error).toContain("brief");
-			expect(result.modelPayload.error).toContain("not HTML");
-			expect(result.modelPayload.error).toContain("Nothing was created");
-		}
-		expect(result.metadata.ok).toBe(false);
-	});
+			expect(createAppFromBrief).not.toHaveBeenCalled();
+			expect(result.modelPayload.success).toBe(false);
+			if (!result.modelPayload.success) {
+				expect(result.modelPayload.error).toContain("brief");
+				expect(result.modelPayload.error).toContain("not HTML");
+				expect(result.modelPayload.error).toContain("Nothing was created");
+			}
+			expect(result.metadata.ok).toBe(false);
+		},
+	);
 
 	it("takes a brief that merely names a tag in words", async () => {
 		createAppFromBrief.mockResolvedValue({

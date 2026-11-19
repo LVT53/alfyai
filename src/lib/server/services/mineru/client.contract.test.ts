@@ -353,9 +353,11 @@ describe("createTask", () => {
 		const sentName = async (fileName: string) => {
 			await client.createTask({ ...DOCX, fileName, signal: never });
 			const files = (
-				calls.at(-1)?.body as { files: Array<{ file_name: string }> }
-			).files;
-			return files[0]?.file_name;
+				calls.at(-1)?.body as
+					| { files: Array<{ file_name: string }> }
+					| undefined
+			)?.files;
+			return files?.[0]?.file_name;
 		};
 
 		expect(await sentName("/Users/someone/data/knowledge/u-1/9f2c.pdf")).toBe(
@@ -534,34 +536,37 @@ describe("putTaskFile", () => {
 		],
 		["a file URL", "file:///etc/passwd"],
 		["an unparseable URL", "http://"],
-	])("refuses an upload.url on %s, before sending a byte (S7)", async (_label, url) => {
-		const { fetchImpl, calls } = scriptedFetch(() => {
-			throw new Error("the client must not have sent anything");
-		});
-		const client = new MineruClient({
-			config: testConfig({ apiKey: "testkey" }),
-			fetchImpl,
-		});
+	])(
+		"refuses an upload.url on %s, before sending a byte (S7)",
+		async (_label, url) => {
+			const { fetchImpl, calls } = scriptedFetch(() => {
+				throw new Error("the client must not have sent anything");
+			});
+			const client = new MineruClient({
+				config: testConfig({ apiKey: "testkey" }),
+				fetchImpl,
+			});
 
-		const error = await client
-			.putTaskFile({
-				upload: { ...recordedUpload(), url },
-				filePathAbsolute: sampleFile().path,
-				signal: never,
-			})
-			.catch((caught) => caught as MineruApiError);
+			const error = await client
+				.putTaskFile({
+					upload: { ...recordedUpload(), url },
+					filePathAbsolute: sampleFile().path,
+					signal: never,
+				})
+				.catch((caught) => caught as MineruApiError);
 
-		expect(calls).toHaveLength(0);
-		expect(error).toBeInstanceOf(MineruApiError);
-		expect((error as MineruApiError).code).toBe(
-			"protocol_untrusted_upload_url",
-		);
-		expect((error as MineruApiError).message).not.toContain("testkey");
-		const mapping = mapMineruError(error);
-		expect(mapping.taxonomy).toBe("protocol");
-		// Retrying a hostile or misconfigured server only repeats it.
-		expect(mapping.retryable).toBe(false);
-	});
+			expect(calls).toHaveLength(0);
+			expect(error).toBeInstanceOf(MineruApiError);
+			expect((error as MineruApiError).code).toBe(
+				"protocol_untrusted_upload_url",
+			);
+			expect((error as MineruApiError).message).not.toContain("testkey");
+			const mapping = mapMineruError(error);
+			expect(mapping.taxonomy).toBe("protocol");
+			// Retrying a hostile or misconfigured server only repeats it.
+			expect(mapping.retryable).toBe(false);
+		},
+	);
 
 	it("logs which host it refused, and never the key or the path", async () => {
 		const { fetchImpl } = scriptedFetch(() => {
@@ -941,53 +946,57 @@ describe("a redirect from one of MinerU's own endpoints", () => {
 		["getUsage", (client) => client.getUsage(never)],
 	];
 
-	it.each(
-		API_CALLS,
-	)("%s asks for a manual redirect and refuses the one it is given", async (_name, call) => {
-		const { fetchImpl, calls } = scriptedFetch(
-			() =>
-				new Response(null, {
-					status: 307,
-					headers: { location: "http://attacker.example/steal" },
+	it.each(API_CALLS)(
+		"%s asks for a manual redirect and refuses the one it is given",
+		async (_name, call) => {
+			const { fetchImpl, calls } = scriptedFetch(
+				() =>
+					new Response(null, {
+						status: 307,
+						headers: { location: "http://attacker.example/steal" },
+					}),
+			);
+			const error = await call(
+				new MineruClient({
+					config: testConfig({ apiKey: "testkey" }),
+					fetchImpl,
 				}),
-		);
-		const error = await call(
-			new MineruClient({
-				config: testConfig({ apiKey: "testkey" }),
-				fetchImpl,
-			}),
-		).catch((caught) => caught as MineruApiError);
+			).catch((caught) => caught as MineruApiError);
 
-		expect(calls).toHaveLength(1);
-		expect(calls[0]?.redirect).toBe("manual");
-		expect((error as MineruApiError).code).toBe("protocol_untrusted_redirect");
-		expect(mapMineruError(error).retryable).toBe(false);
-	});
-
-	it.each([
-		301, 302, 303, 307, 308,
-	])("refuses a %i, and one that stays on the configured origin as well", async (status) => {
-		const { fetchImpl, calls } = scriptedFetch(
-			() =>
-				new Response(null, {
-					status,
-					headers: { location: `${RECORDED_ORIGIN}/v1/tasks/` },
-				}),
-		);
-		const client = new MineruClient({ config: testConfig(), fetchImpl });
-
-		for (const call of [
-			() => client.createTask({ ...DOCX, signal: never }),
-			() => client.getTask({ taskId: "job_x", signal: never }),
-			() => client.cancelTask({ taskId: "job_x", signal: never }),
-		]) {
-			const error = await call().catch((caught) => caught as MineruApiError);
+			expect(calls).toHaveLength(1);
+			expect(calls[0]?.redirect).toBe("manual");
 			expect((error as MineruApiError).code).toBe(
 				"protocol_untrusted_redirect",
 			);
-		}
-		expect(calls).toHaveLength(3);
-	});
+			expect(mapMineruError(error).retryable).toBe(false);
+		},
+	);
+
+	it.each([301, 302, 303, 307, 308])(
+		"refuses a %i, and one that stays on the configured origin as well",
+		async (status) => {
+			const { fetchImpl, calls } = scriptedFetch(
+				() =>
+					new Response(null, {
+						status,
+						headers: { location: `${RECORDED_ORIGIN}/v1/tasks/` },
+					}),
+			);
+			const client = new MineruClient({ config: testConfig(), fetchImpl });
+
+			for (const call of [
+				() => client.createTask({ ...DOCX, signal: never }),
+				() => client.getTask({ taskId: "job_x", signal: never }),
+				() => client.cancelTask({ taskId: "job_x", signal: never }),
+			]) {
+				const error = await call().catch((caught) => caught as MineruApiError);
+				expect((error as MineruApiError).code).toBe(
+					"protocol_untrusted_redirect",
+				);
+			}
+			expect(calls).toHaveLength(3);
+		},
+	);
 
 	it("does not send the manifest to the origin it is redirected to, over real sockets", async () => {
 		// The server the redirect points at is a 4.1 server, so a client that follows
@@ -1067,30 +1076,33 @@ describe("downloadFile", () => {
 		["a foreign origin", "http://attacker.example/v1/files/x/content"],
 		["another port", "http://127.0.0.1:9999/v1/files/x/content"],
 		["a file URL", "file:///etc/passwd"],
-	])("refuses a result_url on %s before sending anything, key or not (S7)", async (_label, url) => {
-		const { fetchImpl, calls } = scriptedFetch(() => {
-			throw new Error("the client must not have sent anything");
-		});
-		const destination = join(tempDir(), "never.zip");
-		const error = await new MineruClient({
-			config: testConfig({ apiKey: "testkey" }),
-			fetchImpl,
-		})
-			.downloadFile({
-				resultUrl: url,
-				destinationPathAbsolute: destination,
-				signal: never,
+	])(
+		"refuses a result_url on %s before sending anything, key or not (S7)",
+		async (_label, url) => {
+			const { fetchImpl, calls } = scriptedFetch(() => {
+				throw new Error("the client must not have sent anything");
+			});
+			const destination = join(tempDir(), "never.zip");
+			const error = await new MineruClient({
+				config: testConfig({ apiKey: "testkey" }),
+				fetchImpl,
 			})
-			.catch((caught) => caught as MineruApiError);
+				.downloadFile({
+					resultUrl: url,
+					destinationPathAbsolute: destination,
+					signal: never,
+				})
+				.catch((caught) => caught as MineruApiError);
 
-		expect(calls).toHaveLength(0);
-		expect((error as MineruApiError).code).toBe(
-			"protocol_untrusted_result_url",
-		);
-		expect((error as MineruApiError).message).not.toContain("testkey");
-		expect(mapMineruError(error).retryable).toBe(false);
-		expect(existsSync(destination)).toBe(false);
-	});
+			expect(calls).toHaveLength(0);
+			expect((error as MineruApiError).code).toBe(
+				"protocol_untrusted_result_url",
+			);
+			expect((error as MineruApiError).message).not.toContain("testkey");
+			expect(mapMineruError(error).retryable).toBe(false);
+			expect(existsSync(destination)).toBe(false);
+		},
+	);
 
 	it("follows one redirect on the configured origin, key and all", async () => {
 		const target = `${RECORDED_ORIGIN}/v1/files/moved/content`;

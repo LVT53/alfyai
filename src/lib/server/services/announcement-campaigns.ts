@@ -1456,11 +1456,7 @@ export async function getEligibleFeatureNoteForUser(
 	const note = await latestPublishedByType("feature_note", db);
 	if (!note) return null;
 	const slide = note.slides.length === 1 ? note.slides[0] : undefined;
-	if (
-		!slide ||
-		slide.layoutType !== "standard" ||
-		slide.semanticRole !== "feature"
-	) {
+	if (slide?.layoutType !== "standard" || slide.semanticRole !== "feature") {
 		return null;
 	}
 	if (await userHasFinishedSnapshot(userId, note.snapshotId, db)) return null;

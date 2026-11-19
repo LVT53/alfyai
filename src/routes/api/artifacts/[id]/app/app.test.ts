@@ -146,22 +146,25 @@ describe("GET /api/artifacts/[id]/app", () => {
 			["an object", "<object data=x></object>"],
 			["an embed", "<embed src=x>"],
 			["a frameset", "<frameset><frame src=x></frameset>"],
-		])("is not served for %s: a 422 notice with the App's own strict headers", async (_name, markup) => {
-			mockGetArtifact.mockResolvedValue({
-				...APP_ARTIFACT,
-				body: `<!doctype html><title>x</title><script>window.ran = 1</script>${markup}`,
-			});
+		])(
+			"is not served for %s: a 422 notice with the App's own strict headers",
+			async (_name, markup) => {
+				mockGetArtifact.mockResolvedValue({
+					...APP_ARTIFACT,
+					body: `<!doctype html><title>x</title><script>window.ran = 1</script>${markup}`,
+				});
 
-			const response = await GET(makeEvent());
-			const body = await response.text();
+				const response = await GET(makeEvent());
+				const body = await response.text();
 
-			expect(response.status).toBe(422);
-			for (const [name, value] of Object.entries(APP_SANDBOX_HEADERS)) {
-				expect(response.headers.get(name)).toBe(value);
-			}
-			expect(body).toContain("cannot run");
-			expect(body).not.toContain("window.ran");
-		});
+				expect(response.status).toBe(422);
+				for (const [name, value] of Object.entries(APP_SANDBOX_HEADERS)) {
+					expect(response.headers.get(name)).toBe(value);
+				}
+				expect(body).toContain("cannot run");
+				expect(body).not.toContain("window.ran");
+			},
+		);
 
 		it("says so in Hungarian for a Hungarian browser", async () => {
 			mockGetArtifact.mockResolvedValue({

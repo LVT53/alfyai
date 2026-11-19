@@ -140,22 +140,25 @@ describe("FileProductionCard", () => {
 			"File production worker did not start before the queue timeout.",
 			"The file waited too long in the queue and could not be finished.",
 		],
-	])("localizes the %s worker-reclaim error and still offers Retry", async (code, rawServerMessage, localizedMessage) => {
-		const onRetry = vi.fn();
-		const { getByRole, getByText, queryByText } = render(FileProductionCard, {
-			job: makeJob({
-				status: "failed",
-				error: { code, message: rawServerMessage, retryable: true },
-			}),
-			onRetry,
-		});
+	])(
+		"localizes the %s worker-reclaim error and still offers Retry",
+		async (code, rawServerMessage, localizedMessage) => {
+			const onRetry = vi.fn();
+			const { getByRole, getByText, queryByText } = render(FileProductionCard, {
+				job: makeJob({
+					status: "failed",
+					error: { code, message: rawServerMessage, retryable: true },
+				}),
+				onRetry,
+			});
 
-		expect(getByText(localizedMessage)).toBeInTheDocument();
-		expect(queryByText(rawServerMessage)).toBeNull();
+			expect(getByText(localizedMessage)).toBeInTheDocument();
+			expect(queryByText(rawServerMessage)).toBeNull();
 
-		await fireEvent.click(getByRole("button", { name: "Retry" }));
-		expect(onRetry).toHaveBeenCalledWith("job-1");
-	});
+			await fireEvent.click(getByRole("button", { name: "Retry" }));
+			expect(onRetry).toHaveBeenCalledWith("job-1");
+		},
+	);
 
 	it("renders a non-retryable failed job with the cause and a Dismiss action", async () => {
 		const onDismiss = vi.fn();
@@ -212,22 +215,25 @@ describe("FileProductionCard", () => {
 			"That file type cannot be produced.",
 			"Ez a fájltípus nem készíthető el.",
 		],
-	])("localizes the %s intake refusal instead of showing the model-facing text", (code, serverMessage, english, hungarian) => {
-		const job = makeJob({
-			status: "failed",
-			error: { code, message: serverMessage, retryable: false },
-		});
+	])(
+		"localizes the %s intake refusal instead of showing the model-facing text",
+		(code, serverMessage, english, hungarian) => {
+			const job = makeJob({
+				status: "failed",
+				error: { code, message: serverMessage, retryable: false },
+			});
 
-		const en = render(FileProductionCard, { job });
-		expect(en.getByText(english)).toBeInTheDocument();
-		expect(en.queryByText(serverMessage)).toBeNull();
-		en.unmount();
+			const en = render(FileProductionCard, { job });
+			expect(en.getByText(english)).toBeInTheDocument();
+			expect(en.queryByText(serverMessage)).toBeNull();
+			en.unmount();
 
-		uiLanguage.set("hu");
-		const hu = render(FileProductionCard, { job });
-		expect(hu.getByText(hungarian)).toBeInTheDocument();
-		expect(hu.queryByText(serverMessage)).toBeNull();
-	});
+			uiLanguage.set("hu");
+			const hu = render(FileProductionCard, { job });
+			expect(hu.getByText(hungarian)).toBeInTheDocument();
+			expect(hu.queryByText(serverMessage)).toBeNull();
+		},
+	);
 
 	it("opens produced files with version and source fallbacks while background metadata sync catches up", async () => {
 		const onOpenDocument = vi.fn();

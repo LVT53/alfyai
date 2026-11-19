@@ -130,40 +130,43 @@ async function accountStillThere() {
 }
 
 describe("the Settings password re-asks and the limiter", () => {
-	it.each(
-		ALL_ACTIONS,
-	)("wrong passwords on %s end in a 429 the reader can read, never a 401 forever", async (_name, attempt) => {
-		await failTimes(attempt, BUDGET);
+	it.each(ALL_ACTIONS)(
+		"wrong passwords on %s end in a 429 the reader can read, never a 401 forever",
+		async (_name, attempt) => {
+			await failTimes(attempt, BUDGET);
 
-		const throttled = await attempt(WRONG);
+			const throttled = await attempt(WRONG);
 
-		expect(throttled.status).toBe(429);
-		expect(Number(throttled.headers.get("Retry-After"))).toBeGreaterThan(0);
-		expect(await throttled.json()).toMatchObject({ errorKey: THROTTLE_KEY });
-		expect(await accountStillThere()).toBe(true);
-	});
+			expect(throttled.status).toBe(429);
+			expect(Number(throttled.headers.get("Retry-After"))).toBeGreaterThan(0);
+			expect(await throttled.json()).toMatchObject({ errorKey: THROTTLE_KEY });
+			expect(await accountStillThere()).toBe(true);
+		},
+	);
 
-	it.each(
-		OTHER_ACTIONS,
-	)("a lockout earned on the data archive applies to %s", async (_name, attempt) => {
-		await failTimes(downloadArchive, BUDGET);
+	it.each(OTHER_ACTIONS)(
+		"a lockout earned on the data archive applies to %s",
+		async (_name, attempt) => {
+			await failTimes(downloadArchive, BUDGET);
 
-		const response = await attempt(WRONG);
+			const response = await attempt(WRONG);
 
-		expect(response.status).toBe(429);
-		expect(await response.json()).toMatchObject({ errorKey: THROTTLE_KEY });
-		expect(await accountStillThere()).toBe(true);
-	});
+			expect(response.status).toBe(429);
+			expect(await response.json()).toMatchObject({ errorKey: THROTTLE_KEY });
+			expect(await accountStillThere()).toBe(true);
+		},
+	);
 
-	it.each(
-		OTHER_ACTIONS,
-	)("a lockout earned on %s applies to the data archive", async (_name, attempt) => {
-		await failTimes(attempt, BUDGET);
+	it.each(OTHER_ACTIONS)(
+		"a lockout earned on %s applies to the data archive",
+		async (_name, attempt) => {
+			await failTimes(attempt, BUDGET);
 
-		const response = await downloadArchive(WRONG);
+			const response = await downloadArchive(WRONG);
 
-		expect(response.status).toBe(429);
-	});
+			expect(response.status).toBe(429);
+		},
+	);
 
 	it("counts the wrong answers of different actions in one budget", async () => {
 		// Half the budget on one action, half on another: the next wrong

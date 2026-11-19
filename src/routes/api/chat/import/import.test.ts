@@ -99,15 +99,18 @@ describe("POST /api/chat/import", () => {
 		["JSON that is not a list", { conversationIds: '{"id":"c-1"}' }],
 		["a list of something other than ids", { conversationIds: "[1, 2]" }],
 		["a blank id", { conversationIds: '["c-1", "  "]' }],
-	])("answers 400 and imports nothing when the form names %s", async (_label, fields) => {
-		const response = await POST(makeEvent(fields));
+	])(
+		"answers 400 and imports nothing when the form names %s",
+		async (_label, fields) => {
+			const response = await POST(makeEvent(fields));
 
-		expect(response.status).toBe(400);
-		await expect(response.json()).resolves.toEqual({
-			error: expect.stringContaining("conversation"),
-		});
-		expect(importConversations).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				error: expect.stringContaining("conversation"),
+			});
+			expect(importConversations).not.toHaveBeenCalled();
+		},
+	);
 
 	it("answers 400 when the import itself turns an empty selection away", async () => {
 		vi.mocked(importConversations).mockRejectedValue(

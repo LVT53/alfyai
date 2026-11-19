@@ -1204,9 +1204,9 @@ describe("the composer's Stop around the submit", () => {
 		const recorded = (
 			JSON.parse(posted.checkpoint ?? "{}") as { promptId: string }
 		).promptId;
-		expect((posted.post?.json as { prompt_id?: string }).prompt_id).toBe(
-			recorded,
-		);
+		expect(
+			(posted.post?.json as { prompt_id?: string } | undefined)?.prompt_id,
+		).toBe(recorded);
 
 		// ComfyUI may already hold it, so the composer's Stop goes the queue's way:
 		// not in the queue (yet) means it may be rendering, and it is left alone.
@@ -1237,10 +1237,12 @@ describe("the composer's Stop around the submit", () => {
 					JSON.stringify({ promptId: [...comfy.prompts.keys()][0] }),
 		);
 		const sent = (
-			comfy.requests.find((r) => r.path === "/prompt")?.json as {
-				prompt_id?: string;
-			}
-		).prompt_id;
+			comfy.requests.find((r) => r.path === "/prompt")?.json as
+				| {
+						prompt_id?: string;
+				  }
+				| undefined
+		)?.prompt_id;
 		const answered = [...comfy.prompts.keys()][0];
 		expect(typeof sent).toBe("string");
 		expect(answered).not.toBe(sent);

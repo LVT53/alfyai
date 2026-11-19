@@ -98,29 +98,31 @@ describe("checkChatTurn", () => {
 		expect(result.error.attachmentExtraction).toEqual(rows);
 	});
 
-	it.each([
-		400, 403, 404, 409, 422,
-	])("takes a %i for the gate's refusal, which the turn would have answered the same", async (status) => {
-		const fetchMock = vi.fn(async () =>
-			jsonResponse({ status, error: "Refused" }, status),
-		);
+	it.each([400, 403, 404, 409, 422])(
+		"takes a %i for the gate's refusal, which the turn would have answered the same",
+		async (status) => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ status, error: "Refused" }, status),
+			);
 
-		const result = await checkChatTurn(request, fetchMock);
+			const result = await checkChatTurn(request, fetchMock);
 
-		expect(result.ok).toBe(false);
-	});
+			expect(result.ok).toBe(false);
+		},
+	);
 
-	it.each([
-		401, 408, 429, 500, 502, 503,
-	])("does not take a %i for a refusal: the check could not be made", async (status) => {
-		const fetchMock = vi.fn(async () =>
-			jsonResponse({ error: "Not now" }, status),
-		);
+	it.each([401, 408, 429, 500, 502, 503])(
+		"does not take a %i for a refusal: the check could not be made",
+		async (status) => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ error: "Not now" }, status),
+			);
 
-		await expect(checkChatTurn(request, fetchMock)).rejects.toBeInstanceOf(
-			ApiError,
-		);
-	});
+			await expect(checkChatTurn(request, fetchMock)).rejects.toBeInstanceOf(
+				ApiError,
+			);
+		},
+	);
 
 	// The stream route turns a turn away with this before it admits it (a reply
 	// running in another chat, one at a time by default; a server that is draining),
@@ -178,52 +180,52 @@ describe("checkChatTurn", () => {
 		expect(result.updating).toBe(true);
 	});
 
-	it.each([
-		"global_limit",
-		"user_limit",
-		undefined,
-	])("does not call a busy server updating for the reason %s", async (reason) => {
-		const busy = vi.fn(async () =>
-			jsonResponse(
-				{
-					error: "Server at capacity. Please try again later.",
-					code: "CAPACITY_EXCEEDED",
-					...(reason ? { reason } : {}),
-				},
-				503,
-			),
-		);
+	it.each(["global_limit", "user_limit", undefined])(
+		"does not call a busy server updating for the reason %s",
+		async (reason) => {
+			const busy = vi.fn(async () =>
+				jsonResponse(
+					{
+						error: "Server at capacity. Please try again later.",
+						code: "CAPACITY_EXCEEDED",
+						...(reason ? { reason } : {}),
+					},
+					503,
+				),
+			);
 
-		const result = await checkChatTurn(request, busy);
+			const result = await checkChatTurn(request, busy);
 
-		expect(result.ok).toBe(false);
-		if (result.ok) return;
-		expect(result.busy).toBe(true);
-		expect(result.updating).toBeFalsy();
-	});
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.busy).toBe(true);
+			expect(result.updating).toBeFalsy();
+		},
+	);
 
 	// The restart itself: the app process is away and the reverse proxy answers its
 	// own page. An edit made then is an edit made during an update, not a check
 	// that failed.
-	it.each([
-		502, 503, 504,
-	])("says the server is updating when the proxy answers its own %s page", async (status) => {
-		const proxyPage = vi.fn(
-			async () =>
-				new Response("<html><body>AlfyAI is being updated</body></html>", {
-					status,
-					headers: { "content-type": "text/html" },
-				}),
-		);
+	it.each([502, 503, 504])(
+		"says the server is updating when the proxy answers its own %s page",
+		async (status) => {
+			const proxyPage = vi.fn(
+				async () =>
+					new Response("<html><body>AlfyAI is being updated</body></html>", {
+						status,
+						headers: { "content-type": "text/html" },
+					}),
+			);
 
-		const result = await checkChatTurn(request, proxyPage);
+			const result = await checkChatTurn(request, proxyPage);
 
-		expect(result.ok).toBe(false);
-		if (result.ok) return;
-		expect(result.busy).toBe(true);
-		expect(result.updating).toBe(true);
-		expect(result.error.serverUnavailable).toBe(true);
-	});
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.busy).toBe(true);
+			expect(result.updating).toBe(true);
+			expect(result.error.serverUnavailable).toBe(true);
+		},
+	);
 
 	it("still throws for a server error the app wrote, which says nothing about the turn", async () => {
 		const failed = vi.fn(async () =>

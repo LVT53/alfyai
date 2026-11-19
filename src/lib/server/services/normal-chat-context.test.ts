@@ -1702,17 +1702,20 @@ describe("prepareOutboundChatContext", () => {
 				["an empty string", ""],
 				["a name the runtime does not know", "Mars/Olympus"],
 				["a UTC offset, which is not a zone name", "+01:00"],
-			])("says the zone is unknown and keeps the server's date: %s", (_label, timeZone) => {
-				const line = buildTimeContextLine({ now: middayUtc, timeZone });
+			])(
+				"says the zone is unknown and keeps the server's date: %s",
+				(_label, timeZone) => {
+					const line = buildTimeContextLine({ now: middayUtc, timeZone });
 
-				expect(line).toMatch(/^\[SYSTEM TIME CONTEXT: .*\]$/);
-				expect(line).toContain("Today is Tuesday, November 10, 2026");
-				expect(line).toContain("time zone is unknown");
-				// No time of day, no zone and no offset: nothing here is known.
-				expect(line).not.toMatch(/\d{1,2}:\d{2}/);
-				expect(line).not.toMatch(/UTC[+-]/);
-				expect(line).not.toContain("\n");
-			});
+					expect(line).toMatch(/^\[SYSTEM TIME CONTEXT: .*\]$/);
+					expect(line).toContain("Today is Tuesday, November 10, 2026");
+					expect(line).toContain("time zone is unknown");
+					// No time of day, no zone and no offset: nothing here is known.
+					expect(line).not.toMatch(/\d{1,2}:\d{2}/);
+					expect(line).not.toMatch(/UTC[+-]/);
+					expect(line).not.toContain("\n");
+				},
+			);
 		});
 
 		it("is the first section of the turn guidance, once, and follows the zone it is given", () => {
@@ -3274,15 +3277,18 @@ describe("prepareOutboundChatContext", () => {
 		it.each([
 			["can see", true],
 			["cannot see", false],
-		])("asks the context to prepare them only when the model %s", async (_label, canSee) => {
-			mocks.buildConstructedContext.mockResolvedValueOnce(withPictures({}));
+		])(
+			"asks the context to prepare them only when the model %s",
+			async (_label, canSee) => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(withPictures({}));
 
-			await prepareOutboundChatContext(turn({ collectImages: canSee }));
+				await prepareOutboundChatContext(turn({ collectImages: canSee }));
 
-			expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
-				expect.objectContaining({ collectImages: canSee }),
-			);
-		});
+				expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+					expect.objectContaining({ collectImages: canSee }),
+				);
+			},
+		);
 
 		it("rebuilds a compressed context with the same picture setting", async () => {
 			const reuseData = {

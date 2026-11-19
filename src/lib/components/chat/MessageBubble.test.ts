@@ -134,164 +134,165 @@ describe("MessageBubble", () => {
 		clearToasts();
 	});
 
-	it.each([
-		"live-finalized",
-		"reload",
-		"observer-finalized",
-	] as const)("renders an empty failed reply scoped to its message: %s", (mode) => {
-		// Actual failure shape from affected browser DB: one closing completion,
-		// no blocks, no answer or thinking bytes, sequence 1.
-		const scope = {
-			version: 1,
-			turnId: "failed-turn",
-			segmentId: "failed-turn",
-			attemptId: "failed-turn:terminal",
-			stepId: "failed-turn:terminal:0",
-			phase: "closing",
-		} as const;
-		const event = {
-			...scope,
-			sequence: 1,
-			type: "completion",
-			completion: {
+	it.each(["live-finalized", "reload", "observer-finalized"] as const)(
+		"renders an empty failed reply scoped to its message: %s",
+		(mode) => {
+			// Actual failure shape from affected browser DB: one closing completion,
+			// no blocks, no answer or thinking bytes, sequence 1.
+			const scope = {
 				version: 1,
-				turnId: scope.turnId,
-				segmentId: scope.segmentId,
+				turnId: "failed-turn",
+				segmentId: "failed-turn",
+				attemptId: "failed-turn:terminal",
+				stepId: "failed-turn:terminal:0",
 				phase: "closing",
-				outcome: "failed",
-				stopCause: "transport_error",
-				workingStopCause: "transport_error",
-				closingAttempted: true,
-			},
-		} as const;
-		const base: NormalChatOutputMessage = {
-			id: "saved-empty-failed",
-			role: "assistant",
-			timestamp: 1,
-			content: "",
-		};
-		let message: NormalChatOutputMessage = {
-			...base,
-			normalChatOutput: { version: 1, events: [event] },
-		};
-		if (mode !== "reload") {
-			const accumulator = createNormalChatOutputAccumulator();
-			accumulator.apply(event);
-			const live = applyNormalChatOutputView(
-				[
-					{
-						...base,
-						id: "placeholder",
-						isStreaming: true,
-						isThinkingStreaming: true,
-					},
-				],
-				"placeholder",
-				accumulator.getProjection(),
+			} as const;
+			const event = {
+				...scope,
+				sequence: 1,
+				type: "completion",
+				completion: {
+					version: 1,
+					turnId: scope.turnId,
+					segmentId: scope.segmentId,
+					phase: "closing",
+					outcome: "failed",
+					stopCause: "transport_error",
+					workingStopCause: "transport_error",
+					closingAttempted: true,
+				},
+			} as const;
+			const base: NormalChatOutputMessage = {
+				id: "saved-empty-failed",
+				role: "assistant",
+				timestamp: 1,
+				content: "",
+			};
+			let message: NormalChatOutputMessage = {
+				...base,
+				normalChatOutput: { version: 1, events: [event] },
+			};
+			if (mode !== "reload") {
+				const accumulator = createNormalChatOutputAccumulator();
+				accumulator.apply(event);
+				const live = applyNormalChatOutputView(
+					[
+						{
+							...base,
+							id: "placeholder",
+							isStreaming: true,
+							isThinkingStreaming: true,
+						},
+					],
+					"placeholder",
+					accumulator.getProjection(),
+				);
+				[message] = finalizeStreamingMessageList(live, {
+					placeholderId: "placeholder",
+					clientUserMessageId: null,
+					metadata: { assistantMessageId: base.id, finalContent: "" },
+				});
+			}
+			expect(normalChatOutputView(message)?.completion).toEqual(
+				event.completion,
 			);
-			[message] = finalizeStreamingMessageList(live, {
-				placeholderId: "placeholder",
-				clientUserMessageId: null,
-				metadata: { assistantMessageId: base.id, finalContent: "" },
-			});
-		}
-		expect(normalChatOutputView(message)?.completion).toEqual(event.completion);
-		expect(message.isStreaming).toBeFalsy();
-		expect(message.isThinkingStreaming).toBeFalsy();
-		const { container } = render(MessageBubble, { message });
-		const body = screen.getByTestId("assistant-message");
-		expect(body).toHaveAttribute("data-message-id", base.id);
-		const messageFrame = body.parentElement;
-		if (!messageFrame) throw new Error("Missing message frame");
-		expect(
-			within(messageFrame).getByTestId("normal-chat-output-status"),
-		).toHaveTextContent("Reply failed");
-		expect(container.querySelector(".thinking-block")).toBeNull();
-		expect(message.content).toBe("");
-	});
+			expect(message.isStreaming).toBeFalsy();
+			expect(message.isThinkingStreaming).toBeFalsy();
+			const { container } = render(MessageBubble, { message });
+			const body = screen.getByTestId("assistant-message");
+			expect(body).toHaveAttribute("data-message-id", base.id);
+			const messageFrame = body.parentElement;
+			if (!messageFrame) throw new Error("Missing message frame");
+			expect(
+				within(messageFrame).getByTestId("normal-chat-output-status"),
+			).toHaveTextContent("Reply failed");
+			expect(container.querySelector(".thinking-block")).toBeNull();
+			expect(message.content).toBe("");
+		},
+	);
 
 	it.each(
 		(["en", "hu"] as const).flatMap((language) =>
 			[false, true].map((wasStopped) => ({ language, wasStopped })),
 		),
-	)("shows separate finalization warning and effective Copy status, $language stopped=$wasStopped", async ({
-		language,
-		wasStopped,
-	}) => {
-		const previousLanguage = get(uiLanguage);
-		uiLanguage.set(language);
-		try {
-			const writeText = vi.fn().mockResolvedValue(undefined);
-			Object.defineProperty(navigator, "clipboard", {
-				configurable: true,
-				value: { writeText },
-			});
-			const scope = {
-				version: 1,
-				turnId: "t",
-				segmentId: "s",
-				attemptId: "a",
-				stepId: "c",
-				phase: "closing",
-			} as const;
-			const message: NormalChatOutputMessage = {
-				id: "saved-finalization",
-				role: "assistant",
-				timestamp: 1,
-				content: "Canonical answer",
-				wasStopped,
-				normalChatFinalization: {
+	)(
+		"shows separate finalization warning and effective Copy status, $language stopped=$wasStopped",
+		async ({ language, wasStopped }) => {
+			const previousLanguage = get(uiLanguage);
+			uiLanguage.set(language);
+			try {
+				const writeText = vi.fn().mockResolvedValue(undefined);
+				Object.defineProperty(navigator, "clipboard", {
+					configurable: true,
+					value: { writeText },
+				});
+				const scope = {
 					version: 1,
-					status: "failed",
-					cause: "file_association_failed",
+					turnId: "t",
+					segmentId: "s",
+					attemptId: "a",
+					stepId: "c",
+					phase: "closing",
+				} as const;
+				const message: NormalChatOutputMessage = {
+					id: "saved-finalization",
+					role: "assistant",
+					timestamp: 1,
+					content: "Canonical answer",
 					wasStopped,
-				},
-				normalChatOutput: {
-					version: 1,
-					events: [
-						{
-							...scope,
-							sequence: 1,
-							type: "completion",
-							completion: {
-								version: 1,
-								turnId: "t",
-								segmentId: "s",
-								phase: "closing",
-								outcome: wasStopped ? "stopped" : "answered",
-								stopCause: wasStopped ? "user_stop" : "natural_stop",
-								workingStopCause: "tool_budget",
-								closingAttempted: true,
+					normalChatFinalization: {
+						version: 1,
+						status: "failed",
+						cause: "file_association_failed",
+						wasStopped,
+					},
+					normalChatOutput: {
+						version: 1,
+						events: [
+							{
+								...scope,
+								sequence: 1,
+								type: "completion",
+								completion: {
+									version: 1,
+									turnId: "t",
+									segmentId: "s",
+									phase: "closing",
+									outcome: wasStopped ? "stopped" : "answered",
+									stopCause: wasStopped ? "user_stop" : "natural_stop",
+									workingStopCause: "tool_budget",
+									closingAttempted: true,
+								},
 							},
-						},
+						],
+					},
+				};
+				render(MessageBubble, { message });
+				expect(
+					screen.getByTestId(
+						wasStopped ? "stopped-early-chip" : "normal-chat-output-status",
+					),
+				).toHaveTextContent(
+					chatDict[language][
+						wasStopped ? "chat.stoppedEarly" : "chat.output.failed"
 					],
-				},
-			};
-			render(MessageBubble, { message });
-			expect(
-				screen.getByTestId(
-					wasStopped ? "stopped-early-chip" : "normal-chat-output-status",
-				),
-			).toHaveTextContent(
-				chatDict[language][
-					wasStopped ? "chat.stoppedEarly" : "chat.output.failed"
-				],
-			);
-			expect(
-				screen.getByTestId("normal-chat-finalization-warning"),
-			).toHaveTextContent(
-				chatDict[language]["chat.output.fileAssociationFailed"],
-			);
-			await fireEvent.click(
-				screen.getByRole("button", {
-					name: chatDict[language]["messageBubble.copyMessage"],
-				}),
-			);
-			expect(writeText).toHaveBeenCalledWith("Canonical answer");
-		} finally {
-			uiLanguage.set(previousLanguage);
-		}
-	});
+				);
+				expect(
+					screen.getByTestId("normal-chat-finalization-warning"),
+				).toHaveTextContent(
+					chatDict[language]["chat.output.fileAssociationFailed"],
+				);
+				await fireEvent.click(
+					screen.getByRole("button", {
+						name: chatDict[language]["messageBubble.copyMessage"],
+					}),
+				);
+				expect(writeText).toHaveBeenCalledWith("Canonical answer");
+			} finally {
+				uiLanguage.set(previousLanguage);
+			}
+		},
+	);
 
 	it("copies canonical saved content while retaining escaped interrupted activity", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
@@ -419,67 +420,68 @@ describe("MessageBubble", () => {
 		expect(writeText).toHaveBeenCalledWith("Canonical answer");
 	});
 
-	it.each([
-		"live",
-		"reload",
-		"completed",
-	] as const)("Copy preserves canonical closing status: %s", async (mode) => {
-		const writeText = vi.fn().mockResolvedValue(undefined);
-		Object.defineProperty(navigator, "clipboard", {
-			configurable: true,
-			value: { writeText },
-		});
-		const completion = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "closing",
-			outcome: mode === "completed" ? "answered" : "incomplete",
-			stopCause: "length",
-			workingStopCause: "tool_budget",
-			closingAttempted: true,
-		} as const;
-		const message: NormalChatOutputMessage = {
-			id: "closing-copy",
-			role: "assistant",
-			timestamp: 1,
-			content: "  Partial [fixed]\n",
-			...(mode === "reload"
-				? {
-						normalChatOutput: {
-							version: 1,
-							events: [
-								{
-									version: 1,
-									turnId: "t",
-									segmentId: "s",
-									attemptId: "a",
-									stepId: "c",
-									phase: "closing",
-									sequence: 0,
-									type: "completion",
-									completion,
-								},
-							],
-						},
-					}
-				: {
-						normalChatOutputView: {
-							answer: "RAW",
-							activity: [],
-							blocks: [],
-							completion,
-						},
-					}),
-		};
-		render(MessageBubble, { message });
-		if (mode !== "completed")
-			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
-				chatDict.en["chat.output.incomplete"],
+	it.each(["live", "reload", "completed"] as const)(
+		"Copy preserves canonical closing status: %s",
+		async (mode) => {
+			const writeText = vi.fn().mockResolvedValue(undefined);
+			Object.defineProperty(navigator, "clipboard", {
+				configurable: true,
+				value: { writeText },
+			});
+			const completion = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: mode === "completed" ? "answered" : "incomplete",
+				stopCause: "length",
+				workingStopCause: "tool_budget",
+				closingAttempted: true,
+			} as const;
+			const message: NormalChatOutputMessage = {
+				id: "closing-copy",
+				role: "assistant",
+				timestamp: 1,
+				content: "  Partial [fixed]\n",
+				...(mode === "reload"
+					? {
+							normalChatOutput: {
+								version: 1,
+								events: [
+									{
+										version: 1,
+										turnId: "t",
+										segmentId: "s",
+										attemptId: "a",
+										stepId: "c",
+										phase: "closing",
+										sequence: 0,
+										type: "completion",
+										completion,
+									},
+								],
+							},
+						}
+					: {
+							normalChatOutputView: {
+								answer: "RAW",
+								activity: [],
+								blocks: [],
+								completion,
+							},
+						}),
+			};
+			render(MessageBubble, { message });
+			if (mode !== "completed")
+				expect(
+					screen.getByTestId("normal-chat-output-status"),
+				).toHaveTextContent(chatDict.en["chat.output.incomplete"]);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Copy message" }),
 			);
-		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-		expect(writeText).toHaveBeenCalledWith(message.content);
-	});
+			expect(writeText).toHaveBeenCalledWith(message.content);
+		},
+	);
 
 	it("hides working prose while an explicit closing answer streams", async () => {
 		const message: NormalChatOutputMessage = {
@@ -823,79 +825,79 @@ describe("MessageBubble", () => {
 		});
 	});
 
-	it.each([
-		"answered",
-		"stopped",
-	] as const)("settles a live provisional preview without duplication or promotion: %s", async (outcome) => {
-		const output = createNormalChatOutputAccumulator();
-		const scope = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			attemptId: "a",
-			stepId: "w",
-			phase: "working",
-		} as const;
-		output.apply({
-			...scope,
-			sequence: 0,
-			type: "block_start",
-			blockId: "b",
-			nativeId: "b",
-			kind: "text",
-			role: "provisional",
-		});
-		output.apply({
-			...scope,
-			sequence: 1,
-			type: "block_delta",
-			blockId: "b",
-			text: "Previewed answer",
-		});
-		let list: ChatMessage[] = [
-			{
-				id: "preview",
-				role: "assistant",
-				timestamp: 1,
-				content: "",
-				isStreaming: true,
-			},
-		];
-		list = applyNormalChatOutputView(list, "preview", output.getProjection());
-		const { rerender } = render(MessageBubble, { message: list[0] });
-		await waitFor(() =>
-			expect(screen.getByText("Previewed answer")).toBeInTheDocument(),
-		);
-		output.apply({
-			...scope,
-			sequence: 2,
-			type: "step_settled",
-			role: outcome === "answered" ? "answer" : "activity",
-			finishReason: outcome === "answered" ? "stop" : null,
-		});
-		list = applyNormalChatOutputView(list, "preview", output.getProjection());
-		await rerender({
-			message: {
-				...list[0],
-				isStreaming: false,
-				wasStopped: outcome === "stopped",
-			},
-		});
-		if (outcome === "answered") {
+	it.each(["answered", "stopped"] as const)(
+		"settles a live provisional preview without duplication or promotion: %s",
+		async (outcome) => {
+			const output = createNormalChatOutputAccumulator();
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			} as const;
+			output.apply({
+				...scope,
+				sequence: 0,
+				type: "block_start",
+				blockId: "b",
+				nativeId: "b",
+				kind: "text",
+				role: "provisional",
+			});
+			output.apply({
+				...scope,
+				sequence: 1,
+				type: "block_delta",
+				blockId: "b",
+				text: "Previewed answer",
+			});
+			let list: ChatMessage[] = [
+				{
+					id: "preview",
+					role: "assistant",
+					timestamp: 1,
+					content: "",
+					isStreaming: true,
+				},
+			];
+			list = applyNormalChatOutputView(list, "preview", output.getProjection());
+			const { rerender } = render(MessageBubble, { message: list[0] });
 			await waitFor(() =>
-				expect(
-					document.querySelector(".prose-container")?.textContent?.trim(),
-				).toBe("Previewed answer"),
+				expect(screen.getByText("Previewed answer")).toBeInTheDocument(),
 			);
-			expect(list[0].content).toBe("Previewed answer");
-		} else {
-			expect(screen.queryByText("Previewed answer")).toBeNull();
-			expect(list[0].content).toBe("");
-			expect(normalChatOutputView(list[0])?.activity[0].text).toBe(
-				"Previewed answer",
-			);
-		}
-	});
+			output.apply({
+				...scope,
+				sequence: 2,
+				type: "step_settled",
+				role: outcome === "answered" ? "answer" : "activity",
+				finishReason: outcome === "answered" ? "stop" : null,
+			});
+			list = applyNormalChatOutputView(list, "preview", output.getProjection());
+			await rerender({
+				message: {
+					...list[0],
+					isStreaming: false,
+					wasStopped: outcome === "stopped",
+				},
+			});
+			if (outcome === "answered") {
+				await waitFor(() =>
+					expect(
+						document.querySelector(".prose-container")?.textContent?.trim(),
+					).toBe("Previewed answer"),
+				);
+				expect(list[0].content).toBe("Previewed answer");
+			} else {
+				expect(screen.queryByText("Previewed answer")).toBeNull();
+				expect(list[0].content).toBe("");
+				expect(normalChatOutputView(list[0])?.activity[0].text).toBe(
+					"Previewed answer",
+				);
+			}
+		},
+	);
 
 	it("shows a lightweight preparation status for an empty streaming assistant response", () => {
 		const message: ChatMessage = {
@@ -2543,32 +2545,6 @@ describe("MessageBubble", () => {
 				expect.objectContaining({ compactExternalLinks: true }),
 			);
 		});
-	});
-
-	it("renders plain URLs in sent user messages as highlighted links", () => {
-		const message: ChatMessage = {
-			id: "user-link-message",
-			renderKey: "user-link-message",
-			role: "user",
-			content: "Read https://example.com/report and www.example.org.",
-			timestamp: Date.now(),
-		};
-
-		render(MessageBubble, { message });
-
-		const secureLink = screen.getByRole("link", {
-			name: "https://example.com/report",
-		});
-		expect(secureLink).toHaveAttribute("href", "https://example.com/report");
-		expect(secureLink).toHaveAttribute("target", "_blank");
-		expect(secureLink.getAttribute("rel")).toContain("noopener");
-		expect(secureLink.getAttribute("rel")).toContain("noreferrer");
-
-		const bareLink = screen.getByRole("link", { name: "www.example.org" });
-		expect(bareLink).toHaveAttribute("href", "https://www.example.org");
-		expect(screen.getByTestId("user-message")).toHaveTextContent(
-			"Read https://example.com/report and www.example.org.",
-		);
 	});
 
 	it("shows compact message info through cost without click-only expansion", () => {
@@ -5153,52 +5129,52 @@ describe("MessageBubble", () => {
 			expect(screen.queryByTestId("normal-chat-output-status")).toBeNull();
 		});
 
-		it.each([
-			"failed",
-			"incomplete",
-			"stopped",
-		] as const)("retains a %s status even with continuation context", (outcome) => {
-			const scope = {
-				version: 1,
-				turnId: "t",
-				segmentId: "s",
-				attemptId: "a",
-				stepId: "c",
-				phase: "closing",
-			} as const;
-			const stopCause = outcome === "stopped" ? "user_stop" : "transport_error";
-			const message = segment({
-				normalChatOutput: {
+		it.each(["failed", "incomplete", "stopped"] as const)(
+			"retains a %s status even with continuation context",
+			(outcome) => {
+				const scope = {
 					version: 1,
-					events: [
-						{
-							...scope,
-							sequence: 1,
-							type: "completion",
-							completion: {
-								version: 1,
-								turnId: "t",
-								segmentId: "s",
-								phase: "closing",
-								outcome,
-								stopCause,
-								workingStopCause: stopCause,
-								closingAttempted: true,
+					turnId: "t",
+					segmentId: "s",
+					attemptId: "a",
+					stepId: "c",
+					phase: "closing",
+				} as const;
+				const stopCause =
+					outcome === "stopped" ? "user_stop" : "transport_error";
+				const message = segment({
+					normalChatOutput: {
+						version: 1,
+						events: [
+							{
+								...scope,
+								sequence: 1,
+								type: "completion",
+								completion: {
+									version: 1,
+									turnId: "t",
+									segmentId: "s",
+									phase: "closing",
+									outcome,
+									stopCause,
+									workingStopCause: stopCause,
+									closingAttempted: true,
+								},
 							},
-						},
-					],
-				},
-			});
-			const question = asked(answeredWithTheParty);
-			render(MessageBubble, {
-				message,
-				replyPlace: place({ continuedBelow: true, question }),
-				askQuestion: question,
-			});
-			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
-				chatDict.en[`chat.output.${outcome}`],
-			);
-		});
+						],
+					},
+				});
+				const question = asked(answeredWithTheParty);
+				render(MessageBubble, {
+					message,
+					replyPlace: place({ continuedBelow: true, question }),
+					askQuestion: question,
+				});
+				expect(
+					screen.getByTestId("normal-chat-output-status"),
+				).toHaveTextContent(chatDict.en[`chat.output.${outcome}`]);
+			},
+		);
 
 		// The ask call as the first segment stores it: it paused the reply.
 		const askCall = {

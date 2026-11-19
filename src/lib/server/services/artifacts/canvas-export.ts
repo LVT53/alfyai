@@ -168,7 +168,7 @@ export async function storeCanvasImage(input: {
 		artifactId: input.artifactId,
 		conversationId: input.conversationId,
 	});
-	if (!board || board.kind !== "canvas") {
+	if (board?.kind !== "canvas") {
 		return { ok: false, reason: "not_found" };
 	}
 	const conversationId = board.conversationId;

@@ -163,213 +163,212 @@ describe("streamChat", () => {
 			);
 		});
 
-		it.each([
-			-1,
-			"500000",
-			null,
-		])("is not taken from %j", async (remainingMs) => {
-			// An unreadable observation is dropped, as an unreadable deadline is: the
-			// runtime hears of the wait without one and polls the chat.
-			expect(
-				await waitingWith({ ...pendingObservation, remainingMs }),
-			).toHaveBeenCalledWith(undefined);
-		});
-	});
-
-	it.each([
-		"Let me check.",
-		"Hello. Let me check.",
-	])("keeps %s out of the answer across distinct SSE IDs", async (working) => {
-		const scope = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			attemptId: "a",
-			stepId: "w",
-			phase: "working",
-		};
-		const events = [
-			{
-				...scope,
-				sequence: 0,
-				type: "block_start",
-				blockId: "b",
-				nativeId: "text-1",
-				kind: "text",
-				role: "provisional",
+		it.each([-1, "500000", null])(
+			"is not taken from %j",
+			async (remainingMs) => {
+				// An unreadable observation is dropped, as an unreadable deadline is: the
+				// runtime hears of the wait without one and polls the chat.
+				expect(
+					await waitingWith({ ...pendingObservation, remainingMs }),
+				).toHaveBeenCalledWith(undefined);
 			},
-			{
-				...scope,
-				sequence: 1,
-				type: "block_delta",
-				blockId: "b",
-				text: working,
-			},
-			{
-				...scope,
-				sequence: 2,
-				type: "step_settled",
-				role: "activity",
-				finishReason: "tool-calls",
-			},
-			{
-				...scope,
-				stepId: "c",
-				phase: "closing",
-				sequence: 3,
-				type: "block_start",
-				blockId: "c",
-				nativeId: "text-2",
-				kind: "text",
-				role: "answer",
-			},
-			{
-				...scope,
-				stepId: "c",
-				phase: "closing",
-				sequence: 4,
-				type: "block_delta",
-				blockId: "c",
-				text: "## Result",
-			},
-		];
-		const views: { answer: string; activity: string[] }[] = [];
-		const { callbacks: cb, done } = runStreamWithMockedResponse({
-			responseChunks: [
-				...events.flatMap((event) => [
-					uiFrame({ type: "data-normal-chat-output", data: event }),
-					uiFrame({ type: "text-delta", id: "old", delta: "duplicate" }),
-				]),
-				uiFrame({ type: "data-normal-chat-output", data: events[4] }),
-				endEvent({ finalContent: "## Result [repaired]" }),
-			],
-			callbacks: {
-				...makeCallbacks(),
-				onNormalChatOutput: (view: NormalChatOutputProjection) => {
-					views.push({
-						answer: view.answer,
-						activity: view.activity.map((b) => b.text),
-					});
-				},
-			},
-		});
-		await done;
-		expect(views[1]).toEqual({ answer: "", activity: [working] });
-		expect(views.at(-1)).toEqual({ answer: "## Result", activity: [working] });
-		expect(views).toHaveLength(5);
-		expect(cb.onToken).not.toHaveBeenCalled();
-		expect(cb.onEnd).toHaveBeenCalledWith(
-			"## Result",
-			expect.objectContaining({ finalContent: "## Result [repaired]" }),
 		);
 	});
 
-	it.each([
-		"natural",
-		"replay",
-		"tool",
-		"missing-finish",
-		"closing-error",
-	])("preserves block order and explicit roles on %s", async (scenario) => {
-		const natural = scenario === "natural" || scenario === "replay";
-		const replayLog = vi
-			.spyOn(console, "info")
-			.mockImplementation(() => undefined);
-		const scope = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			attemptId: "a",
-			stepId: "w",
-			phase: scenario === "closing-error" ? "closing" : "working",
-		} as const;
-		let sequence = 0;
-		const events: NormalChatOutputEvent[] = [
-			{
-				...scope,
-				sequence: sequence++,
-				type: "block_start",
-				blockId: "first",
-				nativeId: "1",
-				kind: "text",
-				role: scenario === "closing-error" ? "answer" : "provisional",
-			},
-			{
-				...scope,
-				sequence: sequence++,
-				type: "block_delta",
-				blockId: "first",
-				text: "## Heading\n",
-			},
-			{
-				...scope,
-				sequence: sequence++,
-				type: "block_start",
-				blockId: "second",
-				nativeId: "2",
-				kind: "text",
-				role: scenario === "closing-error" ? "answer" : "provisional",
-			},
-			{
-				...scope,
-				sequence: sequence++,
-				type: "block_delta",
-				blockId: "second",
-				text: "```ts\ncode\n```",
-			},
-		];
-		if (natural || scenario === "tool")
-			events.push({
-				...scope,
-				sequence: sequence++,
-				type: "step_settled",
-				role: natural ? "answer" : "activity",
-				finishReason: natural ? "stop" : "tool-calls",
-			});
-		const views: { answer: string; ids: string[] }[] = [];
-		const { callbacks: cb, done } = runStreamWithMockedResponse({
-			responseChunks: [
-				...(scenario === "replay"
-					? [uiFrame({ type: "data-replay-start" })]
-					: []),
-				...events.map((event) =>
-					uiFrame({ type: "data-normal-chat-output", data: event }),
-				),
-				...(scenario === "replay"
-					? [uiFrame({ type: "data-replay-end" })]
-					: []),
-				...(scenario === "missing-finish"
-					? []
-					: scenario === "closing-error"
-						? [errorEvent({ message: "failed" })]
-						: [endEvent()]),
-			],
-			callbacks: {
-				...makeCallbacks(),
-				onNormalChatOutput: (view: NormalChatOutputProjection) => {
-					views.push({
-						answer: view.answer,
-						ids: view.blocks.map((b) => b.nativeId),
-					});
+	it.each(["Let me check.", "Hello. Let me check."])(
+		"keeps %s out of the answer across distinct SSE IDs",
+		async (working) => {
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			};
+			const events = [
+				{
+					...scope,
+					sequence: 0,
+					type: "block_start",
+					blockId: "b",
+					nativeId: "text-1",
+					kind: "text",
+					role: "provisional",
 				},
-			},
-		});
-		await done;
-		replayLog.mockRestore();
-		expect(views.at(-1)).toEqual({
-			answer:
-				natural || scenario === "closing-error"
-					? "## Heading\n```ts\ncode\n```"
-					: "",
-			ids: ["1", "2"],
-		});
-		if (natural)
-			expect(views.slice(0, -1).every((v) => v.answer === "")).toBe(true);
-		if (scenario === "missing-finish" || scenario === "closing-error") {
-			expect(cb.onError).toHaveBeenCalled();
-			expect(cb.onEnd).not.toHaveBeenCalled();
-		}
-	});
+				{
+					...scope,
+					sequence: 1,
+					type: "block_delta",
+					blockId: "b",
+					text: working,
+				},
+				{
+					...scope,
+					sequence: 2,
+					type: "step_settled",
+					role: "activity",
+					finishReason: "tool-calls",
+				},
+				{
+					...scope,
+					stepId: "c",
+					phase: "closing",
+					sequence: 3,
+					type: "block_start",
+					blockId: "c",
+					nativeId: "text-2",
+					kind: "text",
+					role: "answer",
+				},
+				{
+					...scope,
+					stepId: "c",
+					phase: "closing",
+					sequence: 4,
+					type: "block_delta",
+					blockId: "c",
+					text: "## Result",
+				},
+			];
+			const views: { answer: string; activity: string[] }[] = [];
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [
+					...events.flatMap((event) => [
+						uiFrame({ type: "data-normal-chat-output", data: event }),
+						uiFrame({ type: "text-delta", id: "old", delta: "duplicate" }),
+					]),
+					uiFrame({ type: "data-normal-chat-output", data: events[4] }),
+					endEvent({ finalContent: "## Result [repaired]" }),
+				],
+				callbacks: {
+					...makeCallbacks(),
+					onNormalChatOutput: (view: NormalChatOutputProjection) => {
+						views.push({
+							answer: view.answer,
+							activity: view.activity.map((b) => b.text),
+						});
+					},
+				},
+			});
+			await done;
+			expect(views[1]).toEqual({ answer: "", activity: [working] });
+			expect(views.at(-1)).toEqual({
+				answer: "## Result",
+				activity: [working],
+			});
+			expect(views).toHaveLength(5);
+			expect(cb.onToken).not.toHaveBeenCalled();
+			expect(cb.onEnd).toHaveBeenCalledWith(
+				"## Result",
+				expect.objectContaining({ finalContent: "## Result [repaired]" }),
+			);
+		},
+	);
+
+	it.each(["natural", "replay", "tool", "missing-finish", "closing-error"])(
+		"preserves block order and explicit roles on %s",
+		async (scenario) => {
+			const natural = scenario === "natural" || scenario === "replay";
+			const replayLog = vi
+				.spyOn(console, "info")
+				.mockImplementation(() => undefined);
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "w",
+				phase: scenario === "closing-error" ? "closing" : "working",
+			} as const;
+			let sequence = 0;
+			const events: NormalChatOutputEvent[] = [
+				{
+					...scope,
+					sequence: sequence++,
+					type: "block_start",
+					blockId: "first",
+					nativeId: "1",
+					kind: "text",
+					role: scenario === "closing-error" ? "answer" : "provisional",
+				},
+				{
+					...scope,
+					sequence: sequence++,
+					type: "block_delta",
+					blockId: "first",
+					text: "## Heading\n",
+				},
+				{
+					...scope,
+					sequence: sequence++,
+					type: "block_start",
+					blockId: "second",
+					nativeId: "2",
+					kind: "text",
+					role: scenario === "closing-error" ? "answer" : "provisional",
+				},
+				{
+					...scope,
+					sequence: sequence++,
+					type: "block_delta",
+					blockId: "second",
+					text: "```ts\ncode\n```",
+				},
+			];
+			if (natural || scenario === "tool")
+				events.push({
+					...scope,
+					sequence: sequence++,
+					type: "step_settled",
+					role: natural ? "answer" : "activity",
+					finishReason: natural ? "stop" : "tool-calls",
+				});
+			const views: { answer: string; ids: string[] }[] = [];
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [
+					...(scenario === "replay"
+						? [uiFrame({ type: "data-replay-start" })]
+						: []),
+					...events.map((event) =>
+						uiFrame({ type: "data-normal-chat-output", data: event }),
+					),
+					...(scenario === "replay"
+						? [uiFrame({ type: "data-replay-end" })]
+						: []),
+					...(scenario === "missing-finish"
+						? []
+						: scenario === "closing-error"
+							? [errorEvent({ message: "failed" })]
+							: [endEvent()]),
+				],
+				callbacks: {
+					...makeCallbacks(),
+					onNormalChatOutput: (view: NormalChatOutputProjection) => {
+						views.push({
+							answer: view.answer,
+							ids: view.blocks.map((b) => b.nativeId),
+						});
+					},
+				},
+			});
+			await done;
+			replayLog.mockRestore();
+			expect(views.at(-1)).toEqual({
+				answer:
+					natural || scenario === "closing-error"
+						? "## Heading\n```ts\ncode\n```"
+						: "",
+				ids: ["1", "2"],
+			});
+			if (natural)
+				expect(views.slice(0, -1).every((v) => v.answer === "")).toBe(true);
+			if (scenario === "missing-finish" || scenario === "closing-error") {
+				expect(cb.onError).toHaveBeenCalled();
+				expect(cb.onEnd).not.toHaveBeenCalled();
+			}
+		},
+	);
 
 	it("keeps real structural reasoning distinct from commentary and ignores legacy duplicates", async () => {
 		const scope = {
@@ -428,62 +427,62 @@ describe("streamChat", () => {
 		expect(cb.onEnd).toHaveBeenCalledWith("", undefined);
 	});
 
-	it.each([
-		false,
-		true,
-	])("retains finalization terminal metadata through finish(error/stop), stopped=%s", async (wasStopped) => {
-		const modelCompletion = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "closing",
-			outcome: "answered",
-			stopCause: "natural_stop",
-			workingStopCause: "tool_budget",
-			closingAttempted: true,
-		} as const;
-		const normalChatFinalization = {
-			version: 1,
-			status: "failed",
-			cause: "file_association_failed",
-			wasStopped,
-		} as const;
-		const observation = {
-			version: 1,
-			streamId: "observer",
-			conversationId: "conv-1",
-			state: "terminal",
-			assistantMessageId: "saved",
-			modelCompletion,
-			normalChatFinalization,
-			completion: {
-				...modelCompletion,
-				outcome: wasStopped ? "stopped" : "failed",
-				stopCause: wasStopped ? "user_stop" : "uncertain_execution",
-			},
-		};
-		const { callbacks: cb, done } = runStreamWithMockedResponse({
-			responseChunks: [
-				uiFrame({
-					type: "data-stream-metadata",
-					data: { observation, normalChatFinalization },
-					transient: true,
-				}),
-				uiFrame({
-					type: "finish",
-					finishReason: wasStopped ? "stop" : "error",
-				}),
-				uiFrame("[DONE]"),
-			],
-		});
-		await done;
-		expect(cb.onError).not.toHaveBeenCalled();
-		expect(cb.onEnd).toHaveBeenCalledOnce();
-		expect(cb.onEnd).toHaveBeenCalledWith(
-			"",
-			expect.objectContaining({ observation, normalChatFinalization }),
-		);
-	});
+	it.each([false, true])(
+		"retains finalization terminal metadata through finish(error/stop), stopped=%s",
+		async (wasStopped) => {
+			const modelCompletion = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: "answered",
+				stopCause: "natural_stop",
+				workingStopCause: "tool_budget",
+				closingAttempted: true,
+			} as const;
+			const normalChatFinalization = {
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped,
+			} as const;
+			const observation = {
+				version: 1,
+				streamId: "observer",
+				conversationId: "conv-1",
+				state: "terminal",
+				assistantMessageId: "saved",
+				modelCompletion,
+				normalChatFinalization,
+				completion: {
+					...modelCompletion,
+					outcome: wasStopped ? "stopped" : "failed",
+					stopCause: wasStopped ? "user_stop" : "uncertain_execution",
+				},
+			};
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [
+					uiFrame({
+						type: "data-stream-metadata",
+						data: { observation, normalChatFinalization },
+						transient: true,
+					}),
+					uiFrame({
+						type: "finish",
+						finishReason: wasStopped ? "stop" : "error",
+					}),
+					uiFrame("[DONE]"),
+				],
+			});
+			await done;
+			expect(cb.onError).not.toHaveBeenCalled();
+			expect(cb.onEnd).toHaveBeenCalledOnce();
+			expect(cb.onEnd).toHaveBeenCalledWith(
+				"",
+				expect.objectContaining({ observation, normalChatFinalization }),
+			);
+		},
+	);
 
 	it.each([
 		"missing-model",
@@ -494,81 +493,86 @@ describe("streamChat", () => {
 		"invalid-marker",
 		"mirrored-id",
 		"mirrored-status",
-	] as const)("does not erase malformed or mismatched finalization truth: %s", async (variant) => {
-		const modelCompletion = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "closing",
-			outcome: "answered",
-			stopCause: "natural_stop",
-			workingStopCause: "tool_budget",
-			closingAttempted: true,
-		} as const;
-		const normalChatFinalization = {
-			version: 1,
-			status: "failed",
-			cause: "file_association_failed",
-			wasStopped: false,
-		} as const;
-		const observation = {
-			version: 1,
-			streamId: "observer",
-			conversationId: "conv-1",
-			state: "terminal",
-			assistantMessageId: variant === "invalid-assistant-id" ? 123 : "saved",
-			modelCompletion:
-				variant === "missing-model" ? undefined : modelCompletion,
-			normalChatFinalization:
-				variant === "invalid-marker"
-					? { ...normalChatFinalization, version: 2 }
-					: normalChatFinalization,
-			completion:
-				variant === "missing-effective"
-					? undefined
-					: variant === "invalid-effective-shape"
-						? { ...modelCompletion, version: 2 }
-						: variant === "wrong-effective"
-							? modelCompletion
-							: {
-									...modelCompletion,
-									outcome: "failed",
-									stopCause: "uncertain_execution",
-								},
-		};
-		const data = {
-			observation,
-			...(variant === "mirrored-id" ? { assistantMessageId: "wrong-row" } : {}),
-			...(variant === "mirrored-status"
-				? {
-						normalChatFinalization: {
-							...normalChatFinalization,
-							wasStopped: true,
-						},
-					}
-				: {}),
-		};
-		const { callbacks: cb, done } = runStreamWithMockedResponse({
-			responseChunks: [
-				uiFrame({ type: "data-stream-metadata", data, transient: true }),
-				uiFrame({ type: "finish", finishReason: "error" }),
-				uiFrame("[DONE]"),
-			],
-		});
-		await done;
-		expect(cb.onError).not.toHaveBeenCalled();
-		expect(cb.onEnd).toHaveBeenCalledWith(
-			"",
-			expect.objectContaining({
-				observation: {
-					version: 1,
-					streamId: "observer",
-					conversationId: "conv-1",
-					state: "unavailable",
-				},
-			}),
-		);
-	});
+	] as const)(
+		"does not erase malformed or mismatched finalization truth: %s",
+		async (variant) => {
+			const modelCompletion = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: "answered",
+				stopCause: "natural_stop",
+				workingStopCause: "tool_budget",
+				closingAttempted: true,
+			} as const;
+			const normalChatFinalization = {
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped: false,
+			} as const;
+			const observation = {
+				version: 1,
+				streamId: "observer",
+				conversationId: "conv-1",
+				state: "terminal",
+				assistantMessageId: variant === "invalid-assistant-id" ? 123 : "saved",
+				modelCompletion:
+					variant === "missing-model" ? undefined : modelCompletion,
+				normalChatFinalization:
+					variant === "invalid-marker"
+						? { ...normalChatFinalization, version: 2 }
+						: normalChatFinalization,
+				completion:
+					variant === "missing-effective"
+						? undefined
+						: variant === "invalid-effective-shape"
+							? { ...modelCompletion, version: 2 }
+							: variant === "wrong-effective"
+								? modelCompletion
+								: {
+										...modelCompletion,
+										outcome: "failed",
+										stopCause: "uncertain_execution",
+									},
+			};
+			const data = {
+				observation,
+				...(variant === "mirrored-id"
+					? { assistantMessageId: "wrong-row" }
+					: {}),
+				...(variant === "mirrored-status"
+					? {
+							normalChatFinalization: {
+								...normalChatFinalization,
+								wasStopped: true,
+							},
+						}
+					: {}),
+			};
+			const { callbacks: cb, done } = runStreamWithMockedResponse({
+				responseChunks: [
+					uiFrame({ type: "data-stream-metadata", data, transient: true }),
+					uiFrame({ type: "finish", finishReason: "error" }),
+					uiFrame("[DONE]"),
+				],
+			});
+			await done;
+			expect(cb.onError).not.toHaveBeenCalled();
+			expect(cb.onEnd).toHaveBeenCalledWith(
+				"",
+				expect.objectContaining({
+					observation: {
+						version: 1,
+						streamId: "observer",
+						conversationId: "conv-1",
+						state: "unavailable",
+					},
+				}),
+			);
+		},
+	);
 
 	it("preserves scoped observer terminal truth in stream metadata", async () => {
 		const observation: NormalChatTurnObservation = {
@@ -2251,17 +2255,18 @@ describe("streamChat", () => {
 			expect(isServerUpdateRefusal(error)).toBe(true);
 		});
 
-		it.each([
-			502, 504,
-		])("takes a %i with no body, or a JSON body with neither error nor code, for the server being away", async (status) => {
-			for (const body of [null, "{}", '{"detail":"upstream"}']) {
-				const error = await refusalOf(new Response(body, { status }));
+		it.each([502, 504])(
+			"takes a %i with no body, or a JSON body with neither error nor code, for the server being away",
+			async (status) => {
+				for (const body of [null, "{}", '{"detail":"upstream"}']) {
+					const error = await refusalOf(new Response(body, { status }));
 
-				expect(error.status).toBe(status);
-				expect(error.serverUnavailable).toBe(true);
-				expect(isServerUpdateRefusal(error)).toBe(true);
-			}
-		});
+					expect(error.status).toBe(status);
+					expect(error.serverUnavailable).toBe(true);
+					expect(isServerUpdateRefusal(error)).toBe(true);
+				}
+			},
+		);
 
 		it("does not take the app's own 503 JSON, or its SvelteKit error, for the server being away", async () => {
 			for (const body of [
@@ -2772,50 +2777,52 @@ describe("streamChat", () => {
 		);
 	});
 
-	it.each([
-		false,
-		true,
-	])("explicit stop after passive detach cancels the exact observed stream once (failure=%s)", async (failure) => {
-		let rejectObserver!: (reason: Error) => void;
-		const observer = new Promise<Response>((_resolve, reject) => {
-			rejectObserver = reject;
-		});
-		vi.mocked(fetch).mockImplementation((url) =>
-			String(url) === "/api/chat/stream/stop"
-				? failure
-					? Promise.reject(new TypeError("offline"))
-					: Promise.resolve(new Response("{}"))
-				: observer,
-		);
-		const callbacks = makeCallbacks();
-		const handle = streamChat("A", "conv-1", callbacks, {
-			reconnectToStreamId: "exact-observed-stream",
-		});
-		handle.detach();
-		rejectObserver(new DOMException("detached", "AbortError"));
-		await observer.catch(() => undefined);
-		await flushMicrotasks();
-		expect(fetch).toHaveBeenCalledTimes(1);
-		handle.stop();
-		handle.stop();
-		await flushMicrotasks();
-		expect(
-			vi
-				.mocked(fetch)
-				.mock.calls.filter(([url]) => String(url) === "/api/chat/stream/stop"),
-		).toEqual([
-			[
-				"/api/chat/stream/stop",
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ streamId: "exact-observed-stream" }),
-				},
-			],
-		]);
-		expect(callbacks.onEnd).not.toHaveBeenCalled();
-		expect(callbacks.onError).not.toHaveBeenCalled();
-	});
+	it.each([false, true])(
+		"explicit stop after passive detach cancels the exact observed stream once (failure=%s)",
+		async (failure) => {
+			let rejectObserver!: (reason: Error) => void;
+			const observer = new Promise<Response>((_resolve, reject) => {
+				rejectObserver = reject;
+			});
+			vi.mocked(fetch).mockImplementation((url) =>
+				String(url) === "/api/chat/stream/stop"
+					? failure
+						? Promise.reject(new TypeError("offline"))
+						: Promise.resolve(new Response("{}"))
+					: observer,
+			);
+			const callbacks = makeCallbacks();
+			const handle = streamChat("A", "conv-1", callbacks, {
+				reconnectToStreamId: "exact-observed-stream",
+			});
+			handle.detach();
+			rejectObserver(new DOMException("detached", "AbortError"));
+			await observer.catch(() => undefined);
+			await flushMicrotasks();
+			expect(fetch).toHaveBeenCalledTimes(1);
+			handle.stop();
+			handle.stop();
+			await flushMicrotasks();
+			expect(
+				vi
+					.mocked(fetch)
+					.mock.calls.filter(
+						([url]) => String(url) === "/api/chat/stream/stop",
+					),
+			).toEqual([
+				[
+					"/api/chat/stream/stop",
+					{
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ streamId: "exact-observed-stream" }),
+					},
+				],
+			]);
+			expect(callbacks.onEnd).not.toHaveBeenCalled();
+			expect(callbacks.onError).not.toHaveBeenCalled();
+		},
+	);
 
 	it("detach() aborts the local stream without requesting a server stop or emitting stop metadata", async () => {
 		const mockFetch = vi.mocked(fetch);
@@ -2854,48 +2861,47 @@ describe("streamChat", () => {
 });
 
 describe("stream transport session response authority", () => {
-	it.each([
-		"status",
-		"buffer",
-		"send",
-	])("does not heal a newer expiry from an old %s response", async (kind) => {
-		const { clearSessionExpiry, markSessionExpired, isSessionExpired } =
-			await import("$lib/stores/session");
-		clearSessionExpiry();
-		let release!: (response: Response) => void;
-		const pending = new Promise<Response>((done) => {
-			release = done;
-		});
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(() => pending),
-		);
-		try {
-			const waiting =
-				kind === "status"
-					? checkForOrphanedStream("conv-1")
-					: kind === "buffer"
-						? getStreamBufferInfo("stream-1", "conv-1")
-						: runStreamAndWait(
-								"hello",
-								"conv-1",
-								makeCallbacks() as unknown as StreamCallbacks,
-							);
-			markSessionExpired();
-			release(
-				kind === "send"
-					? new Response("data: [DONE]\n\n", {
-							headers: { "Content-Type": "text/event-stream" },
-						})
-					: new Response("{}"),
-			);
-			await waiting;
-			expect(isSessionExpired()).toBe(true);
-		} finally {
+	it.each(["status", "buffer", "send"])(
+		"does not heal a newer expiry from an old %s response",
+		async (kind) => {
+			const { clearSessionExpiry, markSessionExpired, isSessionExpired } =
+				await import("$lib/stores/session");
 			clearSessionExpiry();
-			vi.unstubAllGlobals();
-		}
-	});
+			let release!: (response: Response) => void;
+			const pending = new Promise<Response>((done) => {
+				release = done;
+			});
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(() => pending),
+			);
+			try {
+				const waiting =
+					kind === "status"
+						? checkForOrphanedStream("conv-1")
+						: kind === "buffer"
+							? getStreamBufferInfo("stream-1", "conv-1")
+							: runStreamAndWait(
+									"hello",
+									"conv-1",
+									makeCallbacks() as unknown as StreamCallbacks,
+								);
+				markSessionExpired();
+				release(
+					kind === "send"
+						? new Response("data: [DONE]\n\n", {
+								headers: { "Content-Type": "text/event-stream" },
+							})
+						: new Response("{}"),
+				);
+				await waiting;
+				expect(isSessionExpired()).toBe(true);
+			} finally {
+				clearSessionExpiry();
+				vi.unstubAllGlobals();
+			}
+		},
+	);
 
 	it("does not re-expire newer healing when the send's refusal body resolves late", async () => {
 		const { clearSessionExpiry, markSessionExpired, isSessionExpired } =

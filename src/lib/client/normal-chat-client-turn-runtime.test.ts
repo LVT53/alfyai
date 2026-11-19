@@ -3792,182 +3792,182 @@ describe("Normal Chat Client Turn Runtime", () => {
 				})),
 			),
 		),
-	)("keeps late A $stage inert after $action with $kind partials", async ({
-		kind,
-		stage,
-		action,
-	}) => {
-		vi.useFakeTimers();
-		let finishRead!: (value: ChatMessage[]) => void;
-		let finishUpdate!: (value: ServerUpdateKind) => void;
-		const onServerUpdateSign = vi.fn();
-		const made = makeAdapters({
-			onServerUpdateSign,
-			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
-			readChatMessages: vi.fn(
-				() =>
-					new Promise<ChatMessage[]>((resolve) => {
-						finishRead = resolve;
-					}),
-			),
-			askServerUpdate: vi.fn(
-				() =>
-					new Promise<ServerUpdateKind>((resolve) => {
-						finishUpdate = resolve;
-					}),
-			),
-		});
-		const runtime = createNormalChatClientTurnRuntime(made.adapters);
-		const words = (message: string) => ({
-			message,
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-		});
-		await runtime.send(words("A"));
-		const a = made.streamInvocations[0].callbacks;
-		if (kind === "legacy") a.onToken("A partial");
-		else {
-			const output = createNormalChatOutputAccumulator();
-			const scope = {
-				version: 1,
-				turnId: "t",
-				segmentId: "s",
-				attemptId: "a",
-				stepId: "w",
-				phase: "working",
-			} as const;
-			output.apply({
-				...scope,
-				sequence: 0,
-				type: "block_start",
-				blockId: "b",
-				nativeId: "n",
-				kind: "text",
-				role: "provisional",
+	)(
+		"keeps late A $stage inert after $action with $kind partials",
+		async ({ kind, stage, action }) => {
+			vi.useFakeTimers();
+			let finishRead!: (value: ChatMessage[]) => void;
+			let finishUpdate!: (value: ServerUpdateKind) => void;
+			const onServerUpdateSign = vi.fn();
+			const made = makeAdapters({
+				onServerUpdateSign,
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+				readChatMessages: vi.fn(
+					() =>
+						new Promise<ChatMessage[]>((resolve) => {
+							finishRead = resolve;
+						}),
+				),
+				askServerUpdate: vi.fn(
+					() =>
+						new Promise<ServerUpdateKind>((resolve) => {
+							finishUpdate = resolve;
+						}),
+				),
 			});
-			output.apply({
-				...scope,
-				sequence: 1,
-				type: "block_delta",
-				blockId: "b",
-				text: "A working",
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			const words = (message: string) => ({
+				message,
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
 			});
-			a.onNormalChatOutput?.(output.getProjection());
-		}
-		a.onError(
-			stage === "saved-read"
-				? new Error("Failed to fetch")
-				: new TypeError("Failed to fetch"),
-		);
-		await vi.advanceTimersByTimeAsync(3500);
-		expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(3);
-		if (stage === "saved-read")
-			expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
-		else expect(made.adapters.askServerUpdate).toHaveBeenCalledTimes(1);
-		if (action === "B-completes") {
-			await runtime.send(words("B"));
-			made.streamInvocations[1].callbacks.onToken("B answer");
-			made.streamInvocations[1].callbacks.onEnd("B answer");
-			expect(runtime.snapshot()).toMatchObject({
-				isSending: false,
-				lastUserMessage: "B",
-				lastAssistantResponse: "B answer",
-				canRetry: false,
-			});
-		} else if (action === "stop") runtime.stop();
-		else runtime.detach();
-		const before = runtime.snapshot();
-		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
-		vi.mocked(made.adapters.setSendError).mockClear();
-		onServerUpdateSign.mockClear();
-		if (stage === "saved-read") finishRead([]);
-		else finishUpdate("draining");
-		await vi.advanceTimersByTimeAsync(0);
-		expect.soft(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
-		expect.soft(made.adapters.setSendError).not.toHaveBeenCalled();
-		expect.soft(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
-		expect.soft(runtime.snapshot()).toEqual(before);
-		expect(made.messages.find((row) => row.id === "id-2")).toBeDefined();
-		vi.useRealTimers();
-	});
+			await runtime.send(words("A"));
+			const a = made.streamInvocations[0].callbacks;
+			if (kind === "legacy") a.onToken("A partial");
+			else {
+				const output = createNormalChatOutputAccumulator();
+				const scope = {
+					version: 1,
+					turnId: "t",
+					segmentId: "s",
+					attemptId: "a",
+					stepId: "w",
+					phase: "working",
+				} as const;
+				output.apply({
+					...scope,
+					sequence: 0,
+					type: "block_start",
+					blockId: "b",
+					nativeId: "n",
+					kind: "text",
+					role: "provisional",
+				});
+				output.apply({
+					...scope,
+					sequence: 1,
+					type: "block_delta",
+					blockId: "b",
+					text: "A working",
+				});
+				a.onNormalChatOutput?.(output.getProjection());
+			}
+			a.onError(
+				stage === "saved-read"
+					? new Error("Failed to fetch")
+					: new TypeError("Failed to fetch"),
+			);
+			await vi.advanceTimersByTimeAsync(3500);
+			expect(made.adapters.checkForOrphanedStream).toHaveBeenCalledTimes(3);
+			if (stage === "saved-read")
+				expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+			else expect(made.adapters.askServerUpdate).toHaveBeenCalledTimes(1);
+			if (action === "B-completes") {
+				await runtime.send(words("B"));
+				made.streamInvocations[1].callbacks.onToken("B answer");
+				made.streamInvocations[1].callbacks.onEnd("B answer");
+				expect(runtime.snapshot()).toMatchObject({
+					isSending: false,
+					lastUserMessage: "B",
+					lastAssistantResponse: "B answer",
+					canRetry: false,
+				});
+			} else if (action === "stop") runtime.stop();
+			else runtime.detach();
+			const before = runtime.snapshot();
+			vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+			vi.mocked(made.adapters.setSendError).mockClear();
+			onServerUpdateSign.mockClear();
+			if (stage === "saved-read") finishRead([]);
+			else finishUpdate("draining");
+			await vi.advanceTimersByTimeAsync(0);
+			expect.soft(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+			expect.soft(made.adapters.setSendError).not.toHaveBeenCalled();
+			expect.soft(made.adapters.onServerUpdateSign).not.toHaveBeenCalled();
+			expect.soft(runtime.snapshot()).toEqual(before);
+			expect(made.messages.find((row) => row.id === "id-2")).toBeDefined();
+			vi.useRealTimers();
+		},
+	);
 
-	it.each([
-		"waiting",
-		"failed",
-		"replay",
-	] as const)("keeps structural partial until atomic observer replacement: %s", async (result) => {
-		vi.useFakeTimers();
-		const made = makeAdapters({
-			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
-			checkForOrphanedStream: vi.fn(async () => "observer"),
-			getStreamBufferInfo: vi.fn(async () => ({
-				exists: true,
-				userMessage: "A",
-			})),
-		});
-		const runtime = createNormalChatClientTurnRuntime(made.adapters);
-		await runtime.send({
-			message: "A",
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-		});
-		const projection = (text: string) => {
-			const output = createNormalChatOutputAccumulator();
-			const scope = {
-				version: 1,
-				turnId: "t",
-				segmentId: "s",
-				attemptId: "a",
-				stepId: "c",
-				phase: "closing",
-			} as const;
-			output.apply({
-				...scope,
-				sequence: 0,
-				type: "block_start",
-				blockId: "b",
-				nativeId: "n",
-				kind: "text",
-				role: "answer",
+	it.each(["waiting", "failed", "replay"] as const)(
+		"keeps structural partial until atomic observer replacement: %s",
+		async (result) => {
+			vi.useFakeTimers();
+			const made = makeAdapters({
+				schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+				checkForOrphanedStream: vi.fn(async () => "observer"),
+				getStreamBufferInfo: vi.fn(async () => ({
+					exists: true,
+					userMessage: "A",
+				})),
 			});
-			output.apply({
-				...scope,
-				sequence: 1,
-				type: "block_delta",
-				blockId: "b",
-				text,
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.send({
+				message: "A",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
 			});
-			return output.getProjection();
-		};
-		made.streamInvocations[0].callbacks.onNormalChatOutput?.(
-			projection("Partial 42"),
-		);
-		made.streamInvocations[0].callbacks.onError(new Error("Failed to fetch"));
-		await vi.advanceTimersByTimeAsync(500);
-		const observer = made.streamInvocations[1].callbacks;
-		expect(made.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
-		expect(made.messages.at(-1)?.content).toBe("Partial 42");
-		if (result === "waiting") observer.onWaiting?.();
-		else if (result === "failed")
-			observer.onError(new TypeError("observer lost"));
-		else {
-			observer.onNormalChatOutput?.(projection("Replayed"));
+			const projection = (text: string) => {
+				const output = createNormalChatOutputAccumulator();
+				const scope = {
+					version: 1,
+					turnId: "t",
+					segmentId: "s",
+					attemptId: "a",
+					stepId: "c",
+					phase: "closing",
+				} as const;
+				output.apply({
+					...scope,
+					sequence: 0,
+					type: "block_start",
+					blockId: "b",
+					nativeId: "n",
+					kind: "text",
+					role: "answer",
+				});
+				output.apply({
+					...scope,
+					sequence: 1,
+					type: "block_delta",
+					blockId: "b",
+					text,
+				});
+				return output.getProjection();
+			};
+			made.streamInvocations[0].callbacks.onNormalChatOutput?.(
+				projection("Partial 42"),
+			);
+			made.streamInvocations[0].callbacks.onError(new Error("Failed to fetch"));
+			await vi.advanceTimersByTimeAsync(500);
+			const observer = made.streamInvocations[1].callbacks;
+			expect(made.messages.filter((m) => m.role === "assistant")).toHaveLength(
+				1,
+			);
 			expect(made.messages.at(-1)?.content).toBe("Partial 42");
-			observer.onNormalChatOutput?.(projection("Complete replacement 42"));
-			observer.onReplayComplete?.();
-			expect(made.messages.at(-1)?.content).toBe("Complete replacement 42");
-		}
-		if (result !== "replay")
-			expect(made.messages.at(-1)?.content).toBe("Partial 42");
-		expect(made.messageListEvents.removeMessage).not.toHaveBeenCalledWith(
-			"id-2",
-		);
-		if (result === "failed")
-			expect(made.messages.at(-1)?.isStreaming).toBe(false);
-		vi.useRealTimers();
-	});
+			if (result === "waiting") observer.onWaiting?.();
+			else if (result === "failed")
+				observer.onError(new TypeError("observer lost"));
+			else {
+				observer.onNormalChatOutput?.(projection("Replayed"));
+				expect(made.messages.at(-1)?.content).toBe("Partial 42");
+				observer.onNormalChatOutput?.(projection("Complete replacement 42"));
+				observer.onReplayComplete?.();
+				expect(made.messages.at(-1)?.content).toBe("Complete replacement 42");
+			}
+			if (result !== "replay")
+				expect(made.messages.at(-1)?.content).toBe("Partial 42");
+			expect(made.messageListEvents.removeMessage).not.toHaveBeenCalledWith(
+				"id-2",
+			);
+			if (result === "failed")
+				expect(made.messages.at(-1)?.isStreaming).toBe(false);
+			vi.useRealTimers();
+		},
+	);
 
 	it.each([
 		"unsaved",
@@ -3976,103 +3976,108 @@ describe("Normal Chat Client Turn Runtime", () => {
 		"unavailable",
 		"saved-missing",
 		"pending-terminal",
-	] as const)("settles scoped durable observation without impossible message polling: %s", async (result) => {
-		vi.useFakeTimers();
-		const made = makeAdapters({
-			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
-			readChatMessages: vi.fn(async () => [
-				{
-					id: result === "saved-missing" ? "different-row" : "saved",
-					role: "assistant" as const,
-					content: "Canonical durable answer",
-					timestamp: 1,
-				},
-			]),
-		});
-		const runtime = createNormalChatClientTurnRuntime(made.adapters);
-		await runtime.reconnectToOrphanedStream("observer", "A");
-		const callbacks = made.streamInvocations[0].callbacks;
-		const identity = {
-			version: 1 as const,
-			streamId: "observer",
-			conversationId: "conv-1",
-		};
-		if (result === "pending-stop") {
-			callbacks.onWaiting?.({
-				...identity,
-				state: "pending",
-				turnId: "t",
-				segmentId: "s",
+	] as const)(
+		"settles scoped durable observation without impossible message polling: %s",
+		async (result) => {
+			vi.useFakeTimers();
+			const made = makeAdapters({
+				schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+				readChatMessages: vi.fn(async () => [
+					{
+						id: result === "saved-missing" ? "different-row" : "saved",
+						role: "assistant" as const,
+						content: "Canonical durable answer",
+						timestamp: 1,
+					},
+				]),
 			});
-			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
-			runtime.stop();
-			await vi.advanceTimersByTimeAsync(2000);
-			expect(made.streamInvocations).toHaveLength(2);
-			expect(runtime.snapshot().isSending).toBe(false);
-		} else if (result === "unavailable") {
-			callbacks.onEnd("", {
-				observation: { ...identity, state: "unavailable" },
-			});
-			await vi.advanceTimersByTimeAsync(0);
-			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
-			expect(made.adapters.setSendError).toHaveBeenCalledWith(
-				"chat.observationUnavailable",
-			);
-			expect(runtime.snapshot().isSending).toBe(false);
-		} else {
-			let terminalCallbacks = callbacks;
-			if (result === "pending-terminal") {
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			await runtime.reconnectToOrphanedStream("observer", "A");
+			const callbacks = made.streamInvocations[0].callbacks;
+			const identity = {
+				version: 1 as const,
+				streamId: "observer",
+				conversationId: "conv-1",
+			};
+			if (result === "pending-stop") {
 				callbacks.onWaiting?.({
 					...identity,
 					state: "pending",
 					turnId: "t",
 					segmentId: "s",
 				});
+				expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+				runtime.stop();
 				await vi.advanceTimersByTimeAsync(2000);
 				expect(made.streamInvocations).toHaveLength(2);
-				terminalCallbacks = made.streamInvocations[1].callbacks;
-			}
-			terminalCallbacks.onEnd("", {
-				observation: {
-					...identity,
-					state: "terminal",
-					assistantMessageId:
-						result === "saved" || result === "saved-missing" ? "saved" : null,
-					completion: {
-						version: 1,
+				expect(runtime.snapshot().isSending).toBe(false);
+			} else if (result === "unavailable") {
+				callbacks.onEnd("", {
+					observation: { ...identity, state: "unavailable" },
+				});
+				await vi.advanceTimersByTimeAsync(0);
+				expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+				expect(made.adapters.setSendError).toHaveBeenCalledWith(
+					"chat.observationUnavailable",
+				);
+				expect(runtime.snapshot().isSending).toBe(false);
+			} else {
+				let terminalCallbacks = callbacks;
+				if (result === "pending-terminal") {
+					callbacks.onWaiting?.({
+						...identity,
+						state: "pending",
 						turnId: "t",
 						segmentId: "s",
-						phase: "closing",
-						outcome: result === "saved" ? "answered" : "incomplete",
-						stopCause: "uncertain_execution",
-						workingStopCause: "transport_error",
-						closingAttempted: true,
-					},
-				},
-			});
-			await vi.advanceTimersByTimeAsync(0);
-			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
-			expect(runtime.snapshot().isSending).toBe(false);
-			if (result === "saved")
-				expect(made.messages.at(-1)?.content).toBe("Canonical durable answer");
-			else if (result === "saved-missing")
-				expect(made.messages.at(-1)?.content).not.toBe(
-					"Canonical durable answer",
-				);
-			else
-				expect(
-					normalChatOutputView(
-						made.messages.at(-1) ?? {
-							id: "missing",
-							role: "assistant",
-							content: "",
-							timestamp: 0,
+					});
+					await vi.advanceTimersByTimeAsync(2000);
+					expect(made.streamInvocations).toHaveLength(2);
+					terminalCallbacks = made.streamInvocations[1].callbacks;
+				}
+				terminalCallbacks.onEnd("", {
+					observation: {
+						...identity,
+						state: "terminal",
+						assistantMessageId:
+							result === "saved" || result === "saved-missing" ? "saved" : null,
+						completion: {
+							version: 1,
+							turnId: "t",
+							segmentId: "s",
+							phase: "closing",
+							outcome: result === "saved" ? "answered" : "incomplete",
+							stopCause: "uncertain_execution",
+							workingStopCause: "transport_error",
+							closingAttempted: true,
 						},
-					)?.completion?.outcome,
-				).toBe("incomplete");
-		}
-		vi.useRealTimers();
-	});
+					},
+				});
+				await vi.advanceTimersByTimeAsync(0);
+				expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+				expect(runtime.snapshot().isSending).toBe(false);
+				if (result === "saved")
+					expect(made.messages.at(-1)?.content).toBe(
+						"Canonical durable answer",
+					);
+				else if (result === "saved-missing")
+					expect(made.messages.at(-1)?.content).not.toBe(
+						"Canonical durable answer",
+					);
+				else
+					expect(
+						normalChatOutputView(
+							made.messages.at(-1) ?? {
+								id: "missing",
+								role: "assistant",
+								content: "",
+								timestamp: 0,
+							},
+						)?.completion?.outcome,
+					).toBe("incomplete");
+			}
+			vi.useRealTimers();
+		},
+	);
 
 	it("cancels pending observation ownership on route reset before a newer turn is stopped", async () => {
 		vi.useFakeTimers();
@@ -4209,363 +4214,217 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
-	it.each([
-		"en",
-		"hu",
-	] as const)("localizes saved failed Retry through the existing formatter: %s", async (language) => {
-		const { toFriendlySendError } = await import(
-			"../../routes/(app)/chat/[conversationId]/_helpers"
-		);
-		const { get } = await import("svelte/store");
-		const { t } = await import("$lib/i18n");
-		const { uiLanguage } = await import("$lib/stores/settings");
-		const { default: chatDict } = await import("$lib/i18n/chat");
-		const scope = {
-			version: 1,
-			turnId: "failed",
-			segmentId: "failed",
-			attemptId: "terminal",
-			stepId: "terminal:0",
-			phase: "closing",
-		} as const;
-		const event = {
-			...scope,
-			sequence: 1,
-			type: "completion",
-			completion: {
-				version: 1,
-				turnId: scope.turnId,
-				segmentId: scope.segmentId,
-				phase: "closing",
-				outcome: "failed",
-				stopCause: "transport_error",
-				workingStopCause: "transport_error",
-				closingAttempted: true,
-			},
-		} as const;
-		const made = makeAdapters({
-			toFriendlySendError: vi.fn((error) => toFriendlySendError(error, get(t))),
-		});
-		made.messages.push(
-			{ id: "saved-user", role: "user", timestamp: 1, content: "A" },
-			{
-				id: "saved-failed",
-				role: "assistant",
-				timestamp: 1,
-				content: "",
-				normalChatOutput: { version: 1, events: [event] },
-			},
-		);
-		const runtime = createNormalChatClientTurnRuntime(made.adapters);
-		const previousLanguage = get(uiLanguage);
-		uiLanguage.set(language);
-		try {
-			await runtime.checkForOrphanedStreamOnMount();
-			expect(runtime.snapshot().canRetry).toBe(true);
-			expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
-				chatDict[language]["chat.error.backend"],
+	it.each(["en", "hu"] as const)(
+		"localizes saved failed Retry through the existing formatter: %s",
+		async (language) => {
+			const { toFriendlySendError } = await import(
+				"../../routes/(app)/chat/[conversationId]/_helpers"
 			);
-			expect(made.messages.at(-1)?.id).toBe("saved-failed");
-			expect(made.adapters.streamChat).not.toHaveBeenCalled();
-		} finally {
-			runtime.detach();
-			uiLanguage.set(previousLanguage);
-		}
-	});
+			const { get } = await import("svelte/store");
+			const { t } = await import("$lib/i18n");
+			const { uiLanguage } = await import("$lib/stores/settings");
+			const { default: chatDict } = await import("$lib/i18n/chat");
+			const scope = {
+				version: 1,
+				turnId: "failed",
+				segmentId: "failed",
+				attemptId: "terminal",
+				stepId: "terminal:0",
+				phase: "closing",
+			} as const;
+			const event = {
+				...scope,
+				sequence: 1,
+				type: "completion",
+				completion: {
+					version: 1,
+					turnId: scope.turnId,
+					segmentId: scope.segmentId,
+					phase: "closing",
+					outcome: "failed",
+					stopCause: "transport_error",
+					workingStopCause: "transport_error",
+					closingAttempted: true,
+				},
+			} as const;
+			const made = makeAdapters({
+				toFriendlySendError: vi.fn((error) =>
+					toFriendlySendError(error, get(t)),
+				),
+			});
+			made.messages.push(
+				{ id: "saved-user", role: "user", timestamp: 1, content: "A" },
+				{
+					id: "saved-failed",
+					role: "assistant",
+					timestamp: 1,
+					content: "",
+					normalChatOutput: { version: 1, events: [event] },
+				},
+			);
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			const previousLanguage = get(uiLanguage);
+			uiLanguage.set(language);
+			try {
+				await runtime.checkForOrphanedStreamOnMount();
+				expect(runtime.snapshot().canRetry).toBe(true);
+				expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
+					chatDict[language]["chat.error.backend"],
+				);
+				expect(made.messages.at(-1)?.id).toBe("saved-failed");
+				expect(made.adapters.streamChat).not.toHaveBeenCalled();
+			} finally {
+				runtime.detach();
+				uiLanguage.set(previousLanguage);
+			}
+		},
+	);
 
 	it.each(
 		(["live", "observe", "reload", "unreadable"] as const).flatMap((mode) =>
 			[false, true].map((wasStopped) => ({ mode, wasStopped })),
 		),
-	)("settles persistence-only finalization without generation Retry/recovery: $mode stopped=$wasStopped", async ({
-		mode,
-		wasStopped,
-	}) => {
-		const { streamChat } = await import("$lib/services/streaming");
-		const { uiFrame } = await import("$lib/services/streaming.test-helpers");
-		const { projectNormalChatFinalization } = await import(
-			"$lib/shared/normal-chat-completion"
-		);
-		const scope = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			attemptId: "a",
-			stepId: "w",
-			phase: "working",
-		} as const;
-		const modelCompletion = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "closing",
-			outcome: "answered",
-			stopCause: "natural_stop",
-			workingStopCause: "tool_budget",
-			closingAttempted: true,
-		} as const;
-		const normalChatFinalization = {
-			version: 1,
-			status: "failed",
-			cause: "file_association_failed",
-			wasStopped,
-		} as const;
-		const events: import("$lib/shared/normal-chat-output").NormalChatOutputEvent[] =
-			[
-				{
-					...scope,
-					sequence: 0,
-					type: "block_start",
-					blockId: "b",
-					nativeId: "b",
-					kind: "text",
-					role: "activity",
-				},
-				{
-					...scope,
-					sequence: 1,
-					type: "block_delta",
-					blockId: "b",
-					text: "Working activity",
-				},
-				{
-					...scope,
-					sequence: 2,
-					type: "completion",
-					completion: modelCompletion,
-				},
-			];
-		const saved: ChatMessage = {
-			id: "saved-finalization",
-			role: "assistant",
-			timestamp: 2,
-			content: "  Canonical answer\n",
-			normalChatOutput: { version: 1, events },
-			normalChatFinalization,
-		};
-		const user: ChatMessage = {
-			id: "saved-user",
-			role: "user",
-			timestamp: 1,
-			content: "A",
-		};
-		const made = makeAdapters({
-			streamChat,
-			schedule: vi.fn((cb, delay) => setTimeout(cb, delay)),
-			checkForOrphanedStream: vi.fn(async () =>
-				mode === "observe" ? "observed" : null,
-			),
-			getStreamBufferInfo: vi.fn(async () => ({
-				exists: true,
-				userMessage: "A",
-			})),
-			readChatMessages: vi.fn(async () =>
-				mode === "unreadable" ? [] : [user, saved],
-			),
-		});
-		const runtime = createNormalChatClientTurnRuntime(made.adapters);
-		const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-			const body = JSON.parse(String(init?.body));
-			runtime.queue({
-				message: "Queued B",
-				attachmentIds: [],
-				attachments: [],
-				pendingAttachments: [],
-			});
-			const observation = {
+	)(
+		"settles persistence-only finalization without generation Retry/recovery: $mode stopped=$wasStopped",
+		async ({ mode, wasStopped }) => {
+			const { streamChat } = await import("$lib/services/streaming");
+			const { uiFrame } = await import("$lib/services/streaming.test-helpers");
+			const { projectNormalChatFinalization } = await import(
+				"$lib/shared/normal-chat-completion"
+			);
+			const scope = {
 				version: 1,
-				streamId: body.streamId,
-				conversationId: "conv-1",
-				state: "terminal",
-				assistantMessageId: saved.id,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			} as const;
+			const modelCompletion = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: "answered",
+				stopCause: "natural_stop",
+				workingStopCause: "tool_budget",
+				closingAttempted: true,
+			} as const;
+			const normalChatFinalization = {
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped,
+			} as const;
+			const events: import("$lib/shared/normal-chat-output").NormalChatOutputEvent[] =
+				[
+					{
+						...scope,
+						sequence: 0,
+						type: "block_start",
+						blockId: "b",
+						nativeId: "b",
+						kind: "text",
+						role: "activity",
+					},
+					{
+						...scope,
+						sequence: 1,
+						type: "block_delta",
+						blockId: "b",
+						text: "Working activity",
+					},
+					{
+						...scope,
+						sequence: 2,
+						type: "completion",
+						completion: modelCompletion,
+					},
+				];
+			const saved: ChatMessage = {
+				id: "saved-finalization",
+				role: "assistant",
+				timestamp: 2,
+				content: "  Canonical answer\n",
+				normalChatOutput: { version: 1, events },
 				normalChatFinalization,
-				modelCompletion,
-				completion: projectNormalChatFinalization(
-					modelCompletion,
-					normalChatFinalization,
-				),
 			};
-			return new Response(
-				(mode === "unreadable"
-					? events
-							.map((event) =>
-								uiFrame({ type: "data-normal-chat-output", data: event }),
-							)
-							.join("")
-					: "") +
-					uiFrame({
-						type: "data-stream-metadata",
-						data: {
-							observation,
-							...(mode === "unreadable" ? { finalContent: saved.content } : {}),
-						},
-						transient: true,
-					}) +
-					uiFrame({
-						type: "finish",
-						finishReason: wasStopped ? "stop" : "error",
-					}) +
-					uiFrame("[DONE]"),
-				{ headers: { "Content-Type": "text/event-stream" } },
-			);
-		});
-		vi.stubGlobal("fetch", fetch);
-		try {
-			if (mode === "reload") {
-				made.messages.push(user, saved);
-				await runtime.checkForOrphanedStreamOnMount();
-			} else if (mode === "observe") {
-				made.messages.push(user);
-				await runtime.checkForOrphanedStreamOnMount();
-			} else
-				await runtime.send({
-					message: "A",
-					attachmentIds: [],
-					attachments: [],
-					pendingAttachments: [],
-				});
-			await vi.waitFor(() => expect(runtime.snapshot().isSending).toBe(false));
-			expect(runtime.snapshot().canRetry).toBe(false);
-			const held = made.messages.at(-1);
-			expect(held?.id).toBe(saved.id);
-			expect(held?.content).toBe(saved.content);
-			expect(held?.normalChatFinalization).toEqual(normalChatFinalization);
-			const view = held && normalChatOutputView(held);
-			expect(view?.completion?.outcome).toBe(wasStopped ? "stopped" : "failed");
-			expect(view?.modelCompletion).toEqual(modelCompletion);
-			expect(view?.activity[0].text).toBe("Working activity");
-			await runtime.retry();
-			expect(fetch).toHaveBeenCalledTimes(mode === "reload" ? 0 : 1);
-			expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
-			if (mode !== "reload")
-				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
-					expect.objectContaining({ message: "Queued B" }),
-				);
-		} finally {
-			runtime.detach();
-			vi.unstubAllGlobals();
-		}
-	});
-
-	it.each([
-		"direct",
-		"observer",
-		"reload",
-		"polling",
-		"reconnect-error",
-	] as const)("offers explicit Retry for a saved failed completion through %s transport settlement", async (mode) => {
-		const { streamChat } = await import("$lib/services/streaming");
-		const { endEvent, errorEvent, uiFrame } = await import(
-			"$lib/services/streaming.test-helpers"
-		);
-		const scope = {
-			version: 1,
-			turnId: "failed-turn",
-			segmentId: "failed-segment",
-			attemptId: "a",
-			stepId: "w",
-			phase: "working",
-		} as const;
-		const completion = {
-			version: 1,
-			turnId: scope.turnId,
-			segmentId: scope.segmentId,
-			phase: "working",
-			outcome: "failed",
-			stopCause: "transport_error",
-			workingStopCause: "transport_error",
-			closingAttempted: false,
-		} as const;
-		const events = [
-			{
-				...scope,
-				sequence: 0,
-				type: "block_start",
-				blockId: "b",
-				nativeId: "n",
-				kind: "text",
-				role: "provisional",
-			},
-			{
-				...scope,
-				sequence: 1,
-				type: "block_delta",
-				blockId: "b",
-				text: "Attempted work",
-			},
-			{ ...scope, sequence: 2, type: "completion", completion },
-		] satisfies import("$lib/shared/normal-chat-output").NormalChatOutputEvent[];
-		const user = {
-			id: "saved-user",
-			role: "user",
-			content: "A",
-			timestamp: 1,
-		} satisfies ChatMessage;
-		const failed = {
-			id: "saved-failed",
-			role: "assistant",
-			content: "",
-			timestamp: 1,
-			normalChatOutput: { version: 1, events },
-		} satisfies ChatMessage;
-		const made = makeAdapters({
-			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
-			streamChat,
-			checkForOrphanedStream: vi.fn(async () =>
-				mode === "observer" || mode === "reconnect-error"
-					? "observed-failed"
-					: null,
-			),
-			getStreamBufferInfo: vi.fn(async () => ({
-				exists: true,
-				userMessage: "A",
-			})),
-			readChatMessages: vi.fn(async () => [user, failed]),
-		});
-		const runtime = createNormalChatClientTurnRuntime(made.adapters);
-		const fetch = vi.fn(async () => {
-			if (mode === "direct")
-				runtime.queue({
-					message: "Queued B",
-					attachmentIds: [],
-					attachments: [],
-					pendingAttachments: [],
-				});
-			return new Response(
-				mode === "reconnect-error"
-					? errorEvent({ message: "The model failed", code: "provider_error" })
-					: mode === "observer"
-						? endEvent({
-								observation: {
-									version: 1,
-									streamId: "observed-failed",
-									conversationId: "conv-1",
-									state: "terminal",
-									assistantMessageId: failed.id,
-									completion,
+			const user: ChatMessage = {
+				id: "saved-user",
+				role: "user",
+				timestamp: 1,
+				content: "A",
+			};
+			const made = makeAdapters({
+				streamChat,
+				schedule: vi.fn((cb, delay) => setTimeout(cb, delay)),
+				checkForOrphanedStream: vi.fn(async () =>
+					mode === "observe" ? "observed" : null,
+				),
+				getStreamBufferInfo: vi.fn(async () => ({
+					exists: true,
+					userMessage: "A",
+				})),
+				readChatMessages: vi.fn(async () =>
+					mode === "unreadable" ? [] : [user, saved],
+				),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			const fetch = vi.fn(
+				async (_url: RequestInfo | URL, init?: RequestInit) => {
+					const body = JSON.parse(String(init?.body));
+					runtime.queue({
+						message: "Queued B",
+						attachmentIds: [],
+						attachments: [],
+						pendingAttachments: [],
+					});
+					const observation = {
+						version: 1,
+						streamId: body.streamId,
+						conversationId: "conv-1",
+						state: "terminal",
+						assistantMessageId: saved.id,
+						normalChatFinalization,
+						modelCompletion,
+						completion: projectNormalChatFinalization(
+							modelCompletion,
+							normalChatFinalization,
+						),
+					};
+					return new Response(
+						(mode === "unreadable"
+							? events
+									.map((event) =>
+										uiFrame({ type: "data-normal-chat-output", data: event }),
+									)
+									.join("")
+							: "") +
+							uiFrame({
+								type: "data-stream-metadata",
+								data: {
+									observation,
+									...(mode === "unreadable"
+										? { finalContent: saved.content }
+										: {}),
 								},
-							})
-						: events
-								.map((data) =>
-									uiFrame({ type: "data-normal-chat-output", data }),
-								)
-								.join("") +
-							endEvent({ assistantMessageId: failed.id, finalContent: "" }),
-				{ headers: { "Content-Type": "text/event-stream" } },
+								transient: true,
+							}) +
+							uiFrame({
+								type: "finish",
+								finishReason: wasStopped ? "stop" : "error",
+							}) +
+							uiFrame("[DONE]"),
+						{ headers: { "Content-Type": "text/event-stream" } },
+					);
+				},
 			);
-		});
-		vi.mocked(made.adapters.loadPersistedData).mockImplementation(async () => {
-			made.messages.splice(0, made.messages.length, user, failed);
-			runtime.completePollingRecovery();
-		});
-		vi.stubGlobal("fetch", fetch);
-		try {
-			if (mode === "reload" || mode === "polling") {
-				made.messages.push(user, failed);
-				if (mode === "polling") runtime.completePollingRecovery();
-				else await runtime.checkForOrphanedStreamOnMount();
-			} else {
-				if (mode === "observer" || mode === "reconnect-error") {
+			vi.stubGlobal("fetch", fetch);
+			try {
+				if (mode === "reload") {
+					made.messages.push(user, saved);
+					await runtime.checkForOrphanedStreamOnMount();
+				} else if (mode === "observe") {
 					made.messages.push(user);
 					await runtime.checkForOrphanedStreamOnMount();
 				} else
@@ -4578,77 +4437,243 @@ describe("Normal Chat Client Turn Runtime", () => {
 				await vi.waitFor(() =>
 					expect(runtime.snapshot().isSending).toBe(false),
 				);
-			}
-			expect(runtime.snapshot()).toMatchObject({
-				canRetry: true,
-				lastUserMessage: "A",
-			});
-			expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
-				"Chat reply failed.",
-			);
-			expect(made.messages.at(-1)?.id).toBe(failed.id);
-			expect(
-				normalChatOutputView(made.messages[made.messages.length - 1])
-					?.activity[0].text,
-			).toBe("Attempted work");
-			expect(fetch).toHaveBeenCalledTimes(
-				mode === "reload" || mode === "polling" ? 0 : 1,
-			);
-			if (mode === "direct")
-				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
-					expect.objectContaining({ message: "Queued B" }),
+				expect(runtime.snapshot().canRetry).toBe(false);
+				const held = made.messages.at(-1);
+				expect(held?.id).toBe(saved.id);
+				expect(held?.content).toBe(saved.content);
+				expect(held?.normalChatFinalization).toEqual(normalChatFinalization);
+				const view = held && normalChatOutputView(held);
+				expect(view?.completion?.outcome).toBe(
+					wasStopped ? "stopped" : "failed",
 				);
-			vi.mocked(made.adapters.checkForOrphanedStream).mockResolvedValue(null);
-			// Only a deliberate Retry replaces the failed row; no automatic tool replay.
-			let finishRetry!: (response: Response) => void;
-			fetch.mockImplementation(
-				() =>
-					new Promise<Response>((resolve) => {
-						finishRetry = resolve;
-					}),
+				expect(view?.modelCompletion).toEqual(modelCompletion);
+				expect(view?.activity[0].text).toBe("Working activity");
+				await runtime.retry();
+				expect(fetch).toHaveBeenCalledTimes(mode === "reload" ? 0 : 1);
+				expect(made.adapters.pollForCompletion).not.toHaveBeenCalled();
+				if (mode !== "reload")
+					expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+						expect.objectContaining({ message: "Queued B" }),
+					);
+			} finally {
+				runtime.detach();
+				vi.unstubAllGlobals();
+			}
+		},
+	);
+
+	it.each([
+		"direct",
+		"observer",
+		"reload",
+		"polling",
+		"reconnect-error",
+	] as const)(
+		"offers explicit Retry for a saved failed completion through %s transport settlement",
+		async (mode) => {
+			const { streamChat } = await import("$lib/services/streaming");
+			const { endEvent, errorEvent, uiFrame } = await import(
+				"$lib/services/streaming.test-helpers"
 			);
-			await Promise.all([runtime.retry(), runtime.retry()]);
-			expect(fetch).toHaveBeenCalledTimes(
-				mode === "reload" || mode === "polling" ? 1 : 2,
-			);
-			const [url, init] = vi.mocked(globalThis.fetch).mock.calls.at(-1) ?? [];
-			expect(url).toBe("/api/chat/retry");
-			expect(JSON.parse(String(init?.body))).toMatchObject({
-				assistantMessageId: failed.id,
-				userMessageId: made.messages[0].id,
-				retryOrigin: "error_retry",
-				userMessage: "A",
-			});
-			expect(made.messages.filter((row) => row.role === "user")).toHaveLength(
-				1,
-			);
-			finishRetry(
-				new Response(
-					endEvent({
-						assistantMessageId: "fresh-answer",
-						finalContent: "Fresh answer",
-					}),
-					{ headers: { "Content-Type": "text/event-stream" } },
+			const scope = {
+				version: 1,
+				turnId: "failed-turn",
+				segmentId: "failed-segment",
+				attemptId: "a",
+				stepId: "w",
+				phase: "working",
+			} as const;
+			const completion = {
+				version: 1,
+				turnId: scope.turnId,
+				segmentId: scope.segmentId,
+				phase: "working",
+				outcome: "failed",
+				stopCause: "transport_error",
+				workingStopCause: "transport_error",
+				closingAttempted: false,
+			} as const;
+			const events = [
+				{
+					...scope,
+					sequence: 0,
+					type: "block_start",
+					blockId: "b",
+					nativeId: "n",
+					kind: "text",
+					role: "provisional",
+				},
+				{
+					...scope,
+					sequence: 1,
+					type: "block_delta",
+					blockId: "b",
+					text: "Attempted work",
+				},
+				{ ...scope, sequence: 2, type: "completion", completion },
+			] satisfies import("$lib/shared/normal-chat-output").NormalChatOutputEvent[];
+			const user = {
+				id: "saved-user",
+				role: "user",
+				content: "A",
+				timestamp: 1,
+			} satisfies ChatMessage;
+			const failed = {
+				id: "saved-failed",
+				role: "assistant",
+				content: "",
+				timestamp: 1,
+				normalChatOutput: { version: 1, events },
+			} satisfies ChatMessage;
+			const made = makeAdapters({
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+				streamChat,
+				checkForOrphanedStream: vi.fn(async () =>
+					mode === "observer" || mode === "reconnect-error"
+						? "observed-failed"
+						: null,
 				),
+				getStreamBufferInfo: vi.fn(async () => ({
+					exists: true,
+					userMessage: "A",
+				})),
+				readChatMessages: vi.fn(async () => [user, failed]),
+			});
+			const runtime = createNormalChatClientTurnRuntime(made.adapters);
+			const fetch = vi.fn(async () => {
+				if (mode === "direct")
+					runtime.queue({
+						message: "Queued B",
+						attachmentIds: [],
+						attachments: [],
+						pendingAttachments: [],
+					});
+				return new Response(
+					mode === "reconnect-error"
+						? errorEvent({
+								message: "The model failed",
+								code: "provider_error",
+							})
+						: mode === "observer"
+							? endEvent({
+									observation: {
+										version: 1,
+										streamId: "observed-failed",
+										conversationId: "conv-1",
+										state: "terminal",
+										assistantMessageId: failed.id,
+										completion,
+									},
+								})
+							: events
+									.map((data) =>
+										uiFrame({ type: "data-normal-chat-output", data }),
+									)
+									.join("") +
+								endEvent({ assistantMessageId: failed.id, finalContent: "" }),
+					{ headers: { "Content-Type": "text/event-stream" } },
+				);
+			});
+			vi.mocked(made.adapters.loadPersistedData).mockImplementation(
+				async () => {
+					made.messages.splice(0, made.messages.length, user, failed);
+					runtime.completePollingRecovery();
+				},
 			);
-			await vi.waitFor(() => expect(runtime.snapshot().isSending).toBe(false));
-			expect(runtime.snapshot().canRetry).toBe(false);
-			expect(made.messages.at(-1)?.id).toBe("fresh-answer");
-			expect(
-				made.messageListEvents.finalizeStreamingMessage,
-			).toHaveBeenLastCalledWith(
-				expect.objectContaining({
-					metadata: expect.objectContaining({
-						assistantMessageId: "fresh-answer",
-						finalContent: "Fresh answer",
+			vi.stubGlobal("fetch", fetch);
+			try {
+				if (mode === "reload" || mode === "polling") {
+					made.messages.push(user, failed);
+					if (mode === "polling") runtime.completePollingRecovery();
+					else await runtime.checkForOrphanedStreamOnMount();
+				} else {
+					if (mode === "observer" || mode === "reconnect-error") {
+						made.messages.push(user);
+						await runtime.checkForOrphanedStreamOnMount();
+					} else
+						await runtime.send({
+							message: "A",
+							attachmentIds: [],
+							attachments: [],
+							pendingAttachments: [],
+						});
+					await vi.waitFor(() =>
+						expect(runtime.snapshot().isSending).toBe(false),
+					);
+				}
+				expect(runtime.snapshot()).toMatchObject({
+					canRetry: true,
+					lastUserMessage: "A",
+				});
+				expect(made.adapters.setSendError).toHaveBeenLastCalledWith(
+					"Chat reply failed.",
+				);
+				expect(made.messages.at(-1)?.id).toBe(failed.id);
+				expect(
+					normalChatOutputView(made.messages[made.messages.length - 1])
+						?.activity[0].text,
+				).toBe("Attempted work");
+				expect(fetch).toHaveBeenCalledTimes(
+					mode === "reload" || mode === "polling" ? 0 : 1,
+				);
+				if (mode === "direct")
+					expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+						expect.objectContaining({ message: "Queued B" }),
+					);
+				vi.mocked(made.adapters.checkForOrphanedStream).mockResolvedValue(null);
+				// Only a deliberate Retry replaces the failed row; no automatic tool replay.
+				let finishRetry!: (response: Response) => void;
+				fetch.mockImplementation(
+					() =>
+						new Promise<Response>((resolve) => {
+							finishRetry = resolve;
+						}),
+				);
+				await Promise.all([runtime.retry(), runtime.retry()]);
+				expect(fetch).toHaveBeenCalledTimes(
+					mode === "reload" || mode === "polling" ? 1 : 2,
+				);
+				const [url, init] = vi.mocked(globalThis.fetch).mock.calls.at(-1) ?? [];
+				expect(url).toBe("/api/chat/retry");
+				expect(JSON.parse(String(init?.body))).toMatchObject({
+					assistantMessageId: failed.id,
+					userMessageId: made.messages[0].id,
+					retryOrigin: "error_retry",
+					userMessage: "A",
+				});
+				expect(made.messages.filter((row) => row.role === "user")).toHaveLength(
+					1,
+				);
+				finishRetry(
+					new Response(
+						endEvent({
+							assistantMessageId: "fresh-answer",
+							finalContent: "Fresh answer",
+						}),
+						{ headers: { "Content-Type": "text/event-stream" } },
+					),
+				);
+				await vi.waitFor(() =>
+					expect(runtime.snapshot().isSending).toBe(false),
+				);
+				expect(runtime.snapshot().canRetry).toBe(false);
+				expect(made.messages.at(-1)?.id).toBe("fresh-answer");
+				expect(
+					made.messageListEvents.finalizeStreamingMessage,
+				).toHaveBeenLastCalledWith(
+					expect.objectContaining({
+						metadata: expect.objectContaining({
+							assistantMessageId: "fresh-answer",
+							finalContent: "Fresh answer",
+						}),
 					}),
-				}),
-			);
-		} finally {
-			runtime.detach();
-			vi.unstubAllGlobals();
-		}
-	});
+				);
+			} finally {
+				runtime.detach();
+				vi.unstubAllGlobals();
+			}
+		},
+	);
 
 	it("settles a real abandoned ledger through observer wire, browser decoder and client runtime", async () => {
 		const { createHash } = await import("node:crypto");
@@ -6045,25 +6070,28 @@ describe("Normal Chat Client Turn Runtime", () => {
 			]);
 		});
 
-		it.each([
-			"global_limit",
-			"user_limit",
-		] as const)("keeps the old three-step backoff for a refusal that says %s", async (reason) => {
-			const { adapters, streamInvocations, messages } = updateAdapters();
-			const runtime = createNormalChatClientTurnRuntime(adapters);
+		it.each(["global_limit", "user_limit"] as const)(
+			"keeps the old three-step backoff for a refusal that says %s",
+			async (reason) => {
+				const { adapters, streamInvocations, messages } = updateAdapters();
+				const runtime = createNormalChatClientTurnRuntime(adapters);
 
-			await runtime.send(words());
-			streamInvocations[0].callbacks.onError(refusedAsFull(reason));
+				await runtime.send(words());
+				streamInvocations[0].callbacks.onError(refusedAsFull(reason));
 
-			// Backing off, the old way: no wait, no sign, no awaiting phase.
-			expect(adapters.schedule).toHaveBeenCalledWith(expect.any(Function), 500);
-			expect(adapters.onServerUpdateSign).not.toHaveBeenCalled();
-			expect(adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
-			expect(messages[1].runtimePhase).not.toBe("awaiting_update");
+				// Backing off, the old way: no wait, no sign, no awaiting phase.
+				expect(adapters.schedule).toHaveBeenCalledWith(
+					expect.any(Function),
+					500,
+				);
+				expect(adapters.onServerUpdateSign).not.toHaveBeenCalled();
+				expect(adapters.setTurnWaitingForUpdate).not.toHaveBeenCalled();
+				expect(messages[1].runtimePhase).not.toBe("awaiting_update");
 
-			await vi.advanceTimersByTimeAsync(500);
-			expect(streamInvocations).toHaveLength(2);
-		});
+				await vi.advanceTimersByTimeAsync(500);
+				expect(streamInvocations).toHaveLength(2);
+			},
+		);
 
 		it("still ends a full server's refusals with the capacity sentence after three tries", async () => {
 			const { adapters, streamInvocations } = updateAdapters();
@@ -8333,19 +8361,22 @@ describe("Normal Chat Client Turn Runtime", () => {
 						count: 2,
 					}),
 			],
-		])("takes %s for the resume's first event as well", async (_name, firstEvent) => {
-			const made = onTheClock();
-			const runtime = createNormalChatClientTurnRuntime(made.adapters);
-			await runtime.answerQuestion(answerOf());
+		])(
+			"takes %s for the resume's first event as well",
+			async (_name, firstEvent) => {
+				const made = onTheClock();
+				const runtime = createNormalChatClientTurnRuntime(made.adapters);
+				await runtime.answerQuestion(answerOf());
 
-			// Said on that event alone, before any text, and not again for the text.
-			firstEvent(made.streamInvocations[0].callbacks);
-			expect(reported(made.onAskEvent)).toEqual([
-				{ type: "answerAccepted", questionId: "q-1" },
-			]);
-			made.streamInvocations[0].callbacks.onToken("Now the text");
-			expect(reported(made.onAskEvent)).toHaveLength(1);
-		});
+				// Said on that event alone, before any text, and not again for the text.
+				firstEvent(made.streamInvocations[0].callbacks);
+				expect(reported(made.onAskEvent)).toEqual([
+					{ type: "answerAccepted", questionId: "q-1" },
+				]);
+				made.streamInvocations[0].callbacks.onToken("Now the text");
+				expect(reported(made.onAskEvent)).toHaveLength(1);
+			},
+		);
 
 		it("takes the end of a resume that streamed nothing for the answer being accepted", async () => {
 			const made = onTheClock();
@@ -8763,38 +8794,44 @@ describe("Normal Chat Client Turn Runtime", () => {
 				// answer), but if it did the answer would still need an outcome for its
 				// card: it is not a message turned away.
 				["a 409 that says a question waits", 409, "QUESTION_WAITING"],
-			])("settles %s the same way: nothing to join, so the card is told", async (_name, status, code) => {
-				const made = onTheClock({ readChatMessages: vi.fn(async () => []) });
-				const runtime = createNormalChatClientTurnRuntime(made.adapters);
-				await runtime.answerQuestion(answerOf());
-				runtime.queue(words("Meanwhile"));
+			])(
+				"settles %s the same way: nothing to join, so the card is told",
+				async (_name, status, code) => {
+					const made = onTheClock({ readChatMessages: vi.fn(async () => []) });
+					const runtime = createNormalChatClientTurnRuntime(made.adapters);
+					await runtime.answerQuestion(answerOf());
+					runtime.queue(words("Meanwhile"));
 
-				made.streamInvocations[0].callbacks.onError(
-					refused(status, code, "The server's English"),
-				);
-				await vi.advanceTimersByTimeAsync(0);
+					made.streamInvocations[0].callbacks.onError(
+						refused(status, code, "The server's English"),
+					);
+					await vi.advanceTimersByTimeAsync(0);
 
-				expect(reported(made.onAskEvent)).toEqual([
-					{ type: "answerNotSent", questionId: "q-1", quiet: false },
-				]);
-				// No sentence, no Retry, nothing asked of the chat about a message, and the
-				// words that waited behind the answer are in the composer.
-				expect(sentenceShown(made.adapters)).toEqual([]);
-				expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
-				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
-					expect.objectContaining({ message: "Meanwhile" }),
-				);
-				expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
-				expect(runtime.snapshot()).toMatchObject({
-					isSending: false,
-					canRetry: false,
-				});
-				// A refusal the server named is not a connection to ask after twice.
-				expect(made.streamInvocations).toHaveLength(1);
-				// An answer is not a message the server turned away: the only words given
-				// back are the ones that waited behind it.
-				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
-			});
+					expect(reported(made.onAskEvent)).toEqual([
+						{ type: "answerNotSent", questionId: "q-1", quiet: false },
+					]);
+					// No sentence, no Retry, nothing asked of the chat about a message, and the
+					// words that waited behind the answer are in the composer.
+					expect(sentenceShown(made.adapters)).toEqual([]);
+					expect(made.adapters.readChatMessages).not.toHaveBeenCalled();
+					expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+						expect.objectContaining({ message: "Meanwhile" }),
+					);
+					expect(made.messages.map((row) => row.id)).toEqual([
+						"user-1",
+						"seg-1",
+					]);
+					expect(runtime.snapshot()).toMatchObject({
+						isSending: false,
+						canRetry: false,
+					});
+					// A refusal the server named is not a connection to ask after twice.
+					expect(made.streamInvocations).toHaveLength(1);
+					// An answer is not a message the server turned away: the only words given
+					// back are the ones that waited behind it.
+					expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+				},
+			);
 
 			it("recovers a resume that dropped after some text as a send does: the joined stream continues the asking row", async () => {
 				const made = onTheClock(resumeRunning());
@@ -8887,88 +8924,90 @@ describe("Normal Chat Client Turn Runtime", () => {
 					["after the resume has spoken", true],
 				] as const;
 
-				it.each(
-					beforeAndAfterTheResumeSpoke,
-				)("keeps the answer pending, then joins the resume as the answer's once the tab is visible, %s", async (_when, spoke) => {
-					const made = onTheClock({
-						isBrowserHidden: vi.fn(() => true),
-						...resumeRunning(),
-					});
-					const runtime = createNormalChatClientTurnRuntime(made.adapters);
-					await runtime.answerQuestion(answerOf());
-					if (spoke) made.streamInvocations[0].callbacks.onToken("Day one, ");
+				it.each(beforeAndAfterTheResumeSpoke)(
+					"keeps the answer pending, then joins the resume as the answer's once the tab is visible, %s",
+					async (_when, spoke) => {
+						const made = onTheClock({
+							isBrowserHidden: vi.fn(() => true),
+							...resumeRunning(),
+						});
+						const runtime = createNormalChatClientTurnRuntime(made.adapters);
+						await runtime.answerQuestion(answerOf());
+						if (spoke) made.streamInvocations[0].callbacks.onToken("Day one, ");
 
-					made.streamInvocations[0].callbacks.onError(cutOffByTheBrowser());
-					await vi.advanceTimersByTimeAsync(0);
+						made.streamInvocations[0].callbacks.onError(cutOffByTheBrowser());
+						await vi.advanceTimersByTimeAsync(0);
 
-					// Nothing new is told: the answer is neither sent nor lost as far as the
-					// tab knows (what the resume said before the cut is all the page heard).
-					expect(made.adapters.onBackgroundInterrupted).toHaveBeenCalledTimes(
-						1,
-					);
-					expect(runtime.snapshot()).toMatchObject({
-						streamInterruptedByBackground: true,
-						isSending: false,
-						canRetry: false,
-					});
-					expect(reported(made.onAskEvent)).toEqual(
-						spoke ? [{ type: "answerAccepted", questionId: "q-1" }] : [],
-					);
-					expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
-					expect(made.messages.map((row) => row.id)).toEqual([
-						"user-1",
-						"seg-1",
-					]);
-					expect(sentenceShown(made.adapters)).toEqual([]);
+						// Nothing new is told: the answer is neither sent nor lost as far as the
+						// tab knows (what the resume said before the cut is all the page heard).
+						expect(made.adapters.onBackgroundInterrupted).toHaveBeenCalledTimes(
+							1,
+						);
+						expect(runtime.snapshot()).toMatchObject({
+							streamInterruptedByBackground: true,
+							isSending: false,
+							canRetry: false,
+						});
+						expect(reported(made.onAskEvent)).toEqual(
+							spoke ? [{ type: "answerAccepted", questionId: "q-1" }] : [],
+						);
+						expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+						expect(made.messages.map((row) => row.id)).toEqual([
+							"user-1",
+							"seg-1",
+						]);
+						expect(sentenceShown(made.adapters)).toEqual([]);
 
-					// The tab is visible: the server still runs the resume, its stream is
-					// joined, and the placeholder continues the asking row although the page
-					// knows nothing of an answer on its way (no `getAnsweringQuestionMessageId`).
-					await runtime.handleVisibilityVisible();
+						// The tab is visible: the server still runs the resume, its stream is
+						// joined, and the placeholder continues the asking row although the page
+						// knows nothing of an answer on its way (no `getAnsweringQuestionMessageId`).
+						await runtime.handleVisibilityVisible();
 
-					expect(made.streamInvocations).toHaveLength(2);
-					expect(made.streamInvocations[1].options).toMatchObject({
-						reconnectToStreamId: "stream-1",
-					});
-					const streaming = made.messages.filter((row) => row.isStreaming);
-					expect(streaming).toHaveLength(1);
-					expect(streaming[0]).toMatchObject({ continuesMessageId: "seg-1" });
-					// The answer was taken up, said once however the cut came.
-					expect(reported(made.onAskEvent)).toEqual([
-						{ type: "answerAccepted", questionId: "q-1" },
-					]);
-					expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
-					expect(sentenceShown(made.adapters)).toEqual([]);
-				});
+						expect(made.streamInvocations).toHaveLength(2);
+						expect(made.streamInvocations[1].options).toMatchObject({
+							reconnectToStreamId: "stream-1",
+						});
+						const streaming = made.messages.filter((row) => row.isStreaming);
+						expect(streaming).toHaveLength(1);
+						expect(streaming[0]).toMatchObject({ continuesMessageId: "seg-1" });
+						// The answer was taken up, said once however the cut came.
+						expect(reported(made.onAskEvent)).toEqual([
+							{ type: "answerAccepted", questionId: "q-1" },
+						]);
+						expect(made.adapters.loadPersistedData).not.toHaveBeenCalled();
+						expect(sentenceShown(made.adapters)).toEqual([]);
+					},
+				);
 
-				it.each(
-					beforeAndAfterTheResumeSpoke,
-				)("tells the card quietly, and reads the chat, when the recovery finds no stream of the resume, %s", async (_when, spoke) => {
-					const made = onTheClock({ isBrowserHidden: vi.fn(() => true) });
-					const runtime = createNormalChatClientTurnRuntime(made.adapters);
-					await runtime.answerQuestion(answerOf());
-					if (spoke) made.streamInvocations[0].callbacks.onToken("Day one, ");
-					made.streamInvocations[0].callbacks.onError(cutOffByTheBrowser());
+				it.each(beforeAndAfterTheResumeSpoke)(
+					"tells the card quietly, and reads the chat, when the recovery finds no stream of the resume, %s",
+					async (_when, spoke) => {
+						const made = onTheClock({ isBrowserHidden: vi.fn(() => true) });
+						const runtime = createNormalChatClientTurnRuntime(made.adapters);
+						await runtime.answerQuestion(answerOf());
+						if (spoke) made.streamInvocations[0].callbacks.onToken("Day one, ");
+						made.streamInvocations[0].callbacks.onError(cutOffByTheBrowser());
 
-					await runtime.handleVisibilityVisible();
+						await runtime.handleVisibilityVisible();
 
-					// Not a failure: the resume may have finished meanwhile. After the
-					// acceptance it still follows it, and the page reads the questions and
-					// the chat to learn which.
-					expect(reported(made.onAskEvent)).toEqual([
-						...(spoke
-							? [{ type: "answerAccepted", questionId: "q-1" } as const]
-							: []),
-						{ type: "answerNotSent", questionId: "q-1", quiet: true },
-					]);
-					expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
-					expect(made.streamInvocations).toHaveLength(1);
-					expect(sentenceShown(made.adapters)).toEqual([]);
-					expect(runtime.snapshot()).toMatchObject({
-						isSending: false,
-						canRetry: false,
-					});
-				});
+						// Not a failure: the resume may have finished meanwhile. After the
+						// acceptance it still follows it, and the page reads the questions and
+						// the chat to learn which.
+						expect(reported(made.onAskEvent)).toEqual([
+							...(spoke
+								? [{ type: "answerAccepted", questionId: "q-1" } as const]
+								: []),
+							{ type: "answerNotSent", questionId: "q-1", quiet: true },
+						]);
+						expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+						expect(made.streamInvocations).toHaveLength(1);
+						expect(sentenceShown(made.adapters)).toEqual([]);
+						expect(runtime.snapshot()).toMatchObject({
+							isSending: false,
+							canRetry: false,
+						});
+					},
+				);
 
 				it("does not lend a pending answer to a later stream that was no resume", async () => {
 					const made = onTheClock({
@@ -9158,44 +9197,52 @@ describe("Normal Chat Client Turn Runtime", () => {
 						}),
 				],
 				["a lost connection", () => new TypeError("network error")],
-			])("does not draw the person's message again or offer Retry when %s ends a resume the page joined with no answer in hand", async (_name, failure) => {
-				const refreshQuestions = vi.fn();
-				const made = onTheClock({
-					getAnsweringQuestionMessageId: vi.fn(() => "seg-1"),
-					refreshQuestions,
-				});
-				const runtime = createNormalChatClientTurnRuntime(made.adapters);
-				// A reload during the resume: the page joins its stream.
-				await runtime.reconnectToOrphanedStream("stream-1", "Plan my trip");
-				runtime.queue(words("Meanwhile"));
-				made.streamInvocations[0].callbacks.onToken("Day one, ");
+			])(
+				"does not draw the person's message again or offer Retry when %s ends a resume the page joined with no answer in hand",
+				async (_name, failure) => {
+					const refreshQuestions = vi.fn();
+					const made = onTheClock({
+						getAnsweringQuestionMessageId: vi.fn(() => "seg-1"),
+						refreshQuestions,
+					});
+					const runtime = createNormalChatClientTurnRuntime(made.adapters);
+					// A reload during the resume: the page joins its stream.
+					await runtime.reconnectToOrphanedStream("stream-1", "Plan my trip");
+					runtime.queue(words("Meanwhile"));
+					made.streamInvocations[0].callbacks.onToken("Day one, ");
 
-				made.streamInvocations[0].callbacks.onError(failure());
-				await vi.advanceTimersByTimeAsync(0);
+					made.streamInvocations[0].callbacks.onError(failure());
+					await vi.advanceTimersByTimeAsync(0);
 
-				// The chat is read back and the page reads the question again: the server
-				// has it back as waiting, or as answered.
-				expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
-				expect(refreshQuestions).toHaveBeenCalledTimes(1);
-				// The message on screen is not drawn a second time, no sentence is shown and
-				// Retry is not offered (the server would refuse it while a question waits).
-				expect(made.messageListEvents.appendUserMessage).not.toHaveBeenCalled();
-				expect(made.messages.map((row) => row.id)).toEqual(["user-1", "seg-1"]);
-				expect(sentenceShown(made.adapters)).toEqual([]);
-				expect(runtime.snapshot()).toMatchObject({
-					canRetry: false,
-					lastUserMessage: "",
-					isSending: false,
-				});
-				// What waited behind it is the person's to send again.
-				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
-				expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
-					expect.objectContaining({ message: "Meanwhile" }),
-				);
-				expect(reported(made.onAskEvent)).toEqual([]);
-				await runtime.retry();
-				expect(made.streamInvocations).toHaveLength(1);
-			});
+					// The chat is read back and the page reads the question again: the server
+					// has it back as waiting, or as answered.
+					expect(made.adapters.loadPersistedData).toHaveBeenCalledTimes(1);
+					expect(refreshQuestions).toHaveBeenCalledTimes(1);
+					// The message on screen is not drawn a second time, no sentence is shown and
+					// Retry is not offered (the server would refuse it while a question waits).
+					expect(
+						made.messageListEvents.appendUserMessage,
+					).not.toHaveBeenCalled();
+					expect(made.messages.map((row) => row.id)).toEqual([
+						"user-1",
+						"seg-1",
+					]);
+					expect(sentenceShown(made.adapters)).toEqual([]);
+					expect(runtime.snapshot()).toMatchObject({
+						canRetry: false,
+						lastUserMessage: "",
+						isSending: false,
+					});
+					// What waited behind it is the person's to send again.
+					expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledTimes(1);
+					expect(made.adapters.restorePayloadToDraft).toHaveBeenCalledWith(
+						expect.objectContaining({ message: "Meanwhile" }),
+					);
+					expect(reported(made.onAskEvent)).toEqual([]);
+					await runtime.retry();
+					expect(made.streamInvocations).toHaveLength(1);
+				},
+			);
 		});
 
 		it("gives the card back quietly when Stop is pressed before the resume has streamed anything", async () => {
@@ -9929,39 +9976,39 @@ describe("Stop terminal handoff", () => {
 		} satisfies StreamMetadata;
 	}
 
-	it.each([
-		"retained replay",
-		"replay-to-live",
-	])("accepts explicit completion and exact receipt from %s without replaying effects", async () => {
-		const made = await stopped();
-		const observer = made.streamInvocations[1];
-		const before = vi.mocked(made.adapters.applyMessageListEvent).mock.calls
-			.length;
-		observer.callbacks.onToken("Must not append");
-		observer.callbacks.onThinking("Must not append");
-		observer.callbacks.onToolCall?.("make_image", {}, "done");
-		observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
-		expect(
-			vi.mocked(made.adapters.applyMessageListEvent).mock.calls,
-		).toHaveLength(before);
-		observer.callbacks.onEnd("Must not append", {
-			assistantMessageId: "saved-stop",
-		});
-		await vi.advanceTimersByTimeAsync(0);
-		expect(
-			normalChatOutputView(
-				made.messages.at(-1) ?? {
-					id: "missing",
-					role: "assistant",
-					content: "",
-					timestamp: 0,
-				},
-			)?.completion?.outcome,
-		).toBe("stopped");
-		expect(made.messages.at(-1)?.content).toBe("");
-		expect(made.adapters.hydrateConversationDetail).not.toHaveBeenCalled();
-		expect(made.streamInvocations).toHaveLength(2);
-	});
+	it.each(["retained replay", "replay-to-live"])(
+		"accepts explicit completion and exact receipt from %s without replaying effects",
+		async () => {
+			const made = await stopped();
+			const observer = made.streamInvocations[1];
+			const before = vi.mocked(made.adapters.applyMessageListEvent).mock.calls
+				.length;
+			observer.callbacks.onToken("Must not append");
+			observer.callbacks.onThinking("Must not append");
+			observer.callbacks.onToolCall?.("make_image", {}, "done");
+			observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+			expect(
+				vi.mocked(made.adapters.applyMessageListEvent).mock.calls,
+			).toHaveLength(before);
+			observer.callbacks.onEnd("Must not append", {
+				assistantMessageId: "saved-stop",
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(
+				normalChatOutputView(
+					made.messages.at(-1) ?? {
+						id: "missing",
+						role: "assistant",
+						content: "",
+						timestamp: 0,
+					},
+				)?.completion?.outcome,
+			).toBe("stopped");
+			expect(made.messages.at(-1)?.content).toBe("");
+			expect(made.adapters.hydrateConversationDetail).not.toHaveBeenCalled();
+			expect(made.streamInvocations).toHaveLength(2);
+		},
+	);
 
 	it("applies already answered truth without draining a queued message or completing twice", async () => {
 		const answered = fixture("answered");
@@ -9994,84 +10041,80 @@ describe("Stop terminal handoff", () => {
 		expect(made.streamInvocations).toHaveLength(2);
 	});
 
-	it.each([
-		"send",
-		"resume",
-		"detach",
-		"reset",
-		"chat",
-	])("drops late observer callbacks after %s", async (action) => {
-		let chat = "conv-1";
-		const made = await stopped({ getConversationId: () => chat });
-		const observer = made.streamInvocations[1];
-		if (action === "send")
-			await made.runtime.send({
-				message: "B",
-				attachmentIds: [],
-				attachments: [],
-				pendingAttachments: [],
-			});
-		if (action === "resume")
-			await made.runtime.answerQuestion({
-				questionId: "new-question",
-				answer: { kind: "left_to_alfy" },
-				continuesMessageId: "asking",
-				userMessage: "B",
-			});
-		if (action === "detach") made.runtime.detach();
-		if (action === "reset") made.runtime.reset();
-		if (action === "chat") chat = "conv-2";
-		const state = made.runtime.snapshot();
-		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
-		vi.mocked(made.adapters.setSendError).mockClear();
-		observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
-		observer.callbacks.onEnd("", terminalReceipt(made));
-		await vi.advanceTimersByTimeAsync(10_000);
-		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
-		expect(made.adapters.setSendError).not.toHaveBeenCalled();
-		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
-		expect(made.runtime.snapshot()).toEqual(state);
-		expect(observer.handle.detach).toHaveBeenCalled();
-		expect(observer.handle.stop).not.toHaveBeenCalled();
-	});
+	it.each(["send", "resume", "detach", "reset", "chat"])(
+		"drops late observer callbacks after %s",
+		async (action) => {
+			let chat = "conv-1";
+			const made = await stopped({ getConversationId: () => chat });
+			const observer = made.streamInvocations[1];
+			if (action === "send")
+				await made.runtime.send({
+					message: "B",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+			if (action === "resume")
+				await made.runtime.answerQuestion({
+					questionId: "new-question",
+					answer: { kind: "left_to_alfy" },
+					continuesMessageId: "asking",
+					userMessage: "B",
+				});
+			if (action === "detach") made.runtime.detach();
+			if (action === "reset") made.runtime.reset();
+			if (action === "chat") chat = "conv-2";
+			const state = made.runtime.snapshot();
+			vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+			vi.mocked(made.adapters.setSendError).mockClear();
+			observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+			observer.callbacks.onEnd("", terminalReceipt(made));
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+			expect(made.adapters.setSendError).not.toHaveBeenCalled();
+			expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+			expect(made.runtime.snapshot()).toEqual(state);
+			expect(observer.handle.detach).toHaveBeenCalled();
+			expect(observer.handle.stop).not.toHaveBeenCalled();
+		},
+	);
 
-	it.each([
-		"send",
-		"detach",
-		"chat",
-	])("fences the saved-row read after %s", async (action) => {
-		let resolve: (rows: ChatMessage[]) => void = () => {
-			throw new Error("read not started");
-		};
-		let chat = "conv-1";
-		const made = await stopped({
-			getConversationId: () => chat,
-			readChatMessages: () =>
-				new Promise((done) => {
-					resolve = done;
-				}),
-		});
-		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
-		await Promise.resolve();
-		if (action === "send")
-			await made.runtime.send({
-				message: "B",
-				attachmentIds: [],
-				attachments: [],
-				pendingAttachments: [],
+	it.each(["send", "detach", "chat"])(
+		"fences the saved-row read after %s",
+		async (action) => {
+			let resolve: (rows: ChatMessage[]) => void = () => {
+				throw new Error("read not started");
+			};
+			let chat = "conv-1";
+			const made = await stopped({
+				getConversationId: () => chat,
+				readChatMessages: () =>
+					new Promise((done) => {
+						resolve = done;
+					}),
 			});
-		if (action === "detach") made.runtime.detach();
-		if (action === "chat") chat = "conv-2";
-		const state = made.runtime.snapshot();
-		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
-		vi.mocked(made.adapters.setSendError).mockClear();
-		resolve([made.facts.saved]);
-		await vi.advanceTimersByTimeAsync(0);
-		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
-		expect(made.adapters.setSendError).not.toHaveBeenCalled();
-		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
-		expect(made.runtime.snapshot()).toEqual(state);
-	});
+			made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+			await Promise.resolve();
+			if (action === "send")
+				await made.runtime.send({
+					message: "B",
+					attachmentIds: [],
+					attachments: [],
+					pendingAttachments: [],
+				});
+			if (action === "detach") made.runtime.detach();
+			if (action === "chat") chat = "conv-2";
+			const state = made.runtime.snapshot();
+			vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+			vi.mocked(made.adapters.setSendError).mockClear();
+			resolve([made.facts.saved]);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+			expect(made.adapters.setSendError).not.toHaveBeenCalled();
+			expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+			expect(made.runtime.snapshot()).toEqual(state);
+		},
+	);
 
 	it.each([
 		"hung",
@@ -10082,87 +10125,90 @@ describe("Stop terminal handoff", () => {
 		"wrong segment",
 		"missing row",
 		"wrong saved identity",
-	])("keeps %s explicitly unavailable without inventing completion", async (mode) => {
-		const made = await stopped(
-			mode === "missing row"
-				? { readChatMessages: async () => [] }
-				: mode === "wrong saved identity"
-					? {
-							readChatMessages: async () =>
-								applyNormalChatOutputView([fixture().saved], "saved-stop", {
-									...fixture().terminal,
-									completion: { ...fixture().completion, segmentId: "other" },
-								}),
-						}
-					: {},
-		);
-		const observer = made.streamInvocations[1];
-		if (mode === "unavailable")
-			observer.callbacks.onEnd("", {
-				observation: {
-					version: 1,
-					state: "unavailable",
-					streamId: "stop-stream",
-					conversationId: "conv-1",
-				},
-			});
-		else if (mode === "missing receipt") {
-			observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
-			observer.callbacks.onEnd("");
-		} else if (mode === "missing completion")
-			observer.callbacks.onEnd("", {
-				assistantMessageId: "saved-stop",
-				wasStopped: true,
-			});
-		else if (mode === "wrong stream")
-			observer.callbacks.onEnd(
-				"",
-				terminalReceipt(made, {
-					observation: {
-						...terminalObservation(made),
-						streamId: "other",
-					},
-				}),
+	])(
+		"keeps %s explicitly unavailable without inventing completion",
+		async (mode) => {
+			const made = await stopped(
+				mode === "missing row"
+					? { readChatMessages: async () => [] }
+					: mode === "wrong saved identity"
+						? {
+								readChatMessages: async () =>
+									applyNormalChatOutputView([fixture().saved], "saved-stop", {
+										...fixture().terminal,
+										completion: { ...fixture().completion, segmentId: "other" },
+									}),
+							}
+						: {},
 			);
-		else if (mode === "wrong segment")
-			observer.callbacks.onEnd(
-				"",
-				terminalReceipt(made, {
+			const observer = made.streamInvocations[1];
+			if (mode === "unavailable")
+				observer.callbacks.onEnd("", {
 					observation: {
-						...terminalObservation(made),
-						completion: { ...made.facts.completion, segmentId: "other" },
+						version: 1,
+						state: "unavailable",
+						streamId: "stop-stream",
+						conversationId: "conv-1",
 					},
-				}),
+				});
+			else if (mode === "missing receipt") {
+				observer.callbacks.onNormalChatOutput?.(made.facts.terminal);
+				observer.callbacks.onEnd("");
+			} else if (mode === "missing completion")
+				observer.callbacks.onEnd("", {
+					assistantMessageId: "saved-stop",
+					wasStopped: true,
+				});
+			else if (mode === "wrong stream")
+				observer.callbacks.onEnd(
+					"",
+					terminalReceipt(made, {
+						observation: {
+							...terminalObservation(made),
+							streamId: "other",
+						},
+					}),
+				);
+			else if (mode === "wrong segment")
+				observer.callbacks.onEnd(
+					"",
+					terminalReceipt(made, {
+						observation: {
+							...terminalObservation(made),
+							completion: { ...made.facts.completion, segmentId: "other" },
+						},
+					}),
+				);
+			else if (mode !== "hung")
+				observer.callbacks.onEnd("", terminalReceipt(made));
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(
+				normalChatOutputView(
+					made.messages.at(-1) ?? {
+						id: "missing",
+						role: "assistant",
+						content: "",
+						timestamp: 0,
+					},
+				)?.completion,
+			).toBeUndefined();
+			expect(
+				normalChatOutputView(
+					made.messages.at(-1) ?? {
+						id: "missing",
+						role: "assistant",
+						content: "",
+						timestamp: 0,
+					},
+				)?.activity[0].text,
+			).toBe("Retained working activity");
+			expect(made.adapters.setSendError).toHaveBeenCalledWith(
+				"chat.observationUnavailable",
 			);
-		else if (mode !== "hung")
-			observer.callbacks.onEnd("", terminalReceipt(made));
-		await vi.advanceTimersByTimeAsync(10_000);
-		expect(
-			normalChatOutputView(
-				made.messages.at(-1) ?? {
-					id: "missing",
-					role: "assistant",
-					content: "",
-					timestamp: 0,
-				},
-			)?.completion,
-		).toBeUndefined();
-		expect(
-			normalChatOutputView(
-				made.messages.at(-1) ?? {
-					id: "missing",
-					role: "assistant",
-					content: "",
-					timestamp: 0,
-				},
-			)?.activity[0].text,
-		).toBe("Retained working activity");
-		expect(made.adapters.setSendError).toHaveBeenCalledWith(
-			"chat.observationUnavailable",
-		);
-		expect(made.runtime.snapshot().isSending).toBe(false);
-		expect(observer.handle.detach).toHaveBeenCalled();
-	});
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			expect(observer.handle.detach).toHaveBeenCalled();
+		},
+	);
 
 	it("bounds pending reads and includes hung detail in the total deadline", async () => {
 		const made = await stopped({
@@ -10237,36 +10283,36 @@ describe("Stop terminal handoff", () => {
 		expect(made.adapters.readChatMessages).toHaveBeenCalledOnce();
 	});
 
-	it.each([
-		"pending",
-		"cut",
-	])("hands %s Stop to the same private terminal application seam", async (mode) => {
-		const made = await stopped(
-			{ askServerUpdate: () => new Promise(() => {}) },
-			(_runtime, original) => {
-				if (mode === "pending")
-					original.callbacks.onWaiting?.({
-						version: 1,
-						state: "pending",
-						streamId: "stop-stream",
-						conversationId: "conv-1",
-						turnId: "stop-turn",
-						segmentId: "stop-segment",
-					});
-				else original.callbacks.onError(new TypeError("Failed to fetch"));
-			},
-			false,
-		);
-		made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
-		await vi.advanceTimersByTimeAsync(10_000);
-		expect(made.streamInvocations).toHaveLength(2);
-		expect(made.original.handle.stop).toHaveBeenCalledOnce();
-		expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
-		expect(
-			normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)?.completion
-				?.outcome,
-		).toBe("stopped");
-	});
+	it.each(["pending", "cut"])(
+		"hands %s Stop to the same private terminal application seam",
+		async (mode) => {
+			const made = await stopped(
+				{ askServerUpdate: () => new Promise(() => {}) },
+				(_runtime, original) => {
+					if (mode === "pending")
+						original.callbacks.onWaiting?.({
+							version: 1,
+							state: "pending",
+							streamId: "stop-stream",
+							conversationId: "conv-1",
+							turnId: "stop-turn",
+							segmentId: "stop-segment",
+						});
+					else original.callbacks.onError(new TypeError("Failed to fetch"));
+				},
+				false,
+			);
+			made.streamInvocations[1].callbacks.onEnd("", terminalReceipt(made));
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(made.streamInvocations).toHaveLength(2);
+			expect(made.original.handle.stop).toHaveBeenCalledOnce();
+			expect(made.adapters.checkForOrphanedStream).not.toHaveBeenCalled();
+			expect(
+				normalChatOutputView(made.messages.at(-1) ?? made.facts.saved)
+					?.completion?.outcome,
+			).toBe("stopped");
+		},
+	);
 
 	it("ends perpetual pending after five reads without a completion fact", async () => {
 		const made = await stopped();
@@ -10714,22 +10760,21 @@ describe("Stop terminal handoff", () => {
 		).toBeUndefined();
 	});
 
-	it.each([
-		"detach",
-		"reset",
-		"conversation",
-	] as const)("supersedes a pending command on %s", async (action) => {
-		const made = await stopped();
-		const pending = made.runtime.settleStoppedAction({ purpose: "navigate" });
-		if (action === "conversation")
-			vi.mocked(made.adapters.getConversationId).mockReturnValue("other");
-		else made.runtime[action]();
-		await vi.advanceTimersByTimeAsync(10_000);
-		expect(await pending).toEqual({ status: "superseded" });
-		const before = structuredClone(made.messages);
-		made.original.callbacks.onEnd("late", { assistantMessageId: "late-a" });
-		expect(made.messages).toEqual(before);
-	});
+	it.each(["detach", "reset", "conversation"] as const)(
+		"supersedes a pending command on %s",
+		async (action) => {
+			const made = await stopped();
+			const pending = made.runtime.settleStoppedAction({ purpose: "navigate" });
+			if (action === "conversation")
+				vi.mocked(made.adapters.getConversationId).mockReturnValue("other");
+			else made.runtime[action]();
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(await pending).toEqual({ status: "superseded" });
+			const before = structuredClone(made.messages);
+			made.original.callbacks.onEnd("late", { assistantMessageId: "late-a" });
+			expect(made.messages).toEqual(before);
+		},
+	);
 
 	it("permits an independent saved historical target despite unresolved Stop", async () => {
 		const made = await stopped();
@@ -10784,36 +10829,38 @@ describe("Stop terminal handoff", () => {
 			}),
 		).toEqual({ status: "unavailable" });
 	});
-	it.each([
-		"removed",
-		"conflicting canonical ID",
-	] as const)("invalidates a ready permit when its target is %s without notifying the runtime", async (change) => {
-		const made = await stopped();
-		made.original.callbacks.onEnd("", {
-			assistantMessageId: "ready-a",
-			userMessageId: "ready-u",
-			wasStopped: true,
-		});
-		const permit = await made.runtime.settleStoppedAction({
-			purpose: "regenerate",
-			messageId: "id-2",
-		});
-		if (permit.status !== "ready") throw new Error("expected ready permit");
-		expect(permit.isCurrent()).toBe(true);
-		const targetIndex = made.messages.findIndex((row) => row.id === "ready-a");
-		if (change === "removed") made.messages.splice(targetIndex, 1);
-		else
-			made.messages[targetIndex] = {
-				...made.messages[targetIndex],
-				id: "different-canonical-a",
-			};
-		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
-		const before = structuredClone(made.messages);
-		expect(permit.isCurrent()).toBe(false);
-		expect(made.messages).toEqual(before);
-		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
-		permit.release();
-	});
+	it.each(["removed", "conflicting canonical ID"] as const)(
+		"invalidates a ready permit when its target is %s without notifying the runtime",
+		async (change) => {
+			const made = await stopped();
+			made.original.callbacks.onEnd("", {
+				assistantMessageId: "ready-a",
+				userMessageId: "ready-u",
+				wasStopped: true,
+			});
+			const permit = await made.runtime.settleStoppedAction({
+				purpose: "regenerate",
+				messageId: "id-2",
+			});
+			if (permit.status !== "ready") throw new Error("expected ready permit");
+			expect(permit.isCurrent()).toBe(true);
+			const targetIndex = made.messages.findIndex(
+				(row) => row.id === "ready-a",
+			);
+			if (change === "removed") made.messages.splice(targetIndex, 1);
+			else
+				made.messages[targetIndex] = {
+					...made.messages[targetIndex],
+					id: "different-canonical-a",
+				};
+			vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+			const before = structuredClone(made.messages);
+			expect(permit.isCurrent()).toBe(false);
+			expect(made.messages).toEqual(before);
+			expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+			permit.release();
+		},
+	);
 
 	it("keeps a ready permit valid when the exact authoritative row is reloaded without its render key", async () => {
 		const made = await stopped();
@@ -10941,237 +10988,20 @@ describe("canonical observation through the real message-list finalizer", () => 
 		} as const;
 		return { ...made, runtime, observer, saved, key, receipt };
 	}
-	it.each([
-		"stop",
-		"normal",
-	] as const)("adopts the complete saved row atomically with durable anchors through %s", async (mode) => {
-		const made = await observing(mode);
-		const before = made.messages.slice(0, -1);
-		const eventStart = vi.mocked(made.adapters.applyMessageListEvent).mock.calls
-			.length;
-		made.observer.callbacks.onEnd("", made.receipt);
-		await vi.advanceTimersByTimeAsync(0);
-		expect(made.messages.at(-1)?.thoughtSteps).toEqual(made.saved.thoughtSteps);
-		expect(made.messages.at(-1)).toEqual({
-			...made.saved,
-			renderKey: made.key,
-			isStreaming: false,
-			isThinkingStreaming: false,
-			runtimePhase: undefined,
-			responseActivity: undefined,
-			evidencePending: true,
-		});
-		expect(made.messages.slice(0, -1)).toEqual(before);
-		expect(
-			vi
-				.mocked(made.adapters.applyMessageListEvent)
-				.mock.calls.slice(eventStart)
-				.map(([e]) => e.type),
-		).toEqual(["finalize"]);
-		expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(
-			made.saved.id,
-		);
-		expect(made.adapters.pollMessageEvidence).toHaveBeenCalledWith(
-			made.saved.id,
-		);
-		if (mode === "stop") {
-			const permit = await made.runtime.settleStoppedAction({
-				purpose: "regenerate",
-				messageId: made.saved.id,
-			});
-			expect(permit.status).toBe("ready");
-			if (permit.status === "ready") {
-				expect(permit.isCurrent()).toBe(true);
-				permit.release();
-			}
-		}
-		made.runtime.detach();
-	});
-	it.each([
-		"stop",
-		"normal",
-	] as const)("rejects a same-ID saved row from another segment through %s", async (mode) => {
-		const saved = savedReply();
-		const event = required(saved.normalChatOutput).events[0];
-		if (event.type === "completion")
-			event.completion = {
-				...event.completion,
-				segmentId: "different-segment",
-			};
-		const made = await observing(mode, saved);
-		made.observer.callbacks.onEnd("", made.receipt);
-		await vi.advanceTimersByTimeAsync(0);
-		expect(made.messages.at(-1)?.id).not.toBe(saved.id);
-		expect(made.adapters.setSendError).toHaveBeenCalledWith(
-			"chat.observationUnavailable",
-		);
-		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
-		made.runtime.detach();
-	});
-	it.each([
-		"stop",
-		"normal",
-	] as const)("keeps a newer finalization failure honest through %s", async (mode) => {
-		const saved = savedReply();
-		const event = required(saved.normalChatOutput).events[0];
-		if (event.type !== "completion")
-			throw new Error("Fixture lacks completion");
-		event.completion = {
-			...event.completion,
-			outcome: "answered",
-			stopCause: "natural_stop",
-			workingStopCause: "natural_stop",
-		};
-		const made = await observing(mode, saved);
-		const marker = {
-			version: 1,
-			status: "failed",
-			cause: "file_association_failed",
-			wasStopped: true,
-		} as const;
-		const modelCompletion = required(normalChatOutputView(saved)?.completion);
-		made.observer.callbacks.onEnd("", {
-			observation: {
-				...made.receipt.observation,
-				modelCompletion,
-				normalChatFinalization: marker,
-				completion: required(
-					projectNormalChatFinalization(modelCompletion, marker),
-				),
-			},
-		});
-		await vi.advanceTimersByTimeAsync(0);
-		expect(made.messages.at(-1)?.normalChatFinalization).toEqual(marker);
-		expect(
-			normalChatOutputView(required(made.messages.at(-1)))?.completion?.outcome,
-		).toBe("stopped");
-		expect(saved.normalChatFinalization).toBeUndefined();
-		made.runtime.detach();
-	});
-	it.each([
-		"stop",
-		"normal",
-	] as const)("ignores a detail read superseded by a new turn through %s", async (mode) => {
-		const made = await observing(mode);
-		let resolve!: (rows: ChatMessage[]) => void;
-		vi.mocked(required(made.adapters.readChatMessages)).mockReturnValueOnce(
-			new Promise((r) => {
-				resolve = r;
-			}),
-		);
-		made.observer.callbacks.onEnd("", made.receipt);
-		await vi.advanceTimersByTimeAsync(0);
-		made.runtime.reset();
-		await made.runtime.send({
-			message: "New turn",
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-		});
-		const rows = structuredClone(made.messages);
-		vi.mocked(made.adapters.applyMessageListEvent).mockClear();
-		resolve([made.saved]);
-		await vi.advanceTimersByTimeAsync(0);
-		expect(made.messages).toEqual(rows);
-		expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
-		expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
-		expect(made.runtime.snapshot().isSending).toBe(true);
-		made.runtime.detach();
-	});
-
-	it.each([
-		"stop",
-		"normal",
-	] as const)("rejects missing structure and wrong durable identity through %s", async (mode) => {
-		for (const defect of [
-			"structure",
-			"role",
-			"id",
-			"outcome",
-			"finalization",
-		] as const) {
-			const saved = savedReply();
-			if (defect === "structure") saved.normalChatOutput = undefined;
-			if (defect === "role") saved.role = "user";
-			if (defect === "id") saved.id = "another-assistant";
-			if (defect === "outcome") {
-				const event = required(saved.normalChatOutput).events[0];
-				if (event.type === "completion")
-					event.completion = { ...event.completion, outcome: "answered" };
-			}
-			if (defect === "finalization")
-				saved.normalChatFinalization = {
-					version: 1,
-					status: "failed",
-					cause: "file_association_failed",
-					wasStopped: false,
-				};
-			const made = await observing(mode, saved);
-			if (defect === "structure") {
-				const held = required(made.messages.at(-1));
-				Object.assign(
-					held,
-					applyNormalChatOutputView([held], held.id, {
-						answer: "",
-						activity: [],
-						blocks: [],
-						completion: made.receipt.observation.completion,
-					})[0],
-				);
-			}
-			const receipt: StreamMetadata =
-				defect === "finalization"
-					? {
-							observation: {
-								...made.receipt.observation,
-								normalChatFinalization: {
-									version: 1,
-									status: "failed",
-									cause: "file_association_failed",
-									wasStopped: true,
-								},
-							},
-						}
-					: made.receipt;
-			made.observer.callbacks.onEnd("", receipt);
+	it.each(["stop", "normal"] as const)(
+		"adopts the complete saved row atomically with durable anchors through %s",
+		async (mode) => {
+			const made = await observing(mode);
+			const before = made.messages.slice(0, -1);
+			const eventStart = vi.mocked(made.adapters.applyMessageListEvent).mock
+				.calls.length;
+			made.observer.callbacks.onEnd("", made.receipt);
 			await vi.advanceTimersByTimeAsync(0);
-			expect(made.messages.at(-1)?.id, defect).not.toBe("canonical-assistant");
-			expect(made.adapters.setSendError, defect).toHaveBeenCalledWith(
-				"chat.observationUnavailable",
+			expect(made.messages.at(-1)?.thoughtSteps).toEqual(
+				made.saved.thoughtSteps,
 			);
-			made.runtime.detach();
-		}
-	});
-
-	it.each([
-		"none",
-		"live",
-		"model",
-	] as const)("adopts a legacy normal receipt only without structural evidence: %s", async (evidence) => {
-		const saved = savedReply();
-		saved.normalChatOutput = undefined;
-		const made = await observing("normal", saved);
-		if (evidence === "live")
-			made.observer.callbacks.onNormalChatOutput?.({
-				answer: "",
-				activity: [],
-				blocks: [],
-				completion: made.receipt.observation.completion,
-			});
-		const receipt: StreamMetadata =
-			evidence === "model"
-				? {
-						observation: {
-							...made.receipt.observation,
-							modelCompletion: made.receipt.observation.completion,
-						},
-					}
-				: made.receipt;
-		made.observer.callbacks.onEnd("", receipt);
-		await vi.advanceTimersByTimeAsync(0);
-		if (evidence === "none") {
 			expect(made.messages.at(-1)).toEqual({
-				...saved,
+				...made.saved,
 				renderKey: made.key,
 				isStreaming: false,
 				isThinkingStreaming: false,
@@ -11179,50 +11009,271 @@ describe("canonical observation through the real message-list finalizer", () => 
 				responseActivity: undefined,
 				evidencePending: true,
 			});
+			expect(made.messages.slice(0, -1)).toEqual(before);
 			expect(
-				normalChatOutputView(required(made.messages.at(-1))),
-			).toBeUndefined();
-			expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(saved.id);
-		} else {
+				vi
+					.mocked(made.adapters.applyMessageListEvent)
+					.mock.calls.slice(eventStart)
+					.map(([e]) => e.type),
+			).toEqual(["finalize"]);
+			expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(
+				made.saved.id,
+			);
+			expect(made.adapters.pollMessageEvidence).toHaveBeenCalledWith(
+				made.saved.id,
+			);
+			if (mode === "stop") {
+				const permit = await made.runtime.settleStoppedAction({
+					purpose: "regenerate",
+					messageId: made.saved.id,
+				});
+				expect(permit.status).toBe("ready");
+				if (permit.status === "ready") {
+					expect(permit.isCurrent()).toBe(true);
+					permit.release();
+				}
+			}
+			made.runtime.detach();
+		},
+	);
+	it.each(["stop", "normal"] as const)(
+		"rejects a same-ID saved row from another segment through %s",
+		async (mode) => {
+			const saved = savedReply();
+			const event = required(saved.normalChatOutput).events[0];
+			if (event.type === "completion")
+				event.completion = {
+					...event.completion,
+					segmentId: "different-segment",
+				};
+			const made = await observing(mode, saved);
+			made.observer.callbacks.onEnd("", made.receipt);
+			await vi.advanceTimersByTimeAsync(0);
 			expect(made.messages.at(-1)?.id).not.toBe(saved.id);
 			expect(made.adapters.setSendError).toHaveBeenCalledWith(
 				"chat.observationUnavailable",
 			);
-		}
-		made.runtime.detach();
-	});
-	it.each([
-		false,
-		true,
-	])("observes a pending turn beyond 120 seconds until its saved answer arrives (server budget=%s)", async (serverBudget) => {
-		const saved = savedReply();
-		const made = await observing("normal", saved);
-		const deadlineAt = Date.now() + 500_000;
-		for (let count = 0; count < (serverBudget ? 200 : 70); count++) {
-			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+			expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+			made.runtime.detach();
+		},
+	);
+	it.each(["stop", "normal"] as const)(
+		"keeps a newer finalization failure honest through %s",
+		async (mode) => {
+			const saved = savedReply();
+			const event = required(saved.normalChatOutput).events[0];
+			if (event.type !== "completion")
+				throw new Error("Fixture lacks completion");
+			event.completion = {
+				...event.completion,
+				outcome: "answered",
+				stopCause: "natural_stop",
+				workingStopCause: "natural_stop",
+			};
+			const made = await observing(mode, saved);
+			const marker = {
 				version: 1,
-				state: "pending",
-				streamId: "canonical-stream",
-				conversationId: "conv-1",
-				turnId: "canonical-turn",
-				segmentId: "canonical-segment",
-				...(serverBudget ? { deadlineAt } : {}),
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped: true,
+			} as const;
+			const modelCompletion = required(normalChatOutputView(saved)?.completion);
+			made.observer.callbacks.onEnd("", {
+				observation: {
+					...made.receipt.observation,
+					modelCompletion,
+					normalChatFinalization: marker,
+					completion: required(
+						projectNormalChatFinalization(modelCompletion, marker),
+					),
+				},
 			});
-			await vi.advanceTimersByTimeAsync(2000);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.messages.at(-1)?.normalChatFinalization).toEqual(marker);
+			expect(
+				normalChatOutputView(required(made.messages.at(-1)))?.completion
+					?.outcome,
+			).toBe("stopped");
+			expect(saved.normalChatFinalization).toBeUndefined();
+			made.runtime.detach();
+		},
+	);
+	it.each(["stop", "normal"] as const)(
+		"ignores a detail read superseded by a new turn through %s",
+		async (mode) => {
+			const made = await observing(mode);
+			let resolve!: (rows: ChatMessage[]) => void;
+			vi.mocked(required(made.adapters.readChatMessages)).mockReturnValueOnce(
+				new Promise((r) => {
+					resolve = r;
+				}),
+			);
+			made.observer.callbacks.onEnd("", made.receipt);
+			await vi.advanceTimersByTimeAsync(0);
+			made.runtime.reset();
+			await made.runtime.send({
+				message: "New turn",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			const rows = structuredClone(made.messages);
+			vi.mocked(made.adapters.applyMessageListEvent).mockClear();
+			resolve([made.saved]);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.messages).toEqual(rows);
+			expect(made.adapters.applyMessageListEvent).not.toHaveBeenCalled();
+			expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
 			expect(made.runtime.snapshot().isSending).toBe(true);
-			expect(made.streamInvocations).toHaveLength(count + 2);
-		}
-		expect(
-			made.streamInvocations.every(
-				(entry) => entry.options?.reconnectToStreamId === "canonical-stream",
-			),
-		).toBe(true);
-		required(made.streamInvocations.at(-1)).callbacks.onEnd("", made.receipt);
-		await vi.advanceTimersByTimeAsync(0);
-		expect(made.messages.at(-1)?.id).toBe(saved.id);
-		expect(made.runtime.snapshot().isSending).toBe(false);
-		made.runtime.detach();
-	});
+			made.runtime.detach();
+		},
+	);
+
+	it.each(["stop", "normal"] as const)(
+		"rejects missing structure and wrong durable identity through %s",
+		async (mode) => {
+			for (const defect of [
+				"structure",
+				"role",
+				"id",
+				"outcome",
+				"finalization",
+			] as const) {
+				const saved = savedReply();
+				if (defect === "structure") saved.normalChatOutput = undefined;
+				if (defect === "role") saved.role = "user";
+				if (defect === "id") saved.id = "another-assistant";
+				if (defect === "outcome") {
+					const event = required(saved.normalChatOutput).events[0];
+					if (event.type === "completion")
+						event.completion = { ...event.completion, outcome: "answered" };
+				}
+				if (defect === "finalization")
+					saved.normalChatFinalization = {
+						version: 1,
+						status: "failed",
+						cause: "file_association_failed",
+						wasStopped: false,
+					};
+				const made = await observing(mode, saved);
+				if (defect === "structure") {
+					const held = required(made.messages.at(-1));
+					Object.assign(
+						held,
+						applyNormalChatOutputView([held], held.id, {
+							answer: "",
+							activity: [],
+							blocks: [],
+							completion: made.receipt.observation.completion,
+						})[0],
+					);
+				}
+				const receipt: StreamMetadata =
+					defect === "finalization"
+						? {
+								observation: {
+									...made.receipt.observation,
+									normalChatFinalization: {
+										version: 1,
+										status: "failed",
+										cause: "file_association_failed",
+										wasStopped: true,
+									},
+								},
+							}
+						: made.receipt;
+				made.observer.callbacks.onEnd("", receipt);
+				await vi.advanceTimersByTimeAsync(0);
+				expect(made.messages.at(-1)?.id, defect).not.toBe(
+					"canonical-assistant",
+				);
+				expect(made.adapters.setSendError, defect).toHaveBeenCalledWith(
+					"chat.observationUnavailable",
+				);
+				made.runtime.detach();
+			}
+		},
+	);
+
+	it.each(["none", "live", "model"] as const)(
+		"adopts a legacy normal receipt only without structural evidence: %s",
+		async (evidence) => {
+			const saved = savedReply();
+			saved.normalChatOutput = undefined;
+			const made = await observing("normal", saved);
+			if (evidence === "live")
+				made.observer.callbacks.onNormalChatOutput?.({
+					answer: "",
+					activity: [],
+					blocks: [],
+					completion: made.receipt.observation.completion,
+				});
+			const receipt: StreamMetadata =
+				evidence === "model"
+					? {
+							observation: {
+								...made.receipt.observation,
+								modelCompletion: made.receipt.observation.completion,
+							},
+						}
+					: made.receipt;
+			made.observer.callbacks.onEnd("", receipt);
+			await vi.advanceTimersByTimeAsync(0);
+			if (evidence === "none") {
+				expect(made.messages.at(-1)).toEqual({
+					...saved,
+					renderKey: made.key,
+					isStreaming: false,
+					isThinkingStreaming: false,
+					runtimePhase: undefined,
+					responseActivity: undefined,
+					evidencePending: true,
+				});
+				expect(
+					normalChatOutputView(required(made.messages.at(-1))),
+				).toBeUndefined();
+				expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(saved.id);
+			} else {
+				expect(made.messages.at(-1)?.id).not.toBe(saved.id);
+				expect(made.adapters.setSendError).toHaveBeenCalledWith(
+					"chat.observationUnavailable",
+				);
+			}
+			made.runtime.detach();
+		},
+	);
+	it.each([false, true])(
+		"observes a pending turn beyond 120 seconds until its saved answer arrives (server budget=%s)",
+		async (serverBudget) => {
+			const saved = savedReply();
+			const made = await observing("normal", saved);
+			const deadlineAt = Date.now() + 500_000;
+			for (let count = 0; count < (serverBudget ? 200 : 70); count++) {
+				required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+					version: 1,
+					state: "pending",
+					streamId: "canonical-stream",
+					conversationId: "conv-1",
+					turnId: "canonical-turn",
+					segmentId: "canonical-segment",
+					...(serverBudget ? { deadlineAt } : {}),
+				});
+				await vi.advanceTimersByTimeAsync(2000);
+				expect(made.runtime.snapshot().isSending).toBe(true);
+				expect(made.streamInvocations).toHaveLength(count + 2);
+			}
+			expect(
+				made.streamInvocations.every(
+					(entry) => entry.options?.reconnectToStreamId === "canonical-stream",
+				),
+			).toBe(true);
+			required(made.streamInvocations.at(-1)).callbacks.onEnd("", made.receipt);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(made.messages.at(-1)?.id).toBe(saved.id);
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			made.runtime.detach();
+		},
+	);
 	it("keeps observing a pending turn through the server's finalization window after the deadline it published", async () => {
 		const saved = savedReply();
 		const made = await observing("normal", saved);
@@ -11378,96 +11429,96 @@ describe("canonical observation through the real message-list finalizer", () => 
 			made.runtime.detach();
 		});
 	});
-	it.each([
-		false,
-		true,
-	])("bounds pending observation through persistence grace (server budget=%s)", async (serverBudget) => {
-		const made = await observing("normal", savedReply());
-		const deadlineAt = Date.now() + 4_000;
-		// A server that publishes its deadline gets the browser's patience for its
-		// finalization window after it (the test above), and no more than a margin
-		// beyond: well within two windows it is given up.
-		const elapsed = serverBudget
-			? 4_000 + 2 * TURN_FINALIZATION_WINDOW_MS
-			: 330_000;
-		for (let time = 0; time < elapsed; time += 2000) {
-			required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+	it.each([false, true])(
+		"bounds pending observation through persistence grace (server budget=%s)",
+		async (serverBudget) => {
+			const made = await observing("normal", savedReply());
+			const deadlineAt = Date.now() + 4_000;
+			// A server that publishes its deadline gets the browser's patience for its
+			// finalization window after it (the test above), and no more than a margin
+			// beyond: well within two windows it is given up.
+			const elapsed = serverBudget
+				? 4_000 + 2 * TURN_FINALIZATION_WINDOW_MS
+				: 330_000;
+			for (let time = 0; time < elapsed; time += 2000) {
+				required(made.streamInvocations.at(-1)).callbacks.onWaiting?.({
+					version: 1,
+					state: "pending",
+					streamId: "canonical-stream",
+					conversationId: "conv-1",
+					turnId: "canonical-turn",
+					segmentId: "canonical-segment",
+					...(serverBudget ? { deadlineAt } : {}),
+				});
+				await vi.advanceTimersByTimeAsync(2000);
+			}
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			expect(made.adapters.setSendError).toHaveBeenCalledWith(
+				"chat.observationUnavailable",
+			);
+			expect(
+				made.streamInvocations.every(
+					(entry) => entry.options?.reconnectToStreamId === "canonical-stream",
+				),
+			).toBe(true);
+			made.runtime.detach();
+		},
+	);
+	it.each([false, true])(
+		"reconciles a legacy receipt after the actual pending reconnect schedule (mismatched=%s)",
+		async (mismatched) => {
+			const saved = savedReply();
+			saved.normalChatOutput = undefined;
+			const made = await observing("normal", saved);
+			made.observer.callbacks.onWaiting?.({
 				version: 1,
 				state: "pending",
 				streamId: "canonical-stream",
 				conversationId: "conv-1",
 				turnId: "canonical-turn",
 				segmentId: "canonical-segment",
-				...(serverBudget ? { deadlineAt } : {}),
 			});
+			expect(made.streamInvocations).toHaveLength(1);
 			await vi.advanceTimersByTimeAsync(2000);
-		}
-		expect(made.runtime.snapshot().isSending).toBe(false);
-		expect(made.adapters.setSendError).toHaveBeenCalledWith(
-			"chat.observationUnavailable",
-		);
-		expect(
-			made.streamInvocations.every(
-				(entry) => entry.options?.reconnectToStreamId === "canonical-stream",
-			),
-		).toBe(true);
-		made.runtime.detach();
-	});
-	it.each([
-		false,
-		true,
-	])("reconciles a legacy receipt after the actual pending reconnect schedule (mismatched=%s)", async (mismatched) => {
-		const saved = savedReply();
-		saved.normalChatOutput = undefined;
-		const made = await observing("normal", saved);
-		made.observer.callbacks.onWaiting?.({
-			version: 1,
-			state: "pending",
-			streamId: "canonical-stream",
-			conversationId: "conv-1",
-			turnId: "canonical-turn",
-			segmentId: "canonical-segment",
-		});
-		expect(made.streamInvocations).toHaveLength(1);
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(made.streamInvocations).toHaveLength(2);
-		const reconnect = made.streamInvocations[1];
-		expect(reconnect.options?.reconnectToStreamId).toBe("canonical-stream");
-		reconnect.callbacks.onEnd("", {
-			observation: {
-				...made.receipt.observation,
-				completion: {
-					...made.receipt.observation.completion,
-					segmentId: mismatched ? "wrong-segment" : "canonical-segment",
+			expect(made.streamInvocations).toHaveLength(2);
+			const reconnect = made.streamInvocations[1];
+			expect(reconnect.options?.reconnectToStreamId).toBe("canonical-stream");
+			reconnect.callbacks.onEnd("", {
+				observation: {
+					...made.receipt.observation,
+					completion: {
+						...made.receipt.observation.completion,
+						segmentId: mismatched ? "wrong-segment" : "canonical-segment",
+					},
 				},
-			},
-		});
-		await vi.advanceTimersByTimeAsync(0);
-		if (mismatched) {
-			expect(made.messages.at(-1)?.id).not.toBe(saved.id);
-			expect(made.adapters.setSendError).toHaveBeenCalledWith(
-				"chat.observationUnavailable",
-			);
-			expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
-		} else {
-			expect(made.messages.at(-1)).toEqual({
-				...saved,
-				renderKey: made.key,
-				isStreaming: false,
-				isThinkingStreaming: false,
-				runtimePhase: undefined,
-				responseActivity: undefined,
-				evidencePending: true,
 			});
-			expect(
-				normalChatOutputView(required(made.messages.at(-1))),
-			).toBeUndefined();
-			expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(saved.id);
-		}
-		expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
-		expect(made.runtime.snapshot().isSending).toBe(false);
-		made.runtime.detach();
-	});
+			await vi.advanceTimersByTimeAsync(0);
+			if (mismatched) {
+				expect(made.messages.at(-1)?.id).not.toBe(saved.id);
+				expect(made.adapters.setSendError).toHaveBeenCalledWith(
+					"chat.observationUnavailable",
+				);
+				expect(made.adapters.refreshMessageCost).not.toHaveBeenCalled();
+			} else {
+				expect(made.messages.at(-1)).toEqual({
+					...saved,
+					renderKey: made.key,
+					isStreaming: false,
+					isThinkingStreaming: false,
+					runtimePhase: undefined,
+					responseActivity: undefined,
+					evidencePending: true,
+				});
+				expect(
+					normalChatOutputView(required(made.messages.at(-1))),
+				).toBeUndefined();
+				expect(made.adapters.refreshMessageCost).toHaveBeenCalledWith(saved.id);
+			}
+			expect(made.adapters.readChatMessages).toHaveBeenCalledTimes(1);
+			expect(made.runtime.snapshot().isSending).toBe(false);
+			made.runtime.detach();
+		},
+	);
 });
 
 // A model outcome that succeeded, observed with no saved reply: the reply (and for
@@ -11544,9 +11595,12 @@ describe("REVIEW-B unsaved answered terminal", () => {
 		["A", false],
 		["", false],
 		["", true],
-	])("does not settle an answered terminal with no saved row (original message=%s)", async (message, projected) => {
-		await expectUnsavedSuccessIsAFailure("answered", message, projected);
-	});
+	])(
+		"does not settle an answered terminal with no saved row (original message=%s)",
+		async (message, projected) => {
+			await expectUnsavedSuccessIsAFailure("answered", message, projected);
+		},
+	);
 });
 
 // A file turn's outcome is `delivered`, not `answered`: its unsaved reply was
@@ -11556,9 +11610,12 @@ describe("REVIEW2-T unsaved delivered terminal", () => {
 		["A", false],
 		["", false],
 		["", true],
-	])("does not settle a delivered terminal with no saved row (original message=%s)", async (message, projected) => {
-		await expectUnsavedSuccessIsAFailure("delivered", message, projected);
-	});
+	])(
+		"does not settle a delivered terminal with no saved row (original message=%s)",
+		async (message, projected) => {
+			await expectUnsavedSuccessIsAFailure("delivered", message, projected);
+		},
+	);
 });
 
 // The connection drops in the middle of a step and the server cannot replay the

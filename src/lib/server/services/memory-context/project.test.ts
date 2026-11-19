@@ -451,33 +451,38 @@ describe("getProjectContext", () => {
 	it.each([
 		["small", 50_000, 5],
 		["large", 1_000_000, 16],
-	])("applies the %s-context summary sibling cap and reports omissions", async (_label, targetContext, expectedLimit) => {
-		targetConstructedContext.value = targetContext;
-		const entries = Array.from({ length: 40 }, (_, index) => ({
-			conversationId: `conv-${index + 2}`,
-			title: `Sibling ${index + 1}`,
-			objective: `Objective ${index + 1}`,
-			summary: `Summary ${index + 1}`,
-		}));
-		mockGetProjectReferenceContext.mockResolvedValue({
-			source: "project_folder",
-			projectId: "project-1",
-			projectName: "Launch Plan",
-			omittedSiblingCount: 3,
-			entries,
-		});
+	])(
+		"applies the %s-context summary sibling cap and reports omissions",
+		async (_label, targetContext, expectedLimit) => {
+			targetConstructedContext.value = targetContext;
+			const entries = Array.from({ length: 40 }, (_, index) => ({
+				conversationId: `conv-${index + 2}`,
+				title: `Sibling ${index + 1}`,
+				objective: `Objective ${index + 1}`,
+				summary: `Summary ${index + 1}`,
+			}));
+			mockGetProjectReferenceContext.mockResolvedValue({
+				source: "project_folder",
+				projectId: "project-1",
+				projectName: "Launch Plan",
+				omittedSiblingCount: 3,
+				entries,
+			});
 
-		const result = await getProjectContext({
-			userId: "user-1",
-			conversationId: "conv-1",
-			mode: "summary",
-			maxSiblings: 999,
-		});
+			const result = await getProjectContext({
+				userId: "user-1",
+				conversationId: "conv-1",
+				mode: "summary",
+				maxSiblings: 999,
+			});
 
-		expect(result.audit.appliedMaxSiblings).toBe(expectedLimit);
-		expect(result.siblings).toHaveLength(expectedLimit);
-		expect(result.omittedSiblingCount).toBe(3 + entries.length - expectedLimit);
-	});
+			expect(result.audit.appliedMaxSiblings).toBe(expectedLimit);
+			expect(result.siblings).toHaveLength(expectedLimit);
+			expect(result.omittedSiblingCount).toBe(
+				3 + entries.length - expectedLimit,
+			);
+		},
+	);
 
 	it("returns folder-wide report context with recent messages for bounded siblings", async () => {
 		targetConstructedContext.value = 1_000_000;
@@ -712,31 +717,34 @@ describe("getProjectContext", () => {
 		["current conversation", "conv-1", /Current conversation is not a valid/],
 		["other folder", "conv-other-folder", /outside memory_context scope/],
 		["other user", "conv-other-user", /outside memory_context scope/],
-	])("rejects out-of-scope detail for %s", async (_label, siblingConversationId, errorPattern) => {
-		mockGetProjectReferenceContext.mockResolvedValue({
-			source: "project_folder",
-			projectId: "project-1",
-			projectName: "Launch Plan",
-			omittedSiblingCount: 0,
-			entries: [
-				{
-					conversationId: "conv-2",
-					title: "Pricing",
-					objective: "Compare pricing options",
-					summary: "Stable pricing brief.",
-				},
-			],
-		});
+	])(
+		"rejects out-of-scope detail for %s",
+		async (_label, siblingConversationId, errorPattern) => {
+			mockGetProjectReferenceContext.mockResolvedValue({
+				source: "project_folder",
+				projectId: "project-1",
+				projectName: "Launch Plan",
+				omittedSiblingCount: 0,
+				entries: [
+					{
+						conversationId: "conv-2",
+						title: "Pricing",
+						objective: "Compare pricing options",
+						summary: "Stable pricing brief.",
+					},
+				],
+			});
 
-		await expect(
-			getProjectContext({
-				userId: "user-1",
-				conversationId: "conv-1",
-				mode: "detail",
-				siblingConversationId,
-			}),
-		).rejects.toThrow(errorPattern);
-	});
+			await expect(
+				getProjectContext({
+					userId: "user-1",
+					conversationId: "conv-1",
+					mode: "detail",
+					siblingConversationId,
+				}),
+			).rejects.toThrow(errorPattern);
+		},
+	);
 
 	// With `includeAttachments`, the recent messages a result carries hold the
 	// full text of the files attached to them — a read of stored files by

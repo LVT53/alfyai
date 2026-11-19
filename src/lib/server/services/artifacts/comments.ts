@@ -553,7 +553,7 @@ export async function runAlfyCommentReply(
 		};
 	}
 
-	if (!anchor || anchor.kind !== "text") {
+	if (anchor?.kind !== "text") {
 		return { ok: true, value: await refused() };
 	}
 

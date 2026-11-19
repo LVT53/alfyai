@@ -135,17 +135,20 @@ describe("reset legacy admin prompt snapshots migration", () => {
 		"You are AlfyAI. Evaluate expressions carefully; never guess.",
 		"You are AlfyAI. Call Generate_File only for spreadsheets.",
 		"You are AlfyAI. Our in-house my_generate_file_v2 hook is not a tool.",
-	])("leaves a custom prompt that only resembles a retired tool name untouched: %s", (custom) => {
-		// The runtime agrees this is not a snapshot.
-		expect(normalizeSystemPromptReference(custom)).toBe(custom);
-		sqlite
-			.prepare("UPDATE admin_config SET value = ? WHERE key = ?")
-			.run(custom, "MODEL_1_SYSTEM_PROMPT");
+	])(
+		"leaves a custom prompt that only resembles a retired tool name untouched: %s",
+		(custom) => {
+			// The runtime agrees this is not a snapshot.
+			expect(normalizeSystemPromptReference(custom)).toBe(custom);
+			sqlite
+				.prepare("UPDATE admin_config SET value = ? WHERE key = ?")
+				.run(custom, "MODEL_1_SYSTEM_PROMPT");
 
-		applyMigrationSql(sqlite);
+			applyMigrationSql(sqlite);
 
-		expect(configValue("MODEL_1_SYSTEM_PROMPT")).toBe(custom);
-	});
+			expect(configValue("MODEL_1_SYSTEM_PROMPT")).toBe(custom);
+		},
+	);
 
 	it("resolves a snapshot whose retired tool name is its first or last token", () => {
 		expect(

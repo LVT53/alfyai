@@ -240,16 +240,22 @@ describe("AppFrame — the trust boundary", () => {
 			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: [{ a: 1 }] },
 			"non-string key (an object)",
 		],
-	] as const)("drops a malformed message: %s", async (payload, _description) => {
-		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
-		const iframe = getIframe(container);
+	] as const)(
+		"drops a malformed message: %s",
+		async (payload, _description) => {
+			const { container } = render(AppFrame, {
+				artifactId: "app-1",
+				version: 1,
+			});
+			const iframe = getIframe(container);
 
-		post(payload, iframe.contentWindow as Window);
-		await Promise.resolve();
+			post(payload, iframe.contentWindow as Window);
+			await Promise.resolve();
 
-		expect(readAppValue).not.toHaveBeenCalled();
-		expect(writeAppValue).not.toHaveBeenCalled();
-	});
+			expect(readAppValue).not.toHaveBeenCalled();
+			expect(writeAppValue).not.toHaveBeenCalled();
+		},
+	);
 
 	it("uses the PROP's artifactId for the storage call even when the message payload names a different one", async () => {
 		readAppValue.mockResolvedValue({ ok: true, value: 42 });

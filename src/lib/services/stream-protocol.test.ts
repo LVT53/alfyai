@@ -1187,12 +1187,12 @@ describe("containsToolCallMarkup", () => {
 });
 
 describe("startsWithToolCallMarkup", () => {
-	it.each([
-		"<｜｜DSML｜｜ calls>",
-		"\u200B\n<｜｜DSML｜｜ calls>",
-	])("recognises evidenced opener %j", (text) => {
-		expect(startsWithToolCallMarkup(text)).toBe(true);
-	});
+	it.each(["<｜｜DSML｜｜ calls>", "\u200B\n<｜｜DSML｜｜ calls>"])(
+		"recognises evidenced opener %j",
+		(text) => {
+			expect(startsWithToolCallMarkup(text)).toBe(true);
+		},
+	);
 	it.each([
 		'```json\n{"query":"test","mode":"quick"}\n```',
 		'```\n{"query":"test","mode":"quick"}',

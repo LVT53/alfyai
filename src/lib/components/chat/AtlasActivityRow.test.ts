@@ -214,23 +214,26 @@ describe("AtlasActivityRow", () => {
 			["outline", "Outlining"],
 			["answer", "Building the answer table"],
 			["critic", "Reviewing coverage"],
-		] as const)("renders a real label for the v3 %s phase (ADR 0063)", (phase, expectedLabel) => {
-			render(AtlasActivityRow, {
-				job: atlasJob({
-					status: "running",
-					stage: phase,
-					progress: {
-						percent: 40,
+		] as const)(
+			"renders a real label for the v3 %s phase (ADR 0063)",
+			(phase, expectedLabel) => {
+				render(AtlasActivityRow, {
+					job: atlasJob({
+						status: "running",
 						stage: phase,
-						details: { pipelineVersion: 3, phase, queries: [] },
-					},
-				}),
-			});
+						progress: {
+							percent: 40,
+							stage: phase,
+							details: { pipelineVersion: 3, phase, queries: [] },
+						},
+					}),
+				});
 
-			expect(screen.getByTestId("atlas-stage-line")).toHaveTextContent(
-				expectedLabel,
-			);
-		});
+				expect(screen.getByTestId("atlas-stage-line")).toHaveTextContent(
+					expectedLabel,
+				);
+			},
+		);
 
 		it("falls back to the stage label and the query list for a v1 job", () => {
 			render(AtlasActivityRow, {

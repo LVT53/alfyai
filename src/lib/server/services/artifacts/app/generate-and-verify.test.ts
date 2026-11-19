@@ -91,21 +91,24 @@ describe("generateAndVerifyApp — a repair is audited like the document it repa
 	it.each([
 		["navigates", NAVIGATING_REPAIR],
 		["opens a WebRTC channel", WEBRTC_REPAIR],
-	])("refuses a repair that %s: the audited original ships and Alfy says it could not settle it", async (_name, repaired) => {
-		verifyApp.mockResolvedValue(verification({ repairedHtml: repaired }));
+	])(
+		"refuses a repair that %s: the audited original ships and Alfy says it could not settle it",
+		async (_name, repaired) => {
+			verifyApp.mockResolvedValue(verification({ repairedHtml: repaired }));
 
-		const outcome = await generateAndVerifyApp(params);
+			const outcome = await generateAndVerifyApp(params);
 
-		expect(outcome).toMatchObject({
-			ok: true,
-			value: {
-				html: ORIGINAL,
-				// The same shape verify.ts gives a repair it does not accept.
-				verification: { checked: true, verdict: "uncertain", reason: null },
-				findings: [FINDING],
-			},
-		});
-	});
+			expect(outcome).toMatchObject({
+				ok: true,
+				value: {
+					html: ORIGINAL,
+					// The same shape verify.ts gives a repair it does not accept.
+					verification: { checked: true, verdict: "uncertain", reason: null },
+					findings: [FINDING],
+				},
+			});
+		},
+	);
 
 	it("leaves every verdict that proposes no repair alone", async () => {
 		for (const verdict of ["clean", "uncertain", "unavailable"]) {

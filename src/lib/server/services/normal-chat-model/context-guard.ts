@@ -230,7 +230,7 @@ function currentText(message: ModelMessage, partIndex: number): string | null {
 function newestUserMessageIndex(messages: ModelMessage[]): number {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
-		if (!message || message.role !== "user") continue;
+		if (message?.role !== "user") continue;
 		if (typeof message.content === "string") {
 			if (message.content.trim()) return index;
 			continue;

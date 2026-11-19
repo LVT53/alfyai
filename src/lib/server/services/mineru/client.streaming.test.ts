@@ -267,28 +267,31 @@ describe("downloadFile streams to disk", () => {
 	it.each([
 		["announcing its length", true],
 		["streaming chunked, with no length at all", false],
-	])("writes a multi-megabyte payload %s without holding it in memory", async (_label, announce) => {
-		const dir = tempDir();
-		const payload = Buffer.alloc(2 * 1024 * 1024, 7);
-		const origin = await serving(payload, announce);
+	])(
+		"writes a multi-megabyte payload %s without holding it in memory",
+		async (_label, announce) => {
+			const dir = tempDir();
+			const payload = Buffer.alloc(2 * 1024 * 1024, 7);
+			const origin = await serving(payload, announce);
 
-		try {
-			const client = new MineruClient({
-				config: testConfig({ baseUrl: origin.origin }),
-			});
-			const destination = join(dir, "downloaded.bin");
-			const { bytes } = await client.downloadFile({
-				resultUrl: `${origin.origin}/v1/files/file-big/content`,
-				destinationPathAbsolute: destination,
-				signal: never,
-			});
-			expect(bytes).toBe(payload.byteLength);
-			expect(statSync(destination).size).toBe(payload.byteLength);
-			expect(readFileSync(destination).equals(payload)).toBe(true);
-		} finally {
-			await origin.close();
-		}
-	});
+			try {
+				const client = new MineruClient({
+					config: testConfig({ baseUrl: origin.origin }),
+				});
+				const destination = join(dir, "downloaded.bin");
+				const { bytes } = await client.downloadFile({
+					resultUrl: `${origin.origin}/v1/files/file-big/content`,
+					destinationPathAbsolute: destination,
+					signal: never,
+				});
+				expect(bytes).toBe(payload.byteLength);
+				expect(statSync(destination).size).toBe(payload.byteLength);
+				expect(readFileSync(destination).equals(payload)).toBe(true);
+			} finally {
+				await origin.close();
+			}
+		},
+	);
 
 	it("leaves the destination alone when the result cannot be downloaded", async () => {
 		const dir = tempDir();

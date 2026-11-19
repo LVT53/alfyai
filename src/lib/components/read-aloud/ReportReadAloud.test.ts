@@ -151,7 +151,9 @@ describe("read aloud on a report", () => {
 			report: { fileId: "file-1" },
 		});
 		const from = request && "from" in request ? request.from : undefined;
-		expect((from?.node as Text).data).toBe("The train leaves at nine");
+		expect((from?.node as Text | undefined)?.data).toBe(
+			"The train leaves at nine",
+		);
 		expect(from?.offset).toBe(4);
 		expect(pill()).toBeNull();
 	});

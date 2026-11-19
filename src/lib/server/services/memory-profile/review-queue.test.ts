@@ -222,7 +222,9 @@ describe("guided memory review queue for judge items", () => {
 
 		const row = await readItem(item.id);
 		expect(row?.status).toBe("active");
-		const expiresMs = (row?.expiresAt as Date).getTime();
+		const expiresAt = row?.expiresAt;
+		if (!expiresAt) throw new Error("expected the item to carry an expiry");
+		const expiresMs = expiresAt.getTime();
 		expect(Math.abs(expiresMs - (Date.now() + 90 * DAY_MS))).toBeLessThan(
 			DAY_MS,
 		);

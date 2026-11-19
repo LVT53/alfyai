@@ -65,9 +65,8 @@ import CommentListHeader from "../CommentListHeader.svelte";
 import "../comment-list.css";
 // RefusalNotice is a genuine runtime import for the <RefusalNotice /> mount in
 // the template below, on top of typing MarginRefusal via
-// ComponentProps<typeof RefusalNotice> — biome's import-usage check only sees
-// this script block, not the template, so it reads as type-only.
-// biome-ignore lint/style/useImportType: see above — import type would break the template mount
+// ComponentProps<typeof RefusalNotice>. It stays a value import: `import type`
+// would break the mount.
 import RefusalNotice from "../RefusalNotice.svelte";
 import CommentThread from "./CommentThread.svelte";
 import {

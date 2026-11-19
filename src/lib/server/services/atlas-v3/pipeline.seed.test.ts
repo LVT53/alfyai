@@ -404,7 +404,8 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 		const seedRow = fakes.checkpoints.find((entry) => entry.roundNumber === 10);
 		expect(seedRow?.stage).toBe("research");
 		expect(
-			(seedRow?.checkpoint as { data: { round: number } }).data.round,
+			(seedRow?.checkpoint as { data: { round: number } } | undefined)?.data
+				.round,
 		).toBe(0);
 	});
 
@@ -685,13 +686,16 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 		});
 		const verify = fakes.checkpoints.find((entry) => entry.roundNumber === 24);
 		const render = fakes.checkpoints.find((entry) => entry.roundNumber === 25);
-		const bank = (verify?.checkpoint as { data: { bank: AtlasV3EvidenceBank } })
+		if (!verify || !render) {
+			throw new Error("expected the verify and render checkpoints");
+		}
+		const bank = (verify.checkpoint as { data: { bank: AtlasV3EvidenceBank } })
 			.data.bank;
 		expect(bank.quotes.map((quote) => quote.text)).toContain(QUOTE_IEA);
 		expect(
 			bank.sources.every((source) => source.seededFrom === "parent-1"),
 		).toBe(true);
-		const cited = (render?.checkpoint as { data: { citedSourceIds: string[] } })
+		const cited = (render.checkpoint as { data: { citedSourceIds: string[] } })
 			.data.citedSourceIds;
 		expect(cited.length).toBeGreaterThan(0);
 		expect(

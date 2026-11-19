@@ -770,7 +770,7 @@ export async function runInline(
 	if (budgetMs === 0 || options.signal?.aborted) return;
 
 	const row = readJobRow(kind, jobId);
-	if (!row || row.status !== "queued" || !definition.inline.eligible(row)) {
+	if (row?.status !== "queued" || !definition.inline.eligible(row)) {
 		return;
 	}
 

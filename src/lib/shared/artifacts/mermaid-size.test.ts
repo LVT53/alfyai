@@ -210,22 +210,25 @@ const MEASURED: ReadonlyArray<readonly [string, string, number]> = [
 const BLOCK_WIDTH = 480;
 
 describe("estimatedDiagramHeight — held to what Mermaid drew", () => {
-	it.each(
-		MEASURED,
-	)("%s is never estimated short of the %s px it is drawn at", (id, source, drawn) => {
-		expect(
-			estimatedDiagramHeight(source, BLOCK_WIDTH),
-			id,
-		).toBeGreaterThanOrEqual(drawn);
-	});
+	it.each(MEASURED)(
+		"%s is never estimated short of the %s px it is drawn at",
+		(id, source, drawn) => {
+			expect(
+				estimatedDiagramHeight(source, BLOCK_WIDTH),
+				id,
+			).toBeGreaterThanOrEqual(drawn);
+		},
+	);
 
-	it.each(
-		MEASURED,
-	)("%s is not reserved more than twice what it is drawn at (or 100 px over)", (id, source, drawn) => {
-		expect(estimatedDiagramHeight(source, BLOCK_WIDTH), id).toBeLessThanOrEqual(
-			Math.max(drawn * 2, drawn + 100),
-		);
-	});
+	it.each(MEASURED)(
+		"%s is not reserved more than twice what it is drawn at (or 100 px over)",
+		(id, source, drawn) => {
+			expect(
+				estimatedDiagramHeight(source, BLOCK_WIDTH),
+				id,
+			).toBeLessThanOrEqual(Math.max(drawn * 2, drawn + 100));
+		},
+	);
 
 	it("is within a fifth of what a top-down flowchart of any size is drawn at (the layout is read, not guessed)", () => {
 		const flows = MEASURED.filter(

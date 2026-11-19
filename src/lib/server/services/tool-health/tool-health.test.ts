@@ -482,15 +482,18 @@ describe("tool health registry", () => {
 
 		const parallel = find("https://parallel.test/v1/search");
 		expect(parallel?.[1].method).toBe("POST");
-		expect((parallel?.[1].headers as Record<string, string>)["x-api-key"]).toBe(
-			"parallel-key",
-		);
+		expect(
+			(parallel?.[1].headers as Record<string, string> | undefined)?.[
+				"x-api-key"
+			],
+		).toBe("parallel-key");
 		expect(parallel?.[1].body).toBe("{}");
 
 		expect(find("http://tei-embed:8080/health")).toBeDefined();
 		const reranker = find("http://tei-rerank:8080/health");
 		expect(
-			(reranker?.[1].headers as Record<string, string>).Authorization,
+			(reranker?.[1].headers as Record<string, string> | undefined)
+				?.Authorization,
 		).toBe("Bearer rerank-token");
 
 		expect(find("http://ors:8082/ors/v2/health")).toBeDefined();
@@ -498,7 +501,8 @@ describe("tool health registry", () => {
 
 		const owntracks = find("http://owntracks:8083/api/0/version");
 		expect(
-			(owntracks?.[1].headers as Record<string, string>).Authorization,
+			(owntracks?.[1].headers as Record<string, string> | undefined)
+				?.Authorization,
 		).toBe(`Basic ${Buffer.from("alfy:secret").toString("base64")}`);
 		// produce_file and run_python sit on the same Docker daemon and share a
 		// probeKey, so one snapshot pings it once, not once per entry.

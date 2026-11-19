@@ -143,9 +143,9 @@ describe("google write-executor — calendar.create_event", () => {
 					"https://www.googleapis.com/calendar/v3/calendars/primary/events",
 				);
 				expect(init?.method).toBe("POST");
-				expect((init?.headers as Record<string, string>).Authorization).toBe(
-					"Bearer fresh-access-token",
-				);
+				expect(
+					(init?.headers as Record<string, string> | undefined)?.Authorization,
+				).toBe("Bearer fresh-access-token");
 				const body = JSON.parse(String(init?.body));
 				expect(body).toEqual({
 					id: clientId,

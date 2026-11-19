@@ -2396,28 +2396,27 @@ describe("MessageArea", () => {
 					},
 					props: {},
 				},
-			])("keeps the normal spacing of both rows when $what sits between them", ({
-				testId,
-				messages,
-				props,
-			}) => {
-				const { container } = render(MessageArea, {
-					messages: messages() as ChatMessage[],
-					conversationId: "conv-1",
-					questions: [asked()],
-					...props,
-				});
+			])(
+				"keeps the normal spacing of both rows when $what sits between them",
+				({ testId, messages, props }) => {
+					const { container } = render(MessageArea, {
+						messages: messages() as ChatMessage[],
+						conversationId: "conv-1",
+						questions: [asked()],
+						...props,
+					});
 
-				// The mark is really between the two bubbles...
-				expect(sitsBetween(container, testId, "a-1", "a-2")).toBe(true);
-				// ...so neither row is drawn up against the other. The continuation still
-				// has no top padding of its own, which is the reply's rule, not the pair's.
-				const first = bubbleOf(container, "a-1");
-				const second = bubbleOf(container, "a-2");
-				expect(joinedBelow(first)).toBe(false);
-				expect(joinedAbove(second)).toBe(false);
-				expect(second).toHaveClass("pt-0");
-			});
+					// The mark is really between the two bubbles...
+					expect(sitsBetween(container, testId, "a-1", "a-2")).toBe(true);
+					// ...so neither row is drawn up against the other. The continuation still
+					// has no top padding of its own, which is the reply's rule, not the pair's.
+					const first = bubbleOf(container, "a-1");
+					const second = bubbleOf(container, "a-2");
+					expect(joinedBelow(first)).toBe(false);
+					expect(joinedAbove(second)).toBe(false);
+					expect(second).toHaveClass("pt-0");
+				},
+			);
 
 			it("still joins the rows when what the area draws is under the last segment, or is not drawn", () => {
 				const [user, first, second] = twoSegments();

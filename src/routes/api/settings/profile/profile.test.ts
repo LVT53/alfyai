@@ -89,16 +89,21 @@ describe("PATCH /api/settings/profile: the email asks for the password", () => {
 		["empty", ""],
 		["not text", 12345],
 		["null", null],
-	])("treats a currentPassword that is %s as no password", async (_label, currentPassword) => {
-		const response = await patchProfile({
-			email: "new-address@example.com",
-			currentPassword,
-		});
+	])(
+		"treats a currentPassword that is %s as no password",
+		async (_label, currentPassword) => {
+			const response = await patchProfile({
+				email: "new-address@example.com",
+				currentPassword,
+			});
 
-		expect(response.status).toBe(400);
-		expect(await response.json()).toMatchObject({ error: "password_required" });
-		expect((await stored()).email).toBe(email);
-	});
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				error: "password_required",
+			});
+			expect((await stored()).email).toBe(email);
+		},
+	);
 
 	it("a wrong currentPassword is refused and counted by the login limiter", async () => {
 		const wrong = () =>

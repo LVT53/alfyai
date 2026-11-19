@@ -15,72 +15,70 @@ beforeEach(async () => {
 });
 afterEach(() => f?.close());
 
-it.each([
-	"ledger",
-	"usage",
-	"legacy",
-] as const)("preserves both real readers when %s accounting fails", async (kind) => {
-	const baseline = await f.readers.listMessages("c");
-	expect(baseline.map((row) => row.id)).toEqual(["u1", "a1", "u2", "a2"]);
-	expect(baseline[3]).toMatchObject({
-		costUsd: 0.00014,
-		totalTokenCount: 120,
-		thinkingTokenCount: 5,
-	});
-	const before = f.facts();
-	for (const read of [
-		() => f.readers.listMessages("c"),
-		async () => (await f.readers.listMessageWindow("c")).messages,
-	]) {
-		f.fault(kind);
-		const rows = await read();
-		expect(f.counts[kind]).toBe(1);
-		expect(durable(rows)).toEqual(durable(baseline));
-		expectUnknown(rows);
-		expect(rows[1]).toMatchObject({
-			modelDisplayName: "Saved display",
-			providerDisplayName: "Saved provider",
-			providerIconUrl: "/saved-icon.png",
+it.each(["ledger", "usage", "legacy"] as const)(
+	"preserves both real readers when %s accounting fails",
+	async (kind) => {
+		const baseline = await f.readers.listMessages("c");
+		expect(baseline.map((row) => row.id)).toEqual(["u1", "a1", "u2", "a2"]);
+		expect(baseline[3]).toMatchObject({
+			costUsd: 0.00014,
+			totalTokenCount: 120,
+			thinkingTokenCount: 5,
 		});
-		expect(rows[3].modelId).toBeUndefined();
-	}
-	f.fault();
-	expect(f.facts()).toEqual(before);
-	expect((await f.readers.listMessages("c"))[3].costUsd).toBe(0.00014);
-});
+		const before = f.facts();
+		for (const read of [
+			() => f.readers.listMessages("c"),
+			async () => (await f.readers.listMessageWindow("c")).messages,
+		]) {
+			f.fault(kind);
+			const rows = await read();
+			expect(f.counts[kind]).toBe(1);
+			expect(durable(rows)).toEqual(durable(baseline));
+			expectUnknown(rows);
+			expect(rows[1]).toMatchObject({
+				modelDisplayName: "Saved display",
+				providerDisplayName: "Saved provider",
+				providerIconUrl: "/saved-icon.png",
+			});
+			expect(rows[3].modelId).toBeUndefined();
+		}
+		f.fault();
+		expect(f.facts()).toEqual(before);
+		expect((await f.readers.listMessages("c"))[3].costUsd).toBe(0.00014);
+	},
+);
 
-it.each([
-	"ledger",
-	"usage",
-	"legacy",
-] as const)("discards earlier batches after later %s failure", async (kind) => {
-	for (let n = 0; n < 502; n++) {
-		f.message(`bulk-${n}`);
-		f.legacy(`bulk-${n}`);
-	}
-	f.fault(kind, 2);
-	const rows = await f.readers.listMessages("c");
-	expect(rows).toHaveLength(506);
-	expectUnknown(rows);
-	expect(f.counts[kind]).toBe(2);
-	f.fault();
-	const restored = await f.readers.listMessages("c");
-	expect(restored[3].costUsd).toBe(0.00014);
-	expect(restored.at(-1)?.costUsd).toBe(0.000042);
-	expect(f.counts.ledger).toBe(2);
-	expect(f.counts.usage).toBeLessThanOrEqual(2);
-	expect(f.counts.legacy).toBeLessThanOrEqual(2);
-	const pages = await Promise.all(
-		[0, 2].map((offset) =>
-			f.readers.listMessageWindow("c", { limit: 2, offset }),
-		),
-	);
-	expect(pages.map((page) => page.messages.map((row) => row.id))).toEqual([
-		["bulk-500", "bulk-501"],
-		["bulk-498", "bulk-499"],
-	]);
-	expect(pages.map((page) => page.hasMoreBefore)).toEqual([true, true]);
-});
+it.each(["ledger", "usage", "legacy"] as const)(
+	"discards earlier batches after later %s failure",
+	async (kind) => {
+		for (let n = 0; n < 502; n++) {
+			f.message(`bulk-${n}`);
+			f.legacy(`bulk-${n}`);
+		}
+		f.fault(kind, 2);
+		const rows = await f.readers.listMessages("c");
+		expect(rows).toHaveLength(506);
+		expectUnknown(rows);
+		expect(f.counts[kind]).toBe(2);
+		f.fault();
+		const restored = await f.readers.listMessages("c");
+		expect(restored[3].costUsd).toBe(0.00014);
+		expect(restored.at(-1)?.costUsd).toBe(0.000042);
+		expect(f.counts.ledger).toBe(2);
+		expect(f.counts.usage).toBeLessThanOrEqual(2);
+		expect(f.counts.legacy).toBeLessThanOrEqual(2);
+		const pages = await Promise.all(
+			[0, 2].map((offset) =>
+				f.readers.listMessageWindow("c", { limit: 2, offset }),
+			),
+		);
+		expect(pages.map((page) => page.messages.map((row) => row.id))).toEqual([
+			["bulk-500", "bulk-501"],
+			["bulk-498", "bulk-499"],
+		]);
+		expect(pages.map((page) => page.hasMoreBefore)).toEqual([true, true]);
+	},
+);
 
 it("does no enrichment-only privacy or accounting reads for empty and user-only selections", async () => {
 	f.fault("privacy");
@@ -112,19 +110,18 @@ it("does no enrichment-only privacy or accounting reads for empty and user-only 
 	expect(f.counts.privacy ?? 0).toBe(0);
 });
 
-it.each([
-	"core",
-	"attachments",
-	"privacy",
-] as const)("keeps mandatory %s failures rejecting", async (kind) => {
-	for (const read of [
-		() => f.readers.listMessages("c"),
-		() => f.readers.listMessageWindow("c"),
-	]) {
-		f.fault(kind);
-		await expect(read()).rejects.toThrow(`injected-${kind}`);
-	}
-});
+it.each(["core", "attachments", "privacy"] as const)(
+	"keeps mandatory %s failures rejecting",
+	async (kind) => {
+		for (const read of [
+			() => f.readers.listMessages("c"),
+			() => f.readers.listMessageWindow("c"),
+		]) {
+			f.fault(kind);
+			await expect(read()).rejects.toThrow(`injected-${kind}`);
+		}
+	},
+);
 
 it("preserves selected rows on successful privacy absence without touching accounting", async () => {
 	for (const read of [
@@ -158,22 +155,22 @@ it("resolves incognito before all optional reads despite stale financial rows", 
 	}
 });
 
-it.each([
-	"ledger",
-	"summary",
-] as const)("keeps strict usage rejection for %s failure", async (kind) => {
-	f.fault(kind);
-	await expect(
-		f.analytics.getMessageUsageState("u", "c", "a2"),
-	).rejects.toThrow();
-	f.fault();
-	expect(
-		await f.analytics.getMessageUsageState("intruder", "c", "a2"),
-	).toBeNull();
-	expect(
-		await f.analytics.getMessageUsageState("u", "c", "missing"),
-	).toBeNull();
-});
+it.each(["ledger", "summary"] as const)(
+	"keeps strict usage rejection for %s failure",
+	async (kind) => {
+		f.fault(kind);
+		await expect(
+			f.analytics.getMessageUsageState("u", "c", "a2"),
+		).rejects.toThrow();
+		f.fault();
+		expect(
+			await f.analytics.getMessageUsageState("intruder", "c", "a2"),
+		).toBeNull();
+		expect(
+			await f.analytics.getMessageUsageState("u", "c", "missing"),
+		).toBeNull();
+	},
+);
 
 it("does not enrich an assistant lookahead row outside a user-only page", async () => {
 	f.fault("privacy");

@@ -1521,33 +1521,36 @@ describe("createNormalChatTools", () => {
 				"too_many_outputs",
 				"A job may produce at most 5 files; this one produced 9.",
 			],
-		])("invites a corrected resubmission for %s (%s)", async (errorCode, errorMessage) => {
-			queueIntake("job-wait-retryable");
-			getConversationFileProductionJobMock.mockResolvedValue(
-				makeFileProductionJob({
-					id: "job-wait-retryable",
+		])(
+			"invites a corrected resubmission for %s (%s)",
+			async (errorCode, errorMessage) => {
+				queueIntake("job-wait-retryable");
+				getConversationFileProductionJobMock.mockResolvedValue(
+					makeFileProductionJob({
+						id: "job-wait-retryable",
+						status: "failed",
+						error: { code: errorCode, message: errorMessage, retryable: false },
+					}),
+				);
+
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+				const result = await tools.produce_file.execute(programCall(), {
+					toolCallId: "call-wait-retryable",
+					messages: [],
+				});
+
+				expect(result).toMatchObject({
+					ok: false,
 					status: "failed",
-					error: { code: errorCode, message: errorMessage, retryable: false },
-				}),
-			);
-
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-			});
-			const result = await tools.produce_file.execute(programCall(), {
-				toolCallId: "call-wait-retryable",
-				messages: [],
-			});
-
-			expect(result).toMatchObject({
-				ok: false,
-				status: "failed",
-				errorCode,
-				retryable: true,
-			});
-		});
+					errorCode,
+					retryable: true,
+				});
+			},
+		);
 
 		it.each([
 			[
@@ -1558,33 +1561,36 @@ describe("createNormalChatTools", () => {
 			],
 			["program_execution_failed", "Execution timed out"],
 			["program_execution_failed", "Execution failed: sandbox runtime error"],
-		])("does not invite a retry for %s (%s)", async (errorCode, errorMessage) => {
-			queueIntake("job-wait-noretry");
-			getConversationFileProductionJobMock.mockResolvedValue(
-				makeFileProductionJob({
-					id: "job-wait-noretry",
+		])(
+			"does not invite a retry for %s (%s)",
+			async (errorCode, errorMessage) => {
+				queueIntake("job-wait-noretry");
+				getConversationFileProductionJobMock.mockResolvedValue(
+					makeFileProductionJob({
+						id: "job-wait-noretry",
+						status: "failed",
+						error: { code: errorCode, message: errorMessage, retryable: true },
+					}),
+				);
+
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+				const result = await tools.produce_file.execute(programCall(), {
+					toolCallId: "call-wait-noretry",
+					messages: [],
+				});
+
+				expect(result).toMatchObject({
+					ok: false,
 					status: "failed",
-					error: { code: errorCode, message: errorMessage, retryable: true },
-				}),
-			);
-
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-			});
-			const result = await tools.produce_file.execute(programCall(), {
-				toolCallId: "call-wait-noretry",
-				messages: [],
-			});
-
-			expect(result).toMatchObject({
-				ok: false,
-				status: "failed",
-				errorCode,
-				retryable: false,
-			});
-		});
+					errorCode,
+					retryable: false,
+				});
+			},
+		);
 
 		it("reports a job that has not settled as still running, never as ready", async () => {
 			queueIntake("job-wait-running");
@@ -4771,31 +4777,31 @@ describe("createNormalChatTools", () => {
 				confirmSubstring: "propos",
 				enableSubstring: "enabled writes",
 			},
-		])("$tool description mentions its write action, confirm-required proposal, and enable-writes gating", ({
-			tool,
-			writeSubstring,
-			confirmSubstring,
-			enableSubstring,
-		}) => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-				enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
-			});
+		])(
+			"$tool description mentions its write action, confirm-required proposal, and enable-writes gating",
+			({ tool, writeSubstring, confirmSubstring, enableSubstring }) => {
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+					enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
+				});
 
-			const description = (
-				tools as unknown as Record<string, { description: string }>
-			)[tool].description;
+				const description = (
+					tools as unknown as Record<string, { description: string }>
+				)[tool].description;
 
-			expect(description.toLowerCase()).toContain(writeSubstring.toLowerCase());
-			expect(description.toLowerCase()).toContain(
-				confirmSubstring.toLowerCase(),
-			);
-			expect(description.toLowerCase()).toContain(
-				enableSubstring.toLowerCase(),
-			);
-		});
+				expect(description.toLowerCase()).toContain(
+					writeSubstring.toLowerCase(),
+				);
+				expect(description.toLowerCase()).toContain(
+					confirmSubstring.toLowerCase(),
+				);
+				expect(description.toLowerCase()).toContain(
+					enableSubstring.toLowerCase(),
+				);
+			},
+		);
 
 		it("email description warns a sent email cannot be unsent ", () => {
 			const { tools } = createNormalChatTools({
@@ -4860,24 +4866,25 @@ describe("createNormalChatTools", () => {
 					keyof typeof USAGE_RULE_FRAGMENTS
 				>
 			).map((toolName) => ({ toolName })),
-		)("$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour)", ({
-			toolName,
-		}) => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-			});
-			const description = requireTool(
-				(tools as Record<string, { description: string } | undefined>)[
-					toolName
-				],
-			).description;
+		)(
+			"$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour)",
+			({ toolName }) => {
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+				const description = requireTool(
+					(tools as Record<string, { description: string } | undefined>)[
+						toolName
+					],
+				).description;
 
-			for (const fragment of USAGE_RULE_FRAGMENTS[toolName]) {
-				expect(description).toContain(fragment);
-			}
-		});
+				for (const fragment of USAGE_RULE_FRAGMENTS[toolName]) {
+					expect(description).toContain(fragment);
+				}
+			},
+		);
 
 		it("image_search carries the markdown-embed-or-invisible rule at real length (not ~6 words)", () => {
 			const { tools } = createNormalChatTools({
@@ -6878,24 +6885,33 @@ describe("shouldForceProduceFileTool", () => {
 		"Summarize this in chat, no file needed.",
 		"Tell me whether a spreadsheet would help.",
 		"Create a brief answer about quarterly planning.",
-	])("does not force file production for informational requests: %s", (message) => {
-		expect(shouldForceProduceFileTool(message)).toBe(false);
-	});
+	])(
+		"does not force file production for informational requests: %s",
+		(message) => {
+			expect(shouldForceProduceFileTool(message)).toBe(false);
+		},
+	);
 
 	it.each([
 		"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
 		"Create a PDF report from the current project folder.",
 		"Generate a DOCX using the uploaded documents.",
 		"Make a report based on our memory context.",
-	])("leaves tool choice automatic for context-dependent file requests: %s", (message) => {
-		expect(shouldForceProduceFileTool(message)).toBe(false);
-	});
+	])(
+		"leaves tool choice automatic for context-dependent file requests: %s",
+		(message) => {
+			expect(shouldForceProduceFileTool(message)).toBe(false);
+		},
+	);
 
 	it.each([
 		"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
 		"Create a PDF report from the current project folder.",
 		"Generate a DOCX using the uploaded documents.",
-	])("still recognizes context-dependent requests with explicit file targets: %s", (message) => {
-		expect(isProduceFileRequest(message)).toBe(true);
-	});
+	])(
+		"still recognizes context-dependent requests with explicit file targets: %s",
+		(message) => {
+			expect(isProduceFileRequest(message)).toBe(true);
+		},
+	);
 });

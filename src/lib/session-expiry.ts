@@ -45,7 +45,7 @@ type SessionExpirySignal = {
 export function isSessionExpiredResponse(
 	response: SessionExpirySignal | null | undefined,
 ): boolean {
-	if (!response || response.status !== 401) return false;
+	if (response?.status !== 401) return false;
 	const headers = response.headers;
 	if (!headers || typeof headers.get !== "function") return false;
 	return headers.get(SESSION_EXPIRED_HEADER) === "1";

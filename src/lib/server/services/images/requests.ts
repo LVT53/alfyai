@@ -270,7 +270,7 @@ export async function resolveMakeImageRequest(params: {
 	// H3 has no transparent path (no alpha in its graph or VAE). It is refused
 	// before any card or take exists, and there is no automatic Qwen route: the
 	// person switches the Admin picture model to Qwen for a cut-out.
-	if (model === "h3" && Boolean(input.transparent)) {
+	if (model === "h3" && input.transparent) {
 		return refuse(
 			"transparent_unavailable",
 			'MiniMax-H3-Image cannot make transparent pictures. Tell the user to switch the Admin "Picture model" to Qwen for a transparent picture, then call make_image again.',

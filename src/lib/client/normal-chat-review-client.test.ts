@@ -262,64 +262,66 @@ describe("noop-stop regression", () => {
 		beforeEach(() => vi.useFakeTimers());
 		afterEach(() => vi.useRealTimers());
 
-		it.each([
-			"regenerate",
-			"navigate",
-		] as const)("a %s command does not abandon the turn it could not stop", async (purpose) => {
-			let rows: (v: ChatMessage[] | null) => void = () => {};
-			const h = harness({
-				checkForOrphanedStream: vi.fn(async () => "orig"),
-				getStreamBufferInfo: vi.fn(async () => ({ userMessage: "A" }) as never),
-				readChatMessages: vi.fn(
-					() =>
-						new Promise<ChatMessage[] | null>((r) => {
-							rows = r;
-						}),
-				),
-			});
-			await h.runtime.checkForOrphanedStreamOnMount();
-			const placeholder = h.state.messages.at(-1)?.id as string;
-			const reconnect = h.invocations[0];
-			reconnect.callbacks.onFinishPart?.({ type: "finish" } as never);
-			reconnect.callbacks.onEnd("", {
-				observation: {
-					version: 1,
-					state: "terminal",
-					streamId: "orig",
-					conversationId: "conv-1",
-					assistantMessageId: "S",
-					completion,
-				},
-			});
-			await vi.advanceTimersByTimeAsync(0);
-			expect(h.runtime.snapshot()).toMatchObject({
-				isSending: true,
-				canStop: false,
-			});
-			const result = await h.runtime.settleStoppedAction(
-				purpose === "regenerate"
-					? { purpose, messageId: placeholder }
-					: { purpose },
-			);
-			rows([{ id: "U", role: "user", content: "A", timestamp: 2 }, saved]);
-			await vi.advanceTimersByTimeAsync(60_000);
-			const snap = h.runtime.snapshot();
-			console.log(
-				purpose,
-				"->",
-				result.status,
-				JSON.stringify({
-					isSending: snap.isSending,
-					active: snap.active,
-					canStop: snap.canStop,
-					phase: snap.phase,
-					row: h.state.messages.at(-1)?.id,
-					streaming: h.state.messages.at(-1)?.isStreaming,
-				}),
-			);
-			expect(snap.isSending).toBe(false);
-			expect(h.state.messages.at(-1)?.id).toBe("S");
-		});
+		it.each(["regenerate", "navigate"] as const)(
+			"a %s command does not abandon the turn it could not stop",
+			async (purpose) => {
+				let rows: (v: ChatMessage[] | null) => void = () => {};
+				const h = harness({
+					checkForOrphanedStream: vi.fn(async () => "orig"),
+					getStreamBufferInfo: vi.fn(
+						async () => ({ userMessage: "A" }) as never,
+					),
+					readChatMessages: vi.fn(
+						() =>
+							new Promise<ChatMessage[] | null>((r) => {
+								rows = r;
+							}),
+					),
+				});
+				await h.runtime.checkForOrphanedStreamOnMount();
+				const placeholder = h.state.messages.at(-1)?.id as string;
+				const reconnect = h.invocations[0];
+				reconnect.callbacks.onFinishPart?.({ type: "finish" } as never);
+				reconnect.callbacks.onEnd("", {
+					observation: {
+						version: 1,
+						state: "terminal",
+						streamId: "orig",
+						conversationId: "conv-1",
+						assistantMessageId: "S",
+						completion,
+					},
+				});
+				await vi.advanceTimersByTimeAsync(0);
+				expect(h.runtime.snapshot()).toMatchObject({
+					isSending: true,
+					canStop: false,
+				});
+				const result = await h.runtime.settleStoppedAction(
+					purpose === "regenerate"
+						? { purpose, messageId: placeholder }
+						: { purpose },
+				);
+				rows([{ id: "U", role: "user", content: "A", timestamp: 2 }, saved]);
+				await vi.advanceTimersByTimeAsync(60_000);
+				const snap = h.runtime.snapshot();
+				console.log(
+					purpose,
+					"->",
+					result.status,
+					JSON.stringify({
+						isSending: snap.isSending,
+						active: snap.active,
+						canStop: snap.canStop,
+						phase: snap.phase,
+						row: h.state.messages.at(-1)?.id,
+						streaming: h.state.messages.at(-1)?.isStreaming,
+					}),
+				);
+				expect(snap.isSending).toBe(false);
+				expect(h.state.messages.at(-1)?.id).toBe("S");
+			},
+		);
 	});
 });
 

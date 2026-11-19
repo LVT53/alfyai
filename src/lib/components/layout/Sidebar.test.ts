@@ -378,18 +378,21 @@ describe("Sidebar — the guide's Show me", () => {
 		it.each([
 			["Search", "sidebar.search"],
 			["Projects", "sidebar.projects"],
-		] as const)("opens the drawer on a tablet when Show me asks for %s", async (_name, spotlight) => {
-			mockViewportStore.tier = "tablet";
-			render(Sidebar, { open: false });
+		] as const)(
+			"opens the drawer on a tablet when Show me asks for %s",
+			async (_name, spotlight) => {
+				mockViewportStore.tier = "tablet";
+				render(Sidebar, { open: false });
 
-			requestSpotlight(spotlight);
-			await tick();
+				requestSpotlight(spotlight);
+				await tick();
 
-			expect(get(sidebarOpen)).toBe(true);
-			expect(get(spotlightRequest)).toBeNull();
-			vi.advanceTimersToNextFrame();
-			expect(ringing()).toHaveLength(1);
-		});
+				expect(get(sidebarOpen)).toBe(true);
+				expect(get(spotlightRequest)).toBeNull();
+				vi.advanceTimersToNextFrame();
+				expect(ringing()).toHaveLength(1);
+			},
+		);
 
 		it("opens the drawer before a control in it takes the request", () => {
 			render(Sidebar, { open: false });

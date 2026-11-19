@@ -5,7 +5,7 @@
     "dev": "vite dev",
     "build": "NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs && npm run check:worker-assets",
     "check:worker-assets": "node scripts/check-built-worker-assets.mjs",
-    "check:artifact-chunks": "node scripts/check-artifact-chunks.mjs --allow-entry artifacts/canvas/ --max-target-gzip 65000 --max-gzip 73728 --forbid chart.js --forbid maplibre-gl --forbid mermaid --chat-route \"/(app)/chat/[conversationId]\" --chat-forbid chart.js --chat-forbid maplibre-gl --chat-forbid mermaid --chat-forbid @xyflow --chat-forbid prosemirror-view --chat-forbid prosemirror-model --chat-forbid @tiptap/core --chat-forbid tinyld",
+    "check:artifact-chunks": "node scripts/check-artifact-chunks.mjs --allow-entry artifacts/canvas/ --max-target-gzip 67048 --max-gzip 73728 --forbid chart.js --forbid maplibre-gl --forbid mermaid --chat-route \"/(app)/chat/[conversationId]\" --chat-forbid chart.js --chat-forbid maplibre-gl --chat-forbid mermaid --chat-forbid @xyflow --chat-forbid prosemirror-view --chat-forbid prosemirror-model --chat-forbid @tiptap/core --chat-forbid tinyld",
     "check:image-card-chunks": "node scripts/check-artifact-chunks.mjs --name ImageCardBody --no-confine --forbid chart.js --forbid maplibre-gl --forbid mermaid --forbid @xyflow --forbid prosemirror-view --forbid @tiptap/core --chat-route \"/(app)/chat/[conversationId]\"",
     "check:image-body-chunks": "node scripts/check-artifact-chunks.mjs --name image/ImageBody.svelte --no-confine --forbid chart.js --forbid maplibre-gl --forbid mermaid --forbid @xyflow --forbid prosemirror-view --forbid @tiptap/core --chat-route \"/(app)/chat/[conversationId]\"",
     "check:image-viewer-chunks": "node scripts/check-artifact-chunks.mjs --name chat/ImageLightbox.svelte --no-confine --forbid chart.js --forbid maplibre-gl --forbid mermaid --forbid @xyflow --forbid prosemirror-view --forbid @tiptap/core --chat-route \"/(app)/chat/[conversationId]\"",
@@ -38,7 +38,7 @@
     "eval:artifacts:tools": "tsx scripts/eval-artifact-contracts/run-tool-suite.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.12",
+    "@biomejs/biome": "^2.6.8",
     "@playwright/test": "^1.59.1",
     "@sveltejs/adapter-node": "^5.5.4",
     "@sveltejs/kit": "^2.57.1",

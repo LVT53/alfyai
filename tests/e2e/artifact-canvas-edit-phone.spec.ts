@@ -132,8 +132,8 @@ test.describe("on a phone, the edit form of a block keeps its buttons in view", 
 					(
 						(await storedBoard(boardId)).nodes.find(
 							(node) => node.id === "sales",
-						)?.data as { label?: string }
-					).label,
+						)?.data as { label?: string } | undefined
+					)?.label,
 			)
 			.toBe("Fruit sales");
 	});

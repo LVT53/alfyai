@@ -278,8 +278,7 @@ export function readNormalChatOutputEvent(
 		case "completion": {
 			const c = e.completion as Record<string, unknown> | null;
 			if (
-				!c ||
-				c.version !== 1 ||
+				c?.version !== 1 ||
 				c.turnId !== e.turnId ||
 				c.segmentId !== e.segmentId ||
 				![

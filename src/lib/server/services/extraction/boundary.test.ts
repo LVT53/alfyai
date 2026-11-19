@@ -351,18 +351,19 @@ const RUNTIME_BOUNDARY_ENTRIES = [
 ] as const;
 
 describe("extraction poll runtime boundary", () => {
-	it.each(
-		RUNTIME_BOUNDARY_ENTRIES,
-	)("keeps %s off the parse bundle, transitively", (relative) => {
-		// `knowledge/readiness.ts` is on the poll route and the route is the
-		// poll. Either may read rows and evaluate text, but neither may reach
-		// the knowledge store (which reaches the parse bundle), an extractor,
-		// the runner, intake, MinerU, or `node:fs` — a poll that only asks
-		// whether a finished document's text is usable must not load a zip
-		// reader or a backend HTTP client.
-		const violations = reachableBoundaryViolations(relative);
-		expect(violations.map(describeBoundaryViolation)).toEqual([]);
-	});
+	it.each(RUNTIME_BOUNDARY_ENTRIES)(
+		"keeps %s off the parse bundle, transitively",
+		(relative) => {
+			// `knowledge/readiness.ts` is on the poll route and the route is the
+			// poll. Either may read rows and evaluate text, but neither may reach
+			// the knowledge store (which reaches the parse bundle), an extractor,
+			// the runner, intake, MinerU, or `node:fs` — a poll that only asks
+			// whether a finished document's text is usable must not load a zip
+			// reader or a backend HTTP client.
+			const violations = reachableBoundaryViolations(relative);
+			expect(violations.map(describeBoundaryViolation)).toEqual([]);
+		},
+	);
 
 	it("resolves a relative ./store import the raw-substring check missed", () => {
 		const [reference] = staticReferences(

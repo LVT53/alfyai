@@ -133,9 +133,12 @@ describe("edit_artifact's Document op contract (dev incident, 2026-09-26)", () =
 			baseHash: "h1",
 			cells: ["a", "b"],
 		},
-	])("the advertised union accepts a real $op example with exactly its fields", (example) => {
-		expect(patchOpInputSchema.safeParse(example).success).toBe(true);
-	});
+	])(
+		"the advertised union accepts a real $op example with exactly its fields",
+		(example) => {
+			expect(patchOpInputSchema.safeParse(example).success).toBe(true);
+		},
+	);
 
 	it("PATCH_OP_KINDS lists exactly the five ops the schema's own discriminant accepts", () => {
 		expect(PATCH_OP_KINDS).toEqual([

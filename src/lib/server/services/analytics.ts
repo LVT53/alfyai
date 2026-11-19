@@ -602,7 +602,7 @@ function resolveModelAvailability(
 		const modelRow = context.providerModelsById.get(parsed.modelUuid);
 		if (!modelRow) return "removed";
 		const providerRow = context.providersById.get(parsed.providerId);
-		if (!providerRow || providerRow.enabled !== 1 || modelRow.enabled !== 1) {
+		if (providerRow?.enabled !== 1 || modelRow.enabled !== 1) {
 			return "disabled";
 		}
 		return "active";

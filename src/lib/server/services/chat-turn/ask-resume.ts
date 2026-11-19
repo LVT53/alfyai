@@ -206,7 +206,7 @@ async function findReply(
 	const firstId = segments[0].id;
 	const at = rows.findIndex((candidate) => candidate.id === firstId);
 	const userMessage = at > 0 ? rows[at - 1] : undefined;
-	if (!userMessage || userMessage.role !== "user") return null;
+	if (userMessage?.role !== "user") return null;
 	return { segments, userMessage };
 }
 

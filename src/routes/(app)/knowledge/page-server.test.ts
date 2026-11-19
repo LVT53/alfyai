@@ -32,20 +32,20 @@ describe("the Knowledge page's load", () => {
 
 	// The Memory tab says "Memory is off" in its first paint, so the page is
 	// loaded knowing whether the person switched memory off in Settings.
-	it.each([
-		true,
-		false,
-	])("hands the page the person's memory switch (%s)", async (enabled) => {
-		isUserMemoryEnabledMock.mockResolvedValue(enabled);
+	it.each([true, false])(
+		"hands the page the person's memory switch (%s)",
+		async (enabled) => {
+			isUserMemoryEnabledMock.mockResolvedValue(enabled);
 
-		const data = await load(event());
+			const data = await load(event());
 
-		expect(data).toMatchObject({
-			memoryEnabled: enabled,
-			library: { documents: [] },
-		});
-		expect(isUserMemoryEnabledMock).toHaveBeenCalledWith("user-1");
-	});
+			expect(data).toMatchObject({
+				memoryEnabled: enabled,
+				library: { documents: [] },
+			});
+			expect(isUserMemoryEnabledMock).toHaveBeenCalledWith("user-1");
+		},
+	);
 
 	it("sends a signed-out visitor to the login page", async () => {
 		await expect(load(event(null))).rejects.toMatchObject({

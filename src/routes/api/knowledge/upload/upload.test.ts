@@ -161,20 +161,23 @@ describe("POST /api/knowledge/upload", () => {
 			"knowledge.uploadRejectedArchive",
 		],
 		["mystery.wat", "", "unknownType", "knowledge.uploadUnsupportedType"],
-	])("refuses %s with 415 before parsing anything", async (fileName, type, reason, errorKey) => {
-		const formData = new FormData();
-		formData.append("file", new File(["x"], fileName, { type }));
-		formData.append("conversationId", "conv-1");
+	])(
+		"refuses %s with 415 before parsing anything",
+		async (fileName, type, reason, errorKey) => {
+			const formData = new FormData();
+			formData.append("file", new File(["x"], fileName, { type }));
+			formData.append("conversationId", "conv-1");
 
-		const response = await POST(makeEventWithFormData(formData));
-		const data = await response.json();
+			const response = await POST(makeEventWithFormData(formData));
+			const data = await response.json();
 
-		expect(response.status).toBe(415);
-		expect(data.code).toBe("upload_unsupported_type");
-		expect(data.errorKey).toBe(errorKey);
-		expect(data.details).toMatchObject({ fileName, reason });
-		expect(mockCompleteKnowledgeUploadFromFile).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(415);
+			expect(data.code).toBe("upload_unsupported_type");
+			expect(data.errorKey).toBe(errorKey);
+			expect(data.details).toMatchObject({ fileName, reason });
+			expect(mockCompleteKnowledgeUploadFromFile).not.toHaveBeenCalled();
+		},
+	);
 
 	it("still accepts the multipart shape the verification scripts post", async () => {
 		const formData = new FormData();

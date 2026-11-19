@@ -343,17 +343,17 @@ it("retains unknown usage as null and permits late reconciliation without chargi
 	});
 });
 
-it.each([
-	"missing",
-	null,
-])("keeps an unknown or mismatched actual provider %s unpriced", async (providerId) => {
-	ledger.admitTurn({ ...scope, ownerId: "process" });
-	await ledger.recordTurnAttempt(scope, { ...attempt, providerId });
-	expect(
-		database.db.select().from(schema.normalChatAttempts).get()?.costUsdMicros,
-	).toBeNull();
-	expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(0);
-});
+it.each(["missing", null])(
+	"keeps an unknown or mismatched actual provider %s unpriced",
+	async (providerId) => {
+		ledger.admitTurn({ ...scope, ownerId: "process" });
+		await ledger.recordTurnAttempt(scope, { ...attempt, providerId });
+		expect(
+			database.db.select().from(schema.normalChatAttempts).get()?.costUsdMicros,
+		).toBeNull();
+		expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(0);
+	},
+);
 
 it("cascades content-free ledger rows on conversation and account deletion", async () => {
 	ledger.admitTurn({ ...scope, ownerId: "process" });
@@ -610,26 +610,26 @@ it("counts failed-unsaved and linked attempts once in personal monthly analytics
 	expect(linked.personal.totalCostUsd).toBe(0.14);
 });
 
-it.each([
-	"model1",
-	"model2",
-])("preserves %s built-in name-based pricing and null billing-provider identity", async (modelId) => {
-	ledger.admitTurn({ ...scope, ownerId: "process" });
-	await ledger.recordTurnAttempt(scope, {
-		...attempt,
-		modelId,
-		providerId: modelId,
-	});
-	expect(await analytics.getConversationCostSummary("c")).toEqual({
-		totalCostUsdMicros: 140,
-		totalTokens: 120,
-	});
-	expect(database.db.select().from(schema.usageEvents).get()).toMatchObject({
-		providerId: null,
-		modelId,
-		providerModelName: "first",
-	});
-});
+it.each(["model1", "model2"])(
+	"preserves %s built-in name-based pricing and null billing-provider identity",
+	async (modelId) => {
+		ledger.admitTurn({ ...scope, ownerId: "process" });
+		await ledger.recordTurnAttempt(scope, {
+			...attempt,
+			modelId,
+			providerId: modelId,
+		});
+		expect(await analytics.getConversationCostSummary("c")).toEqual({
+			totalCostUsdMicros: 140,
+			totalTokens: 120,
+		});
+		expect(database.db.select().from(schema.usageEvents).get()).toMatchObject({
+			providerId: null,
+			modelId,
+			providerModelName: "first",
+		});
+	},
+);
 
 /** The three names a billing row keeps, so a test reads only what it pins. */
 function namesOf(row: typeof schema.usageEvents.$inferSelect | undefined) {
@@ -706,43 +706,43 @@ it("names the attempt's own model, its provider and its address on the billing r
 	});
 });
 
-it.each([
-	"model1",
-	"model2",
-] as const)("gives the built-in %s the names the legacy per-message writer gave it", async (modelId) => {
-	// The legacy writer is the reference; nothing is written here from memory.
-	database.db
-		.insert(schema.messages)
-		.values({
-			id: "legacy",
+it.each(["model1", "model2"] as const)(
+	"gives the built-in %s the names the legacy per-message writer gave it",
+	async (modelId) => {
+		// The legacy writer is the reference; nothing is written here from memory.
+		database.db
+			.insert(schema.messages)
+			.values({
+				id: "legacy",
+				conversationId: "c",
+				role: "assistant",
+				content: "old answer",
+			})
+			.run();
+		await analytics.recordMessageAnalytics({
+			userId: "u",
 			conversationId: "c",
-			role: "assistant",
-			content: "old answer",
-		})
-		.run();
-	await analytics.recordMessageAnalytics({
-		userId: "u",
-		conversationId: "c",
-		messageId: "legacy",
-		model: modelId,
-	});
-	ledger.admitTurn({ ...scope, ownerId: "process" });
-	await ledger.recordTurnAttempt(scope, {
-		...attempt,
-		modelId,
-		providerId: modelId,
-	});
-	const rows = database.db.select().from(schema.usageEvents).all();
-	const ledgerRow = rows.find((r) => r.id === "turn-attempt:a");
-	const legacyRow = rows.find((r) => r.messageId === "legacy");
-	const { getConfig } = await import("../../config-store");
-	expect(namesOf(ledgerRow)).toEqual(namesOf(legacyRow));
-	expect(namesOf(ledgerRow)).toEqual({
-		modelDisplayName: getConfig()[modelId].displayName,
-		providerDisplayName: null,
-		providerBaseUrl: getConfig()[modelId].baseUrl,
-	});
-});
+			messageId: "legacy",
+			model: modelId,
+		});
+		ledger.admitTurn({ ...scope, ownerId: "process" });
+		await ledger.recordTurnAttempt(scope, {
+			...attempt,
+			modelId,
+			providerId: modelId,
+		});
+		const rows = database.db.select().from(schema.usageEvents).all();
+		const ledgerRow = rows.find((r) => r.id === "turn-attempt:a");
+		const legacyRow = rows.find((r) => r.messageId === "legacy");
+		const { getConfig } = await import("../../config-store");
+		expect(namesOf(ledgerRow)).toEqual(namesOf(legacyRow));
+		expect(namesOf(ledgerRow)).toEqual({
+			modelDisplayName: getConfig()[modelId].displayName,
+			providerDisplayName: null,
+			providerBaseUrl: getConfig()[modelId].baseUrl,
+		});
+	},
+);
 
 it("leaves a name null when its lookup finds nothing, and still books the attempt", async () => {
 	ledger.admitTurn({ ...scope, ownerId: "process" });
@@ -776,56 +776,56 @@ it("leaves a name null when its lookup finds nothing, and still books the attemp
 	).toHaveLength(2);
 });
 
-it.each([
-	"analytics-first",
-	"terminal-first",
-])("hides message association and durable-accounting write order (%s)", async (order) => {
-	ledger.admitTurn({ ...scope, ownerId: "process" });
-	database.db
-		.insert(schema.messages)
-		.values({
-			id: "ordered",
-			conversationId: "c",
-			role: "assistant",
-			content: "answer",
-		})
-		.run();
-	const saveAnalytics = () =>
-		analytics.recordMessageAnalytics({
-			userId: "u",
-			conversationId: "c",
-			messageId: "ordered",
-			model: "model1",
-			turnSegmentId: scope.segmentId,
+it.each(["analytics-first", "terminal-first"])(
+	"hides message association and durable-accounting write order (%s)",
+	async (order) => {
+		ledger.admitTurn({ ...scope, ownerId: "process" });
+		database.db
+			.insert(schema.messages)
+			.values({
+				id: "ordered",
+				conversationId: "c",
+				role: "assistant",
+				content: "answer",
+			})
+			.run();
+		const saveAnalytics = () =>
+			analytics.recordMessageAnalytics({
+				userId: "u",
+				conversationId: "c",
+				messageId: "ordered",
+				model: "model1",
+				turnSegmentId: scope.segmentId,
+			});
+		const settle = () =>
+			ledger.settleTurn(scope, {
+				...terminal,
+				attemptIds: ["a"],
+				messageId: "ordered",
+			});
+		if (order === "analytics-first") {
+			await saveAnalytics();
+			settle();
+		} else {
+			settle();
+			await saveAnalytics();
+		}
+		expect(await analytics.getMessageUsageState("u", "c", "ordered")).toEqual({
+			status: "pending",
 		});
-	const settle = () =>
-		ledger.settleTurn(scope, {
-			...terminal,
-			attemptIds: ["a"],
-			messageId: "ordered",
-		});
-	if (order === "analytics-first") {
+		await ledger.recordTurnAttempt(scope, attempt);
 		await saveAnalytics();
 		settle();
-	} else {
-		settle();
-		await saveAnalytics();
-	}
-	expect(await analytics.getMessageUsageState("u", "c", "ordered")).toEqual({
-		status: "pending",
-	});
-	await ledger.recordTurnAttempt(scope, attempt);
-	await saveAnalytics();
-	settle();
-	expect(
-		await analytics.getMessageUsageState("u", "c", "ordered"),
-	).toMatchObject({
-		status: "ready",
-		costUsd: 0.00014,
-		totalCostUsdMicros: 140,
-	});
-	expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(1);
-});
+		expect(
+			await analytics.getMessageUsageState("u", "c", "ordered"),
+		).toMatchObject({
+			status: "ready",
+			costUsd: 0.00014,
+			totalCostUsdMicros: 140,
+		});
+		expect(database.db.select().from(schema.usageEvents).all()).toHaveLength(1);
+	},
+);
 
 it("derives dashboard message joins for multi-attempt billing without multiplying foreground metrics", async () => {
 	const closingModel = "provider:p2:m2";

@@ -135,10 +135,11 @@ describe("spoken forms: the spec's examples", () => {
 		["i.e.", "en", "that is"],
 		["etc.", "en", "et cetera"],
 	];
-	it.each(
-		ABBREVIATIONS,
-	)("reads %s in %s as the spec says", (shown, language, spoken) =>
-		expect(speakWord(shown, "prose", language).join(" ")).toBe(spoken));
+	it.each(ABBREVIATIONS)(
+		"reads %s in %s as the spec says",
+		(shown, language, spoken) =>
+			expect(speakWord(shown, "prose", language).join(" ")).toBe(spoken),
+	);
 });
 
 describe("spoken forms: the rules around the examples", () => {

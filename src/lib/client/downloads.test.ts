@@ -459,19 +459,20 @@ describe("downloadProducedFile", () => {
 });
 
 describe("download session response ordering", () => {
-	it.each([
-		200, 400, 404,
-	])("does not heal newer expiry from an old gate-admitted %i probe", async (status) => {
-		let resolve!: (response: Response) => void;
-		const pending = new Promise<Response>((done) => {
-			resolve = done;
-		});
-		const probe = confirmSessionForDownload(() => pending);
-		markSessionExpired();
-		resolve(jsonResponse(status, {}));
-		expect(await probe).toBe(true);
-		expect(isSessionExpired()).toBe(true);
-	});
+	it.each([200, 400, 404])(
+		"does not heal newer expiry from an old gate-admitted %i probe",
+		async (status) => {
+			let resolve!: (response: Response) => void;
+			const pending = new Promise<Response>((done) => {
+				resolve = done;
+			});
+			const probe = confirmSessionForDownload(() => pending);
+			markSessionExpired();
+			resolve(jsonResponse(status, {}));
+			expect(await probe).toBe(true);
+			expect(isSessionExpired()).toBe(true);
+		},
+	);
 
 	it("does not re-expire a healed session from a delayed probe refusal body", async () => {
 		let release!: (text: string) => void;

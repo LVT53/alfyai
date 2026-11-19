@@ -551,7 +551,7 @@ export async function walkReplySegments<
 	const seen = new Set<string>();
 	let row = await readRow(lastId);
 	for (;;) {
-		if (!row || row.role !== "assistant" || seen.has(row.id)) return null;
+		if (row?.role !== "assistant" || seen.has(row.id)) return null;
 		seen.add(row.id);
 		segments.unshift(row);
 		const link = continuesMessageIdOf(row.metadataJson);
