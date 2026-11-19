@@ -2028,6 +2028,7 @@ describe("createNormalChatTools", () => {
 						exitCode: 0,
 						timedOut: false,
 						truncated: false,
+						displayOutput: "42",
 					},
 				}),
 			]);
@@ -2116,6 +2117,181 @@ describe("createNormalChatTools", () => {
 			expect(getToolCalls()[0]?.metadata).toMatchObject({ timedOut: true });
 		});
 
+		it("keeps a short copy of what the program printed on the entry, and the model's payload is as it was", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "hi\n",
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: 'print("hi")' },
+				{ toolCallId: "call-run-python-display", messages: [] },
+			);
+
+			// What the model reads is exactly what it always was: the copy is beside it.
+			expect(result).toEqual({
+				success: true,
+				name: "run_python",
+				sourceType: "tool",
+				stdout: "hi\n",
+				exitCode: 0,
+				timedOut: false,
+				truncated: false,
+			});
+			expect(JSON.stringify(result)).not.toContain("displayOutput");
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+					status: "done",
+					metadata: {
+						ok: true,
+						evidenceReady: false,
+						exitCode: 0,
+						timedOut: false,
+						truncated: false,
+						displayOutput: "hi",
+					},
+				}),
+			]);
+		});
+
+		it("keeps only the first 12 lines in the copy while the model still gets all of the output", async () => {
+			const stdout = `${Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout,
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "for i in range(20): print('line', i + 1)" },
+				{ toolCallId: "call-run-python-display-long", messages: [] },
+			);
+
+			expect((result as { stdout: string }).stdout).toBe(stdout);
+			const shown = getToolCalls()[0]?.metadata?.displayOutput;
+			expect(typeof shown).toBe("string");
+			expect((shown as string).split("\n")).toHaveLength(12);
+			expect((shown as string).endsWith("line 12")).toBe(true);
+		});
+
+		it("writes no copy for a run that printed nothing, and no code for a run that worked", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "DeprecationWarning: something old",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.run_python).execute(
+				{ code: "import warnings" },
+				{ toolCallId: "call-run-python-silent", messages: [] },
+			);
+
+			// Only what the program printed is copied, never what it complained of.
+			const metadata = getToolCalls()[0]?.metadata;
+			expect(metadata).toMatchObject({ ok: true, exitCode: 0 });
+			expect(metadata).not.toHaveProperty("displayOutput");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it.each([
+			[
+				"the sandbox's own time limit",
+				{ files: [], stdout: "", stderr: "", error: "Execution timed out" },
+				"timed_out",
+			],
+			[
+				"a run the sandbox cancelled",
+				{ files: [], stdout: "", stderr: "", error: "Execution cancelled" },
+				"stopped",
+			],
+			[
+				"a sandbox that gave no exit code",
+				{
+					files: [],
+					stdout: "",
+					stderr: "",
+					error: "Execution failed: docker daemon unreachable",
+				},
+				"sandbox_unavailable",
+			],
+			[
+				"a program that exited with an error",
+				{
+					files: [],
+					stdout: "",
+					stderr: "Traceback...\nZeroDivisionError: division by zero",
+					exitCode: 1,
+					error: "Execution failed with exit code 1: stderr: ZeroDivisionError",
+				},
+				"program_error",
+			],
+		] as const)("names %s on the entry, beside a payload that does not say so", async (_label, execution, reasonCode) => {
+			executeSandboxCodeMock.mockResolvedValue({ ...execution, files: [] });
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "1 / 0" },
+				{ toolCallId: "call-run-python-reason", messages: [] },
+			);
+
+			expect(JSON.stringify(result)).not.toContain("reasonCode");
+			expect(JSON.stringify(result)).not.toContain(reasonCode);
+			const [entry] = getToolCalls();
+			// A program that did not work is still a tool that did: the entry stays "ok".
+			expect(entry?.status).toBe("done");
+			expect(entry?.metadata).toMatchObject({ ok: true, reasonCode });
+		});
+
+		it("leaves a tool timeout to the envelope's timed_out instead of calling it an unavailable sandbox", async () => {
+			executeSandboxCodeMock.mockRejectedValueOnce(
+				new Error("run_python timed out after 120000ms"),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.run_python).execute(
+				{ code: "while True: pass" },
+				{ toolCallId: "call-run-python-tool-timeout", messages: [] },
+			);
+
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "timed_out",
+			});
+		});
+
 		it("uses a timeout above the sandbox's own hard exec cutoff, so the sandbox's own timeout wins first", () => {
 			expect(TOOL_TIMEOUTS_MS.run_python).toBeGreaterThan(SANDBOX_TIMEOUT_MS);
 		});
@@ -2151,6 +2327,7 @@ describe("createNormalChatTools", () => {
 						ok: false,
 						evidenceReady: false,
 						error: "docker daemon unreachable",
+						reasonCode: "sandbox_unavailable",
 					},
 				}),
 			]);

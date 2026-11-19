@@ -59,6 +59,7 @@ import {
 } from "$lib/server/services/web-grounding";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import { DISPLAY_OUTPUT_KEY } from "$lib/shared/tool-reasons";
 import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
@@ -215,7 +216,9 @@ import {
 } from "./routing";
 import {
 	buildRunPythonModelPayload,
+	displayOutputOf,
 	runPythonInputSchema,
+	runPythonReasonOf,
 	sanitizeRunPythonInput,
 	summarizeRunPythonResult,
 } from "./run-python";
@@ -1714,6 +1717,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								{ collectFiles: false },
 							);
 							const modelPayload = buildRunPythonModelPayload(execution);
+							const displayOutput = displayOutputOf(execution.stdout ?? "");
+							const reason = runPythonReasonOf(execution, modelPayload);
 							return {
 								modelPayload,
 								entry: {
@@ -1730,6 +1735,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										exitCode: modelPayload.exitCode,
 										timedOut: modelPayload.timedOut,
 										truncated: modelPayload.truncated,
+										// A short copy of what the program printed, for the row:
+										// beside the payload, never in it, so what the model reads
+										// is as it was.
+										...(displayOutput === null
+											? {}
+											: { [DISPLAY_OUTPUT_KEY]: displayOutput }),
+										// A program that did not work is still a tool that did
+										// (`ok` stays true): the code says which way it went wrong.
+										...(reason ? reasonMetadata("run_python", reason) : {}),
 									},
 								},
 							};
@@ -1757,6 +1771,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: message,
+										// The sandbox could not run the program at all. A tool's own
+										// time limit is the envelope's `timed_out`, and a Stop and
+										// the deadline override either.
+										...(isToolTimeoutError(error)
+											? {}
+											: reasonMetadata("run_python", "sandbox_unavailable")),
 									},
 								},
 							};
