@@ -10,6 +10,7 @@ export class NativeMemoryError extends Error {
 
 export const HINDSIGHT_ENGINE_COMMIT =
 	"9fb28dbd724dc1ce4da7cb4c49008e601db76c5f";
+export const NATIVE_DELIVERY_ATTEMPT_LIMIT = 3;
 
 // These sentinels cannot collide with native UUID operation identities. Reset
 // copies them into its cleanup intent before removing the old local bank.

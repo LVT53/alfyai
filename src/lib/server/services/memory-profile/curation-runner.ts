@@ -5,6 +5,7 @@ import {
 	memoryAccounts,
 	memoryActions,
 	memoryBanks,
+	memoryDeliveryAttempts,
 	memoryDeliveryJobs,
 	memoryPublishedRows,
 	memoryRevocations,
@@ -15,6 +16,7 @@ import type { JobRunContext, Tx } from "../jobs/types";
 import { ensureConfiguredBank } from "./bank-configuration";
 import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
+	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 	type NativeMemory,
 } from "./contracts";
 import {
@@ -67,6 +69,7 @@ import {
 } from "./revisions";
 
 type Context = JobRunContext<typeof memoryDeliveryJobs>;
+const collectiveRejection = "memory_dependency_check_rejected";
 type Source = typeof memorySourceRevisions.$inferSelect;
 type SourceAssertions = NonNullable<
 	Parameters<typeof checkMemoryEdit>[0]["sourceAssertions"]
@@ -588,6 +591,28 @@ export async function runMemoryAction(
 				saved.rejectionCode ?? "memory_edit_rejected",
 				false,
 			);
+		// An older receipt can still hold a staged Edit after exhausting retries.
+		// When reclaimed, compensate before applying that proposal again.
+		if (
+			ctx.attempt.number > NATIVE_DELIVERY_ATTEMPT_LIMIT &&
+			initial?.kind === "edit" &&
+			initial.cleanupPending &&
+			saved?.proposal &&
+			!saved.outcome
+		) {
+			const previous = db
+				.select({ code: memoryDeliveryAttempts.errorCode })
+				.from(memoryDeliveryAttempts)
+				.where(
+					and(
+						eq(memoryDeliveryAttempts.jobId, ctx.row.id),
+						eq(memoryDeliveryAttempts.attemptNumber, ctx.attempt.number - 1),
+					),
+				)
+				.get();
+			if (previous?.code === collectiveRejection)
+				throw new NativeMemoryError(collectiveRejection, false);
+		}
 		await executeMemoryAction(ctx, client, native, binding, model);
 	} catch (error) {
 		await cleanupWhileOff();
@@ -622,7 +647,10 @@ export async function runMemoryAction(
 			action?.kind === "edit" &&
 			action.cleanupPending &&
 			intent?.proposal &&
-			terminal &&
+			!intent.outcome &&
+			(terminal ||
+				(code === collectiveRejection &&
+					ctx.attempt.number >= NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
 			code !== "memory_control_changed" &&
 			code !== "memory_cancelled"
 		) {

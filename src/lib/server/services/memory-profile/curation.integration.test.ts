@@ -2386,108 +2386,237 @@ it.each([false, true])(
 	},
 );
 
-it("lifecycle re-review: a terminal dirty Edit restores accepted facts before unrelated publication", async () => {
-	const f = await setup();
-	const fixture = await nativeFixture(f, [
-		ckPlan,
-		ckProposal("kayak", "", "sister"),
-		ckOkay,
-		ckOkay,
-	]);
-	let deltaId: string | undefined;
-	let invalidated = false;
-	let deltaDeleted = false;
-	let addId: string | undefined;
-	const original = fixture.fetcher.getMockImplementation();
-	if (!original) throw Error("missing native fixture");
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const path = String(url);
-		if (path.endsWith("/memories") && init?.method === "POST") {
-			const item = JSON.parse(String(init.body)).items[0];
-			if (item.content === "I play chess.") addId = item.document_id;
-			else deltaId = item.document_id;
-		}
-		if (path.endsWith("/memories/kayak") && init?.method === "PATCH") {
-			const patch = JSON.parse(String(init.body));
-			invalidated = patch.state === "invalidated";
-			if (patch.state === "valid")
-				fixture.setFacts([
-					{ id: "kayak", text: "green kayak" },
-					{ id: "sister", text: "sister bicycle" },
-				]);
-		}
-		if (
-			deltaId &&
-			path.endsWith(`/documents/${deltaId}`) &&
-			init?.method === "DELETE"
-		)
-			deltaDeleted = true;
-		const response = await original(url, init);
-		if (!path.includes("/memories/list")) return response;
-		const body = await response.json();
-		const appendFact = (
-			id: string,
-			text: string,
-			document_id: string,
-			observe = false,
-		) => {
-			body.items.push({
-				id,
-				text,
-				document_id,
-				fact_type: "world",
-				consolidated_at: "2026-11-01",
-			});
-			if (observe)
+it.each([
+	"readback mismatch",
+	"retry exhaustion",
+	"older exhausted job",
+	"restore interruption",
+	"ambiguous native failure",
+])(
+	"a dirty Edit reaches a safe outcome after a failure (%s)",
+	async (scenario) => {
+		const f = await setup();
+		const fixture = await nativeFixture(f, []);
+		const readbackMismatch = scenario === "readback mismatch";
+		let rejectRestoration = scenario === "restore interruption";
+		fixture.model
+			.mockResolvedValueOnce(ckPlan)
+			.mockResolvedValueOnce(ckProposal("kayak", "", "sister"))
+			.mockResolvedValueOnce(ckOkay)
+			.mockImplementation(async (_prompt, input) =>
+				input.displayed_observations &&
+				(input.user_saved_after === "purple kayak" || rejectRestoration)
+					? ckReject
+					: ckOkay,
+			);
+		let deltaId: string | undefined;
+		let invalidated = false;
+		let deltaDeleted = false;
+		let addId: string | undefined;
+		const original = fixture.fetcher.getMockImplementation();
+		if (!original) throw Error("missing native fixture");
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (path.endsWith("/memories") && init?.method === "POST") {
+				const item = JSON.parse(String(init.body)).items[0];
+				if (item.content === "I play chess.") addId = item.document_id;
+				else deltaId = item.document_id;
+			}
+			if (path.endsWith("/memories/kayak") && init?.method === "PATCH") {
+				const patch = JSON.parse(String(init.body));
+				invalidated = patch.state === "invalidated";
+				if (patch.state === "valid")
+					fixture.setFacts([
+						{ id: "kayak", text: "green kayak" },
+						{ id: "sister", text: "sister bicycle" },
+					]);
+			}
+			if (
+				scenario === "ambiguous native failure" &&
+				invalidated &&
+				path.endsWith("/consolidate")
+			)
+				return new Response("consolidation response lost", { status: 503 });
+			if (
+				deltaId &&
+				path.endsWith(`/documents/${deltaId}`) &&
+				init?.method === "DELETE"
+			)
+				deltaDeleted = true;
+			const response = await original(url, init);
+			if (!path.includes("/memories/list")) return response;
+			const body = await response.json();
+			const appendFact = (
+				id: string,
+				text: string,
+				document_id: string,
+				observe = false,
+			) => {
 				body.items.push({
-					id: `observation-${id}`,
+					id,
 					text,
-					fact_type: "observation",
-					source_memory_ids: [id],
+					document_id,
+					fact_type: "world",
+					consolidated_at: "2026-11-01",
 				});
+				if (observe)
+					body.items.push({
+						id: `observation-${id}`,
+						text,
+						fact_type: "observation",
+						source_memory_ids: [id],
+					});
+			};
+			if (deltaId && !deltaDeleted)
+				appendFact("purple", "purple kayak", deltaId);
+			if (deltaId && invalidated && !deltaDeleted && readbackMismatch)
+				appendFact("drift", "duplicate native raw fact", deltaId);
+			if (addId) appendFact("chess", "I play chess.", addId, true);
+			body.total = body.items.length;
+			return new Response(JSON.stringify(body));
+		});
+		const a = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const list = await import("./native-read");
+		const texts = () =>
+			list
+				.listMemory(h.userId, { scope: { kind: "personal" } })
+				.rows.map(({ text }) => text)
+				.sort();
+		const request = {
+			kind: "edit" as const,
+			ref: ckRef,
+			text: "purple kayak",
+			requestId: randomUUID(),
 		};
-		if (deltaId && !deltaDeleted) appendFact("purple", "purple kayak", deltaId);
-		if (deltaId && invalidated && !deltaDeleted)
-			appendFact("drift", "duplicate native raw fact", deltaId);
-		if (addId) appendFact("chess", "I play chess.", addId, true);
-		body.total = body.items.length;
-		return new Response(JSON.stringify(body));
-	});
-	const a = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const list = await import("./native-read");
-	const texts = () =>
-		list
-			.listMemory(h.userId, { scope: { kind: "personal" } })
-			.rows.map(({ text }) => text)
-			.sort();
-	const op = await a.submitMemoryAction(h.userId, {
-		kind: "edit",
-		ref: ckRef,
-		text: "purple kayak",
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
-		status: "failed",
-		errorCode: "memory_edit_readback_mismatch",
-		cleanupPending: false,
-	});
-	expect(fixture.patches).toEqual(["kayak", "kayak"]);
-	expect(deltaDeleted).toBe(true);
-	expect(texts()).toEqual(["green kayak", "sister bicycle"]);
-	const add = await a.submitMemoryAction(h.userId, {
-		kind: "add",
-		scope: { kind: "personal" },
-		text: "I play chess.",
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(a.getMemoryOperation(h.userId, { id: add.id })?.status).toBe(
-		"applied",
-	);
-	expect(texts()).toEqual(["I play chess.", "green kayak", "sister bicycle"]);
-});
+		const op = await a.submitMemoryAction(h.userId, request);
+		const deliveries = f.s.memoryDeliveryJobs;
+		const { eq } = await import("drizzle-orm");
+		const editJob = eq(deliveries.actionId, op.id);
+		const drain = () => h.engine.drain(jobs.memoryDeliveryJob);
+		const operation = () => a.getMemoryOperation(h.userId, { id: op.id });
+		const advanceRetry = () =>
+			f.db
+				.update(deliveries)
+				.set({ runAfter: new Date(0) })
+				.where(editJob)
+				.run();
+		await drain();
+		if (!readbackMismatch) {
+			for (const attemptCount of [1, 2]) {
+				expect(
+					f.db.select().from(deliveries).where(editJob).get(),
+				).toMatchObject({
+					attemptCount,
+					status: "queued",
+				});
+				expect(operation()).toMatchObject({ cleanupPending: true });
+				expect(deltaDeleted).toBe(false);
+				expect(texts()).toEqual(["kayak", "sister"]);
+				if (attemptCount === 1) {
+					advanceRetry();
+					await drain();
+				}
+			}
+			if (scenario === "older exhausted job") {
+				// Model a pre-fix receipt whose last attempt ended with the proposal still staged.
+				const job = f.db.select().from(deliveries).where(editJob).get();
+				const attempts = f.s.memoryDeliveryAttempts;
+				const previous = f.db
+					.select()
+					.from(attempts)
+					.where(eq(attempts.jobId, job?.id ?? ""))
+					.all()
+					.find((attempt) => attempt.attemptNumber === 2);
+				if (!previous) throw Error("expected second attempt");
+				f.db
+					.insert(attempts)
+					.values({
+						...previous,
+						id: randomUUID(),
+						attemptNumber: 3,
+					})
+					.run();
+				f.db
+					.update(deliveries)
+					.set({
+						status: "failed",
+						attemptCount: 3,
+						retryable: true,
+						errorCode: "memory_dependency_check_rejected",
+					})
+					.where(editJob)
+					.run();
+				expect((await a.submitMemoryAction(h.userId, request)).id).toBe(op.id);
+			} else advanceRetry();
+			await drain();
+			if (scenario === "ambiguous native failure") {
+				expect(operation()).toMatchObject({
+					status: "failed",
+					errorCode: "native_unavailable",
+					cleanupPending: true,
+					retryable: true,
+				});
+				expect((await a.submitMemoryAction(h.userId, request)).id).toBe(op.id);
+				await drain();
+				expect(deltaDeleted).toBe(false);
+				expect(fixture.patches).toEqual(["kayak"]);
+				expect(texts()).toEqual(["kayak", "sister"]);
+				return;
+			}
+			if (scenario === "restore interruption") {
+				expect(operation()).toMatchObject({
+					status: "failed",
+					errorCode: "memory_dependency_check_rejected",
+					cleanupPending: true,
+				});
+				expect(deltaDeleted).toBe(true);
+				rejectRestoration = false;
+				expect((await a.submitMemoryAction(h.userId, request)).id).toBe(op.id);
+				await drain();
+			}
+		}
+		expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+			status: "failed",
+			errorCode: readbackMismatch
+				? "memory_edit_readback_mismatch"
+				: "memory_dependency_check_rejected",
+			cleanupPending: false,
+		});
+		if (scenario === "older exhausted job")
+			expect(
+				fixture.model.mock.calls.filter(
+					([, input]) =>
+						input.displayed_observations &&
+						input.user_saved_after === "purple kayak",
+				),
+			).toHaveLength(2);
+		expect(fixture.patches).toEqual(["kayak", "kayak"]);
+		expect(deltaDeleted).toBe(true);
+		expect(
+			f.db
+				.select()
+				.from(f.s.memorySourceRevisions)
+				.where(eq(f.s.memorySourceRevisions.id, deltaId ?? ""))
+				.get(),
+		).toMatchObject({
+			state: "revoked",
+			acknowledgedFactsJson: "[]",
+		});
+		expect(texts()).toEqual(["green kayak", "sister bicycle"]);
+		const add = await a.submitMemoryAction(h.userId, {
+			kind: "add",
+			scope: { kind: "personal" },
+			text: "I play chess.",
+			requestId: randomUUID(),
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(a.getMemoryOperation(h.userId, { id: add.id })?.status).toBe(
+			"applied",
+		);
+		expect(texts()).toEqual(["I play chess.", "green kayak", "sister bicycle"]);
+	},
+);
 
 it("lifecycle re-review: a Remove checks new stale observations backed by other accepted sources", async () => {
 	const f = await setup();

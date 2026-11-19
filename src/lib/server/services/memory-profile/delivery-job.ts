@@ -16,6 +16,7 @@ import type { Tx } from "../jobs/types";
 import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
+	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 } from "./contracts";
 import {
 	type RepairPlan,
@@ -89,7 +90,7 @@ export const memoryDeliveryJob = defineJobKind({
 		message: "Memory preparation was interrupted.",
 	}),
 	onFailure: (failure, history) =>
-		failure.retryable && history.attempts < 3
+		failure.retryable && history.attempts < NATIVE_DELIVERY_ATTEMPT_LIMIT
 			? { requeue: true, delayMs: Math.min(60_000, 5_000 * history.attempts) }
 			: { requeue: false, retryable: failure.retryable },
 	userRetry: { from: ["failed"], requireRetryable: true },
