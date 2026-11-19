@@ -34,6 +34,12 @@ Known removed statements are mapped using explicit source/item/provenance IDs, i
 
 Preparation captures a full content/action/control fingerprint. Repeat preparation to catch persisted chat edits/deletes, new chats and legacy choices. Same-ID text changes without a trustworthy original edit event are reported as exceptions; import time is never asserted as the edit date. During final cutover, SQLite's write transaction is the brief ingestion barrier: source/action changes serialized before the switch invalidate verification, and later live turns use native authority. Native late results remain subject to epoch/source/control fences.
 
+## Per-user quality comparison
+
+For each authorized migration, record the legacy Memory baseline before cutover and repeat the benchmark against replacement Memory after cutover. Use the same questions, expected evidence and scoring criteria for that user. Check factual recall, currentness, attribution and correct omission. Blind the scorer to the Memory implementation and report gains, regressions, inconclusive cases and sample size per user. An aggregate can supplement the individual results.
+
+Keep each benchmark within that user's authorized personal and project scopes. Apply their consent and every source exclusion to both runs. Omit any case that becomes ineligible between runs and record the count and reason. Keep raw evidence in restricted, user-scoped storage and use no data from other users. This procedure requires authorization before it is run on real accounts.
+
 ## Synthetic rehearsal
 
 Use only an isolated migrated SQLite fixture in the system temporary directory, with a `.alfyai-memory-synthetic` marker containing `alfyai-memory-synthetic-v1` beside it, and only `@test.invalid` accounts. Pass `--synthetic-fixture yes`. Synthetic mode bypasses the production operator acknowledgement, never the source/consent/epoch/cutover checks. Real-mode flag parsing and execution are also tested against a temporary synthetic database, never a real account database.
