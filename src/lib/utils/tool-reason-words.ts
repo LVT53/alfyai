@@ -84,6 +84,17 @@ const SHARED_WORDS: Record<SharedReasonCode, ReasonWords> = {
 };
 
 /**
+ * A call the browser found cut off: still marked `running` in a reply that is
+ * over, though the person did not press Stop (an update or a crash ended the
+ * reply, and the server never closed the step). The server never writes it, so it
+ * is in none of `$lib/shared/tool-reasons`' lists: the row's builder gives it to
+ * the call, and it is a quiet stop with one sentence for every tool. A Stop the
+ * person pressed is the server's `stopped` instead.
+ */
+export const UNFINISHED_CODE = "unfinished";
+const UNFINISHED_WORDS: ReasonWords = stop("toolRows.shared.unfinished");
+
+/**
  * The nine account tools tell the same cases apart, each in its own account's
  * words, so one builder holds what is common (a code's kind, the words shared by
  * all nine) and each tool gives its own sentences.
@@ -585,6 +596,7 @@ export function resolveToolReason(
 	code: string | null,
 	context?: { artifactKind?: string | null },
 ): { code: string | null; kind: ReasonKind; key: I18nKey | null } {
+	if (code === UNFINISHED_CODE) return { code, ...UNFINISHED_WORDS };
 	const table = tableFor(toolName);
 	const own =
 		table && code && Object.hasOwn(table.codes, code)
@@ -620,6 +632,7 @@ export function toolReasonKeys(): I18nKey[] {
 		GENERIC_FALLBACK,
 		...Object.values(CHANGED_SINCE_READ_BY_KIND),
 	]);
+	if (UNFINISHED_WORDS.key) keys.add(UNFINISHED_WORDS.key);
 	for (const words of Object.values(SHARED_WORDS)) {
 		if (words.key) keys.add(words.key);
 	}

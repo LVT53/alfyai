@@ -81,6 +81,10 @@ let {
 	// still marked running in it was cut off, and its row reads as the quiet stop
 	// instead of a spinner that cannot end (a reply stopped, then reloaded).
 	turnEnded = false,
+	// The person pressed Stop on that reply (the message's own `wasStopped`). A reply
+	// can end some other way (an update, a crash), and then a call it left running
+	// "did not finish", which is not a Stop the person pressed.
+	turnStopped = false,
 	thinkingDurationSeconds = 0,
 	// P1 (ADR-0056) — true once the assistant's visible answer text has
 	// started streaming (MessageBubble's own `hasVisibleContent`). Distinct
@@ -160,6 +164,7 @@ let {
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
 	turnEnded?: boolean;
+	turnStopped?: boolean;
 	thinkingDurationSeconds?: number;
 	answerStarted?: boolean;
 	liveThoughtStepClass?: string;
@@ -195,7 +200,11 @@ function buildConnectorItem(
 	tools: ToolCallSegment[],
 	key: string,
 ): ToolActivityItem {
-	return buildConnectorActivityItem(tools, key, $t, { turnEnded, locale });
+	return buildConnectorActivityItem(tools, key, $t, {
+		turnEnded,
+		turnStopped,
+		locale,
+	});
 }
 
 /**
@@ -212,7 +221,10 @@ function buildEnrichedToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
 ): ToolActivityItem {
-	const built = buildToolActivityItem(segment, key, $t, { turnEnded });
+	const built = buildToolActivityItem(segment, key, $t, {
+		turnEnded,
+		turnStopped,
+	});
 	const body = built.body;
 	if (body?.kind !== "artifact") return built;
 	const preview = conversationArtifacts.find(

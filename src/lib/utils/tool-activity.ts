@@ -60,6 +60,7 @@ import {
 	type ReasonKind,
 	readReasonCode,
 	resolveToolReason,
+	UNFINISHED_CODE,
 } from "$lib/utils/tool-reason-words";
 
 /**
@@ -595,19 +596,34 @@ function memoryTitles(candidates: ToolEvidenceCandidate[]): string[] {
 }
 
 /**
- * A call still marked running in a reply that is over was cut off: the person
- * pressed Stop, or the reply ended some other way before the call's closing event
- * came. It reads as the quiet stop, never as a spinner that cannot end. The row is
- * built as the settled call it would have been, with the shared `stopped` code (and
- * the flags a picture's and a clip's own rows read their Stop from).
+ * What the reply a row belongs to ended as, when it is over: `turnEnded` (it is no
+ * longer streaming) and `turnStopped` (the person pressed Stop: the message's own
+ * `wasStopped`). A reply can end without a Stop, an update or a crash cut it, and
+ * then no step of it was stopped by the person.
  */
-function endedAsStopped(segment: ToolCallSegment): ToolCallSegment {
+type TurnEnd = { turnEnded?: boolean; turnStopped?: boolean };
+
+/**
+ * A call still marked running in a reply that is over was cut off before the call's
+ * closing event came. It reads as a quiet stop, never as a spinner that cannot end.
+ * The row is built as the settled call it would have been. When the person pressed
+ * Stop it carries the server's `stopped` code (and the flags a picture's and a
+ * clip's own rows read their Stop from): "You stopped this before it finished."
+ * When the reply ended some other way it carries the browser's own `unfinished`:
+ * "This step didn't finish before the reply ended.", because nobody pressed Stop.
+ */
+function cutOffCall(
+	segment: ToolCallSegment,
+	stoppedByPerson: boolean,
+): ToolCallSegment {
 	const metadata: Record<string, string | number | boolean | null> = {
 		...segment.metadata,
-		reasonCode: "stopped",
+		reasonCode: stoppedByPerson ? "stopped" : UNFINISHED_CODE,
 	};
-	if (segment.name === "make_image") metadata.imageStopped = true;
-	if (segment.name === "make_video") metadata.videoStopped = true;
+	if (stoppedByPerson) {
+		if (segment.name === "make_image") metadata.imageStopped = true;
+		if (segment.name === "make_video") metadata.videoStopped = true;
+	}
 	return { ...segment, status: "done", metadata };
 }
 
@@ -730,17 +746,19 @@ function withReason(
  * on top of it.
  *
  * `options.turnEnded`: the reply this call belongs to is over, so a call still
- * marked running was cut off and reads as stopped.
+ * marked running was cut off and reads as a quiet stop. `options.turnStopped`: the
+ * person pressed Stop on it, so the stop is theirs; without it the call "did not
+ * finish before the reply ended" (an update or a crash cut the reply).
  */
 export function buildToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
 	translate: Translate,
-	options?: { turnEnded?: boolean },
+	options?: TurnEnd,
 ): ToolActivityItem {
 	const call =
 		options?.turnEnded === true && segment.status === "running"
-			? endedAsStopped(segment)
+			? cutOffCall(segment, options.turnStopped === true)
 			: segment;
 	const item = buildSettledToolActivityItem(call, key, translate);
 	// A picture's and a clip's rows word their own outcome from their codes, and a
@@ -1706,11 +1724,11 @@ function describeConnectorCall(
 	tool: ToolCallSegment,
 	index: number,
 	translate: Translate,
-	options: { turnEnded?: boolean; locale?: string; timeZone?: string },
+	options: TurnEnd & { locale?: string; timeZone?: string },
 ): ConnectorCallView {
 	const call =
 		options.turnEnded === true && tool.status === "running"
-			? endedAsStopped(tool)
+			? cutOffCall(tool, options.turnStopped === true)
 			: tool;
 	const key = tool.callId ?? `${tool.name}-${index}`;
 	const phraseKey = connectorPhraseKey(call.name, call.input?.action);
@@ -1788,14 +1806,15 @@ function describeConnectorCall(
  * success), and opened it lists each call in plain words with what it found.
  *
  * `options.turnEnded`: the reply is over, so a call still marked running was cut
- * off and reads as stopped. `options.locale` is the reader's own (`eventLocale`),
- * for the times it names.
+ * off and reads as a quiet stop; `options.turnStopped` says the person pressed
+ * Stop, as for any row (`buildToolActivityItem`). `options.locale` is the
+ * reader's own (`eventLocale`), for the times it names.
  */
 export function buildConnectorActivityItem(
 	tools: ToolCallSegment[],
 	key: string,
 	translate: Translate,
-	options: { turnEnded?: boolean; locale?: string; timeZone?: string } = {},
+	options: TurnEnd & { locale?: string; timeZone?: string } = {},
 ): ToolActivityItem {
 	const calls = tools.map((tool, index) =>
 		describeConnectorCall(tool, index, translate, options),

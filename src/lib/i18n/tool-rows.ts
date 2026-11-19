@@ -18,6 +18,11 @@ const toolRowsDict = {
 		"toolRows.shared.timed_out": "This took too long, so Alfy stopped waiting.",
 		"toolRows.shared.out_of_time":
 			"The time for this reply ran out, so Alfy stopped here.",
+		// A step still running when its reply ended without a Stop (an update, a
+		// dropped connection): the browser's own reading of a call the server never
+		// closed, so no server list holds it.
+		"toolRows.shared.unfinished":
+			"This step didn't finish before the reply ended.",
 		// Alfy asked the wrong way and corrected itself.
 		"toolRows.shared.request_adjusted": "Alfy adjusted its request.",
 		// A read or a change of an item (a document, an app, a file) that is gone.
@@ -480,6 +485,8 @@ const toolRowsDict = {
 			"Ez túl sokáig tartott, ezért Alfy nem várt tovább.",
 		"toolRows.shared.out_of_time":
 			"A válaszra szánt idő lejárt, ezért Alfy itt abbahagyta.",
+		"toolRows.shared.unfinished":
+			"Ez a lépés nem fejeződött be, mielőtt a válasz véget ért.",
 		"toolRows.shared.request_adjusted": "Alfy pontosította a kérést.",
 		"toolRows.shared.item_not_found": "Ez az elem már nincs meg.",
 		"toolRows.generic.fallback": "Ezt a lépést nem sikerült befejezni.",

@@ -258,6 +258,41 @@ describe("the words of every tool outcome", () => {
 		]);
 	});
 
+	it("a step the reply left unfinished is a quiet stop with one sentence for every tool, and no server list holds it", () => {
+		// The browser's own reading of a call the server never closed, in a reply the
+		// person did not stop (an update, a crash): not the server's `stopped`.
+		const expected = {
+			code: "unfinished",
+			kind: "stop",
+			key: "toolRows.shared.unfinished",
+		};
+		for (const tool of [
+			...Object.keys(TOOL_REASON_WORDS),
+			"some_future_tool",
+		]) {
+			expect(resolveToolReason(tool, "unfinished"), tool).toEqual(expected);
+		}
+		expect(toolReasonKeys()).toContain("toolRows.shared.unfinished");
+		expect(SHARED_REASON_CODES as readonly string[]).not.toContain(
+			"unfinished",
+		);
+		for (const codes of Object.values(TOOL_REASON_CODES)) {
+			expect(codes as readonly string[]).not.toContain("unfinished");
+		}
+		// It reads from the metadata the row's builder gives a cut-off call, for a
+		// picture and a clip too, whose own fields say nothing of it.
+		for (const tool of [
+			"research_web",
+			"make_image",
+			"make_video",
+			"calendar",
+		]) {
+			expect(readReasonCode(tool, { reasonCode: "unfinished" }), tool).toBe(
+				"unfinished",
+			);
+		}
+	});
+
 	it("a shared code uses the tool's own words when it has them", () => {
 		expect(resolveToolReason("image_search", "timed_out")).toEqual({
 			code: "timed_out",

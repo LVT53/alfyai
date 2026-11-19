@@ -1784,7 +1784,7 @@ describe("rows read their reason", () => {
 	const row = (
 		overrides: Partial<ToolCallSegment>,
 		translator = translate,
-		options?: { turnEnded?: boolean },
+		options?: { turnEnded?: boolean; turnStopped?: boolean },
 	) => buildToolActivityItem(toolCall(overrides), "k", translator, options);
 
 	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
@@ -2068,22 +2068,56 @@ describe("rows read their reason", () => {
 			input: { query: "cork weather" },
 			status: "running" as const,
 		};
+		const STOPPED = "You stopped this before it finished.";
+		const UNFINISHED = "This step didn't finish before the reply ended.";
 
-		it("reads a call still running in a finished reply as the quiet stop", () => {
-			const item = row(running, translate, { turnEnded: true });
+		it("reads a call still running in a reply the person stopped as the quiet stop", () => {
+			const item = row(running, translate, {
+				turnEnded: true,
+				turnStopped: true,
+			});
 
 			expect(item.status).toBe("skipped");
 			expect(item.verb).toBe("Searched");
 			expect(item.object).toBe("cork weather");
 			expect(item.meta).toBe("");
-			expect(item.body).toEqual({
-				kind: "reason",
-				text: "You stopped this before it finished.",
+			expect(item.body).toEqual({ kind: "reason", text: STOPPED });
+		});
+
+		it("does not say the person stopped a reply an update or a crash cut off", async () => {
+			// The same saved row, but the reply was not stopped by the person: it ended
+			// some other way (a deploy, a dropped connection), so the call "did not
+			// finish", and nothing is said about a Stop nobody pressed.
+			const item = row(running, translate, { turnEnded: true });
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Searched");
+			expect(item.body).toEqual({ kind: "reason", text: UNFINISHED });
+			expect(JSON.stringify(item)).not.toContain("stopped");
+			expect(JSON.stringify(item)).not.toContain("unfinished");
+
+			await inHungarian((hu) => {
+				const huCut = row(running, hu, { turnEnded: true });
+				expect(huCut.status).toBe("skipped");
+				expect(huCut.body).toEqual({
+					kind: "reason",
+					text: "Ez a lépés nem fejeződött be, mielőtt a válasz véget ért.",
+				});
+				expect(
+					row(running, hu, { turnEnded: true, turnStopped: true }).body,
+				).toEqual({
+					kind: "reason",
+					text: "Ezt leállítottad, mielőtt befejeződött.",
+				});
 			});
 		});
 
 		it("keeps the call running while the reply streams", () => {
-			for (const options of [undefined, { turnEnded: false }]) {
+			for (const options of [
+				undefined,
+				{ turnEnded: false },
+				{ turnEnded: false, turnStopped: true },
+			]) {
 				const item = row(running, translate, options);
 				expect(item.status).toBe("running");
 				expect(item.verb).toBe("Searching");
@@ -2092,49 +2126,85 @@ describe("rows read their reason", () => {
 		});
 
 		it("leaves a call that finished alone", () => {
-			const item = row(
-				{ ...running, status: "done", candidates: [] },
-				translate,
-				{ turnEnded: true },
-			);
-			expect(item.status).toBe("done");
-			expect(item.body).toBeNull();
+			for (const turnStopped of [false, true]) {
+				const item = row(
+					{ ...running, status: "done", candidates: [] },
+					translate,
+					{ turnEnded: true, turnStopped },
+				);
+				expect(item.status).toBe("done");
+				expect(item.body).toBeNull();
+			}
 		});
 
-		it("reads a picture or a clip still running in a finished reply as stopped, in its own words", () => {
+		it("reads a picture or a clip still running in a stopped reply as stopped, in its own words", () => {
+			const picture = row(
+				{ name: "make_image", input: { title: "Logo" }, status: "running" },
+				translate,
+				{ turnEnded: true, turnStopped: true },
+			);
+			expect(picture.verb).toBe("Picture stopped");
+			expect(picture.status).toBe("skipped");
+			const clip = row(
+				{ name: "make_video", input: { title: "Harbour" }, status: "running" },
+				translate,
+				{ turnEnded: true, turnStopped: true },
+			);
+			expect(clip.verb).toBe("Stopped the video");
+			expect(clip.status).toBe("skipped");
+		});
+
+		it("reads a picture or a clip still running in a reply that ended without a Stop as not made, with the sentence", () => {
 			const picture = row(
 				{ name: "make_image", input: { title: "Logo" }, status: "running" },
 				translate,
 				{ turnEnded: true },
 			);
-			expect(picture.verb).toBe("Picture stopped");
+			expect(picture.status).toBe("skipped");
+			expect(picture.verb).toBe("Picture not made");
+			expect(picture.body).toEqual({ kind: "reason", text: UNFINISHED });
+			expect(picture.verb).not.toBe("Picture stopped");
 			const clip = row(
 				{ name: "make_video", input: { title: "Harbour" }, status: "running" },
 				translate,
 				{ turnEnded: true },
 			);
-			expect(clip.verb).toBe("Stopped the video");
+			expect(clip.status).toBe("skipped");
+			expect(clip.verb).toBe("Video not made");
+			expect(clip.body).toEqual({ kind: "reason", text: UNFINISHED });
 		});
 
 		it("reads a create or an edit still running in a finished reply as a stop, not as a tool", () => {
 			for (const name of ["create_artifact", "edit_artifact"]) {
-				const item = row(
-					{
-						name,
-						input: { artifactType: "document", title: "Trip plan" },
-						status: "running",
-					},
-					translate,
-					{ turnEnded: true },
-				);
-				expect(item.status, name).toBe("skipped");
-				expect(item.verb, name).not.toBe("Tool");
-				expect(item.iconType, name).toBe("artifact");
-				expect(item.body, name).toEqual({
-					kind: "reason",
-					text: "You stopped this before it finished.",
-				});
+				for (const [turnStopped, text] of [
+					[true, STOPPED],
+					[false, UNFINISHED],
+				] as const) {
+					const item = row(
+						{
+							name,
+							input: { artifactType: "document", title: "Trip plan" },
+							status: "running",
+						},
+						translate,
+						{ turnEnded: true, turnStopped },
+					);
+					expect(item.status, name).toBe("skipped");
+					expect(item.verb, name).not.toBe("Tool");
+					expect(item.iconType, name).toBe("artifact");
+					expect(item.body, name).toEqual({ kind: "reason", text });
+				}
 			}
+		});
+
+		it("is a quiet stop for a tool outside the registry too", () => {
+			const item = row(
+				{ name: "a_tool_from_the_future", input: {}, status: "running" },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(item.status).toBe("skipped");
+			expect(item.body).toEqual({ kind: "reason", text: UNFINISHED });
 		});
 	});
 
@@ -2248,7 +2318,7 @@ describe("each tool's row shows what it found", () => {
 	const row = (
 		overrides: Partial<ToolCallSegment>,
 		translator = translate,
-		options?: { turnEnded?: boolean },
+		options?: { turnEnded?: boolean; turnStopped?: boolean },
 	) => buildToolActivityItem(toolCall(overrides), "k", translator, options);
 
 	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
@@ -3041,7 +3111,12 @@ describe("your accounts", () => {
 	const group = (
 		tools: ToolCallSegment[],
 		translator = translate,
-		opts: { turnEnded?: boolean; locale?: string; timeZone?: string } = options,
+		opts: {
+			turnEnded?: boolean;
+			turnStopped?: boolean;
+			locale?: string;
+			timeZone?: string;
+		} = options,
 	) => buildConnectorActivityItem(tools, "group", translator, opts);
 
 	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
@@ -3446,12 +3521,16 @@ describe("your accounts", () => {
 		expect(body.actions[0].things?.items[0].sub).toBe("Fri 20 Nov");
 	});
 
-	it("an account call still running in a finished reply reads as stopped", () => {
+	it("an account call still running in a reply the person stopped reads as stopped", () => {
 		const running = call("calendar", "list_events", { status: "running" });
 		const live = group([running], translate, { ...options, turnEnded: false });
 		expect(live.status).toBe("running");
 
-		const over = group([running], translate, { ...options, turnEnded: true });
+		const over = group([running], translate, {
+			...options,
+			turnEnded: true,
+			turnStopped: true,
+		});
 		expect(over.status).toBe("skipped");
 		expect(over.body).toMatchObject({
 			actions: [
@@ -3471,10 +3550,39 @@ describe("your accounts", () => {
 				running,
 			],
 			translate,
-			{ ...options, turnEnded: true },
+			{ ...options, turnEnded: true, turnStopped: true },
 		);
 		expect(mixed.status).toBe("skipped");
 		expect(mixed.object).toBe("2 events");
+	});
+
+	it("an account call still running in a reply that ended without a Stop did not finish, and says no Stop", async () => {
+		const running = call("calendar", "list_events", { status: "running" });
+
+		const over = group([running], translate, { ...options, turnEnded: true });
+		expect(over.status).toBe("skipped");
+		expect(over.body).toMatchObject({
+			actions: [
+				{
+					label: "Looked at your events",
+					status: "skipped",
+					reason: "This step didn't finish before the reply ended.",
+				},
+			],
+		});
+		expect(JSON.stringify(over)).not.toContain("stopped");
+
+		await inHungarian((hu) => {
+			const huOver = group([running], hu, { ...options, turnEnded: true });
+			expect(huOver.body).toMatchObject({
+				actions: [
+					{
+						status: "skipped",
+						reason: "Ez a lépés nem fejeződött be, mielőtt a válasz véget ért.",
+					},
+				],
+			});
+		});
 	});
 
 	it("says what a cloud model was and was not given, as information, beside the call", () => {

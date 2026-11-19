@@ -1358,8 +1358,18 @@ describe("ThinkingBlock", () => {
 
 		// A reply stopped mid-step is saved with the step still marked running (no
 		// closing event). Once the reply is over it reads as the quiet stop, never as
-		// a spinner that cannot end; while the reply streams it is still running.
-		it("a running row of a finished reply reads as stopped: the dash and the stopped sentence", async () => {
+		// a spinner that cannot end; while the reply streams it is still running. The
+		// words depend on how the reply ended: a Stop the person pressed is theirs
+		// ("You stopped this…"), while an update or a crash that cut it only left the
+		// step unfinished.
+		it.each([
+			["stopped by the person", true, "You stopped this before it finished."],
+			[
+				"ended some other way",
+				false,
+				"This step didn't finish before the reply ended.",
+			],
+		])("a running row of a finished reply (%s) reads as the quiet stop with its own sentence", async (_how, turnStopped, sentence) => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -1370,7 +1380,13 @@ describe("ThinkingBlock", () => {
 			];
 
 			const { container } = render(ThinkingBlock, {
-				props: { content: "", thinkingIsDone: true, turnEnded: true, segments },
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					turnEnded: true,
+					turnStopped,
+					segments,
+				},
 			});
 			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
 
@@ -1387,7 +1403,41 @@ describe("ThinkingBlock", () => {
 			await fireEvent.click(row as HTMLElement);
 			expect(
 				container.querySelector('[data-testid="tool-activity-reason"]'),
-			).toHaveTextContent("You stopped this before it finished.");
+			).toHaveTextContent(sentence);
+		});
+
+		it("says the same of an account step the reply left running", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "calendar",
+					status: "running",
+					input: { action: "list_events" },
+				},
+			];
+
+			for (const [turnStopped, sentence] of [
+				[true, "You stopped this before it finished."],
+				[false, "This step didn't finish before the reply ended."],
+			] as const) {
+				const { container, unmount } = render(ThinkingBlock, {
+					props: {
+						content: "",
+						thinkingIsDone: true,
+						turnEnded: true,
+						turnStopped,
+						segments,
+					},
+				});
+				await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+				const row = container.querySelector(
+					'.interleaved-rail [data-testid="tool-activity-row"]',
+				);
+				expect(row?.getAttribute("data-status")).toBe("skipped");
+				await fireEvent.click(row as HTMLElement);
+				expect(container).toHaveTextContent(sentence);
+				unmount();
+			}
 		});
 
 		it("keeps a running row running while the reply still streams", () => {
