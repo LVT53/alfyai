@@ -519,7 +519,7 @@ function handleToggle() {
 	{@render statusGlyph(item.status)}
 	<ToolActivityIcon iconType={item.iconType} />
 	<span class="act-label">
-		<span class="act-verb" class:act-verb-question={item.iconType === 'ask'}>{item.verb}</span>
+		<span class="act-verb" class:act-verb-question={item.iconType === 'ask'} data-testid="tool-activity-verb">{item.verb}</span>
 		{#if item.object}
 			<span class="act-object">{item.object}</span>
 		{/if}
