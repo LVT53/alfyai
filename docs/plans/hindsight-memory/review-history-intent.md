@@ -40,6 +40,16 @@ The English after-Clear streaming probe said the name was unknown. Its history r
 
 In the after-Clear English plain historical probe, the model retrieved the original and other owned past chats. It attributed the old name to the original discussion and asserted the former current marker as presently valid. The second claim came through earlier synthetic verification transcripts. The redacted receipt records a non-negated current assertion. This is a failure to keep historical material separate from current facts within an authorized historical answer. The named-source streaming probe also demonstrated that lexical candidate selection can answer from other conversations.
 
-## Verdict
+## First-stage verdict
 
-The ordinary current-fact regression passed on both transports. Review remains open for historical source precision and current-fact assertions made within explicit historical responses. The staged model and wire evidence covers `aef0cad06`; the paused-reply follow-up was reviewed separately in source and was outside the staged probes.
+The ordinary current-fact regression passed on both transports. The historical source precision and current-fact assertion failures led to the named-source correction below. The staged model and wire evidence covers `aef0cad06`; the paused-reply follow-up was reviewed separately in source and was outside the staged probes.
+
+## Named-source correction
+
+In `447cde74b`, the server reads the title selector from the current user message. A unique eligible title resolves before message or summary queries, and those queries are constrained to its chat ID. Eligible sources are the person's own personal chats and named chats in the current project. The active chat, incognito chats and other projects stay outside that lookup. Unknown and duplicate titles stop the call. A different ID in model-supplied detail arguments cannot change the target. Named requests also suppress automatic project sibling excerpts. Historical tool payloads and the base prompt instruct the model to attribute past claims to their source and time and to use current Memory or current user words to answer about the present.
+
+Independent review checked the exact English and Hungarian stage wording, ordinary quoted titles, ownership and project scope in both the candidate and detail reads, and the no-fallback path. The candidate's focused suite passed all 519 tests. The 28 earlier independent intent cases and seven additional named-selector cases passed on the final commit.
+
+The isolated rerun used the exact `447cde74b` runtime on a clone retaining the earlier competing synthetic transcripts. The independent receipt check covered 11 actual provider requests. Both plain historical replies and the Hungarian streaming reply received a single candidate from the original named chat. Their tool results carried the original chat ID and the past-chat-only label. The historical answers attributed the old name to what the person said at the time. The competing cleared name was absent from the new model wires and replies. The ordinary English and Hungarian plain probes and the English streaming probe said the current name was unknown. Plain English attempted history and the server refused it. Its persona result still contained the chat title, but no name marker or original-chat history candidate.
+
+The rerun clears the specific named-source and temporal regression under the tested English and Hungarian prompts. The earlier mixed receipt remains part of the record. These probes used synthetic accounts and did not exercise an actual migration or a concurrent privacy change during Ask Me First resume.
