@@ -1,6 +1,14 @@
 # Hindsight Memory redesign — session handoff
 
-## Current handoff — migration policy agreed; full implementation plan finalized
+## Current handoff — local implementation and rollout boundary
+
+The complete replacement is integrated locally on `codex/hindsight-memory-replacement`, with product and regression candidate `afe75236a2dfd250b41c7b75ca27399ba3dee35b`. It includes the released app lineage and the approved dependency update through `b729c68e1`. Independent review accepted the local candidate. Release verification passed across the recorded runs, including 28,678 unit tests and 1,725 browser tests. Start with the [independent whole-plan review](review-final-whole-plan.md) and [implementation progress](implementation-progress.md) for the exact gates, fixes and remaining limits.
+
+The app uses pinned native Hindsight for extraction and consolidation. It uses its existing job engine for delivery and owns source permission, scoped publication, evidence, corrections/removals, and migration controls. Personal memory is available in all of the user's eligible chats. A project's memories stay in that project. The bounded synthetic evaluation found recall improvements and model-dependent limits, including one mixed contextual edit held by the checker. [Native smoke](native-acceptance/integrated-smoke/README.md) · [Recall benchmark](integrated-native-benchmark/README.md) · [Mixed lifecycle evidence](native-lifecycle-acceptance/mixed-check/README.md)
+
+Real accounts remain on their existing app. The old live app cannot safely record every privacy change or hand off native erasure while preparing inactive banks. Conditional authorization for inactive enrollment was insufficient to resolve that blocker. Separate authorization is needed for the compatible deployment and per-user cutover. The runbook records the order and trustworthy rollback requirements. [Predeployment privacy evidence](predeployment-migration-readiness.md) · [Migration runbook](migration-runbook.md)
+
+## Historical planning checkpoint — 18 November 2026
 
 **Start with the [full replacement implementation plan](../../superpowers/plans/2026-11-18-hindsight-memory-replacement.md) and [accepted migration policy](chat-backfill-migration.md#accepted-migration-policy--owner-approved-2026-11-18).** The owner approved preserving all deliberate exclusions (including review resolutions), withholding ambiguously mapped historical material, preserving verified authored edits, and a one-time optional per-user choice for history whose memory-off eligibility is unknown. Incognito, known disabled periods, resets and removals remain excluded regardless of import consent. No owner-wide consent for other accounts. Ordinary new eligible memory continues while history is pending. No recurring review inbox or permanent topic ban.
 
