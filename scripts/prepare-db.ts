@@ -42,6 +42,8 @@ const requiredExistingTables = [
 	"memory_delivery_jobs",
 	"memory_delivery_attempts",
 	"memory_history_choices",
+	"memory_quarantine_sessions",
+	"memory_quarantine_drafts",
 	"users",
 	"sessions",
 	"browser_push_subscriptions",

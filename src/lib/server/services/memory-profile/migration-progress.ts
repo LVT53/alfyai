@@ -649,6 +649,7 @@ function currentMigrationJobs(
 			.map((job) => job.sourceId),
 	);
 	return jobs.filter((job) => {
+		if (job.kind === "quarantine_extract") return false;
 		if (job.kind === "cleanup") return true;
 		if (job.kind === "source_cleanup") {
 			if (scopeCleanup.has(job.sourceId))

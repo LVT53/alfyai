@@ -12,6 +12,7 @@ const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockStartJobs = vi.fn(async () => undefined);
 const mockStopJobs = vi.fn();
 const mockSettleInterruptedImports = vi.fn(() => 0);
+const mockPurgeRestoredMemoryQuarantine = vi.fn();
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
 const imageJobStub = { name: "image", logPrefix: "[IMAGES]" };
@@ -61,6 +62,10 @@ vi.mock("@sveltejs/kit/hooks", () => ({
 
 			return run(0, event);
 		},
+}));
+
+vi.mock("$lib/server/services/memory-profile/quarantine", () => ({
+	purgeRestoredMemoryQuarantine: mockPurgeRestoredMemoryQuarantine,
 }));
 
 vi.mock("$lib/server/services/auth", () => ({
@@ -255,6 +260,7 @@ describe("hooks.server.ts", () => {
 		const held = { ...config(), hindsightRestoreHold: true };
 		config.mockReturnValueOnce(held);
 		await init();
+		expect(mockPurgeRestoredMemoryQuarantine).toHaveBeenCalledOnce();
 		expect(mockStartJobs).not.toHaveBeenCalled();
 		expect(mockEnsureMemoryMaintenanceScheduler).not.toHaveBeenCalled();
 		for (const path of [

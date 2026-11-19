@@ -231,6 +231,17 @@ export async function runMemoryDelivery(
 					}
 				: configuredNativeBinding(tenant);
 		const client = nativeMemoryClient(row.bankId, tenant, ctx.signal, binding);
+		if (row.kind === "quarantine_extract") {
+			if (!bank.nativeBaseUrl || !bank.nativeCredentialHash)
+				throw new NativeMemoryError("native_config_unconfirmed", false);
+			const { runMemoryQuarantineExtraction } = await import(
+				"./quarantine-worker"
+			);
+			await runMemoryQuarantineExtraction(ctx, (input, beforeDispatch) =>
+				client.extractDrafts(input, beforeDispatch),
+			);
+			return;
+		}
 		if (row.kind === "provision") {
 			const fence = (tx: Tx) => {
 				const fenced = assertMemoryBankFence(

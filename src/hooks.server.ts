@@ -241,7 +241,13 @@ export const init: ServerInit = async () => {
 
 	// Keep a restored instance isolated until the operator reconciles privacy
 	// decisions made after its backup. Even worker startup can replay old work.
-	if (getConfig().hindsightRestoreHold) return;
+	if (getConfig().hindsightRestoreHold) {
+		const { purgeRestoredMemoryQuarantine } = await import(
+			"$lib/server/services/memory-profile/quarantine"
+		);
+		purgeRestoredMemoryQuarantine();
+		return;
+	}
 	await ensureRuntimeConfigReady();
 	// A ChatGPT import runs inside its request, so a restart leaves its row
 	// `processing` with nothing behind it. Settled here, before the first request.

@@ -100,7 +100,13 @@ export interface EnqueueMemoryDelivery {
 	userId: string;
 	bankId: string;
 	epoch: number;
-	kind: "source" | "source_cleanup" | "action" | "cleanup" | "provision";
+	kind:
+		| "source"
+		| "source_cleanup"
+		| "action"
+		| "cleanup"
+		| "provision"
+		| "quarantine_extract";
 	sourceId?: string;
 	actionId?: string;
 	requestId: string;

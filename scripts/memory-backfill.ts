@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /** Inspect by default. Mutations require explicit operator execution acknowledgement. */
-import { readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +11,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 		"--database",
 		"--user",
 		"--manifest",
+		"--authorization-file",
 		"--synthetic-fixture",
 		"--execute",
 		"--operator-ack",
@@ -26,7 +27,16 @@ export function parseMemoryBackfillArguments(args: string[]) {
 		values.set(args[i], args[i + 1]);
 	}
 	const mode = values.get("--mode") ?? "inspect";
-	if (!["inspect", "prepare", "verify", "cutover", "rollback"].includes(mode))
+	if (
+		![
+			"inspect",
+			"prepare",
+			"verify",
+			"cutover",
+			"rollback",
+			"authorize-review",
+		].includes(mode)
+	)
 		throw Error("invalid_mode");
 	const filename = values.get("--database");
 	const userId = values.get("--user");
@@ -92,6 +102,28 @@ async function main() {
 					.length,
 				holdHistory: inventory.holdHistory,
 			};
+		} else if (mode === "authorize-review") {
+			const { authorizeMemoryQuarantine } = await import(
+				"../src/lib/server/services/memory-profile/quarantine"
+			);
+			const file = values.get("--authorization-file");
+			if (!file || !isAbsolute(file) || realpathSync(file) !== file)
+				throw Error("private_authorization_file_required");
+			const info = lstatSync(file);
+			if (
+				!info.isFile() ||
+				info.uid !== process.getuid?.() ||
+				(info.mode & 0o077) !== 0 ||
+				info.size > 128 * 1024
+			)
+				throw Error("private_authorization_file_required");
+			const authorization = JSON.parse(readFileSync(file, "utf8"));
+			if (
+				authorization.userId !== userId ||
+				authorization.manifestId !== values.get("--manifest")
+			)
+				throw Error("authorization_identity_mismatch");
+			summary = { mode, ...authorizeMemoryQuarantine(userId, authorization) };
 		} else if (mode === "prepare")
 			summary = await m.prepareMemoryMigration(userId);
 		else {

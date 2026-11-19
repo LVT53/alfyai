@@ -1051,6 +1051,13 @@
 			"when": 1777140000136,
 			"tag": "1777140000136_memory_source_acceptance",
 			"breakpoints": true
+		},
+		{
+			"idx": 150,
+			"version": "6",
+			"when": 1777140000137,
+			"tag": "1777140000137_memory_quarantine",
+			"breakpoints": true
 		}
 	]
 }

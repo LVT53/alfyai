@@ -3532,3 +3532,68 @@ export const memoryForegroundLeases = sqliteTable(
 		expiryIdx: index("memory_foreground_expiry_idx").on(table.expiresAt),
 	}),
 );
+
+/** Exact, operator-authorized historical cohort. Starting it is a separate owner choice. */
+export const memoryQuarantineSessions = sqliteTable(
+	"memory_quarantine_sessions",
+	{
+		userId: text("user_id")
+			.primaryKey()
+			.references(() => memoryAccounts.userId, { onDelete: "cascade" }),
+		manifestId: text("manifest_id")
+			.notNull()
+			.references(() => memoryMigrationManifests.id, { onDelete: "cascade" }),
+		epoch: integer("epoch").notNull(),
+		controlRevision: integer("control_revision").notNull(),
+		cutoff: integer("cutoff", { mode: "timestamp" }).notNull(),
+		policyVersion: text("policy_version").notNull(),
+		cohortHash: text("cohort_hash").notNull(),
+		manifestHash: text("manifest_hash").notNull(),
+		allowedCohortHash: text("allowed_cohort_hash").notNull(),
+		deniedSourceIdsJson: text("denied_source_ids_json").notNull(),
+		cohortCount: integer("cohort_count").notNull(),
+		startRequestId: text("start_request_id"),
+		startedAt: integer("started_at", { mode: "timestamp" }),
+		reviewPolicyVersion: text("review_policy_version").notNull(),
+	},
+);
+
+/** Owner review data has no embeddings, normal Memory support or native fact reference. */
+export const memoryQuarantineDrafts = sqliteTable(
+	"memory_quarantine_drafts",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => memoryQuarantineSessions.userId, {
+				onDelete: "cascade",
+			}),
+		messageId: text("message_id").references(() => messages.id, {
+			onDelete: "set null",
+		}),
+		scopeKey: text("scope_key").notNull(),
+		textHash: text("text_hash").notNull(),
+		assertedAt: integer("asserted_at", { mode: "timestamp" }).notNull(),
+		ordinal: integer("ordinal").notNull(),
+		text: text("text"),
+		decision: text("decision", { enum: ["keep", "discard"] }),
+		decisionRequestId: text("decision_request_id"),
+		decisionTextHash: text("decision_text_hash"),
+	},
+	(table) => ({
+		byText: uniqueIndex("memory_quarantine_draft_text_idx").on(
+			table.userId,
+			table.scopeKey,
+			table.textHash,
+		),
+		sourceOrdinal: uniqueIndex("memory_quarantine_draft_ordinal_idx").on(
+			table.userId,
+			table.messageId,
+			table.ordinal,
+		),
+		decisionRequest: uniqueIndex("memory_quarantine_draft_request_idx").on(
+			table.userId,
+			table.decisionRequestId,
+		),
+	}),
+);
