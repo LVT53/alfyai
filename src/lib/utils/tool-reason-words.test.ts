@@ -8,6 +8,7 @@ import {
 	FILE_PRODUCTION_STOP_CODES,
 } from "$lib/components/chat/file-production-helpers";
 import { type I18nKey, t } from "$lib/i18n";
+import chatDict from "$lib/i18n/chat";
 import toolRowsDict from "$lib/i18n/tool-rows";
 import {
 	ATLAS_ERROR_CODES,
@@ -96,6 +97,27 @@ describe("the words of every tool outcome", () => {
 		expect(
 			Object.values(toolRowsDict.hu).filter((value) => /skill/i.test(value)),
 		).toEqual([]);
+	});
+
+	it("no sentence the file card says speaks a developer's language, in English or Hungarian", () => {
+		// The words of the developer who wrote the check ("projection", "renderer",
+		// "Unicode font", "exceeds the configured limit", "renderelés", "szöveges
+		// vetület", "Unicode betűkészlet") are not a person's words.
+		const developerWords = {
+			en: /projection|render|unicode|configured|sandbox|exceed|worker|schema|payload/i,
+			hu: /render|vetület|unicode|korlát|időtúllépés|sandbox|payload/i,
+		} as const;
+		for (const language of ["en", "hu"] as const) {
+			const sentences = Object.entries(chatDict[language]).filter(([key]) =>
+				key.startsWith("fileProduction.error."),
+			);
+			expect(sentences.length).toBeGreaterThan(25);
+			for (const [key, value] of sentences) {
+				expect(value, `${language} ${key}`).not.toMatch(
+					developerWords[language],
+				);
+			}
+		}
 	});
 
 	it("every tool in the model's catalogue has a fallback", () => {

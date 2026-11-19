@@ -763,15 +763,15 @@ const chatDict = {
 		"fileProduction.open": "Open",
 		"fileProduction.stop": "Stop",
 		"fileProduction.error.chart_limit_exceeded":
-			"A chart exceeds the configured limit.",
+			"A chart is too big to put in a file.",
 		"fileProduction.error.document_render_failed":
-			"The document could not be rendered.",
+			"The document couldn't be turned into a file.",
 		"fileProduction.error.image_limit_exceeded":
-			"Images exceed the configured limit.",
+			"The file would have too many or too large pictures.",
 		"fileProduction.error.invalid_document_source":
-			"The generated document source is invalid.",
+			"The document couldn't be read.",
 		"fileProduction.error.job_outputs_too_large":
-			"The produced files are too large.",
+			"The files together would be too large.",
 		// The file maker or its storage broke while making the file: the program's
 		// own crash, the files it could not store, the document it could not write.
 		"fileProduction.error.maker_problem": "The file maker ran into a problem.",
@@ -780,18 +780,18 @@ const chatDict = {
 		// A program that ran and wrote nothing into its output folder.
 		"fileProduction.error.no_file_made": "The program made no file.",
 		"fileProduction.error.output_file_too_large":
-			"A produced file is too large.",
+			"The file would be too large.",
 		"fileProduction.error.page_limit_exceeded":
-			"The document would exceed the page limit.",
+			"The document would run to too many pages.",
 		// A change to an earlier file: no earlier version, or one the change does
 		// not fit.
 		"fileProduction.error.patch_not_applied":
 			"The change couldn't be applied to the file.",
 		"fileProduction.error.pdf_font_missing":
-			"The PDF renderer is missing its Unicode font.",
+			"The file needs a font that isn't installed.",
 		"fileProduction.error.projection_too_large":
-			"The document text projection is too large.",
-		"fileProduction.error.renderer_timeout": "Document rendering timed out.",
+			"The document's text is too long.",
+		"fileProduction.error.renderer_timeout": "Making the file took too long.",
 		// One reply may make only so many files, and so many tries at one file.
 		"fileProduction.error.reply_file_limit":
 			"Alfy has made as many files as one reply allows.",
@@ -799,28 +799,29 @@ const chatDict = {
 		// output type or program, a body that is no JSON, a mix of file families.
 		"fileProduction.error.request_unreadable":
 			"The file request couldn't be read.",
-		"fileProduction.error.sandbox_timeout": "Program execution timed out.",
+		"fileProduction.error.sandbox_timeout": "Making the file took too long.",
 		"fileProduction.error.source_too_large":
-			"The file production source is too large.",
+			"The source is too large to turn into a file.",
 		"fileProduction.error.table_limit_exceeded":
-			"A table exceeds the configured limit.",
-		"fileProduction.error.too_many_outputs": "Too many outputs were requested.",
+			"A table is too big to put in a file.",
+		"fileProduction.error.too_many_outputs":
+			"That's more files than one request can make.",
 		"fileProduction.error.tool_failed":
 			"The file request failed before it could start.",
 		"fileProduction.error.unsupported_chart_data":
-			"The chart data is not supported.",
+			"A chart in the document can't be made from that data.",
 		"fileProduction.error.unsupported_chart_type":
-			"The document contains an unsupported chart type.",
+			"That kind of chart can't be made here.",
 		"fileProduction.error.unsupported_document_block":
-			"The document contains an unsupported block.",
+			"Part of the document can't be put in a file here.",
 		"fileProduction.error.unsupported_output_type":
-			"That output type is not supported for this document yet.",
+			"That kind of file can't be made here.",
 		"fileProduction.error.unsupported_pdf_block":
-			"This PDF renderer does not support that block yet.",
+			"Part of the document can't be put in a PDF yet.",
 		"fileProduction.error.unsupported_program_output_type":
-			"That file type cannot be produced.",
+			"That kind of file can't be made here.",
 		"fileProduction.error.unsupported_table_structure":
-			"The document contains an unsupported table structure.",
+			"That kind of table can't be made here.",
 		// A job reclaimed after the worker never sent another heartbeat — most
 		// often a server restart mid-job. `worker_heartbeat_timeout` is also
 		// used by the boot-time dead-worker sweep, so the wording stays general
@@ -2034,56 +2035,55 @@ const chatDict = {
 		"fileProduction.open": "Megnyitás",
 		"fileProduction.stop": "Leállítás",
 		"fileProduction.error.chart_limit_exceeded":
-			"Egy diagram túllépi a beállított korlátot.",
+			"Egy diagram túl nagy ahhoz, hogy fájlba kerüljön.",
 		"fileProduction.error.document_render_failed":
-			"A dokumentumot nem sikerült renderelni.",
+			"A dokumentumból nem sikerült fájlt készíteni.",
 		"fileProduction.error.image_limit_exceeded":
-			"A képek túllépik a beállított korlátot.",
+			"A fájlban túl sok vagy túl nagy kép lenne.",
 		"fileProduction.error.invalid_document_source":
-			"A generált dokumentum forrása érvénytelen.",
+			"A dokumentumot nem sikerült beolvasni.",
 		"fileProduction.error.job_outputs_too_large":
-			"Az előállított fájlok túl nagyok.",
+			"A fájlok együtt túl nagyok lennének.",
 		"fileProduction.error.maker_problem": "A fájlkészítő hibába ütközött.",
 		"fileProduction.error.missing_program_output_type":
 			"A fájlkérés nem adta meg, milyen típusú fájl készüljön.",
 		"fileProduction.error.no_file_made": "A program nem készített fájlt.",
-		"fileProduction.error.output_file_too_large":
-			"Egy előállított fájl túl nagy.",
+		"fileProduction.error.output_file_too_large": "A fájl túl nagy lenne.",
 		"fileProduction.error.page_limit_exceeded":
-			"A dokumentum túllépné az oldalkorlátot.",
+			"A dokumentumnak túl sok oldala lenne.",
 		"fileProduction.error.patch_not_applied":
 			"A módosítást nem sikerült alkalmazni a fájlon.",
 		"fileProduction.error.pdf_font_missing":
-			"A PDF-renderelőből hiányzik a Unicode betűkészlet.",
+			"A fájlhoz hiányzik egy betűtípus.",
 		"fileProduction.error.projection_too_large":
-			"A dokumentum szöveges vetülete túl nagy.",
-		"fileProduction.error.renderer_timeout":
-			"A dokumentum renderelése időtúllépés miatt leállt.",
+			"A dokumentum szövege túl hosszú.",
+		"fileProduction.error.renderer_timeout": "A fájl túl sokáig készült.",
 		"fileProduction.error.reply_file_limit":
 			"Alfy ebben a válaszban már annyi fájlt készített, amennyit lehet.",
 		"fileProduction.error.request_unreadable": "A fájlkérés nem olvasható.",
-		"fileProduction.error.sandbox_timeout":
-			"A program futása időtúllépés miatt leállt.",
-		"fileProduction.error.source_too_large": "A fájlkészítés forrása túl nagy.",
+		"fileProduction.error.sandbox_timeout": "A fájl túl sokáig készült.",
+		"fileProduction.error.source_too_large":
+			"A forrás túl nagy ahhoz, hogy fájl készüljön belőle.",
 		"fileProduction.error.table_limit_exceeded":
-			"Egy tábla túllépi a beállított korlátot.",
-		"fileProduction.error.too_many_outputs": "Túl sok kimenet lett kérve.",
+			"Egy táblázat túl nagy ahhoz, hogy fájlba kerüljön.",
+		"fileProduction.error.too_many_outputs":
+			"Ez több fájl, mint amennyi egy kérésre elkészülhet.",
 		"fileProduction.error.tool_failed":
 			"A fájlkérés nem sikerült, mielőtt elindulhatott volna.",
 		"fileProduction.error.unsupported_chart_data":
-			"A diagram adatai nem támogatottak.",
+			"A dokumentum egyik diagramja nem készíthető el ezekből az adatokból.",
 		"fileProduction.error.unsupported_chart_type":
-			"A dokumentum nem támogatott diagramtípust tartalmaz.",
+			"Ilyen diagram itt nem készíthető.",
 		"fileProduction.error.unsupported_document_block":
-			"A dokumentum nem támogatott blokkot tartalmaz.",
+			"A dokumentum egy része itt nem kerülhet fájlba.",
 		"fileProduction.error.unsupported_output_type":
-			"Ez a kimeneti típus még nem támogatott ennél a dokumentumnál.",
+			"Ilyen fájl itt nem készíthető.",
 		"fileProduction.error.unsupported_pdf_block":
-			"Ez a PDF-renderelő még nem támogatja ezt a blokkot.",
+			"A dokumentum egy része még nem kerülhet PDF-be.",
 		"fileProduction.error.unsupported_program_output_type":
-			"Ez a fájltípus nem készíthető el.",
+			"Ilyen fájl itt nem készíthető.",
 		"fileProduction.error.unsupported_table_structure":
-			"A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
+			"Ilyen táblázat itt nem készíthető.",
 		"fileProduction.error.worker_heartbeat_timeout":
 			"A fájlt nem sikerült elkészíteni, mert a szerver újraindult közben.",
 		"fileProduction.error.worker_state_lost":
