@@ -764,7 +764,8 @@ async function proposeAddToAlbum(
 			action: "add_to_album",
 			message:
 				"Enable Immich writes (re-enter your password) in settings first.",
-			reason: "read_only_account",
+			// A setting the person can change, not a limit of the account.
+			reason: "writes_turned_off",
 		});
 	}
 

@@ -563,7 +563,8 @@ type ReasonMetadata = Record<string, string | number | boolean | null>;
  *
  * A Stop and the turn's deadline win over any code a tool wrote itself (a Stop
  * must never read as a tool's catch-all); a tool's own code wins over the shared
- * timeout.
+ * timeout. An older read that was refused on purpose (`ok: false` with a count of
+ * the addresses it refused, and no code) reads as that refusal.
  */
 export function readReasonCode(
 	toolName: string,
@@ -587,6 +588,17 @@ export function readReasonCode(
 	if (shared) return shared;
 	if (toolName === "suggest_instruction") {
 		return nonEmptyString(metadata?.reason);
+	}
+	// A refusal saved before codes: the app turned a link down (it came from neither
+	// the person nor a search), which an older release recorded as `ok: false` and the
+	// number of addresses it refused, with a status of done and no code.
+	if (
+		getToolCallIconType(toolName) === "fetch-url" &&
+		metadata?.ok === false &&
+		typeof metadata.refusedUrlCount === "number" &&
+		metadata.refusedUrlCount > 0
+	) {
+		return "link_not_from_a_source";
 	}
 	if (
 		metadata?.localDistilled === true &&

@@ -696,7 +696,7 @@ function withReason(
 				meta: saysItself ? item.meta : failedMeta,
 				summaryLabel: saysItself
 					? item.summaryLabel
-					: `${item.verb} ${failedMeta}`,
+					: `${verbBeforeTitle(item.verb, false)} ${failedMeta}`,
 				// A call that failed contributed nothing to count up.
 				summaryCount: 0,
 				// Nothing failed is a deliverable, and nothing failed pins itself open.
@@ -710,7 +710,9 @@ function withReason(
 				...item,
 				status: "skipped",
 				meta: "",
-				summaryLabel: saysItself ? item.summaryLabel : item.verb,
+				summaryLabel: saysItself
+					? item.summaryLabel
+					: stripLabelOf(item.verb, item.object),
 				summaryCount: 0,
 				pinned: false,
 				alwaysOpen: false,
@@ -1060,8 +1062,12 @@ function foundPictures(candidates: ToolEvidenceCandidate[] | undefined): {
 				: (candidate.snippet ?? "");
 		const host =
 			stripToPlainText(source).trim() || extractHostname(candidate.url ?? "");
+		// A picture a search finds twice (two pages, one thumbnail) is drawn once,
+		// where it first came: the row keys its pictures by their address.
+		const src = imageThumbnailRouteUrl(thumbnail.trim());
+		if (thumbs.some((thumb) => thumb.src === src)) continue;
 		thumbs.push({
-			src: imageThumbnailRouteUrl(thumbnail.trim()),
+			src,
 			host,
 			title: stripToPlainText(candidate.title || host),
 		});
@@ -1108,6 +1114,26 @@ function routeInputLabel(input: Record<string, unknown>): string {
 function verbBeforeTitle(verbText: string, named: boolean): string {
 	const bare = verbText.replace(/:\s*$/, "");
 	return named ? `${bare}:` : bare;
+}
+
+/** The most of an object a label in the strip carries: the strip is one line of short words. */
+const STRIP_OBJECT_MAX_CHARS = 40;
+
+/**
+ * A label for the collapsed strip from a row's verb and its object. A verb that ends
+ * in a colon introduces its object ("Nem nyitotta meg: example.com"), so the label
+ * keeps the object (cut to what a strip holds); with nothing to introduce the colon
+ * would dangle, so it goes. A verb without a colon stands alone, as it always did.
+ */
+function stripLabelOf(verbText: string, object: string): string {
+	if (!/:\s*$/.test(verbText)) return verbText;
+	const named = object.trim();
+	if (!named) return verbBeforeTitle(verbText, false);
+	const shown =
+		named.length > STRIP_OBJECT_MAX_CHARS
+			? `${named.slice(0, STRIP_OBJECT_MAX_CHARS - 1).trimEnd()}…`
+			: named;
+	return `${verbText.trimEnd()} ${shown}`;
 }
 
 function buildSettledToolActivityItem(
@@ -1212,7 +1238,7 @@ function buildSettledToolActivityItem(
 			object: refused ? host : object,
 			meta: "",
 			summaryLabel: refused
-				? fetchVerb
+				? stripLabelOf(fetchVerb, host)
 				: translate("toolCalls.readPagesCount", { count: 1 }),
 			summaryUnit: "pages",
 			summaryCount: 1,
@@ -1636,7 +1662,7 @@ function buildSettledToolActivityItem(
 			verb: suggestVerb,
 			object: offered,
 			meta: "",
-			summaryLabel: suggestVerb,
+			summaryLabel: stripLabelOf(suggestVerb, offered),
 			title: offered ? `${suggestVerb} ${offered}` : suggestVerb,
 			body: null,
 		};
@@ -1725,7 +1751,7 @@ function describeConnectorCall(
 	tool: ToolCallSegment,
 	index: number,
 	translate: Translate,
-	options: TurnEnd & { locale?: string; timeZone?: string },
+	options: TurnEnd & { locale?: string; timeZone?: string; now?: number },
 ): ConnectorCallView {
 	const call =
 		options.turnEnded === true && tool.status === "running"
@@ -1757,6 +1783,7 @@ function describeConnectorCall(
 		formatEventTime(iso, options.locale, {
 			withDay: true,
 			...(options.timeZone ? { timeZone: options.timeZone } : {}),
+			...(options.now !== undefined ? { now: options.now } : {}),
 		});
 	const named = thingsIcon
 		? (call.candidates ?? [])
@@ -1809,13 +1836,15 @@ function describeConnectorCall(
  * `options.turnEnded`: the reply is over, so a call still marked running was cut
  * off and reads as a quiet stop; `options.turnStopped` says the person pressed
  * Stop, as for any row (`buildToolActivityItem`). `options.locale` is the
- * reader's own (`eventLocale`), for the times it names.
+ * reader's own (`eventLocale`), for the times it names; `options.now` is the
+ * moment those times are said against (a time more than six days away gets its
+ * date, not its weekday).
  */
 export function buildConnectorActivityItem(
 	tools: ToolCallSegment[],
 	key: string,
 	translate: Translate,
-	options: TurnEnd & { locale?: string; timeZone?: string } = {},
+	options: TurnEnd & { locale?: string; timeZone?: string; now?: number } = {},
 ): ToolActivityItem {
 	const calls = tools.map((tool, index) =>
 		describeConnectorCall(tool, index, translate, options),
@@ -1906,8 +1935,12 @@ function summaryGroupLabel(
 	group: ToolActivitySummaryGroup,
 	translate: Translate,
 ): string {
-	// One call of a tool reads exactly as it did before aggregation.
-	if (group.occurrences === 1) return group.first.summaryLabel;
+	// One call of a tool reads exactly as it did before aggregation, but never with
+	// a colon at its end: a verb that introduces an object has nothing left to
+	// introduce in the strip when the row had no object to name.
+	if (group.occurrences === 1) {
+		return group.first.summaryLabel.replace(/:\s*$/, "");
+	}
 	// A row that says in its own words what failed ("Couldn't edit") is not "… 2
 	// failed": it repeats like any other.
 	if (group.outcome === "failed" && !group.first.artifact?.failed) {

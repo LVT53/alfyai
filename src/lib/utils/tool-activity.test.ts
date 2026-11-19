@@ -4,6 +4,7 @@ import { t } from "$lib/i18n";
 import artifactsDict from "$lib/i18n/artifacts";
 import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import { CONNECTOR_TOOL_NAMES } from "$lib/shared/tool-reasons";
 import { imageThumbnailRouteUrl } from "$lib/shared/url-provenance";
 import {
 	type AtlasActivityJob,
@@ -2416,10 +2417,158 @@ describe("rows read their reason", () => {
 						expect(item?.body?.kind, label).toBe("reason");
 					}
 				}
+				// The nine account tools are not drawn through that builder: a run of
+				// their calls goes through the connector one (3 shapes x 9 tools), whose
+				// own words are the phrase of the action and the sentence of the code.
+				// The action itself is the model's text and carries the marker too.
+				for (const name of CONNECTOR_TOOL_NAMES) {
+					for (const [index, shape] of failureShapes.entries()) {
+						const label = `${language} ${name} (connector) shape ${index + 1}`;
+						const segment = toolCall({
+							...shape,
+							name,
+							input: {
+								...(shape.input as Record<string, unknown>),
+								action: `list_${SENTINEL}`,
+							},
+						});
+						let item: ToolActivityItem | undefined;
+						expect(() => {
+							item = buildConnectorActivityItem(
+								[segment],
+								`c-${name}-${index}`,
+								translator,
+								{ locale: language === "hu" ? "hu-HU" : "en-GB" },
+							);
+						}, label).not.toThrow();
+						expect(JSON.stringify(item), label).not.toContain(SENTINEL);
+						expect(item?.status, label).toBe("failed");
+						expect(item?.body, label).toMatchObject({
+							kind: "actions",
+							actions: [{ status: "failed", reason: expect.any(String) }],
+						});
+					}
+				}
 			}
 		} finally {
 			uiLanguage.set("en");
 		}
+	});
+
+	// A verb that ends in a colon introduces its object ("Nem nyitotta meg: example.com"),
+	// which reads well in a row and badly alone in the strip: there the colon goes when
+	// no object follows, and the object stays where one does.
+	it("keeps a colon out of the end of a strip label, and keeps the object a colon verb introduced", async () => {
+		const strip = (items: ToolActivityItem[], translator = translate) =>
+			buildToolActivitySummary(items, translator).map((entry) => entry.label);
+		const refused = (url: string, translator = translate) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "fetch_url",
+					input: { url },
+					status: "done",
+					metadata: { ok: false, reasonCode: "link_not_from_a_source" },
+				}),
+				`refused-${url}`,
+				translator,
+			);
+		const leftAlone = (title: string) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "edit_artifact",
+					input: { artifactId: "0d394ede-c37a-4238-9059-77d01300da4e" },
+					status: "done",
+					metadata: {
+						ok: false,
+						reasonCode: "changed_since_read",
+						artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+						artifactKind: "document",
+						artifactTitle: title,
+					},
+				}),
+				`left-${title}`,
+				translate,
+			);
+		const noSkill = (name: string, translator = translate) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "use_skill",
+					input: { name },
+					status: "done",
+					metadata: { ok: false, reasonCode: "skill_not_found" },
+				}),
+				`skill-${name}`,
+				translator,
+			);
+		const suggested = (text: string, translator = translate) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "suggest_instruction",
+					input: { text },
+					status: "done",
+					metadata: { ok: true },
+				}),
+				`suggested-${text}`,
+				translator,
+			);
+
+		// English: only "Left as it was:" ends in a colon.
+		expect(strip([leftAlone("Trip plan")])).toEqual(["Left as it was"]);
+		expect(strip([leftAlone("Trip plan"), leftAlone("Packing list")])).toEqual([
+			"Left as it was ×2",
+		]);
+		expect(strip([refused("https://example.com/a")])).toEqual(["Didn't open"]);
+
+		await inHungarian((hu) => {
+			// Alone, a colon verb says what it introduced.
+			expect(strip([refused("https://example.com/a", hu)], hu)).toEqual([
+				"Nem nyitotta meg: example.com",
+			]);
+			expect(strip([noSkill("Plan Critic", hu)], hu)).toEqual([
+				"Nincs ilyen készség: Plan Critic",
+			]);
+			// Several fold into one entry, with no object and no colon.
+			expect(
+				strip(
+					[
+						refused("https://example.com/a", hu),
+						refused("https://example.org/b", hu),
+					],
+					hu,
+				),
+			).toEqual(["Nem nyitotta meg ×2"]);
+			// A long offer is cut to what a strip can hold.
+			const long = "Always answer in Hungarian, whatever language I write in.";
+			const [label] = strip([suggested(long, hu)], hu);
+			expect(label.startsWith("Utasítást javasolt: Always answer")).toBe(true);
+			expect(
+				label.slice("Utasítást javasolt: ".length).length,
+			).toBeLessThanOrEqual(40);
+			expect(label.endsWith("…")).toBe(true);
+			// None ends in a colon.
+			for (const entry of [
+				...strip([refused("https://example.com/a", hu)], hu),
+				...strip([noSkill("x", hu)], hu),
+				...strip([suggested("Short", hu)], hu),
+			]) {
+				expect(entry.endsWith(":"), entry).toBe(false);
+			}
+			// The offer with nothing to say reads as the bare verb.
+			expect(strip([suggested("", hu)], hu)).toEqual(["Utasítást javasolt"]);
+			// A picture made with no title is "Elkészült:" with nothing after it: the
+			// strip says "Elkészült", never the colon.
+			const untitled = buildToolActivityItem(
+				toolCall({
+					name: "make_image",
+					input: {},
+					status: "done",
+					metadata: { ok: true },
+				}),
+				"untitled-picture",
+				hu,
+			);
+			expect(strip([untitled], hu)).toEqual(["Elkészült"]);
+		});
 	});
 
 	it("the strip groups by the shown status, so a stop is never counted as failed", () => {
@@ -2560,6 +2709,50 @@ describe("each tool's row shows what it found", () => {
 			expect(stranger.meta).toBe("1 picture");
 			expect(stranger.body).toBeNull();
 			expect(JSON.stringify(stranger)).not.toContain("attacker.example");
+		});
+
+		it("shows a picture once when the search found it twice, so the row's pictures have one key each", () => {
+			const twice = [
+				{
+					id: "a",
+					title: "Harbour",
+					url: "https://one.example.test/harbour.jpg",
+					snippet: "one.example.test",
+					sourceType: "web",
+					metadata: { thumbnail: "https://imgs.search.brave.com/same" },
+				},
+				{
+					id: "b",
+					title: "Harbour (again)",
+					url: "https://two.example.test/harbour.jpg",
+					snippet: "two.example.test",
+					sourceType: "web",
+					metadata: { thumbnail: "https://imgs.search.brave.com/same" },
+				},
+				{
+					id: "c",
+					title: "Another",
+					url: "https://three.example.test/dawn.jpg",
+					snippet: "three.example.test",
+					sourceType: "web",
+					metadata: { thumbnail: "https://imgs.search.brave.com/other" },
+				},
+			] as ToolCallSegment["candidates"];
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: twice,
+			});
+
+			// Counted as found, drawn once: the first of the two keeps its place.
+			expect(item.meta).toBe("3 pictures");
+			const items = (item.body as { items: { src: string; host: string }[] })
+				.items;
+			expect(items.map((thumb) => thumb.host)).toEqual([
+				"one.example.test",
+				"three.example.test",
+			]);
+			expect(new Set(items.map((thumb) => thumb.src)).size).toBe(items.length);
 		});
 
 		it("names the host of a picture whose source the search did not say", () => {
@@ -3254,7 +3447,9 @@ describe("each tool's row shows what it found", () => {
 // Task B5: an account row says what Alfy looked at and what came back, in plain
 // words, in the person's language and clock.
 describe("your accounts", () => {
-	const options = { locale: "en-GB", timeZone: "UTC" };
+	// A fixed now, so the day a time is said with never depends on the clock.
+	const NOW = Date.UTC(2026, 10, 18, 12, 0, 0);
+	const options = { locale: "en-GB", timeZone: "UTC", now: NOW };
 	const call = (
 		name: string,
 		action: string,
@@ -3268,6 +3463,7 @@ describe("your accounts", () => {
 			turnStopped?: boolean;
 			locale?: string;
 			timeZone?: string;
+			now?: number;
 		} = options,
 	) => buildConnectorActivityItem(tools, "group", translator, opts);
 
@@ -3369,7 +3565,7 @@ describe("your accounts", () => {
 			]).object,
 		).toBe("1 message");
 		await inHungarian((hu) => {
-			const huOptions = { locale: "hu-HU", timeZone: "UTC" };
+			const huOptions = { locale: "hu-HU", timeZone: "UTC", now: NOW };
 			expect(group(one, hu, huOptions).object).toBe("1 esemény");
 			expect(group(many, hu, huOptions).object).toBe("3 esemény");
 			expect(
@@ -3633,7 +3829,7 @@ describe("your accounts", () => {
 		).toEqual([{ title: "Unnamed place, Wed 18:42" }]);
 
 		await inHungarian((hu) => {
-			const huOptions = { locale: "hu-HU", timeZone: "UTC" };
+			const huOptions = { locale: "hu-HU", timeZone: "UTC", now: NOW };
 			expect(
 				things(
 					group(
@@ -3686,6 +3882,32 @@ describe("your accounts", () => {
 					),
 				),
 			).toEqual([{ title: "Névtelen hely, Sze 18:42" }]);
+		});
+	});
+
+	it("says the date with the time for an event more than six days away, and the weekday for one within a week", async () => {
+		const sub = (start: string, opts = options, translator = translate) => {
+			const body = group(
+				[
+					call("calendar", "list_events", {
+						metadata: { ok: true, eventCount: 1 },
+						candidates: [event(1, start)] as ToolCallSegment["candidates"],
+					}),
+				],
+				translator,
+				opts,
+			).body as { actions: { things?: { items: { sub?: string }[] } }[] };
+			return body.actions[0].things?.items[0].sub;
+		};
+		expect(sub("2026-11-19T10:00:00Z")).toBe("Thu 10:00");
+		expect(sub("2026-11-24T09:00:00Z")).toBe("Tue 09:00");
+		// A weekday alone, a week or more out, would name the wrong day.
+		expect(sub("2026-11-26T10:00:00Z")).toBe("26 Nov, 10:00");
+		expect(sub("2026-12-25T18:30:00Z")).toBe("25 Dec, 18:30");
+		await inHungarian((hu) => {
+			const huOptions = { locale: "hu-HU", timeZone: "UTC", now: NOW };
+			expect(sub("2026-11-19T10:00:00Z", huOptions, hu)).toBe("Cs 10:00");
+			expect(sub("2026-12-25T18:30:00Z", huOptions, hu)).toBe("dec. 25. 18:30");
 		});
 	});
 

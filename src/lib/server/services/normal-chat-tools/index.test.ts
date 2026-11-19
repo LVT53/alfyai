@@ -5683,10 +5683,15 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 			expect(JSON.stringify(over)).not.toContain("reply_limit_reached");
 			const entry = getToolCalls().find((item) => item.callId === "call-over");
 			expect(entry?.status).toBe("done");
+			// The refusal's card names the kind and the item it was for, as the
+			// handlers' own refusals do: in the metadata, never in the payload.
 			expect(entry?.metadata).toMatchObject({
 				ok: false,
 				reasonCode: "reply_limit_reached",
+				artifactKind: "document",
+				artifactTitle: "One too many",
 			});
+			expect(JSON.stringify(over)).not.toContain("artifactKind");
 			expect(
 				getToolCalls().filter((item) => item.metadata?.reasonCode),
 			).toHaveLength(1);
@@ -7504,7 +7509,7 @@ describe("map_route tool names why a call did not work", () => {
 		});
 	});
 
-	it("names a route service that threw as unavailable", async () => {
+	it("names no code for a route call that threw, so the row says the route's own fallback", async () => {
 		let armed = false;
 		getConfigMock.mockImplementation(() => {
 			if (armed) throw new Error("config store is down");
@@ -7519,10 +7524,11 @@ describe("map_route tool names why a call did not work", () => {
 		);
 
 		expect(result).toMatchObject({ success: false });
-		expect(getToolCalls()[0]?.metadata).toMatchObject({
-			ok: false,
-			reasonCode: "route_service_unavailable",
-		});
+		// An error thrown on the way carries no cause the app can name: only the
+		// provider saying so (`provider_error`) is "the route service didn't answer".
+		// The row falls back to "The route couldn't be planned."
+		expect(getToolCalls()[0]?.metadata).toMatchObject({ ok: false });
+		expect(getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
 	});
 });
 

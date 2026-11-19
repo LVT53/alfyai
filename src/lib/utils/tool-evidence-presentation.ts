@@ -221,19 +221,24 @@ export function isPhotosToolName(name: string): boolean {
 	return name.toLowerCase() === "photos";
 }
 
+/** A weekday names the day only within a week of now: past that, "Thu" could be either. */
+const WEEKDAY_NAMES_THE_DAY_WITHIN_MS = 6 * 24 * 60 * 60 * 1000;
+
 /**
  * When something starts, as a person reads it: the time ("10:00"), or with
- * `withDay` the short weekday before it ("Thu 10:00"). A date with no time (an
- * all-day event) is the day alone, in the same words, since it has no clock to
- * show. A value that is no date at all comes back as it is. `locale` is the
- * reader's, from the language the app is in (`intlLocale` in `$lib/utils/locale`),
- * not the browser's; `timeZone` is for a caller that must not depend on the
- * machine's own (a test).
+ * `withDay` the day before it: the short weekday when it is within six days of
+ * now ("Thu 10:00"), the date when it is further away, ahead or behind ("26 Nov,
+ * 10:00"), since a weekday alone a week out names the wrong day. A date with no
+ * time (an all-day event) is the day alone, in the same words, since it has no
+ * clock to show. A value that is no date at all comes back as it is. `locale` is
+ * the reader's, from the language the app is in (`intlLocale` in
+ * `$lib/utils/locale`), not the browser's; `timeZone` and `now` are for a caller
+ * that must not depend on the machine's own (a test).
  */
 export function formatEventTime(
 	iso: string,
 	locale: string | undefined,
-	options: { withDay?: boolean; timeZone?: string } = {},
+	options: { withDay?: boolean; timeZone?: string; now?: number } = {},
 ): string {
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return iso;
@@ -245,8 +250,15 @@ export function formatEventTime(
 			timeZone: "UTC",
 		}).format(date);
 	}
+	const farAway =
+		Math.abs(date.getTime() - (options.now ?? Date.now())) >
+		WEEKDAY_NAMES_THE_DAY_WITHIN_MS;
 	return new Intl.DateTimeFormat(locale, {
-		...(options.withDay ? { weekday: "short" as const } : {}),
+		...(options.withDay
+			? farAway
+				? { day: "numeric" as const, month: "short" as const }
+				: { weekday: "short" as const }
+			: {}),
 		hour: "2-digit",
 		minute: "2-digit",
 		...(options.timeZone ? { timeZone: options.timeZone } : {}),

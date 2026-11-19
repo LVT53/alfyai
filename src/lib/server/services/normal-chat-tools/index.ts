@@ -1954,6 +1954,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							metadata: {
 								ok: false,
 								error: message,
+								// The refusal's card names what it was for, as every refusal of a
+								// handler does: in the metadata, never in the payload.
+								artifactKind: safeInput.artifactType,
+								artifactTitle: safeInput.title,
 								...reasonMetadata("create_artifact", "reply_limit_reached"),
 							},
 						});
@@ -3257,15 +3261,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													ok: false,
 													evidenceReady: false,
 													error: message,
-													// The routing service could not be asked at all. A tool's
-													// own time limit is the envelope's `timed_out`, and a Stop
-													// and the deadline override either.
-													...(isToolTimeoutError(error)
-														? {}
-														: reasonMetadata(
-																"map_route",
-																"route_service_unavailable",
-															)),
+													// An error thrown on the way carries no cause the app can name, so it
+													// names no code and the row says the route's own fallback. Only the
+													// provider saying so (`provider_error`, routing.ts) is "the route service
+													// did not answer"; a Stop, the working deadline and the tool's own time
+													// limit are the envelope's codes.
 												},
 											},
 										};

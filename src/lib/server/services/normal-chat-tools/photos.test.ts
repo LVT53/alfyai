@@ -647,8 +647,10 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("Enable Immich writes");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
-		// A connection that was only ever set up to read: the account can only be read.
-		expect(reasonCodeOf(outcome.modelPayload)).toBe("read_only_account");
+		// A connection that was only ever set up to read: the person can turn changes
+		// on in Settings (re-enter the password), so it is a setting, not a limit of
+		// the account.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("no assetIds: returns a note and creates NO pending row", async () => {

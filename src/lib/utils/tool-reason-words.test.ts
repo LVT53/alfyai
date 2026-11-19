@@ -283,6 +283,41 @@ describe("the words of every tool outcome", () => {
 		]);
 	});
 
+	it("reads an older fetch_url refusal that carried no code as the link the app did not open", () => {
+		// Saved before codes: ok false and a count of the addresses it refused, status
+		// done, and not a word more.
+		expect(readReasonCode("fetch_url", { ok: false, refusedUrlCount: 1 })).toBe(
+			"link_not_from_a_source",
+		);
+		expect(readReasonCode("fetch_url", { ok: false, refusedUrlCount: 3 })).toBe(
+			"link_not_from_a_source",
+		);
+		// A call saved under an older name for the same tool reads the same.
+		expect(
+			readReasonCode("legacy_fetch_url", { ok: false, refusedUrlCount: 1 }),
+		).toBe("link_not_from_a_source");
+		// Nothing else is a refusal: a read that worked, none refused, or one the
+		// server named itself.
+		expect(
+			readReasonCode("fetch_url", { ok: true, refusedUrlCount: 1 }),
+		).toBeNull();
+		expect(
+			readReasonCode("fetch_url", { ok: false, refusedUrlCount: 0 }),
+		).toBeNull();
+		expect(readReasonCode("fetch_url", { ok: false })).toBeNull();
+		expect(
+			readReasonCode("fetch_url", {
+				ok: false,
+				refusedUrlCount: 1,
+				reasonCode: "site_timeout",
+			}),
+		).toBe("site_timeout");
+		// And no other tool's `refusedUrlCount` makes it one.
+		expect(
+			readReasonCode("research_web", { ok: false, refusedUrlCount: 1 }),
+		).toBeNull();
+	});
+
 	it("a step the reply left unfinished is a quiet stop with one sentence for every tool, and no server list holds it", () => {
 		// The browser's own reading of a call the server never closed, in a reply the
 		// person did not stop (an update, a crash): not the server's `stopped`.
