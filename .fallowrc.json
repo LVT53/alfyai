@@ -56,6 +56,12 @@
 		"docs/plans/hindsight-memory/integrated-native-benchmark/paired/run.ts",
 		// Standalone synthetic paired migration rehearsal, invoked by its runbook.
 		"docs/plans/hindsight-memory/paired-migration-rehearsal/run.ts",
+		// Private owner-pilot operator preflight and its synthetic mirror verification.
+		"docs/plans/hindsight-memory/paired-migration-rehearsal/owner-baseline-shape.cjs",
+		"docs/plans/hindsight-memory/paired-migration-rehearsal/verify-owner-legacy-mirror.mts",
+		// Loaded in a dedicated subprocess after its memory-only DB is bound.
+		"docs/plans/hindsight-memory/paired-migration-rehearsal/owner-legacy-mirror.ts",
+		"docs/plans/hindsight-memory/paired-migration-rehearsal/private-answer-transport.cjs",
 		// Review commands that load adjacent text fixtures into the current tests.
 		"docs/plans/hindsight-memory/integration-review-fixtures/reproduce.cjs",
 		"docs/plans/hindsight-memory/lifecycle-review-fixtures/reproduce.cjs",
