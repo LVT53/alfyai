@@ -10,11 +10,14 @@ import { bindReadResultGrant } from "./model-payload-budget";
 import {
 	compactModelPayload,
 	compactToolInputSchema,
+	connectorReasonForAdapterError,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
 	isInsideToolCall,
 	markCallLocallyDistilled,
 	reasonCodeOf,
+	reasonMetadata,
+	reasonMetadataOf,
 	type ToolCallRecorder,
 	withReasonCode,
 	withToolExecutionFact,
@@ -138,6 +141,71 @@ describe("withReasonCode", () => {
 		expect(reasonCodeOf(null)).toBeUndefined();
 		expect(reasonCodeOf("not_connected")).toBeUndefined();
 		expect(reasonCodeOf(7)).toBeUndefined();
+	});
+});
+
+describe("reasonMetadata and reasonMetadataOf", () => {
+	it("gives an entry's metadata the code, held to the tool's list by the compiler", () => {
+		expect(reasonMetadata("research_web", "nothing_found")).toEqual({
+			reasonCode: "nothing_found",
+		});
+		// A shared outcome is on every tool's list.
+		expect(reasonMetadata("calendar", "stopped")).toEqual({
+			reasonCode: "stopped",
+		});
+	});
+
+	it("reads the code a payload was tagged with, or gives nothing to spread", () => {
+		const tagged = withReasonCode({ success: false }, "not_connected");
+		expect(reasonMetadataOf(tagged)).toEqual({ reasonCode: "not_connected" });
+		expect(reasonMetadataOf({ success: false })).toEqual({});
+		expect(reasonMetadataOf(undefined)).toEqual({});
+	});
+});
+
+describe("connectorReasonForAdapterError", () => {
+	class ProviderError extends Error {
+		constructor(readonly code: string) {
+			super(code);
+		}
+	}
+
+	it.each([
+		["needs_reauth", "needs_reconnect"],
+		["invalid_grant", "needs_reconnect"],
+		["invalid_credentials", "needs_reconnect"],
+		["invalid_token", "needs_reconnect"],
+		["connection_not_found", "not_connected"],
+		["message_not_found", "item_not_found"],
+		["not_found", "item_not_found"],
+		["folder_not_found", "item_not_found"],
+		["too_large", "too_large"],
+		["invalid_path", "request_adjusted"],
+		["invalid_config", "not_set_up"],
+		["not_configured", "not_set_up"],
+		["writes_disabled", "writes_turned_off"],
+		["request_failed", "account_unreachable"],
+		["connection_failed", "account_unreachable"],
+		["etag_mismatch", "account_unreachable"],
+	] as const)("reads a provider's %s as %s", (providerCode, reason) => {
+		expect(
+			connectorReasonForAdapterError(new ProviderError(providerCode)),
+		).toBe(reason);
+	});
+
+	it("is the account not answering for anything that is not a provider's error", () => {
+		expect(connectorReasonForAdapterError(new Error("boom"))).toBe(
+			"account_unreachable",
+		);
+		expect(connectorReasonForAdapterError("boom")).toBe("account_unreachable");
+		expect(connectorReasonForAdapterError(undefined)).toBe(
+			"account_unreachable",
+		);
+		expect(
+			connectorReasonForAdapterError(
+				Object.assign(new Error("socket"), { code: "ECONNREFUSED" }),
+			),
+		).toBe("account_unreachable");
 	});
 });
 

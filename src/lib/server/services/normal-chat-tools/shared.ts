@@ -13,6 +13,7 @@ import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { abortedByTurnDeadline } from "$lib/server/utils/turn-deadline-reason";
 import {
 	type AnyReasonCode,
+	type ConnectorReasonCode,
 	REASON_CODE_KEY,
 	type SharedReasonCode,
 	type ToolReasonCode,
@@ -210,6 +211,56 @@ export function reasonCodeOf(payload: unknown): AnyReasonCode | undefined {
 	return payload !== null && typeof payload === "object"
 		? payloadReasonCodes.get(payload)
 		: undefined;
+}
+
+/**
+ * The reason code of an error a connection's provider threw (each provider's
+ * error class names its cases with the same few codes), for the nine account
+ * tools: credentials the account no longer accepts, a connection that is gone, an
+ * item that is not there, a file too large, a request the provider refused for
+ * its shape or its configuration. Anything else, and anything that is not a
+ * provider's error, is the account not answering. The words the model reads for
+ * an error stay each tool's own.
+ */
+export function connectorReasonForAdapterError(
+	error: unknown,
+): ConnectorReasonCode {
+	switch (isRecord(error) ? error.code : undefined) {
+		case "needs_reauth":
+		case "invalid_grant":
+		case "invalid_credentials":
+		case "invalid_token":
+			return "needs_reconnect";
+		case "connection_not_found":
+			return "not_connected";
+		case "message_not_found":
+		case "not_found":
+		case "folder_not_found":
+			return "item_not_found";
+		case "too_large":
+			return "too_large";
+		case "invalid_path":
+			return "request_adjusted";
+		case "invalid_config":
+		case "not_configured":
+			return "not_set_up";
+		case "writes_disabled":
+			return "writes_turned_off";
+		default:
+			return "account_unreachable";
+	}
+}
+
+/**
+ * `{ reasonCode }` for the code `withReasonCode` gave this very payload, or
+ * nothing: for an entry built from a payload a tool returned, read before the
+ * envelope compacts the payload into a new object.
+ */
+export function reasonMetadataOf(
+	payload: unknown,
+): { reasonCode: AnyReasonCode } | Record<never, never> {
+	const code = reasonCodeOf(payload);
+	return code ? { [REASON_CODE_KEY]: code } : {};
 }
 
 /**

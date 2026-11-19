@@ -38,10 +38,17 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import { CONNECTOR_PLACEHOLDER_TITLES } from "$lib/shared/tool-reasons";
+import {
+	CONNECTOR_PLACEHOLDER_TITLES,
+	type ConnectorReasonCode,
+} from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	withReasonCode,
+} from "./shared";
 
 export const calendarToolInputSchema = z.object({
 	action: z.enum([
@@ -246,25 +253,28 @@ function buildPayload(params: {
 	citations?: CalendarCitation[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): CalendarToolOutcome {
 	const citations = params.citations ?? [];
 	const events = params.events ?? [];
+	const modelPayload: CalendarToolModelPayload = {
+		success: params.success,
+		name: "calendar",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		events,
+		busy: params.busy ?? [],
+		calendars: params.calendars ?? [],
+		citations,
+		...(params.pendingWriteId ? { pendingWriteId: params.pendingWriteId } : {}),
+		...(params.preview ? { preview: params.preview } : {}),
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "calendar",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			events,
-			busy: params.busy ?? [],
-			calendars: params.calendars ?? [],
-			citations,
-			...(params.pendingWriteId
-				? { pendingWriteId: params.pendingWriteId }
-				: {}),
-			...(params.preview ? { preview: params.preview } : {}),
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		// citations[i] and events[i] are always built 1:1 from the same events
 		// array in the same order (see listEventsOutcome, the only caller that
 		// passes both) — safe to zip by index. Callers that pass citations
@@ -293,25 +303,53 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof GoogleCalendarError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your Google Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Google Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your Google Calendar connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Google Calendar connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your calendar right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your calendar right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
 	if (err instanceof AppleCalDavError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your Apple iCloud Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Apple iCloud Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your Apple iCloud Calendar connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Apple iCloud Calendar connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your calendar right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your calendar right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
 	// Task 9b — the generic CalDAV connector (any standards-compliant server:
@@ -321,14 +359,30 @@ function mapAdapterError(err: unknown): string {
 	if (err instanceof CalDavError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your CalDAV Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your CalDAV Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your CalDAV Calendar connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your CalDAV Calendar connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your calendar right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your calendar right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach your calendar right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't reach your calendar right now. Please try again in a moment.",
+		code,
+	};
 }
 
 // Maps a provider's CalendarEvent[] onto the tool's own model-facing shape,
@@ -529,6 +583,7 @@ function caldavStyleCalendarsOutcome(
 			success: false,
 			action: "list_calendars",
 			message: `I couldn't enumerate your ${label} calendars — try reconnecting it in Settings.`,
+			reason: "needs_reconnect",
 		});
 	}
 	return buildPayload({
@@ -584,6 +639,7 @@ async function listCalendarsOutcome(
 		action: "list_calendars",
 		message:
 			"Listing your calendars needs a Google Calendar connection right now.",
+		reason: "not_supported",
 	});
 }
 
@@ -793,6 +849,7 @@ async function proposeCreateEvent(
 			action: "create_event",
 			message:
 				"A title, start time, and end time are required to create an event.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -864,6 +921,7 @@ async function proposeUpdateOrDeleteEvent(
 			success: false,
 			action,
 			message: "An event id is required to update or delete an event.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -875,10 +933,12 @@ async function proposeUpdateOrDeleteEvent(
 			eventId: input.eventId,
 		});
 	} catch (err) {
+		const failure = mapAdapterError(err);
 		return buildPayload({
 			success: false,
 			action,
-			message: mapAdapterError(err),
+			message: failure.message,
+			reason: failure.code,
 		});
 	}
 	if (!existing) {
@@ -886,6 +946,7 @@ async function proposeUpdateOrDeleteEvent(
 			success: false,
 			action,
 			message: "I couldn't find that event on your calendar.",
+			reason: "item_not_found",
 		});
 	}
 
@@ -899,6 +960,7 @@ async function proposeUpdateOrDeleteEvent(
 			action,
 			message:
 				'That event is part of a recurring series. Should I apply this to just this event, or the whole series? Reply with "this event" or "the whole series" and I\'ll try again.',
+			reason: "request_adjusted",
 		});
 	}
 
@@ -915,6 +977,7 @@ async function proposeUpdateOrDeleteEvent(
 			action,
 			message:
 				'That event id refers to the whole recurring series, not a single occurrence, so I can\'t apply this to "this event only." Tell me which occurrence you mean (e.g. its date), or say "the whole series" to apply it to all of them.',
+			reason: "request_adjusted",
 		});
 	}
 
@@ -995,12 +1058,16 @@ async function proposeUpdateOrDeleteEvent(
 
 	let modelPreview = rawPreview;
 	let redactedNote = "";
+	let detailsWithheld = false;
 	if (decision.shouldDistill) {
 		modelPreview = {
 			...rawPreview,
 			title: isUpdate ? "Update a calendar event" : "Delete a calendar event",
 			detail: `${op.action} — calendar event`,
 		};
+		// The cloud model got none of the details (no local summary either):
+		// the row says so.
+		detailsWithheld = !("distilled" in decision);
 		redactedNote =
 			"distilled" in decision
 				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
@@ -1024,6 +1091,7 @@ async function proposeUpdateOrDeleteEvent(
 		message,
 		pendingWriteId,
 		preview: modelPreview,
+		...(detailsWithheld ? { reason: "details_withheld" as const } : {}),
 	});
 }
 
@@ -1068,6 +1136,7 @@ async function proposeAppleCreateEvent(
 			action: "create_event",
 			message:
 				"A title, start time, and end time are required to create an event.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -1077,6 +1146,7 @@ async function proposeAppleCreateEvent(
 			success: false,
 			action: "create_event",
 			message: APPLE_MISSING_CONFIG_MESSAGE,
+			reason: "needs_reconnect",
 		});
 	}
 
@@ -1146,6 +1216,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 			success: false,
 			action,
 			message: "An event id is required to update or delete an event.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -1153,10 +1224,12 @@ async function proposeAppleUpdateOrDeleteEvent(
 	try {
 		existing = await appleGetEventByUid(userId, conn.id, input.eventId);
 	} catch (err) {
+		const failure = mapAdapterError(err);
 		return buildPayload({
 			success: false,
 			action,
-			message: mapAdapterError(err),
+			message: failure.message,
+			reason: failure.code,
 		});
 	}
 	if (!existing) {
@@ -1164,6 +1237,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 			success: false,
 			action,
 			message: "I couldn't find that event on your calendar.",
+			reason: "item_not_found",
 		});
 	}
 	if (!existing.htmlLink || !existing.etag) {
@@ -1175,6 +1249,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 			action,
 			message:
 				"I couldn't safely identify that event's underlying Apple iCloud resource, so I can't make this change. Please try again.",
+			reason: "not_supported",
 		});
 	}
 
@@ -1194,6 +1269,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 			action,
 			message:
 				"That event is part of a recurring series, and I can't safely update recurring events on your Apple iCloud Calendar yet — try a Google Calendar connection instead, or delete and recreate this event.",
+			reason: "not_supported",
 		});
 	}
 	// Corruption-safety gate: an update PATCHES the original resource's exact
@@ -1208,6 +1284,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 			action,
 			message:
 				"I couldn't safely read that event's full details from your Apple iCloud Calendar, so I can't make this change. Please try again.",
+			reason: "not_supported",
 		});
 	}
 
@@ -1307,12 +1384,16 @@ async function proposeAppleUpdateOrDeleteEvent(
 
 	let modelPreview = rawPreview;
 	let redactedNote = "";
+	let detailsWithheld = false;
 	if (decision.shouldDistill) {
 		modelPreview = {
 			...rawPreview,
 			title: isUpdate ? "Update a calendar event" : "Delete a calendar event",
 			detail: `${op.action} — calendar event`,
 		};
+		// The cloud model got none of the details (no local summary either):
+		// the row says so.
+		detailsWithheld = !("distilled" in decision);
 		redactedNote =
 			"distilled" in decision
 				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
@@ -1336,6 +1417,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 		message,
 		pendingWriteId,
 		preview: modelPreview,
+		...(detailsWithheld ? { reason: "details_withheld" as const } : {}),
 	});
 }
 
@@ -1357,6 +1439,7 @@ async function calendarWriteOutcome(
 			action,
 			message:
 				"Calendar writes are only supported for Google and Apple iCloud connections right now.",
+			reason: "not_supported",
 		});
 	}
 
@@ -1368,6 +1451,7 @@ async function calendarWriteOutcome(
 			success: false,
 			action,
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -1380,6 +1464,7 @@ async function calendarWriteOutcome(
 			action,
 			message:
 				"I don't have permission to make changes to your Google Calendar yet — please reconnect Google and grant calendar write access, then try again.",
+			reason: "read_only_account",
 		});
 	}
 
@@ -1518,6 +1603,7 @@ export async function runCalendarTool(
 							input.account,
 							googleConnections,
 						),
+						reason: "no_such_account",
 					});
 				}
 				const googleConn =
@@ -1528,6 +1614,7 @@ export async function runCalendarTool(
 						action: "check_availability",
 						message:
 							"Checking availability needs a Google Calendar connection — Apple iCloud calendars don't support free/busy lookups yet. Connect a Google account in Settings, or ask me to list your Apple events instead.",
+						reason: "not_supported",
 					});
 				}
 				const googleAmbiguous = needsDisambiguation(googleConnections);
@@ -1546,10 +1633,12 @@ export async function runCalendarTool(
 					googleConnections,
 				);
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -1560,6 +1649,7 @@ export async function runCalendarTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	if (result.kind === "no-match") {
@@ -1571,6 +1661,7 @@ export async function runCalendarTool(
 				result.selector,
 				result.connections,
 			),
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

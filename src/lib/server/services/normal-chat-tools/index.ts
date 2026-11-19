@@ -227,6 +227,7 @@ import {
 	isToolTimeoutError,
 	modelSafeToolError,
 	reasonMetadata,
+	reasonMetadataOf,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
@@ -2156,6 +2157,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2240,6 +2242,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													eventCount: modelPayload.events.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2322,6 +2325,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													messageCount: modelPayload.messages.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2612,6 +2616,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													// How many photos the model was shown (the activity row
 													// reads "Looked at 6 photos"). Only when it asked to look.
 													...(viewedCount !== undefined ? { viewedCount } : {}),
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2692,6 +2697,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2773,6 +2779,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2853,6 +2860,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													contactCount: modelPayload.contacts.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2933,6 +2941,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													repoCount: modelPayload.repos.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -3018,6 +3027,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													taskCount: modelPayload.tasks.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};

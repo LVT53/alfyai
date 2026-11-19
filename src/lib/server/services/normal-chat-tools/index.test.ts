@@ -4048,6 +4048,106 @@ describe("createNormalChatTools", () => {
 		]);
 	});
 
+	// Every account tool says why a call did not work from a reason code on its
+	// entry's metadata, read from the tag the tool put beside its payload before
+	// the envelope compacts the payload into a new object. What the model reads,
+	// the entry's outputSummary and its stored status are what they always were.
+	describe("the nine account tools name why a call did not work", () => {
+		const CALLS = [
+			["files", { action: "search", query: "x" }],
+			["calendar", { action: "list_events" }],
+			["email", { action: "recent" }],
+			["photos", { action: "search", query: "x" }],
+			["media", { action: "watch_history" }],
+			["location", { action: "last" }],
+			["contacts", { action: "lookup", query: "x" }],
+			["repos", { action: "list_repos" }],
+			["tasks", { action: "list_tasks" }],
+		] as const;
+
+		it.each(CALLS)("%s: not connected", async (name, input) => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set([
+					"files",
+					"calendar",
+					"email",
+					"photos",
+					"media",
+					"location",
+					"contacts",
+					"repos",
+					"tasks",
+				]),
+			});
+
+			const tool = tools[name] as unknown as {
+				execute: (
+					input: unknown,
+					options: { toolCallId: string; messages: never[] },
+				) => Promise<{ success: boolean; message: string }>;
+			};
+			const result = await tool.execute(input, {
+				toolCallId: `call-${name}`,
+				messages: [],
+			});
+
+			expect(result.success).toBe(false);
+			// The code is beside the payload, never in it.
+			expect(JSON.stringify(result)).not.toContain("reasonCode");
+			expect(JSON.stringify(result)).not.toContain("not_connected");
+			const [entry] = getToolCalls();
+			expect(entry?.name).toBe(name);
+			expect(entry?.status).toBe("done");
+			expect(entry?.outputSummary).toBe(result.message);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "not_connected",
+			});
+		});
+
+		it("names a call whose details the cloud model was not given", async () => {
+			const conn = makeNextcloudConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudReadFileMock.mockResolvedValue({
+				bytes: new TextEncoder().encode("Total owed: 4,120 EUR"),
+				etag: "etag-1",
+				contentType: "text/plain",
+				mtime: null,
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			const { distillConnectorPayload } = await import(
+				"$lib/server/services/connections/locality"
+			);
+			vi.mocked(distillConnectorPayload).mockResolvedValue({
+				unavailable: true,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				modelId: "provider:cloud:chat",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+			const result = await tools.files?.execute?.(
+				{ action: "read", path: "/Documents/taxes.txt" },
+				{ toolCallId: "call-files-withheld", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: true });
+			expect(JSON.stringify(result)).not.toContain("4,120");
+			expect(JSON.stringify(result)).not.toContain("details_withheld");
+			const [entry] = getToolCalls();
+			expect(entry?.metadata).toMatchObject({ reasonCode: "details_withheld" });
+		});
+	});
+
 	describe("files tool gating", () => {
 		it("does not include the files tool when enabledConnectionCapabilities is omitted", () => {
 			const { tools } = createNormalChatTools({
