@@ -772,17 +772,33 @@ const chatDict = {
 			"The generated document source is invalid.",
 		"fileProduction.error.job_outputs_too_large":
 			"The produced files are too large.",
+		// The file maker or its storage broke while making the file: the program's
+		// own crash, the files it could not store, the document it could not write.
+		"fileProduction.error.maker_problem": "The file maker ran into a problem.",
 		"fileProduction.error.missing_program_output_type":
 			"The file request did not say which file type to produce.",
+		// A program that ran and wrote nothing into its output folder.
+		"fileProduction.error.no_file_made": "The program made no file.",
 		"fileProduction.error.output_file_too_large":
 			"A produced file is too large.",
 		"fileProduction.error.page_limit_exceeded":
 			"The document would exceed the page limit.",
+		// A change to an earlier file: no earlier version, or one the change does
+		// not fit.
+		"fileProduction.error.patch_not_applied":
+			"The change couldn't be applied to the file.",
 		"fileProduction.error.pdf_font_missing":
 			"The PDF renderer is missing its Unicode font.",
 		"fileProduction.error.projection_too_large":
 			"The document text projection is too large.",
 		"fileProduction.error.renderer_timeout": "Document rendering timed out.",
+		// One reply may make only so many files, and so many tries at one file.
+		"fileProduction.error.reply_file_limit":
+			"Alfy has made as many files as one reply allows.",
+		// The request itself is not one the file maker can read: a missing title,
+		// output type or program, a body that is no JSON, a mix of file families.
+		"fileProduction.error.request_unreadable":
+			"The file request couldn't be read.",
 		"fileProduction.error.sandbox_timeout": "Program execution timed out.",
 		"fileProduction.error.source_too_large":
 			"The file production source is too large.",
@@ -819,8 +835,13 @@ const chatDict = {
 		// timeout.
 		"fileProduction.error.worker_queue_timeout":
 			"The file waited too long in the queue and could not be finished.",
+		// A program's file that is not the one the request named: the wrong type,
+		// name or count of files, or a spreadsheet or text that cannot be read.
+		"fileProduction.error.wrong_file_made":
+			"The program didn't make the file that was asked for.",
 		"fileProduction.failed": "Error",
-		"fileProduction.failedDescription": "File production did not finish.",
+		// Anything the card has no sentence for: never the server's own message.
+		"fileProduction.failedDescription": "The file couldn't be made.",
 		"fileProduction.placeholderTitle": "Preparing your file…",
 		"fileProduction.previewLabel": "Preview {filename}",
 		"fileProduction.queued": "Queued",
@@ -2022,18 +2043,25 @@ const chatDict = {
 			"A generált dokumentum forrása érvénytelen.",
 		"fileProduction.error.job_outputs_too_large":
 			"Az előállított fájlok túl nagyok.",
+		"fileProduction.error.maker_problem": "A fájlkészítő hibába ütközött.",
 		"fileProduction.error.missing_program_output_type":
 			"A fájlkérés nem adta meg, milyen típusú fájl készüljön.",
+		"fileProduction.error.no_file_made": "A program nem készített fájlt.",
 		"fileProduction.error.output_file_too_large":
 			"Egy előállított fájl túl nagy.",
 		"fileProduction.error.page_limit_exceeded":
 			"A dokumentum túllépné az oldalkorlátot.",
+		"fileProduction.error.patch_not_applied":
+			"A módosítást nem sikerült alkalmazni a fájlon.",
 		"fileProduction.error.pdf_font_missing":
 			"A PDF-renderelőből hiányzik a Unicode betűkészlet.",
 		"fileProduction.error.projection_too_large":
 			"A dokumentum szöveges vetülete túl nagy.",
 		"fileProduction.error.renderer_timeout":
 			"A dokumentum renderelése időtúllépés miatt leállt.",
+		"fileProduction.error.reply_file_limit":
+			"Alfy ebben a válaszban már annyi fájlt készített, amennyit lehet.",
+		"fileProduction.error.request_unreadable": "A fájlkérés nem olvasható.",
 		"fileProduction.error.sandbox_timeout":
 			"A program futása időtúllépés miatt leállt.",
 		"fileProduction.error.source_too_large": "A fájlkészítés forrása túl nagy.",
@@ -2062,8 +2090,10 @@ const chatDict = {
 			"A fájlt nem sikerült elkészíteni, mert a szerver elvesztette a feladat nyomát.",
 		"fileProduction.error.worker_queue_timeout":
 			"A fájl túl sokáig várakozott a sorban, ezért nem készült el.",
+		"fileProduction.error.wrong_file_made":
+			"A program nem a kért fájlt készítette el.",
 		"fileProduction.failed": "Hiba",
-		"fileProduction.failedDescription": "A fájlkészítés nem fejeződött be.",
+		"fileProduction.failedDescription": "A fájlt nem sikerült elkészíteni.",
 		"fileProduction.placeholderTitle": "A fájl előkészítése…",
 		"fileProduction.previewLabel": "{filename} előnézete",
 		"fileProduction.queued": "Várakozik",

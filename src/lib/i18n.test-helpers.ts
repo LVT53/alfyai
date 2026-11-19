@@ -33,7 +33,7 @@ const AUDITED_PREFIXES = [
 	"composerMenu.",
 	"composerSheet.",
 	// The file-production card's server-error-code -> localized-line map
-	// (`FileProductionCard.svelte`'s `ERROR_MESSAGE_KEYS`). `chat.` as a whole
+	// (`file-production-helpers.ts`'s `FILE_PRODUCTION_ERROR_KEYS`). `chat.` as a whole
 	// is NOT audited (pre-existing drift), so this narrow prefix is what
 	// would have caught the three worker-reclaim codes landing in EN only.
 	"fileProduction.error.",

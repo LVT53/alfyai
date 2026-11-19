@@ -1,5 +1,9 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { get } from "svelte/store";
+import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
+import { FILE_PRODUCTION_ERROR_KEYS } from "$lib/components/chat/file-production-helpers";
 import { type I18nKey, t } from "$lib/i18n";
 import toolRowsDict from "$lib/i18n/tool-rows";
 import {
@@ -483,7 +487,204 @@ describe("the words of every tool outcome", () => {
 		});
 	});
 
-	// The file maker's own codes are worded by the file card's map (Task B7), which
-	// is where this test becomes real.
-	it.todo("the file maker's every code has words");
+	// The file maker's own codes are worded by the file card's map
+	// (`components/chat/file-production-helpers.ts`). They are open strings spread
+	// over the file maker's files, so this reads them from the source: the scan
+	// must find every code the plan names that those files spell, and every code it
+	// finds must have words, so a new code cannot ship without its sentence.
+	describe("the file maker's every code has words", () => {
+		const root = process.cwd();
+		const CODE_SHAPE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+
+		function sourceFiles(dir: string): string[] {
+			return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+				const path = join(dir, entry.name);
+				if (entry.isDirectory()) {
+					return entry.name === "testing" ? [] : sourceFiles(path);
+				}
+				return entry.name.endsWith(".ts") &&
+					!entry.name.endsWith(".test.ts") &&
+					!entry.name.endsWith(".d.ts")
+					? [path]
+					: [];
+			});
+		}
+
+		/** The string a value is, or the two it is when it is chosen by a condition. */
+		function valuesOf(node: ts.Node): string[] {
+			if (ts.isStringLiteralLike(node)) return [node.text];
+			if (ts.isConditionalExpression(node)) {
+				return [...valuesOf(node.whenTrue), ...valuesOf(node.whenFalse)];
+			}
+			if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) {
+				return valuesOf(node.expression);
+			}
+			return [];
+		}
+
+		function stringsIn(node: ts.Node): string[] {
+			if (ts.isStringLiteralLike(node)) return [node.text];
+			const found: string[] = [];
+			ts.forEachChild(node, (child) => {
+				found.push(...stringsIn(child));
+			});
+			return found;
+		}
+
+		/**
+		 * The codes a file maker's file spells: a `code:` or `errorCode:` property, a
+		 * `*_ERROR_CODE` constant or a `*_ERROR_CODES` list, and the code a
+		 * `fail("…", …)` helper or a `new …Error("…", …)` takes first.
+		 */
+		function codesSpelledIn(files: string[]): Set<string> {
+			const codes = new Set<string>();
+			for (const file of files) {
+				const source = ts.createSourceFile(
+					file,
+					readFileSync(file, "utf8"),
+					ts.ScriptTarget.Latest,
+					true,
+				);
+				const visit = (node: ts.Node) => {
+					if (
+						ts.isPropertyAssignment(node) &&
+						/^(?:code|errorCode)$/.test(node.name.getText(source))
+					) {
+						for (const value of valuesOf(node.initializer)) codes.add(value);
+					}
+					if (
+						ts.isVariableDeclaration(node) &&
+						node.initializer &&
+						/_ERROR_CODES?$/.test(node.name.getText(source))
+					) {
+						for (const value of stringsIn(node.initializer)) codes.add(value);
+					}
+					if (
+						(ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+						node.arguments?.[0] &&
+						ts.isStringLiteralLike(node.arguments[0]) &&
+						/(?:^fail|Error)$/.test(node.expression.getText(source))
+					) {
+						codes.add(node.arguments[0].text);
+					}
+					ts.forEachChild(node, visit);
+				};
+				visit(source);
+			}
+			return new Set([...codes].filter((code) => CODE_SHAPE.test(code)));
+		}
+
+		const scanned = () =>
+			codesSpelledIn([
+				...sourceFiles(join(root, "src/lib/server/services/file-production")),
+				join(root, "src/lib/server/services/normal-chat-tools/produce-file.ts"),
+			]);
+
+		// Every code the plan names that the file maker's own files and the tool's
+		// helper file spell.
+		const NAMED_BY_THE_PLAN = [
+			// limits.ts
+			"too_many_outputs",
+			"source_too_large",
+			"projection_too_large",
+			"page_limit_exceeded",
+			"table_limit_exceeded",
+			"chart_limit_exceeded",
+			"image_limit_exceeded",
+			"renderer_timeout",
+			"sandbox_timeout",
+			"output_file_too_large",
+			"job_outputs_too_large",
+			// execution-adapter.ts
+			"missing_file_production_request",
+			"invalid_file_production_request",
+			"unsupported_file_production_request",
+			"unsupported_output_type",
+			"missing_program_requested_outputs",
+			"program_execution_threw",
+			"program_execution_failed",
+			"generated_document_source_persistence_failed",
+			"document_render_failed",
+			"inline_text_write_failed",
+			// storage-adapter.ts
+			"program_no_outputs",
+			"program_output_storage_failed",
+			// intake.ts
+			"invalid_inline_text_request",
+			"missing_inline_text_content",
+			"unsupported_inline_text_output_type",
+			"invalid_json_body",
+			"missing_conversation_id",
+			"missing_idempotency_key",
+			"missing_request_title",
+			"unsupported_source_mode",
+			"invalid_program_language",
+			"missing_program_source",
+			"missing_program_output_type",
+			"unsupported_program_output_type",
+			// source-schema.ts
+			"invalid_document_source",
+			"unsupported_document_block",
+			"unsupported_table_structure",
+			"unsupported_chart_type",
+			"unsupported_chart_data",
+			// the renderers and render-budget.ts
+			"pdf_font_missing",
+			"unsupported_pdf_block",
+			"render_cancelled",
+			// lost-attempt.ts, production-job.ts
+			"worker_state_lost",
+			"worker_heartbeat_timeout",
+			"worker_queue_timeout",
+			// produce-file.ts
+			"invalid_tool_input",
+			"no_previous_version_for_patches",
+			"patch_failed",
+			"produce_file_turn_retry_limit",
+			"produce_file_turn_limit",
+		];
+
+		it("finds every code the plan names in the file maker's own files", () => {
+			const found = scanned();
+			expect(found.size).toBeGreaterThan(NAMED_BY_THE_PLAN.length);
+			for (const code of NAMED_BY_THE_PLAN) {
+				expect(found.has(code), `${code} was not found`).toBe(true);
+			}
+		});
+
+		it("has words, on the file card, for every code the file maker writes", () => {
+			for (const code of scanned()) {
+				expect(
+					Object.hasOwn(FILE_PRODUCTION_ERROR_KEYS, code),
+					`${code} has no words on the file card`,
+				).toBe(true);
+			}
+		});
+
+		it("has words for the tool's own codes and the card's", () => {
+			// The tool's other codes sit in `normal-chat-tools/index.ts`, which also
+			// carries other tools' codes, so they are named here and checked there.
+			const tool = readFileSync(
+				join(root, "src/lib/server/services/normal-chat-tools/index.ts"),
+				"utf8",
+			);
+			for (const code of [
+				"patch_not_applicable",
+				"file_production_no_output_files",
+				"tool_execution_failed",
+			]) {
+				expect(tool, `${code} is no longer spelled by the tool`).toContain(
+					`"${code}"`,
+				);
+				expect(
+					Object.hasOwn(FILE_PRODUCTION_ERROR_KEYS, code),
+					`${code} has no words on the file card`,
+				).toBe(true);
+			}
+			// A card made before any job exists (a tool call that failed early).
+			expect(Object.hasOwn(FILE_PRODUCTION_ERROR_KEYS, "tool_failed")).toBe(
+				true,
+			);
+		});
+	});
 });
