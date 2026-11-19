@@ -1,0 +1,19 @@
+{
+  "sources": [
+    {"scope":"personal","day":"2026-11-01","text":"My touring kayak was originally nicknamed Cobalt Finch."},
+    {"scope":"personal","day":"2026-11-09","text":"I renamed my touring kayak Moss Lantern. Cobalt Finch is its former nickname and I no longer call it that."},
+    {"scope":"personal","day":"2026-11-10","text":"A húgom, Eszter kerámiaműhelyének a neve Rézrigó. A műhely Eszteré, nem az enyém."},
+    {"scope":"cedar","day":"2026-11-11","text":"Only for our Cedar release project, use the label Harbor Lantern for our release checklist. It is a project-only rule."},
+    {"scope":"incognito","day":"2026-11-12","text":"A privát beszélgetésben elmondom, hogy a csónakom neve Titkos Ponty."}
+  ],
+  "questions": [
+    {"id":"Q1","scope":"personal","text":"What do I call my touring kayak now?"},
+    {"id":"Q2","scope":"personal","text":"What was my touring kayak previously called? Make clear whether that is its present nickname."},
+    {"id":"Q3","scope":"personal","text":"What is my touring kayak's registration number, if you know it?"},
+    {"id":"Q4","scope":"personal","text":"Hogy hívják Eszter műhelyét, és kié a műhely?"},
+    {"id":"Q5","scope":"personal","text":"Mi a csónakom neve, ha tudod?"},
+    {"id":"Q6","scope":"cedar","text":"In this project, what label do we use for the release checklist?"},
+    {"id":"Q7","scope":"birch","text":"In this project, what label do we use for the release checklist, if known?"},
+    {"id":"Q8","scope":"personal","text":"What label do I use for my general release checklists, if known?"}
+  ]
+}

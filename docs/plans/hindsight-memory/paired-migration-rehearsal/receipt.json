@@ -1,0 +1,105 @@
+{
+  "fixtureSha256": "8ea12488206570addfad45d77624e5f4dac23a7179e4d6b6afdc4a7b733938d2",
+  "model": "qwen3-6-27b",
+  "settings": {
+    "temperature": 0,
+    "top_p": 1,
+    "max_tokens": 400
+  },
+  "eligibility": {
+    "eligible": 4,
+    "excluded": 1,
+    "uncertain": 0
+  },
+  "judge": [
+    {
+      "scope": "personal",
+      "result": {
+        "status": "ran",
+        "admitted": 1,
+        "review": 0,
+        "updated": 0,
+        "dryRun": false,
+        "backlogRemaining": false
+      }
+    },
+    {
+      "scope": "personal",
+      "result": {
+        "status": "ran",
+        "admitted": 0,
+        "review": 0,
+        "updated": 0,
+        "dryRun": false,
+        "backlogRemaining": false
+      }
+    },
+    {
+      "scope": "personal",
+      "result": {
+        "status": "ran",
+        "admitted": 1,
+        "review": 0,
+        "updated": 0,
+        "dryRun": false,
+        "backlogRemaining": false
+      }
+    },
+    {
+      "scope": "cedar",
+      "result": {
+        "status": "ran",
+        "admitted": 1,
+        "review": 0,
+        "updated": 0,
+        "dryRun": false,
+        "backlogRemaining": false
+      }
+    },
+    {
+      "scope": "incognito",
+      "result": {
+        "status": "empty"
+      }
+    }
+  ],
+  "manifest": "3a64c174-258a-476f-abe7-fb745c469810",
+  "cases": 8,
+  "persistedProbeMessages": 0,
+  "unchangedApplication": true,
+  "unchangedNativeInventoryDuringNativeProbes": true,
+  "goldSha256": "662b13c1f4a7827c4c89d027feb76b85f136fbb6576da399c7346cab803d921b",
+  "outcomes": {
+    "legacyPassed": 6,
+    "nativePassed": 6,
+    "bothPassed": 5,
+    "bothFailed": 1,
+    "nativeGained": 1,
+    "nativeLost": 1,
+    "inconclusive": 0
+  },
+  "probeTimingsMs": {
+    "legacy": {
+      "medianRead": 2.0,
+      "medianAnswer": 178.5
+    },
+    "native": {
+      "medianRead": 51.5,
+      "medianAnswer": 111.5
+    }
+  },
+  "durableStateHashes": {
+    "legacy": {
+      "before": "90cc562831359bba2e4190e4de711a781fc29ff818654af07ebf058edaca3b1c",
+      "after": "90cc562831359bba2e4190e4de711a781fc29ff818654af07ebf058edaca3b1c",
+      "nativeBefore": null,
+      "nativeAfter": null
+    },
+    "native": {
+      "before": "bcf1aacfaccab372ff560d0cb27dc88559909537783d0cc4ceb9b6b6fe15ff20",
+      "after": "bcf1aacfaccab372ff560d0cb27dc88559909537783d0cc4ceb9b6b6fe15ff20",
+      "nativeBefore": "8896a75b43af4eb8c684a649907068b1f55bceca5020162cb39609a5cc8f5106",
+      "nativeAfter": "8896a75b43af4eb8c684a649907068b1f55bceca5020162cb39609a5cc8f5106"
+    }
+  }
+}
