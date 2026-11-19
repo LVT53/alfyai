@@ -12,7 +12,8 @@
 // own red run — see the commit this file was added in). This is also why
 // prompts.ts's own artifact-kinds paragraph is a plain literal rather than a
 // call to advertisedArtifactKinds() at all — see its comment there. This
-// file has no imports at all, so nothing that reads it can ever be part of a
+// file has no runtime imports (one type-only import of the pure reason-code
+// list, which is erased), so nothing that reads it can ever be part of a
 // cycle through it.
 //
 // create.ts is still the ONLY file that WRITES a handler into
@@ -20,6 +21,8 @@
 // re-exports everything here for its existing callers; this file just holds
 // the dict and the kinds so reading "what's advertised" never has to pull in
 // the writing side's heavy dependencies.
+
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
 
 export const CREATABLE_ARTIFACT_KINDS = [
 	"document",
@@ -85,7 +88,10 @@ export type CreateArtifactHandler = (
 	params: CreateArtifactHandlerParams,
 ) => Promise<
 	| { ok: true; value: CreateArtifactHandlerSuccess }
-	| { ok: false; reason: string }
+	// `code` is the refusal's name on the chat row (the tool's closed list of
+	// reasons): given for a refusal the row can word, and left out for any other,
+	// which the row words as a failure. It rides beside `reason`, never in it.
+	| { ok: false; reason: string; code?: ToolReasonCode<"create_artifact"> }
 >;
 
 /**

@@ -125,6 +125,12 @@ describe("create_artifact.document", () => {
 			abortSignal: abortSignal(true),
 		});
 		expect(result?.ok).toBe(false);
+		// A stop is named as one, beside the words the model reads.
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "The request was cancelled.",
+			code: "stopped",
+		});
 	});
 });
 
@@ -249,6 +255,7 @@ describe("edit_artifact.document", () => {
 		});
 
 		expect(result?.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false, code: "request_adjusted" });
 	});
 
 	// The dev live check (2026-09-26): the real model tried "insert_after"
@@ -394,6 +401,7 @@ describe("edit_artifact.document", () => {
 		});
 
 		expect(result?.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false, code: "stopped" });
 	});
 });
 
@@ -448,6 +456,8 @@ describe("RV-1A: edit_artifact's tool-call metadata names each refused op", () =
 
 		// The open panel rebuilds its marks from exactly these two fields.
 		expect(run.metadata.appliedCount).toBe(1);
+		// One op applied and one was refused for another reason: nothing is named.
+		expect(run.metadata).not.toHaveProperty("reasonCode");
 		expect(JSON.parse(String(run.metadata.refusedBlocksJson))).toEqual([
 			{ blockId: block.blockId, reason: "find_not_found", opIndex: 0 },
 		]);
@@ -692,5 +702,198 @@ describe("ruling 47: edit_artifact always appends, through the tool-handler seam
 		expect(rows[1].body).toContain("Alpha, as the user wrote it.");
 		expect(rows[2]).toMatchObject({ versionNumber: 3, author: "alfy" });
 		expect(rows[2].body).toContain("Beta, edited by Alfy.");
+	});
+});
+
+// A call that did not work names why from edit_artifact's closed list of
+// reasons, on the entry's metadata, beside the payload the model reads, which is
+// as it always was. Through `runEditArtifactTool`, the same seam the model calls.
+describe("edit_artifact.document — the reason a call did not work", () => {
+	async function createDoc(markdown: string) {
+		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			title: "Saturday plan",
+			body: markdown,
+			abortSignal: abortSignal(),
+		});
+		if (!created?.ok) throw new Error("setup: create failed");
+		return created.value.artifactId;
+	}
+
+	async function blocksOf(artifactId: string) {
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Saturday plan",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		return (read?.blocks ?? []) as { blockId: string; hash: string }[];
+	}
+
+	// The reader changes a block directly, after Alfy read it.
+	async function readerEdits(
+		artifactId: string,
+		blockId: string,
+		markdown: string,
+	) {
+		const artifact = await getArtifact({ userId, artifactId, conversationId });
+		const parsed = parseDocument(artifact?.body ?? "", { mint: false });
+		const edited = parsed.blocks.map((b) =>
+			b.id === blockId ? { ...b, markdown } : b,
+		);
+		await saveDocumentBody({
+			userId,
+			artifactId,
+			body: { markdown: serializeDocument(edited), tabs: [] },
+			author: "user",
+			summary: "the user's edit",
+		});
+	}
+
+	function edit(
+		artifactId: string,
+		input: { patches?: unknown[]; ops?: unknown[] },
+		signal: AbortSignal = abortSignal(),
+	) {
+		return runEditArtifactTool({
+			userId,
+			conversationId,
+			turnId: "turn-2",
+			artifactId,
+			abortSignal: signal,
+			...input,
+		});
+	}
+
+	it("names ops sent for a Document request_adjusted, and the model reads the same words", async () => {
+		const artifactId = await createDoc("First paragraph.");
+
+		const result = await edit(artifactId, { ops: [{ op: "move" }] });
+
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error: "Documents use patches, not ops.",
+		});
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "request_adjusted",
+		});
+	});
+
+	it("names a malformed patch request_adjusted", async () => {
+		const artifactId = await createDoc("First paragraph.");
+
+		const result = await edit(artifactId, {
+			patches: [{ op: "replaceBlock", blockId: "p1", text: "x" }],
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		expect(result.metadata.reasonCode).toBe("request_adjusted");
+	});
+
+	it("names a call cancelled before it wrote a stop", async () => {
+		const artifactId = await createDoc("First paragraph.");
+		const [block] = await blocksOf(artifactId);
+
+		const result = await edit(
+			artifactId,
+			{
+				patches: [
+					{
+						op: "replaceBlock",
+						blockId: block.blockId,
+						baseHash: block.hash,
+						text: "nope",
+					},
+				],
+			},
+			abortSignal(true),
+		);
+
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error: "The request was cancelled.",
+		});
+		expect(result.metadata.reasonCode).toBe("stopped");
+	});
+
+	it("names an edit in which every op was changed by the reader since the read changed_since_read, and it stays a success with nothing applied", async () => {
+		const artifactId = await createDoc("Original text.");
+		const [block] = await blocksOf(artifactId);
+		await readerEdits(artifactId, block.blockId, "The user changed this.");
+
+		const result = await edit(artifactId, {
+			patches: [
+				{
+					op: "replaceBlock",
+					blockId: block.blockId,
+					baseHash: block.hash,
+					text: "Alfy's stale change",
+				},
+			],
+		});
+
+		// What the model reads is a success that applied nothing, as it always was.
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			applied: 0,
+			refused: [{ target: block.blockId, reason: "block_changed" }],
+		});
+		expect(result.metadata).toMatchObject({
+			ok: true,
+			appliedCount: 0,
+			reasonCode: "changed_since_read",
+		});
+		expect(JSON.parse(String(result.metadata.refusedBlocksJson))).toEqual([
+			{ blockId: block.blockId, reason: "block_changed", opIndex: 0 },
+		]);
+	});
+
+	it("names nothing when the reader's change cost only one of the ops", async () => {
+		const artifactId = await createDoc("First paragraph.\n\nSecond paragraph.");
+		const [first, second] = await blocksOf(artifactId);
+		await readerEdits(artifactId, first.blockId, "The user changed this.");
+
+		const result = await edit(artifactId, {
+			patches: [
+				{
+					op: "replaceBlock",
+					blockId: first.blockId,
+					baseHash: first.hash,
+					text: "Alfy's stale change",
+				},
+				{
+					op: "replaceBlock",
+					blockId: second.blockId,
+					baseHash: second.hash,
+					text: "Alfy's change",
+				},
+			],
+		});
+
+		expect(result.metadata).toMatchObject({ ok: true, appliedCount: 1 });
+		expect(result.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names nothing when every op was refused for a reason other than the reader's change", async () => {
+		const artifactId = await createDoc("First paragraph.");
+
+		const result = await edit(artifactId, {
+			patches: [
+				{
+					op: "replaceBlock",
+					blockId: "no-such-block",
+					baseHash: "no-such-hash",
+					text: "x",
+				},
+			],
+		});
+
+		expect(result.metadata).toMatchObject({ appliedCount: 0 });
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 });

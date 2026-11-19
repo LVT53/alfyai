@@ -5652,6 +5652,121 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		});
 	});
 
+	// A call that did not work names why from the tool's closed list of reasons, on
+	// the entry's metadata: the model reads what it always read.
+	describe("names why a call did not work", () => {
+		it("names the call past the per-turn cap reply_limit_reached, and only that one", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+			const { tools, getToolCalls } = artifactTools();
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				);
+			}
+
+			const over = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "One too many", body: "content" },
+				{ toolCallId: "call-over", messages: [] },
+			);
+
+			expect(over).toMatchObject({ success: false });
+			expect(JSON.stringify(over)).not.toContain("reply_limit_reached");
+			const entry = getToolCalls().find((item) => item.callId === "call-over");
+			expect(entry?.status).toBe("done");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "reply_limit_reached",
+			});
+			expect(
+				getToolCalls().filter((item) => item.metadata?.reasonCode),
+			).toHaveLength(1);
+		});
+
+		it("records a create call whose input did not fit, so its row can say the call was adjusted, and the history digest stays what it was", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "x".repeat(201), body: "b" },
+				{ toolCallId: "call-bad-create", messages: [] },
+			);
+
+			expect(result).toEqual({ success: false, error: expect.any(String) });
+			expect(JSON.stringify(result)).not.toContain("request_adjusted");
+			const entries = getToolCalls();
+			expect(entries).toHaveLength(1);
+			const [entry] = entries;
+			expect(entry).toEqual({
+				callId: "call-bad-create",
+				name: "create_artifact",
+				input: {},
+				status: "done",
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			// No summary, no digest and no candidates: the digest a later turn replays
+			// is the "Completed." of a call that left no entry.
+			expect(buildHistoryToolDigest(entry)).toEqual(
+				buildHistoryToolDigest({ status: "done" }),
+			);
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("records an edit call whose input did not fit, likewise", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.edit_artifact.execute?.(
+				{
+					artifactId: "unseeded-id",
+					ops: Array.from({ length: 41 }, () => ({})),
+				},
+				{ toolCallId: "call-bad-edit", messages: [] },
+			);
+
+			expect(result).toEqual({ success: false, error: expect.any(String) });
+			expect(JSON.stringify(result)).not.toContain("request_adjusted");
+			const [entry] = getToolCalls();
+			expect(getToolCalls()).toHaveLength(1);
+			expect(entry).toEqual({
+				callId: "call-bad-edit",
+				name: "edit_artifact",
+				input: {},
+				status: "done",
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("names an edit that sent patches and ops together request_adjusted, through the real tool", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.edit_artifact.execute?.(
+				{ artifactId: "unseeded-id", patches: [{}], ops: [{}] },
+				{ toolCallId: "call-both", messages: [] },
+			);
+
+			expect(result).toEqual({
+				success: false,
+				error: "Send patches or ops, never both in the same call.",
+			});
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "request_adjusted",
+			});
+		});
+	});
+
 	// A gap found after the shell shipped: unlike produce_file
 	// (MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS /
 	// MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN), create_artifact had no per-turn

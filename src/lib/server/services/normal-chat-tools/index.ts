@@ -1921,6 +1921,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "create_artifact",
+						});
 						return {
 							success: false,
 							error,
@@ -1945,7 +1949,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							status: "done",
 							outputSummary: message,
 							sourceType: "tool",
-							metadata: { ok: false, error: message },
+							metadata: {
+								ok: false,
+								error: message,
+								...reasonMetadata("create_artifact", "reply_limit_reached"),
+							},
 						});
 						return payload;
 					}
@@ -2087,6 +2095,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "edit_artifact",
+						});
 						return { success: false, error } satisfies EditArtifactModelPayload;
 					}
 					const safeInput = parsedInput.data;
