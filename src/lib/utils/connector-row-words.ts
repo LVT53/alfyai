@@ -243,6 +243,26 @@ export function localizedThingTitle(
 	return title;
 }
 
+/**
+ * The accounts whose Hungarian name is a plural: "Névjegyek nincsenek
+ * csatlakoztatva", where "Naptár nincs csatlakoztatva" is singular. English has
+ * no number to agree, and says the same words for both.
+ */
+const PLURAL_ACCOUNTS: ReadonlySet<ConnectorTool> = new Set([
+	"contacts",
+	"files",
+	"photos",
+	"repos",
+	"tasks",
+]);
+
+/** What an account row says of a run whose every call found the account not connected, agreeing with the account's name. */
+export function connectorNotConnectedKey(tool: string): I18nKey {
+	return isConnectorTool(tool) && PLURAL_ACCOUNTS.has(tool)
+		? "toolRows.object.notConnectedPlural"
+		: "toolRows.object.notConnected";
+}
+
 /** Every word key this module can answer with, for the one test that asserts each resolves in both languages. */
 export function connectorWordKeys(): I18nKey[] {
 	const keys = new Set<I18nKey>([
@@ -250,6 +270,7 @@ export function connectorWordKeys(): I18nKey[] {
 		"toolRows.unit.messages",
 		"toolRows.unit.found",
 		"toolRows.object.notConnected",
+		"toolRows.object.notConnectedPlural",
 		"toolRows.placeholder.untitledEvent",
 		"toolRows.placeholder.noSubject",
 		"toolRows.placeholder.photo",

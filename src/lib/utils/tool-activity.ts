@@ -30,6 +30,7 @@ import {
 } from "$lib/shared/url-provenance";
 import {
 	connectorCountOf,
+	connectorNotConnectedKey,
 	connectorPhraseKey,
 	connectorThingsIcon,
 	connectorUnitKey,
@@ -1836,7 +1837,7 @@ export function buildConnectorActivityItem(
 	const counted = calls.filter((call) => call.count !== null);
 	const notConnected = calls.every((call) => call.code === "not_connected");
 	const object = notConnected
-		? translate("toolRows.object.notConnected")
+		? translate(connectorNotConnectedKey(tools[0].name))
 		: counted.length > 0
 			? translate(connectorUnitKey(tools[0].name), {
 					count: counted.reduce((sum, call) => sum + (call.count ?? 0), 0),

@@ -2052,7 +2052,7 @@ const chatDict = {
 		"fileProduction.error.page_limit_exceeded":
 			"A dokumentumnak túl sok oldala lenne.",
 		"fileProduction.error.patch_not_applied":
-			"A módosítást nem sikerült alkalmazni a fájlon.",
+			"A fájlt nem sikerült a kért módon módosítani.",
 		"fileProduction.error.pdf_font_missing":
 			"A fájlhoz hiányzik egy betűtípus.",
 		"fileProduction.error.projection_too_large":
@@ -2314,11 +2314,11 @@ const chatDict = {
 		"toolCalls.contacts": "Névjegyek",
 		"toolCalls.email": "E-mail",
 		"toolCalls.files": "Fájlok",
-		"toolCalls.location": "Helyzet",
+		"toolCalls.location": "Helymeghatározás",
 		"toolCalls.media": "Média",
 		"toolCalls.photos": "Fényképek",
-		"toolCalls.repos": "Kód",
-		"toolCalls.tasks": "Teendők",
+		"toolCalls.repos": "Tárolók",
+		"toolCalls.tasks": "Feladatok",
 		"toolCalls.sourcesCount": "{count} forrás",
 		"toolCalls.citedCount": "{count} idézett",
 		"toolCalls.readPagesCount": "{count} oldal elolvasva",
@@ -2411,7 +2411,7 @@ const chatDict = {
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",
 		// A number takes the singular after it, so there is no plural to split.
-		"toolActivity.photosViewed": "{count} fotót megnézett",
+		"toolActivity.photosViewed": "{count} fényképet megnézett",
 		// A térképkártya lépésről lépésre törzse (RouteItinerary.svelte).
 		"routeItinerary.directions": "Útbaigazítás",
 		"routeItinerary.showAllSteps": "Mind a(z) {count} lépés",

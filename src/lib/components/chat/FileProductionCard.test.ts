@@ -331,7 +331,7 @@ describe("FileProductionCard", () => {
 				"patch_not_applicable",
 			],
 			"The change couldn't be applied to the file.",
-			"A módosítást nem sikerült alkalmazni a fájlon.",
+			"A fájlt nem sikerült a kért módon módosítani.",
 		],
 		[
 			"as many files as one reply allows",

@@ -510,7 +510,7 @@ describe("tool activity row grammar", () => {
 			expect(item.verb).toBe("Looked at 6 photos");
 		});
 
-		it("is Hungarian in a Hungarian turn: '6 fotót megnézett'", async () => {
+		it("is Hungarian in a Hungarian turn, in Settings' noun: '6 fényképet megnézett'", async () => {
 			const { uiLanguage } = await import("$lib/stores/settings");
 			uiLanguage.set("hu");
 			try {
@@ -520,7 +520,7 @@ describe("tool activity row grammar", () => {
 					get(t),
 				);
 
-				expect(item.verb).toBe("6 fotót megnézett");
+				expect(item.verb).toBe("6 fényképet megnézett");
 			} finally {
 				uiLanguage.set("en");
 			}
@@ -2179,6 +2179,25 @@ describe("rows read their reason", () => {
 		});
 	});
 
+	it("says a trip across map areas, in the app's words, in both languages", async () => {
+		const trip = {
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Cork" },
+			status: "done" as const,
+			metadata: { ok: false, reasonCode: "multi_region" },
+		};
+		expect(row(trip).body).toEqual({
+			kind: "reason",
+			text: "This trip crosses map areas, which isn't possible yet.",
+		});
+		await inHungarian((hu) => {
+			expect(row(trip, hu).body).toEqual({
+				kind: "reason",
+				text: "Ez az út több térképterületen halad át, ami még nem lehetséges.",
+			});
+		});
+	});
+
 	it("a stop the person pressed reads as the quiet dash, not as a failure, for any tool", () => {
 		const item = row({
 			name: "research_web",
@@ -3417,6 +3436,37 @@ describe("your accounts", () => {
 		});
 	});
 
+	it("agrees 'not connected' with the account's number in Hungarian: Névjegyek nincsenek, Naptár nincs", async () => {
+		const notConnected = (tool: string) => [
+			call(tool, "list", {
+				status: "done",
+				metadata: { ok: false, reasonCode: "not_connected" },
+			}),
+		];
+		await inHungarian((hu) => {
+			const expected: Record<string, [string, string]> = {
+				calendar: ["Naptár", "nincs csatlakoztatva"],
+				contacts: ["Névjegyek", "nincsenek csatlakoztatva"],
+				email: ["E-mail", "nincs csatlakoztatva"],
+				files: ["Fájlok", "nincsenek csatlakoztatva"],
+				location: ["Helymeghatározás", "nincs csatlakoztatva"],
+				media: ["Média", "nincs csatlakoztatva"],
+				photos: ["Fényképek", "nincsenek csatlakoztatva"],
+				repos: ["Tárolók", "nincsenek csatlakoztatva"],
+				tasks: ["Feladatok", "nincsenek csatlakoztatva"],
+			};
+			for (const [tool, [label, object]] of Object.entries(expected)) {
+				const item = group(notConnected(tool), hu, { locale: "hu-HU" });
+				expect(item.verb, tool).toBe(label);
+				expect(item.object, tool).toBe(object);
+			}
+		});
+		// English has no number to agree: the same words for every account.
+		for (const tool of ["calendar", "contacts", "files", "tasks"]) {
+			expect(group(notConnected(tool)).object, tool).toBe("not connected");
+		}
+	});
+
 	// Review focus 3: one run with mixed outcomes.
 	it("takes the worst kind among a run's calls, and keeps each call's own line", () => {
 		const worked = call("calendar", "list_events", {
@@ -3580,7 +3630,7 @@ describe("your accounts", () => {
 					}),
 				]),
 			),
-		).toEqual([{ title: "A place at Wed 18:42" }]);
+		).toEqual([{ title: "Unnamed place, Wed 18:42" }]);
 
 		await inHungarian((hu) => {
 			const huOptions = { locale: "hu-HU", timeZone: "UTC" };
@@ -3635,7 +3685,7 @@ describe("your accounts", () => {
 						huOptions,
 					),
 				),
-			).toEqual([{ title: "Egy hely, Sze 18:42" }]);
+			).toEqual([{ title: "Névtelen hely, Sze 18:42" }]);
 		});
 	});
 

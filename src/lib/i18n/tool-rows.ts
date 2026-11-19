@@ -62,15 +62,16 @@ const toolRowsDict = {
 			"{count} message{count, plural, one {} other {s}}",
 		"toolRows.unit.found": "{count} found",
 		"toolRows.object.notConnected": "not connected",
+		"toolRows.object.notConnectedPlural": "not connected",
 
 		// The English stand-ins the account tools give a thing that has no name,
 		// shown in the person's own words.
 		"toolRows.placeholder.untitledEvent": "Untitled event",
 		"toolRows.placeholder.noSubject": "No subject",
 		"toolRows.placeholder.photo": "Photo",
-		"toolRows.placeholder.placeAt": "A place at {time}",
+		"toolRows.placeholder.placeAt": "Unnamed place, {time}",
 		"toolRows.placeholder.unnamedContact": "Unnamed contact",
-		"toolRows.placeholder.watchedItem": "A watched title",
+		"toolRows.placeholder.watchedItem": "Something you watched",
 
 		// What each call of an account tool did, one phrase per action the tool's
 		// schema offers, and one for an action this list does not know. A change is
@@ -213,7 +214,7 @@ const toolRowsDict = {
 		"toolRows.connector.contacts.no_such_account":
 			"There's no connected address book by that name.",
 		"toolRows.connector.contacts.account_unreachable":
-			"Your contacts didn't answer, so Alfy couldn't look.",
+			"Your address book didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.contacts.writes_turned_off":
 			"Changing your contacts is turned off. You can turn it on in Settings › Connections.",
 		"toolRows.connector.contacts.read_only_account":
@@ -221,7 +222,7 @@ const toolRowsDict = {
 		"toolRows.connector.contacts.item_not_found":
 			"Alfy couldn't find that contact.",
 		"toolRows.connector.contacts.not_supported":
-			"These contacts can't do that.",
+			"This address book can't do that.",
 		"toolRows.connector.contacts.not_set_up":
 			"Your contacts aren't set up yet.",
 		"toolRows.connector.contacts.fallback":
@@ -234,7 +235,7 @@ const toolRowsDict = {
 		"toolRows.connector.email.no_such_account":
 			"There's no connected email account by that name.",
 		"toolRows.connector.email.account_unreachable":
-			"Your email didn't answer, so Alfy couldn't look.",
+			"Your mail server didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.email.writes_turned_off":
 			"Changing your email is turned off. You can turn it on in Settings › Connections.",
 		"toolRows.connector.email.read_only_account":
@@ -265,7 +266,8 @@ const toolRowsDict = {
 			"That file is too large to open here.",
 		"toolRows.connector.files.not_supported":
 			"This file storage can't do that.",
-		"toolRows.connector.files.not_set_up": "Your files aren't set up yet.",
+		"toolRows.connector.files.not_set_up":
+			"Your file storage isn't set up yet.",
 		"toolRows.connector.files.fallback":
 			"Alfy couldn't use your files this time.",
 
@@ -274,9 +276,9 @@ const toolRowsDict = {
 		"toolRows.connector.location.needs_reconnect":
 			"Location needs to be connected again. You can do it in Settings › Connections.",
 		"toolRows.connector.location.no_such_account":
-			"There's no connected location source by that name.",
+			"There's no connected location service by that name.",
 		"toolRows.connector.location.account_unreachable":
-			"Your location source didn't answer, so Alfy couldn't look.",
+			"Your location service didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.location.writes_turned_off":
 			"Changing your location is turned off. You can turn it on in Settings › Connections.",
 		"toolRows.connector.location.read_only_account":
@@ -284,8 +286,9 @@ const toolRowsDict = {
 		"toolRows.connector.location.item_not_found":
 			"Alfy couldn't find that place.",
 		"toolRows.connector.location.not_supported":
-			"Your location source can't do that.",
-		"toolRows.connector.location.not_set_up": "Your home isn't set yet.",
+			"Your location service can't do that.",
+		"toolRows.connector.location.not_set_up":
+			"Location isn't fully set up yet.",
 		"toolRows.connector.location.fallback":
 			"Alfy couldn't use your location this time.",
 
@@ -327,7 +330,8 @@ const toolRowsDict = {
 			"That photo is too large to open here.",
 		"toolRows.connector.photos.not_supported":
 			"This photo library can't do that.",
-		"toolRows.connector.photos.not_set_up": "Your photos aren't set up yet.",
+		"toolRows.connector.photos.not_set_up":
+			"Your photo library isn't set up yet.",
 		"toolRows.connector.photos.fallback":
 			"Alfy couldn't use your photos this time.",
 
@@ -336,17 +340,17 @@ const toolRowsDict = {
 		"toolRows.connector.repos.needs_reconnect":
 			"Repositories need to be connected again. You can do it in Settings › Connections.",
 		"toolRows.connector.repos.no_such_account":
-			"There's no connected code account by that name.",
+			"There's no connected repository account by that name.",
 		"toolRows.connector.repos.account_unreachable":
-			"Your code account didn't answer, so Alfy couldn't look.",
+			"Your repository account didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.repos.writes_turned_off":
 			"Changing your repositories is turned off. You can turn it on in Settings › Connections.",
 		"toolRows.connector.repos.read_only_account":
-			"This code account can only be read, not changed.",
+			"This repository account can only be read, not changed.",
 		"toolRows.connector.repos.item_not_found":
 			"Alfy couldn't find that repository, issue or pull request.",
 		"toolRows.connector.repos.not_supported":
-			"This code account can't do that.",
+			"This repository account can't do that.",
 		"toolRows.connector.repos.not_set_up":
 			"Your repositories aren't set up yet.",
 		"toolRows.connector.repos.fallback":
@@ -359,7 +363,7 @@ const toolRowsDict = {
 		"toolRows.connector.tasks.no_such_account":
 			"There's no connected task list by that name.",
 		"toolRows.connector.tasks.account_unreachable":
-			"Your tasks didn't answer, so Alfy couldn't look.",
+			"Your task list didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.tasks.writes_turned_off":
 			"Changing your tasks is turned off. You can turn it on in Settings › Connections.",
 		"toolRows.connector.tasks.read_only_account":
@@ -512,13 +516,14 @@ const toolRowsDict = {
 		"toolRows.unit.messages": "{count} levél",
 		"toolRows.unit.found": "{count} találat",
 		"toolRows.object.notConnected": "nincs csatlakoztatva",
+		"toolRows.object.notConnectedPlural": "nincsenek csatlakoztatva",
 
 		"toolRows.placeholder.untitledEvent": "Névtelen esemény",
 		"toolRows.placeholder.noSubject": "Nincs tárgy",
-		"toolRows.placeholder.photo": "Fotó",
-		"toolRows.placeholder.placeAt": "Egy hely, {time}",
+		"toolRows.placeholder.photo": "Fénykép",
+		"toolRows.placeholder.placeAt": "Névtelen hely, {time}",
 		"toolRows.placeholder.unnamedContact": "Névtelen névjegy",
-		"toolRows.placeholder.watchedItem": "Megnézett cím",
+		"toolRows.placeholder.watchedItem": "Megnézett műsor",
 
 		"toolRows.connector.calendar.list_events": "Megnézte az eseményeidet",
 		"toolRows.connector.calendar.list_calendars": "Megnézte a naptáraidat",
@@ -537,7 +542,7 @@ const toolRowsDict = {
 		"toolRows.connector.email.send": "Levél küldését javasolta",
 		"toolRows.connector.email.trash": "Egy levél kukába helyezését javasolta",
 		"toolRows.connector.email.flag": "Egy levél megjelölését javasolta",
-		"toolRows.connector.email.other": "Használta a levelezésedet",
+		"toolRows.connector.email.other": "Használta az e-mail-fiókodat",
 		"toolRows.connector.files.list": "Megnézett egy mappát",
 		"toolRows.connector.files.search": "Keresett a fájljaid között",
 		"toolRows.connector.files.read": "Megnyitott egy fájlt",
@@ -547,15 +552,16 @@ const toolRowsDict = {
 		"toolRows.connector.files.create_folder": "Új mappát javasolt",
 		"toolRows.connector.files.share_link": "Megosztási linket javasolt",
 		"toolRows.connector.files.other": "Használta a fájljaidat",
-		"toolRows.connector.photos.search": "Keresett a fotóid között",
+		"toolRows.connector.photos.search": "Keresett a fényképeid között",
 		"toolRows.connector.photos.search_by_date":
-			"Megnézte a fotóidat dátum szerint",
+			"Megnézte a fényképeidet dátum szerint",
 		"toolRows.connector.photos.list_albums": "Megnézte az albumaidat",
 		"toolRows.connector.photos.album": "Megnézett egy albumot",
-		"toolRows.connector.photos.list_people": "Megnézte, kik vannak a fotóidon",
+		"toolRows.connector.photos.list_people":
+			"Megnézte, kik vannak a fényképeiden",
 		"toolRows.connector.photos.add_to_album":
-			"Fotók hozzáadását javasolta egy albumhoz",
-		"toolRows.connector.photos.other": "Használta a fotóidat",
+			"Fényképek hozzáadását javasolta egy albumhoz",
+		"toolRows.connector.photos.other": "Használta a fényképeidet",
 		"toolRows.connector.media.watch_history": "Megnézte, mit néztél",
 		"toolRows.connector.media.libraries": "Megnézte a médiatáraidat",
 		"toolRows.connector.media.continue_watching": "Megnézte, mit nézel éppen",
@@ -569,17 +575,17 @@ const toolRowsDict = {
 		"toolRows.connector.contacts.lookup": "Rákeresett egy névjegyre",
 		"toolRows.connector.contacts.group": "Megnézett egy névjegycsoportot",
 		"toolRows.connector.contacts.other": "Használta a névjegyeidet",
-		"toolRows.connector.repos.list_repos": "Megnézte a kódtáraidat",
-		"toolRows.connector.repos.read_file": "Elolvasott egy fájlt egy kódtárból",
+		"toolRows.connector.repos.list_repos": "Megnézte a tárolóidat",
+		"toolRows.connector.repos.read_file": "Elolvasott egy fájlt egy tárolóból",
 		"toolRows.connector.repos.list_issues": "Megnézte a hibajegyeket",
 		"toolRows.connector.repos.list_prs": "Megnézte a pull requesteket",
 		"toolRows.connector.repos.list_commits": "Megnézte a commitokat",
 		"toolRows.connector.repos.ci_status": "Megnézte a build állapotát",
 		"toolRows.connector.repos.search_code": "Keresett a kódban",
-		"toolRows.connector.repos.other": "Használta a kódtáraidat",
-		"toolRows.connector.tasks.list_tasks": "Megnézte a teendőidet",
-		"toolRows.connector.tasks.search_tasks": "Keresett a teendőid között",
-		"toolRows.connector.tasks.other": "Használta a teendőidet",
+		"toolRows.connector.repos.other": "Használta a tárolóidat",
+		"toolRows.connector.tasks.list_tasks": "Megnézte a feladataidat",
+		"toolRows.connector.tasks.search_tasks": "Keresett a feladataid között",
+		"toolRows.connector.tasks.other": "Használta a feladataidat",
 
 		// research_web
 		"toolRows.research_web.search_unavailable":
@@ -656,7 +662,7 @@ const toolRowsDict = {
 		"toolRows.connector.contacts.no_such_account":
 			"Nincs ilyen nevű csatlakoztatott névjegyzék.",
 		"toolRows.connector.contacts.account_unreachable":
-			"A névjegyek nem válaszoltak, ezért Alfy nem tudott belenézni.",
+			"A névjegyzék nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.contacts.writes_turned_off":
 			"A névjegyek módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
 		"toolRows.connector.contacts.read_only_account":
@@ -664,32 +670,34 @@ const toolRowsDict = {
 		"toolRows.connector.contacts.item_not_found":
 			"Alfy nem találta ezt a névjegyet.",
 		"toolRows.connector.contacts.not_supported":
-			"A névjegyek erre nem képesek.",
+			"Ez a névjegyzék erre nem képes.",
 		"toolRows.connector.contacts.not_set_up":
 			"A névjegyeid még nincsenek beállítva.",
 		"toolRows.connector.contacts.fallback":
 			"Alfy most nem tudta használni a névjegyeidet.",
 
 		"toolRows.connector.email.not_connected":
-			"A levelezés még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
+			"Az e-mail még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
 		"toolRows.connector.email.needs_reconnect":
-			"A levelezést újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
+			"Az e-mailt újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
 		"toolRows.connector.email.no_such_account":
-			"Nincs ilyen nevű csatlakoztatott levelezés.",
+			"Nincs ilyen nevű csatlakoztatott e-mail-fiók.",
 		"toolRows.connector.email.account_unreachable":
-			"A levelezés nem válaszolt, ezért Alfy nem tudott belenézni.",
+			"A levelezőszerver nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.email.writes_turned_off":
-			"A levelezés módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+			"Az e-mail módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
 		"toolRows.connector.email.read_only_account":
-			"Ez a levelezés csak olvasható, nem módosítható.",
+			"Ez az e-mail-fiók csak olvasható, nem módosítható.",
 		"toolRows.connector.email.item_not_found":
 			"Alfy nem találta ezt a levelet.",
 		"toolRows.connector.email.too_large":
 			"Ez a levél túl nagy ahhoz, hogy itt megnyíljon.",
-		"toolRows.connector.email.not_supported": "Ez a levelezés erre nem képes.",
-		"toolRows.connector.email.not_set_up": "A levelezésed még nincs beállítva.",
+		"toolRows.connector.email.not_supported":
+			"Ez az e-mail-fiók erre nem képes.",
+		"toolRows.connector.email.not_set_up":
+			"Az e-mail-fiókod még nincs beállítva.",
 		"toolRows.connector.email.fallback":
-			"Alfy most nem tudta használni a levelezésedet.",
+			"Alfy most nem tudta használni az e-mailedet.",
 
 		"toolRows.connector.files.not_connected":
 			"A fájlok még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
@@ -707,27 +715,28 @@ const toolRowsDict = {
 		"toolRows.connector.files.too_large":
 			"Ez a fájl túl nagy ahhoz, hogy itt megnyíljon.",
 		"toolRows.connector.files.not_supported": "Ez a tárhely erre nem képes.",
-		"toolRows.connector.files.not_set_up":
-			"A fájljaid még nincsenek beállítva.",
+		"toolRows.connector.files.not_set_up": "A tárhelyed még nincs beállítva.",
 		"toolRows.connector.files.fallback":
 			"Alfy most nem tudta használni a fájljaidat.",
 
 		"toolRows.connector.location.not_connected":
-			"A helyadatok még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
+			"A helymeghatározás még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
 		"toolRows.connector.location.needs_reconnect":
-			"A helyadatokat újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
+			"A helymeghatározást újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
 		"toolRows.connector.location.no_such_account":
-			"Nincs ilyen nevű csatlakoztatott helyforrás.",
+			"Nincs ilyen nevű csatlakoztatott helyszolgáltatás.",
 		"toolRows.connector.location.account_unreachable":
-			"A helyforrás nem válaszolt, ezért Alfy nem tudott belenézni.",
+			"A helyszolgáltatás nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.location.writes_turned_off":
-			"A helyadatok módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+			"A helymeghatározás módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
 		"toolRows.connector.location.read_only_account":
 			"A helyadataid csak olvashatók, nem módosíthatók.",
 		"toolRows.connector.location.item_not_found":
 			"Alfy nem találta ezt a helyet.",
-		"toolRows.connector.location.not_supported": "A helyforrás erre nem képes.",
-		"toolRows.connector.location.not_set_up": "Az otthonod még nincs megadva.",
+		"toolRows.connector.location.not_supported":
+			"A helyszolgáltatás erre nem képes.",
+		"toolRows.connector.location.not_set_up":
+			"A helyadatok még nincsenek teljesen beállítva.",
 		"toolRows.connector.location.fallback":
 			"Alfy most nem tudta használni a helyadataidat.",
 
@@ -752,65 +761,68 @@ const toolRowsDict = {
 			"Alfy most nem tudta használni a médiádat.",
 
 		"toolRows.connector.photos.not_connected":
-			"A fotók még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
+			"A fényképek még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
 		"toolRows.connector.photos.needs_reconnect":
-			"A fotókat újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
+			"A fényképeket újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
 		"toolRows.connector.photos.no_such_account":
-			"Nincs ilyen nevű csatlakoztatott fotótár.",
+			"Nincs ilyen nevű csatlakoztatott fényképtár.",
 		"toolRows.connector.photos.account_unreachable":
-			"A fotótár nem válaszolt, ezért Alfy nem tudott belenézni.",
+			"A fényképtár nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.photos.writes_turned_off":
-			"A fotók módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+			"A fényképek módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
 		"toolRows.connector.photos.read_only_account":
-			"Ez a fotótár csak olvasható, nem módosítható.",
-		"toolRows.connector.photos.item_not_found": "Alfy nem találta ezt a fotót.",
+			"Ez a fényképtár csak olvasható, nem módosítható.",
+		"toolRows.connector.photos.item_not_found":
+			"Alfy nem találta ezt a fényképet.",
 		"toolRows.connector.photos.too_large":
-			"Ez a fotó túl nagy ahhoz, hogy itt megnyíljon.",
-		"toolRows.connector.photos.not_supported": "Ez a fotótár erre nem képes.",
-		"toolRows.connector.photos.not_set_up": "A fotóid még nincsenek beállítva.",
+			"Ez a fénykép túl nagy ahhoz, hogy itt megnyíljon.",
+		"toolRows.connector.photos.not_supported":
+			"Ez a fényképtár erre nem képes.",
+		"toolRows.connector.photos.not_set_up":
+			"A fényképtárad még nincs beállítva.",
 		"toolRows.connector.photos.fallback":
-			"Alfy most nem tudta használni a fotóidat.",
+			"Alfy most nem tudta használni a fényképeidet.",
 
 		"toolRows.connector.repos.not_connected":
-			"A kódtárak még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
+			"A tárolók még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
 		"toolRows.connector.repos.needs_reconnect":
-			"A kódtárakat újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
+			"A tárolókat újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
 		"toolRows.connector.repos.no_such_account":
-			"Nincs ilyen nevű csatlakoztatott kódtár.",
+			"Nincs ilyen nevű csatlakoztatott tárolófiók.",
 		"toolRows.connector.repos.account_unreachable":
-			"A kódtár nem válaszolt, ezért Alfy nem tudott belenézni.",
+			"A tárolófiók nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.repos.writes_turned_off":
-			"A kódtárak módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+			"A tárolók módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
 		"toolRows.connector.repos.read_only_account":
-			"Ez a kódtár csak olvasható, nem módosítható.",
+			"Ez a tárolófiók csak olvasható, nem módosítható.",
 		"toolRows.connector.repos.item_not_found":
-			"Alfy nem találta ezt a kódtárat, hibajegyet vagy pull requestet.",
-		"toolRows.connector.repos.not_supported": "Ez a kódtár erre nem képes.",
+			"Alfy nem találta ezt a tárolót, hibajegyet vagy pull requestet.",
+		"toolRows.connector.repos.not_supported": "Ez a tárolófiók erre nem képes.",
 		"toolRows.connector.repos.not_set_up":
-			"A kódtáraid még nincsenek beállítva.",
+			"A tárolóid még nincsenek beállítva.",
 		"toolRows.connector.repos.fallback":
-			"Alfy most nem tudta használni a kódtáraidat.",
+			"Alfy most nem tudta használni a tárolóidat.",
 
 		"toolRows.connector.tasks.not_connected":
-			"A teendők még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
+			"A feladatok még nincsenek csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod őket.",
 		"toolRows.connector.tasks.needs_reconnect":
-			"A teendőket újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
+			"A feladatokat újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
 		"toolRows.connector.tasks.no_such_account":
-			"Nincs ilyen nevű csatlakoztatott teendőlista.",
+			"Nincs ilyen nevű csatlakoztatott feladatlista.",
 		"toolRows.connector.tasks.account_unreachable":
-			"A teendők nem válaszoltak, ezért Alfy nem tudott belenézni.",
+			"A feladatlista nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.tasks.writes_turned_off":
-			"A teendők módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+			"A feladatok módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
 		"toolRows.connector.tasks.read_only_account":
-			"Ezek a teendők csak olvashatók, nem módosíthatók.",
+			"Ezek a feladatok csak olvashatók, nem módosíthatók.",
 		"toolRows.connector.tasks.item_not_found":
-			"Alfy nem találta ezt a teendőt.",
+			"Alfy nem találta ezt a feladatot.",
 		"toolRows.connector.tasks.not_supported":
-			"Ez a teendőlista erre nem képes.",
+			"Ez a feladatlista erre nem képes.",
 		"toolRows.connector.tasks.not_set_up":
-			"A teendőid még nincsenek beállítva.",
+			"A feladataid még nincsenek beállítva.",
 		"toolRows.connector.tasks.fallback":
-			"Alfy most nem tudta használni a teendőidet.",
+			"Alfy most nem tudta használni a feladataidat.",
 
 		// run_python
 		"toolRows.run_python.timed_out": "A számítás kifutott az időből.",
@@ -824,7 +836,7 @@ const toolRowsDict = {
 		"toolRows.map_route.region_preparing":
 			"Ennek a területnek a térképe még készül. Próbáld újra később.",
 		"toolRows.map_route.multi_region":
-			"Ez az út több térképterületen halad át, ez még nem lehetséges.",
+			"Ez az út több térképterületen halad át, ami még nem lehetséges.",
 		"toolRows.map_route.region_unavailable":
 			"Ennek a területnek a térképe most nem érhető el.",
 		"toolRows.map_route.transit_unavailable":
