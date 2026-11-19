@@ -1803,15 +1803,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
 						// The model is answered as before; the row learns the call was
-						// changed to fit (an entry with nothing the digest would read).
-						recordSchemaFailure(recorder, {
+						// changed to fit (an entry with nothing the digest would read),
+						// and the engine still counts the call uncertain, as it did when
+						// the call recorded nothing.
+						return recordSchemaFailure(recorder, {
 							callId: options.toolCallId,
 							name: "read_generated_file",
+							payload: {
+								found: false,
+								error,
+							},
 						});
-						return {
-							found: false,
-							error,
-						};
 					}
 					const safeInput = sanitizeReadGeneratedFileInput(parsedInput.data);
 					return executeToolWithEnvelope({
@@ -1921,14 +1923,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						recordSchemaFailure(recorder, {
+						return recordSchemaFailure(recorder, {
 							callId: options.toolCallId,
 							name: "create_artifact",
+							payload: {
+								success: false,
+								error,
+							} satisfies CreateArtifactModelPayload,
 						});
-						return {
-							success: false,
-							error,
-						} satisfies CreateArtifactModelPayload;
 					}
 					const safeInput = parsedInput.data;
 					// Counted and refused exactly the way
@@ -2095,11 +2097,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						recordSchemaFailure(recorder, {
+						return recordSchemaFailure(recorder, {
 							callId: options.toolCallId,
 							name: "edit_artifact",
+							payload: {
+								success: false,
+								error,
+							} satisfies EditArtifactModelPayload,
 						});
-						return { success: false, error } satisfies EditArtifactModelPayload;
 					}
 					const safeInput = parsedInput.data;
 					return executeToolWithEnvelope<EditArtifactModelPayload>({

@@ -436,18 +436,33 @@ export type SchemaFailureTool =
  * The entry keeps the history digest what it was for a call with no entry: a
  * "done" status, an empty input and no summary, digest or candidates, so a later
  * turn still replays "Completed." (`buildHistoryToolDigest`).
+ *
+ * The engine must go on treating the call as it did while it recorded nothing:
+ * a call with no row is `uncertain`, and the engine ends the turn at the first
+ * uncertain call. A row with a "done" status would read as a success
+ * (`classifyExecution`, `chat-turn/prepared-normal-chat-turn.ts`), so the call
+ * says what it is: the entry is recorded with the execution fact `uncertain`,
+ * bound to the payload the tool answers with, and the payload is handed back to
+ * be returned as it is (the fact is keyed by that very object).
  */
-export function recordSchemaFailure(
+export function recordSchemaFailure<TPayload extends object>(
 	recorder: ToolCallRecorder,
-	params: { callId: string; name: SchemaFailureTool },
-): void {
-	recorder.record({
-		callId: params.callId,
-		name: params.name,
-		input: {},
-		status: "done",
-		metadata: { ok: false, ...reasonMetadata(params.name, "request_adjusted") },
-	});
+	params: { callId: string; name: SchemaFailureTool; payload: TPayload },
+): TPayload {
+	recorder.record(
+		{
+			callId: params.callId,
+			name: params.name,
+			input: {},
+			status: "done",
+			metadata: {
+				ok: false,
+				...reasonMetadata(params.name, "request_adjusted"),
+			},
+		},
+		{ state: "uncertain", result: params.payload },
+	);
+	return params.payload;
 }
 
 // ── Local distillation mark ────────────────────────────────────

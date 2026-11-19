@@ -5317,7 +5317,12 @@ describe("createNormalChatTools", () => {
 // throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
 // exactly the "an id this conversation does not have" case.
 describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
-	function artifactTools(overrides: { requestText?: string } = {}) {
+	function artifactTools(
+		overrides: {
+			requestText?: string;
+			recorder?: ReturnType<typeof createToolCallRecorder>;
+		} = {},
+	) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
@@ -5717,6 +5722,31 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 				ok: true,
 				summary: "Completed.",
 			});
+		});
+
+		it("holds a call whose input did not fit as uncertain, as it was while the call recorded nothing", async () => {
+			// A call with no row is `uncertain` and the engine ends the turn at it; the
+			// row it records now says "done", so the fact is recorded with it, bound to
+			// the payload the model is answered with.
+			const recorder = createToolCallRecorder();
+			const { tools } = artifactTools({ recorder });
+
+			const create = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "x".repeat(201), body: "b" },
+				{ toolCallId: "call-bad-create-fact", messages: [] },
+			);
+			const edit = await tools.edit_artifact.execute?.(
+				{
+					artifactId: "unseeded-id",
+					ops: Array.from({ length: 41 }, () => ({})),
+				},
+				{ toolCallId: "call-bad-edit-fact", messages: [] },
+			);
+
+			expect(create).toEqual({ success: false, error: expect.any(String) });
+			expect(edit).toEqual({ success: false, error: expect.any(String) });
+			expect(recorder.getExecutionCertainty?.(create)).toBe("uncertain");
+			expect(recorder.getExecutionCertainty?.(edit)).toBe("uncertain");
 		});
 
 		it("records an edit call whose input did not fit, likewise", async () => {
@@ -7013,6 +7043,26 @@ describe("read_generated_file tool — what a call records it read", () => {
 				ok: true,
 				summary: "Completed.",
 			});
+		});
+
+		it("holds a call whose input did not fit as uncertain, as it was while the call recorded nothing", async () => {
+			const recorder = createToolCallRecorder();
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				recorder,
+			});
+
+			const payload = await tools.read_generated_file.execute(
+				{ query: "" } as never,
+				{ toolCallId: "call-bad-input-fact", messages: [] },
+			);
+
+			expect(payload).toEqual({ found: false, error: expect.any(String) });
+			// The engine ends a turn at its first uncertain call: the row says "done"
+			// now, so the fact is recorded beside it, for this very payload.
+			expect(recorder.getExecutionCertainty?.(payload)).toBe("uncertain");
 		});
 	});
 });

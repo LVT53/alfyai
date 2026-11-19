@@ -831,3 +831,91 @@ it.each(
 	expect(backup.doGenerateCalls).toHaveLength(0);
 	expect(backup.doStreamCalls).toHaveLength(0);
 });
+
+// A call whose input does not fit its tool's schema (read_generated_file,
+// create_artifact, edit_artifact) is answered with the schema's own message before
+// the envelope, and until the tool rows learned to say why it recorded no row at
+// all. A call with no row is classified `uncertain`, and the engine ends the turn
+// at the first uncertain call, so that is what such a call has always done. The row
+// the call records now (it is what lets a person read "Alfy adjusted its request")
+// must not change that: a row with a "done" status and nothing else would read as
+// a success, and the turn would go on where it used to end. These run the real
+// tool, with the AI SDK's own input check off (it would refuse the call before
+// `execute` ran, which is a different path), beside a control that records nothing,
+// which is what the call did before.
+const SCHEMA_FAILURES = [
+	[
+		"read_generated_file",
+		// The execution schema's own bound: an empty query.
+		{ query: "" },
+	],
+	[
+		"edit_artifact",
+		// More operations than one call may carry.
+		{
+			artifactId: "unseeded-id",
+			ops: Array.from({ length: 41 }, () => ({})),
+		},
+	],
+	[
+		"create_artifact",
+		// A title longer than the server's bound, which the advertised schema lacks.
+		{ artifactType: "document", title: "x".repeat(201), body: "b" },
+	],
+] as const;
+
+it.each(
+	SCHEMA_FAILURES,
+)("ends the turn at a call of %s whose input did not fit, as it did when the call recorded nothing", async (toolName, toolInput) => {
+	const { createNormalChatTools } = await import("../normal-chat-tools");
+	const answer = "Never asked for.";
+	const input = toolInput as unknown as Record<string, unknown>;
+
+	const before = await runTurnWithTool({
+		toolName,
+		toolInput: input,
+		answer,
+		// What the call did before: the schema's message, and no row.
+		makeTool: ({ tool, z }) =>
+			tool({
+				inputSchema: z.object({}).passthrough(),
+				execute: async () => ({ success: false, error: "Invalid input" }),
+			}),
+	});
+	const after = await runTurnWithTool({
+		toolName,
+		toolInput: input,
+		answer,
+		makeTool: ({ recorder, tool, z }) => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				recorder,
+			});
+			return {
+				...tools[toolName],
+				inputSchema: tool({ inputSchema: z.object({}).passthrough() })
+					.inputSchema,
+			} as unknown as Tool;
+		},
+	});
+
+	expect(before.states).toEqual(["uncertain"]);
+	expect(before.generations()).toBe(1);
+	expect(before.completion).toMatchObject({
+		outcome: "incomplete",
+		stopCause: "uncertain_execution",
+	});
+	// The same, with the real tool's row recorded.
+	expect(after.states).toEqual(before.states);
+	expect(after.generations()).toBe(before.generations());
+	// Every field of how the turn ended, but the ids of the two runs.
+	const ended = (turn: typeof before) => ({
+		...turn.completion,
+		segmentId: undefined,
+		turnId: undefined,
+	});
+	expect(ended(after)).toEqual(ended(before));
+	expect(after.answer).toEqual(before.answer);
+});
