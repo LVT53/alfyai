@@ -1325,8 +1325,22 @@ function buildSettledToolActivityItem(
 			typeof metadata?.artifactTitle === "string"
 				? metadata.artifactTitle
 				: undefined;
+		// A call that came back ok can still carry a code that says it left things as
+		// they were: a Document edit whose every op was stale is a success to the
+		// server (the version is written, no op was refused as a whole) and names
+		// `changed_since_read` beside `ok: true`. That is no "Edited <title>" with a
+		// tick and a card: a code of a stop or a failure takes the row down the
+		// quiet-row path below, with "Left as it was" and its sentence.
+		const codeKind =
+			code === null
+				? null
+				: resolveToolReason(segment.name, code, {
+						artifactKind: artifactKind ?? null,
+					}).kind;
 		const hasCard =
 			metadata?.ok === true &&
+			codeKind !== "stop" &&
+			codeKind !== "fail" &&
 			artifactId !== undefined &&
 			artifactKind !== undefined &&
 			artifactTitle !== undefined;

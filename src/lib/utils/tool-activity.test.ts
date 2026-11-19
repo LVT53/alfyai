@@ -2919,6 +2919,50 @@ describe("each tool's row shows what it found", () => {
 			});
 		});
 
+		it("says a Document edit whose every op was stale as 'Left as it was' though the call came back ok, with no card", async () => {
+			// The server records such an edit as a success (no op was refused as a whole,
+			// and the version is written), and names it beside `ok: true`; the card would
+			// say "Edited" with a tick over a document nothing changed.
+			const stale = edit("changed_since_read", { ok: true, appliedCount: 0 });
+			const item = row(stale);
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Left as it was:");
+			expect(item.object).toBe("Trip plan");
+			expect(item.title).toBe("Left as it was: Trip plan");
+			expect(item.meta).toBe("");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "The document changed since Alfy read it, so Alfy left it as it was.",
+			});
+			expect(item.pinned).toBe(false);
+			expect(item.alwaysOpen).toBe(false);
+			// Still the failed attempt a later call that made it good folds.
+			expect(item.artifact).toEqual({
+				id: "0d394ede-c37a-4238-9059-77d01300da4e",
+				failed: true,
+			});
+
+			await inHungarian((hu) => {
+				const huItem = row(stale, hu);
+				expect(huItem.verb).toBe("Változatlan maradt:");
+				expect(huItem.body).toEqual({
+					kind: "reason",
+					text: "A dokumentum megváltozott, mióta Alfy elolvasta, ezért Alfy nem nyúlt hozzá.",
+				});
+			});
+
+			// An edit that applied something names no code, and keeps its card.
+			const applied = row(edit(undefined, { ok: true, appliedCount: 2 }));
+			expect(applied.status).toBe("done");
+			expect(applied.verb).toBe("Edited");
+			expect(applied.body).toMatchObject({ kind: "artifact" });
+			expect(applied.artifact).toEqual({
+				id: "0d394ede-c37a-4238-9059-77d01300da4e",
+				failed: false,
+			});
+		});
+
 		it("drops the colon of 'Left as it was' when nothing says which item", () => {
 			const item = row(
 				edit("changed_since_read", {
