@@ -92,3 +92,19 @@ The original isolated app acknowledged an English Memory reset and Hungarian acc
 A separate question to the live model returned the new fact and also answered with the superseded kayak name. The persisted tool ledger attributes the old name to a `memory_context` history result from the same test account’s retained chat. A fresh replay from the verified SQLite snapshot chose persona Memory. Both captured request bodies omitted the old names, and the reply returned only the permitted new fact. The restored Memory stores and queued intake passed the reset and erasure checks. Automatic history lookup can still answer a present-tense question using older wording from a retained chat. [Redacted staging and restore receipts](staging-app-evidence/gpu-curation-restore-results.json)
 
 The isolated restore app, both restored PostgreSQL services, restored native API, and temporary relays are stopped. The original isolated GPU app and native service resumed with the acknowledged privacy decisions in place. Canonical staging and production reported healthy. The matched snapshots, key escrow and synthetic evidence remain protected on the staging host.
+
+## Current Memory and deliberate past-chat search
+
+The isolated GPU app ran the verified runtime from `aef0cad0613e24232d4ff70e2f5ce1d06ee04149`. All 11 changed runtime files matched their Git blob hashes. The full build-tree digest is in the redacted receipt. The gate passed 29,167 unit tests, three existing skips, 102 browser checks, and the static checks. The later paused-reply hardening at `e38f7cdec` had separate local coverage outside this live staging run.
+
+One synthetic account learned a fact from an ordinary chat with Memory enabled. The first Clear removed it from Memory and preserved the original chat. An explicit Add established a different current value for the same fact. The second Clear left Memory empty and preserved the original chat again. The login password and model payloads stayed on the staging host.
+
+| Live check | Observed result |
+| --- | --- |
+| Current fact before the second Clear | English and Hungarian returned the new value. All three actual provider requests carried the new marker and omitted the old one. The Hungarian model attempted a past-chat search. The app refused it with `history_request_required` and returned zero candidates. |
+| Current fact after Clear | English and Hungarian reported that the current name was unknown. Eleven complete provider requests across plain and streamed current probes omitted both factual markers. The streamed English model also attempted a past-chat search and received the same refusal. |
+| Deliberate past-chat search | All four English and Hungarian plain probes included the exact original chat among the returned historical candidates, before and after Clear. Their replies attributed the earlier value to past discussion. The Hungarian streamed probe also returned the earlier value through authorized history, citing retained test discussions that referred to the original chat. |
+
+The English deliberate-history reply after Clear also described the cleared value as current. The actual history result included the original chat and earlier synthetic verification chats that carried a then-current answer. The same restored Memory remained empty at Clear, and ordinary current probes carried neither marker. This demonstrates that an expressly authorized history search can still surface an outdated statement from a retained transcript. The model gave that statement present-tense wording.
+
+The streamed replies were projected with the app’s decoder and answer reducer from actual SSE responses. The fresh test app and request-capture relay were stopped, the previous isolated app resumed direct model routing, and canonical staging and production reported healthy. [Redacted history-boundary receipts](staging-app-evidence/gpu-history-boundary-results.json)
