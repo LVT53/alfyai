@@ -27,12 +27,9 @@ const CURRENT_CHAT_ONLY =
 const LOOKUP_EXCLUSION =
 	/\b(?:without (?:searching|looking|reading|checking)|(?:do not|don't|never)\s+(?:search|look|read|open|check|use)|anelkul,?\s+hogy|ne\s+(?:keress|nezz|olvass))\b/u;
 
-export function requestsPastChatLookup(
-	requestText?: string,
-	currentProjectName?: string,
-): boolean {
-	if (!requestText || requestText.length > 8_000) return false;
-	const prose = requestText
+function pastChatRequestProse(requestText?: string): string {
+	if (!requestText || requestText.length > 8_000) return "";
+	return requestText
 		.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/gu, " ")
 		.replace(/^\s*>[^\r\n]*/gmu, " ")
 		.replace(
@@ -43,21 +40,38 @@ export function requestsPastChatLookup(
 		.replace(/\p{M}/gu, "")
 		.replace(/’/gu, "'")
 		.toLowerCase();
-	if (CURRENT_CHAT_ONLY.test(prose)) return false;
+}
 
-	const clauses = prose
+function pastChatRequestClauses(prose: string): string[] {
+	return prose
 		.split(/[.!?;\r\n]+/u)
 		.map((part) => part.trim().replace(/^(please|kerlek),\s*/u, "$1 "));
-	// A prohibition on retrieving the named source wins even if a later
-	// clause refers to it while asking about a current fact.
-	if (
-		clauses.some(
+}
+
+function excludesPastChatLookup(prose: string): boolean {
+	return (
+		CURRENT_CHAT_ONLY.test(prose) ||
+		pastChatRequestClauses(prose).some(
 			(clause) =>
 				LOOKUP_EXCLUSION.test(clause) &&
-				(ENGLISH_CHAT.test(clause) || HUNGARIAN_CHAT.test(clause)),
+				(ENGLISH_CHAT.test(clause) ||
+					HUNGARIAN_CHAT.test(clause) ||
+					/\blook back\b/u.test(clause)),
 		)
-	)
-		return false;
+	);
+}
+
+export function prohibitsPastChatLookup(requestText?: string): boolean {
+	return excludesPastChatLookup(pastChatRequestProse(requestText));
+}
+
+export function requestsPastChatLookup(
+	requestText?: string,
+	currentProjectName?: string,
+): boolean {
+	const prose = pastChatRequestProse(requestText);
+	if (!prose || excludesPastChatLookup(prose)) return false;
+	const clauses = pastChatRequestClauses(prose);
 
 	const currentProject = currentProjectName
 		?.normalize("NFD")

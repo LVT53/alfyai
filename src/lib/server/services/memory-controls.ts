@@ -1,6 +1,13 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { conversations, memoryAccounts, users } from "$lib/server/db/schema";
+import {
+	conversations,
+	memoryAccounts,
+	memoryEvents,
+	memoryResetGenerations,
+	memoryRevocations,
+	users,
+} from "$lib/server/db/schema";
 
 /**
  * Per-user + per-conversation memory controls.
@@ -76,6 +83,51 @@ export async function isMemoryActiveForConversation(params: {
 	return Boolean(
 		row?.enabled && !row.incognito && (!account || account.state === "active"),
 	);
+}
+
+/** An exact paused input must not replay Memory captured before a withdrawal. */
+export async function canResumeCapturedMemory(params: {
+	userId: string;
+	conversationId: string;
+	turnStartedAt: Date;
+}): Promise<boolean> {
+	if (!(await isMemoryActiveForConversation(params))) return false;
+	return db.transaction((tx) => {
+		const reset = tx
+			.select({ userId: memoryResetGenerations.userId })
+			.from(memoryResetGenerations)
+			.where(
+				and(
+					eq(memoryResetGenerations.userId, params.userId),
+					gte(memoryResetGenerations.advancedAt, params.turnStartedAt),
+				),
+			)
+			.get();
+		if (reset) return false;
+		const moved = tx
+			.select({ id: memoryEvents.id })
+			.from(memoryEvents)
+			.where(
+				and(
+					eq(memoryEvents.userId, params.userId),
+					eq(memoryEvents.conversationId, params.conversationId),
+					eq(memoryEvents.eventType, "memory_scope_moved"),
+					gte(memoryEvents.observedAt, params.turnStartedAt),
+				),
+			)
+			.get();
+		if (moved) return false;
+		return !tx
+			.select({ id: memoryRevocations.id })
+			.from(memoryRevocations)
+			.where(
+				and(
+					eq(memoryRevocations.userId, params.userId),
+					gte(memoryRevocations.createdAt, params.turnStartedAt),
+				),
+			)
+			.get();
+	});
 }
 
 /** Only opaque jobs belonging to this authenticated account's tenant are exposed. */

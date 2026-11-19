@@ -8,7 +8,10 @@ import {
 	isVideoMakingConfigured,
 } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
-import { requestsPastChatLookup } from "$lib/server/services/chat-turn/past-chat-request";
+import {
+	prohibitsPastChatLookup,
+	requestsPastChatLookup,
+} from "$lib/server/services/chat-turn/past-chat-request";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import {
@@ -642,7 +645,9 @@ const ALREADY_MADE_THIS_TURN_NOTE =
 // ── Tool factory ───────────────────────────────────────────────
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
-	const pastChatLookupRequested = requestsPastChatLookup(ctx.requestText);
+	const pastChatLookupRequested =
+		requestsPastChatLookup(ctx.requestText) &&
+		!ctx.resumeProvenance?.userTexts?.some(prohibitsPastChatLookup);
 	// Where an address a tool is asked to open came from, for this turn
 	// (docs/plans/exfil-channels): the user's words and tool results, never the
 	// model's. Cheap to make; the conversation's stored messages are read only when

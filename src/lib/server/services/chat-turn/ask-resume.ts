@@ -3,7 +3,7 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { hasLocalDistillEnabled } from "$lib/server/services/connections/locality";
-import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
+import { canResumeCapturedMemory } from "$lib/server/services/memory-controls";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import {
 	updateAssistantToolCallResult,
@@ -22,7 +22,7 @@ import {
 	type AskResumeInput,
 	buildAskResumeContinuation,
 	buildAskResumeSnapshot,
-	capturedPastChatLookup,
+	capturedMemoryLookup,
 	holdsAskResult,
 } from "./ask-capture";
 import {
@@ -32,7 +32,7 @@ import {
 	listConversationAskQuestions,
 	readAskCapture,
 } from "./ask-questions";
-import { requestsPastChatLookup } from "./past-chat-request";
+import type { ContextTraceSection } from "./context-trace";
 import {
 	preflightStoredTurn,
 	type RetryPreparationError,
@@ -170,6 +170,7 @@ type ReplyRow = {
 	role: string;
 	content: string;
 	metadataJson: string | null;
+	createdAt: Date;
 };
 
 /**
@@ -194,6 +195,7 @@ async function findReply(
 			role: messages.role,
 			content: messages.content,
 			metadataJson: messages.metadataJson,
+			createdAt: messages.createdAt,
 		})
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId))
@@ -344,7 +346,7 @@ export async function prepareAskResumeTurn(p: {
 	const originalTrace = (
 		original?.provenance as
 			| {
-					prepared?: { contextTraceSections?: Array<{ name: string }> };
+					prepared?: { contextTraceSections?: ContextTraceSection[] };
 			  }
 			| undefined
 	)?.prepared?.contextTraceSections;
@@ -362,20 +364,31 @@ export async function prepareAskResumeTurn(p: {
 		)
 	)
 		return close();
-	const capturedProjectChat =
-		Array.isArray(originalTrace) &&
-		originalTrace.some(
-			({ name }) =>
-				name === "Project Folder Awareness" ||
-				name === "Project Folder Sibling Context" ||
-				name === "Project Continuity Awareness",
-		);
+	const trace = Array.isArray(originalTrace)
+		? originalTrace.filter(
+				(section) => section && section.inclusionLevel !== "omitted",
+			)
+		: [];
+	const capturedProjectChat = trace.some(
+		(section) =>
+			section?.name === "Project Folder Awareness" ||
+			section?.name === "Project Folder Sibling Context" ||
+			section?.name === "Project Continuity Awareness",
+	);
+	// Cross-chat captures have no per-source revision that can reauthorize
+	// their exact saved excerpts. A new history request can read them afresh.
+	if (capturedProjectChat || capturedMemoryLookup(capture.messages, "past"))
+		return close();
+	const capturedPersona =
+		trace.some((section) => section?.name === "Baseline Memory Profile") ||
+		capturedMemoryLookup(capture.messages, "persona");
 	if (
-		(capturedProjectChat || capturedPastChatLookup(capture.messages)) &&
-		(!requestsPastChatLookup(userMessage.content) ||
-			!(await isMemoryActiveForConversation({ userId, conversationId }).catch(
-				() => false,
-			)))
+		capturedPersona &&
+		!(await canResumeCapturedMemory({
+			userId,
+			conversationId,
+			turnStartedAt: userMessage.createdAt,
+		}).catch(() => false))
 	)
 		return close();
 

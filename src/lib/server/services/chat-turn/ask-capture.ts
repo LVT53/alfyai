@@ -121,8 +121,9 @@ function toolResultParts(messages: readonly ModelMessage[]): ToolResultPart[] {
 	);
 }
 
-export function capturedPastChatLookup(
+export function capturedMemoryLookup(
 	messages: readonly ModelMessage[],
+	scope: "persona" | "past",
 ): boolean {
 	return toolResultParts(messages).some((part) => {
 		if (part.toolName !== "memory_context" || part.output.type !== "json")
@@ -133,7 +134,9 @@ export function capturedPastChatLookup(
 			typeof value === "object" &&
 			!Array.isArray(value) &&
 			value.success === true &&
-			(value.mode === "history" || value.mode === "project")
+			(scope === "past"
+				? value.mode === "history" || value.mode === "project"
+				: value.mode === "persona" && value.status === "available")
 		);
 	});
 }

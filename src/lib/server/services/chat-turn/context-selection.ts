@@ -1966,8 +1966,12 @@ export async function buildConstructedContext(params: {
 		params.userId,
 		params.conversationId,
 	).catch(() => null);
+	// A resumed reply may have received a later prohibition in an answer.
+	// Only its tool path has those authored answers available to veto a read.
 	const pastProjectLookupAllowed = projectLabelPromise.then((label) =>
-		label && requestsPastChatLookup(params.message, label)
+		!params.historyBeforeMessageId &&
+		label &&
+		requestsPastChatLookup(params.message, label)
 			? isMemoryActiveForConversation({
 					userId: params.userId,
 					conversationId: params.conversationId,

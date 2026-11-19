@@ -7275,7 +7275,11 @@ describe("memory_context names what happened", () => {
 				>["tools"]["memory_context"]["execute"]
 			>
 		>[0] = {},
-		options: { abortSignal?: AbortSignal; requestText?: string } = {},
+		options: {
+			abortSignal?: AbortSignal;
+			requestText?: string;
+			resumeUserText?: string;
+		} = {},
 	) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
@@ -7283,11 +7287,19 @@ describe("memory_context names what happened", () => {
 			turnId: "turn-1",
 			requestText:
 				options.requestText ?? "Search my old chats for the decision.",
+			...(options.resumeUserText
+				? {
+						resumeProvenance: {
+							userTexts: [options.resumeUserText],
+							priorResults: [],
+						},
+					}
+				: {}),
 		});
 		const payload = await tools.memory_context.execute(input, {
 			toolCallId: "call-memory",
 			messages: [],
-			...options,
+			abortSignal: options.abortSignal,
 		});
 		return { payload, entry: getToolCalls()[0] };
 	}
@@ -7355,6 +7367,24 @@ describe("memory_context names what happened", () => {
 				...input,
 			});
 			expect(payload).toMatchObject({ success: true, mode: input.mode });
+		},
+	);
+
+	it.each([
+		["Search my old chats for the lamp.", "Don’t look in the earlier chats."],
+		["What lamp do I prefer?", "Search my old chats for the lamp."],
+	])(
+		"does not expand past-chat permission on pause (%s / %s)",
+		async (requestText, resumeUserText) => {
+			getMemoryContextMock.mockResolvedValueOnce(historyOf());
+			const { entry } = await recall(
+				{ mode: "history" },
+				{ requestText, resumeUserText },
+			);
+			expect(getMemoryContextMock).not.toHaveBeenCalled();
+			expect(entry?.metadata).toMatchObject({
+				reasonCode: "history_request_required",
+			});
 		},
 	);
 
