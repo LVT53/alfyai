@@ -28,9 +28,15 @@ import {
 	imageThumbnailRouteUrl,
 	isBraveThumbnailUrl,
 } from "$lib/shared/url-provenance";
+import {
+	connectorCountOf,
+	connectorPhraseKey,
+	connectorThingsIcon,
+	connectorUnitKey,
+	localizedThingTitle,
+} from "$lib/utils/connector-row-words";
 import { formatByteSize } from "$lib/utils/format";
 import {
-	formatConnectionToolAction,
 	getConnectionToolLabelKey,
 	getHumanReadableToolNameKey,
 	getToolCallIconType,
@@ -41,6 +47,7 @@ import {
 	dedupeSourcesByUrl,
 	extractHostname,
 	type FetchedSource,
+	formatEventTime,
 	formatToolCall,
 	getFetchUrlSources,
 	isCitedSource,
@@ -115,9 +122,23 @@ export type ToolActivityBody =
 			items: { title: string; sub?: string }[];
 			more: number;
 	  }
+	// One run of an account's calls: each call in plain words with the glyph of how
+	// it went, what it found beside it, the things it found by their own names, or
+	// one sentence about why it did not work.
 	| {
 			kind: "actions";
-			actions: { key: string; label: string; status: ToolActivityStatus }[];
+			/** The glyph before each thing a call names (the account's own). */
+			icon: ToolThingIcon;
+			actions: {
+				key: string;
+				label: string;
+				status: ToolActivityStatus;
+				/** What the call found, on its right ("3 found"). */
+				sub?: string;
+				things?: { items: { title: string; sub?: string }[]; more: number };
+				/** Why it did not work, or one line of information: a sentence, never a code. */
+				reason?: string;
+			}[];
 	  }
 	// One sentence, in the person's language, from a reason code's words (never
 	// from `outputSummary`, `metadata.error` or anything else written for the model
@@ -638,7 +659,7 @@ function endedAsStopped(segment: ToolCallSegment): ToolCallSegment {
 }
 
 /** What a call's outcome says: its kind, and its one sentence (none when the row's own words say it all). */
-type RowReason = { kind: ReasonKind; text: string | null };
+type RowReason = { code: string | null; kind: ReasonKind; text: string | null };
 
 /**
  * The outcome a call carries, from its reason code, or from the fact that it failed
@@ -669,6 +690,7 @@ function describeReason(
 		words = resolveToolReason(segment.name, null);
 	}
 	return {
+		code: words.code,
 		kind: words.kind,
 		text: words.key
 			? translate(words.key, place ? { place } : undefined)
@@ -1739,24 +1761,144 @@ function photosViewedIn(tools: ToolCallSegment[]): number {
 	}, 0);
 }
 
-/** Builds the view-model for a collapsed run of connector calls. */
+type ConnectorCallView = {
+	key: string;
+	label: string;
+	status: ToolActivityStatus;
+	code: string | null;
+	count: number | null;
+	sub?: string;
+	things?: { items: { title: string; sub?: string }[]; more: number };
+	reason?: string;
+};
+
+/**
+ * One call of an account tool in plain words: what it did (the phrase for its
+ * action), how it went (the glyph of its code's kind), what it found (a count and
+ * the things by their own names) or why it did not work (one sentence). A call
+ * still marked running in a reply that is over was cut off and reads as stopped.
+ */
+function describeConnectorCall(
+	tool: ToolCallSegment,
+	index: number,
+	translate: Translate,
+	options: { turnEnded?: boolean; locale?: string; timeZone?: string },
+): ConnectorCallView {
+	const call =
+		options.turnEnded === true && tool.status === "running"
+			? endedAsStopped(tool)
+			: tool;
+	const key = tool.callId ?? `${tool.name}-${index}`;
+	const phraseKey = connectorPhraseKey(call.name, call.input?.action);
+	const label = phraseKey
+		? translate(phraseKey)
+		: translate(getHumanReadableToolNameKey(call.name));
+	if (call.status === "running") {
+		return { key, label, status: "running", code: null, count: null };
+	}
+	const reason = describeReason(call, translate);
+	if (reason && (reason.kind === "fail" || reason.kind === "stop")) {
+		return {
+			key,
+			label,
+			status: reason.kind === "fail" ? "failed" : "skipped",
+			code: reason.code,
+			count: null,
+			...(reason.text ? { reason: reason.text } : {}),
+		};
+	}
+	// It worked (or worked, and says one thing about it): what it found.
+	const count = connectorCountOf(call.name, call.metadata);
+	const thingsIcon = connectorThingsIcon(call.name);
+	const formatTime = (iso: string) =>
+		formatEventTime(iso, options.locale, {
+			withDay: true,
+			...(options.timeZone ? { timeZone: options.timeZone } : {}),
+		});
+	const named = thingsIcon
+		? (call.candidates ?? [])
+				.map((candidate) => {
+					const title = localizedThingTitle(
+						stripToPlainText(candidate.title ?? ""),
+						translate,
+						formatTime,
+					);
+					const start =
+						call.name === "calendar" &&
+						typeof candidate.metadata?.start === "string"
+							? formatTime(candidate.metadata.start)
+							: undefined;
+					return { title, ...(start ? { sub: start } : {}) };
+				})
+				.filter((thing) => thing.title.length > 0)
+		: [];
+	const shown = named.slice(0, THINGS_SHOWN);
+	return {
+		key,
+		label,
+		status: "done",
+		code: reason?.code ?? null,
+		count,
+		...(count !== null
+			? { sub: translate("toolRows.unit.found", { count }) }
+			: {}),
+		...(shown.length > 0
+			? {
+					things: {
+						items: shown,
+						more: Math.max(
+							0,
+							Math.max(count ?? 0, named.length) - shown.length,
+						),
+					},
+				}
+			: {}),
+		...(reason?.text ? { reason: reason.text } : {}),
+	};
+}
+
+/**
+ * Builds the view-model for a collapsed run of an account's calls: the row says
+ * what came back across the run in the account's own unit ("Calendar · 3 events"),
+ * its glyph is the worst of how its calls went (a failure over a stop over a
+ * success), and opened it lists each call in plain words with what it found.
+ *
+ * `options.turnEnded`: the reply is over, so a call still marked running was cut
+ * off and reads as stopped. `options.locale` is the reader's own (`eventLocale`),
+ * for the times it names.
+ */
 export function buildConnectorActivityItem(
 	tools: ToolCallSegment[],
 	key: string,
 	translate: Translate,
+	options: { turnEnded?: boolean; locale?: string; timeZone?: string } = {},
 ): ToolActivityItem {
-	const anyRunning = tools.some((tool) => tool.status === "running");
-	const anyFailed =
-		!anyRunning && tools.some((tool) => tool.status === "failed");
+	const calls = tools.map((tool, index) =>
+		describeConnectorCall(tool, index, translate, options),
+	);
+	const anyRunning = calls.some((call) => call.status === "running");
 	const status: ToolActivityStatus = anyRunning
 		? "running"
-		: anyFailed
+		: calls.some((call) => call.status === "failed")
 			? "failed"
-			: "done";
+			: calls.some((call) => call.status === "skipped")
+				? "skipped"
+				: "done";
 	const labelKey =
 		getConnectionToolLabelKey(tools[0].name) ?? "toolCalls.generic";
 	const label = translate(labelKey);
-	const object = translate("toolCalls.actionsCount", { count: tools.length });
+	// What came back across the run, in the account's own unit; "N actions" only
+	// when nothing the run did was countable. An account that is not connected says
+	// so, since that is the whole of what the run has to tell.
+	const counted = calls.filter((call) => call.count !== null);
+	const notConnected = calls.every((call) => call.code === "not_connected");
+	const object = notConnected
+		? translate("toolRows.object.notConnected")
+		: counted.length > 0
+			? translate(connectorUnitKey(tools[0].name), {
+					count: counted.reduce((sum, call) => sum + (call.count ?? 0), 0),
+				})
+			: translate("toolCalls.actionsCount", { count: tools.length });
 	const viewed = photosViewedIn(tools);
 	// The model was shown photos, and the row says so instead of counting
 	// actions: "Looked at 6 photos". Those words are the whole row (no object
@@ -1765,14 +1907,21 @@ export function buildConnectorActivityItem(
 	// action.
 	const looked =
 		viewed > 0 ? translate(VERB_KEYS.photosViewed, { count: viewed }) : null;
+	const failedMeta = translate("toolCalls.failed");
+	const summaryLabel =
+		status === "failed"
+			? `${looked ?? label} ${failedMeta}`
+			: status === "skipped"
+				? (looked ?? label)
+				: (looked ?? `${label} ${object}`);
 	return {
 		key,
 		status,
 		iconType: getToolCallIconType(tools[0].name),
 		verb: looked ?? label,
 		object: looked === null ? object : "",
-		meta: anyFailed ? translate("toolCalls.failed") : "",
-		summaryLabel: looked ?? `${label} ${object}`,
+		meta: status === "failed" ? failedMeta : "",
+		summaryLabel,
 		...(looked === null
 			? { summaryUnit: "actions" as const, summaryCount: tools.length }
 			: {}),
@@ -1781,13 +1930,14 @@ export function buildConnectorActivityItem(
 		title: `${label} · ${looked ?? object}`,
 		body: {
 			kind: "actions",
-			actions: tools.map((tool, index) => ({
-				key: tool.callId ?? `${tool.name}-${index}`,
-				label:
-					(typeof tool.input.action === "string"
-						? formatConnectionToolAction(tool.input.action)
-						: "") || formatToolCall(tool.name, tool.input, translate),
-				status: tool.status,
+			icon: getToolCallIconType(tools[0].name),
+			actions: calls.map((call) => ({
+				key: call.key,
+				label: call.label,
+				status: call.status,
+				...(call.sub ? { sub: call.sub } : {}),
+				...(call.things ? { things: call.things } : {}),
+				...(call.reason ? { reason: call.reason } : {}),
 			})),
 		},
 	};

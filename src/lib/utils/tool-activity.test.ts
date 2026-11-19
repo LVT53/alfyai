@@ -357,7 +357,7 @@ describe("tool activity row grammar", () => {
 		expect(item.object).toBe("1 memory");
 	});
 
-	it("reads a connector run as '<Capability> <N actions>' with one body row per action", () => {
+	it("reads a connector run as '<Capability> <N actions>' when nothing was counted, with one body row per call in plain words", () => {
 		const tools = [
 			toolCall({ name: "calendar", input: { action: "list_events" } }),
 			toolCall({ name: "calendar", input: { action: "find_free_slots" } }),
@@ -370,10 +370,13 @@ describe("tool activity row grammar", () => {
 		expect(item.body).toMatchObject({
 			kind: "actions",
 			actions: [
-				{ label: "list events", status: "done" },
-				{ label: "find free slots", status: "done" },
+				{ label: "Looked at your events", status: "done" },
+				// An action no phrase is written for reads as the account's general one,
+				// never as the action's own name.
+				{ label: "Used your calendar", status: "done" },
 			],
 		});
+		expect(JSON.stringify(item)).not.toMatch(/list_events|find_free_slots/);
 	});
 
 	describe("a photos run that looked at photos", () => {
@@ -423,28 +426,34 @@ describe("tool activity row grammar", () => {
 			);
 
 			expect(item.verb).toBe("Looked at 8 photos");
-			// Every action is still in the opened panel.
+			// Every call is still in the opened panel, in plain words.
 			expect(item.body).toMatchObject({
 				kind: "actions",
 				actions: [
-					{ label: "search" },
-					{ label: "search" },
-					{ label: "search" },
+					{ label: "Searched your photos" },
+					{ label: "Searched your photos" },
+					{ label: "Searched your photos" },
 				],
 			});
 		});
 
 		it("keeps the plain connector row when nothing was looked at", () => {
-			for (const viewedCount of [undefined, 0]) {
-				const item = buildConnectorActivityItem(
-					[photosCall(viewedCount), photosCall(viewedCount)],
-					"group-photos",
-					translate,
-				);
-
-				expect(item.verb).toBe("Photos");
-				expect(item.object).toBe("2 actions");
-			}
+			// A call that carries no count says only how many actions it took...
+			const bare = buildConnectorActivityItem(
+				[photosCall(undefined), photosCall(undefined)],
+				"group-photos",
+				translate,
+			);
+			expect(bare.verb).toBe("Photos");
+			expect(bare.object).toBe("2 actions");
+			// ...and a call that counted what it found says that, as for any account.
+			const counted = buildConnectorActivityItem(
+				[photosCall(0), photosCall(0)],
+				"group-photos",
+				translate,
+			);
+			expect(counted.verb).toBe("Photos");
+			expect(counted.object).toBe("20 found");
 		});
 
 		it("does not read a count that is not a number of photos", () => {
@@ -2973,6 +2982,501 @@ describe("each tool's row shows what it found", () => {
 				});
 			}
 		});
+	});
+});
+
+// Task B5: an account row says what Alfy looked at and what came back, in plain
+// words, in the person's language and clock.
+describe("your accounts", () => {
+	const options = { locale: "en-GB", timeZone: "UTC" };
+	const call = (
+		name: string,
+		action: string,
+		overrides: Partial<ToolCallSegment> = {},
+	) => toolCall({ name, input: { action }, ...overrides });
+	const group = (
+		tools: ToolCallSegment[],
+		translator = translate,
+		opts: { turnEnded?: boolean; locale?: string; timeZone?: string } = options,
+	) => buildConnectorActivityItem(tools, "group", translator, opts);
+
+	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			return work(get(t));
+		} finally {
+			uiLanguage.set("en");
+		}
+	}
+
+	const event = (n: number, start: string, title = `Event ${n}`) => ({
+		id: `calendar:${n}`,
+		title,
+		sourceType: "tool",
+		metadata: { start, end: start },
+	});
+
+	it("counts what came back across the run in the account's own unit", () => {
+		const events = (count: number) =>
+			Array.from({ length: count }, (_, index) =>
+				event(index, "2026-11-19T10:00:00Z"),
+			);
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 3 },
+				candidates: events(3) as ToolCallSegment["candidates"],
+			}),
+			call("calendar", "check_availability", { metadata: { ok: true } }),
+		]);
+
+		expect(item.verb).toBe("Calendar");
+		expect(item.object).toBe("3 events");
+		expect(item.summaryLabel).toBe("Calendar 3 events");
+		expect(item.status).toBe("done");
+		expect(item.body).toMatchObject({
+			kind: "actions",
+			icon: "calendar",
+			actions: [
+				{ label: "Looked at your events", status: "done", sub: "3 found" },
+				{ label: "Checked when you're free", status: "done" },
+			],
+		});
+	});
+
+	it("adds up two calls of two and one events, and says 'N actions' only when nothing was countable", () => {
+		const two = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 2 },
+			}),
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+			}),
+		]);
+		expect(two.object).toBe("3 events");
+
+		const none = group([
+			call("calendar", "list_calendars", { metadata: { ok: true } }),
+			call("calendar", "check_availability", { metadata: { ok: true } }),
+		]);
+		expect(none.object).toBe("2 actions");
+
+		// Each account counts in its own unit.
+		expect(
+			group([
+				call("email", "recent", { metadata: { ok: true, messageCount: 5 } }),
+			]).object,
+		).toBe("5 messages");
+		expect(
+			group([
+				call("tasks", "list_tasks", { metadata: { ok: true, taskCount: 2 } }),
+			]).object,
+		).toBe("2 found");
+		expect(
+			group([
+				call("repos", "list_prs", { metadata: { ok: true, repoCount: 4 } }),
+			]).object,
+		).toBe("4 found");
+	});
+
+	it("says one in the singular, many in the plural, and no plural at all in Hungarian", async () => {
+		const one = [
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+			}),
+		];
+		const many = [
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 3 },
+			}),
+		];
+		expect(group(one).object).toBe("1 event");
+		expect(group(many).object).toBe("3 events");
+		expect(
+			group([
+				call("email", "recent", { metadata: { ok: true, messageCount: 1 } }),
+			]).object,
+		).toBe("1 message");
+		await inHungarian((hu) => {
+			const huOptions = { locale: "hu-HU", timeZone: "UTC" };
+			expect(group(one, hu, huOptions).object).toBe("1 esemény");
+			expect(group(many, hu, huOptions).object).toBe("3 esemény");
+			expect(
+				group(
+					[
+						call("email", "recent", {
+							metadata: { ok: true, messageCount: 5 },
+						}),
+					],
+					hu,
+					huOptions,
+				).object,
+			).toBe("5 levél");
+			expect(
+				group(
+					[
+						call("tasks", "list_tasks", {
+							metadata: { ok: true, taskCount: 2 },
+						}),
+					],
+					hu,
+					huOptions,
+				).object,
+			).toBe("2 találat");
+		});
+	});
+
+	it("says an account that is not connected is not connected, quietly, with what to do", async () => {
+		const notConnected = [
+			call("calendar", "list_events", {
+				status: "done",
+				metadata: { ok: false, reasonCode: "not_connected" },
+				outputSummary: "Calendar is not connected. Ask the user to connect it.",
+			}),
+		];
+		const item = group(notConnected);
+
+		expect(item.status).toBe("skipped");
+		expect(item.object).toBe("not connected");
+		expect(item.meta).toBe("");
+		expect(item.summaryLabel).toBe("Calendar");
+		expect(item.body).toMatchObject({
+			actions: [
+				{
+					label: "Looked at your events",
+					status: "skipped",
+					reason:
+						"Calendar isn't connected yet. You can connect it in Settings › Connections.",
+				},
+			],
+		});
+		expect(JSON.stringify(item)).not.toContain("Ask the user");
+		await inHungarian((hu) => {
+			const huItem = group(notConnected, hu, { locale: "hu-HU" });
+			expect(huItem.object).toBe("nincs csatlakoztatva");
+			expect(huItem.body).toMatchObject({
+				actions: [
+					{
+						reason:
+							"A naptár még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
+					},
+				],
+			});
+		});
+	});
+
+	// Review focus 3: one run with mixed outcomes.
+	it("takes the worst kind among a run's calls, and keeps each call's own line", () => {
+		const worked = call("calendar", "list_events", {
+			metadata: { ok: true, eventCount: 2 },
+		});
+		const broke = call("calendar", "check_availability", {
+			status: "failed",
+			metadata: { reasonCode: "account_unreachable" },
+		});
+		const stopped = call("calendar", "create_event", {
+			status: "done",
+			metadata: { ok: false, reasonCode: "writes_turned_off" },
+		});
+
+		const failed = group([worked, broke]);
+		expect(failed.status).toBe("failed");
+		expect(failed.meta).toBe("Failed");
+		expect(failed.object).toBe("2 events");
+		expect(failed.body).toMatchObject({
+			actions: [
+				{ status: "done", sub: "2 found" },
+				{
+					status: "failed",
+					reason: "Your calendar didn't answer, so Alfy couldn't look.",
+				},
+			],
+		});
+
+		const quiet = group([worked, stopped]);
+		expect(quiet.status).toBe("skipped");
+		expect(quiet.meta).toBe("");
+		expect(quiet.body).toMatchObject({
+			actions: [
+				{ status: "done" },
+				{
+					status: "skipped",
+					reason:
+						"Changing your calendar is turned off. You can turn it on in Settings › Connections.",
+				},
+			],
+		});
+
+		// A failure wins over a stop, and a call still running over both.
+		expect(group([stopped, broke]).status).toBe("failed");
+		expect(
+			group([worked, broke, { ...worked, status: "running" }]).status,
+		).toBe("running");
+
+		// The strip counts a stop as a stop, never as a failure.
+		expect(
+			buildToolActivitySummary(
+				[group([worked, stopped]), group([worked, broke])],
+				translate,
+			).map((entry) => entry.label),
+		).toEqual(["Calendar", "Calendar Failed"]);
+	});
+
+	it("lists at most five things by name, then says how many more", () => {
+		const events = Array.from({ length: 8 }, (_, index) =>
+			event(index, `2026-11-19T${String(8 + index).padStart(2, "0")}:00:00Z`),
+		);
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 8 },
+				candidates: events as ToolCallSegment["candidates"],
+			}),
+		]);
+
+		const body = item.body as Extract<
+			NonNullable<ToolActivityItem["body"]>,
+			{ kind: "actions" }
+		>;
+		expect(body.actions[0].things?.items).toEqual([
+			{ title: "Event 0", sub: "Thu 08:00" },
+			{ title: "Event 1", sub: "Thu 09:00" },
+			{ title: "Event 2", sub: "Thu 10:00" },
+			{ title: "Event 3", sub: "Thu 11:00" },
+			{ title: "Event 4", sub: "Thu 12:00" },
+		]);
+		expect(body.actions[0].things?.more).toBe(3);
+	});
+
+	it("names the things each account found, and leaves files and photos to their strips", () => {
+		const labelled = (title: string) => ({
+			id: title,
+			title,
+			sourceType: "tool",
+		});
+		const names = (tool: string, action: string, titles: string[]) => {
+			const body = group([
+				call(tool, action, {
+					metadata: { ok: true, resultCount: titles.length },
+					candidates: titles.map(labelled) as ToolCallSegment["candidates"],
+				}),
+			]).body as { actions: { things?: { items: { title: string }[] } }[] };
+			return body.actions[0].things?.items.map((thing) => thing.title);
+		};
+
+		expect(names("email", "recent", ["Your November invoice"])).toEqual([
+			"Your November invoice",
+		]);
+		expect(names("contacts", "lookup", ["Anna Kovács"])).toEqual([
+			"Anna Kovács",
+		]);
+		expect(names("tasks", "list_tasks", ["Buy a present"])).toEqual([
+			"Buy a present",
+		]);
+		expect(names("media", "watch_history", ["Severance — S2E4"])).toEqual([
+			"Severance — S2E4",
+		]);
+		expect(names("repos", "list_prs", ["#12 Fix the login redirect"])).toEqual([
+			"#12 Fix the login redirect",
+		]);
+		expect(names("files", "search", ["report.pdf"])).toBeUndefined();
+		expect(names("photos", "search", ["IMG_0001.jpg"])).toBeUndefined();
+	});
+
+	it("localizes the server's placeholder titles, and a place known only by its time, in the person's own clock", async () => {
+		const things = (item: ToolActivityItem) =>
+			(
+				item.body as {
+					actions: { things?: { items: { title: string; sub?: string }[] } }[];
+				}
+			).actions.flatMap((entry) => entry.things?.items ?? []);
+		// One run is one account: build each account's row on its own.
+		const english = [
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+				candidates: [
+					event(1, "2026-11-19T10:00:00Z", "(untitled event)"),
+				] as ToolCallSegment["candidates"],
+			}),
+		];
+		expect(things(group(english))).toEqual([
+			{ title: "Untitled event", sub: "Thu 10:00" },
+		]);
+		expect(
+			things(
+				group([
+					call("email", "recent", {
+						metadata: { ok: true, messageCount: 1 },
+						candidates: [
+							{ id: "m1", title: "(no subject)", sourceType: "tool" },
+						] as ToolCallSegment["candidates"],
+					}),
+				]),
+			),
+		).toEqual([{ title: "No subject" }]);
+		expect(
+			things(
+				group([
+					call("location", "last", {
+						metadata: { ok: true, resultCount: 1 },
+						candidates: [
+							{
+								id: "l1",
+								title: "Location at 2026-11-18T18:42:00Z",
+								sourceType: "tool",
+							},
+						] as ToolCallSegment["candidates"],
+					}),
+				]),
+			),
+		).toEqual([{ title: "A place at Wed 18:42" }]);
+
+		await inHungarian((hu) => {
+			const huOptions = { locale: "hu-HU", timeZone: "UTC" };
+			expect(
+				things(
+					group(
+						[
+							call("calendar", "list_events", {
+								metadata: { ok: true, eventCount: 1 },
+								candidates: [
+									event(1, "2026-11-19T10:00:00Z", "(untitled event)"),
+								] as ToolCallSegment["candidates"],
+							}),
+						],
+						hu,
+						huOptions,
+					),
+				),
+			).toEqual([{ title: "Névtelen esemény", sub: "Cs 10:00" }]);
+			expect(
+				things(
+					group(
+						[
+							call("email", "recent", {
+								metadata: { ok: true, messageCount: 1 },
+								candidates: [
+									{ id: "m1", title: "(no subject)", sourceType: "tool" },
+								] as ToolCallSegment["candidates"],
+							}),
+						],
+						hu,
+						huOptions,
+					),
+				),
+			).toEqual([{ title: "Nincs tárgy" }]);
+			expect(
+				things(
+					group(
+						[
+							call("location", "last", {
+								metadata: { ok: true, resultCount: 1 },
+								candidates: [
+									{
+										id: "l1",
+										title: "Location at 2026-11-18T18:42:00Z",
+										sourceType: "tool",
+									},
+								] as ToolCallSegment["candidates"],
+							}),
+						],
+						hu,
+						huOptions,
+					),
+				),
+			).toEqual([{ title: "Egy hely, Sze 18:42" }]);
+		});
+	});
+
+	it("says the day alone for an all-day event, which has no clock", () => {
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+				candidates: [
+					event(1, "2026-11-20", "Bank holiday"),
+				] as ToolCallSegment["candidates"],
+			}),
+		]);
+		const body = item.body as {
+			actions: { things?: { items: { sub?: string }[] } }[];
+		};
+		expect(body.actions[0].things?.items[0].sub).toBe("Fri 20 Nov");
+	});
+
+	it("an account call still running in a finished reply reads as stopped", () => {
+		const running = call("calendar", "list_events", { status: "running" });
+		const live = group([running], translate, { ...options, turnEnded: false });
+		expect(live.status).toBe("running");
+
+		const over = group([running], translate, { ...options, turnEnded: true });
+		expect(over.status).toBe("skipped");
+		expect(over.body).toMatchObject({
+			actions: [
+				{
+					label: "Looked at your events",
+					status: "skipped",
+					reason: "You stopped this before it finished.",
+				},
+			],
+		});
+		// A call that finished beside it keeps its own outcome.
+		const mixed = group(
+			[
+				call("calendar", "list_events", {
+					metadata: { ok: true, eventCount: 2 },
+				}),
+				running,
+			],
+			translate,
+			{ ...options, turnEnded: true },
+		);
+		expect(mixed.status).toBe("skipped");
+		expect(mixed.object).toBe("2 events");
+	});
+
+	it("says what a cloud model was and was not given, as information, beside the call", () => {
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 2, localDistilled: true },
+			}),
+			call("email", "recent", {
+				metadata: { ok: true, reasonCode: "details_withheld" },
+			}),
+		]);
+		expect(item.status).toBe("done");
+		expect(item.body).toMatchObject({
+			actions: [
+				{
+					status: "done",
+					reason:
+						"The cloud model got a summary only, so the details stayed on your server.",
+				},
+				{
+					status: "done",
+					reason:
+						"To keep them private, the cloud model wasn't given these details.",
+				},
+			],
+		});
+	});
+
+	it("never shows an action's own name, an id or the model's note, for any account", () => {
+		const item = group([
+			call("tasks", "search_tasks", {
+				status: "failed",
+				outputSummary: "RAW-SENTINEL-7f3a",
+				metadata: { error: "RAW-SENTINEL-7f3a" },
+			}),
+		]);
+		expect(item.status).toBe("failed");
+		expect(item.body).toMatchObject({
+			actions: [
+				{
+					label: "Searched your tasks",
+					reason: "Alfy couldn't use your tasks this time.",
+				},
+			],
+		});
+		expect(JSON.stringify(item)).not.toMatch(/RAW-SENTINEL|search_tasks/);
 	});
 });
 

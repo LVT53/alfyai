@@ -354,8 +354,66 @@ describe("ToolActivityRow", () => {
 
 		const actions = getAllByTestId("tool-activity-action");
 		expect(actions).toHaveLength(2);
-		expect(actions[0].textContent).toContain("list events");
+		expect(actions[0].textContent).toContain("Looked at your events");
 		expect(actions[1].querySelector(".act-status.failed")).not.toBeNull();
+	});
+
+	it("draws an account run as each call in plain words with what it found, the things by name, and the reason a call did not work", () => {
+		const { getAllByTestId, getByTestId, container } = render(ToolActivityRow, {
+			item: buildConnectorActivityItem(
+				[
+					toolCall({
+						name: "calendar",
+						input: { action: "list_events" },
+						metadata: { ok: true, eventCount: 6 },
+						candidates: Array.from({ length: 6 }, (_, index) => ({
+							id: `calendar:${index}`,
+							title: `Event ${index + 1}`,
+							sourceType: "tool",
+							metadata: { start: "2026-11-19T10:00:00Z" },
+						})) as ToolCallSegment["candidates"],
+					}),
+					toolCall({
+						name: "calendar",
+						input: { action: "create_event" },
+						metadata: { ok: false, reasonCode: "writes_turned_off" },
+					}),
+				],
+				"group-2",
+				get(t),
+				{ locale: "en-GB", timeZone: "UTC" },
+			),
+			open: true,
+		});
+
+		const calls = getAllByTestId("tool-activity-action");
+		expect(calls).toHaveLength(2);
+		expect(calls[0].textContent).toContain("Looked at your events");
+		expect(calls[0].querySelector(".act-action-sub")?.textContent).toBe(
+			"6 found",
+		);
+		expect(calls[1].querySelector(".act-status.skipped")).not.toBeNull();
+		expect(
+			getAllByTestId("tool-activity-thing").map((thing) =>
+				thing.textContent?.replace(/\s+/g, " ").trim(),
+			),
+		).toEqual([
+			"Event 1 Thu 10:00",
+			"Event 2 Thu 10:00",
+			"Event 3 Thu 10:00",
+			"Event 4 Thu 10:00",
+			"Event 5 Thu 10:00",
+		]);
+		expect(getByTestId("tool-activity-more")).toHaveTextContent("and 1 more");
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"Changing your calendar is turned off. You can turn it on in Settings › Connections.",
+		);
+		// The calendar's own glyph stands before each thing it found.
+		expect(
+			container.querySelectorAll(
+				'[data-testid="tool-activity-thing"] [data-tool-icon="calendar"]',
+			),
+		).toHaveLength(5);
 	});
 
 	it("renders a memory body as bullets", () => {

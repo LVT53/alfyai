@@ -221,6 +221,38 @@ export function isPhotosToolName(name: string): boolean {
 	return name.toLowerCase() === "photos";
 }
 
+/**
+ * When something starts, as a person reads it: the time ("10:00"), or with
+ * `withDay` the short weekday before it ("Thu 10:00"). A date with no time (an
+ * all-day event) is the day alone, in the same words, since it has no clock to
+ * show. A value that is no date at all comes back as it is. `locale` is the
+ * reader's, from the language the app is in (`intlLocale` in `$lib/utils/locale`),
+ * not the browser's; `timeZone` is for a caller that must not depend on the
+ * machine's own (a test).
+ */
+export function formatEventTime(
+	iso: string,
+	locale: string | undefined,
+	options: { withDay?: boolean; timeZone?: string } = {},
+): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso;
+	if (/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) {
+		return new Intl.DateTimeFormat(locale, {
+			weekday: "short",
+			day: "numeric",
+			month: "short",
+			timeZone: "UTC",
+		}).format(date);
+	}
+	return new Intl.DateTimeFormat(locale, {
+		...(options.withDay ? { weekday: "short" as const } : {}),
+		hour: "2-digit",
+		minute: "2-digit",
+		...(options.timeZone ? { timeZone: options.timeZone } : {}),
+	}).format(date);
+}
+
 export function getAgendaCandidates(
 	tools: ToolCallSegment[],
 ): ToolEvidenceCandidate[] {

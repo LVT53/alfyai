@@ -16,3 +16,19 @@ export function catalogueToolNames(): string[] {
 		(match) => match[1],
 	);
 }
+
+/**
+ * The values of a tool's `action` input, as the model's catalogue offers them: the
+ * enum of the property named `action`. A tool with no such property has none.
+ */
+export function catalogueToolActions(tool: string): string[] {
+	const snapshot = readSnapshot();
+	const start = snapshot.search(new RegExp(`^ {6}"name": "${tool}"`, "m"));
+	if (start < 0) return [];
+	const rest = snapshot.slice(start + 1);
+	const next = rest.search(/^ {6}"name": "/m);
+	const section = next < 0 ? rest : rest.slice(0, next);
+	const enumBlock = section.match(/"action": \{[\s\S]*?"enum": \[([\s\S]*?)\]/);
+	if (!enumBlock) return [];
+	return [...enumBlock[1].matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+}

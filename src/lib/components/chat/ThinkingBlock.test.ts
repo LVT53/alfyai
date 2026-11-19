@@ -318,18 +318,20 @@ describe("ThinkingBlock", () => {
 		expect(groupRow.getAttribute("data-status")).toBe("running");
 		expect(groupRow.querySelector(".act-status.running")).not.toBeNull();
 
-		// Expand the group to reveal the individual actions.
+		// Expand the group to reveal the individual calls, in plain words: one phrase
+		// per action, never the action's own name.
 		await fireEvent.click(groupRow);
 		for (const label of [
-			"list events",
-			"create event",
-			"check availability",
-			"update event",
-			"delete event",
-			"list calendars",
+			"Looked at your events",
+			"Proposed a new event",
+			"Checked when you're free",
+			"Proposed a change to an event",
+			"Proposed deleting an event",
+			"Looked at your calendars",
 		]) {
 			expect(screen.getByText(label)).toBeInTheDocument();
 		}
+		expect(screen.queryByText("list events")).not.toBeInTheDocument();
 
 		// Also grouped in the expanded interleaved thinking view.
 		await fireEvent.click(screen.getByRole("button", { name: /Thinking/ }));
@@ -1106,11 +1108,13 @@ describe("ThinkingBlock", () => {
 				props: { content: "", thinkingIsDone: false, segments },
 			});
 
-			const expectedTime1 = new Intl.DateTimeFormat(undefined, {
+			// The reader's own clock: the language the app is in (English as the app
+			// writes it, 24-hour), not the browser's locale.
+			const expectedTime1 = new Intl.DateTimeFormat("en-GB", {
 				hour: "2-digit",
 				minute: "2-digit",
 			}).format(new Date(start1));
-			const expectedTime2 = new Intl.DateTimeFormat(undefined, {
+			const expectedTime2 = new Intl.DateTimeFormat("en-GB", {
 				hour: "2-digit",
 				minute: "2-digit",
 			}).format(new Date(start2));

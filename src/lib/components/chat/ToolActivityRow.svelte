@@ -59,6 +59,7 @@ import type {
 	ToolActivityBody,
 	ToolActivityItem,
 	ToolActivityStatus,
+	ToolThingIcon,
 } from "$lib/utils/tool-activity";
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
@@ -534,6 +535,30 @@ function handleToggle() {
 	{/if}
 {/snippet}
 
+{#snippet thingList(icon: ToolThingIcon, items: { title: string; sub?: string }[], more: number)}
+	<!-- The things a tool found or touched, one line each by their own name, and how
+	     many more there were. A chat's glyph is a speech bubble; every other is the
+	     tool's own. -->
+	<div class="act-things" data-testid="tool-activity-things">
+		{#each items as thing, index (index)}
+			<div class="act-thing" data-testid="tool-activity-thing">
+				{#if icon === 'chat'}
+					<MessageSquare class="tool-activity-icon" size={14} strokeWidth={2} aria-hidden="true" />
+				{:else}
+					<ToolActivityIcon iconType={icon} />
+				{/if}
+				<span class="act-thing-title">{thing.title}</span>
+				{#if thing.sub}
+					<span class="act-thing-sub">{thing.sub}</span>
+				{/if}
+			</div>
+		{/each}
+		{#if more > 0}
+			<div class="act-more" data-testid="tool-activity-more">{$t('toolRows.more', { count: more })}</div>
+		{/if}
+	</div>
+{/snippet}
+
 {#snippet sourceRow(source: { title: string; url: string; status?: string; reason?: string; fromInput?: boolean })}
 	<!-- An address the call was only given is the model's own word (a prompt
 	     injection can put private data in a host): its favicon is a request made on
@@ -733,24 +758,7 @@ function handleToggle() {
 				</div>
 			{:else if body.kind === 'things'}
 				<!-- The things a tool found or touched, by their own names. -->
-				<div class="act-things" data-testid="tool-activity-things">
-					{#each body.items as thing, index (index)}
-						<div class="act-thing" data-testid="tool-activity-thing">
-							{#if body.icon === 'chat'}
-								<MessageSquare class="tool-activity-icon" size={14} strokeWidth={2} aria-hidden="true" />
-							{:else}
-								<ToolActivityIcon iconType={body.icon} />
-							{/if}
-							<span class="act-thing-title">{thing.title}</span>
-							{#if thing.sub}
-								<span class="act-thing-sub">{thing.sub}</span>
-							{/if}
-						</div>
-					{/each}
-					{#if body.more > 0}
-						<div class="act-more" data-testid="tool-activity-more">{$t('toolRows.more', { count: body.more })}</div>
-					{/if}
-				</div>
+				{@render thingList(body.icon, body.items, body.more)}
 			{:else if body.kind === 'map'}
 				<!-- The whole route body — mode strip, summary, map, and the
 				     step-by-step directions or timeline — is RouteItinerary's.
@@ -796,11 +804,23 @@ function handleToggle() {
 					{/each}
 				</ul>
 			{:else if body.kind === 'actions'}
+				<!-- One run of an account's calls: each call in plain words, how it went,
+				     what it found beside it, then the things it found by name or one
+				     sentence about why it did not work. -->
 				{#each body.actions as action (action.key)}
 					<div class="act-action-row" data-testid="tool-activity-action">
 						{@render statusGlyph(action.status)}
 						<span class="act-src-title">{action.label}</span>
+						{#if action.sub}
+							<span class="act-action-sub">{action.sub}</span>
+						{/if}
 					</div>
+					{#if action.reason}
+						<p class="act-reason act-action-reason" data-testid="tool-activity-reason">{action.reason}</p>
+					{/if}
+					{#if action.things}
+						{@render thingList(body.icon, action.things.items, action.things.more)}
+					{/if}
 				{/each}
 			{:else if body.kind === 'reason'}
 				<!-- What happened, once, in the person's words: the sentence a reason
@@ -1275,6 +1295,21 @@ function handleToggle() {
 	.act-more {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
+	}
+
+	/* What one call of an account found, on the right of its words ("3 found"). */
+	.act-action-sub {
+		flex: 0 0 auto;
+		margin-left: auto;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Why a call did not work, under it and in line with its words. */
+	.act-action-reason {
+		padding-left: 22px;
 	}
 
 	/* Tailwind's preflight strips list markers app-wide, so the bullets are
