@@ -2028,11 +2028,23 @@ export function buildFileProductionActivityItem(
 ): ToolActivityItem {
 	const isActive = job.status === "queued" || job.status === "running";
 	const isError = job.status === "failed" || job.status === "cancelled";
+	// How a job that ended reads comes from its code's kind, like every tool row:
+	// the person's own Cancel and a stop on purpose (a limit, a kind of file it will
+	// not make) are the quiet dash and say nothing broke; a breakage, a code it has
+	// no words for and a failure with no code are the red cross.
+	const endedKind: ReasonKind | null = isError
+		? resolveToolReason(
+				"produce_file",
+				job.status === "cancelled" ? "stopped" : (job.error?.code ?? null),
+			).kind
+		: null;
 	const status: ToolActivityStatus = isActive
 		? "running"
-		: isError
-			? "failed"
-			: "done";
+		: endedKind === "stop"
+			? "skipped"
+			: isError
+				? "failed"
+				: "done";
 	const primaryFile = job.files[0];
 	const object = primaryFile?.filename ?? job.title ?? "";
 	const totalBytes = job.files.reduce(
@@ -2047,7 +2059,9 @@ export function buildFileProductionActivityItem(
 		verb: createdVerb,
 		object,
 		meta: isError
-			? translate("toolCalls.failed")
+			? endedKind === "stop"
+				? ""
+				: translate("toolCalls.failed")
 			: totalBytes > 0
 				? formatByteSize(totalBytes, { trimWholeUnits: true })
 				: "",
@@ -2413,8 +2427,20 @@ export function buildAtlasActivityItem(
 	nowMs: number,
 ): ToolActivityItem {
 	const isActive = job.status === "queued" || job.status === "running";
+	// A failed report reads by its code's kind: the app stopping on purpose (nothing
+	// it could rely on) is the quiet dash with no "Failed"; a breakage, a code it has
+	// no words for and a failure with no code are the red cross.
+	const stoppedOnPurpose =
+		job.status === "failed" &&
+		resolveToolReason("atlas", job.error?.code ?? null).kind === "stop";
 	const status: ToolActivityStatus =
-		job.status === "failed" ? "failed" : isActive ? "running" : "done";
+		job.status === "failed"
+			? stoppedOnPurpose
+				? "skipped"
+				: "failed"
+			: isActive
+				? "running"
+				: "done";
 	const reportTitle = atlasReportTitle(job, details, translate);
 	const { done, total } = atlasPlanProgress(details.plan);
 	const startedAt = job.startedAt ?? job.createdAt;
@@ -2434,7 +2460,7 @@ export function buildAtlasActivityItem(
 
 	let meta = "";
 	if (job.status === "failed") {
-		meta = translate("atlas.stage.failed");
+		meta = stoppedOnPurpose ? "" : translate("atlas.stage.failed");
 	} else if (job.status === "cancelled") {
 		meta = translate("atlasActivity.stopped");
 	} else if (isActive) {

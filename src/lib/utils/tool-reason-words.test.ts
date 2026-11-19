@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { get } from "svelte/store";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
-import { FILE_PRODUCTION_ERROR_KEYS } from "$lib/components/chat/file-production-helpers";
+import {
+	FILE_PRODUCTION_ERROR_KEYS,
+	FILE_PRODUCTION_STOP_CODES,
+} from "$lib/components/chat/file-production-helpers";
 import { type I18nKey, t } from "$lib/i18n";
 import toolRowsDict from "$lib/i18n/tool-rows";
 import {
@@ -291,6 +294,45 @@ describe("the words of every tool outcome", () => {
 				"unfinished",
 			);
 		}
+	});
+
+	it("gives every code the file maker writes its kind: a limit, a kind of file it will not make and a cancel are stops, the rest are breakages", () => {
+		for (const code of FILE_PRODUCTION_STOP_CODES) {
+			expect(
+				Object.hasOwn(FILE_PRODUCTION_ERROR_KEYS, code),
+				`${code} is a stop with no words on the file card`,
+			).toBe(true);
+			expect(resolveToolReason("produce_file", code).kind, code).toBe("stop");
+		}
+		for (const [code, key] of Object.entries(FILE_PRODUCTION_ERROR_KEYS)) {
+			const words = resolveToolReason("produce_file", code);
+			// The words are the card's own, whatever the kind.
+			expect(words.key, code).toBe(key);
+			if (!FILE_PRODUCTION_STOP_CODES.has(code)) {
+				expect(words.kind, code).toBe("fail");
+			}
+		}
+		// Taking too long is a breakage, not a limit the app set on purpose.
+		for (const code of ["renderer_timeout", "sandbox_timeout"]) {
+			expect(resolveToolReason("produce_file", code).kind, code).toBe("fail");
+		}
+		// The render budget's cancel says what a Stop says.
+		expect(resolveToolReason("produce_file", "render_cancelled")).toEqual({
+			code: "render_cancelled",
+			kind: "stop",
+			key: "toolRows.shared.stopped",
+		});
+		// The person's own Cancel is the job's status, read as the shared stop.
+		expect(resolveToolReason("produce_file", "stopped").kind).toBe("stop");
+		// A code from a newer server, or none, is a failure with the card's fallback.
+		expect(
+			resolveToolReason("produce_file", "a_code_from_a_newer_server"),
+		).toEqual({
+			code: "a_code_from_a_newer_server",
+			kind: "fail",
+			key: "fileProduction.failedDescription",
+		});
+		expect(resolveToolReason("produce_file", null).kind).toBe("fail");
 	});
 
 	it("a shared code uses the tool's own words when it has them", () => {

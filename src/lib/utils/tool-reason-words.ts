@@ -14,6 +14,10 @@
 // replaces the picture and clip rows' own code maps (`IMAGE_REASON_KEYS`,
 // `videoReasonKey`), which `tool-activity.ts` used to keep.
 
+import {
+	FILE_PRODUCTION_ERROR_KEYS,
+	FILE_PRODUCTION_STOP_CODES,
+} from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
 import {
 	type AtlasErrorCode,
@@ -65,8 +69,8 @@ type ToolReasonTables = {
 	make_video: ToolWords<VideoErrorCode>;
 	/** An Atlas report job, which is drawn as a tool row too. */
 	atlas: ToolWords<AtlasErrorCode>;
-	/** The file job's card words its own codes (`FileProductionCard.svelte`). */
-	produce_file: ToolWords<never>;
+	/** A file job: its codes are open strings, worded by the file card's own map. */
+	produce_file: ToolWords<string>;
 };
 
 const fail = (key: I18nKey | null): ReasonWords => ({ kind: "fail", key });
@@ -130,6 +134,16 @@ function connectorTable(keys: {
 		},
 		fallback: keys.fallback,
 	};
+}
+
+/** The file maker's codes with the card's sentences, each a stop on purpose or a breakage. */
+function fileMakerWords(): Record<string, ReasonWords> {
+	return Object.fromEntries(
+		Object.entries(FILE_PRODUCTION_ERROR_KEYS).map(([code, key]) => [
+			code,
+			FILE_PRODUCTION_STOP_CODES.has(code) ? stop(key) : fail(key),
+		]),
+	);
 }
 
 export const TOOL_REASON_WORDS: ToolReasonTables = {
@@ -469,8 +483,11 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		fallback: "atlas.failed",
 	},
 	produce_file: {
-		// The file card words the file maker's own codes (`FileProductionCard.svelte`).
-		codes: {},
+		// The file maker's codes are open strings the file card words itself
+		// (`FILE_PRODUCTION_ERROR_KEYS`, `file-production-helpers.ts`); the row takes
+		// each one's kind from the same place: a limit, a kind of file it will not
+		// make and a cancel are stops on purpose, everything else a breakage.
+		codes: fileMakerWords(),
 		fallback: "fileProduction.failedDescription",
 	},
 };

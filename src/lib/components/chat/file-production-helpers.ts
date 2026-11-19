@@ -123,6 +123,46 @@ export const FILE_PRODUCTION_ERROR_KEYS: Readonly<Record<string, I18nKey>> = {
 };
 
 /**
+ * The codes of a job that ended because the app stopped on purpose, not because
+ * something broke: a limit, a kind of file it will not make, and a cancel (the
+ * render budget's own). The row draws them as the quiet dash instead of the red
+ * cross (`tool-reason-words.ts`, the `produce_file` table). A timeout, the
+ * `worker_*` codes and the rest are breakages, and so is a code that is in no
+ * list (a newer server's): those keep the cross. The person's own Cancel is the
+ * job's `cancelled` status, not a code, and reads as the shared `stopped`.
+ */
+export const FILE_PRODUCTION_STOP_CODES: ReadonlySet<string> = new Set([
+	// Limits, on purpose (`file-production/limits.ts`). A timeout is no limit of
+	// this kind: the file took too long, which is a breakage.
+	"too_many_outputs",
+	"source_too_large",
+	"projection_too_large",
+	"page_limit_exceeded",
+	"table_limit_exceeded",
+	"chart_limit_exceeded",
+	"image_limit_exceeded",
+	"output_file_too_large",
+	"job_outputs_too_large",
+	"xlsx_output_too_large",
+	// A kind of file, of document part or of request the maker does not make.
+	"unsupported_output_type",
+	"unsupported_inline_text_output_type",
+	"unsupported_program_output_type",
+	"unsupported_document_block",
+	"unsupported_table_structure",
+	"unsupported_chart_type",
+	"unsupported_chart_data",
+	"unsupported_pdf_block",
+	"unsupported_file_production_request",
+	"unsupported_source_mode",
+	// As many files, and as many tries at one, as one reply allows.
+	"produce_file_turn_limit",
+	"produce_file_turn_retry_limit",
+	// The attempt was told to stop.
+	"render_cancelled",
+]);
+
+/**
  * The key of the sentence a failed job's code says: its own, or the card's
  * fallback for a code it has no words for, an empty one or none. The lookup asks
  * the map for its own keys only, so a code spelled like an object's own names

@@ -729,6 +729,88 @@ describe("file production activity rows", () => {
 		expect(item.meta).toBe("Failed");
 		expect(item.alwaysOpen).toBe(false);
 	});
+
+	// The glyph follows the code's kind, like every tool row's: the person's own
+	// stop, a limit on purpose and a kind of file that cannot be made here are the
+	// quiet dash (and say nothing is wrong); a breakage is the red cross.
+	const failedWith = (code: string | null) =>
+		buildFileProductionActivityItem(
+			job({
+				status: "failed",
+				files: [],
+				error: code
+					? { code, message: "RAW-SENTINEL-7f3a", retryable: false }
+					: null,
+			}),
+			translate,
+		);
+
+	it("reads a cancelled job as the quiet dash, with no Failed", () => {
+		const item = buildFileProductionActivityItem(
+			job({ status: "cancelled", files: [] }),
+			translate,
+		);
+		expect(item.status).toBe("skipped");
+		expect(item.meta).toBe("");
+		expect(item.summaryLabel).not.toContain("Failed");
+		expect(item.alwaysOpen).toBe(false);
+	});
+
+	it("reads a job that ended on a stop on purpose as the quiet dash, whatever its status says", () => {
+		for (const code of [
+			"render_cancelled",
+			"too_many_outputs",
+			"source_too_large",
+			"projection_too_large",
+			"page_limit_exceeded",
+			"table_limit_exceeded",
+			"chart_limit_exceeded",
+			"image_limit_exceeded",
+			"output_file_too_large",
+			"job_outputs_too_large",
+			"unsupported_output_type",
+			"unsupported_chart_type",
+			"unsupported_document_block",
+			"produce_file_turn_limit",
+		]) {
+			const item = failedWith(code);
+			expect(item.status, code).toBe("skipped");
+			expect(item.meta, code).toBe("");
+			expect(JSON.stringify(item), code).not.toContain("RAW-SENTINEL");
+			expect(JSON.stringify(item), code).not.toContain("Failed");
+		}
+	});
+
+	it("keeps the red cross for a breakage, a code it has no words for and a failure with no code", () => {
+		for (const code of [
+			"renderer_timeout",
+			"sandbox_timeout",
+			"worker_heartbeat_timeout",
+			"worker_state_lost",
+			"document_render_failed",
+			"program_execution_failed",
+			"pdf_font_missing",
+			"tool_failed",
+			"a_code_from_a_newer_server",
+			null,
+		]) {
+			const item = failedWith(code);
+			expect(item.status, String(code)).toBe("failed");
+			expect(item.meta, String(code)).toBe("Failed");
+		}
+	});
+
+	it("keeps a produced file's size and a running job's row as they were", () => {
+		expect(buildFileProductionActivityItem(job(), translate).meta).toBe(
+			"12 KB",
+		);
+		expect(
+			buildFileProductionActivityItem(
+				job({ status: "queued", files: [] }),
+				translate,
+			).status,
+		).toBe("running");
+	});
 });
 
 describe("collapsed summary strip", () => {
@@ -1048,6 +1130,57 @@ describe("Atlas report row grammar", () => {
 		expect(item.object).toBe(
 			"Ireland's grid decarbonisation and the 2030 targets",
 		);
+	});
+
+	it("reads a failed report whose cause is a stop on purpose as the quiet dash, with no Failed", () => {
+		// The question had nothing to rely on: the app stopped there, nothing broke.
+		const item = buildAtlasActivityItem(
+			atlasJob({
+				status: "failed",
+				completedAt: START + 60_000,
+				error: {
+					code: "atlas_v3_no_evidence",
+					message: "RAW-SENTINEL-7f3a",
+					retryable: false,
+				},
+			}),
+			parseAtlasActivityDetails({ plan }),
+			translate,
+			START + 60_000,
+		);
+
+		expect(item.status).toBe("skipped");
+		expect(item.meta).toBe("");
+		expect(item.object).toBe(
+			"Ireland's grid decarbonisation and the 2030 targets",
+		);
+		expect(JSON.stringify(item)).not.toContain("RAW-SENTINEL");
+		expect(JSON.stringify(item)).not.toContain("Failed");
+	});
+
+	it("keeps the red cross for a report that broke, and for a failure with no code or one it has no words for", () => {
+		for (const code of [
+			"atlas_pipeline_failed",
+			"atlas_worker_heartbeat_timeout",
+			"atlas_v3_no_verdict",
+			"job_failed",
+			"research_failed",
+			"a_code_from_a_newer_server",
+			null,
+		]) {
+			const item = buildAtlasActivityItem(
+				atlasJob({
+					status: "failed",
+					completedAt: START + 60_000,
+					error: code ? { code, message: "x", retryable: false } : null,
+				}),
+				parseAtlasActivityDetails({ plan }),
+				translate,
+				START + 60_000,
+			);
+			expect(item.status, String(code)).toBe("failed");
+			expect(item.meta, String(code)).toBe("Failed");
+		}
 	});
 
 	it("reads a cancelled job as a done row that says how far it got", () => {
