@@ -1,0 +1,23 @@
+[
+  {
+    "sha256": "a22964b5fb521be0d91b56e70617bd18be0c9018ccec09e3384928484ca49cae",
+    "containsPausedCanary": false,
+    "model": "qwen3-6-27b",
+    "roles": [
+      "system",
+      "user"
+    ]
+  },
+  {
+    "sha256": "cfd3051f751d4c9902ad65698715c5680b6974b5f4c87dc2336e328d1e1274e8",
+    "containsPausedCanary": false,
+    "model": "qwen3-6-27b",
+    "roles": [
+      "system",
+      "user",
+      "assistant",
+      "tool",
+      "tool"
+    ]
+  }
+]

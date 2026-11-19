@@ -1,0 +1,26 @@
+{
+  "artifacts": [
+    {
+      "title": "Stage project bench",
+      "conversationId": "807b51c0-337d-4e56-a334-66c416c267b6",
+      "projectId": "65d9fa53-c6cb-4fbe-aa33-a4411b92df64",
+      "artifactId": "87aaf5fe-a3f8-4a75-9496-9a181c0ee52b",
+      "type": "durable",
+      "projectCanary": 1
+    },
+    {
+      "title": "Stage recall",
+      "conversationId": "ae812f01-129f-4607-bd89-ba164d68e4c3",
+      "projectId": "65d9fa53-c6cb-4fbe-aa33-a4411b92df64",
+      "artifactId": "a2e4e3c9-e26c-435d-a3d4-4eef0ed55de3",
+      "type": "durable",
+      "projectCanary": 1
+    }
+  ],
+  "counts": {
+    "unknown_accounts": 0,
+    "hindsight_accounts": 2,
+    "unexpected_providers": 0,
+    "database_overrides": 0
+  }
+}
