@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import * as memoryControls from "$lib/server/services/memory-controls";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 import {
@@ -608,10 +609,17 @@ describe("runPlainNormalChatSendModel", () => {
 			getToolCalls: () => [],
 		});
 
-		await runSubject({
-			message:
-				"Create a 30-day rollout plan with checkpoints, metrics, risks, and rollback criteria.",
-		});
+		const memoryActive = vi
+			.spyOn(memoryControls, "isMemoryActiveForConversation")
+			.mockResolvedValue(true);
+		try {
+			await runSubject({
+				message:
+					"Create a 30-day rollout plan with checkpoints, metrics, risks, and rollback criteria.",
+			});
+		} finally {
+			memoryActive.mockRestore();
+		}
 
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({

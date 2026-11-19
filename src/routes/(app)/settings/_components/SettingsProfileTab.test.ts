@@ -182,10 +182,16 @@ describe("SettingsProfileTab — the six cards", () => {
 		expect(screen.getByText("Interface language")).toBeInTheDocument();
 		expect(screen.getByText("Title language")).toBeInTheDocument();
 
-		// Assistant: memory switch, skills, memory profile.
+		// Assistant: Memory switch, Skills, and the link to saved memories.
 		expect(screen.getByRole("switch", { name: "Memory" })).toBeInTheDocument();
 		expect(screen.getByTestId("skills-summary-card")).toBeInTheDocument();
-		expect(screen.getByText("Memory profile")).toBeInTheDocument();
+		const memoryLink = screen.getByRole("link", {
+			name: "Open Knowledge Base",
+		});
+		expect(memoryLink).toHaveAttribute("href", "/knowledge?tab=memory");
+		expect(
+			memoryLink.closest(".settings-row")?.querySelector(".settings-row-label"),
+		).toHaveTextContent(/^Memory$/);
 
 		// Data & privacy: policy, import (folded in from its own card), archive.
 		expect(screen.getByText("Privacy policy")).toBeInTheDocument();

@@ -61,6 +61,12 @@ vi.mock("../connections/resolve", () => ({
 vi.mock("../connections/locality", () => ({
 	hasLocalDistillEnabled: async () => false,
 }));
+// Price the full catalogue for an owned conversation with Memory enabled.
+vi.mock("../memory-controls", async (original) => ({
+	...(await original<typeof import("../memory-controls")>()),
+	isMemoryActiveForConversation: async () => true,
+	isConversationIncognito: async () => false,
+}));
 // The standing instructions, the clock, the skills, the connectors' live block,
 // the compression snapshots and the picture descriptions are other tests'
 // subjects (and the database's): none of them is read here.

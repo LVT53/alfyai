@@ -86,24 +86,27 @@ test.describe("Responsive Design Verification - Task 12", () => {
 		}
 	});
 
-	test.describe("Knowledge Page - Memory Profile Tab", () => {
+	test.describe("Knowledge Page - Memory Tab", () => {
 		for (const [_key, viewport] of Object.entries(VIEWPORTS)) {
-			test(`Memory Profile tab at ${viewport.name} (${viewport.width}px)`, async ({
+			test(`Memory tab at ${viewport.name} (${viewport.width}px)`, async ({
 				page,
 			}) => {
 				await page.setViewportSize({
 					width: viewport.width,
 					height: viewport.height,
 				});
-				// The page opens on Documents; this one is about the Memory Profile.
+				// Open Memory directly. The default Knowledge tab is Documents.
 				await page.goto("/knowledge?tab=memory");
 				await page.waitForLoadState("networkidle");
 
 				await expect(
-					page.getByRole("heading", { name: "Memory Profile" }),
+					page.getByRole("heading", {
+						name: "What Alfy remembers",
+						exact: true,
+					}),
 				).toBeVisible({ timeout: 10000 });
 				await expect(
-					page.getByRole("tab", { name: "Memory Profile" }),
+					page.getByRole("tab", { name: "Memory", exact: true }),
 				).toHaveAttribute("aria-selected", "true");
 
 				const screenshotPath = await captureScreenshot(
