@@ -338,10 +338,35 @@ test("a Memory source loads the older authorized message window, highlights it, 
 			)
 				olderRequests++;
 		});
+		// The highlight clears after 900 ms. Observe the real class and its
+		// visible ring in the browser before any navigation/viewport wait.
+		const observeSourceHighlight = (messageId: string) => {
+			const observer = new MutationObserver(() => {
+				const target = document.getElementById(`message-${messageId}`);
+				if (
+					!target?.classList.contains("history-flash") ||
+					getComputedStyle(target).boxShadow === "none"
+				)
+					return;
+				document.documentElement.dataset.memorySourceHighlighted = messageId;
+				observer.disconnect();
+			});
+			observer.observe(document, {
+				subtree: true,
+				childList: true,
+				attributes: true,
+				attributeFilter: ["class"],
+			});
+		};
+		await page.addInitScript(observeSourceHighlight, source.id);
+		await page.evaluate(observeSourceHighlight, source.id);
 		await page.getByRole("link", { name: "Kayak setup" }).click();
 		const target = page.locator(`[id="message-${source.id}"]`);
 		await expect(target).toBeInViewport();
-		await expect(target).toHaveClass(/history-flash/);
+		await expect(page.locator("html")).toHaveAttribute(
+			"data-memory-source-highlighted",
+			source.id,
+		);
 		await expect.poll(() => olderRequests).toBeGreaterThan(0);
 		await expect(page).not.toHaveURL(/focus_message=/);
 		await page.goBack();
