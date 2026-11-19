@@ -456,3 +456,29 @@ it("binds a reviewed denial and allowed-ID hash to the independently pinned mani
 		"My canoe is turquoise and lives in the shed.",
 	]);
 });
+
+it("scrubs a preview when its chat leaves the author's ownership", async () => {
+	const { db, schema, owner, approval } = await prepareOwner();
+	const other = harness.fixture.seedUser("new-owner");
+	const { eq } = await import("drizzle-orm");
+	const {
+		authorizeMemoryQuarantine,
+		startMemoryQuarantine,
+		getMemoryQuarantine,
+	} = await import("./quarantine");
+	const { memoryDeliveryJob } = await import("./delivery-job");
+	authorizeMemoryQuarantine(owner, approval);
+	await startMemoryQuarantine(owner, { requestId: randomUUID() });
+	await harness.engine.drain(memoryDeliveryJob);
+	const candidates = getMemoryQuarantine(owner).candidates;
+	expect(candidates).toHaveLength(2);
+	const source = candidates[0]?.source;
+	if (!source) throw Error("missing preview source");
+	db.update(schema.conversations)
+		.set({ userId: other })
+		.where(eq(schema.conversations.id, source.conversationId))
+		.run();
+	expect(getMemoryQuarantine(owner).candidates).toEqual([]);
+	expect(getMemoryQuarantine(other).candidates).toEqual([]);
+	expect(db.select().from(schema.memoryQuarantineDrafts).all()).toHaveLength(0);
+});

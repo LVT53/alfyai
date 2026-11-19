@@ -54,10 +54,13 @@ BEGIN
 END;
 --> statement-breakpoint
 CREATE TRIGGER `memory_quarantine_scope_change`
-AFTER UPDATE OF project_id, memory_incognito ON conversations
-WHEN NEW.project_id IS NOT OLD.project_id OR NEW.memory_incognito IS NOT OLD.memory_incognito
+AFTER UPDATE OF user_id, project_id, memory_incognito ON conversations
+WHEN NEW.user_id IS NOT OLD.user_id OR NEW.project_id IS NOT OLD.project_id OR NEW.memory_incognito IS NOT OLD.memory_incognito
 BEGIN
 	DELETE FROM memory_quarantine_drafts WHERE decision IS NULL AND message_id IN (
+		SELECT id FROM messages WHERE conversation_id=OLD.id
+	);
+	UPDATE memory_quarantine_drafts SET message_id=NULL WHERE decision IS NOT NULL AND message_id IN (
 		SELECT id FROM messages WHERE conversation_id=OLD.id
 	);
 END;

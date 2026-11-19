@@ -45,6 +45,8 @@ import {
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 	memoryProjectionState,
+	memoryQuarantineDrafts,
+	memoryQuarantineSessions,
 	memoryResetGenerations,
 	memoryReviewItems,
 	memoryReviewResolutions,
@@ -83,7 +85,7 @@ export type UserScopedResetScope = "memory" | "workspace";
  * How full Account Erasure removes a user-scoped table's rows:
  *
  * - `cascade` → the row is deleted automatically by the `ON DELETE CASCADE`
- *               foreign key to `users.id` when the user row is deleted. This is
+ *               foreign-key chain to `users.id` when the user row is deleted. This is
  *               the REAL erasure mechanism for the vast majority of tables.
  * - `explicit`→ the table has only a plain `user_id` column (NO foreign key to
  *               `users`), so the cascade never reaches it. Full erasure must
@@ -131,6 +133,22 @@ export interface UserScopedTable {
  * schema-derived completeness guard fails until one of the two happens.
  */
 export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
+	// Private review work expires on either reset and cascades through
+	// session → Memory account → user. The ordinary archive does not read it.
+	{
+		name: "memory_quarantine_drafts",
+		table: memoryQuarantineDrafts,
+		userColumn: memoryQuarantineDrafts.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_quarantine_sessions",
+		table: memoryQuarantineSessions,
+		userColumn: memoryQuarantineSessions.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
 	// Native cleanup jobs use opaque tenant ownership and survive person erasure.
 	{
 		name: "memory_actions",

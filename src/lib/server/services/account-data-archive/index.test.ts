@@ -303,6 +303,72 @@ afterEach(async () => {
 });
 
 describe("createAccountDataArchive", () => {
+	it("omits private pending Memory previews and grant metadata from the archive", async () => {
+		await seedArchiveUser();
+		const now = new Date();
+		await db
+			.insert(schema.memoryAccounts)
+			.values({
+				userId: "user-1",
+				tenantId: "archive-test",
+				authority: "preparing",
+			});
+		await db.insert(schema.memoryMigrationManifests).values({
+			id: "manifest",
+			userId: "user-1",
+			epoch: 0,
+			status: "held",
+			manifestJson: "{}",
+		});
+		await db.insert(schema.memoryQuarantineSessions).values({
+			userId: "user-1",
+			manifestId: "manifest",
+			epoch: 0,
+			controlRevision: 0,
+			cutoff: now,
+			policyVersion: "1",
+			reviewPolicyVersion: "1",
+			cohortHash: "private-grant-digest",
+			cohortCount: 1,
+			manifestHash: "manifest",
+			allowedCohortHash: "allowed",
+			deniedSourceIdsJson: "[]",
+			startRequestId: "review",
+			startedAt: now,
+		});
+		await db.insert(schema.memoryQuarantineDrafts).values({
+			id: "draft",
+			userId: "user-1",
+			messageId: "msg-user",
+			ordinal: 0,
+			scopeKey: "personal",
+			textHash: "draft-hash",
+			assertedAt: now,
+			text: "Unapproved quarantine fixture content",
+		});
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+		});
+		if (result.status !== "ok") throw Error(result.status);
+		const zip = await JSZip.loadAsync(
+			await new Response(result.zipStream).arrayBuffer(),
+		);
+		const pages = await Promise.all(
+			Object.values(zip.files)
+				.filter((file) => !file.dir && file.name.endsWith(".html"))
+				.map((file) => file.async("string")),
+		);
+		expect(pages.length).toBeGreaterThan(0);
+		expect(pages.join("\n")).not.toMatch(
+			/Unapproved quarantine fixture content|private-grant-digest/,
+		);
+		expect(await db.select().from(schema.memoryQuarantineDrafts)).toHaveLength(
+			1,
+		);
+	});
+
 	it("exports accepted native memories and explicit edits without revoked content or tenant credentials", async () => {
 		await seedArchiveUser();
 		await db.insert(schema.memoryAccounts).values({
