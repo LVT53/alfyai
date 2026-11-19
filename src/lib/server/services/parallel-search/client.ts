@@ -206,6 +206,54 @@ export async function parallelSearch(
 	return Array.isArray(body.results) ? body.results : [];
 }
 
+/** Parallel images default to the more expensive Advanced mode unless Fast is explicit. */
+export async function parallelImageSearch(
+	request: { query: string; additionalQueries?: string[]; objective?: string },
+	deps: ParallelClientDeps,
+): Promise<Record<string, unknown>[]> {
+	const primary = request.query.trim();
+	const queries = [primary, ...(request.additionalQueries ?? [])]
+		.map((query) => Array.from(query.trim()).slice(0, MAX_QUERY_CHARS).join(""))
+		.filter(Boolean);
+	if (!queries.length) throw new Error("Image search requires a query");
+	// Older tool calls put the entire visual brief in the one query field.
+	const brief =
+		request.objective?.trim() || (primary !== queries[0] ? primary : "");
+	const objective = Array.from(brief).slice(0, MAX_OBJECTIVE_CHARS).join("");
+	const response = await deps.fetch(
+		`${resolveBaseUrl(deps.config)}/v1/images/search`,
+		{
+			method: "POST",
+			redirect: "error",
+			headers: {
+				"content-type": "application/json",
+				"x-api-key": deps.config.parallelApiKey,
+			},
+			body: JSON.stringify({
+				mode: "fast",
+				search_queries: [...new Set(queries)].slice(0, 3),
+				...(objective ? { objective } : {}),
+				advanced_settings: { max_results: 5 },
+			}),
+			signal: deps.signal,
+		},
+	);
+	if (!response.ok) {
+		await response.body?.cancel().catch(() => {});
+		throw new ParallelApiError(
+			`Parallel image search failed: ${response.status}`,
+			response.status,
+		);
+	}
+	const body = await response.json();
+	if (!Array.isArray(body?.results)) {
+		throw new Error("Parallel image search returned an invalid response");
+	}
+	return body.results
+		.slice(0, 5)
+		.filter((item: unknown) => item && typeof item === "object");
+}
+
 // Collapse all interior whitespace (newlines, tabs, runs of spaces) into single
 // spaces and trim. A provider `reason` can be multi-line; left as-is it fractures
 // the markdown bullet list rendered downstream (see buildFailureNote).

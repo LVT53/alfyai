@@ -124,7 +124,11 @@ async function openChat(page: Page, conversationId: string) {
 }
 
 /** The tool call image_search leaves in a stored reply: the picture and Brave's resized copy of it. */
-function imageSearchCall(picture: string, thumbnail: string) {
+function imageSearchCall(
+	picture: string,
+	thumbnail: string,
+	sourcePageUrl?: string,
+) {
 	return {
 		type: "tool_call",
 		callId: `call-${randomUUID()}`,
@@ -137,7 +141,10 @@ function imageSearchCall(picture: string, thumbnail: string) {
 				title: "A cat on a sofa",
 				url: picture,
 				sourceType: "web",
-				metadata: { thumbnail },
+				metadata: {
+					thumbnail,
+					...(sourcePageUrl ? { provider: "parallel", sourcePageUrl } : {}),
+				},
 			},
 		],
 	};
@@ -311,6 +318,37 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 		expect(calls.standIn, "the picture's own host").toEqual([]);
 		expect(calls.brave, "Brave's proxy, asked directly").toEqual([]);
 	});
+
+	for (const succeeds of [true, false]) {
+		test(`a reloaded Parallel image ${succeeds ? "loads through the app" : "offers its source page after a failed preview"}`, async ({
+			page,
+		}) => {
+			const calls = await watchRequests(page, {
+				thumbnailStatus: succeeds ? 200 : 404,
+			});
+			const picture = URL_ON(HOST, "image.jpg?size=large");
+			const source = URL_ON(HOST, "gallery");
+			const id = await seedReply(page, `![Cat](${picture})`, [
+				imageSearchCall(picture, picture, source),
+			]);
+			await openChat(page, id);
+			const prose = page
+				.getByTestId("assistant-message")
+				.locator(".markdown-html");
+			const fallback = prose.getByRole("link", { includeHidden: true });
+			await expect(fallback).toHaveAttribute("href", source);
+			if (succeeds) {
+				await expect(
+					prose.locator(".markdown-image-frame--loaded"),
+				).toBeVisible();
+				await expect(fallback).toBeHidden();
+			} else {
+				await expect(fallback).toBeVisible();
+			}
+			expect(calls.thumbnail.length).toBeGreaterThan(0);
+			expect(calls.standIn).toEqual([]);
+		});
+	}
 
 	test("a picture the app cannot fetch is hidden like any broken picture, and the frame collapses", async ({
 		page,

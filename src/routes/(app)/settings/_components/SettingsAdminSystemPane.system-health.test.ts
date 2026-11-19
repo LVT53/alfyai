@@ -65,7 +65,7 @@ function snapshotFixture(): ToolHealthSnapshot {
 			{
 				id: "image_search",
 				tool: "image_search",
-				backend: "Brave Search",
+				backend: "Parallel API",
 				status: "degraded",
 				configured: true,
 				probed: true,

@@ -346,11 +346,24 @@ function systemWithParallelFixture(): AnalyticsResponse {
 			...system,
 			parallel: {
 				monthly: [
-					{ month: "2026-05", turboCalls: 3, extractCalls: 2, costUsd: 0.4 },
-					{ month: "2026-06", turboCalls: 5, extractCalls: 4, costUsd: 0.9 },
+					{
+						month: "2026-05",
+						turboCalls: 3,
+						extractCalls: 1,
+						imageCalls: 1,
+						costUsd: 0.4,
+					},
+					{
+						month: "2026-06",
+						turboCalls: 5,
+						extractCalls: 4,
+						imageCalls: 0,
+						costUsd: 0.9,
+					},
 				],
 				totalTurboCalls: 8,
-				totalExtractCalls: 6,
+				totalExtractCalls: 5,
+				totalImageCalls: 1,
 				totalCostUsd: 1.3,
 				// The current month is 2026-06: $0.01 of the $5.00 allowance
 				// used, all of it charged (the allowance was already spent).
@@ -691,6 +704,9 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 		expect(getByText("Turbo searches")).toBeInTheDocument();
 		expect(getByText("Extract fetches")).toBeInTheDocument();
+		expect(
+			getByRole("columnheader", { name: /image searches/i }),
+		).toBeInTheDocument();
 		expect(getByText("Parallel cost")).toBeInTheDocument();
 		expect(getByText("Total calls")).toBeInTheDocument();
 	});

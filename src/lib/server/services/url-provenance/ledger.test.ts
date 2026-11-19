@@ -109,7 +109,7 @@ describe("the source ledger: Brave thumbnails", () => {
 		expect(ledgerHasThumbnail("user-1", `${THUMB}?x=1`)).toBe(false);
 	});
 
-	it("remembers only addresses on Brave's image proxy", () => {
+	it("remembers exact HTTPS preview targets only", () => {
 		recordLedgerThumbnails("user-1", [
 			"https://example.com/cat.jpg",
 			"http://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/abc",
@@ -120,7 +120,7 @@ describe("the source ledger: Brave thumbnails", () => {
 		]);
 
 		expect(ledgerHasThumbnail("user-1", "https://example.com/cat.jpg")).toBe(
-			false,
+			true,
 		);
 		expect(
 			ledgerHasThumbnail(

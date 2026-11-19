@@ -4,10 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/services/image-search", () => ({
 	fetchBraveThumbnail: vi.fn(),
+	fetchPublisherThumbnail: vi.fn(),
 }));
 
-import { fetchBraveThumbnail } from "$lib/server/services/image-search";
 import {
+	fetchBraveThumbnail,
+	fetchPublisherThumbnail,
+} from "$lib/server/services/image-search";
+import {
+	noteMessageSources,
 	noteToolEntrySources,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
@@ -115,6 +120,8 @@ describe("GET /api/image-search/thumbnail", () => {
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
 		expect(response.headers.get("content-type")).toBe("image/png");
 		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+		// A second account in this browser must make its own authenticated request.
+		expect(response.headers.get("vary")).toBe("Cookie");
 		expect(response.headers.get("cache-control")).toBe(
 			"private, max-age=86400",
 		);
@@ -190,6 +197,42 @@ describe("GET /api/image-search/thumbnail", () => {
 
 		await expectNotFound(await GET(eventFor(THUMB, { id: "user-1" })));
 		expect(fetchThumbnailMock).not.toHaveBeenCalled();
+	});
+
+	it("serves only the exact publisher image returned to this user after a conversation reload", async () => {
+		const image = "https://www.example.com/cat.jpg?size=large";
+		vi.mocked(fetchPublisherThumbnail).mockResolvedValue({
+			bytes: PNG,
+			contentType: "image/png",
+		});
+		noteMessageSources("user-1", [
+			{
+				role: "assistant",
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						name: "image_search",
+						input: {},
+						status: "done",
+						candidates: [
+							{
+								id: "cat",
+								sourceType: "web",
+								title: "Cat",
+								url: image,
+								metadata: { provider: "parallel", thumbnail: image },
+							},
+						],
+					},
+				],
+			},
+		]);
+		await expectNotFound(await GET(eventFor(image, { id: "other" })));
+		await expectNotFound(await GET(eventFor(image.replace("www.", ""))));
+		await expectNotFound(await GET(eventFor(image.replace("large", "small"))));
+		expect(fetchPublisherThumbnail).not.toHaveBeenCalled();
+		expect((await GET(eventFor(image))).status).toBe(200);
+		expect(fetchPublisherThumbnail).toHaveBeenCalledExactlyOnceWith(image);
 	});
 
 	it("is refused without a session", async () => {

@@ -979,7 +979,6 @@ const NAMED_KEY_LABEL: Record<string, I18nKey> = {
 	CONTEXT_SUMMARIZER_MODEL: "admin.contextSummarizerModel",
 	SYSTEM_PROMPT: "admin.systemPromptLabel",
 	PARALLEL_API_KEY: "admin.parallelApiKey",
-	BRAVE_SEARCH_API_KEY: "admin.braveSearchApiKey",
 	MINERU_API_URL: "admin.mineruApiUrl",
 	MINERU_API_KEY: "admin.mineruApiKey",
 	MINERU_DEFAULT_TIER: "admin.mineruDefaultTier",

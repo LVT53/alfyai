@@ -964,7 +964,6 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"SYSTEM_PROMPT",
 	// Integrations & keys
 	"PARALLEL_API_KEY",
-	"BRAVE_SEARCH_API_KEY",
 	// The MinerU keys arrive through the ADVANCED_KEY_SPECS spread above, now
 	// that every one of them has a spec.
 	"WEB_PUSH_VAPID_PUBLIC_KEY",

@@ -880,6 +880,14 @@ $effect(() => {
     vertical-align: bottom;
   }
 
+  .markdown-html :global(.markdown-image-fallback) {
+    display: none;
+  }
+
+  .markdown-html :global(.markdown-image-frame--broken > .markdown-image-fallback) {
+    display: inline;
+  }
+
   .markdown-html :global(.markdown-image-frame--loading) {
     min-width: 12rem;
     min-height: 8rem;

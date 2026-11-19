@@ -480,7 +480,7 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.ATLAS_V3_SEARCHES_PER_STEP).toBe("5");
 	});
 
-	it("renders the Parallel and Brave search keys without legacy search controls", async () => {
+	it("uses the Parallel key for web and image search even with a saved Brave key", async () => {
 		const adminConfig = {
 			PARALLEL_API_KEY: "",
 			BRAVE_SEARCH_API_KEY: "",
@@ -488,16 +488,21 @@ describe("SettingsAdminSystemPane", () => {
 			MODEL_2_ENABLED: "true",
 		};
 
-		const { getAllByRole, getByLabelText, getByTestId, queryByLabelText } =
-			render(SettingsAdminSystemPane, {
-				adminConfig,
-				envDefaults: {
-					PARALLEL_API_KEY: "",
-					BRAVE_SEARCH_API_KEY: "",
-				},
-				availableModels: [{ id: "model1", displayName: "Model 1" }],
-				onSaveAdminConfig: vi.fn(),
-			});
+		const {
+			getAllByRole,
+			getByLabelText,
+			getByTestId,
+			queryByLabelText,
+			queryByText,
+		} = render(SettingsAdminSystemPane, {
+			adminConfig,
+			envDefaults: {
+				PARALLEL_API_KEY: "",
+				BRAVE_SEARCH_API_KEY: "",
+			},
+			availableModels: [{ id: "model1", displayName: "Model 1" }],
+			onSaveAdminConfig: vi.fn(),
+		});
 
 		await fireEvent.click(getByTestId("system-nav-integrations"));
 		await waitFor(() => {
@@ -506,7 +511,7 @@ describe("SettingsAdminSystemPane", () => {
 
 		// Unset keys offer "Add key" rather than a password box with no state.
 		const addButtons = getAllByRole("button", { name: "Add key" });
-		expect(addButtons.length).toBeGreaterThanOrEqual(2);
+		expect(queryByText("Brave Search API Key")).toBeNull();
 		await fireEvent.click(addButtons[0]);
 		await fireEvent.input(getByLabelText("New value for Parallel API Key"), {
 			target: { value: "parallel-key" },

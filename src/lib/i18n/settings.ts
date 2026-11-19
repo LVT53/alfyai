@@ -68,9 +68,6 @@ const settingsDict = {
 			"Base prompt for that language. Leave empty to rely on few-shot examples only.",
 		"admin.baseUrl": "Base URL",
 		"admin.baseUrlPlaceholder": "e.g. https://api.openai.com/v1",
-		"admin.braveSearchApiKey": "Brave Search API Key",
-		"admin.braveSearchApiKeyDescription":
-			"API key for the Brave Search image-search service. Leave empty to disable Brave-backed image search.",
 		"admin.campaigns.actionLabelEn": "English action label",
 		"admin.campaigns.actionLabelHu": "Hungarian action label",
 		"admin.campaigns.actionUrl": "Action URL",
@@ -498,7 +495,7 @@ const settingsDict = {
 		"admin.optionalDisplayName": "Optional display name",
 		"admin.parallelApiKey": "Parallel API Key",
 		"admin.parallelApiKeyDescription":
-			"API key for the Parallel web search and research service. Leave empty to disable Parallel-backed web research.",
+			"Enables web search, page extraction and image search through Parallel.",
 		"admin.parallelFreeMonthlyUsd": "Parallel free monthly allowance",
 		"admin.parallelFreeMonthlyUsdDescription":
 			"Parallel calls cost nothing to users until the whole server's usage passes this amount in a calendar month. After that they count as normal. Set to 0 to always count them.",
@@ -687,7 +684,7 @@ const settingsDict = {
 		"admin.toolHealth.title": "Tool health",
 		"admin.webResearch": "Web Research",
 		"admin.webResearchDescription":
-			"Server-owned web search and research keys. Parallel powers web search and page research; Brave is used separately for image search.",
+			"Parallel powers web search, page extraction and image search.",
 		"admin.webPushVapidPrivateKey": "Web Push VAPID Private Key",
 		"admin.webPushVapidPublicKey": "Web Push VAPID Public Key",
 		"admin.webPushVapidSubject": "Web Push VAPID Subject",
@@ -759,7 +756,8 @@ const settingsDict = {
 		"analytics.extractFetches": "Extract fetches",
 		"analytics.parallelCost": "Parallel cost",
 		"analytics.totalCalls": "Total calls",
-		"analytics.parallelUsage": "Turbo vs Extract usage",
+		"analytics.imageSearches": "Image searches",
+		"analytics.parallelUsage": "Usage by tool",
 		"analytics.parallelAllowanceOf": "of {allowance} free allowance used",
 		"analytics.parallelAllowanceResets":
 			"Resets 1 {month} · users are charged {charged}",
@@ -2248,9 +2246,6 @@ const settingsDict = {
 			"Alapprompt az adott nyelvhez. Hagyd üresen, ha csak a few-shot példákra szeretnél támaszkodni.",
 		"admin.baseUrl": "Alap-URL",
 		"admin.baseUrlPlaceholder": "pl. https://api.openai.com/v1",
-		"admin.braveSearchApiKey": "Brave Search API-kulcs",
-		"admin.braveSearchApiKeyDescription":
-			"A Brave Search képkeresési szolgáltatás API-kulcsa. Hagyd üresen a Brave-alapú képkeresés letiltásához.",
 		"admin.campaigns.actionLabelEn": "Angol műveletcímke",
 		"admin.campaigns.actionLabelHu": "Magyar műveletcímke",
 		"admin.campaigns.actionUrl": "Művelet URL",
@@ -2684,7 +2679,7 @@ const settingsDict = {
 		"admin.optionalDisplayName": "Opcionális megjelenített név",
 		"admin.parallelApiKey": "Parallel API-kulcs",
 		"admin.parallelApiKeyDescription":
-			"A Parallel webes keresési és kutatási szolgáltatás API-kulcsa. Hagyd üresen a Parallel-alapú webes kutatás letiltásához.",
+			"A Parallel webes kereséséhez, weboldalak tartalmának lekéréséhez és képkereséshez szükséges kulcs.",
 		"admin.parallelFreeMonthlyUsd": "Parallel ingyenes havi keret",
 		"admin.parallelFreeMonthlyUsdDescription":
 			"A Parallel hívások addig nem jelentenek költséget a felhasználóknak, amíg a szerver teljes havi használata egy naptári hónapban meg nem haladja ezt az összeget. Utána a szokásos módon számoljuk el. 0 esetén mindig elszámoljuk őket.",
@@ -2882,7 +2877,7 @@ const settingsDict = {
 		"admin.toolHealth.title": "Eszközállapot",
 		"admin.webResearch": "Webes kutatás",
 		"admin.webResearchDescription":
-			"Szerveroldali webes keresési és kutatási kulcsok. A Parallel végzi a webes keresést és oldalkutatást; a Brave külön a képkereséshez használatos.",
+			"A webes keresést, a weboldalak tartalmának lekérését és a képkeresést a Parallel végzi.",
 		"admin.webPushVapidPrivateKey": "Web Push VAPID privát kulcs",
 		"admin.webPushVapidPublicKey": "Web Push VAPID nyilvános kulcs",
 		"admin.webPushVapidSubject": "Web Push VAPID tárgy",
@@ -2955,7 +2950,8 @@ const settingsDict = {
 		"analytics.extractFetches": "Extract lekérések",
 		"analytics.parallelCost": "Parallel költség",
 		"analytics.totalCalls": "Összes hívás",
-		"analytics.parallelUsage": "Turbo vs Extract használat",
+		"analytics.imageSearches": "Képkeresések",
+		"analytics.parallelUsage": "Használat eszközönként",
 		"analytics.parallelAllowanceOf":
 			"felhasználva a {allowance} ingyenes keretből",
 		"analytics.parallelAllowanceResets":

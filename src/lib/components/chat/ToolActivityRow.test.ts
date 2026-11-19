@@ -567,6 +567,36 @@ describe("ToolActivityRow", () => {
 			expect(container.innerHTML).not.toContain("images.example0.test");
 		});
 
+		it("keeps the publisher link accessible when a Parallel preview fails", async () => {
+			const url = "https://images.example/harbour.jpg";
+			const sourcePageUrl = "https://publisher.example/gallery";
+			const view = render(ToolActivityRow, {
+				item: item({
+					name: "image_search",
+					candidates: [
+						{
+							id: "harbour",
+							title: "Harbour",
+							sourceType: "web",
+							url,
+							metadata: {
+								provider: "parallel",
+								source: "publisher.example",
+								sourcePageUrl,
+								thumbnail: url,
+							},
+						},
+					],
+				}),
+				open: true,
+			});
+			await fireEvent.error(view.getByAltText("Harbour"));
+			expect(view.queryByAltText("Harbour")).toBeNull();
+			expect(
+				view.getByRole("link", { name: "publisher.example" }),
+			).toHaveAttribute("href", sourcePageUrl);
+		});
+
 		it("hides a thumbnail that fails to load, and keeps the others", async () => {
 			const { getAllByTestId, queryAllByTestId } = render(ToolActivityRow, {
 				item: item({

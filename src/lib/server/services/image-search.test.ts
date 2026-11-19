@@ -1,45 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({ braveSearchApiKey: "brave-key" })),
+	getConfig: vi.fn(() => ({ parallelApiKey: "test-key" })),
 }));
 
 import { getConfig } from "$lib/server/config-store";
 import {
 	fetchBraveThumbnail,
-	ImageSearchApiError,
 	ImageSearchNotConfiguredError,
 	searchImages,
 } from "./image-search";
 
-// Brave's image search puts the resized copy at `thumbnail.src` (the response
-// schema has no `thumbnail.url`), the picture's own address at `properties.url`
-// and the page it sits on at `url`. The code used to read `thumbnail.url`, so a
-// result never had a thumbnail, and the chat could not show a search picture at
-// all once the page stopped loading remote images (docs/plans/exfil-channels).
-
 const THUMB =
 	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
 
-const braveResult = {
-	type: "image_result",
-	title: "A cat",
-	url: "https://page.example/cats",
-	source: "page.example",
-	page_fetched: "2026-01-01T00:00:00Z",
-	thumbnail: { src: THUMB, width: 500, height: 333 },
-	properties: {
-		url: "https://pics.example/cat.jpg",
-		placeholder: "https://imgs.search.brave.com/placeholder",
+describe("searchImages", () => {
+	const fetchMock = vi.fn<typeof fetch>();
+	const signal = new AbortController().signal;
+	const result = {
+		title: "A cat",
+		image_url: "https://cdn.example/cat.jpg",
+		source_page_url: "https://page.example/cats",
 		width: 1200,
 		height: 800,
-	},
-	meta_url: { hostname: "page.example" },
-	confidence: "high",
-};
-
-describe("searchImages", () => {
-	const fetchMock = vi.fn();
+	};
 
 	beforeEach(() => {
 		fetchMock.mockReset();
@@ -50,110 +34,140 @@ describe("searchImages", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("reads the thumbnail from `thumbnail.src` and the picture from `properties.url`", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ results: [braveResult] }), { status: 200 }),
-		);
-
-		const results = await searchImages("cat");
-
-		expect(results).toEqual([
+	it("sends complementary local and international terms together in one Fast request", async () => {
+		fetchMock.mockResolvedValue(Response.json({ results: [result] }));
+		vi.mocked(getConfig).mockReturnValueOnce({
+			parallelApiKey: "key",
+			parallelBaseUrl: "https://test.example/",
+		} as never);
+		const input = {
+			query: "Lánchíd",
+			additionalQueries: ["Lánchíd", "Chain Bridge aerial photo"],
+			objective: "Show the full span.",
+		};
+		const images = await searchImages(input, signal);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, options] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe("https://test.example/v1/images/search");
+		expect(options).toMatchObject({
+			method: "POST",
+			signal,
+			redirect: "error",
+			headers: { "x-api-key": "key" },
+		});
+		expect(JSON.parse(String(options?.body))).toEqual({
+			search_queries: ["Lánchíd", "Chain Bridge aerial photo"],
+			objective: "Show the full span.",
+			mode: "fast",
+			advanced_settings: { max_results: 5 },
+		});
+		expect(images).toEqual([
 			{
-				url: "https://pics.example/cat.jpg",
-				title: "A cat",
-				source: "https://page.example/cats",
-				thumbnail: THUMB,
+				provider: "parallel",
+				url: result.image_url,
+				thumbnail: result.image_url,
+				source: "page.example",
+				sourcePageUrl: result.source_page_url,
+				title: result.title,
 				width: 1200,
 				height: 800,
 			},
 		]);
 	});
 
-	it("leaves the thumbnail out when the result has none, rather than inventing one", async () => {
-		const { thumbnail: _omitted, ...withoutThumbnail } = braveResult;
+	it("accepts one query and drops malformed or unsafe provider addresses", async () => {
 		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					results: [
-						withoutThumbnail,
-						{ ...braveResult, thumbnail: { src: "" } },
-						{ ...braveResult, thumbnail: { src: 42 } },
-						{ ...braveResult, thumbnail: { url: THUMB } },
-					],
-				}),
-				{ status: 200 },
-			),
+			Response.json({
+				results: [
+					null,
+					{ ...result, image_url: "data:image/png,xx" },
+					{ ...result, source_page_url: "javascript:alert(1)" },
+					result,
+				],
+			}),
 		);
-
-		const results = await searchImages("cat");
-
-		expect(results).toHaveLength(4);
-		for (const result of results) expect(result.thumbnail).toBeUndefined();
+		expect(await searchImages({ query: "cat" }, signal)).toHaveLength(1);
+		const [url, options] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe("https://api.parallel.ai/v1/images/search");
+		expect(JSON.parse(String(options?.body))).toEqual({
+			search_queries: ["cat"],
+			mode: "fast",
+			advanced_settings: { max_results: 5 },
+		});
 	});
 
-	// A tool row tells a search that was never set up, and one Brave refused,
-	// from any other failure by the class; the messages the model reads stay.
-	it("throws ImageSearchNotConfiguredError, with its old message, when there is no key", async () => {
-		vi.mocked(getConfig).mockReturnValueOnce({
-			braveSearchApiKey: "",
-		} as never);
+	it("preserves a long legacy query as the objective and counts Unicode code points", async () => {
+		const localTerms = "Lánchíd Budapesten ".repeat(11).slice(0, 199);
+		const primary = `${localTerms}🌉 naplementekor`;
+		fetchMock.mockResolvedValue(Response.json({ results: [] }));
+		await searchImages({ query: primary }, signal);
+		const [, options] = fetchMock.mock.calls[0] ?? [];
+		expect(JSON.parse(String(options?.body))).toMatchObject({
+			search_queries: [`${localTerms}🌉`],
+			objective: primary,
+		});
+	});
 
-		const failure = await searchImages("cat").catch((error: unknown) => error);
+	it("drops local hosts and preserves an HTTP publisher source as a clickable link", async () => {
+		fetchMock.mockResolvedValue(
+			Response.json({
+				results: [
+					{ ...result, image_url: "https://127.0.0.1/original" },
+					{ ...result, source_page_url: "https://intranet/doc" },
+					{
+						...result,
+						image_url: "http://cdn.example/cat.jpg",
+						source_page_url: "http://page.example/cat",
+					},
+				],
+			}),
+		);
+		const images = await searchImages({ query: "cat" }, signal);
+		expect(images).toHaveLength(1);
+		expect(images[0]).toMatchObject({
+			url: "http://cdn.example/cat.jpg",
+			sourcePageUrl: "http://page.example/cat",
+		});
+		expect(images[0]).not.toHaveProperty("thumbnail");
+	});
 
-		expect(failure).toBeInstanceOf(ImageSearchNotConfiguredError);
-		expect((failure as Error).message).toBe(
-			"BRAVE_SEARCH_API_KEY is not configured",
+	it("cancels an outstanding provider request with the tool signal", async () => {
+		const controller = new AbortController();
+		fetchMock.mockImplementation(
+			(_url, options) =>
+				new Promise((_resolve, reject) => {
+					const pending = options?.signal;
+					pending?.addEventListener("abort", () => reject(pending.reason), {
+						once: true,
+					});
+				}),
+		);
+		const search = searchImages({ query: "cat" }, controller.signal);
+		const reason = new Error("stopped");
+		controller.abort(reason);
+		await expect(search).rejects.toBe(reason);
+	});
+
+	it("requires a Parallel key", async () => {
+		vi.mocked(getConfig).mockReturnValueOnce({ parallelApiKey: "" } as never);
+		await expect(searchImages({ query: "cat" }, signal)).rejects.toBeInstanceOf(
+			ImageSearchNotConfiguredError,
 		);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("throws ImageSearchApiError, with the status and its old message, when Brave refuses", async () => {
+	it("releases an error body and preserves the provider status if cancellation fails", async () => {
+		const cancel = vi
+			.fn()
+			.mockRejectedValue(new Error("private provider detail"));
 		fetchMock.mockResolvedValue(
-			new Response("plan used up", {
-				status: 402,
-				statusText: "Payment Required",
-			}),
+			new Response(new ReadableStream({ cancel }), { status: 429 }),
 		);
-
-		const failure = await searchImages("cat").catch((error: unknown) => error);
-
-		expect(failure).toBeInstanceOf(ImageSearchApiError);
-		expect((failure as ImageSearchApiError).status).toBe(402);
-		expect((failure as Error).message).toBe(
-			"Brave Search API error: 402 Payment Required - plan used up",
-		);
-	});
-
-	it("falls back to the page address when a result has no picture address", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					results: [{ ...braveResult, properties: { width: 10, height: 10 } }],
-				}),
-				{ status: 200 },
-			),
-		);
-
-		const [result] = await searchImages("cat");
-
-		expect(result?.url).toBe("https://page.example/cats");
-	});
-
-	it("sends the key to Brave, not anywhere else", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ results: [] }), { status: 200 }),
-		);
-
-		await searchImages("golden retriever");
-
-		const [url, init] = fetchMock.mock.calls[0] ?? [];
-		expect(String(url)).toMatch(
-			/^https:\/\/api\.search\.brave\.com\/res\/v1\/images\/search\?/,
-		);
-		expect(new URL(String(url)).searchParams.get("q")).toBe("golden retriever");
-		expect((init as RequestInit).headers).toMatchObject({
-			"X-Subscription-Token": "brave-key",
+		await expect(searchImages({ query: "cat" }, signal)).rejects.toMatchObject({
+			status: 429,
+			message: "Parallel image search failed: 429",
 		});
+		expect(cancel).toHaveBeenCalledTimes(1);
 	});
 });
 

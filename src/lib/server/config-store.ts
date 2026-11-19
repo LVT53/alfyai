@@ -125,7 +125,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"ROUTING_GTFS_REFRESH_DAYS",
 	"ROUTING_GTFS_MAX_MB",
 	"NATIVE_HISTORY_ENABLED",
-	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
 	"MAX_FILE_UPLOAD_SIZE",
@@ -353,7 +352,6 @@ export interface RuntimeConfig {
 	routingGtfsMaxMb: number;
 	nativeHistoryEnabled: boolean;
 	normalChatDebugOutbound: boolean;
-	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
 	onedriveClientId: string;
@@ -399,7 +397,6 @@ function buildDefaultConfig(): RuntimeConfig {
 		...envConfig,
 		model1: { ...envConfig.model1 },
 		model2: { ...envConfig.model2 },
-		braveSearchApiKey: envConfig.braveSearchApiKey,
 		appVersionOverride: null,
 		model1IconAssetId: null,
 		model2IconAssetId: null,
@@ -1061,9 +1058,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	NATIVE_HISTORY_ENABLED: (config, value) => {
 		config.nativeHistoryEnabled = value.trim() !== "false";
-	},
-	BRAVE_SEARCH_API_KEY: (config, value) => {
-		config.braveSearchApiKey = value;
 	},
 	GOOGLE_OAUTH_CLIENT_ID: (config, value) => {
 		config.googleOauthClientId = value.trim();
@@ -1912,7 +1906,6 @@ export function getResolvedAdminConfigValues(
 		ROUTING_GTFS_REFRESH_DAYS: String(config.routingGtfsRefreshDays),
 		ROUTING_GTFS_MAX_MB: String(config.routingGtfsMaxMb),
 		NATIVE_HISTORY_ENABLED: config.nativeHistoryEnabled ? "true" : "false",
-		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",
 		ONEDRIVE_CLIENT_ID: config.onedriveClientId,

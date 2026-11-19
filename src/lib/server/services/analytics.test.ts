@@ -1484,7 +1484,7 @@ describe("analytics dashboard read model", () => {
 			};
 		}
 
-		it("aggregates turbo/extract calls and flat cost by billing month, ignoring non-parallel rows", async () => {
+		it("aggregates web searches, extracts, image searches and flat cost by billing month, ignoring non-parallel rows", async () => {
 			const { sqlite, database } = openSeedDatabase();
 			database
 				.insert(schema.usageEvents)
@@ -1509,7 +1509,7 @@ describe("analytics dashboard read model", () => {
 					}),
 					parallelRow({
 						id: "p4",
-						modelId: "parallel:turbo",
+						modelId: "parallel:images-fast",
 						billingMonth: "2026-06",
 						costUsdMicros: 1000,
 					}),
@@ -1527,12 +1527,26 @@ describe("analytics dashboard read model", () => {
 			const { parallelBreakdown } = await import("./analytics");
 			const result = parallelBreakdown(rows);
 
-			expect(result.totalTurboCalls).toBe(3);
+			expect(result.totalTurboCalls).toBe(2);
+			expect(result.totalImageCalls).toBe(1);
+			expect(result.monthRows[1]).toMatchObject({ calls: 1, listMicros: 1000 });
 			expect(result.totalExtractCalls).toBe(1);
 			expect(result.totalCostUsd).toBe(0.004);
 			expect(result.monthly).toEqual([
-				{ month: "2026-05", turboCalls: 2, extractCalls: 1, costUsd: 0.003 },
-				{ month: "2026-06", turboCalls: 1, extractCalls: 0, costUsd: 0.001 },
+				{
+					month: "2026-05",
+					turboCalls: 2,
+					extractCalls: 1,
+					imageCalls: 0,
+					costUsd: 0.003,
+				},
+				{
+					month: "2026-06",
+					turboCalls: 0,
+					extractCalls: 0,
+					imageCalls: 1,
+					costUsd: 0.001,
+				},
 			]);
 		});
 	});
@@ -1577,10 +1591,17 @@ describe("analytics dashboard read model", () => {
 		});
 		expect(adminResult.system?.parallel).toEqual({
 			monthly: [
-				{ month: "2026-05", turboCalls: 1, extractCalls: 1, costUsd: 0.002 },
+				{
+					month: "2026-05",
+					turboCalls: 1,
+					extractCalls: 1,
+					imageCalls: 0,
+					costUsd: 0.002,
+				},
 			],
 			totalTurboCalls: 1,
 			totalExtractCalls: 1,
+			totalImageCalls: 0,
 			totalCostUsd: 0.002,
 			// The meter describes the CURRENT calendar month, which this query
 			// (narrowed to 2026-05) carries no rows for — so it reads as an

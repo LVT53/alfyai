@@ -142,7 +142,7 @@ admin UI. The essentials:
   connection and provider credentials and for two-step sign-in secrets, so changing it makes those
   undecryptable. Outside production it falls back to an insecure built-in value and warns once.
 - `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, `MODEL_1_NAME` — the primary OpenAI-compatible chat model.
-- `PARALLEL_API_KEY` — enables web research (`research_web` / `fetch_url`) and Atlas.
+- `PARALLEL_API_KEY` — enables web research (`research_web` / `fetch_url`), image search (`image_search`, Fast mode) and Atlas.
 - `PARALLEL_FREE_MONTHLY_USD` — server-wide Parallel spend every calendar month is free for
   (default `5`). Calls past it are billed to the user who made them.
 - `DATABASE_PATH` — SQLite location (default `./data/chat.db`).

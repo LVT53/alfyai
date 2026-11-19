@@ -736,24 +736,33 @@ function handleToggle() {
 				<!-- What the program printed, as plain text: no program, no heading. -->
 				<pre class="act-result" data-testid="tool-activity-result">{body.text}</pre>
 			{:else if body.kind === 'thumbs'}
-				<!-- The pictures a picture search found, small, each with its site. The
-				     address is the app's own thumbnail route for an address on Brave's
-				     image proxy (ADR-0068); a picture that fails to load hides itself. -->
+				<!-- The browser loads previews from this app. The source link also works if a preview fails. -->
 				<div class="act-thumbs" data-testid="tool-activity-thumbs">
-					{#each body.items.filter((thumb) => !brokenThumbs[thumb.src]) as thumb (thumb.src)}
-						<figure class="act-thumb" data-testid="tool-activity-thumb">
-							<img
-								class="act-thumb-img"
-								src={thumb.src}
-								alt={thumb.title}
-								loading="lazy"
-								decoding="async"
-								referrerpolicy="no-referrer"
-								use:replayEarlyImageEvent
-								onerror={() => { brokenThumbs[thumb.src] = true; }}
-							/>
-							<figcaption>{thumb.host}</figcaption>
-						</figure>
+					{#each body.items as thumb (thumb.src ?? thumb.sourcePageUrl)}
+						{@const src = thumb.src}
+						{#if thumb.sourcePageUrl || (src && !brokenThumbs[src])}
+							<figure class="act-thumb" data-testid="tool-activity-thumb">
+								{#if src && !brokenThumbs[src]}
+									<img
+										class="act-thumb-img"
+										{src}
+										alt={thumb.title}
+										loading="lazy"
+										decoding="async"
+										referrerpolicy="no-referrer"
+										use:replayEarlyImageEvent
+										onerror={() => { brokenThumbs[src] = true; }}
+									/>
+								{/if}
+								<figcaption>
+									{#if thumb.sourcePageUrl}
+										<a href={thumb.sourcePageUrl} target="_blank" rel="noopener noreferrer" title={thumb.title}>{thumb.host}</a>
+									{:else}
+										{thumb.host}
+									{/if}
+								</figcaption>
+							</figure>
+						{/if}
 					{/each}
 				</div>
 			{:else if body.kind === 'things'}

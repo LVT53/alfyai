@@ -13,6 +13,7 @@
  * Pure and browser-safe: the chat renderer reads it on the messages it holds,
  * the server on the turn it runs and the messages it stores.
  */
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 
 type ToolCallSegment = Extract<ThinkingSegment, { type: "tool_call" }>;
@@ -24,10 +25,10 @@ const MAX_VALUE_DEPTH = 12;
 /** The tool whose results are pictures to show (see `toolImages`). */
 export const IMAGE_SEARCH_TOOL = "image_search";
 
-/** Brave's image proxy: the only host a picture from image_search is shown from. */
+/** Brave's image proxy used by historical image_search results. */
 export const BRAVE_THUMBNAIL_HOST = "imgs.search.brave.com";
 
-/** The app's same-origin route that serves a Brave thumbnail. */
+/** The app's same-origin route that serves a search thumbnail. */
 export const IMAGE_THUMBNAIL_ROUTE = "/api/image-search/thumbnail";
 
 /** The app's same-origin favicon proxy. */
@@ -224,8 +225,10 @@ function toolCalls(
 export interface ToolImage {
 	/** The picture's own address, as the search returned it. */
 	url: string;
-	/** Brave's resized copy, the one the chat shows; null when there is none. */
+	/** The source of the same-origin thumbnail, or null if none is available. */
 	thumbnail: string | null;
+	/** Publisher page to offer if its image cannot be displayed. */
+	sourcePageUrl?: string;
 }
 
 /** Whether this is an address on Brave's image proxy (https, its host, no port). */
@@ -237,6 +240,36 @@ export function isBraveThumbnailUrl(raw: unknown): boolean {
 			parsed.hostname === BRAVE_THUMBNAIL_HOST &&
 			!parsed.port,
 	);
+}
+
+/** Exact HTTPS request target, preserving the hostname and query of a signed image. */
+export function imagePreviewTarget(raw: unknown): string | null {
+	const parsed = parseHttpUrl(raw);
+	if (parsed?.protocol !== "https:" || parsed.port) return null;
+	parsed.hash = "";
+	return parsed.href.length <= MAX_URL_CHARS ? parsed.href : null;
+}
+
+/** Publisher citation from a Parallel result, available even without a thumbnail. */
+export function searchResultSourcePage(
+	candidate: ToolEvidenceCandidate,
+): string | undefined {
+	return candidate.metadata?.provider === "parallel"
+		? parseHttpUrl(candidate.metadata.sourcePageUrl)?.href
+		: undefined;
+}
+
+/** A new result previews its own image. Old results may preview Brave's resized copy. */
+export function searchResultThumbnail(
+	candidate: ToolEvidenceCandidate,
+): string | null {
+	const thumb = candidate.metadata?.thumbnail;
+	if (typeof thumb !== "string") return null;
+	if (candidate.metadata?.provider === "parallel") {
+		const target = imagePreviewTarget(candidate.url);
+		return target && target === imagePreviewTarget(thumb) ? target : null;
+	}
+	return isBraveThumbnailUrl(thumb) ? thumb.trim() : null;
 }
 
 /**
@@ -253,13 +286,11 @@ export function toolImages(
 		for (const candidate of call.candidates ?? []) {
 			const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
 			if (!parseHttpUrl(url)) continue;
-			const thumbnail = candidate.metadata?.thumbnail;
+			const sourcePageUrl = searchResultSourcePage(candidate);
 			images.push({
 				url,
-				thumbnail:
-					typeof thumbnail === "string" && isBraveThumbnailUrl(thumbnail)
-						? thumbnail.trim()
-						: null,
+				thumbnail: searchResultThumbnail(candidate),
+				...(sourcePageUrl ? { sourcePageUrl } : {}),
 			});
 		}
 	}
@@ -284,7 +315,7 @@ export function toolSourceHosts(
 	return hosts;
 }
 
-/** The same-origin address that shows a Brave thumbnail. */
+/** The same-origin address that shows a search thumbnail. */
 export function imageThumbnailRouteUrl(thumbnail: string): string {
 	return `${IMAGE_THUMBNAIL_ROUTE}?url=${encodeURIComponent(thumbnail)}`;
 }
@@ -306,7 +337,11 @@ function readOwnRouteParameter(
 	parameter: string,
 ): string | null {
 	if (typeof src !== "string" || !src.startsWith(`${route}?`)) return null;
-	if (src.length > MAX_URL_CHARS * 2 || /[\s\\#]/.test(src)) return null;
+	if (
+		src.length > MAX_URL_CHARS * 3 + route.length + parameter.length + 2 ||
+		/[\s\\#]/.test(src)
+	)
+		return null;
 	let parsed: URL;
 	try {
 		parsed = new URL(src, "https://app.invalid");
@@ -321,10 +356,10 @@ function readOwnRouteParameter(
 	return parsed.searchParams.get(parameter);
 }
 
-/** The Brave address a thumbnail route address shows, or null. */
+/** The image address a thumbnail route address shows, or null. */
 export function readImageThumbnailRouteUrl(src: unknown): string | null {
 	const thumbnail = readOwnRouteParameter(src, IMAGE_THUMBNAIL_ROUTE, "url");
-	return thumbnail && isBraveThumbnailUrl(thumbnail) ? thumbnail : null;
+	return thumbnail && imagePreviewTarget(thumbnail) ? thumbnail : null;
 }
 
 /** The host a favicon route address asks for, or null. */

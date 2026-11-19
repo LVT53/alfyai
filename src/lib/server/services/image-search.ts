@@ -1,113 +1,88 @@
-import { createOutboundFetch, type OutboundFetch } from "$lib/server/outbound";
-import { isBraveThumbnailUrl } from "$lib/shared/url-provenance";
+import {
+	assessOutboundUrl,
+	createOutboundFetch,
+	type OutboundFetch,
+} from "$lib/server/outbound";
+import {
+	imagePreviewTarget,
+	isBraveThumbnailUrl,
+	sourceHostOf,
+} from "$lib/shared/url-provenance";
 import { getConfig } from "../config-store";
+import { verifyUploadSignature } from "./knowledge/upload-signature";
+import { parallelImageSearch } from "./parallel-search/client";
 
 export interface ImageSearchResult {
+	provider: "parallel";
 	url: string;
 	title: string;
 	source: string;
+	sourcePageUrl: string;
 	thumbnail?: string;
 	width?: number;
 	height?: number;
 }
 
-function nonEmptyString(value: unknown): string | undefined {
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/**
- * The picture search was never set up (no Brave key). The message is what the
- * model has always read; the class is how a tool row tells this from any other
- * failure without reading the words of the message.
- */
 export class ImageSearchNotConfiguredError extends Error {
 	constructor() {
-		super("BRAVE_SEARCH_API_KEY is not configured");
+		super("PARALLEL_API_KEY is not configured");
 		this.name = "ImageSearchNotConfiguredError";
 	}
 }
 
-/** Brave answered with a non-2xx status (the plan ran out answers 402). Same: the message is the model's, the class is the row's. */
-export class ImageSearchApiError extends Error {
-	constructor(
-		message: string,
-		readonly status: number,
-	) {
-		super(message);
-		this.name = "ImageSearchApiError";
-	}
+// A source page or original may be HTTP (link only). Apply the outbound
+// host rules independently of its scheme; a preview verifies DNS at fetch time.
+function publicImageResultHost(raw: string): string | null {
+	const host = sourceHostOf(raw);
+	return host && assessOutboundUrl(`https://${host}`).ok ? host : null;
 }
 
 export async function searchImages(
-	query: string,
+	input: Parameters<typeof parallelImageSearch>[0],
+	signal: AbortSignal,
 ): Promise<ImageSearchResult[]> {
-	const config = getConfig();
-	const apiKey = config.braveSearchApiKey;
-
-	if (!apiKey) {
-		throw new ImageSearchNotConfiguredError();
-	}
-
-	const url = new URL("https://api.search.brave.com/res/v1/images/search");
-	url.searchParams.set("q", query);
-	url.searchParams.set("count", "5");
-
-	const response = await fetch(url.toString(), {
-		method: "GET",
-		headers: {
-			Accept: "application/json",
-			"Accept-Encoding": "gzip",
-			"X-Subscription-Token": apiKey,
-		},
+	const { parallelApiKey, parallelBaseUrl } = getConfig();
+	if (!parallelApiKey.trim()) throw new ImageSearchNotConfiguredError();
+	const items = await parallelImageSearch(input, {
+		config: { parallelApiKey, parallelBaseUrl },
+		fetch,
+		signal,
 	});
-
-	if (!response.ok) {
-		const errorText = await response.text().catch(() => "");
-		throw new ImageSearchApiError(
-			`Brave Search API error: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`,
-			response.status,
-		);
-	}
-
-	const data = await response.json();
 	const results: ImageSearchResult[] = [];
-
-	if (data.results && Array.isArray(data.results)) {
-		for (const item of data.results.slice(0, 5)) {
-			results.push({
-				url: item.properties?.url || item.url || "",
-				title: item.title || "",
-				source: item.properties?.host || item.url || "",
-				// Brave's resized copy is `thumbnail.src` (the image file itself is
-				// `properties.url`, and `url` above is the page). The chat shows this
-				// address and no other, through the app's own thumbnail route.
-				thumbnail: nonEmptyString(item.thumbnail?.src),
-				width: item.properties?.width,
-				height: item.properties?.height,
-			});
-		}
+	for (const item of items) {
+		const url = typeof item.image_url === "string" ? item.image_url.trim() : "";
+		const sourcePageUrl =
+			typeof item.source_page_url === "string"
+				? item.source_page_url.trim()
+				: "";
+		const source = publicImageResultHost(sourcePageUrl);
+		if (!source || !publicImageResultHost(url)) continue;
+		results.push({
+			provider: "parallel",
+			url,
+			sourcePageUrl,
+			source,
+			title: typeof item.title === "string" ? item.title : "",
+			...(imagePreviewTarget(url) ? { thumbnail: url } : {}),
+			...(typeof item.width === "number" && item.width > 0
+				? { width: item.width }
+				: {}),
+			...(typeof item.height === "number" && item.height > 0
+				? { height: item.height }
+				: {}),
+		});
 	}
-
 	return results;
 }
 
-// ── Brave's thumbnail, for the app's own thumbnail route ─────────────
-//
-// The chat shows an image_search picture as Brave's 500 px copy, fetched here
-// and served from the app's own origin (docs/plans/exfil-channels), so the page
-// never calls a host a search result named. The address is one a search returned
-// to this user (the route asks the ledger), and it must be on Brave's image
-// proxy: a forged address there would make the proxy fetch whatever it wraps.
-// What this function will not do is each a way a fetched file could turn on the
-// reader: follow a redirect, wait long, hold much, or pass on anything that is
-// not a raster image (never SVG, which can carry script).
-
+// The authenticated preview route reuses the outbound guard for both the
+// historical Brave thumbnail and the publisher original returned by Parallel.
 const THUMBNAIL_FETCH_TIMEOUT_MS = 8_000;
 const THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
 // The outbound fetch: Brave's host is fixed, but the server's own fetches all
 // take the one path that checks the address a name resolves to and never
 // follows a redirect (`$lib/server/outbound`).
-const braveThumbnailFetch = createOutboundFetch(
+const thumbnailFetch = createOutboundFetch(
 	{},
 	{ timeoutMs: THUMBNAIL_FETCH_TIMEOUT_MS, maxBytes: THUMBNAIL_MAX_BYTES },
 );
@@ -119,7 +94,7 @@ const THUMBNAIL_TYPES = [
 	"image/avif",
 ] as const;
 
-export interface BraveThumbnail {
+interface SearchThumbnail {
 	bytes: Uint8Array;
 	contentType: (typeof THUMBNAIL_TYPES)[number];
 }
@@ -167,9 +142,15 @@ async function readCapped(
 export async function fetchBraveThumbnail(
 	address: string,
 	options: { fetch?: OutboundFetch } = {},
-): Promise<BraveThumbnail | null> {
+): Promise<SearchThumbnail | null> {
 	if (!isBraveThumbnailUrl(address)) return null;
-	const fetchImpl = options.fetch ?? braveThumbnailFetch;
+	return fetchThumbnailBytes(address, options.fetch ?? thumbnailFetch);
+}
+
+async function fetchThumbnailBytes(
+	address: string,
+	fetchImpl: OutboundFetch,
+): Promise<SearchThumbnail | null> {
 	// A fragment is never sent, and none goes into the request.
 	const target = new URL(address);
 	target.hash = "";
@@ -207,4 +188,53 @@ export async function fetchBraveThumbnail(
 
 	const bytes = await readCapped(upstream.body);
 	return bytes && bytes.byteLength > 0 ? { bytes, contentType: type } : null;
+}
+
+/** Decode untrusted publisher bytes into a small, single-frame raster preview. */
+export async function fetchPublisherThumbnail(
+	address: string,
+	options: { fetch?: OutboundFetch } = {},
+): Promise<SearchThumbnail | null> {
+	const target = imagePreviewTarget(address);
+	if (!target || !assessOutboundUrl(target).ok) return null;
+	const original = await fetchThumbnailBytes(
+		target,
+		options.fetch ?? thumbnailFetch,
+	);
+	if (!original) return null;
+	const extension = original.contentType.slice("image/".length);
+	// Reject mislabeled markup before giving the publisher's bytes to a decoder.
+	if (
+		!verifyUploadSignature({
+			fileName: `image.${extension}`,
+			mimeType: original.contentType,
+			head: Buffer.from(original.bytes.subarray(0, 16)),
+		}).ok
+	)
+		return null;
+	try {
+		const { default: sharp } = await import("sharp");
+		const input = sharp(original.bytes, {
+			animated: false,
+			limitInputPixels: 24_000_000,
+		});
+		const { format } = await input.metadata();
+		const declaredFormat =
+			original.contentType === "image/avif" ? "heif" : extension;
+		if (format !== declaredFormat) return null;
+		const bytes = await input
+			.autoOrient()
+			.resize({
+				width: 500,
+				height: 500,
+				fit: "inside",
+				withoutEnlargement: true,
+			})
+			.webp()
+			.timeout({ seconds: 3 })
+			.toBuffer();
+		return { bytes, contentType: "image/webp" };
+	} catch {
+		return null;
+	}
 }

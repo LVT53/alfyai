@@ -122,7 +122,6 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 		return {
 			parallelApiKey: "",
 			parallelBaseUrl: "",
-			braveSearchApiKey: "",
 			teiEmbedderUrl: "",
 			teiEmbedderApiKey: "",
 			teiRerankerUrl: "",
@@ -204,7 +203,7 @@ export async function checkToolHealth(
 			const status = deriveStatus(configured, probed, ok, connectedConnections);
 			const detailParts: string[] = [];
 			if (!configured) detailParts.push("not configured");
-			// A backend the registry leaves unprobed (image_search) is configured,
+			// A backend the registry leaves unprobed is configured,
 			// not checked: say so, so its "healthy" is not read as a passed check.
 			if (configured && !entry.probe && !capability) {
 				detailParts.push("not probed");

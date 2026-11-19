@@ -261,7 +261,7 @@ task-state.ts (facade — 1,535 lines)
   - [`src/lib/server/services/normal-chat-stability-snapshot.ts`](normal-chat-stability-snapshot.ts)
     - Owns content-free operational stability snapshots for Normal Chat streams, providers, tools, web grounding, context limits, and maintenance metrics.
   - [`src/lib/server/services/normal-chat-tools/`](normal-chat-tools/)
-    - Owns app-backed AI SDK tools such as `produce_file`, `research_web` (Parallel Search), `fetch_url` (Parallel Extract, on-demand page read), `image_search` (Brave), and `memory_context`, plus the shared tool execution envelope for timeout, abort, model-safe failure, and recorder behavior.
+    - Owns app-backed AI SDK tools such as `produce_file`, `research_web` (Parallel Search), `fetch_url` (Parallel Extract, on-demand page read), `image_search` (Parallel Images, Fast mode), and `memory_context`, plus the shared tool execution envelope for timeout, abort, model-safe failure, and recorder behavior.
   - [`src/lib/server/services/normal-chat-control-model.ts`](normal-chat-control-model.ts)
     - Owns structured JSON control-model calls used by context compression and similar control tasks.
   - [`src/lib/server/services/title-generator.ts`](title-generator.ts)

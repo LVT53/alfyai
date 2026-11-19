@@ -175,8 +175,7 @@ const googleListEventsMock = vi.mocked(googleListEvents);
 const imapReadMessageMock = vi.mocked(imapReadMessage);
 const imapGetInboxUidValidityMock = vi.mocked(imapGetInboxUidValidity);
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://pics.example/cat.jpg";
 const EXFIL = "https://exfil.example/collect?d=PRIVATE-DATA";
 
 function requireTool<T>(tool: T | undefined): NonNullable<T> {
@@ -382,6 +381,8 @@ describe("the tool recorder feeds the user's source ledger", () => {
 				title: "Cat",
 				source: "pics.example",
 				thumbnail: THUMB,
+				provider: "parallel",
+				sourcePageUrl: "https://cats.example/cat",
 			},
 		]);
 
@@ -431,6 +432,8 @@ describe("the tool recorder feeds the user's source ledger", () => {
 				title: "Cat",
 				source: "x",
 				thumbnail: THUMB,
+				provider: "parallel",
+				sourcePageUrl: "https://cats.example/cat",
 			},
 		]);
 		const before = changes();
@@ -1176,6 +1179,8 @@ describe("produce_file leaves out a picture whose address has no source", () => 
 				title: "Cat",
 				source: "pics.example",
 				thumbnail: THUMB,
+				provider: "parallel",
+				sourcePageUrl: "https://cats.example/cat",
 			},
 		]);
 		const set = tools();

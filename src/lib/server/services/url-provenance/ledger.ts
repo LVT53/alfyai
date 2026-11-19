@@ -1,5 +1,5 @@
 /**
- * The per-user source ledger: which hosts, and which exact Brave thumbnail
+ * The per-user source ledger: which hosts, and which exact search thumbnail
  * addresses, this user's own tools have returned.
  *
  * The model reads pages, emails and files a stranger may have written, so an
@@ -20,19 +20,19 @@
  * thumbnails per user, so neither a busy account nor many accounts can grow it
  * without limit.
  */
-import { isBraveThumbnailUrl, provenanceKey } from "$lib/shared/url-provenance";
+import { imagePreviewTarget } from "$lib/shared/url-provenance";
 
 /** How many users' ledgers are kept at once; the least recently used goes first. */
 export const LEDGER_MAX_USERS = 200;
 /** How many hosts one user's ledger keeps. */
 export const LEDGER_MAX_HOSTS_PER_USER = 2_000;
-/** How many Brave thumbnail addresses one user's ledger keeps. */
+/** How many search thumbnail addresses one user's ledger keeps. */
 export const LEDGER_MAX_THUMBNAILS_PER_USER = 1_000;
 
 interface UserLedger {
 	/** Normalized hosts, in the order they were last seen (oldest first). */
 	hosts: Map<string, true>;
-	/** `provenanceKey`s of Brave thumbnail addresses, oldest first. */
+	/** Exact HTTPS request targets for search thumbnails, oldest first. */
 	thumbnails: Map<string, true>;
 }
 
@@ -105,8 +105,8 @@ export function recordLedgerHosts(
 }
 
 /**
- * Remembers that a search returned these exact Brave thumbnail addresses to
- * this user. Anything that is not an address on Brave's image proxy is ignored.
+ * Remembers that a search returned these exact search thumbnail addresses to
+ * this user. Its caller takes only the verified thumbnail from toolImages().
  */
 export function recordLedgerThumbnails(
 	userId: string,
@@ -114,8 +114,7 @@ export function recordLedgerThumbnails(
 ): void {
 	let ledger: UserLedger | null = null;
 	for (const raw of thumbnails) {
-		if (!isBraveThumbnailUrl(raw)) continue;
-		const key = provenanceKey(raw);
+		const key = imagePreviewTarget(raw);
 		if (!key) continue;
 		ledger ??= ledgerFor(userId, true);
 		if (!ledger) return;
@@ -133,13 +132,12 @@ export function ledgerHasHost(userId: string, host: unknown): boolean {
 	return true;
 }
 
-/** Whether a search returned exactly this Brave thumbnail address to this user. */
+/** Whether a search returned exactly this search thumbnail address to this user. */
 export function ledgerHasThumbnail(
 	userId: string,
 	thumbnail: unknown,
 ): boolean {
-	if (!isBraveThumbnailUrl(thumbnail)) return false;
-	const key = provenanceKey(thumbnail);
+	const key = imagePreviewTarget(thumbnail);
 	if (!key) return false;
 	const ledger = ledgerFor(userId, false);
 	if (!ledger?.thumbnails.has(key)) return false;

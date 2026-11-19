@@ -154,10 +154,12 @@ interface SystemAnalytics {
 			month: string;
 			turboCalls: number;
 			extractCalls: number;
+			imageCalls: number;
 			costUsd: number;
 		}[];
 		totalTurboCalls: number;
 		totalExtractCalls: number;
+		totalImageCalls: number;
 		totalCostUsd: number;
 		/** The server-wide free monthly allowance, and where this month stands. */
 		allowance: {

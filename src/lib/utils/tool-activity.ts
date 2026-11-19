@@ -26,7 +26,8 @@ import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	imageThumbnailRouteUrl,
-	isBraveThumbnailUrl,
+	searchResultSourcePage,
+	searchResultThumbnail,
 } from "$lib/shared/url-provenance";
 import {
 	connectorCountOf,
@@ -110,11 +111,10 @@ export type ToolActivityBody =
 	| { kind: "map"; map: ToolCallMapData; summary: string }
 	| { kind: "bullets"; items: string[] }
 	// The pictures a picture search found, small, each with its site. `src` is the
-	// app's own thumbnail route for an address on Brave's image proxy, never the
-	// address itself.
+	// app's same-origin thumbnail route. Parallel results also carry their publisher page.
 	| {
 			kind: "thumbs";
-			items: { src: string; host: string; title: string }[];
+			items: ToolSearchPicture[];
 	  }
 	// The things a tool found or touched, by their own names: at most five, then
 	// `more` says how many were left out.
@@ -1035,25 +1035,29 @@ function withVideoCard(
 /** How many named things a list in a body shows before it says "and N more". */
 const THINGS_SHOWN = 5;
 
+type ToolSearchPicture = {
+	src: string | null;
+	host: string;
+	title: string;
+	sourcePageUrl?: string;
+};
+
 /**
- * The pictures a picture search found: how many, and the small copies a row can
- * show. A thumbnail is shown only when it is an address on Brave's image proxy (the
- * one the app's own thumbnail route will ask for), through that route and never by
- * its own address; a picture whose thumbnail is anything else is counted, not shown
- * (ADR-0068: an address the app requests without a click comes from a tool's result,
- * never from the model's words). Each carries the site the search said it came from.
+ * Resized search pictures are served from this origin for both providers.
+ * A result without an authorized preview still counts toward the total.
  */
 function foundPictures(candidates: ToolEvidenceCandidate[] | undefined): {
 	count: number;
-	thumbs: { src: string; host: string; title: string }[];
+	thumbs: ToolSearchPicture[];
 } {
 	const found = (candidates ?? []).filter(
 		(candidate) => typeof candidate.url === "string" && candidate.url.trim(),
 	);
-	const thumbs: { src: string; host: string; title: string }[] = [];
+	const thumbs: ToolSearchPicture[] = [];
 	for (const candidate of found) {
-		const thumbnail = candidate.metadata?.thumbnail;
-		if (typeof thumbnail !== "string" || !isBraveThumbnailUrl(thumbnail)) {
+		const thumbnail = searchResultThumbnail(candidate);
+		const sourcePageUrl = searchResultSourcePage(candidate);
+		if (!thumbnail && !sourcePageUrl) {
 			continue;
 		}
 		const source =
@@ -1064,10 +1068,17 @@ function foundPictures(candidates: ToolEvidenceCandidate[] | undefined): {
 			stripToPlainText(source).trim() || extractHostname(candidate.url ?? "");
 		// A picture a search finds twice (two pages, one thumbnail) is drawn once,
 		// where it first came: the row keys its pictures by their address.
-		const src = imageThumbnailRouteUrl(thumbnail.trim());
-		if (thumbs.some((thumb) => thumb.src === src)) continue;
+		const src = thumbnail ? imageThumbnailRouteUrl(thumbnail) : null;
+		if (
+			thumbs.some(
+				(thumb) =>
+					(thumb.src ?? thumb.sourcePageUrl) === (src ?? sourcePageUrl),
+			)
+		)
+			continue;
 		thumbs.push({
 			src,
+			...(sourcePageUrl ? { sourcePageUrl } : {}),
 			host,
 			title: stripToPlainText(candidate.title || host),
 		});

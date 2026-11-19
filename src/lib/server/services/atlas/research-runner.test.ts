@@ -231,7 +231,6 @@ describe("Atlas research runner", () => {
 			atlasGlobalActiveLimit: 2,
 			atlasSynthesisModel: "model1",
 			atlasAuditModel: "model1",
-			braveSearchApiKey: "test-brave-key",
 			model1: { baseUrl: "http://model1.local", modelName: "model-1" },
 			model2: { baseUrl: "http://model2.local", modelName: "model-2" },
 			model2Enabled: true,

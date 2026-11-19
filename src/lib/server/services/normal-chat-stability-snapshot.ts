@@ -344,7 +344,7 @@ function buildToolSnapshot(config: RuntimeConfig): ToolStabilitySnapshot {
 			rendererTimeoutMs: config.fileProductionRendererTimeoutMs,
 			maxOutputFileBytes: config.fileProductionMaxOutputFileBytes,
 		},
-		imageSearchConfigured: Boolean(config.braveSearchApiKey.trim()),
+		imageSearchConfigured: Boolean(config.parallelApiKey.trim()),
 		memoryContextAvailable: true,
 	};
 }

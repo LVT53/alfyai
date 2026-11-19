@@ -37,7 +37,6 @@ import {
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
-	ImageSearchApiError,
 	ImageSearchNotConfiguredError,
 	searchImages,
 } from "$lib/server/services/image-search";
@@ -47,6 +46,7 @@ import {
 	type PersonaMemoryContextResult,
 	type ProjectMemoryContextResult,
 } from "$lib/server/services/memory-context";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import {
@@ -3806,16 +3806,14 @@ describe("createNormalChatTools", () => {
 	});
 
 	it("image_search calls image search directly and records stable web candidates", async () => {
-		// A thumbnail is kept only as an address on Brave's image proxy (the one the
-		// chat shows, through the app's own route); that is what a search returns.
-		const BRAVE_CAT_THUMBNAIL =
-			"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZXMvY2F0LnBuZw";
 		searchImagesMock.mockResolvedValue([
 			{
 				url: "https://example.com/images/cat.png",
 				title: "Reference cat",
 				source: "example.com",
-				thumbnail: BRAVE_CAT_THUMBNAIL,
+				provider: "parallel",
+				sourcePageUrl: "https://example.com/pets",
+				thumbnail: "https://example.com/images/cat.png",
 				width: 1200,
 				height: 800,
 			},
@@ -3823,6 +3821,9 @@ describe("createNormalChatTools", () => {
 				url: "https://cdn.example.net/dog.jpg",
 				title: "Reference dog",
 				source: "cdn.example.net",
+				provider: "parallel",
+				sourcePageUrl: "https://cdn.example.net/pets",
+				thumbnail: "https://cdn.example.net/dog.jpg",
 			},
 		]);
 
@@ -3840,7 +3841,15 @@ describe("createNormalChatTools", () => {
 			},
 		);
 
-		expect(searchImagesMock).toHaveBeenCalledWith("visual references for pets");
+		expect(searchImagesMock).toHaveBeenCalledWith(
+			{ query: "visual references for pets" },
+			expect.any(AbortSignal),
+		);
+		expect(recordParallelUsageMock).toHaveBeenCalledExactlyOnceWith({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			tool: "image_search",
+		});
 		expect(result).toEqual({
 			success: true,
 			name: "image_search",
@@ -3852,7 +3861,9 @@ describe("createNormalChatTools", () => {
 					url: "https://example.com/images/cat.png",
 					title: "Reference cat",
 					source: "example.com",
-					thumbnail: BRAVE_CAT_THUMBNAIL,
+					provider: "parallel",
+					sourcePageUrl: "https://example.com/pets",
+					thumbnail: "https://example.com/images/cat.png",
 					width: 1200,
 					height: 800,
 				},
@@ -3861,6 +3872,9 @@ describe("createNormalChatTools", () => {
 					url: "https://cdn.example.net/dog.jpg",
 					title: "Reference dog",
 					source: "cdn.example.net",
+					provider: "parallel",
+					sourcePageUrl: "https://cdn.example.net/pets",
+					thumbnail: "https://cdn.example.net/dog.jpg",
 				},
 			],
 		});
@@ -3883,7 +3897,9 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						metadata: {
 							source: "example.com",
-							thumbnail: BRAVE_CAT_THUMBNAIL,
+							provider: "parallel",
+							sourcePageUrl: "https://example.com/pets",
+							thumbnail: "https://example.com/images/cat.png",
 							width: 1200,
 							height: 800,
 						},
@@ -3896,6 +3912,9 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						metadata: {
 							source: "cdn.example.net",
+							provider: "parallel",
+							sourcePageUrl: "https://cdn.example.net/pets",
+							thumbnail: "https://cdn.example.net/dog.jpg",
 						},
 					},
 				],
@@ -4017,13 +4036,11 @@ describe("createNormalChatTools", () => {
 
 			await expect(search(set)).resolves.toEqual({
 				success: false,
-				error: "BRAVE_SEARCH_API_KEY is not configured",
+				error: "PARALLEL_API_KEY is not configured",
 			});
 
 			const [entry] = set.getToolCalls();
-			expect(entry?.outputSummary).toBe(
-				"BRAVE_SEARCH_API_KEY is not configured",
-			);
+			expect(entry?.outputSummary).toBe("PARALLEL_API_KEY is not configured");
 			expect(entry?.metadata).toMatchObject({
 				ok: false,
 				reasonCode: "not_set_up",
@@ -4031,10 +4048,9 @@ describe("createNormalChatTools", () => {
 		});
 
 		it("names a search the provider refused (its plan ran out)", async () => {
-			const message =
-				"Brave Search API error: 402 Payment Required - plan used up";
+			const message = "Parallel image search failed: 402";
 			searchImagesMock.mockRejectedValueOnce(
-				new ImageSearchApiError(message, 402),
+				new ParallelApiError(message, 402),
 			);
 			const set = imageTools();
 
@@ -4045,6 +4061,7 @@ describe("createNormalChatTools", () => {
 
 			const [entry] = set.getToolCalls();
 			expect(entry?.outputSummary).toBe(message);
+			expect(recordParallelUsageMock).not.toHaveBeenCalled();
 			expect(entry?.metadata).toMatchObject({
 				ok: false,
 				reasonCode: "search_unavailable",
@@ -4065,6 +4082,11 @@ describe("createNormalChatTools", () => {
 			const [entry] = set.getToolCalls();
 			expect(entry?.status).toBe("done");
 			expect(entry?.outputSummary).toBe("Found 0 images.");
+			expect(recordParallelUsageMock).toHaveBeenCalledExactlyOnceWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "image_search",
+			});
 			expect(entry?.metadata).toMatchObject({
 				ok: true,
 				resultCount: 0,
@@ -4078,6 +4100,9 @@ describe("createNormalChatTools", () => {
 					url: "https://pics.example/cat.jpg",
 					title: "Cat",
 					source: "pics.example",
+					provider: "parallel",
+					sourcePageUrl: "https://pics.example/cats",
+					thumbnail: "https://pics.example/cat.jpg",
 				},
 			]);
 			const set = imageTools();

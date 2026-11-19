@@ -311,10 +311,12 @@ export interface ParallelUsageBreakdown {
 		month: string;
 		turboCalls: number;
 		extractCalls: number;
+		imageCalls: number;
 		costUsd: number;
 	}>;
 	totalTurboCalls: number;
 	totalExtractCalls: number;
+	totalImageCalls: number;
 	totalCostUsd: number;
 	// The whole server's free monthly allowance, and where the current calendar
 	// month stands under it. The list price is never stored (only the billed
@@ -344,7 +346,7 @@ interface SystemAnalytics {
 	monthly?: MonthlyAnalyticsRow[];
 	favoriteModel?: string | null;
 	chatCount?: number;
-	// Admin-only rollup of Parallel API usage (Turbo search + Extract fetch),
+	// Admin-only rollup of Parallel API usage (web search, extraction and image search),
 	// derived from usage_events rows whose modelId starts with "parallel:".
 	parallel?: ParallelUsageBreakdown;
 }
@@ -1339,9 +1341,7 @@ function monthlyBreakdown(rows: UsageRow[]) {
 	);
 }
 
-// Roll up Parallel API usage from usage_events. Turbo search rows carry
-// modelId "parallel:turbo" and Extract fetch rows "parallel:extract"; every
-// other row is ignored. Grouped by billing month and summed into a flat cost.
+// Group the metered Parallel tools by billing month and sum their billed cost.
 export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
 	const grouped = new Map<
 		string,
@@ -1349,11 +1349,13 @@ export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
 			month: string;
 			turboCalls: number;
 			extractCalls: number;
+			imageCalls: number;
 			costMicros: number;
 		}
 	>();
 	let totalTurboCalls = 0;
 	let totalExtractCalls = 0;
+	let totalImageCalls = 0;
 	let totalCostMicros = 0;
 
 	for (const row of events) {
@@ -1362,14 +1364,18 @@ export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
 			month: row.billingMonth,
 			turboCalls: 0,
 			extractCalls: 0,
+			imageCalls: 0,
 			costMicros: 0,
 		};
-		if (row.modelId === "parallel:turbo") {
+		if (row.modelId === PARALLEL_TOOL_MODEL.research_web.modelId) {
 			current.turboCalls += 1;
 			totalTurboCalls += 1;
-		} else if (row.modelId === "parallel:extract") {
+		} else if (row.modelId === PARALLEL_TOOL_MODEL.fetch_url.modelId) {
 			current.extractCalls += 1;
 			totalExtractCalls += 1;
+		} else if (row.modelId === PARALLEL_TOOL_MODEL.image_search.modelId) {
+			current.imageCalls += 1;
+			totalImageCalls += 1;
 		}
 		current.costMicros += row.costUsdMicros;
 		totalCostMicros += row.costUsdMicros;
@@ -1384,8 +1390,8 @@ export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
 	// always `calls × price` and its free part is whatever the billed cost did
 	// not consume. No second query and no stored list price.
 	const monthRows: ParallelMonthRow[] = [...grouped.values()]
-		.map(({ month, turboCalls, extractCalls, costMicros }) => {
-			const calls = turboCalls + extractCalls;
+		.map(({ month, turboCalls, extractCalls, imageCalls, costMicros }) => {
+			const calls = turboCalls + extractCalls + imageCalls;
 			const listMicros = parallelListMicrosForCalls(calls);
 			return {
 				month,
@@ -1414,6 +1420,7 @@ export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
 		monthly,
 		totalTurboCalls,
 		totalExtractCalls,
+		totalImageCalls,
 		totalCostUsd: usd(totalCostMicros),
 		allowance,
 		monthRows,
@@ -2590,6 +2597,10 @@ export async function recordAtlasJobAnalytics(params: {
 const PARALLEL_COST_USD_MICROS = 1000;
 
 const PARALLEL_TOOL_MODEL = {
+	image_search: {
+		modelId: "parallel:images-fast",
+		modelDisplayName: "Parallel Images Fast",
+	},
 	research_web: {
 		modelId: "parallel:turbo",
 		modelDisplayName: "Parallel Turbo",
@@ -2736,7 +2747,7 @@ export async function recomputeParallelBillingForMonth(
 	};
 }
 
-// Record a single Parallel API call (Turbo search or Extract fetch) as a
+// Record a single Parallel API call (web search, extraction or image search) as a
 // usage_events row so its cost folds into the model breakdown automatically and
 // the admin dashboard can chart Parallel usage. Best-effort: like the other
 // analytics writers it never throws into the caller. The synthetic messageId is
@@ -2750,7 +2761,7 @@ export async function recomputeParallelBillingForMonth(
 export async function recordParallelUsage(input: {
 	userId: string;
 	conversationId?: string | null;
-	tool: "research_web" | "fetch_url";
+	tool: keyof typeof PARALLEL_TOOL_MODEL;
 }): Promise<void> {
 	if (!input.userId) return;
 	try {

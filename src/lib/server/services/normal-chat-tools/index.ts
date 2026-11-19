@@ -22,7 +22,6 @@ import {
 import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
-	ImageSearchApiError,
 	ImageSearchNotConfiguredError,
 	searchImages,
 } from "$lib/server/services/image-search";
@@ -128,7 +127,6 @@ import {
 	compactImageSearchResults,
 	createImageSearchCandidates,
 	imageSearchInputSchema,
-	sanitizeImageSearchInput,
 } from "./image-search";
 import {
 	locationToolInputSchema,
@@ -399,7 +397,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	image_search: {
 		description:
-			'Find web images (photos, illustrations, diagrams) to show in the answer: {"query": "golden retriever puppy"}. Do not use it for maps, routes, distances or anything geographic (map_route renders its own map card), for the user\'s own pictures (photos), or for facts and text (research_web). Returns a list of image URLs. Embed the ones you use in your answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible.',
+			'Find web pictures, including landmarks. Keep local names and accents in query. If useful, add international terms ("aerial view") in additionalQueries. Honor any requested search language. Put visual criteria in objective. Do not use for directions (map_route), personal photos (photos) or facts (research_web). Embed each selected url as `![alt text](url)` or it is invisible. Cite sourcePageUrl.',
 		errorPrefix: "Image search failed",
 	},
 	produce_file: {
@@ -1175,15 +1173,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					input: z.infer<typeof imageSearchInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
-					const safeInput = sanitizeImageSearchInput(input);
+					const safeInput = imageSearchInputSchema.parse(input);
 					return executeToolWithEnvelope({
 						toolName: "image_search",
 						timeoutMs: TOOL_TIMEOUTS_MS.image_search,
 						readOnly: true,
 						options,
 						recorder,
-						run: async () => {
-							const results = await searchImages(safeInput.query);
+						run: async (signal) => {
+							const results = await searchImages(safeInput, signal);
+							void recordParallelUsage({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								tool: "image_search",
+							}).catch(() => {});
 							const compactResults = compactImageSearchResults(results);
 							const candidates = createImageSearchCandidates(compactResults);
 							const modelPayload = {
@@ -1243,7 +1246,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// envelope's; any other failure names nothing.
 										...(error instanceof ImageSearchNotConfiguredError
 											? reasonMetadata("image_search", "not_set_up")
-											: error instanceof ImageSearchApiError
+											: error instanceof ParallelApiError
 												? reasonMetadata("image_search", "search_unavailable")
 												: {}),
 									},

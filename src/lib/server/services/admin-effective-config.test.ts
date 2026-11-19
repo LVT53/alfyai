@@ -73,7 +73,7 @@ describe("admin effective config", () => {
 		expect(byKey.PARALLEL_BASE_URL.effectiveValue).toBe(
 			"https://api.parallel.ai",
 		);
-		expect(byKey.BRAVE_SEARCH_API_KEY.effectiveValue).toBe("");
+		expect(byKey.BRAVE_SEARCH_API_KEY).toBeUndefined();
 		expect(JSON.stringify(entries)).not.toContain("db-key");
 		expect(JSON.stringify(entries)).not.toContain("env-key");
 	});

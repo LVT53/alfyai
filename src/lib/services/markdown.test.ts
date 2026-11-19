@@ -461,6 +461,20 @@ describe("renderMarkdown: a reply's pictures are never requested from an address
 		expect(requested(html)).toEqual([`img ${imageThumbnailRouteUrl(THUMB)}`]);
 	});
 
+	it("renders a Parallel preview through the app with a click-only fallback to the publisher page", async () => {
+		const mod = await import("./markdown");
+		const sourcePageUrl = "https://publisher.example/gallery";
+		const html = await mod.renderMarkdown(`![Cat](${CAT})`, false, {
+			toolImages: [{ url: CAT, thumbnail: CAT, sourcePageUrl }],
+		});
+		expect(requested(html)).toEqual([`img ${imageThumbnailRouteUrl(CAT)}`]);
+		expect(
+			parseHtml(html)
+				.querySelector(".markdown-image-fallback a")
+				?.getAttribute("href"),
+		).toBe(sourcePageUrl);
+	});
+
 	it("knows the picture by either address, and by the way a tool writes it, not the way the model does", async () => {
 		const mod = await import("./markdown");
 		for (const written of [

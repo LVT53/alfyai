@@ -130,12 +130,24 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "image_search",
-      "description": "Find web images (photos, illustrations, diagrams) to show in the answer: {\"query\": \"golden retriever puppy\"}. Do not use it for maps, routes, distances or anything geographic (map_route renders its own map card), for the user's own pictures (photos), or for facts and text (research_web). Returns a list of image URLs. Embed the ones you use in your answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible.",
+      "description": "Find web pictures, including landmarks. Keep local names and accents in query. If useful, add international terms (\"aerial view\") in additionalQueries. Honor any requested search language. Put visual criteria in objective. Do not use for directions (map_route), personal photos (photos) or facts (research_web). Embed each selected url as `![alt text](url)` or it is invisible. Cite sourcePageUrl.",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string"
+          },
+          "additionalQueries": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "objective": {
+            "type": "string",
+            "maxLength": 5000
           }
         },
         "required": [

@@ -263,7 +263,6 @@ interface Config {
 	// Log the outbound message shape (roles, part types, token estimates —
 	// never content) for each model call. Verification aid; off by default.
 	normalChatDebugOutbound: boolean;
-	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
 	onedriveClientId: string;
@@ -1028,7 +1027,6 @@ function readConfig(): Config {
 		normalChatDebugOutbound: process.env.NORMAL_CHAT_DEBUG_OUTBOUND === "1",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
-		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
 		googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
 		googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
 		onedriveClientId: process.env.ONEDRIVE_CLIENT_ID || "",

@@ -37,6 +37,7 @@ export const SERIES = {
 	turbo: "#0d9488",
 	/** Extract pipeline — amber. */
 	extract: "#d97706",
+	images: "#648baf",
 	/** LLM pipeline — terracotta (live accent). */
 	get llm(): string {
 		return getAccent();

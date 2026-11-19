@@ -243,6 +243,23 @@ describe("toolImages", () => {
 		]);
 	});
 
+	it("only uses a Parallel thumbnail when it is the exact image in that result", () => {
+		const url = "https://www.example.com/signed.png?size=small";
+		for (const thumbnail of [
+			url.replace("www.", ""),
+			url.replace("small", "large"),
+			url.replace("https:", "http:"),
+		]) {
+			expect(
+				toolImages([
+					toolCall("image_search", [
+						{ url, metadata: { provider: "parallel", thumbnail } },
+					]),
+				]),
+			).toEqual([{ url, thumbnail: null }]);
+		}
+	});
+
 	it("reads nothing from another tool, a running call, a bad address or no calls", () => {
 		expect(
 			toolImages([
@@ -290,7 +307,7 @@ describe("the app's own route addresses", () => {
 				"/api/image-search/thumbnail",
 				"/api/image-search/thumbnail/x",
 			),
-			imageThumbnailRouteUrl("https://evil.example/cat.jpg"),
+			imageThumbnailRouteUrl("http://example.com/cat.jpg"),
 			"/api/image-search/thumbnail",
 			null,
 		]) {

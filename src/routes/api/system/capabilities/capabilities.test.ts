@@ -53,7 +53,7 @@ describe("system capabilities route", () => {
 				{
 					id: "image_search",
 					tool: "image_search",
-					backend: "Brave Search",
+					backend: "Parallel API",
 					status: "healthy",
 					configured: true,
 					probed: true,

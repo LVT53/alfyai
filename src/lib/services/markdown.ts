@@ -128,6 +128,7 @@ const RENDERED_CLASSES: ReadonlySet<string> = new Set([
 	"source-link-chip__label",
 	"source-link-chip__icon",
 	"source-link-chip--image",
+	"markdown-image-fallback",
 	"source-link-chip__image-icon",
 	"source-link-chip__host",
 	"shiki",
@@ -986,14 +987,20 @@ function createMarkdownRenderer(
 	// are stripped by DOMPurify, so the loading state rides on CSS classes.
 	// Which address becomes an <img> is the policy's (docs/plans/exfil-channels), not
 	// the model's: the app's own thumbnail of a connected photo, a picture that holds
-	// its own bytes, or a picture image_search returned (shown as its Brave thumbnail
+	// its own bytes, or a picture image_search returned (shown as a thumbnail
 	// through the app's route). Any other web address is a link chip that is never
 	// fetched, and anything that is not a web address is only its words.
-	const imageFrame = (src: string, alt: string, title: string | undefined) => {
+	const imageFrame = (
+		src: string,
+		alt: string,
+		title: string | undefined,
+		fallback = "",
+	) => {
 		const titleAttribute = title ? ` title="${escapeMarkdownText(title)}"` : "";
 		return [
 			'<span class="markdown-image-frame markdown-image-frame--loading">',
 			`<img class="markdown-image" src="${escapeHtml(src)}" alt="${escapeMarkdownText(alt)}"${titleAttribute} loading="lazy" decoding="async">`,
+			fallback,
 			"</span>",
 		].join("");
 	};
@@ -1008,10 +1015,15 @@ function createMarkdownRenderer(
 		if (key === null) return escapeMarkdownText(alt);
 		const result = policy.images.get(key);
 		if (result?.thumbnail) {
+			const fallback =
+				result.sourcePageUrl && linkTextDepth === 0
+					? `<span class="markdown-image-fallback">${renderBlockedImage({ href: result.sourcePageUrl, alt, imageNotLoadedLabel })}</span>`
+					: "";
 			return imageFrame(
 				imageThumbnailRouteUrl(result.thumbnail),
 				alt,
 				title ?? undefined,
+				fallback,
 			);
 		}
 		// Inside a link the link is the way to the address; a chip there would be a link
@@ -1021,7 +1033,11 @@ function createMarkdownRenderer(
 				compactWhitespace(alt) || (sourceHostOf(href) ?? ""),
 			);
 		}
-		return renderBlockedImage({ href, alt, imageNotLoadedLabel });
+		return renderBlockedImage({
+			href: result?.sourcePageUrl ?? href,
+			alt,
+			imageNotLoadedLabel,
+		});
 	};
 	renderer.link = ({ href, title, tokens }) => {
 		const text = renderLinkText(tokens);
