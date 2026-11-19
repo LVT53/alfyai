@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
 	getActiveMemoryProfileContext: vi.fn(),
 	recordMemoryReworkTelemetry: vi.fn(),
 	isMemoryActiveForConversation: vi.fn(),
+	hasNativeMemoryScopeBoundary: vi.fn(() => false),
 	listConversationFileProductionJobStates: vi.fn<
 		() => Promise<
 			Array<
@@ -222,6 +223,11 @@ vi.mock("../memory-controls", () => ({
 	isMemoryActiveForConversation: mocks.isMemoryActiveForConversation,
 }));
 
+vi.mock("../memory-profile/revisions", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../memory-profile/revisions")>()),
+	hasNativeMemoryScopeBoundary: mocks.hasNativeMemoryScopeBoundary,
+}));
+
 vi.mock("../file-production", () => ({
 	listConversationFileProductionJobStates:
 		mocks.listConversationFileProductionJobStates,
@@ -250,6 +256,7 @@ function artifact(overrides: {
 }
 
 function resetConstructedContextMocks() {
+	mocks.hasNativeMemoryScopeBoundary.mockReturnValue(false);
 	mocks.getConfig.mockReturnValue({
 		contextDiagnosticsDebug: false,
 	});
@@ -506,6 +513,73 @@ describe("selectPromptContext", () => {
 describe("buildConstructedContext", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	it("keeps foreign saved answers out of a rebuilt native Memory prompt", async () => {
+		resetConstructedContextMocks();
+		const sameChat = {
+			...artifact({
+				id: "own-output",
+				name: "Current result",
+				contentText: "WITHIN_CHAT_EVIDENCE",
+			}),
+			type: "generated_output",
+		};
+		const foreign = {
+			...artifact({
+				id: "foreign-output",
+				name: "Other result",
+				conversationId: "other-chat",
+				contentText: "FOREIGN_CHAT_EVIDENCE",
+			}),
+			type: "generated_output",
+		};
+		const attached = {
+			...artifact({
+				id: "attached-output",
+				name: "Explicitly attached answer",
+				conversationId: "other-chat",
+				contentText: "EXPLICITLY_ATTACHED_EVIDENCE",
+			}),
+			type: "generated_output",
+		};
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [attached],
+			promptArtifacts: [attached],
+			items: [],
+			unresolvedItems: [],
+		});
+		mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue([
+			sameChat,
+			foreign,
+		]);
+		mocks.findRelevantKnowledgeArtifacts.mockResolvedValue([foreign]);
+		mocks.prepareTaskContext.mockResolvedValue({
+			taskState: null,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "verified",
+			selectedArtifacts: [sameChat, foreign],
+		});
+		const params = {
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Compare the saved project decision against the launch report.",
+			modelId: "local-model",
+			attachmentIds: [attached.id],
+		};
+		const preceding = await buildConstructedContext(params);
+		expect(preceding.inputValue).toContain("FOREIGN_CHAT_EVIDENCE");
+		expect(preceding._reuseData).toBeDefined();
+
+		mocks.hasNativeMemoryScopeBoundary.mockReturnValue(true);
+		const rebuilt = await buildConstructedContext({
+			...params,
+			reuseFrom: preceding._reuseData,
+		});
+		expect(rebuilt.inputValue).toContain("WITHIN_CHAT_EVIDENCE");
+		expect(rebuilt.inputValue).toContain("EXPLICITLY_ATTACHED_EVIDENCE");
+		expect(rebuilt.inputValue).not.toContain("FOREIGN_CHAT_EVIDENCE");
 	});
 
 	it("uses a shallow latency tier for simple turns and skips deep retrieval work", async () => {

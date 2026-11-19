@@ -33,6 +33,7 @@ import {
 	resolveRelevantGeneratedDocumentSelection,
 } from "../document-resolution";
 import { countRecentMemoryBehaviorEventsBySubject } from "../memory-behavior-log";
+import { hasNativeMemoryScopeBoundary } from "../memory-profile/revisions";
 import { getConversationProjectId } from "../projects";
 import { canUseTeiEmbedder, embedText } from "../tei-embedder";
 import {
@@ -46,6 +47,7 @@ import {
 	WORKING_SET_PROMPT_LIMIT,
 	type WorkingSetCandidate,
 } from "../working-set";
+import { isAutomaticEvidenceInConversation } from "./automatic-generated-evidence";
 import { listProjectKnowledgeArtifactIds } from "./project-knowledge";
 import {
 	findRelevantArtifactsByTypesDetailed,
@@ -256,6 +258,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 	projectFiles?: { listed: number; more: number } | null,
 ): Promise<Artifact[]> {
 	const exclude = new Set(excludeArtifactIds);
+	const restrictGeneratedOutput = hasNativeMemoryScopeBoundary(userId);
 	// As above: its own incognito work, never another conversation's.
 	const ownershipScope = await getArtifactOwnershipScope(userId, {
 		conversationId,
@@ -279,6 +282,11 @@ export async function selectWorkingSetArtifactsForPrompt(
 		);
 
 	const mappedRows = rows
+		.filter(
+			({ artifact }) =>
+				!restrictGeneratedOutput ||
+				isAutomaticEvidenceInConversation(artifact, conversationId),
+		)
 		.filter((row) =>
 			isArtifactCanonicallyOwned({
 				userId,
@@ -738,6 +746,7 @@ export async function findRelevantKnowledgeArtifacts(params: {
 	const limit = params.limit ?? 6;
 	const recentBehaviorWindowStart = Date.now() - 14 * DAY_MS;
 	const currentConversationId = params.currentConversationId ?? "";
+	const restrictGeneratedOutput = hasNativeMemoryScopeBoundary(params.userId);
 
 	// The turn's project, if it is in one: its files are preferred in the
 	// ranking below. Resolved once here rather than per artifact-type query, and
@@ -774,7 +783,7 @@ export async function findRelevantKnowledgeArtifacts(params: {
 			undefined;
 	}
 
-	const [documentMatchesRaw, generatedOutputMatchesRaw, preferredArtifacts] =
+	const [documentMatchesRaw, generatedOutputMatchesRaw, preferredUnfiltered] =
 		await Promise.all([
 			findRelevantArtifactsByTypesDetailed({
 				userId: params.userId,
@@ -785,19 +794,28 @@ export async function findRelevantKnowledgeArtifacts(params: {
 				queryEmbedding,
 				scopeBoostArtifactIds,
 			}),
-			findRelevantArtifactsByTypesDetailed({
-				userId: params.userId,
-				query: params.query,
-				types: ["generated_output"],
-				limit: Math.max(limit * 5, 20),
-				excludeConversationId: params.excludeConversationId,
-				queryEmbedding,
-				scopeBoostArtifactIds,
-			}),
+			// Saved answers have no reliable project Memory provenance. Keep
+			// them to the current working set and explicit source paths.
+			restrictGeneratedOutput
+				? Promise.resolve([])
+				: findRelevantArtifactsByTypesDetailed({
+						userId: params.userId,
+						query: params.query,
+						types: ["generated_output"],
+						limit: Math.max(limit * 5, 20),
+						excludeConversationId: params.excludeConversationId,
+						queryEmbedding,
+						scopeBoostArtifactIds,
+					}),
 			params.preferredArtifactId
 				? getArtifactsForUser(params.userId, [params.preferredArtifactId])
 				: Promise.resolve([]),
 		]);
+	const preferredArtifacts = restrictGeneratedOutput
+		? preferredUnfiltered.filter((artifact) =>
+				isAutomaticEvidenceInConversation(artifact, currentConversationId),
+			)
+		: preferredUnfiltered;
 
 	const processMatches = (
 		matches: typeof documentMatchesRaw,

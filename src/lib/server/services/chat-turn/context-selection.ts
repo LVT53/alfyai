@@ -90,6 +90,7 @@ import {
 	WORKING_SET_OUTPUT_TOKEN_BUDGET,
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from "../knowledge";
+import { isAutomaticEvidenceInConversation } from "../knowledge/automatic-generated-evidence";
 import {
 	listConversationLinkedContextSources,
 	resolveLinkedContextSourcesForConversation,
@@ -103,6 +104,7 @@ import {
 import { isMemoryActiveForConversation } from "../memory-controls";
 import type { MemoryProfileScope } from "../memory-profile/active-context";
 import { usesNativeMemory } from "../memory-profile/chat-delivery";
+import { hasNativeMemoryScopeBoundary } from "../memory-profile/revisions";
 import { listMessages } from "../messages";
 import {
 	getConversationProjectId,
@@ -1958,13 +1960,17 @@ export async function buildConstructedContext(params: {
 	const projectFilesSectionPromise = projectFilesPromise.then((projectFiles) =>
 		buildProjectFilesPromptSection(projectFiles),
 	);
+	const restrictGeneratedOutput = hasNativeMemoryScopeBoundary(params.userId);
+	const automaticEvidenceAllowed = (artifact: Artifact) =>
+		!restrictGeneratedOutput ||
+		isAutomaticEvidenceInConversation(artifact, params.conversationId);
 	const [
 		sessionContext,
 		resolvedAttachments,
 		conversationSourceArtifactIds,
 		allSourceArtifactNames,
 		linkedContextSources,
-		workingSetArtifacts,
+		workingSetCandidates,
 		projectFolderLabel,
 		projectFolderReferenceContext,
 		projectFolderSiblingPromotion,
@@ -2033,6 +2039,9 @@ export async function buildConstructedContext(params: {
 			conversationId: params.conversationId,
 		}),
 	]);
+	const workingSetArtifacts = workingSetCandidates.filter(
+		automaticEvidenceAllowed,
+	);
 	const {
 		sessionMessages,
 		storedMessages,
@@ -2221,7 +2230,7 @@ export async function buildConstructedContext(params: {
 	]);
 
 	const relevantArtifacts = params.reuseFrom
-		? params.reuseFrom.relevantArtifacts
+		? params.reuseFrom.relevantArtifacts.filter(automaticEvidenceAllowed)
 		: await findRelevantKnowledgeArtifacts({
 				userId: params.userId,
 				query: params.message,
@@ -2250,8 +2259,13 @@ export async function buildConstructedContext(params: {
 	});
 	const documentFocused = contextSelection.documentFocused;
 
-	const preparedContext = params.reuseFrom
-		? params.reuseFrom.preparedContext
+	const previousPreparation = params.reuseFrom?.preparedContext;
+	const preparedContext = previousPreparation?.selectedArtifacts.every(
+		(artifact) =>
+			allAttachmentContextIds.has(artifact.id) ||
+			automaticEvidenceAllowed(artifact),
+	)
+		? previousPreparation
 		: await prepareTaskContext({
 				userId: params.userId,
 				conversationId: params.conversationId,
@@ -2276,7 +2290,9 @@ export async function buildConstructedContext(params: {
 			}));
 	const taskState = preparedContext.taskState;
 	const selectedEvidence = preparedContext.selectedArtifacts.filter(
-		(artifact) => !allAttachmentContextIds.has(artifact.id),
+		(artifact) =>
+			!allAttachmentContextIds.has(artifact.id) &&
+			automaticEvidenceAllowed(artifact),
 	);
 
 	const promptArtifacts = new Map<string, Artifact>();

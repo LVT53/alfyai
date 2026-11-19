@@ -7,6 +7,7 @@ import {
 	memoryAccounts,
 	memoryActions,
 	memoryBanks,
+	memoryMigrationManifests,
 	memoryProfileItems,
 	memoryReviewResolutions,
 	memoryRevocations,
@@ -53,6 +54,26 @@ export function getMemoryAccount(userId: string) {
 			.where(eq(memoryAccounts.userId, userId))
 			.get() ?? null
 	);
+}
+
+export function hasNativeMemoryScopeBoundary(userId: string): boolean {
+	const account = getMemoryAccount(userId);
+	if (!account) return false;
+	if (account.authority === "hindsight" || account.authority === "preparing")
+		return true;
+
+	// Rollback restores the legacy reader, but does not make outputs from the
+	// native period eligible for cross-chat evidence. Verification can replace
+	// the manifest status, so use the retained cutover checkpoint.
+	return db
+		.select({ checkpoint: memoryMigrationManifests.checkpointJson })
+		.from(memoryMigrationManifests)
+		.where(eq(memoryMigrationManifests.userId, userId))
+		.all()
+		.some(
+			({ checkpoint }) =>
+				typeof parseJsonRecord(checkpoint).cutoverAt === "string",
+		);
 }
 export function ensureMemoryBank(userId: string, scope: MemoryScope) {
 	return db.transaction((tx) => {
