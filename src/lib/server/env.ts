@@ -78,6 +78,8 @@ interface Config {
 	hindsightNewAccountsEnabled: boolean;
 	hindsightConcurrency: number;
 	hindsightCurationModel: ModelId | null;
+	hindsightCurationGatewayModel: string;
+	hindsightInferenceKey: string;
 	memoryJudgeModel: ModelId;
 	memoryConsolidationModel: ModelId;
 	memoryJudgeIdleMinutes: number;
@@ -699,6 +701,10 @@ function readConfig(): Config {
 		)
 			? normalizeConfiguredModelId(process.env.HINDSIGHT_CURATION_MODEL)
 			: null,
+		hindsightCurationGatewayModel: process.env.HINDSIGHT_CURATION_MODEL?.trim()
+			? ""
+			: (process.env.HINDSIGHT_CURATION_GATEWAY_MODEL?.trim() ?? ""),
+		hindsightInferenceKey: process.env.HINDSIGHT_API_HTTP_INFERENCE_KEY ?? "",
 		hindsightUrl: process.env.HINDSIGHT_URL || "http://127.0.0.1:8888",
 		hindsightAllowedUrls: [
 			process.env.HINDSIGHT_URL || "http://127.0.0.1:8888",

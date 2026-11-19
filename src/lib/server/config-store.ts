@@ -249,6 +249,8 @@ export interface RuntimeConfig {
 	hindsightNewAccountsEnabled: boolean;
 	hindsightConcurrency: number;
 	hindsightCurationModel: ModelId | null;
+	hindsightCurationGatewayModel: string;
+	hindsightInferenceKey: string;
 	memoryJudgeModel: ModelId;
 	memoryConsolidationModel: ModelId;
 	memoryJudgeIdleMinutes: number;
@@ -412,6 +414,8 @@ function buildDefaultConfig(): RuntimeConfig {
 		hindsightNewAccountsEnabled: envConfig.hindsightNewAccountsEnabled,
 		hindsightConcurrency: envConfig.hindsightConcurrency,
 		hindsightCurationModel: envConfig.hindsightCurationModel,
+		hindsightCurationGatewayModel: envConfig.hindsightCurationGatewayModel,
+		hindsightInferenceKey: envConfig.hindsightInferenceKey,
 		memoryJudgeModel: envConfig.memoryJudgeModel,
 		memoryConsolidationModel: envConfig.memoryConsolidationModel,
 		memoryJudgeIdleMinutes: envConfig.memoryJudgeIdleMinutes,
@@ -1123,6 +1127,8 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		)
 			? normalizeConfiguredModelId(value)
 			: null;
+		if (value.trim() && !config.hindsightCurationModel)
+			config.hindsightCurationGatewayModel = "";
 	},
 	HINDSIGHT_URL: (config, value) => {
 		config.hindsightUrl = value.trim();

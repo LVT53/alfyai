@@ -358,6 +358,24 @@ export async function sendJsonControlMessage(
 		selectedModelId,
 		config,
 	);
+	return {
+		...(await sendJsonControlMessageViaProvider(
+			message,
+			provider,
+			options,
+			config.requestTimeoutMs,
+		)),
+		modelId: selectedModelId,
+	};
+}
+
+/** Use an explicitly bound server-side provider without registering a chat model. */
+export async function sendJsonControlMessageViaProvider(
+	message: string,
+	provider: NormalChatModelRunProvider,
+	options: JsonControlMessageOptions,
+	requestTimeoutMs: number,
+): Promise<Omit<JsonControlMessageResult, "modelId">> {
 	if (!provider.baseUrl || !provider.modelName) {
 		throw new Error("Selected control model is not configured");
 	}
@@ -407,7 +425,7 @@ export async function sendJsonControlMessage(
 					: CONTROL_MODEL_DEFAULT_MAX_TOKENS),
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 			abortSignal: options.signal,
-			timeout: config.requestTimeoutMs,
+			timeout: requestTimeoutMs,
 			providerOptions: buildProviderOptions({
 				provider,
 				thinkingMode: options.thinkingMode,
@@ -429,7 +447,6 @@ export async function sendJsonControlMessage(
 				allowEmptyTextOnLengthFinish: options.allowEmptyTextOnLengthFinish,
 			}),
 			rawResponse,
-			modelId: selectedModelId,
 			modelDisplayName: provider.displayName,
 			usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 		};
@@ -451,7 +468,6 @@ export async function sendJsonControlMessage(
 					allowEmptyTextOnLengthFinish: options.allowEmptyTextOnLengthFinish,
 				}),
 				rawResponse,
-				modelId: selectedModelId,
 				modelDisplayName: provider.displayName,
 				usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 			};
@@ -465,7 +481,6 @@ export async function sendJsonControlMessage(
 				return {
 					text: fallbackText,
 					rawResponse,
-					modelId: selectedModelId,
 					modelDisplayName: provider.displayName,
 					usage: extractControlModelUsage({
 						usage: undefined,

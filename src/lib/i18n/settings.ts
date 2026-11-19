@@ -339,7 +339,7 @@ const settingsDict = {
 		"admin.memoryConsolidationModelDescription": `Runs the nightly clean-up and writes the "What I remember about you" summary.`,
 		"admin.hindsightCurationModel": "Memory editing model",
 		"admin.hindsightCurationModelDescription":
-			"Choose a local model connected through the Hindsight background gateway for deliberate memory edits and removals. Required for editing; no fallback model is used. Automatic memory extraction is configured in Hindsight.",
+			"Memory edits and removals use the server’s Hindsight gateway binding when configured. Choose a local gateway model here to override it. Automatic memory extraction is configured in Hindsight.",
 		"admin.memoryJudgeModel": "Memory judge model",
 		"admin.memoryJudgeModelDescription":
 			"Runs the judge that decides what to remember from each conversation. Defaults to your primary chat model.",
@@ -2521,7 +2521,7 @@ const settingsDict = {
 		"admin.memoryConsolidationModelDescription": `Ez futtatja az éjszakai karbantartást, és ez írja meg az „Amit rólad megjegyeztem” összefoglalót.`,
 		"admin.hindsightCurationModel": "Memóriaszerkesztési modell",
 		"admin.hindsightCurationModelDescription":
-			"Válassz a Hindsight háttérátjárójához csatlakozó helyi modellt a memória szerkesztéséhez és eltávolításához. A szerkesztéshez kötelező; nincs tartalék modell. Az automatikus memóriakinyerés a Hindsightban állítható be.",
+			"A memória szerkesztése és eltávolítása a kiszolgálón beállított Hindsight-átjárómodellt használja. Itt választhatsz helyi átjárómodellt a kiszolgáló beállításának felülírásához. Az automatikus memóriakinyerés a Hindsightban állítható be.",
 		"admin.memoryJudgeModel": "Memória bíráló modell",
 		"admin.memoryJudgeModelDescription":
 			"Ez futtatja a bírálót, amely eldönti, mit érdemes megjegyezni az adott beszélgetésből. Alapértelmezésben az elsődleges csevegőmodelledet használja.",

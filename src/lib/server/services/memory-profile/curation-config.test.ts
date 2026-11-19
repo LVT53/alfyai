@@ -32,6 +32,93 @@ it("leaves curation unavailable unless explicitly configured and applies admin o
 	);
 });
 
+it("uses the private inference binding without a selectable chat model", async () => {
+	const cfg = await import("$lib/server/config-store");
+	const model = await import("../normal-chat-model");
+	const resolve = vi.spyOn(model, "resolveNormalChatModelRunProvider");
+	const { getAvailableModelProviderGroups } = await import(
+		"../available-models"
+	);
+	const originalConfig = cfg.getConfig();
+	const binding = {
+		...originalConfig,
+		hindsightCurationGatewayModel: "qwen3-6-27b",
+		hindsightInferenceKey: "",
+	};
+	vi.spyOn(cfg, "getConfig").mockReturnValue(binding);
+	const endpoints = await import("./private-endpoint");
+	const transport = vi
+		.spyOn(endpoints, "fetchPrivateMemory")
+		.mockImplementation(async (_url, _init, _fetcher, beforeDispatch) => {
+			await beforeDispatch?.();
+			return Response.json({
+				id: "synthetic",
+				model: "qwen3-6-27b",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: '{"ok":true}' },
+						finish_reason: "stop",
+					},
+				],
+			});
+		});
+	const { createCurationModel } = await import("./curation");
+	const assertCurrent = vi.fn();
+	const call = createCurationModel(new AbortController().signal);
+	const schema = {
+		type: "object",
+		properties: { ok: { type: "boolean" } },
+		required: ["ok"],
+	};
+	await expect(call("Return JSON", {}, schema)).rejects.toThrow(
+		"memory_curation_model_unconfigured",
+	);
+	expect(transport).not.toHaveBeenCalled();
+	binding.hindsightInferenceKey = "private-gateway-key";
+	await expect(
+		call("Return JSON", {}, schema, "on", assertCurrent),
+	).resolves.toEqual({
+		ok: true,
+	});
+	expect(resolve).not.toHaveBeenCalled();
+	expect(assertCurrent).toHaveBeenCalledOnce();
+	expect(transport).toHaveBeenCalledOnce();
+	const [url, init] = transport.mock.calls[0];
+	expect(String(url)).toBe(
+		"http://127.0.0.1:8888/ext/alfyai/inference/v1/chat/completions",
+	);
+	expect(new Headers(init?.headers).get("authorization")).toBe(
+		"Bearer private-gateway-key",
+	);
+	expect(JSON.parse(String(init?.body))).toMatchObject({
+		model: "qwen3-6-27b",
+		enable_thinking: true,
+		chat_template_kwargs: { enable_thinking: true },
+		top_k: 20,
+		top_p: 0.95,
+		temperature: 0,
+		max_tokens: 8192,
+		response_format: {
+			type: "json_schema",
+			json_schema: { name: "memory_edit", strict: true },
+		},
+	});
+	expect(cfg.getResolvedAdminConfigValues(binding)).not.toHaveProperty(
+		"HINDSIGHT_API_HTTP_INFERENCE_KEY",
+	);
+	expect(await getAvailableModelProviderGroups(binding)).toEqual(
+		await getAvailableModelProviderGroups(originalConfig),
+	);
+	binding.hindsightCurationModel = "provider:legacy:model";
+	resolve.mockRejectedValueOnce(Error("configured alias selected"));
+	await expect(call("Return JSON", {}, schema)).rejects.toThrow(
+		"configured alias selected",
+	);
+	expect(resolve).toHaveBeenCalledOnce();
+	expect(transport).toHaveBeenCalledOnce();
+});
+
 it.each([undefined, "on"] as const)(
 	"uses only the resolved local admission gateway, with thinking mode %s",
 	async (thinkingMode) => {

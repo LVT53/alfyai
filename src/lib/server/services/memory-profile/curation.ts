@@ -2,7 +2,9 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig, isModelEnabled } from "$lib/server/config-store";
 import {
 	hasLengthFinishReason,
+	type JsonControlMessageOptions,
 	sendJsonControlMessage,
+	sendJsonControlMessageViaProvider,
 } from "../normal-chat-control-model";
 import { resolveNormalChatModelRunProvider } from "../normal-chat-model";
 import { NativeMemoryError } from "./hindsight-client";
@@ -167,7 +169,11 @@ export function createCurationModel(
 	return async (prompt, input, schema, thinkingMode = "off", assertCurrent) => {
 		const config = getConfig();
 		const modelId = config.hindsightCurationModel;
-		if (!modelId)
+		if (
+			!modelId &&
+			(!config.hindsightCurationGatewayModel ||
+				!config.hindsightInferenceKey.trim())
+		)
 			throw new NativeMemoryError("memory_curation_model_unconfigured", true);
 		if (
 			(modelId === "model1" || modelId === "model2") &&
@@ -193,32 +199,44 @@ export function createCurationModel(
 			)
 				throw new NativeMemoryError("memory_curation_admission_required", true);
 		};
-		const provider = await resolveNormalChatModelRunProvider(modelId, config);
+		const provider = modelId
+			? await resolveNormalChatModelRunProvider(modelId, config)
+			: {
+					id: "memory-curation",
+					name: "memory-curation",
+					displayName: "Memory curation",
+					baseUrl: gateway.href,
+					modelName: config.hindsightCurationGatewayModel,
+					apiKey: config.hindsightInferenceKey,
+				};
 		assertEndpoint(provider.baseUrl);
-		const result = await sendJsonControlMessage(
-			JSON.stringify(input),
-			modelId,
-			{
-				systemPrompt: prompt,
-				fetch: async (url, init) => {
-					const target = new URL(
-						url instanceof Request ? url.url : String(url),
-					);
-					assertEndpoint(target.toString());
-					return fetchPrivateMemory(url, init, undefined, () => {
-						beforeDispatch?.();
-						assertCurrent?.();
-					});
-				},
-				thinkingMode,
-				maxTokens: 8192,
-				temperature: 0,
-				jsonSchema: { name: "memory_edit", schema, strict: true },
-				signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]),
-				allowReasoningFallback: false,
-				allowStructuredOutputFallback: thinkingMode !== "on",
+		const options: JsonControlMessageOptions = {
+			systemPrompt: prompt,
+			fetch: async (url, init) => {
+				const target = new URL(url instanceof Request ? url.url : String(url));
+				assertEndpoint(target.toString());
+				return fetchPrivateMemory(url, init, undefined, () => {
+					beforeDispatch?.();
+					assertCurrent?.();
+				});
 			},
-		);
+			thinkingMode,
+			maxTokens: 8192,
+			temperature: 0,
+			jsonSchema: { name: "memory_edit", schema, strict: true },
+			signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]),
+			allowReasoningFallback: false,
+			allowStructuredOutputFallback: thinkingMode !== "on",
+		};
+		const message = JSON.stringify(input);
+		const result = modelId
+			? await sendJsonControlMessage(message, modelId, options)
+			: await sendJsonControlMessageViaProvider(
+					message,
+					provider,
+					options,
+					config.requestTimeoutMs,
+				);
 		if (thinkingMode === "on" && hasLengthFinishReason(result.rawResponse))
 			throw new NativeMemoryError("memory_curation_incomplete", true);
 		return JSON.parse(result.text);
