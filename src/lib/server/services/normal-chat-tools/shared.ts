@@ -423,6 +423,33 @@ export function createToolCallRecorder(
 	};
 }
 
+/** The tools whose call, given an input that does not fit the schema, is answered with the schema's message before the envelope. */
+export type SchemaFailureTool =
+	| "read_generated_file"
+	| "create_artifact"
+	| "edit_artifact";
+
+/**
+ * Records a call whose input did not fit its tool's schema, which used to record
+ * nothing: the model is still answered with the schema's own message, and the
+ * row gets a code of its own (`request_adjusted`, the call was changed to fit).
+ * The entry keeps the history digest what it was for a call with no entry: a
+ * "done" status, an empty input and no summary, digest or candidates, so a later
+ * turn still replays "Completed." (`buildHistoryToolDigest`).
+ */
+export function recordSchemaFailure(
+	recorder: ToolCallRecorder,
+	params: { callId: string; name: SchemaFailureTool },
+): void {
+	recorder.record({
+		callId: params.callId,
+		name: params.name,
+		input: {},
+		status: "done",
+		metadata: { ok: false, ...reasonMetadata(params.name, "request_adjusted") },
+	});
+}
+
 // ── Local distillation mark ────────────────────────────────────
 //
 // With a cloud chat model and local summarising on, a connector tool hands the
