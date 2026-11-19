@@ -1,0 +1,61 @@
+{
+  "action": "7b75ad08-6812-4283-93c2-4e6037fbbd97",
+  "ref": {
+    "scope": {
+      "kind": "project",
+      "projectId": "af09f8f8-e58d-4d9f-af08-c56f0c6d72e9"
+    },
+    "generation": "5fb3b93a-72d2-494c-989e-db19b93a6692",
+    "rowId": "25e5abeb-7f3d-4ae2-9c1f-c52bf24f9465"
+  },
+  "records": [
+    {
+      "key": "original-other",
+      "chat": "25f1187e-f702-4480-9111-c1a871e4ea8d",
+      "project": "8ec770c0-abad-4e6c-8c26-3891b280dd24",
+      "hasCanary": true,
+      "status": 200,
+      "hasUnexpectedTool": false
+    },
+    {
+      "key": "before-other",
+      "chat": "de323e01-17e1-4ef3-b89b-01eb1a9faef5",
+      "project": "0b5efcee-c0f5-423c-bf28-9b4ca6e6dfd8",
+      "status": 200,
+      "hasCanary": false,
+      "hasUnexpectedTool": false
+    },
+    {
+      "key": "own",
+      "chat": "06ab6b24-191d-4df4-9ea9-aafab3221384",
+      "project": "af09f8f8-e58d-4d9f-af08-c56f0c6d72e9",
+      "status": 200,
+      "hasCanary": true,
+      "hasUnexpectedTool": false
+    },
+    {
+      "key": "after-other",
+      "chat": "e361622a-846a-4fd7-a41e-8877f418f231",
+      "project": "0b5efcee-c0f5-423c-bf28-9b4ca6e6dfd8",
+      "status": 200,
+      "hasCanary": false,
+      "hasUnexpectedTool": false
+    },
+    {
+      "key": "personal",
+      "chat": "183c8a8d-2917-43c8-9ccd-f56bb76fb91a",
+      "project": null,
+      "status": 200,
+      "hasCanary": false,
+      "hasUnexpectedTool": false
+    },
+    {
+      "key": "other-tenant",
+      "chat": "3b38a88b-516c-4b16-bdb1-9eba896fc021",
+      "project": null,
+      "status": 200,
+      "hasCanary": false,
+      "hasUnexpectedTool": false
+    }
+  ]
+}
