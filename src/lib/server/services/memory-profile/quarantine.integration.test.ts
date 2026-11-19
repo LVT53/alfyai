@@ -187,6 +187,8 @@ it("keeps only eligible owner drafts outside native Memory, deduplicates them, a
 	);
 	await startMemoryQuarantine(owner, { requestId });
 	expect(db.select().from(schema.memoryDeliveryJobs).all()).toHaveLength(2);
+	const { verifyMemoryMigration } = await import("./migration-progress");
+	expect(verifyMemoryMigration(owner, approval.manifestId).pending).toBe(0);
 	await harness.engine.drain(memoryDeliveryJob);
 	expect(extract.mock.calls.map(([input]) => input.content).sort()).toEqual([
 		"I have a turquoise canoe.",

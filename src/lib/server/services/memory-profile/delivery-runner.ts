@@ -725,6 +725,7 @@ export async function runMemoryDelivery(
 		});
 	} finally {
 		// The job engine remains the lifecycle owner; manifests only summarize settled delivery.
-		settleMemoryMigration(ctx.row.userId);
+		if (ctx.row.kind !== "quarantine_extract")
+			settleMemoryMigration(ctx.row.userId);
 	}
 }
