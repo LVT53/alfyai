@@ -28,7 +28,7 @@ export type PersonaMemoryContextResult = {
 	success: true;
 	mode: "persona";
 	status: "available" | "empty" | "error";
-	source: "active_memory_profile";
+	source: "active_memory_profile" | "hindsight";
 	content: string | null;
 	error?: string;
 	evidenceCandidates: ToolEvidenceCandidate[];

@@ -148,8 +148,8 @@ const CASES: Case[] = [
 	{
 		// Everyday-screens redesign — a memory category discloses the rest of
 		// its rows in place, easing open and eased shut.
-		file: "src/routes/(app)/knowledge/_components/MemoryCategorySection.svelte",
-		wrappedNames: ["revealRows"],
+		file: "src/routes/(app)/knowledge/_components/MemoryDetail.svelte",
+		wrappedNames: ["reveal"],
 		bannedDirectives: [/transition:slide=/],
 	},
 	{
@@ -164,13 +164,13 @@ const CASES: Case[] = [
 		// ...and the memory surface's two dialogs (review overflow, remove
 		// confirmation), which open and close rather than appearing.
 		file: "src/routes/(app)/knowledge/_components/KnowledgeMemoryView.svelte",
-		wrappedNames: ["backdropFade", "panelScale"],
-		bannedDirectives: [/transition:fade=/, /transition:scale=/],
+		wrappedNames: ["change"],
+		bannedDirectives: [/in:fly=/],
 	},
 	{
-		file: "src/routes/(app)/knowledge/_components/KnowledgeMemoryModal.svelte",
-		wrappedNames: ["backdropFade", "panelScale"],
-		bannedDirectives: [/transition:fade=/, /transition:scale=/],
+		file: "src/routes/(app)/knowledge/_components/MemoryEditor.svelte",
+		wrappedNames: ["reveal"],
+		bannedDirectives: [/transition:slide=/],
 	},
 ];
 
@@ -180,7 +180,7 @@ describe("Svelte transition directives are routed through reducedMotionAware", (
 	}) => {
 		const source = readComponent(file);
 		expect(source).toMatch(
-			/import\s*\{\s*reducedMotionAware\s*\}\s*from\s*["']\$lib\/utils\/motion["']/,
+			/import\s*\{[^}]*\breducedMotionAware\b[^}]*\}\s*from\s*["']\$lib\/utils\/motion["']/,
 		);
 	});
 

@@ -41,6 +41,12 @@ import {
 	fetchConversationMarkdownExport,
 	setConversationMemoryIncognito,
 } from "$lib/client/api/conversations";
+import { ApiError } from "$lib/client/api/http";
+import { fetchMemoryOperationByRequest } from "$lib/client/api/memory";
+import {
+	getPendingMemoryNotes,
+	setPendingMemoryNote,
+} from "$lib/client/conversation-session";
 import { addMemoryNote } from "$lib/client/api/memory-notes";
 import { saveBlobAsDownload } from "$lib/client/api/settings";
 import { startNewChat } from "$lib/client/new-chat";
@@ -258,6 +264,7 @@ let {
 	conversationId = null,
 	attachmentsEnabled = false,
 	ensureConversation = null,
+	prepareMemoryNote = null,
 	contextStatus = null,
 	attachedArtifacts = [],
 	contextDebug = null,
@@ -340,6 +347,8 @@ let {
 	conversationId?: string | null;
 	attachmentsEnabled?: boolean;
 	ensureConversation?: (() => Promise<string>) | null;
+	/** Host-owned origin and privacy barrier for an explicit memory command. */
+	prepareMemoryNote?: (() => Promise<string | null>) | null;
 	contextStatus?: ConversationContextStatus | null;
 	attachedArtifacts?: ArtifactSummary[];
 	contextDebug?: ContextDebugState | null;
@@ -3198,18 +3207,120 @@ async function startNewConversationFromCommand() {
 	}
 }
 
-async function submitMemoryNoteCommand(text: string) {
+let memoryNoteTimer: ReturnType<typeof setTimeout> | undefined;
+let memoryNoteMounted = false;
+let memoryNoteChecking = false;
+async function reconcileMemoryNotes() {
+	if (memoryNoteChecking || !memoryNoteMounted) return;
+	const chatId = conversationId ?? resolvedConversationId ?? "personal";
+	memoryNoteChecking = true;
 	try {
-		await addMemoryNote(text);
+		for (const requestId of getPendingMemoryNotes(chatId)) {
+			try {
+				const { status } = await fetchMemoryOperationByRequest(requestId);
+				if (!memoryNoteMounted) return;
+				if (status === "queued" || status === "working") continue;
+				setPendingMemoryNote(chatId, requestId, false);
+				if (chatId === (conversationId ?? resolvedConversationId ?? "personal"))
+					showToast({
+						type: status === "applied" ? "success" : "error",
+						message: $t(
+							status === "applied"
+								? "composerCommands.remember.saved"
+								: "composerCommands.remember.error",
+						),
+					});
+			} catch {
+				/* Unknown acknowledgement stays recoverable; 404 is not proof of rejection. */
+			}
+		}
+	} finally {
+		memoryNoteChecking = false;
+		clearTimeout(memoryNoteTimer);
+		if (memoryNoteMounted && getPendingMemoryNotes(chatId).length)
+			memoryNoteTimer = setTimeout(() => void reconcileMemoryNotes(), 3000);
+	}
+}
+onMount(() => {
+	memoryNoteMounted = true;
+	void reconcileMemoryNotes();
+	window.addEventListener("focus", reconcileMemoryNotes);
+	return () => {
+		memoryNoteMounted = false;
+		clearTimeout(memoryNoteTimer);
+		window.removeEventListener("focus", reconcileMemoryNotes);
+	};
+});
+async function submitMemoryNoteCommand(text: string) {
+	const originConversationId = conversationId;
+	if (memoryIncognito || incognitoOn) {
 		showToast({
-			type: "success",
-			message: $t("composerCommands.remember.saved"),
+			type: "error",
+			message: $t("composerCommands.remember.error"),
 		});
+		return;
+	}
+	let chatId = conversationId ?? resolvedConversationId;
+	try {
+		if (prepareMemoryNote) chatId = await prepareMemoryNote();
+		else chatId ??= await ensureDraftConversationId();
+		if (
+			!memoryNoteMounted ||
+			memoryIncognito ||
+			incognitoOn ||
+			(originConversationId !== null && conversationId !== originConversationId)
+		)
+			throw new Error("Memory command context changed");
 	} catch {
 		showToast({
 			type: "error",
 			message: $t("composerCommands.remember.error"),
 		});
+		return;
+	}
+	const requestId = crypto.randomUUID();
+	const recoveryKey = chatId ?? "personal";
+	setPendingMemoryNote(recoveryKey, requestId, true);
+	try {
+		const result = await addMemoryNote(text, {
+			conversationId: chatId,
+			requestId,
+		});
+		if (!("operation" in result) || result.operation.status === "applied") {
+			setPendingMemoryNote(recoveryKey, requestId, false);
+			showToast({
+				type: "success",
+				message: $t("composerCommands.remember.saved"),
+			});
+		} else if (
+			result.operation.status === "failed" ||
+			result.operation.status === "stale"
+		) {
+			setPendingMemoryNote(recoveryKey, requestId, false);
+			showToast({
+				type: "error",
+				message: $t("composerCommands.remember.error"),
+			});
+		} else {
+			commandTrayMessage = $t("composerCommands.remember.pending");
+			void reconcileMemoryNotes();
+		}
+	} catch (cause) {
+		const refused =
+			cause instanceof ApiError &&
+			cause.status >= 400 &&
+			cause.status < 500 &&
+			![408, 429].includes(cause.status);
+		if (refused) setPendingMemoryNote(recoveryKey, requestId, false);
+		showToast({
+			type: "error",
+			message: $t(
+				refused
+					? "composerCommands.remember.error"
+					: "composerCommands.remember.unknown",
+			),
+		});
+		void reconcileMemoryNotes();
 	}
 }
 

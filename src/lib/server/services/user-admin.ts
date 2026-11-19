@@ -17,6 +17,7 @@ import {
 import type { UserRole } from "$lib/server/services/auth-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { revokeAllSessions } from "./auth";
+import { initializeNewMemoryAccount } from "./memory-profile/migration";
 import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 import {
 	DETACHED_SHARED_CONTENT_OWNER_ID,
@@ -311,17 +312,21 @@ export async function createManagedUser(
 	);
 	const passwordHash = await bcrypt.hash(password, 12);
 
-	await executor.run("userAdmin.insertUser", (db) =>
-		db.insert(users).values({
-			id: randomUUID(),
-			email,
-			name,
-			passwordHash,
-			...modelPreferenceStorage,
-			role,
-			updatedAt: new Date(),
-		}),
-	);
+	const id = randomUUID();
+	executor.db.transaction((tx) => {
+		tx.insert(users)
+			.values({
+				id,
+				email,
+				name,
+				passwordHash,
+				...modelPreferenceStorage,
+				role,
+				updatedAt: new Date(),
+			})
+			.run();
+		initializeNewMemoryAccount(tx, id);
+	});
 
 	const allUsers = await listManagedUsers(executor);
 	const created = allUsers.find((user) => user.email === email);

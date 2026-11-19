@@ -54,31 +54,3 @@ export async function fetchHomeSummary(
 			typeof response.generatedAt === "number" ? response.generatedAt : 0,
 	};
 }
-
-/**
- * Dismisses the home "memories need review" notice for the signed-in user.
- * Fire-and-forget-ish: callers should also hide the notice locally right away
- * rather than waiting on this to resolve, since the point of the click is an
- * immediate response.
- *
- * `keepalive` is what lets that write survive the click that usually follows a
- * dismissal — a browser cancels a document's in-flight fetches when it
- * navigates, and the dismissal is worth nothing if it dies with the page. The
- * body is one short action name, far inside the 64 KB a keepalive request is
- * allowed.
- */
-export async function dismissMemoryReviewNotice(
-	fetchImpl: FetchLike = fetch,
-): Promise<void> {
-	await requestJson(
-		"/api/home/summary",
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ action: "dismissMemoryReviewNotice" }),
-			keepalive: true,
-		},
-		"Failed to dismiss memory review notice",
-		fetchImpl,
-	);
-}

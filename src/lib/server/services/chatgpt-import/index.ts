@@ -4,6 +4,7 @@ import { db } from "$lib/server/db";
 import { conversationForks, messages, projects } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
 import { markMemoryDirty } from "$lib/server/services/memory-profile/dirty-ledger";
+import { nativeMemoryBlocksLegacyIntake } from "../memory-profile/chat-delivery";
 import { generateImportEmbeddings } from "./embeddings";
 import {
 	completeImportRow,
@@ -147,6 +148,7 @@ async function queueImportedConversationForMemoryJudge(
 	userId: string,
 	conversationId: string,
 ): Promise<void> {
+	if (nativeMemoryBlocksLegacyIntake(userId)) return; // Historical permission manifests own native imported sources.
 	try {
 		await markMemoryDirty({
 			userId,

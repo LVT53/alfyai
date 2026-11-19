@@ -3188,3 +3188,275 @@ export const normalChatRunLog = sqliteTable(
 		segmentIdx: uniqueIndex("normal_chat_run_log_segment_idx").on(t.segmentId),
 	}),
 );
+
+// Native Hindsight replacement. Legacy tables coexist until explicit per-user cutover.
+export const memoryAccounts = sqliteTable("memory_accounts", {
+	lifecycleState: text("lifecycle_state").notNull().default("active"),
+	erasureToken: text("erasure_token"),
+	controlRevision: integer("control_revision").notNull().default(0),
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => users.id, { onDelete: "cascade" }),
+	tenantId: text("tenant_id").notNull().unique(),
+	authority: text("authority").notNull().default("legacy"),
+	epoch: integer("epoch").notNull().default(0),
+	historyChoice: text("history_choice"),
+	historyCutoff: integer("history_cutoff", { mode: "timestamp" }),
+	historyDecidedAt: integer("history_decided_at", { mode: "timestamp" }),
+	historyPolicyVersion: text("history_policy_version").notNull().default("1"),
+	historyStatus: text("history_status").notNull().default("not_requested"),
+	createdAt: integer("created_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+});
+export const memoryBanks = sqliteTable(
+	"memory_banks",
+	{
+		previousGeneration: text("previous_generation"),
+		nativeBaseUrl: text("native_base_url"),
+		nativeCredentialHash: text("native_credential_hash"),
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		scopeKey: text("scope_key").notNull(),
+		epoch: integer("epoch").notNull(),
+		generation: text("generation"),
+		revision: integer("revision").notNull().default(0),
+		status: text("status").notNull().default("ready"),
+		nativeConfigVersion: text("native_config_version"),
+	},
+	(t) => ({
+		scope: uniqueIndex("memory_banks_scope_idx").on(
+			t.userId,
+			t.scopeKey,
+			t.epoch,
+		),
+	}),
+);
+export const memorySourceRevisions = sqliteTable(
+	"memory_source_revisions",
+	{
+		acceptedGeneration: text("accepted_generation"),
+		nativeAcknowledged: integer("native_acknowledged", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		nativeSubmitted: integer("native_submitted", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		predecessorSourceId: text("predecessor_source_id"),
+		nativeOperationId: text("native_operation_id"),
+		controlRevision: integer("control_revision").notNull().default(0),
+		id: text("id").primaryKey(),
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		epoch: integer("epoch").notNull(),
+		eventId: text("event_id").notNull(),
+		lineageId: text("lineage_id").notNull(),
+		conversationId: text("conversation_id"),
+		messageId: text("message_id"),
+		text: text("text").notNull(),
+		context: text("context").notNull(),
+		textHash: text("text_hash").notNull(),
+		assertedAt: integer("asserted_at", { mode: "timestamp" }).notNull(),
+		explicitEditAt: integer("explicit_edit_at", { mode: "timestamp" }),
+		acknowledgedFactsJson: text("acknowledged_facts_json")
+			.notNull()
+			.default("[]"),
+		state: text("state").notNull().default("pending"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({
+		event: uniqueIndex("memory_source_event_idx").on(t.userId, t.eventId),
+		bank: index("memory_source_bank_idx").on(t.bankId, t.state),
+		message: index("memory_source_context_message_idx").on(
+			t.bankId,
+			t.epoch,
+			t.messageId,
+		),
+	}),
+);
+export const memoryPublishedRows = sqliteTable(
+	"memory_published_rows",
+	{
+		id: text("id").primaryKey(),
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		generation: text("generation").notNull(),
+		epoch: integer("epoch").notNull(),
+		nativeId: text("native_id").notNull(),
+		text: text("text").notNull(),
+		nativeText: text("native_text").notNull(),
+		sourceIdsJson: text("source_ids_json").notNull(),
+		sourceFingerprintsJson: text("source_fingerprints_json").notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+	},
+	(t) => ({
+		generation: index("memory_published_generation_idx").on(
+			t.bankId,
+			t.generation,
+		),
+	}),
+);
+export const memoryRevocations = sqliteTable(
+	"memory_revocations",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		epoch: integer("epoch").notNull(),
+		sourceId: text("source_id"),
+		nativeFactId: text("native_fact_id"),
+		nativeTextHash: text("native_text_hash"),
+		actionId: text("action_id"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({ bank: index("memory_revocations_bank_idx").on(t.bankId, t.epoch) }),
+);
+export const memoryActions = sqliteTable(
+	"memory_actions",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		epoch: integer("epoch").notNull(),
+		requestId: text("request_id").notNull(),
+		kind: text("kind").notNull(),
+		generation: text("generation"),
+		rowId: text("row_id"),
+		text: text("text"),
+		intentJson: text("intent_json"),
+		previousText: text("previous_text"),
+		resultRowId: text("result_row_id"),
+		exclusionAcknowledged: integer("exclusion_acknowledged", {
+			mode: "boolean",
+		})
+			.notNull()
+			.default(false),
+		cleanupPending: integer("cleanup_pending", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({
+		request: uniqueIndex("memory_actions_request_idx").on(
+			t.userId,
+			t.requestId,
+		),
+	}),
+);
+export const memoryControlIntervals = sqliteTable("memory_control_intervals", {
+	id: text("id").primaryKey(),
+	userId: text("user_id")
+		.notNull()
+		.references(() => users.id, { onDelete: "cascade" }),
+	enabled: integer("enabled", { mode: "boolean" }).notNull(),
+	startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+	endedAt: integer("ended_at", { mode: "timestamp" }),
+	epoch: integer("epoch").notNull(),
+});
+export const memoryMigrationManifests = sqliteTable(
+	"memory_migration_manifests",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		epoch: integer("epoch").notNull(),
+		status: text("status").notNull(),
+		manifestJson: text("manifest_json").notNull(),
+		checkpointJson: text("checkpoint_json"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+);
+export const memoryDeliveryJobs = sqliteTable(
+	"memory_delivery_jobs",
+	{
+		cleanupSettled: integer("cleanup_settled", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		nativeOperationIdsJson: text("native_operation_ids_json")
+			.notNull()
+			.default("[]"),
+		nativeBaseUrl: text("native_base_url"),
+		nativeCredentialHash: text("native_credential_hash"),
+		controlRevision: integer("control_revision").notNull().default(0),
+		...jobColumns(),
+		bankId: text("bank_id").notNull(),
+		tenantId: text("tenant_id"),
+		epoch: integer("epoch").notNull(),
+		kind: text("kind").notNull(),
+		sourceId: text("source_id"),
+		actionId: text("action_id"),
+		requestId: text("request_id").notNull(),
+	},
+	(t) => ({
+		live: liveClaimIndex("memory_delivery_jobs_live_claim_idx", t),
+		request: uniqueIndex("memory_delivery_jobs_request_idx").on(
+			t.userId,
+			t.requestId,
+		),
+	}),
+);
+export const memoryDeliveryAttempts = sqliteTable(
+	"memory_delivery_attempts",
+	{
+		...jobAttemptColumns({ jobId: () => memoryDeliveryJobs.id }),
+	},
+	(t) => ({ ...jobAttemptIndexes("memory_delivery_attempts", t) }),
+);
+
+export const memoryHistoryChoices = sqliteTable(
+	"memory_history_choices",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		requestId: text("request_id").notNull(),
+		choice: text("choice").notNull(),
+		cutoff: integer("cutoff", { mode: "timestamp" }).notNull(),
+		decidedAt: integer("decided_at", { mode: "timestamp" }).notNull(),
+		policyVersion: text("policy_version").notNull(),
+		epoch: integer("epoch").notNull(),
+	},
+	(t) => ({
+		request: uniqueIndex("memory_history_choices_request_idx").on(
+			t.userId,
+			t.requestId,
+		),
+	}),
+);
+
+/** Content-free foreground admission leases; no user/source identifiers. */
+export const memoryForegroundLeases = sqliteTable(
+	"memory_foreground_leases",
+	{
+		id: text("id").primaryKey(),
+		expiresAt: integer("expires_at").notNull(),
+	},
+	(table) => ({
+		expiryIdx: index("memory_foreground_expiry_idx").on(table.expiresAt),
+	}),
+);

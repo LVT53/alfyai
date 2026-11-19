@@ -1,3 +1,7 @@
+## Memory replacement supersession
+
+ADR-0070 authorizes the native Hindsight replacement inside `memory-profile/` for authority-gated accounts. Keep native extraction/consolidation native; the app owns source/control fences, deliberate actions, published UI generations and delivery through the existing job engine. `chat-turn/request-activity.ts` owns content-free foreground leases for private background inference admission; tracking errors never block chat. Supported native auth/admission extensions live in `deploy/hindsight/`. Legacy Judge/Consolidation below remain only for legacy-authority migration/rollback and must not run for migrated accounts. No new nightly reconciliation, secondary extractor or scheduler.
+
 # Server Services — Internal Map
 
 Parent: [AGENTS.md](../../../../AGENTS.md) holds the rules that apply everywhere. This file covers each service's role and ownership, **cross-service dependencies, complexity ordering, and data flow**; Rules In Other Files, at the end, says which rules live in a subfolder's file.

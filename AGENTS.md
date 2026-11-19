@@ -158,7 +158,7 @@ Do not:
 - New continuity or evidence-context logic:
   - `src/lib/server/services/task-state.ts`
 - New profile-memory behavior:
-  - `src/lib/server/services/memory-judge/` (intake), `memory-consolidation/` (maintenance), `memory-profile/` (projection)
+  - `src/lib/server/services/memory-profile/` (native replacement; see ADR-0070); `memory-judge/` and `memory-consolidation/` are legacy-authority compatibility only
 - New reusable browser API call:
   - `src/lib/client/api/`
 - New client state transition:
@@ -224,7 +224,7 @@ Run these too when relevant:
 ## What Not To Reintroduce
 
 - No new top-level `src/lib/server/services/*.ts` public boundary just because one file is getting large.
-- No parallel memory subsystem beside `task-state.ts` (continuity) and the Memory Profile / Memory Judge / Consolidation stack (profile memory).
+- No parallel memory subsystem beside `task-state.ts` (continuity) and the authority-gated profile-memory boundary. ADR-0070 authorizes the native Hindsight replacement under `memory-profile/`; legacy Judge/Consolidation remain only for migration/rollback accounts. Keep native extraction native and use the existing job engine.
 - No duplicated route-specific chat execution logic.
 - No new raw `sessionStorage` protocol outside `conversation-session.ts`.
 - No direct env reads in override-aware runtime services.

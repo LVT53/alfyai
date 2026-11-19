@@ -39,6 +39,8 @@ import {
 } from "@lucide/svelte";
 import { spotlightTarget } from "$lib/actions/spotlight";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
+import MemoryCleanupStatus from "$lib/components/ui/MemoryCleanupStatus.svelte";
+import MemoryHistoryImportNotice from "$lib/components/ui/MemoryHistoryImportNotice.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
@@ -867,6 +869,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				</div>
 
+				<MemoryHistoryImportNotice profile />
 				<div class="settings-row settings-row--stack" use:spotlightTarget={"settings.skills"}>
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_skillsManagerSummaryLabel')}</p>
@@ -928,6 +931,7 @@ function handlePersonalitySelect(event: Event) {
 					<p class="settings-card-desc">{$t('profileTab.dataPrivacyDesc')}</p>
 				</div>
 			</div>
+			<MemoryCleanupStatus />
 			<!-- Outcome of a privacy action (archive prepared, memory cleared).
 			     One strip, here, rather than one per card. -->
 			{#if privacyControlsError}

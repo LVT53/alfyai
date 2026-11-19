@@ -94,6 +94,7 @@ import {
 	listConversationLinkedContextSources,
 	resolveLinkedContextSourcesForConversation,
 } from "../linked-context-sources";
+import { recallMemory } from "../memory-context/native";
 import { retrievePersonaMemory } from "../memory-context/persona";
 import {
 	recordMemoryPromptTelemetry,
@@ -101,6 +102,7 @@ import {
 } from "../memory-context/telemetry";
 import { isMemoryActiveForConversation } from "../memory-controls";
 import type { MemoryProfileScope } from "../memory-profile/active-context";
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import { listMessages } from "../messages";
 import {
 	getConversationProjectId,
@@ -395,19 +397,40 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	// of truth (users.memoryEnabled AND not conversations.memoryIncognito). When
 	// memory is inactive, inject NO baseline section — an incognito or
 	// memory-disabled conversation must never have persona memory injected into
-	// its prompt. Both the shallow and deep context tiers funnel through here,
-	// so this one check covers every baseline injection. Fail open (treat as
-	// active) on a controls-lookup error, matching the predicate's contract.
+	// its prompt. Both context tiers share this gate; failed authorization
+	// withholds memory without preventing the chat response.
 	const memoryActive = await isMemoryActiveForConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
-	}).catch(() => true);
+	}).catch(() => false);
 	if (!memoryActive) {
 		return null;
 	}
 	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
 		contextBudget: params.modelContextBudget,
 	});
+	if (usesNativeMemory(params.userId)) {
+		const recalled = await recallMemory(params.userId, {
+			conversationId: params.conversationId,
+			query: "Relevant user preferences, constraints and current context",
+			tokenBudget: baselineMemoryProfileBudget.totalBudget,
+		});
+		if (!recalled.length) return null;
+		const content = recalled.map((item) => `- ${item.text}`).join("\n");
+		return {
+			section: {
+				title: "Remembered information",
+				body: `${ACTIVE_MEMORY_PROFILE_NOTE}\n${content}`,
+				layer: "session",
+				protected: true,
+				llmCompactible: true,
+			},
+			itemIds: recalled.map((item) => item.ref.rowId),
+			itemTitles: recalled.map((item) =>
+				clipText(item.text, PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS),
+			),
+		};
+	}
 	const retrieval = await retrievePersonaMemory({
 		userId: params.userId,
 		applicableScopes:

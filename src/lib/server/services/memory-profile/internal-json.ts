@@ -1,3 +1,7 @@
+export function isJsonRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 export function parseJsonArray(value: string | null): unknown[] {
 	if (!value) return [];
 	try {
@@ -12,9 +16,7 @@ export function parseJsonRecord(value: string | null): Record<string, unknown> {
 	if (!value) return {};
 	try {
 		const parsed = JSON.parse(value);
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			return parsed as Record<string, unknown>;
-		}
+		if (isJsonRecord(parsed)) return parsed;
 	} catch {
 		// Fall through to an empty object.
 	}

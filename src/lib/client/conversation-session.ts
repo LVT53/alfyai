@@ -1064,6 +1064,7 @@ export function clearConversationSessionState(): void {
 		if (!key) continue;
 		if (
 			key.startsWith(PENDING_MESSAGE_PREFIX) ||
+			key.startsWith("pending-memory-notes:") ||
 			key.startsWith(COMPOSER_MARKS_PREFIX) ||
 			key.startsWith(ASK_LINE_DRAFT_PREFIX)
 		) {
@@ -1078,5 +1079,38 @@ export function clearConversationSessionState(): void {
 	);
 	for (const key of keysToRemove) {
 		storage.removeItem(key);
+	}
+}
+
+/** Request identities only. Statement drafts never enter browser storage. */
+export function getPendingMemoryNotes(conversationId: string): string[] {
+	try {
+		const value: unknown = JSON.parse(
+			getSessionStorage()?.getItem(`pending-memory-notes:${conversationId}`) ??
+				"[]",
+		);
+		return Array.isArray(value)
+			? value.filter((id): id is string => typeof id === "string")
+			: [];
+	} catch {
+		return [];
+	}
+}
+export function setPendingMemoryNote(
+	conversationId: string,
+	requestId: string,
+	pending: boolean,
+): void {
+	const ids = getPendingMemoryNotes(conversationId).filter(
+		(id) => id !== requestId,
+	);
+	if (pending) ids.push(requestId);
+	try {
+		const storage = getSessionStorage();
+		const key = `pending-memory-notes:${conversationId}`;
+		if (ids.length) storage?.setItem(key, JSON.stringify(ids));
+		else storage?.removeItem(key);
+	} catch {
+		/* Optional browser recovery must not block the command. */
 	}
 }

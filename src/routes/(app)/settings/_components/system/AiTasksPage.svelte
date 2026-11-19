@@ -22,6 +22,7 @@ let {
 	envDefaults = {},
 	modelGroups,
 	failoverModelGroups,
+	curationModelGroups,
 	highlightKey = "",
 	isDirty,
 	setValue,
@@ -31,6 +32,7 @@ let {
 	envDefaults?: Record<string, string>;
 	modelGroups: ModelOptionGroup[];
 	failoverModelGroups: ModelOptionGroup[];
+	curationModelGroups: ModelOptionGroup[];
 	highlightKey?: string;
 	isDirty: (key: string) => boolean;
 	setValue: (key: string, value: string) => void;
@@ -314,6 +316,9 @@ function canResetKey(key: string): boolean {
 		description={$t('admin.system.memory.description')}
 	>
 		<div class="sys-rows">
+            <SettingRow label={$t('admin.hindsightCurationModel')} meaning={$t('admin.hindsightCurationModelDescription')} configKey="HINDSIGHT_CURATION_MODEL" controlId="HINDSIGHT_CURATION_MODEL" dirty={isDirty('HINDSIGHT_CURATION_MODEL')} highlighted={highlightKey === 'HINDSIGHT_CURATION_MODEL'} onReset={() => resetValue('HINDSIGHT_CURATION_MODEL')} canReset={canResetKey('HINDSIGHT_CURATION_MODEL')}>
+              {#snippet control()}<ModelSelect id="HINDSIGHT_CURATION_MODEL" groups={curationModelGroups} value={adminConfig.HINDSIGHT_CURATION_MODEL??''} onchange={(next)=>setValue('HINDSIGHT_CURATION_MODEL',next)}/>{/snippet}
+            </SettingRow>
 			<SettingRow
 				label={$t('admin.memoryJudgeModel')}
 				meaning={$t('admin.memoryJudgeModelDescription')}

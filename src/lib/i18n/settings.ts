@@ -2,6 +2,37 @@
 
 const settingsDict = {
 	en: {
+		"memoryCleanup.pending":
+			"Memory is no longer used. Deletion from the memory service is still pending.",
+		"memoryCleanup.failed":
+			"Memory is no longer used, but deletion needs another attempt.",
+		"memoryCleanup.loadFailed": "Couldn’t check memory deletion.",
+		"memoryCleanup.complete": "Memory deletion is complete.",
+		"memoryCleanup.retry": "Retry deletion",
+
+		"memoryImport.title": "Remember useful details from earlier chats?",
+		"memoryImport.help":
+			"Some older chats don’t record whether memory was on. You can include them in your new memory. Private chats and details you asked Alfy to forget stay excluded.",
+		"memoryImport.include": "Include earlier chats",
+		"memoryImport.decline": "Not now",
+		"memoryImport.profileTitle": "Earlier chats",
+		"memoryImport.profileHelp":
+			"Choose whether to include older chats whose memory setting wasn’t recorded.",
+		"memoryImport.included": "Earlier chats included",
+		"memoryImport.declined": "Earlier chats not included",
+		"memoryImport.change": "Change choice",
+		"memoryImport.failed": "Couldn’t save your choice. Please try again.",
+		"memoryImport.loadingFailed": "Couldn’t load your earlier-chat choice.",
+		"memoryImport.statusPending": "Waiting to import",
+		"memoryImport.statusWorking": "Importing earlier chats…",
+		"memoryImport.statusComplete": "Import complete",
+		"memoryImport.statusHeld":
+			"Some earlier chats need checking before they can be imported.",
+		"memoryImport.statusFailed":
+			"Import paused after a problem. Your current memories are still available.",
+		"memoryImport.cancel": "Cancel",
+		"memoryImport.later": "You can change this later in Profile settings.",
+
 		"admin.activeSessions": "Active sessions",
 		"admin.addModel": "Add Model",
 		"admin.addModelAlias": "Add alias",
@@ -306,6 +337,9 @@ const settingsDict = {
 		"admin.memory": "Memory",
 		"admin.memoryConsolidationModel": "Memory consolidation model",
 		"admin.memoryConsolidationModelDescription": `Runs the nightly clean-up and writes the "What I remember about you" summary.`,
+		"admin.hindsightCurationModel": "Memory editing model",
+		"admin.hindsightCurationModelDescription":
+			"Choose a local model connected through the Hindsight background gateway for deliberate memory edits and removals. Required for editing; no fallback model is used. Automatic memory extraction is configured in Hindsight.",
 		"admin.memoryJudgeModel": "Memory judge model",
 		"admin.memoryJudgeModelDescription":
 			"Runs the judge that decides what to remember from each conversation. Defaults to your primary chat model.",
@@ -849,7 +883,7 @@ const settingsDict = {
 		settings_archiveDownloaded: "Your data archive download has started.",
 		settings_clearMemoryAndKnowledge: "Clear memory and knowledge",
 		settings_clearMemoryDescription:
-			"Deletes everything AlfyAI has learned about you and every document you have uploaded or that AlfyAI created. Your personal instructions, your chats and your account stay.",
+			"Stops using your memories immediately and deletes them, along with uploaded and generated documents. If the memory service is unavailable, deletion finishes when it reconnects. Your personal instructions, chats and account stay.",
 		settings_clearMemorySuccess:
 			"Memory and knowledge have been cleared. Your chats are still available.",
 		settings_clearWorkspaceData: "Clear workspace data",
@@ -2058,7 +2092,7 @@ const settingsDict = {
 		"profileTab.manageSkills": "Manage skills",
 		"profileTab.skillsCountEnabled": "{count} enabled",
 		"profileTab.skillsCountDisabled": "{count} disabled",
-		"profileTab.memoryProfile": "Memory profile",
+		"profileTab.memoryProfile": "Memory",
 		"profileTab.memoryProfileHelp":
 			"Read and edit the portrait AlfyAI keeps of you, category by category.",
 		"profileTab.openKnowledgeBase": "Open Knowledge Base",
@@ -2113,6 +2147,40 @@ const settingsDict = {
 		// ── END PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────
 	},
 	hu: {
+		"memoryCleanup.pending":
+			"A memóriát már nem használja. A memóriaszolgáltatásból való törlés még folyamatban van.",
+		"memoryCleanup.failed":
+			"A memóriát már nem használja, de a törlést újra kell próbálni.",
+		"memoryCleanup.loadFailed": "Nem sikerült ellenőrizni a memória törlését.",
+		"memoryCleanup.complete": "A memória törlése befejeződött.",
+		"memoryCleanup.retry": "Törlés újrapróbálása",
+
+		"memoryImport.title":
+			"Megjegyezzen hasznos részleteket a korábbi beszélgetésekből?",
+		"memoryImport.help":
+			"Néhány régebbi beszélgetésnél nem rögzítettük, hogy be volt-e kapcsolva a memória. Ezeket is bevonhatod az új memóriába. A privát beszélgetések és a korábban elfelejtetett részletek kimaradnak.",
+		"memoryImport.include": "Korábbi beszélgetések bevonása",
+		"memoryImport.decline": "Most nem",
+		"memoryImport.profileTitle": "Korábbi beszélgetések",
+		"memoryImport.profileHelp":
+			"Válaszd ki, hogy bevonjuk-e azokat a régebbi beszélgetéseket, amelyek memóriabeállítását nem rögzítettük.",
+		"memoryImport.included": "Korábbi beszélgetések bevonva",
+		"memoryImport.declined": "Korábbi beszélgetések nincsenek bevonva",
+		"memoryImport.change": "Választás módosítása",
+		"memoryImport.failed":
+			"Nem sikerült menteni a választásodat. Próbáld újra.",
+		"memoryImport.loadingFailed":
+			"Nem sikerült betölteni a korábbi beszélgetésekre vonatkozó választásodat.",
+		"memoryImport.statusPending": "Importálásra vár",
+		"memoryImport.statusWorking": "Korábbi beszélgetések importálása…",
+		"memoryImport.statusComplete": "Importálás kész",
+		"memoryImport.statusHeld":
+			"Néhány korábbi beszélgetést ellenőrizni kell az importálás előtt.",
+		"memoryImport.statusFailed":
+			"Az importálás egy probléma miatt szünetel. A jelenlegi emlékeid továbbra is elérhetők.",
+		"memoryImport.cancel": "Mégse",
+		"memoryImport.later": "Ezt később a Profil beállításainál módosíthatod.",
+
 		"admin.activeSessions": "Aktív munkamenetek",
 		"admin.addModel": "Modell hozzáadása",
 		"admin.addModelAlias": "Alias hozzáadása",
@@ -2419,6 +2487,9 @@ const settingsDict = {
 		"admin.memory": "Memória",
 		"admin.memoryConsolidationModel": "Memória-összesítő modell",
 		"admin.memoryConsolidationModelDescription": `Ez futtatja az éjszakai karbantartást, és ez írja meg az „Amit rólad megjegyeztem” összefoglalót.`,
+		"admin.hindsightCurationModel": "Memóriaszerkesztési modell",
+		"admin.hindsightCurationModelDescription":
+			"Válassz a Hindsight háttérátjárójához csatlakozó helyi modellt a memória szerkesztéséhez és eltávolításához. A szerkesztéshez kötelező; nincs tartalék modell. Az automatikus memóriakinyerés a Hindsightban állítható be.",
 		"admin.memoryJudgeModel": "Memória bíráló modell",
 		"admin.memoryJudgeModelDescription":
 			"Ez futtatja a bírálót, amely eldönti, mit érdemes megjegyezni az adott beszélgetésből. Alapértelmezésben az elsődleges csevegőmodelledet használja.",
@@ -2980,7 +3051,7 @@ const settingsDict = {
 		settings_archiveDownloaded: "Elindult az adatarchívum letöltése.",
 		settings_clearMemoryAndKnowledge: "Memória és tudás törlése",
 		settings_clearMemoryDescription:
-			"Törli mindazt, amit az AlfyAI megtanult rólad, és minden feltöltött vagy általa létrehozott dokumentumot. A személyes utasításaid, a csevegéseid és a fiókod megmaradnak.",
+			"Azonnal leállítja az emlékeid használatát, és törli őket a feltöltött és létrehozott dokumentumokkal együtt. Ha a memóriaszolgáltatás nem érhető el, a törlés az újracsatlakozáskor fejeződik be. A személyes utasításaid, beszélgetéseid és fiókod megmaradnak.",
 		settings_clearMemorySuccess:
 			"A memória és a tudás törölve. A beszélgetéseid továbbra is elérhetők.",
 		settings_clearWorkspaceData: "Munkaterületi adatok törlése",
@@ -4206,7 +4277,7 @@ const settingsDict = {
 		"profileTab.manageSkills": "Készségek kezelése",
 		"profileTab.skillsCountEnabled": "{count} engedélyezve",
 		"profileTab.skillsCountDisabled": "{count} letiltva",
-		"profileTab.memoryProfile": "Memóriaprofil",
+		"profileTab.memoryProfile": "Memória",
 		"profileTab.memoryProfileHelp":
 			"Olvasd és szerkeszd a rólad őrzött képet, kategóriánként.",
 		"profileTab.openKnowledgeBase": "Tudásbázis megnyitása",

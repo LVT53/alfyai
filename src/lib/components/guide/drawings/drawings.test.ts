@@ -137,9 +137,9 @@ describe("the guide's drawings", () => {
 		knowsYou: [
 			"memory.title",
 			"knowledge.documents",
-			"memoryProfile.summaryTitle",
-			"memoryProfile.aboutYou",
-			"memoryProfile.needsReview",
+			"memoryNew.personal",
+			"memoryNew.add",
+			"memoryNew.search",
 			"settings_defaultModel",
 			"settings_conversationStyle",
 			"profileTab.personalInstructions",

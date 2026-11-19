@@ -1,17 +1,34 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { getKnowledgeMemory } from "$lib/server/services/memory";
+import {
+	listMemory,
+	MemoryRequestError,
+	parseMemoryScope,
+} from "$lib/server/services/memory";
 import type { RequestHandler } from "./$types";
-
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user;
-
 	try {
-		const memory = await getKnowledgeMemory(user.id, user.displayName);
-		return json(memory);
+		return json(
+			listMemory(event.locals.user.id, {
+				scope: parseMemoryScope({
+					kind: event.url.searchParams.get("scope") ?? "personal",
+					projectId: event.url.searchParams.get("projectId"),
+				}),
+				query: event.url.searchParams.get("query") ?? undefined,
+				cursor: event.url.searchParams.get("cursor") ?? undefined,
+			}),
+			{ headers: { "Cache-Control": "no-store" } },
+		);
 	} catch (error) {
-		console.error("[KNOWLEDGE_MEMORY] Failed to load knowledge memory:", error);
-		return json({ error: "Failed to load memory profile" }, { status: 500 });
+		return json(
+			{
+				error:
+					error instanceof MemoryRequestError
+						? error.code
+						: "memory_unavailable",
+			},
+			{ status: error instanceof MemoryRequestError ? error.status : 503 },
+		);
 	}
 };

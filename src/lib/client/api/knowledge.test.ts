@@ -14,9 +14,7 @@ import {
 	cancelExtraction,
 	fetchExtractionJobs,
 	fetchExtractionStatus,
-	fetchMemoryProfileItemDetail,
 	retryExtraction,
-	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
 } from "./knowledge";
@@ -25,115 +23,6 @@ describe("knowledge client API", () => {
 	beforeEach(() => {
 		resetMaxFileUploadSize();
 		resetDisabledFileTypeIds();
-	});
-
-	it("submits projection-backed memory profile actions", async () => {
-		const fetchImpl = vi.fn().mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					resetGeneration: 0,
-					projectionRevision: 8,
-					categories: [
-						{ category: "about_you", items: [] },
-						{ category: "preferences", items: [] },
-						{ category: "goals_ongoing_work", items: [] },
-						{ category: "constraints_boundaries", items: [] },
-					],
-					review: {
-						visibleItems: [],
-						openCount: 0,
-						overflowCount: 0,
-					},
-				}),
-				{
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				},
-			),
-		);
-
-		await expect(
-			submitKnowledgeMemoryAction(
-				{
-					action: "edit",
-					itemId: "item-about",
-					statement: "Lives in Rotterdam.",
-					expectedProjectionRevision: 7,
-				},
-				fetchImpl,
-			),
-		).resolves.toMatchObject({
-			projectionRevision: 8,
-			categories: [
-				{ category: "about_you", items: [] },
-				{ category: "preferences", items: [] },
-				{ category: "goals_ongoing_work", items: [] },
-				{ category: "constraints_boundaries", items: [] },
-			],
-		});
-
-		expect(fetchImpl).toHaveBeenCalledWith(
-			"/api/knowledge/memory/actions",
-			expect.objectContaining({
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					action: "edit",
-					itemId: "item-about",
-					statement: "Lives in Rotterdam.",
-					expectedProjectionRevision: 7,
-				}),
-			}),
-		);
-	});
-
-	it("loads a memory profile item detail", async () => {
-		const fetchImpl = vi.fn().mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					id: "item-about",
-					itemKey: "about",
-					category: "about_you",
-					statement: "Lives in Amsterdam.",
-					scope: { type: "global" },
-					status: "active",
-					revision: 1,
-					updatedAt: "2026-06-17T09:00:00.000Z",
-					canEdit: true,
-					canDelete: true,
-					canSuppress: true,
-					sourceChips: [
-						{
-							id: "source-1",
-							sourceType: "user_statement",
-							label: "Chat",
-							summary: "User said this directly.",
-						},
-					],
-					whyRemembered: "User said this directly.",
-				}),
-				{
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				},
-			),
-		);
-
-		await expect(
-			fetchMemoryProfileItemDetail("item/about", fetchImpl),
-		).resolves.toMatchObject({
-			id: "item-about",
-			sourceChips: [
-				expect.objectContaining({
-					label: "Chat",
-					summary: "User said this directly.",
-				}),
-			],
-		});
-
-		expect(fetchImpl).toHaveBeenCalledWith(
-			"/api/knowledge/memory/item%2Fabout",
-		);
 	});
 
 	it("uploads attachments through the raw file-body endpoint", async () => {

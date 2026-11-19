@@ -10,7 +10,7 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig } from "../config-store";
 import { getSystemPrompt } from "../prompts";
 
-import { buildOutboundSystemPrompt } from "./normal-chat-context";
+import { buildOutboundSystemPrompt } from "./chat-turn/outbound-system-prompt";
 import {
 	buildNormalChatModelRunProviderOptions,
 	createOpenAICompatibleProviderForNormalChatModelRun,
@@ -70,6 +70,7 @@ export type JsonControlMessageOptions = {
 	profilelessTemperature?: number;
 	signal?: AbortSignal;
 	jsonSchema?: JsonControlResponseSchema;
+	allowStructuredOutputFallback?: boolean;
 	allowReasoningFallback?: boolean;
 	allowEmptyTextOnLengthFinish?: boolean;
 	skipStructuredOutputs?: boolean;
@@ -193,7 +194,7 @@ function extractReasoningFallbackText(rawResponse: unknown): string | null {
 	return null;
 }
 
-function hasLengthFinishReason(rawResponse: unknown): boolean {
+export function hasLengthFinishReason(rawResponse: unknown): boolean {
 	const record =
 		rawResponse && typeof rawResponse === "object"
 			? (rawResponse as Record<string, unknown>)
@@ -433,7 +434,11 @@ export async function sendJsonControlMessage(
 			usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 		};
 	} catch (error) {
-		if (options.jsonSchema && isUnsupportedStructuredOutputError(error)) {
+		if (
+			options.allowStructuredOutputFallback !== false &&
+			options.jsonSchema &&
+			isUnsupportedStructuredOutputError(error)
+		) {
 			const result = await generate({ useJsonFallbackOutput: true });
 			const rawResponse = result.response.body;
 			return {

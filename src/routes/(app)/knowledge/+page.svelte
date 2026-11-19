@@ -1,20 +1,15 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
+import { ApiError } from "$lib/client/api/http";
 import { browser } from "$app/environment";
 import { page as kitPage } from "$app/state";
 import {
 	cancelExtraction,
 	deleteKnowledgeArtifact,
-	fetchKnowledgeMemoryOverview,
-	fetchMemoryProfile,
-	fetchMemorySummary,
-	fetchMemoryTimeline,
 	fetchProjectKnowledgeLinks,
 	fetchReextractTiers,
 	reextractDocument,
 	retryExtraction,
-	submitKnowledgeMemoryAction,
-	submitMemoryV2Action,
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
@@ -23,7 +18,6 @@ import {
 	type ExportArtifactDocumentFormat,
 	exportArtifactDocument,
 } from "$lib/client/api/artifacts";
-import { ApiError } from "$lib/client/api/http";
 import {
 	downloadProducedFile,
 	startAuthenticatedDownload,
@@ -37,23 +31,17 @@ import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import { t } from "$lib/i18n";
 
+// biome-ignore lint/style/useImportType: Svelte renders this component and binds its exported visit methods.
 import KnowledgeMemoryView from "./_components/KnowledgeMemoryView.svelte";
 import DocumentsList from "./_components/DocumentsList.svelte";
 // biome-ignore lint/style/useImportType: this component must remain a runtime import for SSR rendering.
 import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";
 import type { SpotlightId } from "$lib/app-places";
 import type {
-	MemoryPersonaSummaryPayload,
-	MemoryProfileActionPayload,
-	MemoryProfilePublicPayload,
-	MemoryTimelineReport,
-} from "$lib/memory-profile-types";
-import type {
 	KnowledgeDocumentKindFilter,
 	KnowledgeLibraryDocumentItem,
 } from "$lib/server/services/knowledge";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
-import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import type { FileFamily } from "$lib/shared/file-types";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
@@ -64,6 +52,8 @@ import {
 	parseFileFamilyFilter,
 	parseKnowledgeKindFilter,
 } from "./_components/documents-table";
+import type { Snapshot } from "@sveltejs/kit";
+import type { MemoryVisit } from "./_components/memory-visit";
 import type { PageProps } from "./$types";
 
 type KnowledgeDocumentItem = KnowledgeLibraryDocumentItem;
@@ -73,14 +63,29 @@ type SortDirection = "asc" | "desc";
 type KnowledgeWorkspaceCoordinator = KnowledgeWorkspaceCoordinatorComponent;
 type KnowledgeTab = "memory" | "documents";
 
-const MEMORY_UPDATE_ERROR_MESSAGE = "Failed to update memory profile.";
-
 let { data }: PageProps = $props();
 const getData = () => data;
 const initialLibrary = getData().library;
 const initialDocuments: KnowledgeDocumentItem[] =
 	initialLibrary?.documents ?? [];
 
+let memoryVisited = $state(false);
+let memoryView: KnowledgeMemoryView | undefined = $state();
+let pendingMemoryRestore: MemoryVisit | null = null;
+export const snapshot: Snapshot<MemoryVisit | null> = {
+	capture: () => memoryView?.capture() ?? pendingMemoryRestore,
+	restore: (value) => {
+		pendingMemoryRestore = value;
+		if (value && memoryView) void memoryView.restore(value);
+	},
+};
+$effect(() => {
+	if (memoryView && pendingMemoryRestore) {
+		const restore = pendingMemoryRestore;
+		pendingMemoryRestore = null;
+		void memoryView.restore(restore);
+	}
+});
 let activeTab = $state<KnowledgeTab>(getKnowledgeTabFromUrl(kitPage.url));
 let documents = $state<KnowledgeDocumentItem[]>(initialDocuments);
 let deletingArtifactIds = $state(new Set<string>());
@@ -116,28 +121,6 @@ $effect(() => {
 	void loadLinkedProjects(artifactIds);
 });
 
-let memoryProfile = $state<MemoryProfilePublicPayload | null>(null);
-let memoryLoaded = $state(false);
-let memoryLoading = $state(false);
-let memoryLoadError = $state("");
-let pendingMemoryActionKey = $state<string | null>(null);
-let memorySummary = $state<MemoryPersonaSummaryPayload["summary"]>(null);
-let memorySummaryBusy = $state(false);
-let memoryTimelineReports = $state<MemoryTimelineReport[]>([]);
-let memoryProcessing = $state<
-	KnowledgeMemoryOverviewPayload["processing"] | null
->(null);
-// Whether the person has memory switched on in Settings. The page is loaded
-// knowing (`data.memoryEnabled`, so the Memory tab can say "off" in its first
-// paint); the overview, read live each time the profile loads, has the last word.
-let memoryEnabledLive = $state<boolean | null>(null);
-const memoryEnabled = $derived(memoryEnabledLive ?? data.memoryEnabled ?? null);
-let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
-let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
-// Guards the one-time scroll-to-review-section handoff from the home
-// "memories need review" notice link (?tab=memory#memory-review) so it does
-// not re-fire on every reactive update once it has run.
-let scrolledToMemoryReviewHash = $state(false);
 // True while a server-side documents search/sort/page round-trip is in flight.
 let documentsNavigating = $state(false);
 
@@ -208,8 +191,6 @@ let knowledgeTabs = $derived<
 		href: buildKnowledgeLibraryUrl({ tab: "memory" }),
 		tabId: "memory-profile-tab",
 		panelId: "memory-profile-panel",
-		badge: openMemoryReviewCount > 0 ? openMemoryReviewCount : null,
-		badgeLabel: $t("memoryProfile.needsReview"),
 		// The feature guide's Show me rings the two tabs.
 		spotlight: "knowledge.memory",
 	},
@@ -799,172 +780,6 @@ async function handleExtractionCancel(artifactId: string) {
 	}
 }
 
-async function loadMemoryProfile(force = false) {
-	if (memoryLoading) return;
-	if (memoryLoaded && !force) return;
-
-	memoryLoading = true;
-	memoryLoadError = "";
-
-	try {
-		memoryProfile = await fetchMemoryProfile();
-		memoryLoaded = true;
-	} catch (error) {
-		memoryLoadError =
-			error instanceof Error ? error.message : "Failed to load memory profile.";
-	} finally {
-		memoryLoading = false;
-	}
-
-	// Summary and timeline are additive surfaces — load them best-effort and
-	// without blocking callers that await the profile itself (e.g. the
-	// stale-projection recovery path).
-	void refreshMemorySummary();
-	void refreshMemoryTimeline();
-	void refreshMemoryOverview();
-}
-
-async function refreshMemoryOverview() {
-	try {
-		const overview = await fetchKnowledgeMemoryOverview();
-		memoryProcessing = overview.processing;
-		memoryEnabledLive = overview.memoryEnabled;
-	} catch (error) {
-		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory overview", error);
-	}
-}
-
-async function refreshMemorySummary() {
-	try {
-		memorySummary = (await fetchMemorySummary()).summary;
-	} catch (error) {
-		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory summary", error);
-	}
-}
-
-async function refreshMemoryTimeline() {
-	try {
-		memoryTimelineReports = (await fetchMemoryTimeline()).reports;
-	} catch (error) {
-		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory timeline", error);
-	}
-}
-
-async function handleSummaryEdit(text: string): Promise<boolean> {
-	if (memorySummaryBusy) return false;
-	manageError = "";
-	memorySummaryBusy = true;
-	try {
-		memorySummary = (
-			await submitMemoryV2Action({ kind: "summary", action: "edit", text })
-		).summary;
-		return true;
-	} catch (error) {
-		manageError =
-			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
-		return false;
-	} finally {
-		memorySummaryBusy = false;
-	}
-}
-
-async function handleRetireMemoryItem(itemId: string): Promise<boolean> {
-	const key = `${itemId}:retire`;
-	if (pendingMemoryActionKey === key) return false;
-
-	manageError = "";
-	pendingMemoryActionKey = key;
-	try {
-		memoryProfile = await submitMemoryV2Action({
-			kind: "profile_item",
-			action: "retire",
-			itemId,
-			expectedProjectionRevision: memoryProfile?.projectionRevision ?? 0,
-		});
-		memoryLoaded = true;
-		return true;
-	} catch (error) {
-		if (
-			error instanceof ApiError &&
-			(error.status === 409 || error.code === "stale_projection")
-		) {
-			await loadMemoryProfile(true);
-			manageError =
-				"Memory profile was updated. Review the latest profile and try again.";
-			return false;
-		}
-		manageError =
-			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
-		return false;
-	} finally {
-		pendingMemoryActionKey = null;
-	}
-}
-
-async function handleUndoConsolidation(reportId: string, actionIndex: number) {
-	const key = `${reportId}:${actionIndex}:undo`;
-	if (pendingMemoryActionKey === key) return;
-
-	manageError = "";
-	pendingMemoryActionKey = key;
-	try {
-		memoryProfile = await submitMemoryV2Action({
-			kind: "consolidation",
-			action: "undo",
-			reportId,
-			actionIndex,
-		});
-		memoryLoaded = true;
-		await refreshMemoryTimeline();
-	} catch (error) {
-		manageError =
-			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
-	} finally {
-		pendingMemoryActionKey = null;
-	}
-}
-
-async function handleMemoryAction(
-	payload: MemoryProfileActionPayload,
-): Promise<boolean> {
-	const key = `${payload.itemId}:${payload.action}`;
-	if (pendingMemoryActionKey === key) return false;
-
-	manageError = "";
-	pendingMemoryActionKey = key;
-	try {
-		memoryProfile = await submitKnowledgeMemoryAction(payload);
-		memoryLoaded = true;
-		return true;
-	} catch (error) {
-		if (
-			error instanceof ApiError &&
-			(error.status === 409 || error.code === "stale_projection")
-		) {
-			await loadMemoryProfile(true);
-			manageError =
-				"Memory profile was updated. Review the latest profile and try again.";
-			return false;
-		}
-		// The review item left the queue meanwhile (expired, retired, or resolved
-		// through a sibling card): refresh so its dead buttons disappear.
-		if (
-			payload.target === "review_item" &&
-			error instanceof ApiError &&
-			(error.status === 404 || error.code === "not_found")
-		) {
-			await loadMemoryProfile(true);
-			manageError = $t("memoryProfile.reviewItemGone");
-			return false;
-		}
-		manageError =
-			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
-		return false;
-	} finally {
-		pendingMemoryActionKey = null;
-	}
-}
-
 async function executeRemoveArtifact(id: string) {
 	if (isDeletingArtifact(id)) return;
 
@@ -995,7 +810,9 @@ async function executeRemoveArtifact(id: string) {
 }
 
 $effect(() => {
-	activeTab = getKnowledgeTabFromUrl(kitPage.url);
+	const urlTab = getKnowledgeTabFromUrl(kitPage.url);
+	activeTab = urlTab;
+	if (urlTab === "memory") memoryVisited = true;
 });
 
 $effect(() => {
@@ -1004,39 +821,6 @@ $effect(() => {
 
 $effect(() => {
 	documentFileFamilyFilter = getFileFamilyFilterFromUrl(kitPage.url);
-});
-
-$effect(() => {
-	if (activeTab !== "memory") {
-		lastMemoryProfileTabState = activeTab;
-		return;
-	}
-
-	if (lastMemoryProfileTabState === "memory") return;
-	lastMemoryProfileTabState = "memory";
-	void loadMemoryProfile(true);
-});
-
-// The home notice's "Review them →" link lands here as
-// /knowledge?tab=memory#memory-review. The section only exists once the
-// profile has loaded AND has open review items (KnowledgeMemoryView renders
-// it conditionally), so this waits for both rather than trusting the browser's
-// own hash-scroll, which only ever gets one chance at the initial (pre-data)
-// DOM.
-$effect(() => {
-	if (scrolledToMemoryReviewHash) return;
-	if (!browser) return;
-	if (activeTab !== "memory") return;
-	if (kitPage.url.hash !== "#memory-review") return;
-	if (!memoryProfile || memoryProfile.review.openCount <= 0) return;
-
-	scrolledToMemoryReviewHash = true;
-	requestAnimationFrame(() => {
-		const section = document.getElementById("memory-review");
-		if (!section) return;
-		section.scrollIntoView({ behavior: "smooth", block: "start" });
-		section.focus({ preventScroll: true });
-	});
 });
 
 $effect(() => {
@@ -1064,7 +848,7 @@ $effect(() => {
 	<!-- The padding lives on the inner column, not on the scroll container: a
 	     sticky header stops at its scroll container's padding edge, so 24px of
 	     padding here left the Documents header pinned 24px below the top. -->
-	<div class="main-content flex flex-1 flex-col overflow-y-auto">
+	<div data-testid="knowledge-scroller" class="main-content flex flex-1 flex-col overflow-y-auto">
 		<!-- A border box at every width: its content is at most 65rem (1040px) beside its padding,
 		     which is named once (`--column-pad`) and used for both. A content box with `w-full` is
 		     its scroller's width PLUS its padding, so wherever the column is narrower than its
@@ -1092,28 +876,12 @@ $effect(() => {
 				onChange={handlePageSwitcherChange}
 			/>
 
-			{#if activeTab === "memory"}
-				<div id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
-					<KnowledgeMemoryView
-						profile={memoryProfile}
-						{memoryEnabled}
-						{memoryLoading}
-						{memoryLoaded}
-						{memoryLoadError}
-						pendingActionKey={pendingMemoryActionKey}
-						actionError={manageError}
-						onRetryLoadMemory={() => void loadMemoryProfile(true)}
-						onAction={handleMemoryAction}
-						summary={memorySummary}
-						summaryBusy={memorySummaryBusy}
-						processing={memoryProcessing}
-						onEditSummary={handleSummaryEdit}
-						timelineReports={memoryTimelineReports}
-						onUndoConsolidation={handleUndoConsolidation}
-						onRetire={handleRetireMemoryItem}
-					/>
+			{#if activeTab === "memory" || memoryVisited}
+				<div hidden={activeTab!=="memory"} id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
+					<KnowledgeMemoryView bind:this={memoryView} memoryEnabled={data.memoryEnabled ?? null} />
 				</div>
-			{:else}
+			{/if}
+			{#if activeTab === "documents"}
 				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section space-y-3">
 					<!-- Step 14 (redesign §6.2, "one count source"): the eyebrow used to
 					     carry its own "{documentTotalItems} documents" pill here, which

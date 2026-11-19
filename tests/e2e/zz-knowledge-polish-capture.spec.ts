@@ -164,67 +164,6 @@ const MEMORY_PROFILE = {
 	},
 };
 
-const MEMORY_SUMMARY = {
-	summary: {
-		text: "You run AlfyAI on your own hardware and you would rather nothing left the machine unless you say so. You work on the assistant itself most days — its serving config, its analytics, its Atlas reports — and you want the reasoning behind a change before it ships. You read short. Metric units, 24-hour time, no emoji, English unless you ask for Hungarian. Long reports go to a PDF rather than into the chat.",
-		updatedAt: "2026-09-11T08:00:00.000Z",
-	},
-};
-
-const MEMORY_TIMELINE = {
-	reports: [
-		{
-			id: "report-1",
-			status: "completed",
-			summaryText: "Tidied 4 memories — 2 merged, 1 retired, 1 expired.",
-			createdAt: "2026-09-11T03:12:00.000Z",
-			actions: [
-				{
-					type: "merged",
-					description: "Merged two memories about reply length.",
-					resultStatement: "Wants short answers, reasoning left out.",
-				},
-				{
-					type: "expired",
-					description: "Retired an expired reminder about the NAS move.",
-					resultStatement: null,
-				},
-			],
-		},
-		{
-			id: "report-2",
-			status: "completed",
-			summaryText: "Merged 2 duplicates in Preferences.",
-			createdAt: "2026-09-09T03:11:00.000Z",
-			actions: [],
-		},
-		{
-			id: "report-3",
-			status: "completed",
-			summaryText: "Nothing to do.",
-			createdAt: "2026-09-08T03:10:00.000Z",
-			actions: [],
-		},
-		{
-			id: "report-4",
-			status: "failed",
-			summaryText: "Run failed — the model was unreachable.",
-			createdAt: "2026-09-07T03:09:00.000Z",
-			actions: [],
-		},
-	],
-};
-
-const MEMORY_OVERVIEW = {
-	processing: {
-		active: true,
-		pendingCount: 1,
-		operations: [
-			{ reason: "deferred_intake", scope: { type: "global" }, count: 1 },
-		],
-	},
-};
-
 // ---------------------------------------------------------------------------
 // documents — nine rows: mixed versions, statuses and types, one very long
 // name, one with no normalised version at all.
@@ -448,18 +387,32 @@ async function json(route: import("@playwright/test").Route, body: unknown) {
 }
 
 async function stubMemory(page: Page) {
-	await page.route("**/api/knowledge/memory/summary*", (route) =>
-		json(route, MEMORY_SUMMARY),
-	);
-	await page.route("**/api/knowledge/memory/timeline*", (route) =>
-		json(route, MEMORY_TIMELINE),
-	);
-	await page.route("**/api/knowledge/memory/overview*", (route) =>
-		json(route, MEMORY_OVERVIEW),
-	);
-	await page.route("**/api/knowledge/memory", (route) =>
-		json(route, MEMORY_PROFILE),
-	);
+	await page.route("**/api/knowledge/memory?*", (route) => {
+		const query =
+			new URL(route.request().url()).searchParams.get("query") ?? "";
+		const rows = MEMORY_PROFILE.categories
+			.flatMap((category) => category.items)
+			.map((item) => ({
+				ref: {
+					scope: { kind: "personal" },
+					generation: "capture",
+					rowId: item.id,
+				},
+				text: item.statement,
+				updatedAt: item.updatedAt,
+				sourceCount: 0,
+			}))
+			.filter((row) => row.text.toLowerCase().includes(query.toLowerCase()));
+		return json(route, {
+			authority: "hindsight",
+			scope: { kind: "personal" },
+			generation: "capture",
+			rows,
+			nextCursor: null,
+			total: rows.length,
+			status: "ready",
+		});
+	});
 }
 
 async function setTheme(page: Page, theme: "light" | "dark") {
@@ -528,148 +481,19 @@ test.describe("knowledge polish captures", () => {
 		// -------------------------------------------------------------- memory
 		test(`memory states (${theme})`, async ({ page }) => {
 			await stubMemory(page);
-
 			for (const [label, width, height] of WIDTHS) {
 				await page.setViewportSize({ width, height });
-				await page.goto("/knowledge?tab=memory", {
-					waitUntil: "domcontentloaded",
-				});
+				await page.goto("/knowledge?tab=memory");
 				await waitForHydration(page);
 				await setTheme(page, theme);
-				await page.waitForTimeout(600);
-
+				await expect(page.getByTestId("memory-list")).toBeVisible();
 				await shoot(page, `mem-rest-${label}-${theme}`, theme);
-
-				// Category expanded.
-				await page.getByTestId("memory-category-disclosure").first().click();
-				await page.waitForTimeout(600);
-				await shoot(page, `mem-expanded-${label}-${theme}`, theme);
-				await page.getByTestId("memory-category-disclosure").first().click();
-				await page.waitForTimeout(500);
-
-				// Filter active.
-				const filterBox = page.getByRole("searchbox", {
-					name: "Filter memories",
-				});
-				await filterBox.fill("nextcloud");
-				await page.waitForTimeout(400);
+				const search = page.getByRole("searchbox", { name: "Search memories" });
+				await search.fill("nextcloud");
+				await expect(search).toHaveValue("nextcloud");
 				await shoot(page, `mem-filtered-${label}-${theme}`, theme);
-				await page.getByRole("button", { name: "Clear filter" }).click();
-				await page.waitForTimeout(400);
 			}
-
-			// Hover detail at 1440 only — the states are a few pixels each.
-			await page.setViewportSize({ width: 1440, height: 1000 });
-			await page.goto("/knowledge?tab=memory", {
-				waitUntil: "domcontentloaded",
-			});
-			await waitForHydration(page);
-			await setTheme(page, theme);
-			await page.waitForTimeout(600);
-
-			const section = page.locator(".memory-section").first();
-
-			// Row hovered — shoot three rows so the hover fill can be compared
-			// against its neighbours.
-			const rows = page.getByTestId("memory-row");
-			await rows.nth(1).hover();
-			await page.waitForTimeout(350);
-			await shootEl(page, section, `mem-row-hover-${theme}`, theme, 6);
-
-			// Edit hovered.
-			await rows
-				.nth(1)
-				.getByRole("button", { name: /Edit memory|View memory/ })
-				.first()
-				.hover();
-			await page.waitForTimeout(350);
-			await shootEl(page, section, `mem-edit-hover-${theme}`, theme, 6);
-
-			// Remove hovered.
-			await rows
-				.nth(1)
-				.getByRole("button", { name: /Remove/ })
-				.first()
-				.hover();
-			await page.waitForTimeout(350);
-			await shootEl(page, section, `mem-remove-hover-${theme}`, theme, 6);
-
-			// Chip hovered.
-			const chip = page
-				.getByTestId("memory-filter-chip")
-				.filter({ hasText: "Preferences" });
-			await chip.hover();
-			await page.waitForTimeout(350);
-			await shootEl(
-				page,
-				page.locator(".memory-filter-bar"),
-				`mem-chip-hover-${theme}`,
-				theme,
-				8,
-			);
-
-			// Disclosure hovered (foot row alignment against the rows above it).
-			await page.getByTestId("memory-category-disclosure").first().hover();
-			await page.waitForTimeout(350);
-			await shootEl(page, section, `mem-disclosure-hover-${theme}`, theme, 6);
-
-			// Needs review card hovered.
-			const reviewCard = page.locator(".memory-review-card").first();
-			await reviewCard.hover();
-			await page.waitForTimeout(350);
-			await shootEl(
-				page,
-				page.locator(".memory-review-section"),
-				`mem-review-hover-${theme}`,
-				theme,
-				8,
-			);
-
-			// The processing pill on the eyebrow line, and the detail it keeps
-			// behind a tooltip.
-			const pill = page.getByTestId("memory-processing-pill");
-			if (await pill.count()) {
-				await pill.hover();
-				await page.waitForTimeout(350);
-				await shootEl(
-					page,
-					page.locator(".memory-profile-head"),
-					`mem-processing-pill-${theme}`,
-					theme,
-					10,
-				);
-			}
-
-			// "Reading a row", now a tooltip on the portrait's title.
-			const legendTrigger = page.getByRole("button", { name: "Reading a row" });
-			if (await legendTrigger.count()) {
-				await legendTrigger.hover();
-				await page.waitForTimeout(350);
-				// A generous pad: the bubble hangs below the summary block, and
-				// the shot has to show it lands inside the portrait card (which
-				// clips to its own radius) rather than over its edge.
-				await shootEl(
-					page,
-					page.locator(".persona-summary-card"),
-					`mem-legend-tooltip-${theme}`,
-					theme,
-					110,
-				);
-			}
-
-			// Rail cards, resting — paddings and radii side by side.
-			await page.mouse.move(5, 5);
-			await page.waitForTimeout(250);
-			await shootEl(
-				page,
-				page.locator(".memory-profile-rail"),
-				`mem-rail-${theme}`,
-				theme,
-				10,
-			);
 		});
-
-		// ----------------------------------------------------------- documents
 		test(`documents states (${theme})`, async ({ page }) => {
 			seedDocuments();
 			await stubMemory(page);

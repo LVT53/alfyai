@@ -663,6 +663,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"driver: memory consolidation",
 	"lib/server/services/memory-consolidation/summary.ts":
 		"driver: persona summary",
+	"lib/server/services/memory-profile/curation.ts":
+		"exempt: background memory curation uses English-only instructions, held by layer 4",
 	"lib/server/services/conversation-summaries.ts":
 		"driver: conversation summary",
 	"lib/server/services/artifacts/app/generate.ts":

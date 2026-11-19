@@ -1,3 +1,4 @@
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import { MARATHON_UNJUDGED_THRESHOLD } from "./config";
 
 /**
@@ -56,11 +57,12 @@ export async function judgeFinishedTurn(
 	// mode: neither should ever contribute to memory. This is the same gate the
 	// judge chokepoint enforces defensively; owning it here means a disabled
 	// conversation never even marks the dirty ledger or schedules a timer.
+	if (usesNativeMemory(params.userId)) return { status: "skipped" };
 	const { isMemoryActiveForConversation } = await import("../memory-controls");
 	const memoryActive = await isMemoryActiveForConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
-	}).catch(() => true);
+	}).catch(() => false);
 	if (!memoryActive) return { status: "skipped" };
 
 	const { detectExplicitMemoryRequest, scheduleConversationJudge } =

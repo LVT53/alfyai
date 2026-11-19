@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
+	memoryAccounts,
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 	memoryProjectionState,
@@ -33,6 +34,42 @@ import type {
 import { assertMemoryProfileCategory } from "./types";
 
 type TransactionClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Check authority in the same SQLite transaction as every legacy mutation. */
+function assertLegacyWriter(
+	tx: TransactionClient,
+	params: { userId?: string; projectionStateId?: string },
+) {
+	const userId =
+		params.userId ??
+		(params.projectionStateId
+			? tx
+					.select()
+					.from(memoryProjectionState)
+					.where(eq(memoryProjectionState.id, params.projectionStateId))
+					.get()?.userId
+			: undefined);
+	if (!userId) throw Error("memory_legacy_authority_changed");
+	const account = tx
+		.select()
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.userId, userId))
+		.get();
+	if (
+		account &&
+		(account.authority === "hindsight" || account.lifecycleState !== "active")
+	)
+		throw Error("memory_legacy_authority_changed");
+}
+function legacyWrite<T>(
+	params: { userId?: string; projectionStateId?: string },
+	write: () => T,
+): T {
+	return db.transaction((tx) => {
+		assertLegacyWriter(tx, params);
+		return write();
+	});
+}
 
 /**
  * The optimistic-concurrency claim at the heart of the mutation door: advance
@@ -67,26 +104,28 @@ export async function ensureProjectionState(params: {
 	scope?: MemoryProfileScope;
 }): Promise<typeof memoryProjectionState.$inferSelect> {
 	const scope = toScopeColumns(params.scope ?? { type: "global" });
-	await db
-		.insert(memoryProjectionState)
-		.values({
-			id: randomUUID(),
-			userId: params.userId,
-			resetGeneration: params.resetGeneration,
-			scopeType: scope.scopeType,
-			scopeId: scope.scopeId,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		})
-		.onConflictDoNothing({
-			target: [
-				memoryProjectionState.userId,
-				memoryProjectionState.resetGeneration,
-				memoryProjectionState.scopeType,
-				memoryProjectionState.scopeId,
-			],
-		})
-		.run();
+	legacyWrite(params, () =>
+		db
+			.insert(memoryProjectionState)
+			.values({
+				id: randomUUID(),
+				userId: params.userId,
+				resetGeneration: params.resetGeneration,
+				scopeType: scope.scopeType,
+				scopeId: scope.scopeId,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})
+			.onConflictDoNothing({
+				target: [
+					memoryProjectionState.userId,
+					memoryProjectionState.resetGeneration,
+					memoryProjectionState.scopeType,
+					memoryProjectionState.scopeId,
+				],
+			})
+			.run(),
+	);
 
 	const [row] = await db
 		.select()
@@ -113,31 +152,35 @@ export async function expireOverdueActiveMemoryProfileItems(params: {
 	now?: Date;
 }): Promise<number> {
 	const now = params.now ?? new Date();
-	const result = (await db
-		.update(memoryProfileItems)
-		.set({
-			status: "expired",
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(memoryProfileItems.userId, params.userId),
-				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
-				eq(memoryProfileItems.status, "active"),
-				lt(memoryProfileItems.expiresAt, now),
-			),
-		)
-		.run()) as { changes?: number };
-	const expiredCount = result.changes ?? 0;
-	if (expiredCount > 0) {
-		await db
-			.update(memoryProjectionState)
+	const result = legacyWrite(params, () =>
+		db
+			.update(memoryProfileItems)
 			.set({
-				revision: sql`${memoryProjectionState.revision} + ${expiredCount}`,
+				status: "expired",
 				updatedAt: now,
 			})
-			.where(eq(memoryProjectionState.id, params.projectionStateId))
-			.run();
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+					eq(memoryProfileItems.status, "active"),
+					lt(memoryProfileItems.expiresAt, now),
+				),
+			)
+			.run(),
+	) as { changes?: number };
+	const expiredCount = result.changes ?? 0;
+	if (expiredCount > 0) {
+		legacyWrite(params, () =>
+			db
+				.update(memoryProjectionState)
+				.set({
+					revision: sql`${memoryProjectionState.revision} + ${expiredCount}`,
+					updatedAt: now,
+				})
+				.where(eq(memoryProjectionState.id, params.projectionStateId))
+				.run(),
+		);
 	}
 	return expiredCount;
 }
@@ -163,21 +206,23 @@ export async function expireOverdueReviewMemoryProfileItems(params: {
 	if (overdueItems.length === 0) return 0;
 	const overdueItemIds = new Set(overdueItems.map((row) => row.id));
 
-	const result = (await db
-		.update(memoryProfileItems)
-		.set({
-			status: "expired",
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(memoryProfileItems.userId, params.userId),
-				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
-				eq(memoryProfileItems.status, "review_needed"),
-				lt(memoryProfileItems.expiresAt, now),
-			),
-		)
-		.run()) as { changes?: number };
+	const result = legacyWrite(params, () =>
+		db
+			.update(memoryProfileItems)
+			.set({
+				status: "expired",
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+					eq(memoryProfileItems.status, "review_needed"),
+					lt(memoryProfileItems.expiresAt, now),
+				),
+			)
+			.run(),
+	) as { changes?: number };
 	const expiredCount = result.changes ?? 0;
 	if (expiredCount === 0) return 0;
 
@@ -213,6 +258,7 @@ export async function expireOverdueReviewMemoryProfileItems(params: {
 
 	if (reviewRowsToClose.length > 0) {
 		db.transaction((tx) => {
+			assertLegacyWriter(tx, params);
 			resolveReviewRowsTx(tx, {
 				userId: params.userId,
 				resetGeneration: params.resetGeneration,
@@ -226,14 +272,16 @@ export async function expireOverdueReviewMemoryProfileItems(params: {
 		});
 	}
 
-	await db
-		.update(memoryProjectionState)
-		.set({
-			revision: sql`${memoryProjectionState.revision} + ${expiredCount}`,
-			updatedAt: now,
-		})
-		.where(eq(memoryProjectionState.id, params.projectionStateId))
-		.run();
+	legacyWrite(params, () =>
+		db
+			.update(memoryProjectionState)
+			.set({
+				revision: sql`${memoryProjectionState.revision} + ${expiredCount}`,
+				updatedAt: now,
+			})
+			.where(eq(memoryProjectionState.id, params.projectionStateId))
+			.run(),
+	);
 
 	return expiredCount;
 }
@@ -289,6 +337,7 @@ export async function createMemoryProfileItem(params: {
 	};
 
 	const result = db.transaction((tx) => {
+		assertLegacyWriter(tx, params);
 		const insertResult = tx
 			.insert(memoryProfileItems)
 			.values(item)
@@ -384,20 +433,22 @@ export async function addMemoryProfileItemProvenance(params: {
 	}
 
 	const id = randomUUID();
-	await db
-		.insert(memoryProfileItemProvenance)
-		.values({
-			id,
-			itemId: item.id,
-			userId: params.userId,
-			resetGeneration: item.resetGeneration,
-			sourceType: params.sourceType,
-			sourceId: params.sourceId,
-			label: params.label,
-			summary: params.summary,
-			createdAt: new Date(),
-		})
-		.run();
+	legacyWrite(params, () =>
+		db
+			.insert(memoryProfileItemProvenance)
+			.values({
+				id,
+				itemId: item.id,
+				userId: params.userId,
+				resetGeneration: item.resetGeneration,
+				sourceType: params.sourceType,
+				sourceId: params.sourceId,
+				label: params.label,
+				summary: params.summary,
+				createdAt: new Date(),
+			})
+			.run(),
+	);
 
 	return {
 		id,
@@ -514,6 +565,7 @@ export async function updateMemoryProfileItemWithRevision(params: {
 
 	const nextRevision = params.expectedProjectionRevision + 1;
 	const result = db.transaction((tx) => {
+		assertLegacyWriter(tx, params);
 		if (
 			!claimProjectionRevisionTx(tx, {
 				projectionStateId: projection.id,
@@ -587,16 +639,18 @@ export async function mergeMemoryProfileItemMetadata(params: {
 		...parseJsonRecord(row?.metadataJson ?? null),
 		...params.patch,
 	};
-	await db
-		.update(memoryProfileItems)
-		.set({ metadataJson: JSON.stringify(next) })
-		.where(
-			and(
-				eq(memoryProfileItems.userId, params.userId),
-				eq(memoryProfileItems.id, params.itemId),
-			),
-		)
-		.run();
+	legacyWrite(params, () =>
+		db
+			.update(memoryProfileItems)
+			.set({ metadataJson: JSON.stringify(next) })
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.id, params.itemId),
+				),
+			)
+			.run(),
+	);
 }
 
 /**
@@ -613,19 +667,21 @@ export async function setMemoryProfileItemMetadataAndExpiry(params: {
 	metadataJson: string;
 	expiresAt?: Date;
 }): Promise<void> {
-	await db
-		.update(memoryProfileItems)
-		.set({
-			metadataJson: params.metadataJson,
-			...(params.expiresAt ? { expiresAt: params.expiresAt } : {}),
-		})
-		.where(
-			and(
-				eq(memoryProfileItems.id, params.itemId),
-				eq(memoryProfileItems.userId, params.userId),
-			),
-		)
-		.run();
+	legacyWrite(params, () =>
+		db
+			.update(memoryProfileItems)
+			.set({
+				metadataJson: params.metadataJson,
+				...(params.expiresAt ? { expiresAt: params.expiresAt } : {}),
+			})
+			.where(
+				and(
+					eq(memoryProfileItems.id, params.itemId),
+					eq(memoryProfileItems.userId, params.userId),
+				),
+			)
+			.run(),
+	);
 }
 
 /**
@@ -643,6 +699,7 @@ export async function renewMemoryProfileItemExpiry(params: {
 	now: Date;
 }): Promise<void> {
 	db.transaction((tx) => {
+		assertLegacyWriter(tx, params);
 		tx.update(memoryProfileItems)
 			.set({ expiresAt: params.expiresAt, updatedAt: params.now })
 			.where(
@@ -677,17 +734,19 @@ export async function storePersonaSummaryProjection(params: {
 	personaSummaryLinksJson: string;
 	now: Date;
 }): Promise<void> {
-	await db
-		.update(memoryProjectionState)
-		.set({
-			personaSummaryText: params.personaSummaryText,
-			personaSummaryLinksJson: params.personaSummaryLinksJson,
-			personaSummaryUpdatedAt: params.now,
-			revision: sql`${memoryProjectionState.revision} + 1`,
-			updatedAt: params.now,
-		})
-		.where(eq(memoryProjectionState.id, params.projectionStateId))
-		.run();
+	legacyWrite(params, () =>
+		db
+			.update(memoryProjectionState)
+			.set({
+				personaSummaryText: params.personaSummaryText,
+				personaSummaryLinksJson: params.personaSummaryLinksJson,
+				personaSummaryUpdatedAt: params.now,
+				revision: sql`${memoryProjectionState.revision} + 1`,
+				updatedAt: params.now,
+			})
+			.where(eq(memoryProjectionState.id, params.projectionStateId))
+			.run(),
+	);
 }
 
 /**
@@ -706,21 +765,23 @@ export async function copyMemoryProfileItemProvenance(params: {
 		.from(memoryProfileItemProvenance)
 		.where(eq(memoryProfileItemProvenance.itemId, params.fromItemId));
 	for (const prov of provRows) {
-		await db
-			.insert(memoryProfileItemProvenance)
-			.values({
-				id: randomUUID(),
-				itemId: params.toItemId,
-				userId: params.userId,
-				resetGeneration: prov.resetGeneration,
-				sourceType: prov.sourceType,
-				sourceId: prov.sourceId,
-				label: prov.label,
-				summary: prov.summary,
-				metadataJson: prov.metadataJson,
-				createdAt: prov.createdAt,
-			})
-			.run();
+		legacyWrite(params, () =>
+			db
+				.insert(memoryProfileItemProvenance)
+				.values({
+					id: randomUUID(),
+					itemId: params.toItemId,
+					userId: params.userId,
+					resetGeneration: prov.resetGeneration,
+					sourceType: prov.sourceType,
+					sourceId: prov.sourceId,
+					label: prov.label,
+					summary: prov.summary,
+					metadataJson: prov.metadataJson,
+					createdAt: prov.createdAt,
+				})
+				.run(),
+		);
 	}
 }
 
@@ -748,6 +809,7 @@ export async function markActiveMemoryProfileItemsForReview(params: {
 			: null;
 
 	db.transaction((tx) => {
+		assertLegacyWriter(tx, params);
 		params.mutateReviewItem(tx);
 		if (affectedItemIds.length === 0 || !projection) return;
 
@@ -927,6 +989,7 @@ export async function applyReviewItemProjectionMutation(params: {
 > {
 	const nextProjectionRevision = params.expectedProjectionRevision + 1;
 	return db.transaction((tx) => {
+		assertLegacyWriter(tx, params);
 		if (
 			!claimProjectionRevisionTx(tx, {
 				projectionStateId: params.projectionStateId,
@@ -1058,7 +1121,11 @@ export async function applyReviewItemProjectionMutation(params: {
 			userId: params.userId,
 			resetGeneration: params.resetGeneration,
 			now: params.now,
-			rows: params.resolveRows,
+			rows: params.resolveRows.map((row) =>
+				itemId && row.resolutionType === "edit_fact"
+					? { ...row, metadata: { ...row.metadata, replacementItemId: itemId } }
+					: row,
+			),
 		});
 
 		return {

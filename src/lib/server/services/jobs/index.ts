@@ -21,6 +21,7 @@ import type {
 	ReopenInput,
 	Row,
 	ShapeRow,
+	Tx,
 } from "./types";
 
 export {
@@ -54,6 +55,16 @@ export async function enqueue<J extends JobTable>(
 	const result = ledger.enqueueJob(kind, input);
 	if ((result.row as unknown as ShapeRow).status === "queued") wake(kind);
 	return result;
+}
+
+/** Atomically binds domain revocation to all required durable jobs. No async callbacks. */
+export async function enqueueAtomic<J extends JobTable>(
+	kind: JobKind<J>,
+	prepare: (tx: Tx) => EnqueueInput<J>[],
+): Promise<Array<{ row: Row<J>; reused: boolean }>> {
+	const results = ledger.enqueueJobsAtomic(kind, prepare);
+	if (results.some((result) => result.row.status === "queued")) wake(kind);
+	return results;
 }
 
 /**

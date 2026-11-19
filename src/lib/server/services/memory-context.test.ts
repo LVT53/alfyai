@@ -55,6 +55,19 @@ function openSeedDatabase() {
 	return { sqlite, db };
 }
 
+function seedAuthorizedMemoryCaller() {
+	const { sqlite, db } = openSeedDatabase();
+	db.insert(schema.users)
+		.values({ id: "user-1", email: "memory@test.invalid", passwordHash: "x" })
+		.onConflictDoNothing()
+		.run();
+	db.insert(schema.conversations)
+		.values({ id: "conv-current", userId: "user-1", title: "Current" })
+		.onConflictDoNothing()
+		.run();
+	sqlite.close();
+}
+
 describe("memory context service", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-memory-context-${randomUUID()}.db`;
@@ -121,6 +134,7 @@ describe("memory context service", () => {
 	});
 
 	it("delegates project mode to project context and exposes a stable memory_context shape", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -176,6 +190,7 @@ describe("memory context service", () => {
 				includeEvidenceCandidates: true,
 			},
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -202,6 +217,7 @@ describe("memory context service", () => {
 	});
 
 	it("returns active projection persona facts with one evidence candidate per fact", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -250,6 +266,7 @@ describe("memory context service", () => {
 			links: [],
 			updatedAt: new Date("2026-06-02T00:00:00.000Z"),
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -284,6 +301,7 @@ describe("memory context service", () => {
 
 	it("includes project scope when loading active projection persona memory", async () => {
 		mockGetConversationProjectId.mockResolvedValueOnce("project-1");
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		await getMemoryContext({
@@ -327,6 +345,7 @@ describe("memory context service", () => {
 				},
 			],
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -373,6 +392,7 @@ describe("memory context service", () => {
 	});
 
 	it("defaults omitted mode to active projection persona memory", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -404,6 +424,7 @@ describe("memory context service", () => {
 			projectionRevision: 3,
 			items: [],
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -445,6 +466,7 @@ describe("memory context service", () => {
 				semanticScore: 0.9,
 			})),
 		);
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -472,6 +494,7 @@ describe("memory context service", () => {
 	});
 
 	it("omits evidence candidates when includeEvidenceCandidates is false", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({

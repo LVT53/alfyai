@@ -21,6 +21,7 @@ import {
 	getMemoryProfileItemDetail,
 	getMemoryProfileReadModel,
 } from "./memory-profile/read-model";
+import { getMemoryAccount } from "./memory-profile/revisions";
 import type {
 	MemoryDirtyReason,
 	MemoryProfileCardItem,
@@ -108,6 +109,8 @@ export async function getKnowledgeMemory(
 	userId: string,
 	_userDisplayName: string,
 ): Promise<MemoryProfilePublicPayload> {
+	if (getMemoryAccount(userId)?.authority === "hindsight")
+		throw new Error("legacy_memory_unavailable");
 	const source = "knowledge_memory_read";
 	await markStaleProjectionRead(userId, source);
 	const profile = await bootstrapEmptyMemoryProfile(
@@ -122,6 +125,8 @@ export async function getKnowledgeMemoryItemDetail(
 	userId: string,
 	itemId: string,
 ): Promise<MemoryProfilePublicItemDetail | null> {
+	if (getMemoryAccount(userId)?.authority === "hindsight")
+		throw new Error("legacy_memory_unavailable");
 	const detail = await getMemoryProfileItemDetail({ userId, itemId });
 	return detail ? serializeMemoryProfileItemDetail(detail) : null;
 }
@@ -160,6 +165,8 @@ export async function getKnowledgeMemoryOverview(
 	_userDisplayName: string,
 	options: { awaitLive?: boolean; force?: boolean } = {},
 ): Promise<KnowledgeMemoryOverviewPayload> {
+	if (getMemoryAccount(userId)?.authority === "hindsight")
+		throw new Error("legacy_memory_unavailable");
 	const source = options.force
 		? "knowledge_memory_overview_force_read"
 		: "knowledge_memory_overview_read";
@@ -341,6 +348,8 @@ const TIMELINE_WINDOW_MS = TIMELINE_WINDOW_DAYS * 86_400_000;
 export async function getKnowledgeMemorySummary(
 	userId: string,
 ): Promise<KnowledgeMemorySummaryPayload> {
+	if (getMemoryAccount(userId)?.authority === "hindsight")
+		throw new Error("legacy_memory_unavailable");
 	const summary = await getPersonaSummary({ userId });
 	return { summary: serializePersonaSummary(summary) };
 }
@@ -348,6 +357,8 @@ export async function getKnowledgeMemorySummary(
 export async function listKnowledgeMemoryTimeline(
 	userId: string,
 ): Promise<KnowledgeMemoryTimelinePayload> {
+	if (getMemoryAccount(userId)?.authority === "hindsight")
+		throw new Error("legacy_memory_unavailable");
 	const reports = await listMemoryConsolidationReports({
 		userId,
 		limit: 20,
@@ -360,3 +371,12 @@ export async function listKnowledgeMemoryTimeline(
 		),
 	};
 }
+
+// Native accepted Memory UI read contract. Legacy exports remain transition-only.
+export {
+	getMemoryDetail,
+	legacyMemoryAvailable,
+	listMemory,
+	MemoryRequestError,
+	parseMemoryScope,
+} from "./memory-profile/native-read";

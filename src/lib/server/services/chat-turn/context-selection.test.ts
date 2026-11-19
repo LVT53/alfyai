@@ -620,6 +620,28 @@ describe("buildConstructedContext", () => {
 		);
 	});
 
+	it("withholds baseline memory when the control store is unavailable", async () => {
+		resetConstructedContextMocks();
+		mocks.isMemoryActiveForConversation.mockRejectedValue(
+			new Error("controls offline"),
+		);
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks, that helps.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+		expect(constructed.inputValue).not.toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+		expect(mocks.getActiveMemoryProfileContext).not.toHaveBeenCalled();
+	});
+
 	it("omits the baseline memory section for an incognito conversation (shallow tier)", async () => {
 		resetConstructedContextMocks();
 		// Incognito ⇒ isMemoryActiveForConversation resolves false.

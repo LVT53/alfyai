@@ -1,3 +1,8 @@
+// Native source deletion is covered with a real migrated database in chat-delivery.test.ts.
+vi.mock("./memory-profile/chat-delivery", () => ({
+	revokeDeletedMemoryMessages: vi.fn(async () => undefined),
+}));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Metadata projection is isolated here; ledger accounting crosses the real

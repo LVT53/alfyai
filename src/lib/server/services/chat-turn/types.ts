@@ -24,6 +24,7 @@ import type {
 } from "$lib/shared/artifacts/image-body";
 import type { AttachmentReadinessItem } from "$lib/shared/attachment-readiness";
 import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
+import type { MemoryTurnAcceptance } from "../memory-profile/chat-delivery";
 
 export type ChatTurnRoute = "send" | "stream";
 
@@ -119,6 +120,7 @@ export type ParsedChatTurnRequest = {
 	// Deliberately NOT derived from skipPersistUserMessage: /api/chat/stream
 	// accepts that flag straight from the client body.
 	turnOrigin: ChatTurnOrigin;
+	editSourceMessageId?: string;
 	attachmentTraceId?: string;
 	atlasMode: boolean;
 	atlasProfile: AtlasProfile | null;
@@ -240,6 +242,8 @@ export type PersistAssistantEvidenceParams = {
 };
 
 export type RunPostTurnTasksParams = {
+	turnOrigin?: string;
+	editSourceMessageId?: string;
 	turnKind: ChatTurnRoute;
 	userId: string;
 	conversationId: string;
@@ -252,6 +256,7 @@ export type RunPostTurnTasksParams = {
 	workCapsule?: WorkCapsuleSummary;
 	maintenanceReason: "chat_send" | "chat_stream";
 	startedResetGeneration?: number;
+	memoryAcceptance?: MemoryTurnAcceptance | null;
 	skipAssistantProseMemoryIntake?: boolean;
 	// Fix 1 (data-loss race) — the in-flight evidence write for THIS same
 	// message (updateMessageEvidence + updateMessageWebCitationAudit). Those two

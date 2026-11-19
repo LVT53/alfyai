@@ -8,6 +8,7 @@ import Header from "$lib/components/layout/Header.svelte";
 import Sidebar from "$lib/components/layout/Sidebar.svelte";
 import Toast from "$lib/components/ui/Toast.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
+import MemoryHistoryImportNotice from "$lib/components/ui/MemoryHistoryImportNotice.svelte";
 import FeatureNoteStrip from "$lib/components/campaigns/FeatureNoteStrip.svelte";
 import ServerDrainingNotice from "./_components/ServerDrainingNotice.svelte";
 import { readTwoStepBackupNotice } from "./two-step-backup-notice";
@@ -982,6 +983,7 @@ onDestroy(() => {
 					/>
 				</div>
 			{/if}
+			<MemoryHistoryImportNotice held={Boolean(activeCampaign || activeFeatureNote || $landingSendStarted)} />
 			{@render children()}
 		</main>
 	</div>

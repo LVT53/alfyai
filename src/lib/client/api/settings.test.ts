@@ -246,7 +246,7 @@ describe("settings client API", () => {
 	it("posts destructive privacy controls to their approved route contracts", async () => {
 		const fetchImpl = vi.fn().mockImplementation(() =>
 			Promise.resolve(
-				new Response(JSON.stringify({ success: true }), {
+				new Response(JSON.stringify({ success: true,nativeCleanupPending:false,cleanupOperations:[] }), {
 					status: 200,
 					headers: { "Content-Type": "application/json" },
 				}),

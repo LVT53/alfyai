@@ -1,11 +1,14 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { submitRememberNote } from "$lib/server/services/memory-profile/curation-actions";
+import { MemoryRequestError } from "$lib/server/services/memory-profile/native-read";
 import { checkMemoryNoteRateLimit } from "$lib/server/services/memory-profile/note-rate-limit";
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
 	mergeMemoryProfileItemMetadata,
 } from "$lib/server/services/memory-profile/projection-store";
+import { getMemoryAccount } from "$lib/server/services/memory-profile/revisions";
 import type { RequestHandler } from "./$types";
 
 // Composer `/remember <text>` writes here. Server-owned, capped, and routed
@@ -47,6 +50,9 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	try {
+		if (getMemoryAccount(user.id)?.authority === "hindsight") {
+			return json({ operation: await submitRememberNote(user.id, body) });
+		}
 		const item = await createMemoryProfileItem({
 			userId: user.id,
 			category: "about_you",
@@ -67,6 +73,8 @@ export const POST: RequestHandler = async (event) => {
 		});
 		return json({ id: item.id, statement: text });
 	} catch (error) {
+		if (error instanceof MemoryRequestError)
+			return json({ error: error.code }, { status: error.status });
 		console.error("[MEMORY_NOTES] Failed to save memory note:", error);
 		return json({ error: "Failed to save memory note" }, { status: 500 });
 	}

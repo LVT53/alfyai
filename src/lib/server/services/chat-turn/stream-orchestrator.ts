@@ -1,3 +1,4 @@
+import { beginForegroundRequest } from "./request-activity";
 import type { FinishReason } from "ai";
 import { buildMessageUserIntent } from "$lib/message-user-intent";
 import type { ModelId } from "$lib/model-types";
@@ -98,6 +99,7 @@ import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion"
 import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
+import { captureMemoryTurnAcceptance } from "../memory-profile/chat-delivery";
 import {
 	createFileProductionCapture,
 	looksLikeFileProductionLeak,
@@ -268,6 +270,7 @@ export function runChatStreamOrchestrator(
 			}
 		: {};
 	const conversationId = turn.conversationId;
+	const memoryAcceptance = captureMemoryTurnAcceptance(user.id, conversationId);
 	const normalizedMessage = turn.normalizedMessage;
 	const streamId = turn.streamId;
 	const modelId = turn.modelId;
@@ -368,6 +371,7 @@ export function runChatStreamOrchestrator(
 			) => Promise<void>,
 		) =>
 		async (controller: ReadableStreamDefaultController<Uint8Array>) => {
+			const releaseActivity = beginForegroundRequest();
 			try {
 				await run(controller);
 			} catch (error) {
@@ -376,8 +380,8 @@ export function runChatStreamOrchestrator(
 			} finally {
 				releaseOwnedStream();
 				if (deferredFinalization) {
-					void deferredFinalization.catch(() => {}).then(releaseResumeClaim);
-				} else await releaseResumeClaim();
+					void deferredFinalization.catch(() => {}).then(releaseResumeClaim).finally(releaseActivity);
+				} else { try { await releaseResumeClaim(); } finally { releaseActivity(); } }
 			}
 		};
 
@@ -868,10 +872,12 @@ export function runChatStreamOrchestrator(
 					depthMetadata: latestDepthMetadata,
 					userId: user.id,
 					startedResetGeneration,
+					memoryAcceptance,
 					normalizedMessage,
 					upstreamMessage,
 					skipPersistUserMessage,
 					turnOrigin,
+					editSourceMessageId: turn.editSourceMessageId,
 					isReconnect,
 					thinkingContent: chunkRuntime.thinkingContent,
 					fullResponse: chunkRuntime.fullResponse,

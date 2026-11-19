@@ -30,8 +30,8 @@ export type {
  * enforces the same single source of truth (isMemoryActiveForConversation:
  * master toggle AND non-incognito) as a backstop so any caller that reaches
  * this entry point on an inactive conversation gets an inert empty result
- * instead of leaking recalled memory. Fails open (active) on a controls-lookup
- * error, matching the predicate's contract.
+ * instead of leaking recalled memory. Fails closed on a controls-lookup
+ * error so unavailable authorization cannot disclose remembered content.
  */
 export async function getMemoryContext(
 	params: GetMemoryContextParams,
@@ -39,7 +39,7 @@ export async function getMemoryContext(
 	const memoryActive = await isMemoryActiveForConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
-	}).catch(() => true);
+	}).catch(() => false);
 	if (!memoryActive) {
 		return {
 			success: true,

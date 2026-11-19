@@ -136,6 +136,10 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_CONSOLIDATION_MODEL",
 	"MEMORY_JUDGE_IDLE_MINUTES",
 	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"HINDSIGHT_URL",
+	"HINDSIGHT_WORKER_ENABLED",
+	"HINDSIGHT_CONCURRENCY",
+	"HINDSIGHT_CURATION_MODEL",
 	"MEMORY_JUDGE_DRY_RUN",
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
@@ -231,6 +235,18 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
+	hindsightUrl: string;
+	hindsightAllowedUrls: string[];
+	hindsightTenantKeys: string;
+	hindsightTenantMasterKeys: string;
+	hindsightTenantActiveKey: string;
+	hindsightAdmissionKey: string;
+	hindsightOvernightIdle: boolean;
+	hindsightRestoreHold: boolean;
+	hindsightWorkerEnabled: boolean;
+	hindsightNewAccountsEnabled: boolean;
+	hindsightConcurrency: number;
+	hindsightCurationModel: ModelId | null;
 	memoryJudgeModel: ModelId;
 	memoryConsolidationModel: ModelId;
 	memoryJudgeIdleMinutes: number;
@@ -380,6 +396,18 @@ function buildDefaultConfig(): RuntimeConfig {
 		appVersionOverride: null,
 		model1IconAssetId: null,
 		model2IconAssetId: null,
+		hindsightUrl: envConfig.hindsightUrl,
+		hindsightAllowedUrls: envConfig.hindsightAllowedUrls,
+		hindsightTenantKeys: envConfig.hindsightTenantKeys,
+		hindsightTenantMasterKeys: envConfig.hindsightTenantMasterKeys,
+		hindsightTenantActiveKey: envConfig.hindsightTenantActiveKey,
+		hindsightAdmissionKey: envConfig.hindsightAdmissionKey,
+		hindsightOvernightIdle: envConfig.hindsightOvernightIdle,
+		hindsightRestoreHold: envConfig.hindsightRestoreHold,
+		hindsightWorkerEnabled: envConfig.hindsightWorkerEnabled,
+		hindsightNewAccountsEnabled: envConfig.hindsightNewAccountsEnabled,
+		hindsightConcurrency: envConfig.hindsightConcurrency,
+		hindsightCurationModel: envConfig.hindsightCurationModel,
 		memoryJudgeModel: envConfig.memoryJudgeModel,
 		memoryConsolidationModel: envConfig.memoryConsolidationModel,
 		memoryJudgeIdleMinutes: envConfig.memoryJudgeIdleMinutes,
@@ -1078,6 +1106,24 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		const n = Number.parseInt(value, 10);
 		if (Number.isFinite(n) && n > 0)
 			config.memoryConsolidationIntervalMinutes = n;
+	},
+	HINDSIGHT_CURATION_MODEL: (config, value) => {
+		config.hindsightCurationModel = /^(model[12]|provider:[^:]+:[^:]+)$/.test(
+			value.trim(),
+		)
+			? normalizeConfiguredModelId(value)
+			: null;
+	},
+	HINDSIGHT_URL: (config, value) => {
+		config.hindsightUrl = value.trim();
+	},
+	HINDSIGHT_WORKER_ENABLED: (config, value) => {
+		config.hindsightWorkerEnabled = value === "true";
+	},
+	HINDSIGHT_CONCURRENCY: (config, value) => {
+		const n = Number(value);
+		if (Number.isInteger(n) && n >= 1 && n <= 6)
+			config.hindsightConcurrency = n;
 	},
 	MEMORY_JUDGE_DRY_RUN: (config, value) => {
 		config.memoryJudgeDryRun = value.trim().toLowerCase() === "true";
@@ -1854,6 +1900,10 @@ export function getResolvedAdminConfigValues(
 		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
 			config.memoryConsolidationIntervalMinutes,
 		),
+		HINDSIGHT_URL: config.hindsightUrl,
+		HINDSIGHT_WORKER_ENABLED: String(config.hindsightWorkerEnabled),
+		HINDSIGHT_CONCURRENCY: String(config.hindsightConcurrency),
+		HINDSIGHT_CURATION_MODEL: config.hindsightCurationModel ?? "",
 		MEMORY_JUDGE_DRY_RUN: String(config.memoryJudgeDryRun),
 		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
 		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),

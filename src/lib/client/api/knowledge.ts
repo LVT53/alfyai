@@ -1,22 +1,10 @@
 import type { I18nKey } from "$lib/i18n";
 import type {
-	MemoryPersonaSummaryPayload,
-	MemoryProfileActionPayload,
-	MemoryProfilePublicItemDetail,
-	MemoryProfilePublicPayload,
-	MemoryTimelinePayload,
-	MemoryV2ActionPayload,
-} from "$lib/memory-profile-types";
-import type {
 	ArtifactSummary,
 	KnowledgeDocumentItem,
 	KnowledgeUploadResponse,
 	WorkCapsule,
 } from "$lib/server/services/knowledge/types";
-import type {
-	KnowledgeMemoryOverviewPayload,
-	KnowledgeMemoryPayload,
-} from "$lib/server/services/memory-types";
 import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
 import { isAttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
 import type {
@@ -41,8 +29,6 @@ export type KnowledgeLibrary = {
 	results: ArtifactSummary[];
 	workflows: WorkCapsule[];
 };
-
-export type KnowledgeMemoryActionPayload = MemoryProfileActionPayload;
 
 export type KnowledgeBulkAction =
 	| "forget_all_documents"
@@ -406,112 +392,6 @@ export async function fetchProjectKnowledgeLinks(
 		"Failed to load the projects these documents belong to",
 	);
 	return payload.links ?? {};
-}
-
-export async function fetchMemoryProfile(): Promise<MemoryProfilePublicPayload> {
-	return requestJson<MemoryProfilePublicPayload>(
-		"/api/knowledge/memory",
-		undefined,
-		"Failed to load memory profile.",
-	);
-}
-
-export async function fetchMemoryProfileItemDetail(
-	itemId: string,
-	fetchImpl: FetchLike = fetch,
-): Promise<MemoryProfilePublicItemDetail> {
-	return requestJson<MemoryProfilePublicItemDetail>(
-		`/api/knowledge/memory/${encodeURIComponent(itemId)}`,
-		undefined,
-		"Failed to load memory item.",
-		fetchImpl,
-	);
-}
-
-export async function fetchKnowledgeMemory(): Promise<KnowledgeMemoryPayload> {
-	return fetchMemoryProfile();
-}
-
-export async function fetchKnowledgeMemoryOverview(
-	options: { force?: boolean } = {},
-): Promise<KnowledgeMemoryOverviewPayload> {
-	const query = options.force ? "?force=1" : "";
-	return requestJson<KnowledgeMemoryOverviewPayload>(
-		`/api/knowledge/memory/overview${query}`,
-		undefined,
-		"Failed to refresh the live memory overview.",
-	);
-}
-
-export async function submitKnowledgeMemoryAction(
-	payload: KnowledgeMemoryActionPayload,
-	fetchImpl: FetchLike = fetch,
-): Promise<MemoryProfilePublicPayload> {
-	return requestJson<MemoryProfilePublicPayload>(
-		"/api/knowledge/memory/actions",
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(payload),
-		},
-		"Failed to update memory profile.",
-		fetchImpl,
-	);
-}
-
-export async function fetchMemorySummary(
-	fetchImpl: FetchLike = fetch,
-): Promise<MemoryPersonaSummaryPayload> {
-	return requestJson<MemoryPersonaSummaryPayload>(
-		"/api/knowledge/memory/summary",
-		undefined,
-		"Failed to load memory summary.",
-		fetchImpl,
-	);
-}
-
-export async function fetchMemoryTimeline(
-	fetchImpl: FetchLike = fetch,
-): Promise<MemoryTimelinePayload> {
-	return requestJson<MemoryTimelinePayload>(
-		"/api/knowledge/memory/timeline",
-		undefined,
-		"Failed to load memory timeline.",
-		fetchImpl,
-	);
-}
-
-/**
- * Sends one of the v2 kind-discriminated memory actions. Summary edits
- * come back as the updated summary payload; profile-item corrections,
- * retirements and consolidation undos come back as the refreshed profile.
- */
-export async function submitMemoryV2Action(
-	payload: Extract<MemoryV2ActionPayload, { kind: "summary" }>,
-	fetchImpl?: FetchLike,
-): Promise<MemoryPersonaSummaryPayload>;
-export async function submitMemoryV2Action(
-	payload: Exclude<MemoryV2ActionPayload, { kind: "summary" }>,
-	fetchImpl?: FetchLike,
-): Promise<MemoryProfilePublicPayload>;
-export async function submitMemoryV2Action(
-	payload: MemoryV2ActionPayload,
-	fetchImpl: FetchLike = fetch,
-): Promise<MemoryPersonaSummaryPayload | MemoryProfilePublicPayload> {
-	return requestJson<MemoryPersonaSummaryPayload | MemoryProfilePublicPayload>(
-		"/api/knowledge/memory/actions",
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(payload),
-		},
-		"Failed to update memory profile.",
-		fetchImpl,
-	);
 }
 
 export async function submitKnowledgeBulkAction(

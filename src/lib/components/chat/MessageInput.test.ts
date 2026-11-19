@@ -11,6 +11,7 @@ import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
+import { getPendingMemoryNotes } from "$lib/client/conversation-session";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
@@ -22,6 +23,7 @@ import {
 	requestSpotlight,
 	spotlightRequest,
 } from "$lib/stores/spotlight";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import { currentConversationId } from "$lib/stores/ui";
 import {
 	resetDisabledFileTypeIds,
@@ -161,6 +163,10 @@ vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
 }));
 
+const memoryOperationRead = vi.hoisted(() => vi.fn());
+vi.mock("$lib/client/api/memory", () => ({
+	fetchMemoryOperationByRequest: memoryOperationRead,
+}));
 vi.mock("$lib/client/api/memory-notes", () => ({
 	addMemoryNote: addMemoryNoteMock,
 }));
@@ -733,7 +739,10 @@ describe("MessageInput", () => {
 
 		expect(input.value).toBe("");
 		await waitFor(() => {
-			expect(addMemoryNoteMock).toHaveBeenCalledWith("oat milk");
+			expect(addMemoryNoteMock).toHaveBeenCalledWith(
+				"oat milk",
+				expect.objectContaining({ requestId: expect.any(String) }),
+			);
 		});
 	});
 
@@ -758,7 +767,10 @@ describe("MessageInput", () => {
 
 		expect(input.value).toBe("");
 		await waitFor(() => {
-			expect(addMemoryNoteMock).toHaveBeenCalledWith("I prefer dark mode");
+			expect(addMemoryNoteMock).toHaveBeenCalledWith(
+				"I prefer dark mode",
+				expect.objectContaining({ requestId: expect.any(String) }),
+			);
 		});
 	});
 
@@ -8605,4 +8617,35 @@ describe("MessageInput and the guide's Show me", () => {
 		expect(view.getByTestId("composer-tools-trigger")).toBeDisabled();
 		expect(menuIsOpen(view)).toBe(false);
 	});
+});
+
+it("does not claim a native /remember save until its durable operation applies", async () => {
+	clearToasts();
+	sessionStorage.clear();
+	addMemoryNoteMock.mockResolvedValue({
+		operation: { id: "native-op", status: "queued" },
+	});
+	memoryOperationRead.mockRejectedValue(new Error("offline"));
+	render(MessageInput, {
+		conversationId: "native-chat",
+		composerCommandRegistryEnabled: true,
+	});
+	const input = screen.getByPlaceholderText("Type a message...");
+	await fireEvent.input(input, { target: { value: "/remember green kayak" } });
+	await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+	await waitFor(() => expect(memoryOperationRead).toHaveBeenCalled());
+	expect(
+		get(toasts).some((toast) => toast.message === "Saved to memory."),
+	).toBe(false);
+	expect(getPendingMemoryNotes("native-chat")).toHaveLength(1);
+	memoryOperationRead.mockResolvedValue({ id: "native-op", status: "applied" });
+	await fireEvent.focus(window);
+	await waitFor(() =>
+		expect(
+			get(toasts).some((toast) => toast.message === "Saved to memory."),
+		).toBe(true),
+	);
+	expect(getPendingMemoryNotes("native-chat")).toEqual([]);
+	clearToasts();
+	sessionStorage.clear();
 });

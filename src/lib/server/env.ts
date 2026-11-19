@@ -66,6 +66,18 @@ interface Config {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
+	hindsightUrl: string;
+	hindsightAllowedUrls: string[];
+	hindsightTenantKeys: string;
+	hindsightTenantMasterKeys: string;
+	hindsightTenantActiveKey: string;
+	hindsightAdmissionKey: string;
+	hindsightOvernightIdle: boolean;
+	hindsightRestoreHold: boolean;
+	hindsightWorkerEnabled: boolean;
+	hindsightNewAccountsEnabled: boolean;
+	hindsightConcurrency: number;
+	hindsightCurationModel: ModelId | null;
 	memoryJudgeModel: ModelId;
 	memoryConsolidationModel: ModelId;
 	memoryJudgeIdleMinutes: number;
@@ -676,6 +688,34 @@ function readConfig(): Config {
 		),
 		defaultNewUserModel: normalizeConfiguredModelId(
 			process.env.DEFAULT_NEW_USER_MODEL || "model1",
+		),
+		hindsightCurationModel: /^(model[12]|provider:[^:]+:[^:]+)$/.test(
+			process.env.HINDSIGHT_CURATION_MODEL?.trim() ?? "",
+		)
+			? normalizeConfiguredModelId(process.env.HINDSIGHT_CURATION_MODEL)
+			: null,
+		hindsightUrl: process.env.HINDSIGHT_URL || "http://127.0.0.1:8888",
+		hindsightAllowedUrls: [
+			process.env.HINDSIGHT_URL || "http://127.0.0.1:8888",
+			...(process.env.HINDSIGHT_ALLOWED_URLS?.split(",")
+				.map((url) => url.trim())
+				.filter(Boolean) ?? []),
+		],
+		hindsightTenantKeys: process.env.HINDSIGHT_TENANT_KEYS || "{}",
+		hindsightTenantMasterKeys: process.env.HINDSIGHT_TENANT_MASTER_KEYS || "{}",
+		hindsightTenantActiveKey: process.env.HINDSIGHT_TENANT_ACTIVE_KEY || "",
+		hindsightAdmissionKey: process.env.HINDSIGHT_ADMISSION_KEY || "",
+		hindsightOvernightIdle: process.env.HINDSIGHT_OVERNIGHT_IDLE === "true",
+		// A malformed explicit restore setting keeps the quarantined app offline.
+		hindsightRestoreHold:
+			process.env.HINDSIGHT_RESTORE_HOLD !== undefined &&
+			process.env.HINDSIGHT_RESTORE_HOLD !== "false",
+		hindsightWorkerEnabled: process.env.HINDSIGHT_WORKER_ENABLED === "true",
+		hindsightNewAccountsEnabled:
+			process.env.HINDSIGHT_NEW_ACCOUNTS_ENABLED === "true",
+		hindsightConcurrency: Math.max(
+			1,
+			Math.min(6, parseIntegerEnv(process.env.HINDSIGHT_CONCURRENCY, 1)),
 		),
 		memoryJudgeModel: validateConfiguredModelIdEnv(
 			process.env.MEMORY_JUDGE_MODEL,

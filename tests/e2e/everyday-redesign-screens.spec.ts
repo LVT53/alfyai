@@ -149,67 +149,6 @@ const MEMORY_PROFILE = {
 	},
 };
 
-const MEMORY_SUMMARY = {
-	summary: {
-		text: "You run AlfyAI on your own hardware and you would rather nothing left the machine unless you say so. You work on the assistant itself most days — its serving config, its analytics, its Atlas reports — and you want the reasoning behind a change before it ships. You read short. Metric units, 24-hour time, no emoji, English unless you ask for Hungarian. Long reports go to a PDF rather than into the chat.",
-		updatedAt: "2026-09-11T08:00:00.000Z",
-	},
-};
-
-const MEMORY_TIMELINE = {
-	reports: [
-		{
-			id: "report-1",
-			status: "completed",
-			summaryText: "Tidied 4 memories — 2 merged, 1 retired, 1 expired.",
-			createdAt: "2026-09-11T03:12:00.000Z",
-			actions: [
-				{
-					type: "merged",
-					description: "Merged two memories about reply length.",
-					resultStatement: "Wants short answers, reasoning left out.",
-				},
-				{
-					type: "expired",
-					description: "Retired an expired reminder about the NAS move.",
-					resultStatement: null,
-				},
-			],
-		},
-		{
-			id: "report-2",
-			status: "completed",
-			summaryText: "Merged 2 duplicates in Preferences.",
-			createdAt: "2026-09-09T03:11:00.000Z",
-			actions: [],
-		},
-		{
-			id: "report-3",
-			status: "completed",
-			summaryText: "Nothing to do.",
-			createdAt: "2026-09-08T03:10:00.000Z",
-			actions: [],
-		},
-		{
-			id: "report-4",
-			status: "failed",
-			summaryText: "Run failed — the model was unreachable.",
-			createdAt: "2026-09-07T03:09:00.000Z",
-			actions: [],
-		},
-	],
-};
-
-const MEMORY_OVERVIEW = {
-	processing: {
-		active: true,
-		pendingCount: 1,
-		operations: [
-			{ reason: "deferred_intake", scope: { type: "global" }, count: 1 },
-		],
-	},
-};
-
 // ---------------------------------------------------------------------------
 // workspace search
 // ---------------------------------------------------------------------------
@@ -698,20 +637,32 @@ async function json(route: import("@playwright/test").Route, body: unknown) {
 }
 
 async function stubMemory(page: Page) {
-	await page.route("**/api/knowledge/memory/summary*", (route) =>
-		json(route, MEMORY_SUMMARY),
-	);
-	await page.route("**/api/knowledge/memory/timeline*", (route) =>
-		json(route, MEMORY_TIMELINE),
-	);
-	await page.route("**/api/knowledge/memory/overview*", (route) =>
-		json(route, MEMORY_OVERVIEW),
-	);
-	// Must come last: the bare /memory route would otherwise swallow the three
-	// more specific paths above.
-	await page.route("**/api/knowledge/memory", (route) =>
-		json(route, MEMORY_PROFILE),
-	);
+	await page.route("**/api/knowledge/memory?*", (route) => {
+		const query =
+			new URL(route.request().url()).searchParams.get("query") ?? "";
+		const rows = MEMORY_PROFILE.categories
+			.flatMap((category) => category.items)
+			.map((item) => ({
+				ref: {
+					scope: { kind: "personal" },
+					generation: "capture",
+					rowId: item.id,
+				},
+				text: item.statement,
+				updatedAt: item.updatedAt,
+				sourceCount: 0,
+			}))
+			.filter((row) => row.text.toLowerCase().includes(query.toLowerCase()));
+		return json(route, {
+			authority: "hindsight",
+			scope: { kind: "personal" },
+			generation: "capture",
+			rows,
+			nextCursor: null,
+			total: rows.length,
+			status: "ready",
+		});
+	});
 }
 
 async function stubSearch(page: Page) {
@@ -798,124 +749,23 @@ test.describe("everyday redesign screens", () => {
 	});
 
 	for (const theme of ["light", "dark"] as const) {
-		test(`knowledge memory profile at full size (${theme})`, async ({
-			page,
-		}) => {
+		test(`knowledge Memory list (${theme})`, async ({ page }) => {
 			await stubMemory(page);
-			await page.goto("/knowledge?tab=memory", {
-				waitUntil: "domcontentloaded",
-			});
+			await page.goto("/knowledge?tab=memory");
 			await waitForHydration(page);
 			await setTheme(page, theme);
-
+			await expect(page.getByTestId("memory-list")).toBeVisible();
 			await expect(
-				page.getByRole("heading", { name: "Knowledge Base" }),
+				page.getByRole("combobox", { name: "Memory space" }),
 			).toBeVisible();
-
-			// Fifty-two memories, not twelve: About You alone holds 23.
-			const aboutCount = page.getByTestId("memory-category-count").first();
-			await expect(aboutCount).toHaveText(/23 remembered · showing 5/);
-			await expect(
-				page.getByTestId("memory-filter-chip").first(),
-			).toContainText("52");
-
-			// Open one category in place and confirm the disclosure turns around.
-			const disclosure = page.getByTestId("memory-category-disclosure").first();
-			await expect(disclosure).toHaveText(/Show all 23/);
-			await disclosure.click();
-			await expect(
-				page.getByTestId("memory-category-disclosure").first(),
-			).toHaveText(/Show fewer/);
-			await expect(aboutCount).toHaveText(/showing 23/);
-
-			// Expanding and collapsing happen in place: with the heading on
-			// screen, toggling the category must not move it, nor the sections
-			// above it.
-			// Parked at the top of the pane, not merely nudged into view: a
-			// heading sitting at the bottom leaves the container scrolled to its
-			// end, and collapsing then shortens the page out from under it —
-			// there is no scroll position left to keep, only content the reader
-			// asked to have put away.
-			const heading = page.locator("#memory-category-about_you");
-			await heading.evaluate((node) => node.scrollIntoView({ block: "start" }));
-			await page.waitForTimeout(300);
-			const topOf = () =>
-				heading.evaluate((node) => node.getBoundingClientRect().top);
-			const beforeTop = await topOf();
-
-			// Toggled from the heading's own chevron, which is what keeps the
-			// reader where they are. (The foot button sits 23 rows down, so
-			// reaching it means scrolling to the end of a page that is about to
-			// get shorter — there is no position there left to preserve.)
-			const headToggle = page.getByRole("button", {
-				name: "Collapse About You",
-			});
-			await headToggle.click();
-			await expect(
-				page.getByTestId("memory-category-disclosure").first(),
-			).toHaveText(/Show all 23/);
-			// Past the 180ms reveal.
-			await page.waitForTimeout(500);
-			expect(
-				Math.abs((await topOf()) - beforeTop),
-				"the category heading moved when the section collapsed",
-				// A few pixels of slack: the chevron's label swaps between
-				// Collapse and Expand and reflows the head row by a hair.
-			).toBeLessThanOrEqual(4);
-
-			await page.getByRole("button", { name: "Expand About You" }).click();
-			await expect(aboutCount).toHaveText(/showing 23/);
-			await page.waitForTimeout(500);
-			expect(
-				Math.abs((await topOf()) - beforeTop),
-				"the category heading moved when the section expanded",
-			).toBeLessThanOrEqual(4);
-
-			await page.locator(".main-content").evaluate((node) => {
-				node.scrollTo(0, 0);
-			});
-
 			await capture(page, `knowledge-memory-${theme}`, theme);
-
-			// The filter box narrows every category at once, and the chip counts
-			// follow it: "52" becomes the number of memories that match.
-			const filterBox = page.getByRole("searchbox", {
-				name: "Filter memories",
-			});
-			await filterBox.fill("nextcloud");
-			const allChip = page.getByTestId("memory-filter-chip").first();
-			await expect(allChip).not.toContainText("52");
-			await expect(aboutCount).toHaveText(/of 23 match/);
-
-			// And a chip narrows to one category: only that section survives.
-			const preferencesChip = page
-				.getByTestId("memory-filter-chip")
-				.filter({ hasText: "Preferences" });
-			await preferencesChip.click();
-			await expect(preferencesChip).toHaveAttribute("aria-pressed", "true");
-			await expect(page.locator(".memory-section")).toHaveCount(1);
-			await expect(page.locator(".memory-section")).toHaveAttribute(
-				"data-category",
-				"preferences",
-			);
-
-			// Preferences holds nothing matching "nextcloud", but other categories
-			// do — so the card must not claim nothing matches anywhere while the
-			// chips beside it are still counting matches.
-			await expect(page.getByTestId("memory-filter-no-matches")).toHaveCount(0);
-			await expect(page.locator(".memory-section")).toContainText(
-				"Nothing in this category matches the filter.",
-			);
-
-			await capture(page, `knowledge-memory-filtered-${theme}`, theme);
-
-			// Clearing the box puts every category back.
-			await page.getByRole("button", { name: "Clear filter" }).click();
-			await page.getByTestId("memory-filter-chip").first().click();
-			await expect(page.locator(".memory-section")).toHaveCount(4);
-			await expect(allChip).toContainText("52");
+			await page
+				.getByRole("searchbox", { name: "Search memories" })
+				.fill("nextcloud");
+			await expect(
+				page.getByRole("searchbox", { name: "Search memories" }),
+			).toHaveValue("nextcloud");
 		});
-
 		test(`knowledge documents tab (${theme})`, async ({ page }) => {
 			const seeded = seedDocuments();
 			await stubMemory(page);

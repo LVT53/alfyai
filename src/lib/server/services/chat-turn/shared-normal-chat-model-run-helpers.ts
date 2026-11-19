@@ -623,24 +623,23 @@ export async function createToolPack(
 			: {}),
 	});
 
-	// Read-side master gate for the recall tool. Single source of truth; fail
-	// open (active) so a controls-lookup hiccup never silently drops recall.
+	// A controls-lookup failure withholds recall; it never grants permission.
 	const memoryActive = params.disableTools
 		? false
 		: await isMemoryActiveForConversation({
 				userId: params.userId,
 				conversationId: params.conversationId,
-			}).catch(() => true);
+			}).catch(() => false);
 	// Incognito is resolved on its own, never through `memoryActive`: the
 	// instruction *offer* is what incognito withholds, while the instructions
-	// themselves keep applying there. Fails to "not incognito" on a lookup
-	// error, matching isConversationIncognito's own default — and because a
+	// themselves keep applying there. Fails to incognito on a lookup
+	// error; a missing authorization record never grants permission. Because a
 	// conversation is incognito for its whole life, this gate cannot vary
 	// mid-conversation anyway. Skipped entirely for a turn with no tools at
 	// all, where there is no catalogue to gate.
 	const incognito = params.disableTools
 		? false
-		: await isConversationIncognito(params.conversationId).catch(() => false);
+		: await isConversationIncognito(params.conversationId).catch(() => true);
 
 	return {
 		tools: params.disableTools

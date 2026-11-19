@@ -603,6 +603,9 @@ const chatDict = {
 		"composerCommands.remember.missingArgument":
 			"Type what you want me to remember after /remember.",
 		"composerCommands.remember.saved": "Saved to memory.",
+		"composerCommands.remember.pending": "Saving to memory…",
+		"composerCommands.remember.unknown":
+			"Memory save is not confirmed yet. You can keep chatting while Alfy checks.",
 		"composerCommands.settings.description": "Open app settings.",
 		"composerCommands.settings.label": "Settings",
 		"composerCommands.skill.description": "Browse skills with $ discovery.",
@@ -1863,6 +1866,9 @@ const chatDict = {
 		"composerCommands.remember.missingArgument":
 			"Írd le a /remember után, mire emlékezzek.",
 		"composerCommands.remember.saved": "Elmentve a memóriába.",
+		"composerCommands.remember.pending": "Mentés a memóriába…",
+		"composerCommands.remember.unknown":
+			"A mentés még nincs visszaigazolva. Folytathatod a beszélgetést, amíg Alfy ellenőrzi.",
 		"composerCommands.settings.description":
 			"Megnyitja az alkalmazás beállításait.",
 		"composerCommands.settings.label": "Beállítások",

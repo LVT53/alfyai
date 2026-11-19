@@ -527,11 +527,15 @@ export async function downloadAccountDataArchive(
 	};
 }
 
+export interface MemoryCleanupStatus {
+	nativeCleanupPending: boolean;
+	cleanupOperations: { id: string; status: string; retryable: boolean }[];
+}
 export async function clearMemoryAndKnowledge(
 	password: string,
 	fetchImpl: FetchLike = fetch,
-): Promise<void> {
-	await requestJson<{ success?: boolean }>(
+): Promise<MemoryCleanupStatus> {
+	const result = await requestJson<MemoryCleanupStatus>(
 		"/api/settings/account/clear-memory",
 		{
 			method: "POST",
@@ -540,6 +544,32 @@ export async function clearMemoryAndKnowledge(
 		},
 		"Failed to clear memory and knowledge",
 		fetchImpl,
+	);
+	if (
+		typeof result.nativeCleanupPending !== "boolean" ||
+		!Array.isArray(result.cleanupOperations)
+	)
+		throw new Error("Invalid memory cleanup response");
+	return result;
+}
+export async function fetchMemoryCleanupStatus(): Promise<MemoryCleanupStatus> {
+	return requestJson<MemoryCleanupStatus>(
+		"/api/knowledge/memory/cleanup",
+		undefined,
+		"Unable to check memory cleanup",
+	);
+}
+export async function retryMemoryCleanup(
+	operationId: string,
+): Promise<MemoryCleanupStatus> {
+	return requestJson<MemoryCleanupStatus>(
+		"/api/knowledge/memory/cleanup",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ operationId }),
+		},
+		"Unable to retry memory cleanup",
 	);
 }
 

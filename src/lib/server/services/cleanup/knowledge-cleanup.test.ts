@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+	mockMemoryAccount,
+	mockNativeReset,
 	mockClearMessageEvidenceForUser,
 	mockGetArtifactOwnershipScope,
 	mockBuildArtifactVisibilityCondition,
@@ -9,6 +11,8 @@ const {
 	mockTransaction,
 	mockSelect,
 } = vi.hoisted(() => ({
+	mockMemoryAccount: vi.fn(),
+	mockNativeReset: vi.fn(),
 	mockClearMessageEvidenceForUser: vi.fn(),
 	mockGetArtifactOwnershipScope: vi.fn(),
 	mockBuildArtifactVisibilityCondition: vi.fn(),
@@ -16,6 +20,13 @@ const {
 	mockAdvanceMemoryResetGeneration: vi.fn(),
 	mockTransaction: vi.fn(),
 	mockSelect: vi.fn(),
+}));
+
+vi.mock("../memory-profile/revisions", () => ({
+	getMemoryAccount: mockMemoryAccount,
+}));
+vi.mock("../account-lifecycle", () => ({
+	clearMemoryAndKnowledgeForUser: mockNativeReset,
 }));
 
 vi.mock("$lib/server/db", () => ({
@@ -88,6 +99,7 @@ vi.mock("../memory-profile/reset-generation", () => ({
 describe("resetKnowledgeBaseState", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockMemoryAccount.mockReturnValue(null);
 		mockAdvanceMemoryResetGeneration.mockResolvedValue(1);
 		mockClearMessageEvidenceForUser.mockResolvedValue(undefined);
 		mockGetArtifactOwnershipScope.mockResolvedValue({
@@ -115,6 +127,29 @@ describe("resetKnowledgeBaseState", () => {
 			};
 			callback(tx);
 		});
+	});
+
+	it("routes native reset through the shared durable erasure lifecycle", async () => {
+		mockMemoryAccount.mockReturnValue({ authority: "hindsight" });
+		mockNativeReset.mockResolvedValue(["native-artifact"]);
+		const { resetKnowledgeBaseState } = await import("./knowledge-cleanup");
+		expect(await resetKnowledgeBaseState("user-1")).toEqual({
+			deletedArtifactIds: ["native-artifact"],
+		});
+		expect(mockNativeReset).toHaveBeenCalledWith("user-1", {
+			artifactScope: "all-owned",
+		});
+		expect(mockAdvanceMemoryResetGeneration).not.toHaveBeenCalled();
+	});
+
+	it("refuses an unknown authority instead of silently taking legacy reset", async () => {
+		mockMemoryAccount.mockReturnValue({ authority: "unknown" });
+		const { resetKnowledgeBaseState } = await import("./knowledge-cleanup");
+		await expect(resetKnowledgeBaseState("user-1")).rejects.toThrow(
+			"memory_authority_unavailable",
+		);
+		expect(mockNativeReset).not.toHaveBeenCalled();
+		expect(mockAdvanceMemoryResetGeneration).not.toHaveBeenCalled();
 	});
 
 	it("clears artifacts, continuity state, and message evidence", async () => {

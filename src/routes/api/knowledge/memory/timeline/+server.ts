@@ -1,10 +1,15 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { listKnowledgeMemoryTimeline } from "$lib/server/services/memory";
+import {
+	legacyMemoryAvailable,
+	listKnowledgeMemoryTimeline,
+} from "$lib/server/services/memory";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
+	if (!legacyMemoryAvailable(event.locals.user.id))
+		return json({ error: "memory_api_replaced" }, { status: 410 });
 	const user = event.locals.user;
 
 	try {

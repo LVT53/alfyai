@@ -110,7 +110,7 @@ const guideDict = {
 		// ── It knows you ───────────────────────────────────────────────────
 		"guide.entry.memory.name": "Memory",
 		"guide.entry.memory.line":
-			"See what Alfy remembers, correct it, or switch it off.",
+			"See what Alfy remembers, edit details or remove them. Project memories stay in their project.",
 		"guide.entry.instructions.name": "Instructions",
 		"guide.entry.instructions.line":
 			"Rules Alfy follows in every chat, or in one project.",
@@ -273,7 +273,7 @@ const guideDict = {
 		// ── It knows you ───────────────────────────────────────────────────
 		"guide.entry.memory.name": "Memória",
 		"guide.entry.memory.line":
-			"Nézd meg, mire emlékszik Alfy, javítsd ki, vagy kapcsold ki.",
+			"Nézd meg, mire emlékszik Alfy, szerkeszd vagy távolítsd el a részleteket. A projektek emlékei a projektben maradnak.",
 		"guide.entry.instructions.name": "Utasítások",
 		"guide.entry.instructions.line":
 			"Amit Alfy minden beszélgetésben betart, vagy csak egy projektben.",

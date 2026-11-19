@@ -5,6 +5,7 @@ import { memoryProfileItems } from "$lib/server/db/schema";
 import { getConversationSummary } from "../conversation-summaries";
 import { callMemoryControlModel } from "../memory-control-model";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
@@ -97,11 +98,12 @@ export async function runMemoryJudgeOnSegment(params: {
 	// queued while memory was on whose delayed pass fires after it was disabled.
 	// (Previously this checked only incognito, so the flush path could still run
 	// a pending judge for a user who had since disabled memory.)
+	if (usesNativeMemory(params.userId)) return { status: "empty" };
 	const { isMemoryActiveForConversation } = await import("../memory-controls");
 	const memoryActive = await isMemoryActiveForConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
-	}).catch(() => true);
+	}).catch(() => false);
 	if (!memoryActive) {
 		return { status: "empty" };
 	}

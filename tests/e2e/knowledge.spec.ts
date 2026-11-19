@@ -45,10 +45,10 @@ import {
  * Profile is its first tab and one real click away.
  */
 async function openMemoryProfile(page: Page) {
-	await page.getByRole("tab", { name: "Memory Profile" }).click();
+	await page.getByRole("tab", { name: "Memory", exact: true }).click();
 	await expect(page).toHaveURL(/tab=memory/);
 	await expect(
-		page.getByRole("heading", { name: "About You", exact: true }),
+		page.getByRole("heading", { name: "What Alfy remembers", exact: true }),
 	).toBeVisible();
 }
 
@@ -116,7 +116,7 @@ test.describe("Knowledge page", () => {
 		tag: "@smoke",
 	}, async ({ page }) => {
 		const documentsTab = page.getByRole("tab", { name: "Documents" });
-		const memoryTab = page.getByRole("tab", { name: "Memory Profile" });
+		const memoryTab = page.getByRole("tab", { name: "Memory", exact: true });
 		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
 		await expect(memoryTab).toHaveAttribute("aria-selected", "false");
 		await expect(page.getByRole("region", { name: "Documents" })).toBeVisible();
@@ -125,7 +125,7 @@ test.describe("Knowledge page", () => {
 		await memoryTab.click();
 		await expect(page).toHaveURL(/tab=memory/);
 		await expect(
-			page.getByRole("heading", { name: "About You", exact: true }),
+			page.getByRole("heading", { name: "What Alfy remembers", exact: true }),
 		).toBeVisible();
 
 		// The URL is the page's own state: the reload opens where the reader was.
@@ -160,30 +160,18 @@ test.describe("Knowledge page", () => {
 	test("memory profile section is visible", async ({ page }) => {
 		await openMemoryProfile(page);
 		await expect(
-			page.getByRole("tab", { name: "Memory Profile" }),
+			page.getByRole("tab", { name: "Memory", exact: true }),
 		).toBeVisible();
 		// exact: true — the persona summary card heading ("What I remember about
 		// you") otherwise also matches the "About You" substring.
 		await expect(
-			page.getByRole("heading", { name: "About You", exact: true }),
+			page.getByRole("heading", { name: "What Alfy remembers", exact: true }),
 		).toBeVisible();
 		await expect(
-			page.getByRole("heading", { name: "Preferences", exact: true }),
+			page.getByRole("combobox", { name: "Memory space" }),
 		).toBeVisible();
 		await expect(
-			page.getByRole("heading", { name: "Goals & Ongoing Work", exact: true }),
-		).toBeVisible();
-		await expect(
-			page.getByRole("heading", {
-				name: "Constraints & Boundaries",
-				exact: true,
-			}),
-		).toBeVisible();
-		await expect(
-			page.getByRole("button", { name: /refresh|reload/i }),
-		).toHaveCount(0);
-		await expect(
-			page.getByText(/Focus Continuity|task memory|raw/i),
+			page.getByRole("button", { name: "Manage", exact: true }),
 		).toHaveCount(0);
 	});
 
@@ -214,13 +202,10 @@ test.describe("Knowledge page", () => {
 			await expect(notice).toBeVisible();
 			await expect(notice).toContainText("Memory is off");
 			await expect(
-				page.getByRole("heading", { name: "About You", exact: true }),
+				page.getByRole("heading", { name: "What Alfy remembers", exact: true }),
 			).toBeVisible();
 
-			await notice
-				.getByRole("link", { name: "Turn it on in Settings" })
-				.click();
-			await expect(page).toHaveURL(/\/settings\?section=memory/);
+			await expect(notice).toContainText("Profile settings");
 		});
 
 		test("says nothing while memory is on", async ({ page }) => {
@@ -282,75 +267,6 @@ test.describe("Knowledge page", () => {
 			.evaluate((node) => getComputedStyle(node).fontSize);
 		// 1.75rem against a 16px root.
 		expect(size).toBe("28px");
-	});
-
-	test("each memory category states its own total", async ({ page }) => {
-		await openMemoryProfile(page);
-		const counts = page.getByTestId("memory-category-count");
-		await expect(counts.first()).toBeVisible();
-		// "N remembered · showing M" — never a bare list length.
-		await expect(counts.first()).toHaveText(/remembered/);
-	});
-
-	test("the memory filter narrows every category at once", async ({ page }) => {
-		await openMemoryProfile(page);
-		const filter = page.getByRole("searchbox", { name: "Filter memories" });
-		await expect(filter).toBeVisible();
-
-		await filter.fill("zzz-no-such-memory-xyz");
-		// With nothing matching anywhere, the card says so once rather than
-		// leaving four silently short lists.
-		await expect(page.getByTestId("memory-filter-no-matches")).toBeVisible();
-
-		await filter.fill("");
-		await expect(page.getByTestId("memory-filter-no-matches")).toHaveCount(0);
-	});
-
-	test("the filter chips carry a count and narrow to one category", async ({
-		page,
-	}) => {
-		await openMemoryProfile(page);
-		const chips = page.getByTestId("memory-filter-chip");
-		await expect(chips.first()).toBeVisible();
-		// All, plus one per category.
-		expect(await chips.count()).toBe(5);
-
-		await chips.nth(2).click();
-		await expect(
-			page.getByRole("heading", { name: "About You", exact: true }),
-		).toHaveCount(0);
-
-		await chips.nth(0).click();
-		await expect(
-			page.getByRole("heading", { name: "About You", exact: true }),
-		).toBeVisible();
-	});
-
-	test("the rail explains how to read a row and how to reach the settings", async ({
-		page,
-	}) => {
-		await openMemoryProfile(page);
-		// "Reading a row" is a tooltip on the portrait title now, not a card at
-		// the bottom of the rail: nothing on the page until it is asked for.
-		await expect(page.getByText("Reading a row")).toHaveCount(0);
-		await page.getByRole("button", { name: "Reading a row" }).focus();
-		const legend = page.getByRole("tooltip");
-		await expect(legend).toBeVisible();
-		await expect(legend).toContainText("Reading a row");
-		await expect(legend).toContainText("you said it");
-
-		// Scoped to the card: an empty category's hint also links to memory
-		// settings, so the bare name matches several links on this page.
-		const aboutCard = page
-			.getByRole("heading", { name: "What this is for" })
-			.locator("xpath=ancestor::section[1]");
-		await expect(aboutCard).toBeVisible();
-		await expect(
-			aboutCard.getByRole("link", { name: "Memory settings" }),
-		).toBeVisible();
-		await expect(
-			aboutCard.getByRole("link", { name: /Clear memory and knowledge/ }),
-		).toBeVisible();
 	});
 
 	test("documents give version and status columns of their own", async ({
@@ -419,7 +335,7 @@ test.describe("Knowledge page", () => {
 
 	test("the memory filter keeps what you type", async ({ page }) => {
 		await openMemoryProfile(page);
-		const filter = page.getByRole("searchbox", { name: "Filter memories" });
+		const filter = page.getByRole("searchbox", { name: "Search memories" });
 		await filter.fill("nextcloud");
 		await expect(filter).toHaveValue("nextcloud");
 	});

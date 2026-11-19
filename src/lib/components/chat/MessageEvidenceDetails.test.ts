@@ -2,7 +2,6 @@ import {
 	fireEvent,
 	render,
 	screen,
-	waitFor,
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -673,108 +672,16 @@ describe("MessageEvidenceDetails", () => {
 			});
 		}
 
-		it("makes memory-fact items tappable and reveals Correct / Don't use / Retire", async () => {
+		it("renders legacy evidence without obsolete mutation controls", async () => {
 			renderWithMemoryFact();
 			await expandSourcesAndMemoryGroup();
-
-			await fireEvent.click(
-				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
-			);
-
+			expect(screen.getByText("Prefers dark roast coffee.")).toBeVisible();
 			expect(
-				screen.getByRole("button", { name: "Correct" }),
-			).toBeInTheDocument();
-			expect(
-				screen.getByRole("button", { name: "Don't use" }),
-			).toBeInTheDocument();
-			expect(
-				screen.getByRole("button", { name: "Retire" }),
-			).toBeInTheDocument();
+				screen.queryByRole("button", { name: /Correct|Don.t use|Retire/ }),
+			).not.toBeInTheDocument();
+			expect(fetchMemoryProfileMock).not.toHaveBeenCalled();
+			expect(submitKnowledgeMemoryActionMock).not.toHaveBeenCalled();
 		});
-
-		it("Don't use suppresses the fact via the legacy action with a fetched revision", async () => {
-			renderWithMemoryFact();
-			await expandSourcesAndMemoryGroup();
-			await fireEvent.click(
-				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
-			);
-			await fireEvent.click(screen.getByRole("button", { name: "Don't use" }));
-
-			await waitFor(() => {
-				expect(submitKnowledgeMemoryActionMock).toHaveBeenCalledWith({
-					target: "profile_item",
-					action: "suppress",
-					itemId: "item-9",
-					expectedProjectionRevision: 7,
-				});
-			});
-			expect(
-				await screen.findByText("Won't be used anymore"),
-			).toBeInTheDocument();
-		});
-
-		it("Retire posts the v2 retire action and confirms", async () => {
-			renderWithMemoryFact();
-			await expandSourcesAndMemoryGroup();
-			await fireEvent.click(
-				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
-			);
-			await fireEvent.click(screen.getByRole("button", { name: "Retire" }));
-
-			await waitFor(() => {
-				expect(submitMemoryV2ActionMock).toHaveBeenCalledWith({
-					kind: "profile_item",
-					action: "retire",
-					itemId: "item-9",
-					expectedProjectionRevision: 7,
-				});
-			});
-			expect(await screen.findByText("Memory retired")).toBeInTheDocument();
-		});
-
-		it("Correct opens a prefilled inline input and posts the corrected statement", async () => {
-			renderWithMemoryFact();
-			await expandSourcesAndMemoryGroup();
-			await fireEvent.click(
-				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
-			);
-			await fireEvent.click(screen.getByRole("button", { name: "Correct" }));
-
-			const input = screen.getByRole("textbox");
-			expect(input).toHaveValue("Prefers dark roast coffee.");
-			await fireEvent.input(input, {
-				target: { value: "Prefers light roast coffee." },
-			});
-			await fireEvent.click(
-				screen.getByRole("button", { name: "Save correction" }),
-			);
-
-			await waitFor(() => {
-				expect(submitMemoryV2ActionMock).toHaveBeenCalledWith({
-					kind: "profile_item",
-					action: "correct",
-					itemId: "item-9",
-					statement: "Prefers light roast coffee.",
-					expectedProjectionRevision: 7,
-				});
-			});
-			expect(await screen.findByText("Memory updated")).toBeInTheDocument();
-		});
-
-		it("shows an error state when the action fails", async () => {
-			submitMemoryV2ActionMock.mockRejectedValueOnce(new Error("boom"));
-			renderWithMemoryFact();
-			await expandSourcesAndMemoryGroup();
-			await fireEvent.click(
-				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
-			);
-			await fireEvent.click(screen.getByRole("button", { name: "Retire" }));
-
-			expect(
-				await screen.findByText(/Couldn't update this memory/i),
-			).toBeInTheDocument();
-		});
-
 		it("leaves ordinary memory items without the action row", async () => {
 			render(MessageEvidenceDetails, {
 				evidenceSummary: buildSummary({

@@ -10,6 +10,8 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import { getConversationProjectId } from "$lib/server/services/projects";
 import { shortlistSemanticMatchesBySubject } from "$lib/server/services/semantic-ranking";
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
+import { recallMemory } from "./native";
 import { buildMemoryReadSanitizer } from "./sanitize";
 import {
 	recordMemoryPromptTelemetry,
@@ -159,6 +161,35 @@ export async function getPersonaMemoryContext(
 	params: GetMemoryContextParams,
 ): Promise<PersonaMemoryContextResult> {
 	const query = params.query?.trim() || DEFAULT_PERSONA_RECALL_QUERY;
+	if (usesNativeMemory(params.userId)) {
+		const recalled = await recallMemory(params.userId, {
+			conversationId: params.conversationId,
+			query,
+			tokenBudget: PERSONA_ACTIVE_PROFILE_TOKEN_BUDGET,
+		});
+		return {
+			success: true,
+			mode: "persona",
+			status: recalled.length ? "available" : "empty",
+			source: "hindsight",
+			content: recalled.length
+				? recalled.map((item) => `- ${item.text}`).join("\n")
+				: null,
+			evidenceCandidates:
+				params.includeEvidenceCandidates === false
+					? []
+					: recalled.map((item) => ({
+							id: `memory-fact:${item.ref.rowId}`,
+							title: clipText(item.text, PERSONA_FACT_TITLE_MAX_CHARS),
+							sourceType: "memory" as const,
+							metadata: {
+								memoryItemId: item.ref.rowId,
+								generation: item.ref.generation,
+							},
+						})),
+			audit: { conversationId: params.conversationId, query },
+		};
+	}
 
 	const projectId = await getConversationProjectId(
 		params.userId,

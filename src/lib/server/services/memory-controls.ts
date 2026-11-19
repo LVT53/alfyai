@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { conversations, users } from "$lib/server/db/schema";
+import { conversations, memoryAccounts, users } from "$lib/server/db/schema";
 
 /**
  * Per-user + per-conversation memory controls.
@@ -23,9 +23,15 @@ export async function isUserMemoryEnabled(userId: string): Promise<boolean> {
 		.from(users)
 		.where(eq(users.id, userId))
 		.limit(1);
-	// Default to enabled when the user row is missing — fail open rather than
-	// silently dropping memory for a valid session.
-	return row ? row.memoryEnabled : true;
+	// A missing account never grants permission to learn or recall.
+	const account = db
+		.select({ state: memoryAccounts.lifecycleState })
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.userId, userId))
+		.get();
+	return Boolean(
+		row?.memoryEnabled && (!account || account.state === "active"),
+	);
 }
 
 export async function isConversationIncognito(
@@ -36,22 +42,100 @@ export async function isConversationIncognito(
 		.from(conversations)
 		.where(eq(conversations.id, conversationId))
 		.limit(1);
-	return row ? row.memoryIncognito : false;
+	return row?.memoryIncognito ?? true;
 }
 
 /**
  * Whether memory should be captured/recalled for a specific conversation:
  * the user's master toggle is on AND the conversation is not incognito.
- * One query per flag; callers in hot paths should treat failures as "enabled"
- * (fail open) by catching, matching the defaults above.
+ * Missing accounts, conversations and failed control reads never authorize memory.
  */
 export async function isMemoryActiveForConversation(params: {
 	userId: string;
 	conversationId: string;
 }): Promise<boolean> {
-	const [userEnabled, incognito] = await Promise.all([
-		isUserMemoryEnabled(params.userId),
-		isConversationIncognito(params.conversationId),
-	]);
-	return userEnabled && !incognito;
+	const [row] = await db
+		.select({
+			enabled: users.memoryEnabled,
+			incognito: conversations.memoryIncognito,
+		})
+		.from(conversations)
+		.innerJoin(users, eq(users.id, conversations.userId))
+		.where(
+			and(
+				eq(conversations.id, params.conversationId),
+				eq(conversations.userId, params.userId),
+			),
+		)
+		.limit(1);
+	const account = db
+		.select({ state: memoryAccounts.lifecycleState })
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.userId, params.userId))
+		.get();
+	return Boolean(
+		row?.enabled && !row.incognito && (!account || account.state === "active"),
+	);
+}
+
+/** Only opaque jobs belonging to this authenticated account's tenant are exposed. */
+export async function getNativeMemoryCleanupStatus(userId: string) {
+	const { memoryAccounts, memoryDeliveryJobs } = await import(
+		"$lib/server/db/schema"
+	);
+	const account = db
+		.select()
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.userId, userId))
+		.get();
+	if (!account) return { nativeCleanupPending: false, cleanupOperations: [] };
+	const jobs = db
+		.select()
+		.from(memoryDeliveryJobs)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.userId, account.tenantId),
+				eq(memoryDeliveryJobs.kind, "cleanup"),
+			),
+		)
+		.all();
+	const cleanupOperations = jobs.map((job) => ({
+		id: job.id,
+		status: job.status,
+		retryable: job.retryable,
+	}));
+	return {
+		nativeCleanupPending: jobs.some((job) => job.status !== "succeeded"),
+		cleanupOperations,
+	};
+}
+export async function retryNativeMemoryCleanup(
+	userId: string,
+	operationId: string,
+) {
+	const { memoryAccounts, memoryDeliveryJobs } = await import(
+		"$lib/server/db/schema"
+	);
+	const account = db
+		.select()
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.userId, userId))
+		.get();
+	if (!account) return null;
+	const job = db
+		.select()
+		.from(memoryDeliveryJobs)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.id, operationId),
+				eq(memoryDeliveryJobs.userId, account.tenantId),
+				eq(memoryDeliveryJobs.kind, "cleanup"),
+			),
+		)
+		.get();
+	if (!job) return null;
+	const { retry } = await import("./jobs");
+	const { memoryDeliveryJob } = await import("./memory-profile/delivery-job");
+	await retry(memoryDeliveryJob, job.id, { userId: account.tenantId });
+	return getNativeMemoryCleanupStatus(userId);
 }

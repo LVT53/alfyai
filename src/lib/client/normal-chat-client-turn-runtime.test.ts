@@ -555,11 +555,12 @@ describe("Normal Chat Client Turn Runtime", () => {
 			attachments: [],
 			pendingAttachments: [],
 			isEditResend: true,
+			editSourceMessageId: "original-message",
 		});
 
 		expect(streamInvocations[0]).toMatchObject({
 			message: "Edited message",
-			options: { isEditResend: true },
+			options: { isEditResend: true, editSourceMessageId: "original-message" },
 		});
 	});
 

@@ -139,6 +139,19 @@ export type JobHandler<J extends JobTable> = (
 	ctx: JobRunContext<J>,
 ) => Promise<void>;
 
+type CheckpointJson =
+	| string
+	| number
+	| boolean
+	| null
+	| CheckpointJson[]
+	| { [key: string]: CheckpointJson | undefined };
+
+export type ProgressUpdate = { phase?: string } & (
+	| { checkpoint?: unknown; prepareCheckpoint?: never }
+	| { checkpoint?: never; prepareCheckpoint: (tx: Tx) => CheckpointJson }
+);
+
 export interface JobRunContext<J extends JobTable> {
 	/** The row as claimed. */
 	row: Row<J>;
@@ -151,11 +164,13 @@ export interface JobRunContext<J extends JobTable> {
 	signal: AbortSignal;
 	/**
 	 * Fenced. Moves the phase and/or replaces the checkpoint; counts as a beat.
+	 * A synchronous `prepareCheckpoint` can write domain rows and return the
+	 * JSON checkpoint to commit with them. It runs only after ownership and phase checks.
 	 * false = nothing was written. When the attempt no longer owns the job,
 	 * `signal` is aborted before this resolves; a phase that would move backwards
 	 * is refused without aborting.
 	 */
-	progress(update: { phase?: string; checkpoint?: unknown }): Promise<boolean>;
+	progress(update: ProgressUpdate): Promise<boolean>;
 	/**
 	 * Fenced domain write mid-run (Atlas: stage, progress, title). Counts as a
 	 * beat. `apply` runs inside the fenced transaction, and may write the kind's

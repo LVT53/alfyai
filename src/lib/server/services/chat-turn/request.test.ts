@@ -370,6 +370,21 @@ describe("parseChatTurnRequest enabledConnectionCapabilities", () => {
 });
 
 describe("parseChatTurnRequest turnOrigin", () => {
+	it.each([
+		[true, "original", "original"],
+		[false, "original", undefined],
+		[true, 17, undefined],
+		[true, "x".repeat(201), undefined],
+	])("accepts a bounded edit source only for edit resend", async (isEditResend, editSourceMessageId, expected) => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ isEditResend, editSourceMessageId }),
+			makeRuntimeConfig(),
+			"stream",
+		);
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.value.editSourceMessageId).toBe(expected);
+	});
+
 	// A client body can only ever mark a turn as an edit-and-resend; the
 	// regenerate family (regenerate / answer_now / error_retry) is stamped by
 	// chat-turn/retry.ts itself and never parsed from a body.

@@ -38,6 +38,7 @@ import {
 	type JobStatus,
 	type JobTable,
 	type OwnedAttempt,
+	type ProgressUpdate,
 	type ReopenInput,
 	type Row,
 	type ShapeRow,
@@ -84,6 +85,7 @@ function runInTransaction<T>(
 		typeof result === "object" &&
 		typeof (result as { then?: unknown }).then === "function"
 	) {
+		void Promise.resolve(result).catch(() => {});
 		throw new Error(
 			`${what} ran inside a transaction and returned a promise: transactions are synchronous, so it must not await anything.`,
 		);
@@ -196,6 +198,7 @@ export function describeJob<J extends JobTable>(
 export function enqueueJob<J extends JobTable>(
 	kind: JobKind<J>,
 	input: EnqueueInput<J>,
+	afterCommit?: Array<() => void>,
 ): { row: Row<J>; reused: boolean } {
 	const { jobs, definition } = internalsOf(kind);
 	const values = input.values as unknown as Record<string, unknown>;
@@ -270,9 +273,99 @@ export function enqueueJob<J extends JobTable>(
 	}
 
 	if (!result.reused && result.row.status !== "queued") {
-		emitSettled(definition.name, result.row.id, result.row.status as JobStatus);
+		const notify = () =>
+			emitSettled(
+				definition.name,
+				result.row.id,
+				result.row.status as JobStatus,
+			);
+		if (afterCommit) afterCommit.push(notify);
+		else notify();
 	}
 	return result as unknown as { row: Row<J>; reused: boolean };
+}
+
+/** Atomically binds domain revocation to all required durable jobs. No async callbacks. */
+export function enqueueJobsAtomic<J extends JobTable>(
+	kind: JobKind<J>,
+	prepare: (tx: Tx) => EnqueueInput<J>[],
+): Array<{ row: Row<J>; reused: boolean }> {
+	if (Object.prototype.toString.call(prepare) === "[object AsyncFunction]")
+		throw new Error("enqueueAtomic prepare must be synchronous");
+	const afterCommit: Array<() => void> = [];
+	const results = db.transaction((tx) => {
+		let active = true;
+		const proxies = new WeakMap<object, object>();
+		// Guard transaction capabilities as well as builders captured before callback return.
+		const guard = <T>(value: T): T => {
+			if (
+				value === null ||
+				(typeof value !== "object" && typeof value !== "function")
+			)
+				return value;
+			if (
+				typeof value !== "function" &&
+				(Array.isArray(value) ||
+					Object.getPrototypeOf(value) === Object.prototype ||
+					Object.getPrototypeOf(value) === null)
+			)
+				return value;
+			const cached = proxies.get(value);
+			if (cached) return cached as T;
+			const proxy = new Proxy(value, {
+				get(target, key) {
+					if (!active)
+						throw new Error("enqueueAtomic transaction capability expired");
+					const member: unknown = Reflect.get(target, key, target);
+					if (typeof member === "function")
+						return (...args: unknown[]) => {
+							if (!active)
+								throw new Error("enqueueAtomic transaction capability expired");
+							return guard(
+								Reflect.apply(
+									member,
+									target,
+									args.map((arg) =>
+										typeof arg === "function"
+											? (...values: unknown[]) =>
+													Reflect.apply(
+														arg,
+														undefined,
+														values.map((value) => guard(value)),
+													)
+											: arg,
+									),
+								),
+							);
+						};
+					return guard(member);
+				},
+				apply(target, thisArg, args) {
+					if (!active)
+						throw new Error("enqueueAtomic transaction capability expired");
+					if (typeof target !== "function")
+						throw new Error("Invalid transaction capability");
+					return guard(Reflect.apply(target, thisArg, args));
+				},
+			});
+			proxies.set(value, proxy);
+			return proxy;
+		};
+		let inputs: EnqueueInput<J>[];
+		try {
+			inputs = prepare(guard(tx));
+		} finally {
+			active = false;
+		}
+		if (!Array.isArray(inputs)) {
+			// Observe a mistakenly returned promise without allowing its captured DB capability.
+			void Promise.resolve(inputs).catch(() => undefined);
+			throw new Error("enqueueAtomic prepare must be synchronous");
+		}
+		return inputs.map((input) => enqueueJob(kind, input, afterCommit));
+	});
+	for (const notify of afterCommit) notify();
+	return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -617,11 +710,6 @@ export function beat(
 	});
 }
 
-export interface ProgressUpdate {
-	phase?: string;
-	checkpoint?: unknown;
-}
-
 /**
  * "applied": written, and a beat. "lost": the attempt no longer owns the job,
  * nothing was written. "refused": the attempt still owns the job but the phase
@@ -661,9 +749,21 @@ export function progress(
 		if (update.phase !== undefined && update.phase !== job.phase) {
 			jobSet.phase = update.phase;
 		}
-		if (update.checkpoint !== undefined) {
+		if (
+			Object.prototype.toString.call(update.prepareCheckpoint) ===
+			"[object AsyncFunction]"
+		)
+			throw new Error("progress's prepareCheckpoint must be synchronous");
+		const checkpoint = update.prepareCheckpoint
+			? runInTransaction(
+					update.prepareCheckpoint,
+					tx,
+					"progress's prepareCheckpoint",
+				)
+			: update.checkpoint;
+		if (checkpoint !== undefined) {
 			jobSet.checkpoint =
-				update.checkpoint === null ? null : JSON.stringify(update.checkpoint);
+				checkpoint === null ? null : JSON.stringify(checkpoint);
 		}
 		if (Object.keys(jobSet).length > 0) {
 			tx.update(jobs)

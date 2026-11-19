@@ -38,6 +38,7 @@ import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import { artifactCallOf } from "$lib/shared/artifacts/artifact-calls";
 import { isShippedArtifactKind } from "$lib/shared/artifacts/kinds";
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import { ensureConversationTitle } from "./conversation-title";
 import { persistAssistantRailSummary } from "./rail-summary";
 import {
@@ -434,6 +435,9 @@ export async function runPostTurnTasks(
 	if (!params.skipAssistantProseMemoryIntake) {
 		postTurnTasks.push(
 			(async () => {
+				if (usesNativeMemory(params.userId)) {
+					return;
+				}
 				// The Memory Judge owns the entire post-turn intake decision — the
 				// master-gate check, the explicit/marathon/idle tier policy, the
 				// dirty-ledger safety net, and the D1/D2 watermark invariants. This

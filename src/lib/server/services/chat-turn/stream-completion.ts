@@ -46,6 +46,7 @@ import {
 	isConnectionWriteToolName,
 	isFileProductionToolName,
 } from "$lib/utils/tool-calls";
+import type { MemoryTurnAcceptance } from "../memory-profile/chat-delivery";
 import { wasActiveChatStreamStopRequested } from "./active-streams";
 import type { AskResumeInput } from "./ask-capture";
 import type { AskResumeCapture } from "./ask-questions";
@@ -96,6 +97,7 @@ export type PreparedContextSnapshot = {
 
 export interface StreamCompletionFacts {
 	startedResetGeneration?: StreamCompletionFact<number>;
+	memoryAcceptance?: MemoryTurnAcceptance | null;
 	pendingWriteIdsAtStart?: StreamCompletionFact<Set<string>>;
 }
 
@@ -123,6 +125,7 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	// Gap 2 — threaded straight into finalizeChatTurn's turnOrigin param;
 	// see its doc comment.
 	turnOrigin?: ChatTurnOrigin;
+	editSourceMessageId?: string;
 	isReconnect: boolean | undefined;
 	thinkingContent: string;
 	fullResponse: string;
@@ -242,10 +245,12 @@ export async function completeStreamTurn(
 		depthMetadata,
 		userId,
 		startedResetGeneration: startedResetGenerationFact,
+		memoryAcceptance,
 		normalizedMessage,
 		upstreamMessage,
 		skipPersistUserMessage,
 		turnOrigin,
+		editSourceMessageId,
 		isReconnect,
 		thinkingContent,
 		fullResponse,
@@ -872,10 +877,12 @@ export async function completeStreamTurn(
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
 			maintenanceReason: "chat_stream",
 			startedResetGeneration,
+			memoryAcceptance,
 			responseLanguage,
 			toolCalls: toolCallRecords,
 			skillUse,
 			turnOrigin,
+			editSourceMessageId,
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			persistTurnState: !wasStopped,

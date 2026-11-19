@@ -15,6 +15,8 @@ import {
 	conversations,
 	conversationTaskStates,
 	importJobs,
+	memoryAccounts,
+	memoryBanks,
 	memoryEvents,
 	messages,
 	projectKnowledgeLinks,
@@ -29,6 +31,8 @@ import {
 	isShippedArtifactTourType,
 	type ShippedArtifactTourType,
 } from "$lib/shared/artifacts/tours";
+import { verifiedMemoryHistory } from "../memory-profile/native-read";
+import { readPublishedMemory } from "../memory-profile/publication";
 import { escapeHtml, renderArchiveEntryPage, renderArchivePage } from "./html";
 
 export type AccountDataArchiveResult =
@@ -203,9 +207,54 @@ export async function createAccountDataArchive(
 		importJobs: importJobRows,
 		generatedFiles: generatedFileRows,
 	});
+	const nativeAccount = database
+		.select()
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.userId, userId))
+		.get();
+	const nativeBanks =
+		nativeAccount?.authority === "hindsight"
+			? database
+					.select()
+					.from(memoryBanks)
+					.where(
+						and(
+							eq(memoryBanks.userId, userId),
+							eq(memoryBanks.epoch, nativeAccount.epoch),
+						),
+					)
+					.all()
+			: [];
+	const nativeRows = nativeBanks
+		.filter(
+			(bank) =>
+				bank.status !== "retired" &&
+				(bank.scopeKey === "personal" ||
+					database
+						.select({ id: projects.id })
+						.from(projects)
+						.where(
+							and(
+								eq(projects.id, bank.scopeKey.slice(8)),
+								eq(projects.userId, userId),
+							),
+						)
+						.get()),
+		)
+		.flatMap((bank) =>
+			readPublishedMemory(userId, bank.id, undefined, database, "owner-export"),
+		);
+	const explicitEdits = nativeRows.flatMap((row) =>
+		verifiedMemoryHistory(userId, row.bankId, row.epoch, row.nativeId, database)
+			.filter((action) => action.kind === "edit")
+			.map((action) => ({ text: action.text, changedAt: action.createdAt })),
+	);
+
 	addMemorySection(archive, {
 		tasks: taskStateRows,
 		events: memoryEventRows,
+		nativeRows,
+		explicitEdits,
 	});
 	addSkillsSection(archive, {
 		skills: skillRows,
@@ -778,11 +827,19 @@ function addMemorySection(
 	params: {
 		tasks: Array<typeof conversationTaskStates.$inferSelect>;
 		events: Array<typeof memoryEvents.$inferSelect>;
+		nativeRows: Array<{ text: string; updatedAt: Date }>;
+		explicitEdits: Array<{ text: string | null; changedAt: Date }>;
 	},
 ) {
 	const sections = [
 		renderTaskStates(params.tasks),
 		renderMemoryEvents(params.events),
+		params.nativeRows.length
+			? `<h2>Remembered information</h2>${params.nativeRows.map((row) => `<article><p>${escapeHtml(row.text)}</p><p>${escapeHtml(formatDateTime(row.updatedAt))}</p></article>`).join("")}`
+			: "",
+		params.explicitEdits.length
+			? `<h2>Your edits</h2>${params.explicitEdits.map((action) => `<article><p>${escapeHtml(action.text ?? "")}</p><p>${escapeHtml(formatDateTime(action.changedAt))}</p></article>`).join("")}`
+			: "",
 	].join("");
 	archive.addHtml(
 		"Memory/Memory.html",

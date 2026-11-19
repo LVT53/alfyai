@@ -192,6 +192,84 @@ describe("hooks.server.ts", () => {
 		expect(mockSentrySetUser).toHaveBeenCalledWith(null);
 	});
 
+	it("lets only the machine admission GET reach its bearer-authenticated handler", async () => {
+		const { handle } = await import("./hooks.server");
+		const { GET } = await import(
+			"./routes/api/internal/memory-admission/+server"
+		);
+		const { getConfig } = await import("$lib/server/config-store");
+		const activity = await import(
+			"./lib/server/services/chat-turn/request-activity"
+		);
+		const config = vi.mocked(getConfig);
+		const original = config();
+		config.mockReturnValue({ ...original, hindsightAdmissionKey: "synthetic" });
+		const state = vi.spyOn(activity, "readForegroundActivity").mockReturnValue({
+			active: true,
+			healthy: true,
+			idle: true,
+			observedAt: 1,
+		});
+		try {
+			const path = "/api/internal/memory-admission";
+			for (const [authorization, expected] of [
+				["Bearer synthetic", 200],
+				["Bearer wrong", 401],
+				["", 401],
+			] as const) {
+				const event = makeHookEvent(path, undefined, { authorization });
+				const resolve = vi.fn(async () =>
+					GET(event as Parameters<typeof GET>[0]),
+				);
+				const response = await handle({ event, resolve });
+				expect(response.status).toBe(expected);
+				expect(resolve).toHaveBeenCalledOnce();
+			}
+			expect(state).toHaveBeenCalledOnce();
+			for (const [route, method] of [
+				[path, "HEAD"],
+				[path, "POST"],
+				[`${path}/child`, "GET"],
+			]) {
+				const resolve = vi.fn();
+				const event = makeHookEvent(
+					route,
+					undefined,
+					{ authorization: "Bearer synthetic" },
+					method,
+				);
+				expect((await handle({ event, resolve })).status).toBe(401);
+				expect(resolve).not.toHaveBeenCalled();
+			}
+		} finally {
+			config.mockReturnValue(original);
+			state.mockRestore();
+		}
+	});
+
+	it("keeps a restored app offline and refuses worker startup while the restore hold is set", async () => {
+		const { handle, init } = await import("./hooks.server");
+		const { getConfig } = await import("$lib/server/config-store");
+		const config = vi.mocked(getConfig);
+		const held = { ...config(), hindsightRestoreHold: true };
+		config.mockReturnValueOnce(held);
+		await init();
+		expect(mockStartJobs).not.toHaveBeenCalled();
+		expect(mockEnsureMemoryMaintenanceScheduler).not.toHaveBeenCalled();
+		for (const path of [
+			"/api/health",
+			"/api/knowledge/memory",
+			"/api/chat/send",
+		]) {
+			config.mockReturnValueOnce(held);
+			const resolve = vi.fn();
+			const result = await handle({ event: makeHookEvent(path), resolve });
+			expect(result.status).toBe(503);
+			expect(result.headers.get("Cache-Control")).toBe("no-store");
+			expect(resolve).not.toHaveBeenCalled();
+		}
+	});
+
 	it("drops SvelteKit redirect captures from server-side Sentry events", async () => {
 		await import("./hooks.server");
 
@@ -254,6 +332,7 @@ describe("hooks.server.ts", () => {
 		expect(mockStartJobs).toHaveBeenCalledOnce();
 		// Every kind that runs on the engine, in one call.
 		expect(mockStartJobs).toHaveBeenCalledWith([
+			expect.objectContaining({ name: "memory", logPrefix: "[MEMORY]" }),
 			atlasResearchJobStub,
 			extractionJobStub,
 			fileProductionJobStub,

@@ -115,6 +115,7 @@ export type NormalChatSendPayload = {
 	// row at turn completion and drop a picture deleted since instead of
 	// refusing it (preflight.ts). Never set by a plain composer send.
 	isEditResend?: boolean;
+	editSourceMessageId?: string;
 };
 
 /** A command continuation belongs to the runtime owner that issued it. */
@@ -1667,6 +1668,7 @@ export function createNormalChatClientTurnRuntime(
 			confirmForkedSourceHistoryMutation:
 				options.confirmForkedSourceHistoryMutation,
 			isEditResend: payload.isEditResend === true,
+			editSourceMessageId: payload.editSourceMessageId,
 			retryOrigin: options.retryAssistantMessageId
 				? (options.retryOrigin ?? "regenerate")
 				: undefined,
@@ -4703,6 +4705,7 @@ function copySendPayload(
 		...cloneSendPayload(payload),
 		personalityProfileId: payload.personalityProfileId,
 		isEditResend: payload.isEditResend,
+		editSourceMessageId: payload.editSourceMessageId,
 	};
 }
 

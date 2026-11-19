@@ -30,6 +30,18 @@ let databasePath = process.env.DATABASE_PATH;
 let sqlite: Database.Database;
 
 const requiredExistingTables = [
+	"memory_foreground_leases",
+	"memory_accounts",
+	"memory_banks",
+	"memory_source_revisions",
+	"memory_published_rows",
+	"memory_revocations",
+	"memory_actions",
+	"memory_control_intervals",
+	"memory_migration_manifests",
+	"memory_delivery_jobs",
+	"memory_delivery_attempts",
+	"memory_history_choices",
 	"users",
 	"sessions",
 	"browser_push_subscriptions",

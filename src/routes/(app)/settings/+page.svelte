@@ -1105,8 +1105,9 @@ async function confirmPrivacyAction() {
 			return;
 		}
 		if (action === "clearMemory") {
-			await clearMemoryAndKnowledge(privacyPassword);
-			privacyMessage = $t("settings_clearMemorySuccess");
+			const cleanup=await clearMemoryAndKnowledge(privacyPassword);
+			privacyMessage = cleanup.nativeCleanupPending ? "" : $t("settings_clearMemorySuccess");
+			window.dispatchEvent(new Event("memory-cleanup-changed"));
 			closePrivacyAction();
 			return;
 		}
