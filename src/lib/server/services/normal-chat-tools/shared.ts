@@ -7,10 +7,18 @@ import { jsonSchema } from "ai";
 import { z } from "zod";
 
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { abortedByTurnDeadline } from "$lib/server/utils/turn-deadline-reason";
-import type { AnyReasonCode } from "$lib/shared/tool-reasons";
+import {
+	type AnyReasonCode,
+	type ConnectorReasonCode,
+	REASON_CODE_KEY,
+	type SharedReasonCode,
+	type ToolReasonCode,
+	type ToolWithReasons,
+} from "$lib/shared/tool-reasons";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	boundedWebReadFailure,
@@ -205,6 +213,69 @@ export function reasonCodeOf(payload: unknown): AnyReasonCode | undefined {
 		: undefined;
 }
 
+/**
+ * The reason code of an error a connection's provider threw (each provider's
+ * error class names its cases with the same few codes), for the nine account
+ * tools: credentials the account no longer accepts, a connection that is gone, an
+ * item that is not there, a file too large, a request the provider refused for
+ * its shape or its configuration. Anything else, and anything that is not a
+ * provider's error, is the account not answering. The words the model reads for
+ * an error stay each tool's own.
+ */
+export function connectorReasonForAdapterError(
+	error: unknown,
+): ConnectorReasonCode {
+	switch (isRecord(error) ? error.code : undefined) {
+		case "needs_reauth":
+		case "invalid_grant":
+		case "invalid_credentials":
+		case "invalid_token":
+			return "needs_reconnect";
+		case "connection_not_found":
+			return "not_connected";
+		case "message_not_found":
+		case "not_found":
+		case "folder_not_found":
+			return "item_not_found";
+		case "too_large":
+			return "too_large";
+		case "invalid_path":
+			return "request_adjusted";
+		case "invalid_config":
+		case "not_configured":
+			return "not_set_up";
+		case "writes_disabled":
+			return "writes_turned_off";
+		default:
+			return "account_unreachable";
+	}
+}
+
+/**
+ * `{ reasonCode }` for the code `withReasonCode` gave this very payload, or
+ * nothing: for an entry built from a payload a tool returned, read before the
+ * envelope compacts the payload into a new object.
+ */
+export function reasonMetadataOf(
+	payload: unknown,
+): { reasonCode: AnyReasonCode } | Record<never, never> {
+	const code = reasonCodeOf(payload);
+	return code ? { [REASON_CODE_KEY]: code } : {};
+}
+
+/**
+ * `{ reasonCode: code }` for an entry's metadata, with the code held to the
+ * tool's own closed list (or a shared outcome) by the compiler: a code a tool
+ * does not list, or a misspelt one, does not compile. The tool's name is only
+ * there to pick the list.
+ */
+export function reasonMetadata<T extends ToolWithReasons>(
+	_tool: T,
+	code: ToolReasonCode<T>,
+): { reasonCode: ToolReasonCode<T> } {
+	return { [REASON_CODE_KEY]: code };
+}
+
 export interface ToolCallRecorder {
 	record(
 		entry: ToolCallEntry,
@@ -245,6 +316,86 @@ export function recordToolCallEntry(
 	return normalized;
 }
 
+// ── Failure log ────────────────────────────────────────────────
+//
+// The raw cause of a failed call stays in the server log, for fixing, and never
+// reaches a person (a tool row says why from the reason code). One line per
+// failed call, content-free: the tool, its reason code and its recorded status;
+// for a thrown error also its class and its message with every address and
+// every quoted span taken out, since some messages echo what the model asked for
+// (`connections/dav/ical.ts` repeats an event's own text). Never an input, a
+// query, an address, a result, `outputSummary` or a candidate.
+//
+// A call is logged once: where the error is in scope (the envelope's catch) or,
+// for a failure a tool reported without throwing (`metadata.ok === false`, or a
+// recorded `failed` status), where the recorder takes the entry in. The entry
+// itself is what is marked, so the catch's line and the record that follows it
+// are one.
+
+const loggedFailures = new WeakSet<ToolCallEntry>();
+
+const ADDRESS_IN_MESSAGE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>]+/gi;
+// A quote opens after a space or a symbol, never after a letter: the apostrophe
+// of "couldn't" is a word, not a span.
+const QUOTED_IN_MESSAGE =
+	/"[^"]*"|`[^`]*`|(?<![\p{L}\p{N}])'[^']*'(?![\p{L}\p{N}])/gu;
+const LOGGED_MESSAGE_MAX_CHARS = 200;
+
+function redactedErrorForLog(error: unknown): string {
+	const errorClass =
+		error instanceof Error
+			? error.constructor?.name || error.name || "Error"
+			: typeof error;
+	const message =
+		error instanceof Error
+			? error.message
+			: typeof error === "string"
+				? error
+				: "";
+	const oneLine = message
+		.replace(ADDRESS_IN_MESSAGE, "<url>")
+		.replace(QUOTED_IN_MESSAGE, "<text>")
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, LOGGED_MESSAGE_MAX_CHARS);
+	return `${errorClass}: ${oneLine}`;
+}
+
+function reasonCodeOfEntry(entry: ToolCallEntry): string | undefined {
+	const code = entry.metadata?.[REASON_CODE_KEY];
+	return typeof code === "string" && code ? code : undefined;
+}
+
+function logToolFailure(params: {
+	entry: ToolCallEntry;
+	code: string | undefined;
+	status: string;
+	/** Set for a thrown error: the line then carries its class and its redacted message. */
+	thrown?: { error: unknown };
+}): void {
+	if (loggedFailures.has(params.entry)) return;
+	loggedFailures.add(params.entry);
+	const tool = String(params.entry.name)
+		.replace(/[^A-Za-z0-9_.-]/g, "_")
+		.slice(0, 64);
+	const line = `[CHAT_STREAM] tool_failure tool=${tool} code=${params.code ?? "none"} status=${params.status}`;
+	console.warn(
+		params.thrown
+			? `${line} error=${redactedErrorForLog(params.thrown.error)}`
+			: line,
+	);
+}
+
+/** A failure a tool reported in its result instead of throwing: a failed status, or `ok: false` beside a result the call still returned. */
+function logInBandFailure(entry: ToolCallEntry): void {
+	if (entry.status !== "failed" && entry.metadata?.ok !== false) return;
+	logToolFailure({
+		entry,
+		code: reasonCodeOfEntry(entry),
+		status: entry.status,
+	});
+}
+
 export function createToolCallRecorder(
 	initialEntries: ToolCallEntry[] = [],
 ): ToolCallRecorder {
@@ -256,6 +407,7 @@ export function createToolCallRecorder(
 	return {
 		record(entry, executionFact) {
 			const recorded = recordToolCallEntry(entries, entry);
+			logInBandFailure(entry);
 			if (executionFact)
 				executionFacts.set(executionFact.result, executionFact.state);
 			return recorded;
@@ -434,6 +586,60 @@ export function isToolTimeoutError(error: unknown): boolean {
 	return error instanceof Error && /timed out after \d+ms$/.test(error.message);
 }
 
+/**
+ * The outcome every tool can have, for the reason code on its row (the lists in
+ * `$lib/shared/tool-reasons`): the person pressed Stop (`stopped`), the turn's
+ * working time ran out while the step ran (`out_of_time`), or the tool ran past
+ * its own time limit (`timed_out`). Null for any other error: a stream watchdog,
+ * a storage failure and the first-output timer abort with other reasons, and a
+ * tool's own failure is the tool's to name. `signal` is the turn's own, not the
+ * envelope's.
+ */
+export function sharedReasonFor(
+	error: unknown,
+	signal: AbortSignal | undefined,
+): SharedReasonCode | null {
+	if (signal?.aborted === true && signal.reason instanceof UserStopReason) {
+		return "stopped";
+	}
+	if (abortedByTurnDeadline(signal)) return "out_of_time";
+	if (isToolTimeoutError(error)) return "timed_out";
+	return null;
+}
+
+/**
+ * The same three outcomes, read from the text of a `tool_error` event, which
+ * carries a message and no error. The completion engine's wrapper throws
+ * `user_stop` and `deadline` to the SDK before or while a call runs (the SDK
+ * words an Error as "Error: <message>"), and a tool's own time limit is the
+ * envelope's "<tool> timed out after <n>ms". Anything else, an abort the
+ * stream's classifier files under `timeout` included, names no code.
+ */
+export function sharedReasonForToolError(
+	message: string,
+): SharedReasonCode | null {
+	const text = message.replace(/^Error:\s*/, "").trim();
+	if (text === "user_stop") return "stopped";
+	if (text === "deadline") return "out_of_time";
+	return isToolTimeoutError(new Error(text)) ? "timed_out" : null;
+}
+
+/**
+ * The reason code a thrown error is recorded with. A Stop and the turn's
+ * working deadline override any code the tool's `onError` set (a Stop must never
+ * fall to a tool's catch-all, such as memory_unavailable); the tool's own code
+ * beats `timed_out`; otherwise the shared one, if there is one.
+ */
+function thrownErrorReasonCode(
+	error: unknown,
+	signal: AbortSignal | undefined,
+	ownCode: string | undefined,
+): string | undefined {
+	const shared = sharedReasonFor(error, signal);
+	if (shared === "stopped" || shared === "out_of_time") return shared;
+	return ownCode ?? shared ?? undefined;
+}
+
 // Stamps the envelope's own start→settle wall-clock time onto an entry's
 // metadata, feeding activity-events.ts's toolCallDurationMs (which already
 // reads metadata.durationMs defensively) without a second timer anywhere
@@ -581,6 +787,8 @@ export async function executeToolWithEnvelope<
 		raw: unknown,
 		entry: ToolCallEntry,
 		state?: "failed" | "uncertain" | "definitely_not_executed",
+		/** The code a failure is recorded with; the rebuilt metadata below keeps it (and the one the tool's own entry carried). */
+		reasonCode?: string,
 	) => {
 		if (!grant) throw new Error("Missing read-result grant");
 		let payload = compactModelPayload(raw);
@@ -611,6 +819,7 @@ export async function executeToolWithEnvelope<
 					grant.maxFailurePayloadTokens
 			)
 				throw new ReadResultCapacityError(ran);
+			const keptCode = reasonCode ?? reasonCodeOfEntry(entry);
 			entry.status = "failed";
 			entry.candidates = [];
 			entry.outputSummary = fixedFailure.hint;
@@ -621,6 +830,7 @@ export async function executeToolWithEnvelope<
 				evidenceCount: 0,
 				bounded: true,
 				coverage: "none",
+				...(keptCode ? { [REASON_CODE_KEY]: keptCode } : {}),
 			};
 		}
 		entry.resultDigest = deriveToolResultDigest(payload);
@@ -747,6 +957,17 @@ export async function executeToolWithEnvelope<
 				},
 			};
 		}
+		// A budgeted read the turn's reading budget refused before it began (the
+		// throw at the top of the try): the one case that is the envelope's own.
+		const refusedForBudget =
+			grant?.kind === "denied" && error instanceof ToolCallRefusedError && !ran;
+		const reasonCode = thrownErrorReasonCode(
+			error,
+			params.options.abortSignal,
+			reasonCodeOfEntry(failure.entry) ??
+				(resultEntry ? reasonCodeOfEntry(resultEntry) : undefined) ??
+				(refusedForBudget ? "reading_budget_used" : undefined),
+		);
 		if (grant) {
 			const state =
 				params.options.abortSignal?.aborted &&
@@ -755,12 +976,30 @@ export async function executeToolWithEnvelope<
 					: error instanceof ToolCallRefusedError && !resultEntry
 						? "definitely_not_executed"
 						: "failed";
-			return commit(failure.modelPayload, resultEntry ?? failure.entry, state);
+			const committed = resultEntry ?? failure.entry;
+			// The commit records the entry as a failure whatever its own status was,
+			// and cannot see the error: the line is written here, where the error is,
+			// and the recorder then skips the entry.
+			logToolFailure({
+				entry: committed,
+				code: reasonCode,
+				status: "failed",
+				thrown: { error },
+			});
+			return commit(failure.modelPayload, committed, state, reasonCode);
 		}
 		failure.entry.metadata = withMeasuredDuration(
-			failure.entry.metadata,
+			reasonCode
+				? { ...failure.entry.metadata, [REASON_CODE_KEY]: reasonCode }
+				: failure.entry.metadata,
 			startedAt,
 		);
+		logToolFailure({
+			entry: failure.entry,
+			code: reasonCode,
+			status: failure.entry.status,
+			thrown: { error },
+		});
 		// A thrown error cannot prove that nothing ran, so it is `uncertain` and the
 		// engine stops the turn at that call. Two exceptions, and in both the model
 		// reads the error, which is written for it, and the turn goes on: an error

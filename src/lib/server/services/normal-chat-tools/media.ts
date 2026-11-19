@@ -14,9 +14,14 @@ import {
 } from "$lib/server/services/connections/providers/plex";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	withReasonCode,
+} from "./shared";
 
 // Read-only by construction: this schema's `action` enum only ever lists
 // read actions (watch_history, libraries, continue_watching, library_search).
@@ -178,22 +183,27 @@ function buildPayload(params: {
 	libraryMatchCount?: number;
 	citations?: MediaCitation[];
 	candidates?: ToolEvidenceCandidate[];
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): MediaToolOutcome {
 	const citations = params.citations ?? [];
+	const modelPayload: MediaToolModelPayload = {
+		success: params.success,
+		name: "media",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		results: params.results ?? [],
+		libraries: params.libraries ?? [],
+		onDeck: params.onDeck ?? [],
+		librarySearch: params.librarySearch ?? [],
+		libraryMatchCount: params.libraryMatchCount ?? 0,
+		citations,
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "media",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			results: params.results ?? [],
-			libraries: params.libraries ?? [],
-			onDeck: params.onDeck ?? [],
-			librarySearch: params.librarySearch ?? [],
-			libraryMatchCount: params.libraryMatchCount ?? 0,
-			citations,
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: params.candidates ?? citations.map(toCandidate),
 	};
 }
@@ -216,18 +226,38 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof PlexError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your Plex connection needs to be reconnected before I can access your watch history. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Plex connection needs to be reconnected before I can access your watch history. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your Plex connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Plex connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your media right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your media right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach your media right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't reach your media right now. Please try again in a moment.",
+		code,
+	};
 }
 
 function watchHistoryOutcome(
@@ -509,10 +539,12 @@ export async function runMediaTool(
 				);
 				return distillMediaReadOutcome({ userId, modelId, input, outcome });
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -523,6 +555,7 @@ export async function runMediaTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	if (result.kind === "no-match") {
@@ -534,6 +567,7 @@ export async function runMediaTool(
 				result.selector,
 				result.connections,
 			),
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

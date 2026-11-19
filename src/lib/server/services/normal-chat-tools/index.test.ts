@@ -7,6 +7,7 @@ import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import { createArtifact } from "$lib/server/services/artifacts";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
 import {
 	hasLocalDistillEnabled,
@@ -34,10 +35,16 @@ import {
 	submitFileProductionIntake,
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { searchImages } from "$lib/server/services/image-search";
+import {
+	ImageSearchApiError,
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "$lib/server/services/image-search";
 import {
 	getMemoryContext,
 	type HistoryMemoryContextResult,
+	type PersonaMemoryContextResult,
+	type ProjectMemoryContextResult,
 } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
@@ -51,6 +58,8 @@ import {
 	SKILLS_AVAILABLE_HEADING,
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
+import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import { PATCH_OP_KINDS } from "$lib/shared/artifact-document/patch";
 import { ASK_LIMITS } from "$lib/shared/ask-user";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
@@ -76,7 +85,11 @@ import {
 	type ReadGeneratedFileResult,
 	readGeneratedFileForTool,
 } from "./read-generated-file";
-import { createToolCallRecorder, TOOL_TIMEOUTS_MS } from "./shared";
+import {
+	createToolCallRecorder,
+	TOOL_TIMEOUTS_MS,
+	withReasonCode,
+} from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // The ledger lookup is mocked (it is the DB), but the polling loop around it
@@ -110,7 +123,12 @@ vi.mock("$lib/server/services/sandbox-execution", () => ({
 vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
 }));
-vi.mock("$lib/server/services/image-search", () => ({
+// The search is the network; its error classes stay real, since the tool tells a
+// search that was never set up from one the provider refused by the class.
+vi.mock("$lib/server/services/image-search", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/image-search")
+	>()),
 	searchImages: vi.fn(),
 }));
 // The question store is the database. ask-user.test.ts holds what the tool
@@ -2010,6 +2028,7 @@ describe("createNormalChatTools", () => {
 						exitCode: 0,
 						timedOut: false,
 						truncated: false,
+						displayOutput: "42",
 					},
 				}),
 			]);
@@ -2098,6 +2117,181 @@ describe("createNormalChatTools", () => {
 			expect(getToolCalls()[0]?.metadata).toMatchObject({ timedOut: true });
 		});
 
+		it("keeps a short copy of what the program printed on the entry, and the model's payload is as it was", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "hi\n",
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: 'print("hi")' },
+				{ toolCallId: "call-run-python-display", messages: [] },
+			);
+
+			// What the model reads is exactly what it always was: the copy is beside it.
+			expect(result).toEqual({
+				success: true,
+				name: "run_python",
+				sourceType: "tool",
+				stdout: "hi\n",
+				exitCode: 0,
+				timedOut: false,
+				truncated: false,
+			});
+			expect(JSON.stringify(result)).not.toContain("displayOutput");
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+					status: "done",
+					metadata: {
+						ok: true,
+						evidenceReady: false,
+						exitCode: 0,
+						timedOut: false,
+						truncated: false,
+						displayOutput: "hi",
+					},
+				}),
+			]);
+		});
+
+		it("keeps only the first 12 lines in the copy while the model still gets all of the output", async () => {
+			const stdout = `${Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout,
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "for i in range(20): print('line', i + 1)" },
+				{ toolCallId: "call-run-python-display-long", messages: [] },
+			);
+
+			expect((result as { stdout: string }).stdout).toBe(stdout);
+			const shown = getToolCalls()[0]?.metadata?.displayOutput;
+			expect(typeof shown).toBe("string");
+			expect((shown as string).split("\n")).toHaveLength(12);
+			expect((shown as string).endsWith("line 12")).toBe(true);
+		});
+
+		it("writes no copy for a run that printed nothing, and no code for a run that worked", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "DeprecationWarning: something old",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.run_python).execute(
+				{ code: "import warnings" },
+				{ toolCallId: "call-run-python-silent", messages: [] },
+			);
+
+			// Only what the program printed is copied, never what it complained of.
+			const metadata = getToolCalls()[0]?.metadata;
+			expect(metadata).toMatchObject({ ok: true, exitCode: 0 });
+			expect(metadata).not.toHaveProperty("displayOutput");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it.each([
+			[
+				"the sandbox's own time limit",
+				{ files: [], stdout: "", stderr: "", error: "Execution timed out" },
+				"timed_out",
+			],
+			[
+				"a run the sandbox cancelled",
+				{ files: [], stdout: "", stderr: "", error: "Execution cancelled" },
+				"stopped",
+			],
+			[
+				"a sandbox that gave no exit code",
+				{
+					files: [],
+					stdout: "",
+					stderr: "",
+					error: "Execution failed: docker daemon unreachable",
+				},
+				"sandbox_unavailable",
+			],
+			[
+				"a program that exited with an error",
+				{
+					files: [],
+					stdout: "",
+					stderr: "Traceback...\nZeroDivisionError: division by zero",
+					exitCode: 1,
+					error: "Execution failed with exit code 1: stderr: ZeroDivisionError",
+				},
+				"program_error",
+			],
+		] as const)("names %s on the entry, beside a payload that does not say so", async (_label, execution, reasonCode) => {
+			executeSandboxCodeMock.mockResolvedValue({ ...execution, files: [] });
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "1 / 0" },
+				{ toolCallId: "call-run-python-reason", messages: [] },
+			);
+
+			expect(JSON.stringify(result)).not.toContain("reasonCode");
+			expect(JSON.stringify(result)).not.toContain(reasonCode);
+			const [entry] = getToolCalls();
+			// A program that did not work is still a tool that did: the entry stays "ok".
+			expect(entry?.status).toBe("done");
+			expect(entry?.metadata).toMatchObject({ ok: true, reasonCode });
+		});
+
+		it("leaves a tool timeout to the envelope's timed_out instead of calling it an unavailable sandbox", async () => {
+			executeSandboxCodeMock.mockRejectedValueOnce(
+				new Error("run_python timed out after 120000ms"),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.run_python).execute(
+				{ code: "while True: pass" },
+				{ toolCallId: "call-run-python-tool-timeout", messages: [] },
+			);
+
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "timed_out",
+			});
+		});
+
 		it("uses a timeout above the sandbox's own hard exec cutoff, so the sandbox's own timeout wins first", () => {
 			expect(TOOL_TIMEOUTS_MS.run_python).toBeGreaterThan(SANDBOX_TIMEOUT_MS);
 		});
@@ -2133,6 +2327,7 @@ describe("createNormalChatTools", () => {
 						ok: false,
 						evidenceReady: false,
 						error: "docker daemon unreachable",
+						reasonCode: "sandbox_unavailable",
 					},
 				}),
 			]);
@@ -3766,6 +3961,9 @@ describe("createNormalChatTools", () => {
 					ok: false,
 					evidenceReady: false,
 					error: "memory unavailable",
+					// Any failure of the lookup that is not a scope refusal, a timeout
+					// or a Stop reads "memory couldn't be read".
+					reasonCode: "memory_unavailable",
 				},
 			}),
 			expect.objectContaining({
@@ -3780,6 +3978,103 @@ describe("createNormalChatTools", () => {
 				},
 			}),
 		]);
+	});
+
+	// The picture search's rows say what happened from a code on the entry's
+	// metadata, beside the payload the model reads (which is what it always was).
+	describe("image_search names what happened", () => {
+		function imageTools() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+		}
+		function search(set: ReturnType<typeof imageTools>) {
+			return set.tools.image_search.execute(
+				{ query: "reference image" },
+				{ toolCallId: "call-image", messages: [] },
+			);
+		}
+
+		it("names a search that was never set up", async () => {
+			searchImagesMock.mockRejectedValueOnce(
+				new ImageSearchNotConfiguredError(),
+			);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: false,
+				error: "BRAVE_SEARCH_API_KEY is not configured",
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.outputSummary).toBe(
+				"BRAVE_SEARCH_API_KEY is not configured",
+			);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "not_set_up",
+			});
+		});
+
+		it("names a search the provider refused (its plan ran out)", async () => {
+			const message =
+				"Brave Search API error: 402 Payment Required - plan used up";
+			searchImagesMock.mockRejectedValueOnce(
+				new ImageSearchApiError(message, 402),
+			);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: false,
+				error: message,
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.outputSummary).toBe(message);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "search_unavailable",
+			});
+		});
+
+		it("names a search that found nothing: still a success, with the payload it always had", async () => {
+			searchImagesMock.mockResolvedValueOnce([]);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: true,
+				name: "image_search",
+				sourceType: "web",
+				message: "Found 0 images",
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.status).toBe("done");
+			expect(entry?.outputSummary).toBe("Found 0 images.");
+			expect(entry?.metadata).toMatchObject({
+				ok: true,
+				resultCount: 0,
+				reasonCode: "nothing_found",
+			});
+		});
+
+		it("names nothing for a search that found pictures", async () => {
+			searchImagesMock.mockResolvedValueOnce([
+				{
+					url: "https://pics.example/cat.jpg",
+					title: "Cat",
+					source: "pics.example",
+				},
+			]);
+			const set = imageTools();
+
+			await search(set);
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.metadata).not.toHaveProperty("reasonCode");
+		});
 	});
 
 	it("tells the recorder that a failure of a tool that only reads is settled, so the turn goes on", async () => {
@@ -3851,6 +4146,8 @@ describe("createNormalChatTools", () => {
 						ok: false,
 						evidenceReady: false,
 						error: "research_web timed out after 60000ms",
+						// The envelope names the tool's own time limit for its row.
+						reasonCode: "timed_out",
 					},
 				}),
 			]);
@@ -3926,6 +4223,106 @@ describe("createNormalChatTools", () => {
 				},
 			}),
 		]);
+	});
+
+	// Every account tool says why a call did not work from a reason code on its
+	// entry's metadata, read from the tag the tool put beside its payload before
+	// the envelope compacts the payload into a new object. What the model reads,
+	// the entry's outputSummary and its stored status are what they always were.
+	describe("the nine account tools name why a call did not work", () => {
+		const CALLS = [
+			["files", { action: "search", query: "x" }],
+			["calendar", { action: "list_events" }],
+			["email", { action: "recent" }],
+			["photos", { action: "search", query: "x" }],
+			["media", { action: "watch_history" }],
+			["location", { action: "last" }],
+			["contacts", { action: "lookup", query: "x" }],
+			["repos", { action: "list_repos" }],
+			["tasks", { action: "list_tasks" }],
+		] as const;
+
+		it.each(CALLS)("%s: not connected", async (name, input) => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set([
+					"files",
+					"calendar",
+					"email",
+					"photos",
+					"media",
+					"location",
+					"contacts",
+					"repos",
+					"tasks",
+				]),
+			});
+
+			const tool = tools[name] as unknown as {
+				execute: (
+					input: unknown,
+					options: { toolCallId: string; messages: never[] },
+				) => Promise<{ success: boolean; message: string }>;
+			};
+			const result = await tool.execute(input, {
+				toolCallId: `call-${name}`,
+				messages: [],
+			});
+
+			expect(result.success).toBe(false);
+			// The code is beside the payload, never in it.
+			expect(JSON.stringify(result)).not.toContain("reasonCode");
+			expect(JSON.stringify(result)).not.toContain("not_connected");
+			const [entry] = getToolCalls();
+			expect(entry?.name).toBe(name);
+			expect(entry?.status).toBe("done");
+			expect(entry?.outputSummary).toBe(result.message);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "not_connected",
+			});
+		});
+
+		it("names a call whose details the cloud model was not given", async () => {
+			const conn = makeNextcloudConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudReadFileMock.mockResolvedValue({
+				bytes: new TextEncoder().encode("Total owed: 4,120 EUR"),
+				etag: "etag-1",
+				contentType: "text/plain",
+				mtime: null,
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			const { distillConnectorPayload } = await import(
+				"$lib/server/services/connections/locality"
+			);
+			vi.mocked(distillConnectorPayload).mockResolvedValue({
+				unavailable: true,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				modelId: "provider:cloud:chat",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+			const result = await tools.files?.execute?.(
+				{ action: "read", path: "/Documents/taxes.txt" },
+				{ toolCallId: "call-files-withheld", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: true });
+			expect(JSON.stringify(result)).not.toContain("4,120");
+			expect(JSON.stringify(result)).not.toContain("details_withheld");
+			const [entry] = getToolCalls();
+			expect(entry?.metadata).toMatchObject({ reasonCode: "details_withheld" });
+		});
 	});
 
 	describe("files tool gating", () => {
@@ -6487,6 +6884,245 @@ describe("memory_context tool — what a call records it read", () => {
 		const { entry } = await recall();
 
 		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
+	});
+});
+
+// A memory lookup's row says what happened from a reason code on the entry's
+// metadata, beside the payload the model reads (which is what it always was).
+describe("memory_context names what happened", () => {
+	beforeEach(() => {
+		getMemoryContextMock.mockReset();
+		resetToolResultCacheForTests();
+	});
+
+	const audit = { conversationId: "conversation-1", query: "" };
+
+	function personaResult(
+		overrides: Partial<PersonaMemoryContextResult> = {},
+	): PersonaMemoryContextResult {
+		return {
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "active_memory_profile",
+			content: "Likes trains.",
+			evidenceCandidates: [],
+			audit,
+			...overrides,
+		};
+	}
+
+	function historyOf(
+		overrides: Partial<HistoryMemoryContextResult> = {},
+	): HistoryMemoryContextResult {
+		return {
+			success: true,
+			mode: "history",
+			status: "available",
+			source: "conversation_summaries",
+			query: "vienna",
+			conversations: [],
+			omittedConversationCount: 0,
+			selectedConversation: null,
+			evidenceCandidates: [],
+			audit: {
+				...audit,
+				requestedMaxHistoryConversations: null,
+				appliedMaxHistoryConversations: 5,
+				historyConversationId: null,
+				requestedMaxMessages: null,
+				appliedMaxMessages: 10,
+			},
+			...overrides,
+		};
+	}
+
+	function projectOf(hasProjectContext: boolean): ProjectMemoryContextResult {
+		return {
+			success: true,
+			mode: "project",
+			projectMode: "summary",
+			hasProjectContext,
+			source: "none",
+			project: null,
+			siblings: [],
+			omittedSiblingCount: 0,
+			evidenceCandidates: [],
+			audit: {
+				...audit,
+				scope: "conversation",
+				requestedMaxSiblings: null,
+				appliedMaxSiblings: 8,
+				includeEvidenceCandidates: true,
+			},
+		};
+	}
+
+	async function recall(
+		input: Parameters<
+			NonNullable<
+				ReturnType<
+					typeof createNormalChatTools
+				>["tools"]["memory_context"]["execute"]
+			>
+		>[0] = {},
+		options: { abortSignal?: AbortSignal } = {},
+	) {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const payload = await tools.memory_context.execute(input, {
+			toolCallId: "call-memory",
+			messages: [],
+			...options,
+		});
+		return { payload, entry: getToolCalls()[0] };
+	}
+
+	it("names a lookup that found nothing: persona, past chats and project alike", async () => {
+		getMemoryContextMock.mockResolvedValueOnce(
+			personaResult({ status: "empty", content: null }),
+		);
+		expect((await recall()).entry?.metadata).toMatchObject({
+			ok: true,
+			mode: "persona",
+			reasonCode: "nothing_found",
+		});
+
+		getMemoryContextMock.mockResolvedValueOnce(historyOf({ status: "empty" }));
+		expect((await recall({ mode: "history" })).entry?.metadata).toMatchObject({
+			mode: "history",
+			reasonCode: "nothing_found",
+		});
+
+		getMemoryContextMock.mockResolvedValueOnce(projectOf(false));
+		expect((await recall({ mode: "project" })).entry?.metadata).toMatchObject({
+			mode: "project",
+			reasonCode: "nothing_found",
+		});
+	});
+
+	it("names nothing for a lookup that found something", async () => {
+		getMemoryContextMock.mockResolvedValueOnce(personaResult());
+		expect((await recall()).entry?.metadata).not.toHaveProperty("reasonCode");
+		getMemoryContextMock.mockResolvedValueOnce(historyOf());
+		expect(
+			(await recall({ mode: "history" })).entry?.metadata,
+		).not.toHaveProperty("reasonCode");
+		getMemoryContextMock.mockResolvedValueOnce(projectOf(true));
+		expect(
+			(await recall({ mode: "project" })).entry?.metadata,
+		).not.toHaveProperty("reasonCode");
+	});
+
+	it("names a persona read that could not be done, and the payload is what it was", async () => {
+		const failed = personaResult({
+			status: "error",
+			content: null,
+			error: "projection offline",
+		});
+		getMemoryContextMock.mockResolvedValueOnce(failed);
+
+		const { payload, entry } = await recall();
+
+		expect(payload).toMatchObject({ status: "error", mode: "persona" });
+		expect(entry?.outputSummary).toBe("Persona memory status: error");
+		expect(entry?.metadata).toMatchObject({
+			status: "error",
+			reasonCode: "memory_unavailable",
+		});
+	});
+
+	it("names a lookup memory being off turned into an inert empty result, and the payload is what it was", async () => {
+		const inert = withReasonCode(
+			personaResult({ status: "empty", content: null }),
+			"memory_off",
+		);
+		const plain = personaResult({ status: "empty", content: null });
+		getMemoryContextMock.mockResolvedValueOnce(inert);
+		const off = await recall();
+		getMemoryContextMock.mockResolvedValueOnce(plain);
+		const empty = await recall();
+
+		expect(off.payload).toEqual(empty.payload);
+		expect(off.entry?.outputSummary).toBe(empty.entry?.outputSummary);
+		expect(off.entry?.metadata).toMatchObject({ reasonCode: "memory_off" });
+		// The same empty result of a person whose memory is on is a plain "nothing found".
+		expect(empty.entry?.metadata).toMatchObject({
+			reasonCode: "nothing_found",
+		});
+	});
+
+	it("names a chat Alfy may not look into, on purpose", async () => {
+		getMemoryContextMock.mockRejectedValueOnce(
+			new ToolCallRefusedError(
+				"historyConversationId is outside memory_context history scope",
+			),
+		);
+
+		const { payload, entry } = await recall({
+			mode: "history",
+			historyConversationId: "someone-elses",
+		});
+
+		expect(payload).toEqual({
+			success: false,
+			error: "historyConversationId is outside memory_context history scope",
+		});
+		expect(entry?.outputSummary).toBe(
+			"historyConversationId is outside memory_context history scope",
+		);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "chat_out_of_reach",
+		});
+	});
+
+	it("names any other failure of the lookup memory_unavailable, a bad mode included", async () => {
+		getMemoryContextMock.mockRejectedValueOnce(
+			new Error("Unsupported memory_context mode: bogus"),
+		);
+		const bad = await recall({ mode: "persona" });
+		expect(bad.payload).toEqual({
+			success: false,
+			error: "Unsupported memory_context mode: bogus",
+		});
+		expect(bad.entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "memory_unavailable",
+		});
+
+		getMemoryContextMock.mockRejectedValueOnce(new Error("database is locked"));
+		expect((await recall()).entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "memory_unavailable",
+		});
+	});
+
+	it("leaves a Stop, the deadline and the tool's own time limit to the envelope's codes", async () => {
+		// A call that begins on a signal already aborted throws before it runs, so
+		// the lookup is never asked; the envelope names why.
+		const stopped = new AbortController();
+		stopped.abort(new UserStopReason());
+		expect(
+			(await recall({}, { abortSignal: stopped.signal })).entry?.metadata,
+		).toMatchObject({ reasonCode: "stopped" });
+
+		const late = new AbortController();
+		late.abort(new TurnDeadlineReason());
+		expect(
+			(await recall({}, { abortSignal: late.signal })).entry?.metadata,
+		).toMatchObject({ reasonCode: "out_of_time" });
+		expect(getMemoryContextMock).not.toHaveBeenCalled();
+
+		getMemoryContextMock.mockRejectedValueOnce(
+			new Error("memory_context timed out after 15000ms"),
+		);
+		expect((await recall()).entry?.metadata).toMatchObject({
+			reasonCode: "timed_out",
+		});
 	});
 });
 

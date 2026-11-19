@@ -603,3 +603,203 @@ describe("fetchUrlViaParallel", () => {
 		expect(await sentFetchPolicy()).toEqual({ max_age_seconds: 86_400 });
 	});
 });
+
+// A tool row says why a page could not be read from a code, never from the
+// provider's words. The Extract API reports a failed page in the response body
+// (an error item with its HTTP status and type), so a read that brought back no
+// page names what the API said; the brief the model reads is not touched.
+describe("fetchUrlViaParallel: why a read brought back nothing", () => {
+	async function readOnce(body: unknown) {
+		const fetchMock = vi.fn(async () => jsonResponse(body));
+		return fetchUrlViaParallel(
+			{ urls: ["https://example.com/a", "https://example.com/b"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+	}
+	function failedWith(...errors: Array<Record<string, unknown>>) {
+		return readOnce({ results: [], errors });
+	}
+
+	it.each([
+		[401, "site_refused"],
+		[403, "site_refused"],
+		[451, "site_refused"],
+		[404, "page_not_found"],
+		[410, "page_not_found"],
+		[408, "site_timeout"],
+		[504, "site_timeout"],
+	] as const)("names HTTP %i as %s when no page came back", async (status, code) => {
+		const result = await failedWith({
+			url: "https://example.com/a",
+			error_type: "fetch_error",
+			http_status_code: status,
+		});
+		expect(result.readFailure).toBe(code);
+	});
+
+	it("names an error type that says timeout as site_timeout, with or without a status", async () => {
+		expect(
+			(
+				await failedWith({
+					url: "https://example.com/a",
+					error_type: "fetch_timeout",
+					http_status_code: null,
+				})
+			).readFailure,
+		).toBe("site_timeout");
+		expect(
+			(
+				await failedWith({
+					url: "https://example.com/a",
+					error_type: "Timed out",
+					http_status_code: 500,
+				})
+			).readFailure,
+		).toBe("site_timeout");
+	});
+
+	it("names nothing for a failure the API did not say anything useful about", async () => {
+		expect(
+			(
+				await failedWith({
+					url: "https://example.com/a",
+					http_status_code: 500,
+				})
+			).readFailure,
+		).toBeUndefined();
+		expect(
+			(await failedWith({ url: "https://example.com/a" })).readFailure,
+		).toBeUndefined();
+		expect(
+			(await readOnce({ results: [], errors: [] })).readFailure,
+		).toBeUndefined();
+		expect(
+			(
+				await failedWith({
+					url: "https://example.com/a",
+					http_status_code: 429,
+				})
+			).readFailure,
+		).toBeUndefined();
+	});
+
+	it("names a reason only when every reported failure shares it", async () => {
+		// Two pages, two different reasons: one sentence would be wrong for one of them.
+		expect(
+			(
+				await failedWith(
+					{ url: "https://example.com/a", http_status_code: 404 },
+					{ url: "https://example.com/b", http_status_code: 403 },
+				)
+			).readFailure,
+		).toBeUndefined();
+		expect(
+			(
+				await failedWith(
+					{ url: "https://example.com/a", http_status_code: 404 },
+					{ url: "https://example.com/b", http_status_code: 410 },
+				)
+			).readFailure,
+		).toBe("page_not_found");
+		// A failure that names nothing leaves the call without a reason too.
+		expect(
+			(
+				await failedWith(
+					{ url: "https://example.com/a", http_status_code: 404 },
+					{ url: "https://example.com/b", http_status_code: 500 },
+				)
+			).readFailure,
+		).toBeUndefined();
+	});
+
+	it("names nothing when a page came back, whatever else failed", async () => {
+		const result = await readOnce({
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: [],
+					full_content: "full content of page A",
+				},
+			],
+			errors: [{ url: "https://example.com/b", http_status_code: 404 }],
+		});
+		expect(result.sources).toHaveLength(1);
+		expect(result.readFailure).toBeUndefined();
+	});
+
+	it("names no_readable_text when pages came back and not one had any text", async () => {
+		const result = await readOnce({
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: [],
+					full_content: null,
+				},
+				{
+					url: "https://example.com/b",
+					title: "Page B",
+					publish_date: null,
+					excerpts: ["", "   "],
+					full_content: "  ",
+				},
+			],
+			errors: [],
+		});
+		expect(result.readFailure).toBe("no_readable_text");
+		expect(result.sources).toHaveLength(2);
+	});
+
+	it("does not call a page with only an excerpt unreadable", async () => {
+		const result = await readOnce({
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: ["Something to read"],
+					full_content: null,
+				},
+			],
+			errors: [],
+		});
+		expect(result.readFailure).toBeUndefined();
+	});
+
+	it("leaves the brief the model reads exactly as it was, whatever the status says", async () => {
+		const plain = await failedWith({
+			url: "https://example.com/a",
+			message: "paywall",
+		});
+		const withStatus = await failedWith({
+			url: "https://example.com/a",
+			message: "paywall",
+			http_status_code: 403,
+			error_type: "fetch_error",
+		});
+		expect(withStatus.answerBrief.markdown).toBe(plain.answerBrief.markdown);
+		expect(withStatus.answerBrief.markdown).toContain(
+			"https://example.com/a — paywall",
+		);
+		expect(withStatus.readFailure).toBe("site_refused");
+	});
+
+	it("puts no read failure on a result that read something", async () => {
+		const result = await readOnce({
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: [],
+					full_content: "text",
+				},
+			],
+			errors: [],
+		});
+		expect(result).not.toHaveProperty("readFailure");
+	});
+});

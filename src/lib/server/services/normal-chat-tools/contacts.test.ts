@@ -14,6 +14,7 @@ import { resolveConnectionsForCapability } from "$lib/server/services/connection
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runContactsTool, sanitizeContactsToolInput } from "./contacts";
+import { reasonCodeOf } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -132,6 +133,21 @@ describe("runContactsTool", () => {
 		);
 		expect(outcome.modelPayload.contacts).toEqual([]);
 		expect(resolveContactsMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "contacts",
+				sourceType: "tool",
+				action: "lookup",
+				message:
+					"You don't have a Contacts-capable connection set up yet. Connect your Google or Apple iCloud account in Settings to look up contacts.",
+				contacts: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("returns a graceful 'no contact found' note when resolveContacts finds nothing", async () => {
@@ -244,6 +260,7 @@ describe("runContactsTool", () => {
 		expect(outcome.modelPayload.message).toContain("Google");
 		expect(outcome.modelPayload.message).toContain('"microsoft"');
 		expect(resolveContactsMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("degrades gracefully (no throw) when resolveContacts itself rejects", async () => {
@@ -259,6 +276,7 @@ describe("runContactsTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).not.toContain("boom");
 		expect(outcome.modelPayload.contacts).toEqual([]);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
 	});
 
 	it("surfaces the organization (company + title) on a match untouched, and includes it in the Sources-tab snippet", async () => {
@@ -340,6 +358,7 @@ describe("runContactsTool — group action (GAP B8)", () => {
 		expect(outcome.modelPayload.action).toBe("group");
 		expect(outcome.modelPayload.message).not.toContain("boom");
 		expect(outcome.modelPayload.contacts).toEqual([]);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
 	});
 
 	it("returns the same graceful no-connection note (action-tagged) when there is no Contacts connection", async () => {
@@ -471,6 +490,9 @@ describe("runContactsTool — locality Option A distillation gate (whole-payload
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "Zsombor Kovács" }),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serializedPayload).not.toContain("details_withheld");
 	});
 
 	it("does not run the distill gate at all when there are zero matches (nothing raw to protect)", async () => {

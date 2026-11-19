@@ -4,6 +4,7 @@ import type {
 	MemoryContextResult,
 } from "./memory-context/types";
 import { isMemoryActiveForConversation } from "./memory-controls";
+import { withReasonCode } from "./normal-chat-tools/shared";
 
 export { tokenizeQuery } from "./memory-context/query";
 
@@ -32,6 +33,10 @@ export type {
  * this entry point on an inactive conversation gets an inert empty result
  * instead of leaking recalled memory. Fails open (active) on a controls-lookup
  * error, matching the predicate's contract.
+ *
+ * The inert result looks like a persona memory that holds nothing, so it is
+ * tagged `memory_off` (`withReasonCode`, beside the payload, never in it): the
+ * tool's row then says memory is off instead of "nothing about this".
  */
 export async function getMemoryContext(
 	params: GetMemoryContextParams,
@@ -41,18 +46,21 @@ export async function getMemoryContext(
 		conversationId: params.conversationId,
 	}).catch(() => true);
 	if (!memoryActive) {
-		return {
-			success: true,
-			mode: "persona",
-			status: "empty",
-			source: "active_memory_profile",
-			content: null,
-			evidenceCandidates: [],
-			audit: {
-				conversationId: params.conversationId,
-				query: params.query?.trim() || "",
-			},
-		};
+		return withReasonCode(
+			{
+				success: true,
+				mode: "persona",
+				status: "empty",
+				source: "active_memory_profile",
+				content: null,
+				evidenceCandidates: [],
+				audit: {
+					conversationId: params.conversationId,
+					query: params.query?.trim() || "",
+				},
+			} satisfies MemoryContextResult,
+			"memory_off",
+		);
 	}
 	return getMemoryForTurn(params);
 }

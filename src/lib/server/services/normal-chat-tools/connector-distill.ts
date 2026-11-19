@@ -3,7 +3,11 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
-import { isInsideToolCall, markCallLocallyDistilled } from "./shared";
+import {
+	isInsideToolCall,
+	markCallLocallyDistilled,
+	withReasonCode,
+} from "./shared";
 
 // Option A (locality) — the shared "should we distill, and if so what did the
 // local model produce" decision used by every connector-backed chat tool
@@ -127,5 +131,10 @@ export async function applyLocalDistillGate<
 	if ("distilled" in decision) {
 		return params.onDistilled(params.outcome, decision.distilled);
 	}
-	return params.onUnavailable(params.outcome);
+	// The cloud model got none of the details: the row says so, from a code that
+	// rides beside the payload (never in it). A call whose details were
+	// summarised locally needs no tag: the envelope's `localDistilled` mark says it.
+	const withheld = params.onUnavailable(params.outcome);
+	withReasonCode(withheld.modelPayload, "details_withheld");
+	return withheld;
 }

@@ -433,6 +433,25 @@ export type WebViewCoverage = {
 	hint: string;
 };
 
+/**
+ * Whether a view of a web read holds anything the model can use as evidence: a
+ * source and, with it, a quote, a page or a snippet. A view without is a read
+ * that found nothing (`nothing_found` on its row), and the budget's own check of
+ * a view (`boundGroundedWebView`) is this one.
+ */
+export function hasUsableWebEvidence(view: {
+	sources: ReadonlyArray<{ snippet?: string | null }>;
+	evidence: ReadonlyArray<unknown>;
+	pages?: ReadonlyArray<unknown>;
+}): boolean {
+	return (
+		view.sources.length > 0 &&
+		(view.evidence.length > 0 ||
+			(view.pages?.length ?? 0) > 0 ||
+			view.sources.some((source) => !!source.snippet))
+	);
+}
+
 /** Select a NEW model view; never mutate the fetched/cache backing data. */
 export function boundGroundedWebView(input: {
 	result: GroundedWebResult;
@@ -467,11 +486,11 @@ export function boundGroundedWebView(input: {
 		ranges: WebViewCoverage["pageRanges"],
 		full = false,
 	): View => ({
-		success:
-			sources.length > 0 &&
-			(evidence.length > 0 ||
-				selectedPages.length > 0 ||
-				sources.some((s) => !!s.snippet)),
+		success: hasUsableWebEvidence({
+			sources,
+			evidence,
+			pages: selectedPages,
+		}),
 		name,
 		sourceType: "web",
 		query: result.query,

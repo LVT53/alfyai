@@ -21,10 +21,17 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import { CONNECTOR_PLACEHOLDER_TITLES } from "$lib/shared/tool-reasons";
+import {
+	CONNECTOR_PLACEHOLDER_TITLES,
+	type ConnectorReasonCode,
+} from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	withReasonCode,
+} from "./shared";
 
 export const emailToolInputSchema = z.object({
 	action: z.enum([
@@ -207,29 +214,32 @@ function buildPayload(params: {
 	citations?: EmailCitation[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): EmailToolOutcome {
 	const messages = params.messages ?? [];
 	const citations = params.citations ?? [];
+	const modelPayload: EmailToolModelPayload = {
+		success: params.success,
+		name: "email",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		messages,
+		...(params.text !== undefined ? { text: params.text } : {}),
+		...(params.attachments !== undefined
+			? { attachments: params.attachments }
+			: {}),
+		...(params.folders !== undefined ? { folders: params.folders } : {}),
+		...(params.count !== undefined ? { count: params.count } : {}),
+		citations,
+		...(params.pendingWriteId ? { pendingWriteId: params.pendingWriteId } : {}),
+		...(params.preview ? { preview: params.preview } : {}),
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "email",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			messages,
-			...(params.text !== undefined ? { text: params.text } : {}),
-			...(params.attachments !== undefined
-				? { attachments: params.attachments }
-				: {}),
-			...(params.folders !== undefined ? { folders: params.folders } : {}),
-			...(params.count !== undefined ? { count: params.count } : {}),
-			citations,
-			...(params.pendingWriteId
-				? { pendingWriteId: params.pendingWriteId }
-				: {}),
-			...(params.preview ? { preview: params.preview } : {}),
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: citations.map((citation, index) =>
 			toCandidate(messages[index]?.uid, citation),
 		),
@@ -254,20 +264,43 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof ImapError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your Email connection needs to be reconnected before I can access your mailbox. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Email connection needs to be reconnected before I can access your mailbox. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your Email connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Email connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			case "message_not_found":
-				return "That email message couldn't be found.";
+				return {
+					message: "That email message couldn't be found.",
+					code,
+				};
 			default:
-				return "I couldn't reach your email right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your email right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach your email right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't reach your email right now. Please try again in a moment.",
+		code,
+	};
 }
 
 function listOutcome(
@@ -528,6 +561,7 @@ async function proposeSend(
 			success: false,
 			action: "send",
 			message: "A recipient, subject, and body are required to send an email.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -588,6 +622,7 @@ async function proposeSend(
 	// data — `preview`/the base message below never contain it, so nothing
 	// needs redacting there; only this optional "replying to" sentence does.
 	let replySegment = "";
+	let replyWithheld = false;
 	if (rawReplySubject) {
 		const decision = await decideLocalDistill({
 			userId,
@@ -597,6 +632,7 @@ async function proposeSend(
 			rawText: rawReplySubject,
 		});
 		if (decision.shouldDistill) {
+			replyWithheld = !("distilled" in decision);
 			replySegment =
 				"distilled" in decision
 					? ` Replying to a message privately summarized for a cloud model. Summary: ${decision.distilled}`
@@ -619,6 +655,7 @@ async function proposeSend(
 		message,
 		pendingWriteId,
 		preview,
+		...(replyWithheld ? { reason: "details_withheld" as const } : {}),
 	});
 }
 
@@ -680,7 +717,13 @@ async function modelFacingPreview(params: {
 	rawPreview: WritePreview;
 	subject: string;
 	withheldTitle: string;
-}): Promise<{ preview: WritePreview; note: string; withheld: boolean }> {
+}): Promise<{
+	preview: WritePreview;
+	note: string;
+	withheld: boolean;
+	/** The cloud model got none of the details (no local summary either): the row says so. */
+	unavailable: boolean;
+}> {
 	const decision = await decideLocalDistill({
 		userId: params.userId,
 		modelId: params.modelId,
@@ -689,7 +732,12 @@ async function modelFacingPreview(params: {
 		rawText: params.subject,
 	});
 	if (!decision.shouldDistill) {
-		return { preview: params.rawPreview, note: "", withheld: false };
+		return {
+			preview: params.rawPreview,
+			note: "",
+			withheld: false,
+			unavailable: false,
+		};
 	}
 	return {
 		preview: {
@@ -702,6 +750,7 @@ async function modelFacingPreview(params: {
 				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
 				: " Its details couldn't be privately summarized for a cloud model, so they were withheld.",
 		withheld: true,
+		unavailable: !("distilled" in decision),
 	};
 }
 
@@ -719,6 +768,7 @@ async function proposeTrash(
 			success: false,
 			action: "trash",
 			message: "A message uid is required to move a message to Trash.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -726,10 +776,12 @@ async function proposeTrash(
 	try {
 		target = await readTargetMessage(userId, conn, input.uid);
 	} catch (err) {
+		const failure = mapAdapterError(err);
 		return buildPayload({
 			success: false,
 			action: "trash",
-			message: mapAdapterError(err),
+			message: failure.message,
+			reason: failure.code,
 		});
 	}
 
@@ -782,6 +834,7 @@ async function proposeTrash(
 		message,
 		pendingWriteId,
 		preview: modelPreview,
+		...(modelCopy.unavailable ? { reason: "details_withheld" as const } : {}),
 	});
 }
 
@@ -800,6 +853,7 @@ async function proposeFlag(
 			action: "flag",
 			message:
 				"A message uid, flag name, and value are required to change a flag.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -807,10 +861,12 @@ async function proposeFlag(
 	try {
 		target = await readTargetMessage(userId, conn, input.uid);
 	} catch (err) {
+		const failure = mapAdapterError(err);
 		return buildPayload({
 			success: false,
 			action: "flag",
-			message: mapAdapterError(err),
+			message: failure.message,
+			reason: failure.code,
 		});
 	}
 
@@ -863,6 +919,7 @@ async function proposeFlag(
 		message,
 		pendingWriteId,
 		preview: modelCopy.preview,
+		...(modelCopy.unavailable ? { reason: "details_withheld" as const } : {}),
 	});
 }
 
@@ -884,6 +941,7 @@ async function emailWriteOutcome(
 			success: false,
 			action,
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -1008,6 +1066,7 @@ export async function runEmailTool(
 							action: "search",
 							message:
 								"A search query is required (or a sender, subject, or date filter) to search your email.",
+							reason: "request_adjusted",
 						});
 					}
 					const headers = await imapSearch(userId, conn.id, {
@@ -1052,6 +1111,7 @@ export async function runEmailTool(
 						success: false,
 						action: "read",
 						message: "A message uid is required to read an email.",
+						reason: "request_adjusted",
 					});
 				}
 				const { header, text, attachments } = await imapReadMessage(
@@ -1072,10 +1132,12 @@ export async function runEmailTool(
 				);
 				return distillEmailReadOutcome({ userId, modelId, input, outcome });
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -1086,6 +1148,7 @@ export async function runEmailTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	if (result.kind === "no-match") {
@@ -1097,6 +1160,7 @@ export async function runEmailTool(
 				result.selector,
 				result.connections,
 			),
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

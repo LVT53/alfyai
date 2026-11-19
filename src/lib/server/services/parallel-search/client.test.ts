@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	ParallelApiError,
 	type ParallelClientConfig,
 	parallelExtract,
 	parallelExtractWithErrors,
@@ -137,6 +138,31 @@ describe("parallelSearch", () => {
 				{ fetch: fetchMock as unknown as typeof fetch, config },
 			),
 		).rejects.toThrow(/boom failure detail/);
+	});
+
+	// The tool rows tell a service that did not answer from any other failure by
+	// the class, not by the words of its message; the message stays as it was.
+	it("throws a ParallelApiError carrying the status, with the message the model has always read", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response("boom failure detail", {
+					status: 503,
+					statusText: "Service Unavailable",
+					headers: { "Content-Type": "text/plain" },
+				}),
+		);
+
+		const failure = await parallelSearch(
+			{ objective: "o", searchQueries: ["q"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		).catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ParallelApiError);
+		expect(failure).toBeInstanceOf(Error);
+		expect((failure as ParallelApiError).status).toBe(503);
+		expect((failure as ParallelApiError).message).toBe(
+			"Parallel search failed: 503 Service Unavailable boom failure detail",
+		);
 	});
 
 	it("targets a custom parallelBaseUrl when supplied (trailing slash trimmed)", async () => {
@@ -335,6 +361,15 @@ describe("parallelExtract", () => {
 				{ fetch: fetchMock as unknown as typeof fetch, config },
 			),
 		).rejects.toThrow(/extract exploded/);
+		const failure = await parallelExtract(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		).catch((error: unknown) => error);
+		expect(failure).toBeInstanceOf(ParallelApiError);
+		expect((failure as ParallelApiError).status).toBe(500);
+		expect((failure as ParallelApiError).message).toMatch(
+			/^Parallel extract failed: 500 /,
+		);
 	});
 
 	it("forwards the abort signal to fetch", async () => {
@@ -410,9 +445,56 @@ describe("parallelExtractWithErrors", () => {
 			{ fetch: fetchMock as unknown as typeof fetch, config },
 		);
 
+		// The status the raw object carried is kept (for the reason code of a row);
+		// the reason text the model reads is unchanged.
 		expect(errors).toEqual([
-			{ url: "https://example.com/z", reason: "unknown error" },
+			{ url: "https://example.com/z", reason: "unknown error", status: 500 },
 		]);
+	});
+
+	it("keeps the documented http_status_code and error_type of an item, and none of its other fields", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				results: [],
+				errors: [
+					{
+						url: "https://example.com/gone",
+						error_type: "fetch_error",
+						http_status_code: 404,
+						content: "SECRET-BODY the page said this",
+					},
+					{
+						url: "https://example.com/slow",
+						message: "took too long",
+						error_type: "timeout",
+						http_status_code: null,
+					},
+					{ url: "https://example.com/odd", reason: "odd", status: "soon" },
+				],
+			}),
+		);
+
+		const { errors } = await parallelExtractWithErrors(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(errors).toEqual([
+			{
+				url: "https://example.com/gone",
+				reason: "unknown error",
+				status: 404,
+				errorType: "fetch_error",
+			},
+			{
+				url: "https://example.com/slow",
+				reason: "took too long",
+				errorType: "timeout",
+			},
+			// A status that is not a number is not kept.
+			{ url: "https://example.com/odd", reason: "odd" },
+		]);
+		expect(JSON.stringify(errors)).not.toContain("SECRET-BODY");
 	});
 
 	it("collapses interior whitespace in normalized reasons to a single line", async () => {

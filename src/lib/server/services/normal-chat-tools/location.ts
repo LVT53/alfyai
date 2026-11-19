@@ -11,10 +11,17 @@ import {
 } from "$lib/server/services/connections/providers/owntracks";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import { LOCATION_AT_PREFIX } from "$lib/shared/tool-reasons";
+import {
+	type ConnectorReasonCode,
+	LOCATION_AT_PREFIX,
+} from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	withReasonCode,
+} from "./shared";
 
 // Read-only by construction, and NO device/user override: this schema's
 // `action` enum only ever lists read actions (last, history, places,
@@ -167,20 +174,25 @@ function buildPayload(params: {
 	candidates?: ToolEvidenceCandidate[];
 	places?: PlaceVisit[];
 	distance?: LocationDistanceResult;
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): LocationToolOutcome {
 	const citations = params.citations ?? [];
+	const modelPayload: LocationToolModelPayload = {
+		success: params.success,
+		name: "location",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		results: params.results ?? [],
+		citations,
+		...(params.places !== undefined ? { places: params.places } : {}),
+		...(params.distance !== undefined ? { distance: params.distance } : {}),
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "location",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			results: params.results ?? [],
-			citations,
-			...(params.places !== undefined ? { places: params.places } : {}),
-			...(params.distance !== undefined ? { distance: params.distance } : {}),
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: params.candidates ?? [],
 	};
 }
@@ -203,16 +215,32 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof OwnTracksError) {
 		switch (err.code) {
 			case "not_configured":
-				return "OwnTracks isn't configured on this server. Ask your admin to set it up.";
+				return {
+					message:
+						"OwnTracks isn't configured on this server. Ask your admin to set it up.",
+					code,
+				};
 			default:
-				return "I couldn't reach your OwnTracks recorder right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your OwnTracks recorder right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach your location right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't reach your location right now. Please try again in a moment.",
+		code,
+	};
 }
 
 function lastOutcome(
@@ -628,6 +656,7 @@ export async function runLocationTool(
 								conn,
 								connections,
 							),
+							reason: "not_set_up",
 						});
 					}
 					const fix = await owntracksLastLocation(userId, conn.id);
@@ -664,10 +693,12 @@ export async function runLocationTool(
 				const outcome = lastOutcome(conn, fix, ambiguous, connections);
 				return distillLocationReadOutcome({ userId, modelId, input, outcome });
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -678,6 +709,7 @@ export async function runLocationTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	if (result.kind === "no-match") {
@@ -689,6 +721,7 @@ export async function runLocationTool(
 				result.selector,
 				result.connections,
 			),
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

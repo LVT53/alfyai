@@ -421,6 +421,10 @@ describe("memory context service", () => {
 			content: null,
 			evidenceCandidates: [],
 		});
+		// The same empty result of a person whose memory is on is not "memory is
+		// off": the tool's row says there was nothing, from the result's status.
+		const { reasonCodeOf } = await import("./normal-chat-tools/shared");
+		expect(reasonCodeOf(result)).toBeUndefined();
 	});
 
 	it("shortlists persona facts semantically only when a query is present and facts exceed twelve", async () => {
@@ -1462,6 +1466,14 @@ describe("memory context service", () => {
 		// The master gate short-circuits before any retrieval work runs.
 		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
 		expect(mockGetProjectContext).not.toHaveBeenCalled();
+		// The result says memory is off beside its payload, never in it: what the
+		// model reads is the same empty persona result it always was. (The module
+		// registry is reset for every test, so the side table is read from the same
+		// instance that wrote it.)
+		const { reasonCodeOf } = await import("./normal-chat-tools/shared");
+		expect(reasonCodeOf(result)).toBe("memory_off");
+		expect(JSON.stringify(result)).not.toContain("memory_off");
+		expect(Object.keys(result)).not.toContain("reasonCode");
 	});
 
 	it("rejects selected history detail outside the current history query result set", async () => {
