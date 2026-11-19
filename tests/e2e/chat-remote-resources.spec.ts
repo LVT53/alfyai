@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { messages } from "../../src/lib/server/db/schema";
+import { imageSearchDisplays, messages } from "../../src/lib/server/db/schema";
 import {
 	BRAVE_THUMBNAIL_HOST,
 	FAVICON_ROUTE,
@@ -97,6 +98,7 @@ async function seedReply(
 	page: Page,
 	content: string,
 	toolCalls?: unknown[],
+	messageId = randomUUID(),
 ): Promise<string> {
 	const conversationId = await createEmptyConversation(
 		page,
@@ -104,7 +106,7 @@ async function seedReply(
 	);
 	sequence += 1;
 	await db.insert(messages).values({
-		id: randomUUID(),
+		id: messageId,
 		conversationId,
 		messageSequence: sequence,
 		role: "assistant",
@@ -328,9 +330,31 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 			});
 			const picture = URL_ON(HOST, "image.jpg?size=large");
 			const source = URL_ON(HOST, "gallery");
-			const id = await seedReply(page, `![Cat](${picture})`, [
-				imageSearchCall(picture, picture, source),
-			]);
+			const messageId = randomUUID();
+			const id = await seedReply(
+				page,
+				`![Cat](${picture})`,
+				[
+					imageSearchCall(picture, picture, source),
+					imageSearchCall(
+						URL_ON(HOST, "tool-only.jpg"),
+						URL_ON(HOST, "tool-only.jpg"),
+						source,
+					),
+				],
+				messageId,
+			);
+			const imageKey = createHash("sha256").update(picture).digest("hex");
+			// The completed-turn writer seeded this pending observation. The API
+			// must consume the same key when a real browser settles the image.
+			await db
+				.insert(imageSearchDisplays)
+				.values({ messageId, imageKey, month: "2026-11" });
+			const reports: string[] = [];
+			page.on("request", (request) => {
+				if (new URL(request.url()).pathname === "/api/analytics/image-displays")
+					reports.push(request.postDataJSON().imageKey);
+			});
 			await openChat(page, id);
 			const prose = page
 				.getByTestId("assistant-message")
@@ -345,6 +369,18 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 			} else {
 				await expect(fallback).toBeVisible();
 			}
+			const outcomes = () =>
+				db
+					.select({ outcome: imageSearchDisplays.outcome })
+					.from(imageSearchDisplays)
+					.where(eq(imageSearchDisplays.messageId, messageId))
+					.all();
+			const expected = [{ outcome: succeeds ? "loaded" : "failed" }];
+			await expect.poll(outcomes).toEqual(expected);
+			await page.reload({ waitUntil: "networkidle" });
+			await expect(page.locator(".markdown-image-frame")).toHaveCount(1);
+			await expect.poll(outcomes).toEqual(expected);
+			expect(new Set(reports)).toEqual(new Set([imageKey]));
 			expect(calls.thumbnail.length).toBeGreaterThan(0);
 			expect(calls.standIn).toEqual([]);
 		});

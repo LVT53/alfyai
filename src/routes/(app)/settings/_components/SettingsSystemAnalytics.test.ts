@@ -361,11 +361,58 @@ function systemWithParallelFixture(): AnalyticsResponse {
 						costUsd: 0.9,
 					},
 				],
+				pictureTrackingSince: "2026-06-10T00:00:00Z",
+				pictureMonths: [
+					{
+						month: "2026-05",
+						coverage: "none",
+						normalChatTurns: 0,
+						attempts: 0,
+						failed: 0,
+						empty: 0,
+						candidates: 0,
+						searchedTurns: 0,
+						extraAttempts: 0,
+						meteredExtraCalls: 0,
+						extraListMicros: 0,
+						extraBilledMicros: 0,
+						imageCalls: 1,
+						imageListMicros: 1000,
+						imageBilledMicros: 0,
+						sharedListMicros: 4000,
+						sharedBilledMicros: 0,
+						shown: 0,
+						loaded: 0,
+						loadFailed: 0,
+					},
+					{
+						month: "2026-06",
+						coverage: "partial",
+						normalChatTurns: 20,
+						attempts: 4,
+						failed: 1,
+						empty: 1,
+						candidates: 8,
+						searchedTurns: 2,
+						extraAttempts: 2,
+						meteredExtraCalls: 1,
+						extraListMicros: 1000,
+						extraBilledMicros: 250,
+						imageCalls: 3,
+						imageListMicros: 3000,
+						imageBilledMicros: 250,
+						sharedListMicros: 5000250,
+						sharedBilledMicros: 250,
+						shown: 4,
+						loaded: 2,
+						loadFailed: 1,
+					},
+				],
 				totalTurboCalls: 8,
 				totalExtractCalls: 5,
 				totalImageCalls: 1,
 				totalCostUsd: 1.3,
-				// The current month is 2026-06: $0.01 of the $5.00 allowance
+				// The current month is 2026-06: $0.009 of the $5.00 allowance
 				// used, all of it charged (the allowance was already spent).
 				allowance: {
 					allowanceMicros: 5_000_000,
@@ -711,6 +758,39 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		expect(getByText("Total calls")).toBeInTheDocument();
 	});
 
+	it("separates searched turns, embedded pictures, browser outcomes and sub-cent billing", async () => {
+		const { getByRole, getByTestId, rerender } = render(
+			SettingsSystemAnalytics,
+			{
+				analyticsData: systemWithParallelFixture(),
+				modelNames: {},
+				onRetry: vi.fn(),
+			},
+		);
+		await fireEvent.click(getByRole("tab", { name: "Parallel API" }));
+		const panel = getByTestId("picture-search-analytics");
+		expect(panel).toHaveTextContent("2 of 20");
+		expect(panel).toHaveTextContent("10%");
+		expect(
+			within(panel).getByText("No load report").nextElementSibling,
+		).toHaveTextContent("1");
+		const extras = within(panel).getByRole("row", {
+			name: /Additional searches/,
+		});
+		expect(extras).toHaveTextContent("$0.001");
+		expect(extras).toHaveTextContent("$0.00025");
+		expect(panel).toHaveTextContent("10 June 2026");
+		await rerender({
+			analyticsData: systemWithParallelFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: "2026-05",
+		});
+		expect(panel).toHaveTextContent("This month predates picture tracking");
+		expect(panel).toHaveTextContent("$0.001");
+		expect(within(panel).queryByText("No load report")).not.toBeInTheDocument();
+	});
+
 	it("shows the allowance meter, the counted-cost tile and the month columns", async () => {
 		const { getByRole, getByTestId, getByText } = render(
 			SettingsSystemAnalytics,
@@ -732,9 +812,9 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		// the reset line's figure is what users were charged — the same month,
 		// two different numbers, which is the whole point of the meter.
 		const meter = getByTestId("parallel-allowance-meter");
-		expect(meter.textContent).toContain("$0.01");
+		expect(meter.textContent).toContain("$0.009");
 		expect(meter.textContent).toContain("of $5.00 free allowance used");
-		expect(meter.textContent).toContain("users are charged $0.01");
+		expect(meter.textContent).toContain("users are charged $0.009");
 		expect(meter.textContent).toContain("July");
 
 		// $0.009 of $5.00 — the bar tracks the allowance consumed, not the

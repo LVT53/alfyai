@@ -3,6 +3,7 @@ import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import {
 	index,
 	integer,
+	primaryKey,
 	real,
 	sqliteTable,
 	text,
@@ -1845,6 +1846,23 @@ export const projectKnowledgeLinks = sqliteTable(
 	}),
 );
 
+// One searched picture selected in the final reply, independent of browser visits.
+export const imageSearchDisplays = sqliteTable(
+	"image_search_displays",
+	{
+		messageId: text("message_id")
+			.notNull()
+			.references(() => messages.id, { onDelete: "cascade" }),
+		imageKey: text("image_key").notNull(),
+		month: text("month").notNull(),
+		outcome: text("outcome", { enum: ["loaded", "failed"] }),
+	},
+	(table) => [
+		primaryKey({ columns: [table.messageId, table.imageKey] }),
+		index("image_search_displays_month_idx").on(table.month),
+	],
+);
+
 export const messageAnalytics = sqliteTable(
 	"message_analytics",
 	{
@@ -1931,6 +1949,9 @@ export const usageEvents = sqliteTable(
 		billingMonth: text("billing_month").notNull(),
 		costUsdMicros: integer("cost_usd_micros").notNull().default(0),
 		priceRuleId: text("price_rule_id"),
+		// Kept with the bill when a tracked conversation is deleted. Older and
+		// untracked calls have no first/follow-up classification.
+		parallelImageExtra: integer("parallel_image_extra", { mode: "boolean" }),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -3110,6 +3131,38 @@ export const routingRegions = sqliteTable(
 );
 
 // Content-free completion/accounting audit. No continuation, prompt or evidence.
+export const imageSearchMeasurement = sqliteTable("image_search_measurement", {
+	id: integer("id").primaryKey(),
+	startedAt: integer("started_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+});
+
+export const imageSearchAttempts = sqliteTable(
+	"image_search_attempts",
+	{
+		id: text("id").primaryKey(),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		turnId: text("turn_id").notNull(),
+		isExtra: integer("is_extra", { mode: "boolean" }).notNull(),
+		status: text("status", { enum: ["pending", "done", "failed"] })
+			.notNull()
+			.default("pending"),
+		candidateCount: integer("candidate_count").notNull().default(0),
+		startedAt: integer("started_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({
+		turnIdx: index("image_search_attempts_turn_idx").on(
+			t.conversationId,
+			t.turnId,
+		),
+	}),
+);
+
 export const normalChatTurns = sqliteTable(
 	"normal_chat_turns",
 	{

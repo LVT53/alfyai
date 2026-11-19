@@ -1058,6 +1058,20 @@
 			"when": 1777140000137,
 			"tag": "1777140000137_memory_quarantine",
 			"breakpoints": true
+		},
+		{
+			"idx": 151,
+			"version": "6",
+			"when": 1777140000138,
+			"tag": "1777140000138_image_search_attempts",
+			"breakpoints": true
+		},
+		{
+			"idx": 152,
+			"version": "6",
+			"when": 1777140000139,
+			"tag": "1777140000139_image_search_displays",
+			"breakpoints": true
 		}
 	]
 }

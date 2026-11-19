@@ -19,6 +19,7 @@ import {
 	activityEvents,
 	analyticsConversations,
 	conversations,
+	imageSearchAttempts,
 	messageAnalytics,
 	messages,
 	normalChatAttempts,
@@ -34,6 +35,10 @@ import {
 	TurnLedgerScopeError,
 	withTurnLedgerStorage,
 } from "./chat-turn/turn-ledger-errors";
+import {
+	getPictureAnalytics,
+	type PictureSearchMonth,
+} from "./image-search-analytics/monthly";
 
 export type UsageSource = "provider" | "estimated" | "legacy_estimate";
 
@@ -307,6 +312,8 @@ export interface ParallelMonthRow {
 }
 
 export interface ParallelUsageBreakdown {
+	pictureMonths?: PictureSearchMonth[];
+	pictureTrackingSince?: string;
 	monthly: Array<{
 		month: string;
 		turboCalls: number;
@@ -1888,6 +1895,21 @@ export async function getAnalyticsDashboardReadModel({
 		},
 		queryContext,
 	);
+	const parallel = parallelBreakdown(systemFilteredUsage);
+	const pictures = await getPictureAnalytics(usageRows, {
+		month: systemMonthParam,
+		userId: userIdFilter,
+		excludedUserIds,
+		imageModelId: PARALLEL_TOOL_MODEL.image_search.modelId,
+		priceMicros: PARALLEL_COST_USD_MICROS,
+	});
+	const currentCredit = pictures.pictureMonths.find(
+		(row) => row.month === parallel.allowance.month,
+	);
+	if (currentCredit) {
+		parallel.allowance.monthListMicros = currentCredit.sharedListMicros;
+		parallel.allowance.monthBilledMicros = currentCredit.sharedBilledMicros;
+	}
 	const system: SystemAnalytics = {
 		...systemSummary,
 		totalUsers: new Set([
@@ -1897,7 +1919,7 @@ export async function getAnalyticsDashboardReadModel({
 		// Conversations carrying at least one user message, not every
 		// conversation an analytics snapshot was ever written for.
 		totalConversations: totalConversationsIn(systemMessageTotals),
-		parallel: parallelBreakdown(systemFilteredUsage),
+		parallel: { ...parallel, ...pictures },
 	};
 	const tools = buildToolsSummary(systemFilteredActivity);
 	const commandsAndSkills = buildCommandsAndSkillsSummary(
@@ -2762,6 +2784,7 @@ export async function recordParallelUsage(input: {
 	userId: string;
 	conversationId?: string | null;
 	tool: keyof typeof PARALLEL_TOOL_MODEL;
+	eventId?: string;
 }): Promise<void> {
 	if (!input.userId) return;
 	try {
@@ -2781,9 +2804,17 @@ export async function recordParallelUsage(input: {
 				)
 				.all();
 			const calls = row?.calls ?? 0;
+			const attempt =
+				input.eventId && input.tool === "image_search"
+					? tx
+							.select({ extra: imageSearchAttempts.isExtra })
+							.from(imageSearchAttempts)
+							.where(eq(imageSearchAttempts.id, input.eventId))
+							.get()
+					: undefined;
 			tx.insert(usageEvents)
 				.values({
-					id: crypto.randomUUID(),
+					id: input.eventId ?? crypto.randomUUID(),
 					userId: input.userId,
 					conversationId: input.conversationId ?? "",
 					conversationTitle: null,
@@ -2810,6 +2841,7 @@ export async function recordParallelUsage(input: {
 						allowanceMicros,
 					),
 					priceRuleId: null,
+					parallelImageExtra: attempt?.extra ?? null,
 				})
 				.onConflictDoNothing()
 				.run();

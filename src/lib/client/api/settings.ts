@@ -1,5 +1,6 @@
 import type { UserModelPreference } from "$lib/model-types";
 import type { UserSettings } from "$lib/server/services/auth-types";
+import type { PictureSearchMonth } from "$lib/server/services/image-search-analytics/monthly";
 import {
 	ApiError,
 	type FetchLike,
@@ -150,6 +151,8 @@ interface SystemAnalytics {
 	byProvider: AnalyticsByProviderRow[];
 	monthly?: MonthlyAnalyticsRow[];
 	parallel?: {
+		pictureMonths?: PictureSearchMonth[];
+		pictureTrackingSince?: string;
 		monthly: {
 			month: string;
 			turboCalls: number;

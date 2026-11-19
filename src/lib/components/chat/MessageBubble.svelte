@@ -136,6 +136,7 @@ let {
 	conversationId = null,
 	modelIcons = {},
 	readOnly = false,
+	trackImageLoads = false,
 	onRegenerate = undefined,
 	onSendFollowUp = undefined,
 	onStartEdit = undefined,
@@ -179,6 +180,7 @@ let {
 	conversationId?: string | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	readOnly?: boolean;
+	trackImageLoads?: boolean;
 	onRegenerate?:
 		| ((payload: {
 				messageId: string;
@@ -1452,6 +1454,7 @@ function sendFollowUp(question: string) {
 				isStreaming={markdownIsStreaming}
 				compactExternalLinks
 				toolResults={renderResources}
+				imageReportMessageId={trackImageLoads && !isUser && !message.importSource && !message.forkCopy && hasServerPersistedIdentity && !isStreaming && renderResources?.toolImages?.length ? message.id : undefined}
 			/>
 			{#if $readAloudAvailable}
 				<ReadAloudMarks

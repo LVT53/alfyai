@@ -37,12 +37,16 @@ const PAGES = [
 	{ id: "advanced", card: "system-page-advanced" },
 ] as const;
 
-async function openSystemScreen(page: Page) {
+async function openSystemScreen(page: Page, language: "en" | "hu" = "en") {
 	await page.goto("/settings");
 	await page.waitForLoadState("networkidle");
 	// The tab switch only takes once the page is hydrated.
 	await expect(async () => {
-		await page.getByRole("tab", { name: "Administration" }).click();
+		await page
+			.getByRole("tab", {
+				name: language === "hu" ? "Adminisztráció" : "Administration",
+			})
+			.click();
 		await expect(page.getByTestId("admin-system-screen")).toBeVisible({
 			timeout: 2000,
 		});
@@ -341,4 +345,131 @@ test.describe("Admin Parallel allowance meter", () => {
 		// headers: 120 calls, 120 free, none counted as cost.
 		await expect(table.getByRole("row").nth(1)).toContainText("120");
 	});
+});
+
+test("monthly picture searches, load reports and shared costs reach the admin in English and Hungarian", async ({
+	page,
+}) => {
+	const { sqlite } = await import("../../src/lib/server/db");
+	const admin = sqlite
+		.prepare("SELECT id, ui_language AS language FROM users WHERE email=?")
+		.get(process.env.E2E_EMAIL ?? "admin@local") as {
+		id: string;
+		language: string;
+	};
+	const chat = crypto.randomUUID();
+	const reply = crypto.randomUUID();
+	const month = new Date().toISOString().slice(0, 7);
+	const attempts = [
+		crypto.randomUUID(),
+		crypto.randomUUID(),
+		crypto.randomUUID(),
+	];
+	await signIn(page);
+	const response = await page.evaluate(async () => {
+		const snapshot = await fetch("/api/analytics");
+		if (!snapshot.ok) throw new Error(`Analytics returned ${snapshot.status}`);
+		return (await snapshot.json()) as import("../../src/lib/client/api/settings").AnalyticsResponse;
+	});
+	const before = response.system?.parallel?.pictureMonths?.find(
+		(row) => row.month === month,
+	);
+	if (!before) throw new Error("Missing monthly admin picture analytics");
+	try {
+		sqlite.transaction(() => {
+			sqlite
+				.prepare("INSERT INTO conversations(id,user_id,title) VALUES(?,?,?)")
+				.run(chat, admin.id, "Image analytics test");
+			sqlite
+				.prepare(
+					"INSERT INTO messages(id,conversation_id,role,content) VALUES(?,?,'assistant','Picture reply')",
+				)
+				.run(reply, chat);
+			const turn = sqlite.prepare(
+				"INSERT INTO normal_chat_turns(segment_id,turn_id,conversation_id,owner_id) VALUES(?,?,?,?)",
+			);
+			for (const id of attempts.slice(0, 2)) turn.run(id, id, chat, admin.id);
+			const search = sqlite.prepare(
+				"INSERT INTO image_search_attempts(id,conversation_id,turn_id,is_extra,status,candidate_count) VALUES(?,?,?,?,'done',?)",
+			);
+			const usage = sqlite.prepare(
+				"INSERT INTO usage_events(id,user_id,conversation_id,message_id,model_id,billing_month,parallel_image_extra) VALUES(?,?,?,?,'parallel:images-fast',?,?)",
+			);
+			for (const [index, id] of attempts.entries()) {
+				const extra = Number(index === 2);
+				search.run(id, chat, attempts[extra ? 0 : index], extra, index + 1);
+				usage.run(id, admin.id, chat, `parallel:${id}`, month, extra);
+			}
+			const picture = sqlite.prepare(
+				"INSERT INTO image_search_displays(message_id,image_key,month,outcome) VALUES(?,?,?,?)",
+			);
+			for (const outcome of ["loaded", "failed", null])
+				picture.run(reply, crypto.randomUUID(), month, outcome);
+		})();
+		for (const language of ["en", "hu"] as const) {
+			sqlite
+				.prepare("UPDATE users SET ui_language=? WHERE id=?")
+				.run(language, admin.id);
+			const hu = language === "hu";
+			await openSystemScreen(page, language);
+			await page
+				.getByRole("button", {
+					name: hu ? "Rendszerstatisztika" : "System analytics",
+				})
+				.click();
+			await page.getByRole("tab", { name: "Parallel API" }).click();
+			const panel = page.getByTestId("picture-search-analytics");
+			for (const [label, value] of [
+				[hu ? "Keresési kísérletek" : "Search attempts", before.attempts + 3],
+				[
+					hu
+						? "További keresések ugyanabban a fordulóban"
+						: "Additional searches in the same turn",
+					before.extraAttempts + 1,
+				],
+				[hu ? "Válaszokba illesztve" : "Included in replies", before.shown + 3],
+				[
+					hu ? "Böngészőben betöltve" : "Loaded in a browser",
+					before.loaded + 1,
+				],
+				[hu ? "Sikertelen betöltés" : "Failed to load", before.loadFailed + 1],
+				[
+					hu ? "Nincs betöltési adat" : "No load report",
+					before.shown - before.loaded - before.loadFailed + 1,
+				],
+			] as const) {
+				await expect(
+					panel
+						.getByText(label, { exact: true })
+						.locator("xpath=following-sibling::dd[1]"),
+				).toHaveText(value.toLocaleString(hu ? "hu-HU" : "en-GB"));
+			}
+			const money = new Intl.NumberFormat(hu ? "hu-HU" : "en-GB", {
+				style: "currency",
+				currency: "USD",
+				currencyDisplay: "narrowSymbol",
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 6,
+			});
+			const extra = panel.getByRole("row").filter({
+				has: page.getByRole("rowheader", {
+					name: hu ? "Ebből további keresések" : "Additional searches",
+					exact: true,
+				}),
+			});
+			await expect(extra.getByRole("cell").first()).toHaveText(
+				money.format((before.extraListMicros + 1000) / 1_000_000),
+			);
+		}
+	} finally {
+		sqlite.transaction(() => {
+			sqlite
+				.prepare("UPDATE users SET ui_language=? WHERE id=?")
+				.run(admin.language, admin.id);
+			sqlite
+				.prepare("DELETE FROM usage_events WHERE conversation_id=?")
+				.run(chat);
+			sqlite.prepare("DELETE FROM conversations WHERE id=?").run(chat);
+		})();
+	}
 });

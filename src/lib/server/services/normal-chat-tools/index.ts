@@ -25,6 +25,10 @@ import {
 	ImageSearchNotConfiguredError,
 	searchImages,
 } from "$lib/server/services/image-search";
+import {
+	finishImageSearch,
+	startImageSearch,
+} from "$lib/server/services/image-search-analytics/search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { HistoryChatTitleUnresolvedError } from "$lib/server/services/memory-context/history";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
@@ -1277,11 +1281,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									},
 								};
 							}
-							const results = await searchImages(safeInput, signal);
+							const eventId = startImageSearch(ctx);
+							const results = await searchImages(safeInput, signal).catch(
+								(error) => {
+									finishImageSearch(eventId, null);
+									throw error;
+								},
+							);
+							finishImageSearch(eventId, results.length);
 							void recordParallelUsage({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
 								tool: "image_search",
+								...(eventId ? { eventId } : {}),
 							}).catch(() => {});
 							const compactResults = compactImageSearchResults(results);
 							imageInspection.remember(compactResults);

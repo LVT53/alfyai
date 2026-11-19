@@ -13,6 +13,13 @@ import { resolveWorkingDocumentSelection } from "$lib/server/services/working-do
 import type { AskResumeCapture } from "./ask-questions";
 import type { FinalizeChatTurnDurableReceipt } from "./finalize";
 
+const { mockRecordReplyImages } = vi.hoisted(() => ({
+	mockRecordReplyImages: vi.fn(async () => undefined),
+}));
+vi.mock("../image-search-analytics/display", () => ({
+	recordReplyImages: mockRecordReplyImages,
+}));
+
 const {
 	mockJudgeFinishedTurn,
 	mockListMessages,
@@ -997,6 +1004,48 @@ describe("finalizeChatTurn", () => {
 		mockRecordSkillUseActivityEvent.mockResolvedValue(undefined);
 		mockRecordTurnOriginActivityEvent.mockReset();
 		mockRecordTurnOriginActivityEvent.mockResolvedValue(undefined);
+	});
+
+	it("registers the finalized reply's inline picture selections before publishing its durable identity", async () => {
+		const { finalizeChatTurn } = await import("./finalize");
+		const segments = [
+			{
+				type: "tool_call" as const,
+				name: "image_search",
+				status: "done" as const,
+				input: { query: "market" },
+			},
+		];
+		const answer = "A reference picture";
+		await finalizeChatTurn({
+			turnKind: "stream",
+			responseLanguage: "en",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "Market",
+			persistUserMessage: true,
+			normalizedMessage: "Market",
+			upstreamMessage: "Market",
+			assistantResponse: answer,
+			assistantMetadata: {},
+			serverSegments: segments,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: answer,
+			maintenanceReason: "chat_stream",
+			onDurableReceiptReady: () => {
+				expect(mockRecordReplyImages).toHaveBeenCalledWith(
+					"assistant-message",
+					answer,
+					segments,
+				);
+			},
+		});
+		expect(mockRecordReplyImages).toHaveBeenCalledTimes(1);
 	});
 
 	it("invokes onDurableReceiptReady with message ids before the deferred projection resolves, then keeps running it in the background — no promise or task-starting function comes back to the caller", async () => {

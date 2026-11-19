@@ -1582,6 +1582,7 @@ async function scrollToMessage(messageId: string) {
 					pendingWrites={getPendingWritesForMessage(message)}
 					{conversationId}
 					readOnly={readOnly || editingMessageId !== null}
+					trackImageLoads={!isIncognito && !readOnly}
 					{onRegenerate}
 					{onSendFollowUp}
 					{onStartEdit}

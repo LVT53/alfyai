@@ -65,3 +65,21 @@ The visual questions asked how to distinguish Mini-B and Micro-B plugs, recogniz
 In all six recognition and comparison turns, Flash Next searched, inspected the pixels and embedded a matching reference. All ten inline pictures decoded in Chromium, and every embedded URL matched a result ID whose pixels the model received. In the blackbird replies the photos showed the male, while the answers described the female in words. All six text controls answered without an image search. The English bird question took three image searches and the Hungarian one took two, so a visual turn can use more than one Fast request.
 
 A deterministic integration test also checks the JPEG pixel content on both the ordinary send path and the streaming path. It covers a publisher failure, a text-only model, and a seeing model that times out after receiving the picture and hands the answer to a text-only replacement. [Wire-level regression tests](../../tests/integration/image-search-inspection.test.ts)
+
+## Monthly chat picture analytics
+
+Open **Settings → Administration → System analytics → Parallel API**. The chat picture panel opens on the current UTC month. Use the month navigation to inspect an earlier period.
+
+| Measure | What counts |
+| --- | --- |
+| Search frequency | Saved, non-incognito Normal Chat turns with at least one picture search, divided by eligible turns during the measured period. Resuming the same turn keeps its identity. |
+| Additional searches | Each search after the first in a turn, including a second attempt after a failure. The panel counts failed requests, successful empty searches and returned candidates separately. |
+| Pictures in replies | Each distinct search-result image included inline in an assistant reply. The same image appearing twice in that reply counts once. Tool-row thumbnails and pictures inspected by the model do not add to this count. |
+| Browser outcomes | A successful browser load confirms a picture loaded. A subsequent success can resolve an earlier failure. An image with no browser report remains unknown. Reopening the same reply can update an outcome without adding a picture. Usefulness requires a separate assessment. |
+| Cost | The app's billing ledger records one Fast request at $0.001 for a successful search, including an empty result. Preview loads and inspections add no Fast request. The additional-search row is part of the picture-search total. Each row shows list price, credit consumed and the amount booked after credit. The account inclusion settings apply to chat figures. All accounts' Parallel calls share the budget. |
+
+Detailed search and display measurement starts when the database migration runs. The panel identifies its first partial month and shows only recorded billing for earlier months. Historical Brave activity and missing browser reports cannot establish how many pictures loaded.
+
+In a Chromium validation with three synthetic local chats, Flash Next chose its own tools and image search replayed recorded Parallel Fast candidates. The dashboard increased by three turns, two of which searched for pictures. Three searches, including one follow-up, returned 13 candidates. The replies included two distinct pictures, and Chromium confirmed both loaded. The local ledger showed $0.003 in image searches at list price, including $0.001 for the follow-up, with $0 charged after credit. This test generated no production usage.
+
+A read-only production snapshot on **19 November 2026 at 19:24 UTC** found **287 Turbo web searches, 235 Extract calls and 0 Parallel image searches** for November to date. At list price the app had used **$0.522** of its shared **$5** monthly credit, with **$4.478 remaining** and **$0 booked after credit**. That leaves room for 4,478 Fast image searches if other Parallel usage stops at the snapshot total. Each later web search or extraction also consumes credit.

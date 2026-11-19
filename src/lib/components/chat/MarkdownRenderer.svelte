@@ -1,4 +1,6 @@
 <script lang="ts">
+import { reportImageLoad } from "$lib/client/api/image-displays";
+import { readImageThumbnailRouteUrl } from "$lib/shared/url-provenance";
 import { blockRenderer, type DisplayBlock } from "./block-render-registry";
 import {
 	type ImageLightboxComponent,
@@ -48,12 +50,14 @@ let {
 	isStreaming = false,
 	compactExternalLinks = false,
 	toolResults = undefined,
+	imageReportMessageId = undefined,
 }: {
 	content?: string;
 	isDark?: boolean;
 	isStreaming?: boolean;
 	compactExternalLinks?: boolean;
 	toolResults?: ToolResults;
+	imageReportMessageId?: string;
 } = $props();
 
 // Display blocks are the render-ready output of the A3 block model: the typed
@@ -451,6 +455,26 @@ function openImageLightbox(clicked: HTMLImageElement) {
 	}
 }
 
+// Scope these observations to this rendered reply. The server deduplicates
+// across browser visits and authorizes the hash against the finalized selection.
+const reportedImages = new Map<string, "loaded" | "failed">();
+function reportInlineImage(
+	image: HTMLImageElement,
+	outcome: "loaded" | "failed",
+) {
+	if (!imageReportMessageId || !image.classList.contains("markdown-image"))
+		return;
+	const thumbnail = readImageThumbnailRouteUrl(image.getAttribute("src"));
+	if (!thumbnail) return;
+	const key = `${imageReportMessageId}:${thumbnail}`;
+	const previous = reportedImages.get(key);
+	if (previous === "loaded" || previous === outcome) return;
+	reportedImages.set(key, outcome);
+	void reportImageLoad(imageReportMessageId, thumbnail, outcome).catch(() => {
+		if (reportedImages.get(key) === outcome) reportedImages.delete(key);
+	});
+}
+
 // Graceful degradation: when an embedded image fails to load (e.g. a
 // hotlink-protected search result that 403s cross-origin) hide it rather than
 // leaving the browser's broken-image placeholder in the middle of the prose.
@@ -459,7 +483,8 @@ function handleContentImageError(event: Event) {
 	const image = event.target;
 	if (!(image instanceof HTMLImageElement)) return;
 	if (image.classList.contains("source-link-chip__favicon")) return;
-	if (!image.closest(".markdown-html")) return;
+	if (!image.closest(".markdown-html, .markdown-checklist")) return;
+	reportInlineImage(image, "failed");
 	image.classList.add("markdown-image--broken");
 	// Collapse the C4 skeleton frame so a broken image leaves no dangling
 	// shimmer placeholder behind the (now hidden) broken img.
@@ -477,6 +502,7 @@ function handleContentImageLoad(event: Event) {
 	const image = event.target;
 	if (!(image instanceof HTMLImageElement)) return;
 	if (!image.classList.contains("markdown-image")) return;
+	reportInlineImage(image, "loaded");
 	const frame = image.closest(".markdown-image-frame");
 	if (frame instanceof HTMLElement) {
 		frame.classList.remove("markdown-image-frame--loading");
@@ -752,6 +778,16 @@ async function runPostRenderEffects(version: number) {
 	await tick();
 	if (version !== postRenderVersion || !container) return;
 
+	// A cached picture may have settled before listeners mounted, or while the
+	// streamed reply still had its temporary ID. Pending lazy images stay unknown.
+	if (imageReportMessageId) {
+		for (const image of container.querySelectorAll<HTMLImageElement>(
+			"img.markdown-image",
+		)) {
+			if (image.complete)
+				reportInlineImage(image, image.naturalWidth > 0 ? "loaded" : "failed");
+		}
+	}
 	resizeObserver?.disconnect();
 	resizeObserver?.observe(container);
 	scheduleTableEnhancement();
@@ -790,6 +826,7 @@ async function runPostRenderEffects(version: number) {
 $effect(() => {
 	blocks;
 	isStreaming;
+	imageReportMessageId;
 
 	if (!container) {
 		return;

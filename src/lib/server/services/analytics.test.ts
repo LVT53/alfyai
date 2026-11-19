@@ -1590,6 +1590,14 @@ describe("analytics dashboard read model", () => {
 			systemMonth: "2026-05",
 		});
 		expect(adminResult.system?.parallel).toEqual({
+			pictureTrackingSince: expect.any(String),
+			pictureMonths: expect.arrayContaining([
+				expect.objectContaining({
+					month: "2026-05",
+					sharedListMicros: 2000,
+					sharedBilledMicros: 2000,
+				}),
+			]),
 			monthly: [
 				{
 					month: "2026-05",

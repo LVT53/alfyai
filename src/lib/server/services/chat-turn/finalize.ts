@@ -719,6 +719,29 @@ export async function finalizeChatTurn(
 		createMessage,
 	);
 
+	if (
+		assistantMessage &&
+		params.serverSegments?.some(
+			(segment) =>
+				segment.type === "tool_call" && segment.name === "image_search",
+		)
+	) {
+		// Register the finalized selection before the browser learns the durable message id.
+		// A telemetry failure must never prevent delivery of the reply.
+		try {
+			const { recordReplyImages } = await import(
+				"../image-search-analytics/display"
+			);
+			await recordReplyImages(
+				assistantMessage.id,
+				params.assistantResponse,
+				params.serverSegments,
+			);
+		} catch {
+			console.warn("[ANALYTICS] Could not record inline image selection");
+		}
+	}
+
 	if (assistantMessage && params.generatedOutputReconciliation) {
 		await reconcilePendingWritesForAssistantMessage({
 			turnKind: params.turnKind,

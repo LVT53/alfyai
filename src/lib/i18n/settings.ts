@@ -758,6 +758,39 @@ const settingsDict = {
 		"analytics.totalCalls": "Total calls",
 		"analytics.imageSearches": "Image searches",
 		"analytics.parallelUsage": "Usage by tool",
+		"analytics.pictureTitle": "Chat pictures · {month}",
+		"analytics.pictureScope":
+			"Chat counts cover saved, non-incognito chats for included accounts. The shared budget includes Parallel usage from every account.",
+		"analytics.picturePartial":
+			"Search and preview tracking began on {date}. Billing covers the whole month.",
+		"analytics.pictureHistorical":
+			"This month predates picture tracking. Only recorded billing is available.",
+		"analytics.pictureFrequency": "Chat turns with a picture search",
+		"analytics.pictureRatio": "{searched} of {turns}",
+		"analytics.pictureAttempts": "Search attempts",
+		"analytics.pictureExtra": "Additional searches in the same turn",
+		"analytics.pictureEmpty": "Searches with no results",
+		"analytics.pictureFailed": "Failed searches",
+		"analytics.pictureCandidates": "Image results returned",
+		"analytics.pictureOutcomes": "Pictures in replies",
+		"analytics.pictureShown": "Included in replies",
+		"analytics.pictureLoaded": "Loaded in a browser",
+		"analytics.pictureLoadFailed": "Failed to load",
+		"analytics.pictureUnknown": "No load report",
+		"analytics.pictureOutcomeNote":
+			"Each searched picture counts once per reply. Reopening a chat can confirm a load.",
+		"analytics.pictureSpend": "Shared Parallel budget",
+		"analytics.pictureGroup": "Usage",
+		"analytics.pictureList": "List price",
+		"analytics.pictureCovered": "Covered by credit",
+		"analytics.pictureBilled": "Charged",
+		"analytics.pictureAll": "Picture searches for included accounts",
+		"analytics.pictureExtras": "Additional searches",
+		"analytics.pictureAllParallel": "All Parallel tools",
+		"analytics.pictureRemaining":
+			"{remaining} of the {allowance} monthly credit remains.",
+		"analytics.pictureExtraMetered":
+			"{all} picture searches counted toward list-price usage, including {extra} recorded additional searches.",
 		"analytics.parallelAllowanceOf": "of {allowance} free allowance used",
 		"analytics.parallelAllowanceResets":
 			"Resets 1 {month} · users are charged {charged}",
@@ -2952,6 +2985,39 @@ const settingsDict = {
 		"analytics.totalCalls": "Összes hívás",
 		"analytics.imageSearches": "Képkeresések",
 		"analytics.parallelUsage": "Használat eszközönként",
+		"analytics.pictureTitle": "Képek a beszélgetésekben · {month}",
+		"analytics.pictureScope":
+			"A statisztika a figyelembe vett fiókok mentett, nem inkognitóban folytatott beszélgetéseit mutatja. A közös keretbe az összes fiók Parallel-használata beleszámít.",
+		"analytics.picturePartial":
+			"A kereséseket és az előnézeteket {date} óta mérjük. A költségek a teljes hónapra vonatkoznak.",
+		"analytics.pictureHistorical":
+			"Ebben a hónapban még nem mértük a képek használatát. Csak a rögzített költségek érhetők el.",
+		"analytics.pictureFrequency": "Képkeresést használó beszélgetésfordulók",
+		"analytics.pictureRatio": "{searched} / {turns}",
+		"analytics.pictureAttempts": "Keresési kísérletek",
+		"analytics.pictureExtra": "További keresések ugyanabban a fordulóban",
+		"analytics.pictureEmpty": "Találat nélküli keresések",
+		"analytics.pictureFailed": "Sikertelen keresések",
+		"analytics.pictureCandidates": "Kapott képtalálatok",
+		"analytics.pictureOutcomes": "Képek a válaszokban",
+		"analytics.pictureShown": "Válaszokba illesztve",
+		"analytics.pictureLoaded": "Böngészőben betöltve",
+		"analytics.pictureLoadFailed": "Sikertelen betöltés",
+		"analytics.pictureUnknown": "Nincs betöltési adat",
+		"analytics.pictureOutcomeNote":
+			"Minden keresésből származó kép válaszonként egyszer számít. A betöltés a beszélgetés újbóli megnyitásakor is igazolható.",
+		"analytics.pictureSpend": "Közös Parallel-keret",
+		"analytics.pictureGroup": "Használat",
+		"analytics.pictureList": "Listaár",
+		"analytics.pictureCovered": "Keretből fedezve",
+		"analytics.pictureBilled": "Felszámítva",
+		"analytics.pictureAll": "A figyelembe vett fiókok képkeresései",
+		"analytics.pictureExtras": "Ebből további keresések",
+		"analytics.pictureAllParallel": "Az összes Parallel-eszköz",
+		"analytics.pictureRemaining":
+			"A havi {allowance} keretből {remaining} maradt.",
+		"analytics.pictureExtraMetered":
+			"A listaáras használatba {all} képkeresés számított bele, ebből {extra} keresést rögzítettünk további keresésként.",
 		"analytics.parallelAllowanceOf":
 			"felhasználva a {allowance} ingyenes keretből",
 		"analytics.parallelAllowanceResets":
