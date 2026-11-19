@@ -86,7 +86,16 @@ function previewFacts(
 		)
 			throw new NativeMemoryError("native_format_unsupported", false);
 		actualCounts[fact.chunk_index] += 1;
-		return { text: fact.text.trim() };
+		const text = fact.text.trim();
+		const ownerAnnotation = " | Involving: user";
+		// The pinned extractor appends this exact owner-only annotation. The
+		// authored source wins when it uses the same literal notation.
+		return {
+			text:
+				text.endsWith(ownerAnnotation) && !source.includes(ownerAnnotation)
+					? text.slice(0, -ownerAnnotation.length).trimEnd()
+					: text,
+		};
 	});
 	if (expectedCounts.some((count, index) => count !== actualCounts[index]))
 		throw new NativeMemoryError("native_format_unsupported", false);

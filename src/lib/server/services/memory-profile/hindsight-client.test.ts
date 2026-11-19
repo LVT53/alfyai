@@ -85,6 +85,45 @@ describe("native extraction preview", () => {
 		}
 	});
 
+	it("strips the pinned owner annotation without deleting natural wording or other entities", async () => {
+		const texts = [
+			"The user prefers a wool blanket. | Involving: user",
+			"The user’s sister Adél reads novels. | Involving: Adél, user",
+			"The label reads left | right.",
+		];
+		const { client, config } = preview({
+			facts: texts.map((text) => ({ ...result.facts[0], text })),
+			chunks: [{ text: source.content, fact_count: texts.length }],
+		});
+		try {
+			await expect(client.extractDrafts(source, () => {})).resolves.toEqual([
+				{ text: "The user prefers a wool blanket." },
+				{ text: texts[1] },
+				{ text: texts[2] },
+			]);
+		} finally {
+			config.mockRestore();
+		}
+	});
+
+	it("preserves the literal owner notation when it was present in the authored source", async () => {
+		const authored = {
+			...source,
+			content: "My sign includes the text left | Involving: user",
+		};
+		const { client, config } = preview({
+			facts: [{ ...result.facts[0], text: authored.content }],
+			chunks: [{ text: authored.content, fact_count: 1 }],
+		});
+		try {
+			await expect(client.extractDrafts(authored, () => {})).resolves.toEqual([
+				{ text: authored.content },
+			]);
+		} finally {
+			config.mockRestore();
+		}
+	});
+
 	it("refuses all traffic when quarantine is disabled", async () => {
 		const { client, fetcher, config } = preview(result, false);
 		try {
