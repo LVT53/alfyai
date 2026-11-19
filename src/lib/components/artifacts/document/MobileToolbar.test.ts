@@ -188,11 +188,16 @@ describe("MobileToolbar", () => {
 		it("renders above the document workspace's own mobile backdrop (z-index 95)", async () => {
 			render(MobileToolbar, { onAction: vi.fn() });
 			await fireEvent.click(screen.getByRole("button", { name: "More" }));
-			// zIndexClass lands on DialogShell's own fixed backdrop wrapper, the
-			// dialog's parent — not on the role="dialog" element itself.
-			expect(screen.getByRole("dialog").parentElement?.className).toContain(
-				"z-[150]",
-			);
+			// zIndexClass lands on DialogShell's own fixed layer, the element it marks
+			// with `data-presentation`, which holds the scrim and the stage the dialog
+			// sits on: not on the role="dialog" element itself. The paint order in a
+			// real browser is artifact-document.spec.ts's ("the rest open in a More
+			// sheet").
+			const layer = screen
+				.getByRole("dialog")
+				.closest<HTMLElement>("[data-presentation]");
+			expect(layer?.className).toContain("z-[150]");
+			expect(layer?.className).toContain("fixed");
 		});
 
 		it("renders as a bottom sheet with a grabber (a real close affordance) on a phone", async () => {

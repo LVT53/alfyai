@@ -15,12 +15,30 @@ import type { SpotlightId } from "$lib/app-places";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/model-types";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
+import { setReadAloudAvailable } from "$lib/stores/read-aloud";
+import { uiLanguage } from "$lib/stores/settings";
 import {
 	pendingSpotlight,
 	requestSpotlight,
 	spotlightRequest,
 } from "$lib/stores/spotlight";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
+
+// The Read aloud card loads its own data once read aloud is on.
+vi.mock("$lib/client/api/read-aloud-voices", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/client/api/read-aloud-voices")
+	>()),
+	fetchReadAloudVoices: vi.fn(async () => ({
+		builtIn: [
+			{ key: "imogen", name: "Imogen", language: "en" },
+			{ key: "berta", name: "Berta", language: "hu" },
+		],
+		voices: [],
+		choice: { en: "imogen", hu: "berta" },
+		defaultSpeed: 1,
+	})),
+}));
 
 vi.mock("chart.js/auto", () => {
 	class Chart {
@@ -578,6 +596,79 @@ describe("SettingsProfileTab — preference rows", () => {
 		await fireEvent.change(select, { target: { value: "" } });
 		expect(onChangePersonality).toHaveBeenLastCalledWith(null);
 	});
+
+	// "Send with Enter": the person's own switch for the message box's keys. Off
+	// by default; on, Enter sends and Shift+Enter writes a new line.
+	it("reflects the Send with Enter switch, names it in words and toggles it", async () => {
+		const onChangeSendWithEnter = vi.fn();
+		const { unmount } = renderTab({
+			sendWithEnter: false,
+			onChangeSendWithEnter,
+		});
+
+		const toggle = screen.getByRole("switch", { name: "Send with Enter" });
+		expect(toggle).toHaveAttribute("aria-checked", "false");
+		const row = toggle.closest(".settings-row") as HTMLElement;
+		expect(within(row).getByText("Off")).toBeInTheDocument();
+		expect(
+			within(row).getByText(/Shift\+Enter starts a new line/),
+		).toBeInTheDocument();
+		expect(within(row).getByText(/On a touch screen/)).toBeInTheDocument();
+
+		await fireEvent.click(toggle);
+		expect(onChangeSendWithEnter).toHaveBeenCalledWith(true);
+		unmount();
+
+		renderTab({ sendWithEnter: true });
+		const on = screen.getByRole("switch", { name: "Send with Enter" });
+		expect(on).toHaveAttribute("aria-checked", "true");
+		expect(
+			within(on.closest(".settings-row") as HTMLElement).getByText("On"),
+		).toBeInTheDocument();
+	});
+
+	it("draws the Send with Enter switch off when the page says nothing, and holds it still while it saves", () => {
+		const { unmount } = renderTab();
+		expect(
+			screen.getByRole("switch", { name: "Send with Enter" }),
+		).toHaveAttribute("aria-checked", "false");
+		unmount();
+
+		renderTab({ sendWithEnterSaving: true });
+		expect(
+			screen.getByRole("switch", { name: "Send with Enter" }),
+		).toBeDisabled();
+	});
+
+	it("puts the Send with Enter switch last in the Preferences card", () => {
+		const { container } = renderTab();
+
+		const rows = [
+			...container.querySelectorAll(
+				"#settings-section-preferences .settings-row",
+			),
+		];
+		expect(
+			within(rows.at(-1) as HTMLElement).getByRole("switch", {
+				name: "Send with Enter",
+			}),
+		).toBeInTheDocument();
+	});
+
+	it("names the switch in Hungarian too", () => {
+		uiLanguage.set("hu");
+		try {
+			renderTab();
+			const toggle = screen.getByRole("switch", { name: "Küldés Enterrel" });
+			expect(
+				within(toggle.closest(".settings-row") as HTMLElement).getByText(
+					/Shift\+Enter új sort kezd/,
+				),
+			).toBeInTheDocument();
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
 });
 
 describe("SettingsProfileTab — assistant behaviour", () => {
@@ -590,19 +681,78 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 
 		const toggle = screen.getByRole("switch", { name: "Memory" });
 		expect(toggle).toHaveAttribute("aria-checked", "true");
-		expect(screen.getByText("On")).toBeInTheDocument();
+		const memoryRow = toggle.closest(".settings-row") as HTMLElement;
+		expect(within(memoryRow).getByText("On")).toBeInTheDocument();
 
 		await fireEvent.click(toggle);
 		expect(onChangeMemoryEnabled).toHaveBeenCalledWith(false);
 		unmount();
 
 		renderTab({ memoryEnabled: false });
-		expect(screen.getByRole("switch", { name: "Memory" })).toHaveAttribute(
-			"aria-checked",
-			"false",
-		);
-		expect(screen.getByText("Off")).toBeInTheDocument();
+		const off = screen.getByRole("switch", { name: "Memory" });
+		expect(off).toHaveAttribute("aria-checked", "false");
+		expect(
+			within(off.closest(".settings-row") as HTMLElement).getByText("Off"),
+		).toBeInTheDocument();
 		expect(screen.getByText(/pause all learning/i)).toBeInTheDocument();
+	});
+
+	// "Pictures and videos": the person's own switch for whether Alfy may make
+	// pictures and videos in their chats. On by default; off, it makes none and
+	// what was made stays.
+	it("reflects the Pictures and videos switch, names it in words and toggles it", async () => {
+		const onChangePicturesAndVideos = vi.fn();
+		const { unmount } = renderTab({
+			picturesAndVideosEnabled: true,
+			onChangePicturesAndVideos,
+		});
+
+		const toggle = screen.getByRole("switch", { name: "Pictures and videos" });
+		expect(toggle).toHaveAttribute("aria-checked", "true");
+		const row = toggle.closest(".settings-row") as HTMLElement;
+		expect(within(row).getByText("On")).toBeInTheDocument();
+		expect(within(row).getByText(/when you ask/i)).toBeInTheDocument();
+
+		await fireEvent.click(toggle);
+		expect(onChangePicturesAndVideos).toHaveBeenCalledWith(false);
+		unmount();
+
+		renderTab({ picturesAndVideosEnabled: false });
+		const off = screen.getByRole("switch", { name: "Pictures and videos" });
+		expect(off).toHaveAttribute("aria-checked", "false");
+		expect(
+			within(off.closest(".settings-row") as HTMLElement).getByText("Off"),
+		).toBeInTheDocument();
+	});
+
+	it("draws the Pictures and videos switch on when the page says nothing, and holds it still while it saves", () => {
+		const { unmount } = renderTab();
+		expect(
+			screen.getByRole("switch", { name: "Pictures and videos" }),
+		).toHaveAttribute("aria-checked", "true");
+		unmount();
+
+		renderTab({ picturesAndVideosSaving: true });
+		expect(
+			screen.getByRole("switch", { name: "Pictures and videos" }),
+		).toBeDisabled();
+	});
+
+	it("puts the Pictures and videos switch in the Assistant card, right after Memory", () => {
+		const { container } = renderTab();
+
+		const rows = [
+			...container.querySelectorAll(
+				"#settings-section-assistant .settings-row",
+			),
+		];
+		const memoryAt = rows.findIndex((row) => row.id === "settings-memory-card");
+		expect(memoryAt).toBeGreaterThanOrEqual(0);
+		expect(
+			within(rows[memoryAt + 1] as HTMLElement).getByRole("switch", {
+				name: "Pictures and videos",
+			}),
+		).toBeInTheDocument();
 	});
 
 	// /settings?section=memory (linked from the Knowledge memory empty state)
@@ -953,6 +1103,20 @@ describe("SettingsProfileTab — the guide's Show me", () => {
 			() => screen.getByTestId("skills-summary-card").closest(".settings-row"),
 		],
 		[
+			"settings.pictures",
+			() =>
+				screen
+					.getByRole("switch", { name: "Pictures and videos" })
+					.closest(".settings-row"),
+		],
+		[
+			"settings.sendWithEnter",
+			() =>
+				screen
+					.getByRole("switch", { name: "Send with Enter" })
+					.closest(".settings-row"),
+		],
+		[
 			"settings.data",
 			() => document.getElementById("settings-section-data-privacy"),
 		],
@@ -1275,5 +1439,40 @@ describe("SettingsProfileTab — the time zone row", () => {
 		} finally {
 			uiLanguage.set("en");
 		}
+	});
+});
+
+describe("SettingsProfileTab — the Read aloud card", () => {
+	afterEach(() => {
+		setReadAloudAvailable(false);
+	});
+
+	it("shows the Read aloud card after Preferences only when read aloud is on, and the same for the jump chip", async () => {
+		renderTab();
+		const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+		expect(document.getElementById("settings-section-read-aloud")).toBeNull();
+		expect(within(nav).queryByRole("link", { name: /Read aloud/ })).toBeNull();
+		setReadAloudAvailable(true);
+		await waitFor(() =>
+			expect(
+				document.getElementById("settings-section-read-aloud"),
+			).not.toBeNull(),
+		);
+		const card = document.getElementById("settings-section-read-aloud");
+		expect(card?.previousElementSibling?.id).toBe(
+			"settings-section-preferences",
+		);
+		expect(
+			within(nav)
+				.getAllByRole("link")
+				.map((chip) => chip.getAttribute("href")),
+		).toEqual([
+			"#settings-section-account",
+			"#settings-section-preferences",
+			"#settings-section-read-aloud",
+			"#settings-section-assistant",
+			"#settings-section-data-privacy",
+		]);
+		expect(within(nav).getByRole("link", { name: /Read aloud/ })).toBeTruthy();
 	});
 });

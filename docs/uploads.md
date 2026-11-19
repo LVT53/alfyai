@@ -23,14 +23,15 @@ cutover section) and the admin card says why. An install that follows `latest` c
 release whose protocol changed again, so pin the version and run the checklist in
 [deploy/README.md](../deploy/README.md#upgrading-mineru) after any upgrade.
 
-Production runs MinerU as one systemd service (`mineru41`) around `mineru-kit api-server`, in a
+Production runs MinerU as one systemd service (`mineru42`) around `mineru-kit api-server`, in a
 Python venv of its own, and that service calls a vision-language server that runs as a Docker
 container. This repository ships and tests no container image. The install, the services and their
 ports, the key on the command line, what a server costs in RAM and VRAM and how long it takes to
 start, the cutover and the rollback all have one home:
 [deploy/README.md](../deploy/README.md#document-extraction-service-mineru). What matters here is that
-an app calls exactly the address in `MINERU_API_URL`: production and ai.dev both call MinerU 4.1.7 on
-`http://127.0.0.1:8004`. The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
+an app calls exactly the address in `MINERU_API_URL`: production and ai.dev both call MinerU 4.2.3 on
+`http://127.0.0.1:8004`, which took 4.1.7's place on the same port on 2026-11-18. 4.1.7 was retired and
+deleted the same evening ([deploy/mineru/README.md](../deploy/mineru/README.md)). The 4.0.12 server that answered on `127.0.0.1:8002` before the cutover was
 retired and deleted on 2026-11-09. (`http://127.0.0.1:8001` is only the code default and the port in
 the examples.) `MINERU_API_KEY` must match whatever the server was started with; leave it empty
 (anonymous access) only for a server that nothing else can reach.
@@ -355,16 +356,29 @@ A settled remote task is never resumed: any attempt that finds one failed, cance
 file-level error clears the stored handle, so the next attempt (automatic or a user Retry) creates a
 fresh task rather than re-polling one that cannot change its answer. Sending the bytes again costs
 nothing while the server still holds them: the manifest's `sha256sum` makes it answer `pending`
-with no `upload` object. Every failed file arrives as the single code `parse_failed`, and only
-MinerU's message says why; the app maps the known wordings to its own reasons and never shows the
-message to a person. A damaged, zero-page or password-protected PDF (`PDFium: Data format error`,
-`PDFium: Incorrect password error`) and a workbook that is not one (`Invalid XLSX package`) map to
-`document_unreadable`, which is neither auto-retried nor user-retryable: the same bytes cannot
-become readable, and a repaired file has a different hash and so arrives as a new document.
-`Unsupported file type` maps to `unsupported_type`. An unexplained `parse_failed` still maps to
-`job_failed` and keeps its small attempt budget. MinerU's own words stay with the operator, in the
-attempt's diagnostics (`document_extraction_job_attempts.diagnostics_json`, as `rawMessage` beside
-the rule that matched).
+with no `upload` object. A failed file says why in its error's code (MinerU 4.2.2 and newer), and
+the app maps the code to its own reason and never shows MinerU's message to a person:
+
+| File error code | App reason | Retried |
+|---|---|---|
+| `file_encrypted` (a locked PDF, or one with no pages), `file_corrupted` | `document_unreadable` | no |
+| `file_type_unsupported` | `unsupported_type` | no |
+| `file_too_large`, `resource_limit` | `too_large` | no |
+| `task_timeout` (the server's hang guard stopped this file) | `timeout` | yes, as an outage |
+| `worker_restarted` (another file tripped the guard while this one ran) | `job_failed` | yes |
+| `parse_failed` | read by its message, below | |
+
+`document_unreadable` is neither auto-retried nor user-retryable: the same bytes cannot become
+readable, and a repaired file has a different hash and so arrives as a new document. MinerU still
+sends `parse_failed` for an extension it does not know, an engine error and a reader error it does
+not translate, and up to 4.2.1 it sent it for every cause; only the message says why, so the app
+maps the known wordings: a damaged, zero-page or password-protected PDF (`PDFium: Data format
+error`, `PDFium: Incorrect password error`) and a workbook that is not one (`Invalid XLSX package`)
+map to `document_unreadable`, and `Unsupported file type` to `unsupported_type`. An unexplained
+`parse_failed`, or a code the app does not know, maps to `job_failed` and keeps its small attempt
+budget. MinerU's own words stay with the operator, in the attempt's diagnostics
+(`document_extraction_job_attempts.diagnostics_json`, as `rawMessage` beside the rule that
+matched).
 
 ### Restarts, and a server that forgot
 
@@ -390,6 +404,17 @@ again with a growing wait (5 s, doubling to 5 min) for up to `DOCUMENT_EXTRACTIO
 recovery above makes a new task. The tests prove this against a fake server held to the captures;
 the one run against a real 4.1.7 is the ai.dev live check below, which restarts `mineru41` in the
 middle of a job and expects the job to succeed, not fail. On 2026-11-09 it did succeed.
+
+MinerU 4.2.3 adds a hang guard of its own, `--task-timeout` (an hour on the box). A file whose
+parse outlives it ends `failed` with `task_timeout` (the app's `timeout`), every other file in
+flight at that moment with `worker_restarted` (`job_failed`), and both are retried with a fresh
+task. From then on the server answers 503 `task_timeout` on `/v1/health` and on every new task
+until its process restarts, and it never exits on its own, so systemd's `Restart=` cannot help:
+the box's watchdog timer restarts it within a minute or two ([deploy/mineru/README.md](../deploy/mineru/README.md)).
+The app reads that 503 as an outage (`unavailable`, no attempt spent) and waits; after the restart
+the server has forgotten everything, and the recovery above takes over. `timeout` is an outage
+code too, so a document that hangs MinerU every time is tried twice under the hour's guard and then
+ends `unavailable`, with Retry offered.
 
 `MINERU_JOB_TIMEOUT_MS` is the clock of one attempt: it starts with the attempt and is enforced
 while the task is polled (the transfers have their own, `MINERU_TRANSFER_TIMEOUT_MS`). At the
@@ -849,7 +874,7 @@ LIVE_AI_BASE_URL=https://ai.alfydesign.com LIVE_AI_EMAIL=â€¦ LIVE_AI_PASSWORD=â€
 | `LIVE_EXTRACTION_PLAN41_DIR` | `docs/plans/mineru-4-1/fixtures/inputs` | where the 4.1.7 spike's inputs are |
 | `LIVE_EXTRACTION_CASES` | every case | comma-separated ids, for a narrow smoke |
 | `LIVE_EXTRACTION_EXPECTED_TIER` | `standard` | the tier PDFs and images are expected to parse at |
-| `LIVE_EXTRACTION_EXPECTED_SERVER_VERSION` | `4.1.7` | the MinerU version the status card must show and every document's `parse.parser_version` must carry |
+| `LIVE_EXTRACTION_EXPECTED_SERVER_VERSION` | `4.2.3` | the MinerU version the status card must show and every document's `parse.parser_version` must carry |
 | `LIVE_EXTRACTION_EXPECTED_PARSER_VERSION` | `mineru4/2` | the app's renderer version (`extractionParserVersion`) |
 | `LIVE_EXTRACTION_TIER` | *(unset)* | when set, every extraction case is re-extracted at this tier and the run reports the diff |
 
@@ -875,7 +900,7 @@ to see it read.
 
 **Not covered by this script, to do by hand on ai.dev:** a cancel (the job ends `canceled`, one
 `POST /v1/tasks/{id}/cancel` in MinerU's access log), a HEIC photo of a page (the job succeeds and
-its text is read), and `systemctl restart mineru41` in the middle of a job (the job has to succeed
+its text is read), and `systemctl restart mineru42` in the middle of a job (the job has to succeed
 by creating the task again; the app's journal shows `MinerU forgot an id, recovering`). And the
 gate itself: it needs a MinerU backend that genuinely answers `/v1/health` with a pre-4.x version,
 which this single-deployment sweep has no way to fake.

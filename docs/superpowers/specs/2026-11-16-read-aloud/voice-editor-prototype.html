@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice editor prototype</title>
+<style>
+  :root {
+    --page:#fafaf8; --elev:#f4f3ee; --text:#1a1a1a; --muted:#6b6b6b; --faint:rgba(0,0,0,.14); --border:rgba(0,0,0,.08);
+    --accent:#c15f3c; --soft-accent:color-mix(in srgb, var(--accent) 12%, #fff); --danger:#b91c1c;
+    --ease-out:cubic-bezier(.4,0,.2,1); --ease-emphasis:cubic-bezier(.2,0,0,1); --d-standard:150ms; --d-emphasis:250ms;
+    color-scheme:light;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#ecebe6; font-family:"Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif; color:var(--text); font-size:14px; }
+  .top { max-width:1120px; margin:0 auto; padding:16px 18px 0; display:flex; gap:18px; align-items:center; flex-wrap:wrap; color:var(--muted); font-size:13px; }
+  .top b { color:var(--text); font-size:15px; }
+  .top label { display:flex; gap:6px; align-items:center; }
+  .stage { position:relative; max-width:1120px; margin:12px auto 24px; min-height:760px; background:var(--page); border:1px solid var(--border); border-radius:16px; overflow:hidden; }
+  .stage.phone { max-width:390px; border-radius:30px; }
+  /* Settings page section behind the editor */
+  .settings { max-width:640px; margin:0 auto; padding:28px 22px; }
+  .settings h1 { font-family:"Libre Baskerville",Georgia,serif; font-weight:400; font-size:26px; margin:0 0 18px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:16px 18px; }
+  .card h2 { font-size:15px; margin:0; } .card .sub { color:var(--muted); font-size:12.5px; margin:3px 0 10px; }
+  .field { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--border); }
+  .field .k { font-size:13.5px; } .field .hint { color:var(--muted); font-size:12px; }
+  select, input[type=text] { font:inherit; font-size:13.5px; border:1px solid var(--border); border-radius:9px; padding:7px 10px; background:var(--page); color:var(--text); }
+  select:disabled { color:var(--muted); }
+  .yours { border-top:1px solid var(--border); padding-top:12px; margin-top:2px; }
+  .yh { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .empty { color:var(--muted); font-size:12.5px; padding:6px 0 4px; line-height:1.5; }
+  .yv { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px dashed var(--border); }
+  .yv:first-of-type { border-top:0; }
+  .yv .nm { flex:1; display:flex; flex-direction:column; } .yv .nm i { color:var(--muted); font-style:normal; font-size:12px; }
+  button { font:inherit; cursor:pointer; color:var(--text); }
+  .ghost { font-size:12.5px; border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 12px; }
+  .primary { font-size:13px; font-weight:600; border:0; background:var(--accent); color:#fff; border-radius:999px; padding:8px 16px; }
+  .primary:disabled { opacity:.45; cursor:default; }
+  .quiet { font-size:12.5px; border:0; background:none; color:var(--muted); padding:6px 4px; }
+  .danger { font-size:12.5px; border:0; background:none; color:var(--danger); padding:6px 4px; }
+  .iconbtn { width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:#fff; display:inline-flex; align-items:center; justify-content:center; padding:0; flex:none; }
+  .iconbtn svg { width:13px; height:13px; }
+  .iconbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .iconbtn.busy svg { animation:spin .9s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* The editor: a dialog on desktop, a full-height sheet on a phone. */
+  .scrim { position:absolute; inset:0; background:rgba(26,26,26,.28); opacity:0; pointer-events:none; transition:opacity var(--d-emphasis) var(--ease-emphasis); }
+  .scrim.open { opacity:1; pointer-events:auto; }
+  .editor { position:absolute; left:50%; top:40px; width:min(600px, calc(100% - 32px)); max-height:calc(100% - 80px); overflow:auto; background:#fff; border-radius:18px;
+            box-shadow:0 24px 60px rgba(0,0,0,.22); transform:translate(-50%, 12px); opacity:0; pointer-events:none;
+            transition:opacity var(--d-emphasis) var(--ease-emphasis), transform var(--d-emphasis) var(--ease-emphasis); }
+  .editor.open { opacity:1; transform:translate(-50%, 0); pointer-events:auto; }
+  .phone .editor { left:0; top:auto; bottom:0; width:100%; max-height:calc(100% - 24px); border-radius:22px 22px 0 0; transform:translateY(40px); }
+  .phone .editor.open { transform:none; }
+  .ehead { position:sticky; top:0; background:#fff; z-index:2; display:flex; align-items:center; justify-content:space-between; padding:16px 20px 10px; border-bottom:1px solid transparent; }
+  .ehead b { font-size:16px; } .ehead .x { border:0; background:none; font-size:18px; color:var(--muted); width:32px; height:32px; }
+  .ebody { padding:0 20px 8px; }
+  .sec { margin:12px 0 18px; }
+  .sec > .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; display:flex; justify-content:space-between; align-items:center; }
+  .bases { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+  .phone .bases { grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .base { position:relative; border:1px solid var(--border); border-radius:12px; padding:10px 10px 10px 12px; background:var(--page); text-align:left; display:flex; align-items:center; gap:8px;
+          transition:border-color var(--d-standard) var(--ease-out), background-color var(--d-standard) var(--ease-out); }
+  .base .bn { flex:1; min-width:0; } .base .bn b { display:block; font-size:13.5px; } .base .bn i { font-style:normal; color:var(--muted); font-size:11.5px; }
+  .base.sel { border-color:var(--accent); background:var(--soft-accent); }
+  .base.soon { opacity:.55; cursor:default; }
+  .langtag { font-size:11px; color:var(--muted); margin:10px 0 6px; }
+  .styles { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { font-size:12.5px; border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 12px; }
+  .chip.sel { background:var(--text); border-color:var(--text); color:#fff; }
+  .sliders { display:flex; flex-direction:column; gap:14px; }
+  .sl { display:grid; grid-template-columns:96px minmax(0,1fr) 116px; align-items:center; gap:12px; }
+  .phone .sl { grid-template-columns:1fr auto; grid-template-areas:"name word" "range range"; row-gap:2px; }
+  .phone .sl .nm { grid-area:name; } .phone .sl .word { grid-area:word; } .phone .sl .rangewrap { grid-area:range; }
+  .sl .nm { font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:6px; }
+  .sl .reset { border:0; background:none; color:var(--muted); font-size:13px; padding:0 2px; opacity:0; transition:opacity var(--d-standard) var(--ease-out); }
+  .sl.moved .reset { opacity:1; }
+  .sl .word { font-size:12.5px; color:var(--muted); text-align:right; white-space:nowrap; }
+  .sl.moved .word { color:var(--accent); font-weight:600; }
+  .rangewrap { position:relative; height:40px; --fa:50%; --fb:50%; --th:9px; }
+  /* The track and the change from normal, drawn under the native range input (whose own track is transparent). */
+  .rangewrap::before { content:""; position:absolute; left:var(--th); right:var(--th); top:12px; height:4px; border-radius:4px; pointer-events:none; z-index:0;
+    background:linear-gradient(to right, var(--faint) 0, var(--faint) var(--fa), var(--accent) var(--fa), var(--accent) var(--fb), var(--faint) var(--fb), var(--faint) 100%); }
+  .phone .rangewrap { --th:12px; } .phone .rangewrap::before { top:16px; }
+  .rangewrap .mid { position:absolute; top:6px; width:2px; height:16px; background:rgba(0,0,0,.25); border-radius:1px; transform:translateX(-1px); pointer-events:none; }
+  .rangewrap .ends { position:absolute; left:0; right:0; top:27px; display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); pointer-events:none; }
+  .phone .rangewrap { height:50px; } .phone .rangewrap .mid { top:10px; } .phone .rangewrap .ends { top:35px; }
+  input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:28px; background:transparent; margin:0; position:relative; z-index:1; display:block; }
+  .phone input[type=range] { height:36px; }
+  input[type=range]::-webkit-slider-runnable-track { height:4px; border-radius:4px; background:transparent; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:18px; height:18px; margin-top:-7px; border-radius:50%; background:#fff; border:2px solid var(--accent); box-shadow:0 1px 4px rgba(0,0,0,.18); }
+  .phone input[type=range]::-webkit-slider-thumb { width:24px; height:24px; margin-top:-10px; }
+  input[type=range]::-moz-range-track { height:4px; border-radius:4px; background:transparent; }
+  input[type=range]::-moz-range-thumb { width:16px; height:16px; border-radius:50%; background:#fff; border:2px solid var(--accent); }
+  .preview { background:var(--elev); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+  .prow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .play { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; border:0; background:var(--accent); color:#fff; border-radius:999px; padding:8px 14px 8px 12px; }
+  .play svg { width:14px; height:14px; } .play.busy svg { animation:spin .9s linear infinite; }
+  .ab { display:inline-flex; border:1px solid var(--border); border-radius:999px; overflow:hidden; background:#fff; }
+  .ab button { border:0; background:#fff; font-size:12.5px; padding:6px 11px; }
+  .ab button.on { background:var(--text); color:#fff; }
+  .status { font-size:12px; color:var(--muted); margin-left:auto; }
+  .ptext { font-size:13px; line-height:1.5; color:var(--text); }
+  .ptext input { width:100%; }
+  .tiny { font-size:11.5px; color:var(--muted); }
+  .tiny code { font-size:11px; }
+  .row2 { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+  .row2 label { display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--text); cursor:pointer; }
+  .row2 input[type=checkbox] { -webkit-appearance:none; appearance:none; width:30px; height:18px; border-radius:999px; background:var(--faint); position:relative; margin:0; cursor:pointer; transition:background-color var(--d-standard) var(--ease-out); flex:none; }
+  .row2 input[type=checkbox]::after { content:""; position:absolute; left:2px; top:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); transition:transform var(--d-standard) var(--ease-out); }
+  .row2 input[type=checkbox]:checked { background:var(--accent); }
+  .row2 input[type=checkbox]:checked::after { transform:translateX(12px); }
+  .row2 input[type=checkbox]:focus-visible { outline:2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset:2px; }
+  .efoot { position:sticky; bottom:0; z-index:3; background:#fff; display:flex; align-items:center; gap:8px; padding:12px 20px 16px; border-top:1px solid var(--border); }
+  .efoot .sp { flex:1; } .efoot button { white-space:nowrap; } .phone #cancel { display:none; }
+  .notes { max-width:1120px; margin:0 auto 30px; padding:0 18px; color:var(--muted); font-size:13px; line-height:1.55; }
+  .notes b { color:var(--text); }
+</style>
+</head>
+<body>
+<div class="top"><b>Voice editor prototype</b><span>Live voices from the Zonos on this Mac. Every sound you hear is rendered when you ask for it.</span>
+  <label><input type="checkbox" id="phone"> Phone width</label></div>
+<div class="stage" id="stage">
+  <div class="settings">
+    <h1>Settings</h1>
+    <div class="card">
+      <h2>Read aloud</h2>
+      <div class="sub">The voices AlfyAI uses when you press the speaker on a reply.</div>
+      <div class="field"><span class="k">English voice</span><select id="enVoice"></select></div>
+      <div class="field"><span class="k">Hungarian voice</span><select><option>Hungarian woman · name to come</option><option>Hungarian man · name to come</option></select></div>
+      <div class="field"><span><span class="k">Default speed</span><br><span class="hint">Every reading starts at this speed</span></span><select id="speed"><option>0.75×</option><option selected>1×</option><option>1.25×</option><option>1.5×</option><option>2×</option></select></div>
+      <div class="yours">
+        <div class="yh"><b>Your voices</b><button class="ghost" id="newVoice">＋ New voice</button></div>
+        <div id="yourList"></div>
+      </div>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="editor" id="editor" role="dialog" aria-modal="true" aria-labelledby="etitle">
+    <div class="ehead"><b id="etitle">New voice</b><button class="x" id="eclose" aria-label="Close">✕</button></div>
+    <div class="ebody">
+      <div class="sec"><div class="lbl">Start from</div>
+        <div class="langtag">English</div>
+        <div class="bases" id="bases"></div>
+        <div class="langtag">Hungarian</div>
+        <div class="bases">
+          <div class="base soon" title="Not made yet in this prototype"><div class="bn"><b>Hungarian woman</b><i>Name to come</i></div><span class="iconbtn" aria-disabled="true">▶</span></div>
+          <div class="base soon" title="Not made yet in this prototype"><div class="bn"><b>Hungarian man</b><i>Name to come</i></div><span class="iconbtn" aria-disabled="true">▶</span></div>
+        </div>
+      </div>
+      <div class="sec"><div class="lbl">A style to start with</div>
+        <div class="styles" id="styles"></div>
+      </div>
+      <div class="sec"><div class="lbl"><span>Shape it</span><button class="quiet" id="resetAll">Reset all</button></div>
+        <div class="sliders" id="sliders"></div>
+      </div>
+      <div class="sec"><div class="lbl">Listen</div>
+        <div class="preview">
+          <div class="prow">
+            <button class="play" id="play"><svg viewBox="0 0 24 24" fill="#fff"><polygon points="6 3 20 12 6 21 6 3"/></svg><span>Play</span></button>
+            <div class="ab" role="group" aria-label="Compare"><button id="abYours" class="on">Yours</button><button id="abOrig">Original</button></div>
+            <span class="status" id="status"></span>
+          </div>
+          <div class="ptext" id="ptextWrap"></div>
+          <div class="row2">
+            <label><input type="checkbox" id="autoPlay" checked> Play after each change</label>
+            <label><input type="checkbox" id="ownText"> Use my own words</label>
+          </div>
+        </div>
+      </div>
+      <div class="sec"><div class="lbl">Name</div>
+        <input type="text" id="vname" maxlength="40" style="width:100%">
+      </div>
+    </div>
+    <div class="efoot">
+      <button class="danger" id="del" hidden>Delete</button>
+      <span class="sp"></span>
+      <button class="ghost" id="cancel">Cancel</button>
+      <button class="ghost" id="saveNew" hidden>Save as new</button>
+      <button class="primary" id="save">Save voice</button>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <b>Try:</b> open "＋ New voice", pick a voice, try a style, then move a slider and let go: it renders and plays. Flip "Yours / Original" to compare.
+  Save it, then press Edit on it. Tick "Phone width" for the sheet layout. The Hungarian voices are not made yet, so they cannot play here.
+</div>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const BASES = [
+    { key: 'imogen', name: 'Imogen', desc: 'British woman', id: 'default_b78b28baf5c31a1d' },
+    { key: 'rupert', name: 'Rupert', desc: 'British man', id: 'default_3765f0d1140c05c0' },
+    { key: 'savannah', name: 'Savannah', desc: 'American woman', id: 'default_de4d191ca7574982' },
+    { key: 'wyatt', name: 'Wyatt', desc: 'American man', id: 'default_34370fd91e3484ef' },
+  ];
+  const KNOBS = [
+    { key: 'pace', name: 'Pace', min: -2, max: 2, ends: ['Slower', 'Faster'],
+      words: (v) => v <= -1.25 ? 'Much slower' : v < -0.6 ? 'Slower' : v < -0.1 ? 'A little slower' : v <= 0.1 ? 'Normal' : v <= 0.6 ? 'A little faster' : v <= 1.25 ? 'Faster' : 'Much faster' },
+    { key: 'pitch', name: 'Pitch', min: -2, max: 2, ends: ['Lower', 'Higher'],
+      words: (v) => v <= -1.25 ? 'Much lower' : v < -0.6 ? 'Lower' : v < -0.1 ? 'A little lower' : v <= 0.1 ? 'Normal' : v <= 1.25 ? 'A little higher' : 'Higher' },
+    { key: 'depth', name: 'Depth', min: 0, max: 4, ends: ['Normal', 'Deeper'],
+      words: (v) => v <= 0.1 ? 'Normal' : v <= 1.5 ? 'A little fuller' : v <= 3 ? 'Deeper' : 'Much deeper' },
+    { key: 'energy', name: 'Energy', min: -4, max: 4, ends: ['Calmer', 'Livelier'],
+      words: (v) => v <= -2.5 ? 'Very calm' : v < -1.2 ? 'Calm' : v < -0.2 ? 'A little calmer' : v <= 0.2 ? 'Normal' : v <= 1.2 ? 'A little livelier' : v <= 2.5 ? 'Lively' : 'Very lively' },
+    { key: 'projection', name: 'Projection', min: -1.5, max: 2, ends: ['Softer', 'Projected'],
+      words: (v) => v <= -0.9 ? 'Breathy' : v < -0.3 ? 'Softer' : v < -0.1 ? 'A little softer' : v <= 0.1 ? 'Normal' : v <= 0.5 ? 'A little clearer' : v <= 1.2 ? 'Clearer' : 'Projected' },
+  ];
+  const STYLES = [
+    { name: 'Original', k: {} },
+    { name: 'Bedtime', k: { pace: -1, energy: -2.5, projection: -0.6, depth: 1 } },
+    { name: 'Storyteller', k: { pace: -0.5, energy: 1.5, projection: 0.5 } },
+    { name: 'Brisk', k: { pace: 1.25, energy: 1, projection: 0.5 } },
+    { name: 'Calm and clear', k: { pace: -0.5, energy: -1.5, projection: 1 } },
+    { name: 'Cheerful', k: { pace: 0.5, energy: 2.5, pitch: 0.5, projection: 0.5 } },
+    { name: 'Newsreader', k: { pace: 0.25, energy: -0.5, projection: 1.5, depth: 1 } },
+  ];
+  const SAMPLE = "Here's the short version: feed it once a day, keep it somewhere warm, and it will double in about six hours. Shall I read you the long one?";
+  const zero = () => Object.fromEntries(KNOBS.map((k) => [k.key, 0]));
+
+  let yours = [];           // saved voices (in memory for the prototype)
+  let editing = null;       // the saved voice being edited, or null for a new one
+  let base = BASES[0], knobs = zero(), nameTouched = false, compare = 'yours';
+  const audioCache = new Map(); let audio = null;
+
+  // ---- Settings section ----
+  function renderSettings() {
+    const sel = $('#enVoice'); const keep = sel.value;
+    sel.innerHTML = `<optgroup label="Built in">${BASES.map((b) => `<option value="b:${b.key}">${b.name} · ${b.desc}</option>`).join('')}</optgroup>` +
+      (yours.length ? `<optgroup label="Yours">${yours.map((v) => `<option value="y:${v.id}">${esc(v.name)}</option>`).join('')}</optgroup>` : '');
+    sel.value = [...sel.options].some((o) => o.value === keep) ? keep : 'b:imogen';
+    $('#yourList').innerHTML = yours.length ? yours.map((v) => `
+      <div class="yv"><button class="iconbtn" data-play="${v.id}" aria-label="Play ${esc(v.name)}">${PLAY}</button>
+        <div class="nm"><b>${esc(v.name)}</b><i>from ${v.base.name} · ${summary(v.knobs).toLowerCase() || 'unchanged'}</i></div>
+        <button class="ghost" data-edit="${v.id}">Edit</button></div>`).join('')
+      : `<div class="empty">Make a voice of your own: start from one of the built-in voices and change how it sounds. Only you will see it.</div>`;
+  }
+  const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
+  const SPIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const summary = (k) => KNOBS.filter((d) => Math.abs(k[d.key] || 0) > 0.3).map((d) => d.words(k[d.key])).join(', ');
+
+  // ---- Audio ----
+  async function render(b, k, text) {
+    const key = JSON.stringify([b.id, k, text]);
+    if (audioCache.has(key)) return { url: audioCache.get(key), cached: true };
+    const t0 = performance.now();
+    const res = await fetch('/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice: b.id, lang: 'en', text, knobs: k }) });
+    if (!res.ok) throw new Error(await res.text());
+    const url = URL.createObjectURL(await res.blob());
+    audioCache.set(key, url);
+    return { url, cached: false, ms: Math.round(performance.now() - t0) };
+  }
+  const PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>';
+  let owner = null;   // the button that owns the sound playing now
+  function show(el, state) {
+    if (!el) return;
+    if (el.id === 'play') { setPlay(state === 'playing', state === 'busy'); return; }
+    el.classList.toggle('busy', state === 'busy'); el.classList.toggle('on', state === 'playing');
+    el.innerHTML = state === 'busy' ? SPIN : state === 'playing' ? PAUSE : PLAY;
+  }
+  function stopAudio() { if (audio) { audio.onended = null; audio.pause(); audio = null; } show(owner, 'idle'); owner = null; }
+  async function toggleSound(el, getUrl) {
+    if (owner === el) { stopAudio(); return; }          // the same button again: pause
+    stopAudio(); owner = el; show(el, 'busy');
+    try {
+      const url = await getUrl(); if (owner !== el) return;  // another button took over meanwhile
+      audio = new Audio(url); audio.onended = () => { show(el, 'idle'); owner = null; audio = null; };
+      audio.play().catch(() => {}); show(el, 'playing');
+    } catch (e) { show(el, 'idle'); owner = null; $('#status').textContent = 'The voice could not be rendered.'; }
+  }
+  function setPlay(on, busy) {
+    const p = $('#play'); p.classList.toggle('busy', !!busy);
+    p.innerHTML = (busy ? SPIN : on ? PAUSE : PLAY).replace('currentColor', '#fff') + `<span>${busy ? 'Rendering…' : on ? 'Pause' : 'Play'}</span>`;
+  }
+  const previewText = () => $('#ownText').checked ? ($('#ptext').value.trim() || SAMPLE) : SAMPLE;
+  function playPreview(force) {
+    if (force && owner === $('#play')) stopAudio();
+    return toggleSound($('#play'), async () => {
+      $('#status').textContent = '';
+      const r = await render(base, compare === 'yours' ? { ...knobs } : zero(), previewText());
+      $('#status').textContent = r.cached ? 'ready' : `rendered in ${(r.ms / 1000).toFixed(1)} s`;
+      return r.url;
+    });
+  }
+  $('#play').addEventListener('click', () => playPreview(false));
+  $('#abYours').addEventListener('click', () => { compare = 'yours'; $('#abYours').classList.add('on'); $('#abOrig').classList.remove('on'); playPreview(true); });
+  $('#abOrig').addEventListener('click', () => { compare = 'orig'; $('#abOrig').classList.add('on'); $('#abYours').classList.remove('on'); playPreview(true); });
+  function changed() {
+    compare = 'yours'; $('#abYours').classList.add('on'); $('#abOrig').classList.remove('on');
+    syncName(); markStyles();
+    if ($('#autoPlay').checked) playPreview(true);
+  }
+
+  // ---- Editor pieces ----
+  function renderBases() {
+    $('#bases').innerHTML = BASES.map((b) => `<button class="base${b === base ? ' sel' : ''}" data-base="${b.key}">
+      <span class="bn"><b>${b.name}</b><i>${b.desc}</i></span><span class="iconbtn" data-hear="${b.key}" aria-label="Hear ${b.name}">${PLAY}</span></button>`).join('');
+  }
+  $('#bases').addEventListener('click', async (e) => {
+    const hear = e.target.closest('[data-hear]');
+    if (hear) { e.stopPropagation(); const b = BASES.find((x) => x.key === hear.dataset.hear);
+      toggleSound(hear, async () => (await render(b, zero(), SAMPLE)).url); return; }
+    const bt = e.target.closest('[data-base]'); if (!bt) return;
+    base = BASES.find((x) => x.key === bt.dataset.base); renderBases(); changed();
+  });
+  function renderStyles() { $('#styles').innerHTML = STYLES.map((s, i) => `<button class="chip" data-style="${i}">${s.name}</button>`).join(''); markStyles(); }
+  function markStyles() {
+    const same = (s) => KNOBS.every((d) => Math.abs((s.k[d.key] || 0) - knobs[d.key]) < 0.01);
+    document.querySelectorAll('[data-style]').forEach((c) => c.classList.toggle('sel', same(STYLES[+c.dataset.style])));
+  }
+  $('#styles').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-style]'); if (!c) return;
+    animateTo({ ...zero(), ...STYLES[+c.dataset.style].k }, changed);
+  });
+  function renderSliders() {
+    $('#sliders').innerHTML = KNOBS.map((d) => {
+      const mid = ((0 - d.min) / (d.max - d.min)) * 100;
+      return `<div class="sl" data-k="${d.key}">
+        <span class="nm">${d.name}<button class="reset" title="Back to normal" data-reset="${d.key}">↺</button></span>
+        <span class="rangewrap"><span class="mid" style="left:calc(var(--th) + (100% - 2 * var(--th)) * ${mid / 100})"></span>
+          <input type="range" min="${d.min}" max="${d.max}" step="0.05" value="0" aria-label="${d.name}">
+          <span class="ends"><span>${d.ends[0]}</span><span>${d.ends[1]}</span></span></span>
+        <span class="word"></span></div>`;
+    }).join('');
+    syncSliders();
+  }
+  function syncSliders() {
+    document.querySelectorAll('.sl').forEach((row) => {
+      const d = KNOBS.find((x) => x.key === row.dataset.k), v = knobs[d.key], input = row.querySelector('input');
+      if (Number(input.value) !== v) input.value = v;
+      row.querySelector('.word').textContent = d.words(v);
+      row.classList.toggle('moved', Math.abs(v) > 0.001);
+      paintTrack(input, d, v);
+    });
+  }
+  function paintTrack(input, d, v) {
+    // The accent runs from "normal" to the value, so the change reads at a glance.
+    const z = (0 - d.min) / (d.max - d.min) * 100, p = (v - d.min) / (d.max - d.min) * 100;
+    input.parentElement.style.setProperty('--fa', Math.min(z, p) + '%');
+    input.parentElement.style.setProperty('--fb', Math.max(z, p) + '%');
+  }
+  $('#sliders').addEventListener('input', (e) => {
+    const row = e.target.closest('.sl'); if (!row || e.target.type !== 'range') return;
+    const d = KNOBS.find((x) => x.key === row.dataset.k); let v = Number(e.target.value);
+    if (Math.abs(v) < (d.max - d.min) * 0.04) v = 0;                // a soft notch at normal
+    knobs[d.key] = Math.round(v * 20) / 20; syncSliders(); markStyles(); syncName();
+  });
+  $('#sliders').addEventListener('change', (e) => { if (e.target.type === 'range') changed(); });
+  $('#sliders').addEventListener('click', (e) => { const r = e.target.closest('[data-reset]'); if (r) { animateTo({ ...knobs, [r.dataset.reset]: 0 }, changed); } });
+  $('#resetAll').addEventListener('click', () => animateTo(zero(), changed));
+  function animateTo(target, done) {
+    const from = { ...knobs }, t0 = performance.now(), dur = 260;
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 3);
+      KNOBS.forEach((d) => { knobs[d.key] = Math.round((from[d.key] + (target[d.key] - from[d.key]) * e) * 20) / 20; });
+      syncSliders();
+      if (t < 1) requestAnimationFrame(step); else { Object.assign(knobs, target); syncSliders(); done && done(); }
+    };
+    requestAnimationFrame(step);
+  }
+  function syncName() {
+    // A short suggestion: the style's name when one matches, else the two biggest changes.
+    if (nameTouched) return;
+    const style = STYLES.slice(1).find((st) => KNOBS.every((d) => Math.abs((st.k[d.key] || 0) - knobs[d.key]) < 0.01));
+    if (style) { $('#vname').value = `${style.name} ${base.name}`; return; }
+    const top = KNOBS.map((d) => ({ d, m: Math.abs(knobs[d.key]) / (d.max - d.min) })).filter((x) => x.m > 0.08)
+      .sort((a, b) => b.m - a.m).slice(0, 2).map((x) => x.d.words(knobs[x.d.key]).toLowerCase());
+    $('#vname').value = top.length ? `${base.name}, ${top.join(' and ')}` : `My ${base.name}`;
+  }
+  $('#vname').addEventListener('input', () => { nameTouched = true; });
+  $('#ownText').addEventListener('change', () => renderPText());
+  function renderPText() {
+    $('#ptextWrap').innerHTML = $('#ownText').checked ? `<input type="text" id="ptext" placeholder="Type a sentence to hear" value="">` : `“${SAMPLE}”`;
+    if ($('#ownText').checked) $('#ptext').focus();
+  }
+
+  // ---- Open, save, edit, delete ----
+  function openEditor(v) {
+    editing = v || null; base = v ? v.base : BASES[0]; knobs = v ? { ...v.knobs } : zero(); nameTouched = !!v; compare = 'yours';
+    $('#etitle').textContent = v ? 'Edit voice' : 'New voice';
+    $('#vname').value = v ? v.name : ''; if (!v) syncName();
+    $('#del').hidden = !v; $('#saveNew').hidden = !v; $('#save').textContent = v ? 'Save changes' : 'Save voice';
+    $('#status').textContent = '';
+    renderBases(); renderStyles(); renderSliders(); renderPText();
+    $('#scrim').classList.add('open'); $('#editor').classList.add('open'); $('#editor').scrollTop = 0;
+  }
+  function closeEditor() { stopAudio(); $('#scrim').classList.remove('open'); $('#editor').classList.remove('open'); }
+  function save(asNew) {
+    const name = $('#vname').value.trim() || base.name;
+    if (editing && !asNew) Object.assign(editing, { name, base, knobs: { ...knobs } });
+    else yours.push({ id: 'v' + Date.now(), name, base, knobs: { ...knobs } });
+    renderSettings(); closeEditor();
+  }
+  $('#newVoice').addEventListener('click', () => openEditor());
+  $('#eclose').addEventListener('click', closeEditor); $('#cancel').addEventListener('click', closeEditor); $('#scrim').addEventListener('click', closeEditor);
+  $('#save').addEventListener('click', () => save(false)); $('#saveNew').addEventListener('click', () => save(true));
+  $('#del').addEventListener('click', () => { if (editing && confirm(`Delete “${editing.name}”? Readings that use it go back to ${editing.base.name}.`)) { yours = yours.filter((v) => v !== editing); renderSettings(); closeEditor(); } });
+  $('#yourList').addEventListener('click', async (e) => {
+    const ed = e.target.closest('[data-edit]'); if (ed) { openEditor(yours.find((v) => v.id === ed.dataset.edit)); return; }
+    const pl = e.target.closest('[data-play]'); if (!pl) return;
+    const v = yours.find((x) => x.id === pl.dataset.play);
+    toggleSound(pl, async () => (await render(v.base, v.knobs, SAMPLE)).url);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#editor').classList.contains('open')) closeEditor(); });
+  $('#phone').addEventListener('change', (e) => $('#stage').classList.toggle('phone', e.target.checked));
+
+  renderSettings();
+})();
+</script>
+</body>
+</html>

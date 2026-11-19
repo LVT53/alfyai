@@ -398,23 +398,60 @@ describe("the H3 picture model", () => {
 		expect(square.plan.request.canvas).toEqual({ width: 3456, height: 3456 });
 	});
 
-	it("edits at 12 MP keeping the base's shape, and print does not enlarge it", async () => {
+	it("edits on a 2048 px short-edge canvas keeping the base's shape (a small base is scaled up to it), and print does not enlarge it", async () => {
 		await useH3();
 		const upload = await makeUpload(640, 480);
 		const turnPictures = index([upload]);
 		const plain = await resolve({ pictures: ["1"] }, { turnPictures });
 		if (!plain.ok) throw new Error("not resolved");
+		// 4:3: the short edge 2048, the long one 2730.7 snapped to 2720.
 		expect(plain.plan.request).toMatchObject({
 			model: "h3",
 			mode: "edit",
-			canvas: { width: 3968, height: 2976 },
+			canvas: { width: 2720, height: 2048 },
 		});
 		const print = await resolve(
 			{ pictures: ["1"], print: true },
 			{ turnPictures },
 		);
 		if (!print.ok) throw new Error("not resolved");
-		expect(print.plan.request.canvas).toEqual({ width: 3968, height: 2976 });
+		expect(print.plan.request.canvas).toEqual({ width: 2720, height: 2048 });
+	});
+
+	it("hands H3 a base at exactly its canvas: a small upload scaled up to the 2048 px short edge, a 12 MP picture scaled down to it", async () => {
+		await useH3();
+		const { getImageFile, readImageFileBytes } = await import("./files");
+		const baseSize = async (fileId: string) => {
+			const file = await getImageFile({ userId, fileId, conversationId });
+			if (!file) throw new Error("no such file");
+			const meta = await sharp(
+				await readImageFileBytes(file, "full"),
+			).metadata();
+			return { width: meta.width, height: meta.height };
+		};
+
+		const small = await resolve(
+			{ pictures: ["1"] },
+			{ turnPictures: index([await makeUpload(640, 480)]) },
+		);
+		if (!small.ok) throw new Error("not resolved");
+		expect(await baseSize(small.plan.request.inputs[0]?.fileId ?? "")).toEqual({
+			width: 2720,
+			height: 2048,
+		});
+
+		// H3's own 12 MP landscape picture, changed again.
+		const large = await storeFile(4224, 2816);
+		const down = await resolve(
+			{ pictures: ["1"] },
+			{ turnPictures: index([fileSource(large.id)]) },
+		);
+		if (!down.ok) throw new Error("not resolved");
+		expect(down.plan.request.canvas).toEqual({ width: 3072, height: 2048 });
+		expect(await baseSize(down.plan.request.inputs[0]?.fileId ?? "")).toEqual({
+			width: 3072,
+			height: 2048,
+		});
 	});
 
 	it("refuses a transparent request before a card or take, naming the Admin Qwen switch", async () => {
@@ -594,6 +631,44 @@ describe("what a call is made from", () => {
 			"reference",
 			"reference",
 		]);
+	});
+
+	// Owner, 2026-11-18: a picture made from several pictures starts its own Image.
+	// Changed in place, it was filed as the next version of the Image named first
+	// (production: a photo's change, then a picture made from it and two new
+	// photos, then five changes, were all one Image, so "what this chat made"
+	// showed one row and the new photos never became Images of their own).
+	it("makes a picture from several pictures its own Image, even when the first is an Image of this chat", async () => {
+		const item = await makeItem(123);
+		const photo = await makeUpload(640, 480);
+		const result = await resolve(
+			{ pictures: ["1", "2"], title: "Rug in the room" },
+			{
+				turnPictures: index([
+					fileSource(item.file.id, { artifactId: item.artifactId }),
+					photo,
+				]),
+			},
+		);
+		if (!result.ok) throw new Error("not resolved");
+		expect(result.plan).toMatchObject({
+			artifactId: null,
+			madeFrom: "pictures",
+			sourceCount: 2,
+			title: "Rug in the room",
+		});
+		expect(result.plan.cardKey).toMatch(/^new:/);
+		expect(result.plan.request).toMatchObject({
+			mode: "edit",
+			baseFromUpload: false,
+		});
+		expect(result.plan.request.inputs.map((input) => input.role)).toEqual([
+			"base",
+			"reference",
+		]);
+		// The Image's own file is copied, never shared, and its seed is avoided.
+		expect(result.plan.request.inputs[0]?.fileId).not.toBe(item.file.id);
+		expect(result.plan.request.avoidSeeds).toEqual([123]);
 	});
 
 	// W14 T1 (diagnosis): naming three pictures must reach the picture server as

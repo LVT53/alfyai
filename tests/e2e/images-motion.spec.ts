@@ -436,7 +436,7 @@ async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
 			// The node seen at waiting is tagged, so making can say whether it is still
 			// the same one (a remount would restart the sweep: Task 11 fix round 1).
 			if (shimmer && tag) shimmer.dataset.probeSeenAtWaiting = "1";
-			const band = shimmer?.querySelector(".image-card-shimmer-band") ?? null;
+			const band = shimmer?.querySelector(".take-shimmer-band") ?? null;
 			const propertiesOf = (animation: Animation) => [
 				...new Set(
 					(
@@ -492,11 +492,11 @@ async function shimmerState(page: Page, options: { tag?: boolean } = {}) {
 					Math.abs(box.width - stageBox.width) <= 0.5 &&
 					Math.abs(box.height - stageBox.height) <= 0.5,
 				textOnScreen: stage?.textContent?.trim() ?? null,
-				// The one visible line the box carries while a take is made
-				// (plan ltx-video slice 1): the estimate, or the phase's clock.
-				timeChip:
-					stage
-						?.querySelector('[data-testid="image-card-time"]')
+				// The time the take still needs is in the card's head, beside the
+				// kind (the owner's call of 17 Nov), never in the box.
+				headTime:
+					card
+						?.querySelector('[data-testid="artifact-card-take-time"]')
 						?.textContent?.trim() ?? null,
 				spinners: card?.querySelectorAll(".image-card-spin").length ?? 0,
 				progressBars:
@@ -550,11 +550,17 @@ async function shimmerWhen(
 type ShimmerState = Awaited<ReturnType<typeof shimmerState>>;
 
 /**
- * The box's one visible line while a take is made: the render's estimate when it
- * reports one (either language), otherwise the phase's own `m:ss` clock. The
- * waiting and starting states carry no time at all.
+ * The head's words while a take waits: its place in the queue (either language).
  */
-const TIME_CHIP = /^(?:About \d+ s left|Még kb\. \d+ mp|\d+:\d{2})$/;
+const WAITING_LINE =
+	/^(?:Next up|\d+ ahead of this one|Következik|\d+ van előtte)$/;
+/**
+ * The head's words while a take is made: the countdown, or once it has run
+ * past its time what it is still doing; never a clock counting up, never a
+ * number below zero.
+ */
+const TIME_LINE =
+	/^(?:About \d+ (?:s|min) left|Almost done…|Taking a little longer…|Még kb\. \d+ (?:mp|perc)|Mindjárt kész…|Kicsit tovább tart…)$/;
 
 function holdShimmer(
 	state: ShimmerState,
@@ -565,20 +571,12 @@ function holdShimmer(
 	expect(state.coversBox, `${label}: the shimmer covers the whole box`).toBe(
 		true,
 	);
-	// The box's own words stay sr-only. While a take is made it carries exactly
-	// one visible line, the time chip; waiting and starting carry none.
-	if (label === "making") {
-		expect(state.timeChip, `${label}: the time is in the box`).toMatch(
-			TIME_CHIP,
-		);
-		expect(
-			state.textOnScreen,
-			`${label}: the box holds the time and nothing else`,
-		).toBe(state.timeChip);
-	} else {
-		expect(state.timeChip, `${label}: no time in the box yet`).toBeNull();
-		expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
-	}
+	// The box carries no words at all: its state is the sr-only status, and
+	// the time is the head's, beside the kind.
+	expect(state.textOnScreen, `${label}: no words in the box`).toBe("");
+	expect(state.headTime, `${label}: the head says where the take is`).toMatch(
+		label === "waiting" ? WAITING_LINE : TIME_LINE,
+	);
 	expect(state.spinners, `${label}: no spinner in the card`).toBe(0);
 	expect(state.progressBars, `${label}: no progress bar`).toBe(0);
 	expect(state.status, `${label}: the state is still read out`).not.toBe("");
@@ -630,9 +628,8 @@ async function letShimmerRun(page: Page, loops: number): Promise<void> {
 			() =>
 				page.evaluate((cardSelector) => {
 					const cards = document.querySelectorAll(cardSelector);
-					const band = cards[cards.length - 1]?.querySelector(
-						".image-card-shimmer-band",
-					);
+					const band =
+						cards[cards.length - 1]?.querySelector(".take-shimmer-band");
 					const [sweep] = band?.getAnimations() ?? [];
 					// Reduced motion: nothing runs, nothing to wait for.
 					if (!sweep) return Number.POSITIVE_INFINITY;
@@ -3048,10 +3045,30 @@ function holdHistoryMotion(metrics: HistoryMetrics, reduced: boolean) {
 	}
 }
 
+/**
+ * Opens History once, unrecorded, and leaves it the reader's way, so that the open a flow
+ * then records is the page's second. History's code is one lazy chunk, loaded the first time
+ * History opens (`ensureHistoryMode` in `DocumentWorkspace.svelte`), and that first press also
+ * evaluates the module and its styles in the frame that mounts it: a few milliseconds on a
+ * quiet machine, over 50 ms on a busy one (the release gate once failed on a 61 ms frame 32 ms
+ * after the tap; with the page's CPU slowed six times it fails one run in three). That is the
+ * page loading its code, not History's motion, which is what these flows hold to a frame budget.
+ */
+async function warmHistory(page: Page, kind: "image" | "document") {
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	if (phone) await page.keyboard.press("Escape");
+	else await historyButton(page).click();
+	await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+	await settle(page);
+}
+
 /** Opens History from the header (recorded), and leaves it the reader's way (recorded). */
 async function historyOpenClose(flow: SeededFlow, kind: "image" | "document") {
 	const { page } = flow;
 	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await warmHistory(page, kind);
 	await startRecording(page, HISTORY_TRACK);
 	mark(flow, `history-open-${kind}`);
 	await historyButton(page).click();
@@ -3767,6 +3784,8 @@ test.describe("History for pictures on a phone (T4)", () => {
 			);
 			await expect(frames).toHaveCount(3);
 			const versionId = await frames.nth(1).getAttribute("data-version-id");
+			// The strip frame's press opens History for the page's second time: see `warmHistory`.
+			await warmHistory(page, "image");
 			await startRecording(page, HISTORY_TRACK);
 			mark(flow, "phone-frame");
 			await frames.nth(1).tap();

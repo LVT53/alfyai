@@ -54,6 +54,7 @@ import {
 	messageAnalytics,
 	projectKnowledgeLinks,
 	projects,
+	readAloudVoices,
 	semanticEmbeddings,
 	sessions,
 	signInChallenges,
@@ -599,6 +600,17 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "ask_questions",
 		table: askQuestions,
 		userColumn: askQuestions.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// Read aloud: a person's own voices (Plan 3). They are account settings, like
+	// the voice choice and Default speed that sit on the `users` row itself, so
+	// full erasure takes them through the FK cascade and neither Clear Memory
+	// nor Clear Workspace removes them.
+	{
+		name: "read_aloud_voices",
+		table: readAloudVoices,
+		userColumn: readAloudVoices.userId,
 		erasure: "cascade",
 		resets: [],
 	},

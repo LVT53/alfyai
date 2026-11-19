@@ -29,6 +29,7 @@ import {
 } from "$lib/shared/artifacts/kinds";
 import type { InstructionScope } from "$lib/shared/instructions";
 import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let {
 	evidenceSummary,
@@ -477,6 +478,7 @@ function openDocument(item: MessageEvidenceItem) {
 							loading="lazy"
 							decoding="async"
 							referrerpolicy="no-referrer"
+							use:replayEarlyImageEvent
 							onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 						/>
 					{/if}

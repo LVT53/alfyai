@@ -7,6 +7,7 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { AskQuestion, AskQuestionDto } from "$lib/shared/ask-user";
 import { uiLanguage } from "$lib/stores/settings";
+import { requestThreadFocus } from "$lib/stores/thread-focus";
 import {
 	card as pictureCard,
 	take as pictureTake,
@@ -3459,5 +3460,125 @@ describe("MessageArea's older messages", () => {
 		await fireEvent.click(getByRole("button", { name: "Load older messages" }));
 
 		await waitFor(() => expect(scrollContainer.scrollTop).toBe(400));
+	});
+});
+
+describe("MessageArea: read aloud's focus requests", () => {
+	const VIEWPORT = {
+		top: 0,
+		left: 0,
+		right: 800,
+		bottom: 600,
+		width: 800,
+		height: 600,
+		x: 0,
+		y: 0,
+		toJSON: () => ({}),
+	} as DOMRect;
+	const rectAt =
+		(top: number, height = 40) =>
+		() =>
+			({
+				top,
+				bottom: top + height,
+				left: 20,
+				right: 300,
+				width: 280,
+				height,
+				x: 20,
+				y: top,
+				toJSON: () => ({}),
+			}) as DOMRect;
+
+	async function mount(composerHeight = 100) {
+		const messages: ChatMessage[] = [
+			{
+				id: "user-focus",
+				role: "user",
+				content: "Read me the recipe",
+				timestamp: Date.now(),
+			},
+			{
+				id: "assistant-focus",
+				role: "assistant",
+				content: "Mix the flour well.",
+				timestamp: Date.now(),
+			},
+		];
+		const view = render(MessageArea, {
+			messages,
+			conversationId: "conv-focus",
+			composerHeight,
+		});
+		const scroll = view.container.querySelector(
+			".scroll-container",
+		) as HTMLDivElement;
+		Object.defineProperty(scroll, "clientHeight", {
+			configurable: true,
+			value: 600,
+		});
+		Object.defineProperty(scroll, "scrollHeight", {
+			configurable: true,
+			value: 3000,
+		});
+		vi.spyOn(scroll, "getBoundingClientRect").mockReturnValue(VIEWPORT);
+		// The thread's own jump to its end on load comes a few frames later: let it land first.
+		await new Promise((resolve) => setTimeout(resolve, 120));
+		return { ...view, scroll };
+	}
+
+	beforeEach(() => {
+		// Reduced motion: the damped follow writes its target at once.
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: query.includes("reduce"),
+			media: query,
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it("centres a focus request above the composer", async () => {
+		const { scroll } = await mount(100);
+		scroll.scrollTop = 1000;
+		requestThreadFocus(rectAt(900), "center");
+		// The sentence's centre (920) goes to the middle of the 500 px above the composer.
+		await waitFor(() => expect(scroll.scrollTop).toBe(1000 + 920 - 250));
+		requestThreadFocus(rectAt(-2000), "center");
+		await waitFor(() => expect(scroll.scrollTop).toBe(0));
+	});
+
+	it("a reveal request leaves a visible sentence alone", async () => {
+		const { scroll } = await mount(100);
+		scroll.scrollTop = 1000;
+		requestThreadFocus(rectAt(100), "reveal");
+		await tick();
+		expect(scroll.scrollTop).toBe(1000);
+		// Behind the composer is not visible: it is brought up.
+		requestThreadFocus(rectAt(520), "reveal");
+		await waitFor(() => expect(scroll.scrollTop).toBe(1000 + 540 - 250));
+	});
+
+	it("a reader at the bottom follows the player down; a reader scrolled up stays", async () => {
+		const bottom = await mount(100);
+		bottom.scroll.scrollTop = 3000 - 600;
+		await bottom.rerender({ composerHeight: 160 });
+		await tick();
+		expect(bottom.scroll.scrollTop).toBe(3000 - 600 + 60);
+		bottom.unmount();
+
+		const up = await mount(100);
+		up.scroll.scrollTop = 1000;
+		await up.rerender({ composerHeight: 220 });
+		await tick();
+		expect(up.scroll.scrollTop).toBe(1000);
 	});
 });

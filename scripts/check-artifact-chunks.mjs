@@ -113,6 +113,10 @@ export const PACKAGE_FINGERPRINTS = {
 	"prosemirror-view": ["ProseMirror-hideselection", "ProseMirror-selectednode"],
 	"prosemirror-model": ["Invalid content for node", "Unknown node type"],
 	"@tiptap/core": ["[tiptap error]"],
+	// tinyld, read aloud's language detector (`src/lib/client/read-aloud/language.ts`): about 800 kB
+	// the chat loads on demand. The two log lines of its verbose mode survive minification (the
+	// first keeps tinyld's own spelling).
+	tinyld: ["Analize chunks", "Merge Results"],
 };
 
 /** What is confined to the editor when the CLI is not told which packages. */

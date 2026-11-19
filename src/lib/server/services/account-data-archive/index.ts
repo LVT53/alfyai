@@ -21,11 +21,19 @@ import {
 	messages,
 	projectKnowledgeLinks,
 	projects,
+	readAloudVoices,
 	usageEvents,
 	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
 import { checkCurrentPassword } from "$lib/server/services/auth";
+import {
+	type PersonalVoice,
+	readingSpeedOf,
+	resolveChoice,
+	toPersonalVoice,
+} from "$lib/server/services/read-aloud/personal-voices";
+import { builtInVoice } from "$lib/server/services/read-aloud/voices";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	isShippedArtifactTourType,
@@ -142,6 +150,7 @@ export async function createAccountDataArchive(
 		artifactVersionRows,
 		artifactCommentRows,
 		artifactStoredDataRows,
+		readAloudVoiceRows,
 	] = await Promise.all([
 		listConversations(database, userId),
 		listMessages(database, userId),
@@ -159,6 +168,7 @@ export async function createAccountDataArchive(
 		listArtifactVersions(database, userId),
 		listArtifactComments(database, userId),
 		listArtifactStoredData(database, userId),
+		listReadAloudVoices(database, userId),
 	]);
 
 	const artifactHistory = groupArtifactHistory({
@@ -260,6 +270,7 @@ export async function createAccountDataArchive(
 		skills: skillRows,
 		notes: skillNoteArtifacts,
 	});
+	addReadAloudSection(archive, { user, voices: readAloudVoiceRows });
 	addUsageSection(archive, {
 		usageRows,
 		analyticsConversationRows,
@@ -275,6 +286,7 @@ export async function createAccountDataArchive(
 		memoryCount: taskStateRows.length + memoryEventRows.length,
 		skillCount: skillRows.length,
 		noteCount: skillNoteArtifacts.length,
+		readAloudVoiceCount: readAloudVoiceRows.length,
 		usageEventCount: usageRows.length,
 	});
 
@@ -362,6 +374,11 @@ async function addProfileSection(
 			params.user.sidebarProjectsExpanded ? "Yes" : "No",
 		],
 		["Sidebar chats expanded", params.user.sidebarChatsExpanded ? "Yes" : "No"],
+		[
+			"Pictures and videos",
+			params.user.picturesAndVideosEnabled === false ? "Off" : "On",
+		],
+		["Send with Enter", params.user.sendWithEnter ? "On" : "Off"],
 		["Created", formatDateTime(params.user.createdAt)],
 		["Updated", formatDateTime(params.user.updatedAt)],
 	];
@@ -930,6 +947,70 @@ function addSkillsSection(
 	);
 }
 
+/** A knob value as a slider holds it: a plain number, 0 for normal. */
+const formatKnob = (value: number): string => String(value);
+
+/**
+ * The person's read-aloud settings and voices (Plan 3): the voice each
+ * language reads with and the speed a reading starts at, as they see them in
+ * Settings, and every voice of their own with its base voice and five values.
+ * A choice that points nowhere (another person's id, a deleted voice) shows
+ * as the default, as a reading would use it. In English, like the rest.
+ */
+function addReadAloudSection(
+	archive: ArchiveBuilder,
+	params: {
+		user: typeof users.$inferSelect;
+		voices: Array<typeof readAloudVoices.$inferSelect>;
+	},
+) {
+	const voices = params.voices.map(toPersonalVoice);
+	const choice = resolveChoice(
+		{ en: params.user.readAloudEnVoice, hu: params.user.readAloudHuVoice },
+		voices,
+	);
+	const describeChoice = (key: string): string => {
+		const own = voices.find((voice) => voice.id === key);
+		if (own) return `${own.name} (made from ${own.baseName})`;
+		return builtInVoice(key)?.name ?? key;
+	};
+
+	const voiceSections = voices
+		.map((voice: PersonalVoice, index) => {
+			const row = params.voices[index];
+			return `<section><h2>${escapeHtml(voice.name)}</h2>${renderTable([
+				["Based on", voice.baseName],
+				["Language", voice.language === "hu" ? "Hungarian" : "English"],
+				["Pace", formatKnob(voice.knobs.pace)],
+				["Pitch", formatKnob(voice.knobs.pitch)],
+				["Depth", formatKnob(voice.knobs.depth)],
+				["Energy", formatKnob(voice.knobs.energy)],
+				["Projection", formatKnob(voice.knobs.projection)],
+				["Created", formatDateTime(row?.createdAt ?? null)],
+				["Updated", formatDateTime(row?.updatedAt ?? null)],
+			])}</section>`;
+		})
+		.join("");
+
+	archive.addHtml(
+		"Read aloud/Read aloud.html",
+		renderArchivePage({
+			title: "Read aloud",
+			subtitle:
+				"The voices that read replies aloud for you, and the voices you made.",
+			body: `<section><h2>Your choices</h2>${renderTable([
+				["English voice", describeChoice(choice.en)],
+				["Hungarian voice", describeChoice(choice.hu)],
+				["Default speed", `${readingSpeedOf(params.user.readAloudSpeed)}×`],
+			])}</section><section><h2>Your voices</h2>${
+				voices.length === 0
+					? `<p class="empty">No voices of your own were found.</p>`
+					: `<p>Each value is a slider position, 0 being normal: Pace and Pitch run from -2 to 2, Depth from 0 to 4, Energy from -4 to 4, Projection from -1.5 to 2.</p>`
+			}</section>${voiceSections}`,
+		}),
+	);
+}
+
 function addUsageSection(
 	archive: ArchiveBuilder,
 	params: {
@@ -1005,6 +1086,7 @@ function addEntryPage(
 		memoryCount: number;
 		skillCount: number;
 		noteCount: number;
+		readAloudVoiceCount: number;
 		usageEventCount: number;
 	},
 ) {
@@ -1018,6 +1100,10 @@ function addEntryPage(
 				<a class="field" href="Profile/Profile.html">
 					<div class="field-label">Profile page</div>
 					<div class="field-value">Open profile and preferences</div>
+				</a>
+				<a class="field" href="Read aloud/Read aloud.html">
+					<div class="field-label">Read aloud</div>
+					<div class="field-value">${escapeHtml(params.readAloudVoiceCount)} ${params.readAloudVoiceCount === 1 ? "voice" : "voices"} of your own, and which voices read for you</div>
 				</a>
 				<div class="field">
 					<div class="field-label">Prepared for</div>
@@ -1126,7 +1212,7 @@ function addEntryPage(
 		renderArchiveEntryPage({
 			title: "Account Data Archive",
 			heroCopy:
-				"A readable copy of the AlfyAI data stored for this account when the archive was created. Use the sections below to review your profile, chats, files, memory, skills, and usage.",
+				"A readable copy of the AlfyAI data stored for this account when the archive was created. Use the sections below to review your profile, chats, files, memory, skills, read-aloud voices, and usage.",
 			preparedFor: params.userDisplayName,
 			created: formatDateTime(params.now),
 			metrics: [
@@ -1276,6 +1362,17 @@ async function listArtifactTourStates(database: ArchiveDb, userId: string) {
 		.from(artifactTourStates)
 		.where(eq(artifactTourStates.userId, userId))
 		.orderBy(desc(artifactTourStates.updatedAt));
+}
+
+async function listReadAloudVoices(database: ArchiveDb, userId: string) {
+	return (
+		database
+			.select()
+			.from(readAloudVoices)
+			.where(eq(readAloudVoices.userId, userId))
+			// `created_at` has a second's grain: the row id breaks the tie in making order.
+			.orderBy(asc(readAloudVoices.createdAt), sql`rowid`)
+	);
 }
 
 async function listUserSkills(database: ArchiveDb, userId: string) {

@@ -9,6 +9,7 @@ import {
 	BOARD_REFUSAL_REASONS,
 	refusalLabelKey,
 } from "$lib/shared/artifacts/board-ops";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { uiLanguage } from "$lib/stores/settings";
 import artifactsDict from "./artifacts";
 
@@ -101,7 +102,7 @@ describe("the artifacts dictionary", () => {
 describe("the retry buttons", () => {
 	const RETRY_BUTTONS = [
 		"artifacts.action.retry",
-		"artifacts.image.card.tryAgain",
+		"artifacts.take.tryAgain",
 		"artifacts.document.export.tryAgain",
 		"artifacts.canvas.retry",
 		"artifacts.canvas.chat.retry",
@@ -122,8 +123,18 @@ describe("the retry buttons", () => {
 	});
 });
 
+// The one exception (owner, 2026-11-18; ADR-0066, amended): the English name of
+// the chat's list, "Chat Artifacts", in the strings that name it. The Hungarian
+// names it without the word ("A beszélgetés elemei"), and no other value may use it.
+const CHAT_ARTIFACTS_KEYS = new Set([
+	"artifacts.panel.title",
+	"artifacts.header.buttonA11y",
+	"artifacts.header.buttonA11yPending",
+	"artifacts.error.list",
+]);
+
 describe("the word 'artifact' in the UI", () => {
-	it("appears in no dictionary value, in either language", () => {
+	it("appears in no dictionary value, in either language, but the English name of the chat's list", () => {
 		const offenders: string[] = [];
 		const modules = mergedDictionaryModules();
 		for (const [path, loaded] of Object.entries(dictionaryModules)) {
@@ -131,7 +142,12 @@ describe("the word 'artifact' in the UI", () => {
 			if (!modules.includes(name) || !loaded.default) continue;
 			for (const language of ["en", "hu"] as const) {
 				for (const [key, value] of Object.entries(loaded.default[language])) {
-					if (/artifact|artefakt/i.test(value)) {
+					const named =
+						name === "artifacts" &&
+						language === "en" &&
+						CHAT_ARTIFACTS_KEYS.has(key);
+					const checked = named ? value.replace("Chat Artifacts", "") : value;
+					if (/artifact|artefakt/i.test(checked)) {
 						offenders.push(`${name}.${language} ${key}: ${value}`);
 					}
 				}
@@ -144,6 +160,14 @@ describe("the word 'artifact' in the UI", () => {
 				modules.includes(path.replace(/^\.\//, "").replace(/\.ts$/, "")),
 			),
 		).toHaveLength(modules.length);
+	});
+
+	it("names the chat's list Chat Artifacts in English, and A beszélgetés elemei in Hungarian", () => {
+		for (const key of CHAT_ARTIFACTS_KEYS) {
+			const name = key as keyof typeof artifactsDict.en;
+			expect(artifactsDict.en[name], key).toContain("Chat Artifacts");
+			expect(artifactsDict.hu[name], key).toMatch(/a beszélgetés elemei/i);
+		}
 	});
 });
 
@@ -383,12 +407,12 @@ describe("the Video kind's strings", () => {
 		);
 	});
 
-	it("says where a clip out of reach opens, in the picture card's own words", () => {
-		expect(artifactsDict.en["artifacts.video.card.elsewhereDetail"]).toBe(
-			artifactsDict.en["artifacts.image.card.elsewhereDetail"],
+	it("says where a clip or a picture out of reach opens, in one sentence", () => {
+		expect(artifactsDict.en["artifacts.take.elsewhereDetail"]).toBe(
+			"Open it from the chat it was made in.",
 		);
-		expect(artifactsDict.hu["artifacts.video.card.elsewhereDetail"]).toBe(
-			artifactsDict.hu["artifacts.image.card.elsewhereDetail"],
+		expect(artifactsDict.hu["artifacts.take.elsewhereDetail"]).toBe(
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
 		);
 	});
 
@@ -422,5 +446,61 @@ describe("the Image kind's strings", () => {
 		expect(get(t)("sidebar.deleteConversationsMessage")).toContain(
 			"dokumentumok és képek",
 		);
+	});
+
+	it("names a picture in its delete button, question and confirmation, in both languages", () => {
+		expect(artifactsDict.en["artifacts.delete.button.image"]).toBe(
+			"Delete picture",
+		);
+		expect(artifactsDict.en["artifacts.delete.title.image"]).toBe(
+			"Delete this picture?",
+		);
+		expect(artifactsDict.en["artifacts.delete.done.image"]).toBe(
+			"Picture deleted",
+		);
+		expect(artifactsDict.hu["artifacts.delete.button.image"]).toBe(
+			"Kép törlése",
+		);
+		expect(artifactsDict.hu["artifacts.delete.title.image"]).toBe(
+			"Törlöd ezt a képet?",
+		);
+		expect(artifactsDict.hu["artifacts.delete.done.image"]).toBe("Kép törölve");
+	});
+});
+
+// The panel and the delete popover build these keys from the kind
+// (`artifacts.delete.button.${kind}`), so a missing one shows its raw key and
+// the type checker cannot see it: the night walk of 2026-11-17 found every
+// picture's delete words missing. Every kind of the union, in both languages.
+describe("every artifact kind has its delete and name words", () => {
+	const kinds = Object.keys({
+		document: true,
+		app: true,
+		canvas: true,
+		slides: true,
+		file: true,
+		image: true,
+		video: true,
+	} satisfies Record<ArtifactKind, true>) as ArtifactKind[];
+	const families = [
+		"delete.button",
+		"delete.title",
+		"delete.body",
+		"delete.bodyRegenerable",
+		"delete.done",
+		"deleted",
+		"type",
+	];
+
+	it.each(kinds)("%s", (kind) => {
+		for (const family of families) {
+			const key = `artifacts.${family}.${kind}`;
+			const en = (artifactsDict.en as Record<string, string>)[key];
+			const hu = (artifactsDict.hu as Record<string, string>)[key];
+			expect(en, `${key} in English`).toEqual(expect.any(String));
+			expect(en?.trim(), `${key} in English`).not.toBe("");
+			expect(hu, `${key} in Hungarian`).toEqual(expect.any(String));
+			expect(hu?.trim(), `${key} in Hungarian`).not.toBe("");
+		}
 	});
 });

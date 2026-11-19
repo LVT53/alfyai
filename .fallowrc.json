@@ -20,6 +20,9 @@
 		"scripts/campaign-shots-onboarding-2-2.ts",
 		"scripts/backfill-rail-summaries.ts",
 		"scripts/campaign-shots.ts",
+		"scripts/campaign-2-4/render.ts",
+		"scripts/campaign-2-4/mount.ts",
+		"scripts/campaign-2-4/vite.config.js",
 		"scripts/diagnose-connections.ts",
 		"scripts/ensure-visual-test-user.ts",
 		"scripts/eval/option-a-fidelity.ts",
@@ -32,6 +35,7 @@
 		"scripts/sweep-orphan-generated-artifacts.ts",
 		"scripts/verify-live-extraction-types.ts",
 		"scripts/images/try-render.ts",
+		"scripts/run-fake-speech-service.ts",
 		"docs/plans/jobs-merge/verify-jobs.mjs",
 		"docs/plans/turn-completion/verify-turn-completion.mjs",
 		"docs/plans/document-ranking/lab/candidates/*.lab.ts",
@@ -167,6 +171,17 @@
 		{
 			"file": "src/lib/stores/ui.ts",
 			"exports": ["*"]
+		},
+		// Read aloud's views (the reading's and the voice preview's) and the thread's focus
+		// request are read only as `$readAloudView`, `$voicePreviewView` and
+		// `$threadFocusRequest` inside components' <script> blocks, a use Fallow does not follow.
+		{
+			"file": "src/lib/stores/read-aloud.ts",
+			"exports": ["readAloudView", "voicePreviewView"]
+		},
+		{
+			"file": "src/lib/stores/thread-focus.ts",
+			"exports": ["threadFocusRequest"]
 		},
 		{
 			"file": "src/lib/actions/preserve-scroll.ts",

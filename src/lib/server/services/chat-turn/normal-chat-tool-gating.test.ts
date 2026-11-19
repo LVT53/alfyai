@@ -21,6 +21,9 @@ function fakeToolSet(): ToolSetParam {
 		create_artifact: {},
 		read_artifact: {},
 		edit_artifact: {},
+		make_image: {},
+		make_video: {},
+		ask_user: {},
 	} as unknown as ToolSetParam;
 }
 
@@ -145,5 +148,34 @@ describe("selectNormalChatToolsForRequest", () => {
 		expect(selected).toHaveProperty("create_artifact");
 		expect(selected).toHaveProperty("read_artifact");
 		expect(selected).toHaveProperty("edit_artifact");
+	});
+
+	// "Pictures and videos" (Settings > Profile) is the person's own switch.
+	describe("the Pictures and videos switch", () => {
+		it("offers make_image and make_video while the person has it on, and when the caller says nothing", () => {
+			for (const picturesAndVideos of [true, undefined]) {
+				const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+					message: "Draw a fox.",
+					picturesAndVideos,
+				});
+				expect(selected).toHaveProperty("make_image");
+				expect(selected).toHaveProperty("make_video");
+			}
+		});
+
+		it("withholds make_image and make_video once the person switched it off, and nothing else", () => {
+			const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+				message: "Draw a fox.",
+				picturesAndVideos: false,
+			});
+			expect(selected).not.toHaveProperty("make_image");
+			expect(selected).not.toHaveProperty("make_video");
+			// Finding pictures, asking, reading and the rest are not making one.
+			expect(Object.keys(selected).sort()).toEqual(
+				Object.keys(fakeToolSet())
+					.filter((name) => name !== "make_image" && name !== "make_video")
+					.sort(),
+			);
+		});
 	});
 });

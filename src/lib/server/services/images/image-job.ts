@@ -45,14 +45,24 @@ export const imageJob = defineJobKind({
 			: { requeue: false, retryable: failure.retryable },
 	userRetry: { from: ["failed", "cancelled"] },
 	// A take that goes (back) to the queue starts its display columns afresh and
-	// forgets which kind of Stop an earlier run was given.
+	// forgets which kind of Stop an earlier run was given. A claim stamps
+	// `phase_at` in its own transaction: from that moment the take holds the GPU
+	// for the cross-engine gate (`idle-free.ts`), though its prompt id is written
+	// only after its inputs are uploaded and the other engines freed.
 	onTransition: (tx, row, to) => {
+		if (to === "running") {
+			tx.update(imageJobs)
+				.set({ phaseAt: Date.now() })
+				.where(eq(imageJobs.id, row.id))
+				.run();
+			return;
+		}
 		if (to !== "queued") return;
 		tx.update(imageJobs)
 			.set({
 				queueAhead: null,
 				progressPercent: null,
-				etaSeconds: null,
+				etaAt: null,
 				phaseAt: null,
 				cancelInterrupt: 1,
 			})

@@ -67,6 +67,7 @@ import ToolActivityIcon from "./ToolActivityIcon.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
 import ToolActivityRow from "./ToolActivityRow.svelte";
 import { thoughtStepIconTypeForClass } from "$lib/utils/activity-presentation";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let {
 	content = "",
@@ -990,6 +991,7 @@ function toggleFullReasoning(): void {
 								alt={item.title}
 								loading="lazy"
 								decoding="async"
+								use:replayEarlyImageEvent
 								onerror={hideBrokenThumbnail}
 							/>
 						</a>
@@ -1000,6 +1002,7 @@ function toggleFullReasoning(): void {
 							alt={item.title}
 							loading="lazy"
 							decoding="async"
+							use:replayEarlyImageEvent
 							onerror={hideBrokenThumbnail}
 						/>
 					{/if}

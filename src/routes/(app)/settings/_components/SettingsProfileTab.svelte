@@ -42,7 +42,7 @@ import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import MemoryCleanupStatus from "$lib/components/ui/MemoryCleanupStatus.svelte";
 import MemoryHistoryImportNotice from "$lib/components/ui/MemoryHistoryImportNotice.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
-import { t } from "$lib/i18n";
+import { type I18nKey, t } from "$lib/i18n";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
 import { describeLocalMoment, timeZoneChoices } from "$lib/shared/time-zone";
 import { prefersReducedMotion } from "$lib/utils/motion";
@@ -59,6 +59,9 @@ import {
 import { formatCompactCount, isEmailChanged } from "./account-form";
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
+import type { ReadAloudVoiceSettings } from "$lib/client/api/read-aloud-voices";
+import ReadAloudSettingsCard from "$lib/components/read-aloud/voices/ReadAloudSettingsCard.svelte";
+import { readAloudAvailable } from "$lib/stores/read-aloud";
 import SettingsDataImport from "./SettingsDataImport.svelte";
 import TwoStepSettingsRow from "./TwoStepSettingsRow.svelte";
 import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
@@ -115,6 +118,8 @@ let {
 	// the row asks for the change through its callback.
 	twoStep = { enabled: false, since: null, backupCodesLeft: 0 },
 	onTwoStepChanged = undefined,
+	// The Read aloud card's voices, from the page's data.
+	readAloudVoices = null,
 	onSaveAccount,
 	onDiscardAccount,
 	availableModels,
@@ -133,9 +138,15 @@ let {
 	onChangeTitleLanguage,
 	onChangeUiLanguage,
 	onChangeTimeZone = undefined,
+	sendWithEnter = false,
+	sendWithEnterSaving = false,
+	onChangeSendWithEnter = undefined,
 	memoryEnabled = true,
 	memorySaving = false,
 	onChangeMemoryEnabled = undefined,
+	picturesAndVideosEnabled = true,
+	picturesAndVideosSaving = false,
+	onChangePicturesAndVideos = undefined,
 	personalInstructions = null,
 	onOpenPersonalInstructions = undefined,
 	personalityProfiles = [],
@@ -189,6 +200,7 @@ let {
 	signedOutOtherDevices?: number;
 	twoStep?: TwoStepStatus;
 	onTwoStepChanged?: (status: TwoStepStatus) => void;
+	readAloudVoices?: ReadAloudVoiceSettings | null;
 	onSaveAccount: () => void | Promise<void>;
 	onDiscardAccount: () => void;
 	availableModels: AvailableModel[];
@@ -205,9 +217,21 @@ let {
 	onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
 	onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
 	onChangeTimeZone?: ((zone: string) => void | Promise<void>) | undefined;
+	/** "Send with Enter": Enter sends and Shift+Enter writes a new line. */
+	sendWithEnter?: boolean;
+	sendWithEnterSaving?: boolean;
+	onChangeSendWithEnter?:
+		| ((enabled: boolean) => void | Promise<void>)
+		| undefined;
 	memoryEnabled?: boolean;
 	memorySaving?: boolean;
 	onChangeMemoryEnabled?:
+		| ((enabled: boolean) => void | Promise<void>)
+		| undefined;
+	/** "Pictures and videos": whether Alfy may make them in this person's chats. */
+	picturesAndVideosEnabled?: boolean;
+	picturesAndVideosSaving?: boolean;
+	onChangePicturesAndVideos?:
 		| ((enabled: boolean) => void | Promise<void>)
 		| undefined;
 	/** The saved text, or null when nothing has been set. */
@@ -315,18 +339,31 @@ const favoriteModelName = $derived(
 // One chevron chip per card below, in card order. It scrolls the page to
 // that card and does nothing else: nothing is hidden behind it, so ignoring
 // it costs a swipe, not a screen.
-const jumpTargets = [
+type JumpTarget = { id: string; labelKey: I18nKey };
+const JUMPS_BEFORE_READ_ALOUD: readonly JumpTarget[] = [
 	{ id: "settings-section-account", labelKey: "settings_sectionAccount" },
 	{
 		id: "settings-section-preferences",
 		labelKey: "settings_sectionPreferences",
 	},
+];
+const READ_ALOUD_JUMP: JumpTarget = {
+	id: "settings-section-read-aloud",
+	labelKey: "readAloud.settings.title",
+};
+const JUMPS_AFTER_READ_ALOUD: readonly JumpTarget[] = [
 	{ id: "settings-section-assistant", labelKey: "settings_sectionAssistant" },
 	{
 		id: "settings-section-data-privacy",
 		labelKey: "settings_sectionDataPrivacy",
 	},
-] as const;
+];
+// The Read aloud card, and its chip, are there only while read aloud is on.
+const jumpTargets = $derived<readonly JumpTarget[]>([
+	...JUMPS_BEFORE_READ_ALOUD,
+	...($readAloudAvailable ? [READ_ALOUD_JUMP] : []),
+	...JUMPS_AFTER_READ_ALOUD,
+]);
 
 function scrollToSection(event: MouseEvent, id: string) {
 	const target = document.getElementById(id);
@@ -797,8 +834,36 @@ function handlePersonalitySelect(event: Event) {
 						</select>
 					</div>
 				</div>
+
+				<!-- The person's own Send with Enter switch: on, Enter sends and
+				     Shift+Enter writes a new line in the message box; off, Enter writes
+				     the new line and Ctrl/Cmd+Enter sends. A touch-only screen keeps
+				     Enter for new lines either way (chat/composer-keys.ts). The guide's
+				     Show me rings this row (settings.sendWithEnter). -->
+				<div class="settings-row" use:spotlightTarget={"settings.sendWithEnter"}>
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('profileTab.sendWithEnter')}</p>
+						<p class="settings-row-help">{$t('profileTab.sendWithEnterHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<Toggle
+							checked={sendWithEnter}
+							disabled={sendWithEnterSaving}
+							ariaLabel={$t('profileTab.sendWithEnter')}
+							onChange={(next) => onChangeSendWithEnter?.(next)}
+						/>
+						<span class="settings-row-hint">
+							{sendWithEnter
+								? $t('profileTab.sendWithEnterOn')
+								: $t('profileTab.sendWithEnterOff')}
+						</span>
+					</div>
+				</div>
 			</div>
 		</section>
+
+		<!-- ═══ Read aloud (only while it is on) ═══ -->
+		<ReadAloudSettingsCard initial={readAloudVoices} />
 
 		<!-- ═══ Assistant behaviour ═══ -->
 		<section class="settings-card" id="settings-section-assistant">
@@ -870,6 +935,31 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 
 				<MemoryHistoryImportNotice profile />
+
+				<!-- The person's own Pictures and videos switch. Off, their chats are
+				     not offered make_image or make_video (images/picture-making.ts);
+				     what was made stays, and sending photos is not affected. The
+				     guide's Show me rings this row (settings.pictures). -->
+				<div class="settings-row" use:spotlightTarget={"settings.pictures"}>
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('profileTab.picturesAndVideos')}</p>
+						<p class="settings-row-help">{$t('profileTab.picturesAndVideosHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<Toggle
+							checked={picturesAndVideosEnabled}
+							disabled={picturesAndVideosSaving}
+							ariaLabel={$t('profileTab.picturesAndVideos')}
+							onChange={(next) => onChangePicturesAndVideos?.(next)}
+						/>
+						<span class="settings-row-hint">
+							{picturesAndVideosEnabled
+								? $t('profileTab.picturesAndVideosOn')
+								: $t('profileTab.picturesAndVideosOff')}
+						</span>
+					</div>
+				</div>
+
 				<div class="settings-row settings-row--stack" use:spotlightTarget={"settings.skills"}>
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_skillsManagerSummaryLabel')}</p>

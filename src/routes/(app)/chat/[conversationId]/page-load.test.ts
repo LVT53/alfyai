@@ -54,6 +54,7 @@ function appShellDataFixture(
 		maxFileUploadSize: 104_857_600,
 		disabledFileTypeIds: [],
 		composerCommandRegistryEnabled: false,
+		readAloudEnabled: false,
 		atlasAvailability: {
 			enabled: true,
 			configured: true,
@@ -70,6 +71,7 @@ function appShellDataFixture(
 		userPersonality: null,
 		userSidebarProjectsExpanded: true,
 		userSidebarChatsExpanded: true,
+		userSendWithEnter: false,
 		modelNames: { model1: "Model 1" },
 		availableModels: [
 			{

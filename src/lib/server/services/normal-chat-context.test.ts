@@ -77,6 +77,8 @@ import {
 	estimateOutboundPromptTokenTotal,
 	extractPastedUrls,
 	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
+	PICTURE_REQUEST_GUIDANCE,
+	PICTURES_AND_VIDEOS_OFF_GUIDANCE,
 	prepareOutboundChatContext,
 	REPLY_LANGUAGE_RULE,
 	resolvePromptContextLimits,
@@ -1493,6 +1495,116 @@ describe("prepareOutboundChatContext", () => {
 			`## Current User Message\nHello\n\n${guidance}`,
 		);
 		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
+	});
+
+	// Quick turns thinking off (ADR-0061), so the model decides on its first
+	// tokens, and the Quick line limits tools to facts, the person's data, a link
+	// or a file: asking was left out. A Hungarian message then often opened with
+	// a sentence leading into its questions and wrote them as text, or stopped
+	// mid-word where the card belonged. The line now sends such a question to
+	// ask_user, before any text (real model, chat-turn/AGENTS.md, "The Tool").
+	describe("the Quick-mode line", () => {
+		const ASK_ON_QUICK =
+			"When the choice is truly the user's, ask with ask_user instead of putting questions in your text, and call it before writing anything.";
+		const guidanceFor = (appliedProfile: "off" | "standard") =>
+			buildTurnGuidance({
+				reasoningDepthEffort: {
+					depthMetadata: {
+						requested: appliedProfile === "off" ? "quick" : "thorough",
+						appliedProfile,
+						fallback: false,
+					},
+					webSourceBudget: { maxSources: 6, sourceExpansion: false },
+					maxToolSteps: 16,
+					grounding: {
+						guidance: "standard",
+						externalEvidence: "none",
+						forceWebSearch: false,
+					},
+				} as never,
+			});
+
+		it("sends a question whose choice is the person's to the card, before any text", () => {
+			const guidance = guidanceFor("off");
+			expect(guidance).toContain(
+				"Use a tool only when the answer needs current or verifiable facts, the user's own data or connections, a pasted link, or a file the user asked for.",
+			);
+			expect(guidance).toContain(ASK_ON_QUICK);
+		});
+
+		it("is ASCII English that names no language (ruling 79, I1 and I3)", () => {
+			expect(ASK_ON_QUICK).toMatch(/^[\x20-\x7e]+$/);
+			expect(ASK_ON_QUICK).not.toMatch(/language|English|Hungarian|Magyar/i);
+		});
+
+		it("leaves a Thorough turn's guidance as it was", () => {
+			const guidance = guidanceFor("standard");
+			expect(guidance).not.toContain("Quick mode");
+			expect(guidance).not.toContain(ASK_ON_QUICK);
+		});
+	});
+
+	// "Pictures and videos" (Settings > Profile) switched off: the turn is not
+	// offered make_image or make_video, so the model is told why, and what to
+	// tell a person who asks for one anyway. A fact about this person, so it
+	// rides the turn guidance and never the cached system prompt.
+	describe("the Pictures and videos switch", () => {
+		it("tells the model it is off, and where the person switches it on, only when it is off", () => {
+			const off = buildTurnGuidance({ pictureMaking: "switched_off" });
+			expect(off).toContain(PICTURES_AND_VIDEOS_OFF_GUIDANCE);
+			expect(off).not.toContain(PICTURE_REQUEST_GUIDANCE);
+			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).toContain(
+				"Settings > Profile > Pictures and videos",
+			);
+			for (const on of [
+				buildTurnGuidance({}),
+				buildTurnGuidance({ pictureMaking: "offered" }),
+			]) {
+				expect(on).not.toContain(PICTURES_AND_VIDEOS_OFF_GUIDANCE);
+				expect(on).not.toMatch(/switched off/i);
+			}
+		});
+
+		it("is ASCII English that names no language and says nothing of the reply's (ruling 79, I1 and I3)", () => {
+			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).toMatch(/^[ -~]+$/);
+			expect(PICTURES_AND_VIDEOS_OFF_GUIDANCE).not.toMatch(
+				/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
+			);
+		});
+	});
+
+	// A turn that can make pictures or videos makes one only on a clear request,
+	// a video only when the person asks for one in so many words, and asks first
+	// otherwise (owner, 2026-11-17). Measured on the production model with the
+	// app's own run, made-up prompts in both languages: the rule stays in the
+	// turn guidance after the message, where it was measured to be followed
+	// (docs/plans/explicit-generation/results.md).
+	describe("making pictures and videos only on a clear request", () => {
+		it("tells a turn that can make them, and no other", () => {
+			expect(buildTurnGuidance({ pictureMaking: "offered" })).toContain(
+				PICTURE_REQUEST_GUIDANCE,
+			);
+			for (const guidance of [
+				buildTurnGuidance({}),
+				buildTurnGuidance({ pictureMaking: "switched_off" }),
+			]) {
+				expect(guidance).not.toContain(PICTURE_REQUEST_GUIDANCE);
+			}
+		});
+
+		it("sends what is unclear to ask_user, and starts a video only on a request for one", () => {
+			expect(PICTURE_REQUEST_GUIDANCE).toContain("ask with ask_user first");
+			expect(PICTURE_REQUEST_GUIDANCE).toMatch(
+				/Start a video only when they ask for a video/,
+			);
+		});
+
+		it("is ASCII English that names no language and says nothing of the reply's (ruling 79, I1 and I3)", () => {
+			expect(PICTURE_REQUEST_GUIDANCE).toMatch(/^[ -~]+$/);
+			expect(PICTURE_REQUEST_GUIDANCE).not.toMatch(
+				/\b(?:English|Hungarian|Magyar|languages?|repl(?:y|ies)|respon(?:d|ds|se|ses)|answers?)\b/i,
+			);
+		});
 	});
 
 	// The clock the model reads. It is a fact about this minute, so it rides
@@ -3349,6 +3461,48 @@ describe("prepareOutboundChatContext", () => {
 				);
 
 				expect(prepared.turnGuidance).toBe("");
+			});
+
+			// The person switched "Pictures and videos" off: no make_image is offered,
+			// so nothing about how many pictures it takes, and the line that says why.
+			it("that pictures and videos are switched off, and nothing about make_image, when the person switched them off", async () => {
+				mocks.getConfig.mockReturnValue({
+					contextDiagnosticsDebug: false,
+					parallelApiKey: "parallel-key",
+					comfyuiUrl: "http://comfy.example",
+				});
+				const five = [1, 2, 3, 4, 5].map((n) => pictureOf(`p${n}.jpg`, 100, n));
+				for (const off of [false, true]) {
+					mocks.buildConstructedContext.mockResolvedValueOnce(
+						withPictures({ images: five, hasImageAttachments: true }),
+					);
+
+					const prepared = await prepareOutboundChatContext(
+						turn({
+							collectImages: true,
+							pictureMaking: off ? "switched_off" : "offered",
+						}),
+					);
+
+					if (off) {
+						expect(prepared.turnGuidance).toContain(
+							PICTURES_AND_VIDEOS_OFF_GUIDANCE,
+						);
+						expect(prepared.turnGuidance).not.toContain(
+							"make_image takes at most",
+						);
+						expect(prepared.systemPrompt).not.toContain(
+							PICTURES_AND_VIDEOS_OFF_GUIDANCE,
+						);
+					} else {
+						expect(prepared.turnGuidance).not.toContain(
+							PICTURES_AND_VIDEOS_OFF_GUIDANCE,
+						);
+						expect(prepared.turnGuidance).toContain(
+							"make_image takes at most 4 pictures per call",
+						);
+					}
+				}
 			});
 		});
 

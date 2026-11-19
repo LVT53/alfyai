@@ -8,7 +8,8 @@ import {
 	type GraphTemplate,
 	graphFor,
 	H3_CFG,
-	H3_STEPS,
+	H3_EDIT_STEPS,
+	H3_GENERATE_STEPS,
 	imageSlotCount,
 	QWEN_CFG,
 	QWEN_STEPS,
@@ -142,7 +143,7 @@ describe("MiniMax-H3-Image graphs", () => {
 		expect(GRAPH_TEMPLATES_BY_MODEL.h3["edit-transparent"]).toBeUndefined();
 	});
 
-	it("generates through MiniMaxH3ImageConditioning with a zeroed negative, 6 steps and CFG 1", () => {
+	it("generates through MiniMaxH3ImageConditioning with a zeroed negative, 4 steps and CFG 1", () => {
 		const t = generate("h3");
 		const g = buildPromptGraph(t, {
 			prompt: "a cat",
@@ -159,9 +160,9 @@ describe("MiniMax-H3-Image graphs", () => {
 		expect(classes).not.toContain("SaveImage");
 		expect(read(g, t.slots.prompt)).toBe("a cat");
 		expect(read(g, t.slots.seed)).toBe(77);
-		expect(t.steps).toBe(H3_STEPS);
+		expect(t.steps).toBe(H3_GENERATE_STEPS);
 		expect(t.cfg).toBe(H3_CFG);
-		expect(read(g, t.slots.steps)).toBe(6);
+		expect(read(g, t.slots.steps)).toBe(4);
 		expect(read(g, t.slots.cfg)).toBe(1);
 		expect(t.slots.width && read(g, t.slots.width)).toBe(2496);
 		expect(t.slots.height && read(g, t.slots.height)).toBe(1664);
@@ -212,13 +213,35 @@ describe("MiniMax-H3-Image graphs", () => {
 		expect(read(g, t.slots.prompt)).toBe("<Picture 1> replace the sofa");
 	});
 
-	it("keeps six steps and CFG 1 from the H3 template, not the Qwen globals", () => {
+	it("samples a new picture in 4 steps and an edit in 6, CFG 1 for both, from the H3 templates, not the Qwen globals", () => {
 		expect(QWEN_STEPS).toBe(30);
-		expect(H3_STEPS).toBe(6);
-		const t = generate("h3");
-		const g = buildPromptGraph(t, { prompt: "x", seed: 3, images: [] });
-		expect(read(g, t.slots.steps)).toBe(H3_STEPS);
-		expect(read(g, t.slots.cfg)).toBe(H3_CFG);
-		expect(read(g, t.slots.steps)).not.toBe(QWEN_STEPS);
+		expect(H3_GENERATE_STEPS).toBe(4);
+		expect(H3_EDIT_STEPS).toBe(6);
+		const generated = generate("h3");
+		const generatedGraph = buildPromptGraph(generated, {
+			prompt: "x",
+			seed: 3,
+			images: [],
+		});
+		expect(generated.steps).toBe(H3_GENERATE_STEPS);
+		expect(read(generatedGraph, generated.slots.steps)).toBe(4);
+		expect(read(generatedGraph, generated.slots.cfg)).toBe(H3_CFG);
+		expect(read(generatedGraph, generated.slots.steps)).not.toBe(QWEN_STEPS);
+
+		// Only a new picture changed: no edit at 4 steps has been looked at yet.
+		const edited = edit("h3");
+		const editedGraph = buildPromptGraph(edited, {
+			prompt: "x",
+			seed: 3,
+			images: ["a.png"],
+		});
+		expect(edited.steps).toBe(H3_EDIT_STEPS);
+		expect(read(editedGraph, edited.slots.steps)).toBe(6);
+		expect(read(editedGraph, edited.slots.cfg)).toBe(H3_CFG);
+	});
+
+	it("never goes under 4 steps: 3 steps rendered visibly waxy", () => {
+		expect(H3_GENERATE_STEPS).toBeGreaterThanOrEqual(4);
+		expect(H3_EDIT_STEPS).toBeGreaterThanOrEqual(H3_GENERATE_STEPS);
 	});
 });

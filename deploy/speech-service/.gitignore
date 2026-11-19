@@ -1,0 +1,7 @@
+.venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+out/
+dev-freeze.txt

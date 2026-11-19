@@ -36,6 +36,8 @@ export const PATCH: RequestHandler = async (event) => {
 		sidebarProjectsExpanded?: unknown;
 		sidebarChatsExpanded?: unknown;
 		memoryEnabled?: unknown;
+		picturesAndVideosEnabled?: unknown;
+		sendWithEnter?: unknown;
 		personalInstructions?: unknown;
 	};
 	try {
@@ -119,6 +121,30 @@ export const PATCH: RequestHandler = async (event) => {
 	if (body.memoryEnabled !== undefined) {
 		if (typeof body.memoryEnabled !== "boolean")
 			return json({ error: "Invalid memoryEnabled" }, { status: 400 });
+	}
+
+	// The person's own "Pictures and videos" switch, on their own row: the
+	// turn reads it to offer make_image and make_video or not
+	// (images/picture-making.ts). Only a boolean: "false" read as truthy would
+	// switch it on.
+	if (body.picturesAndVideosEnabled !== undefined) {
+		if (typeof body.picturesAndVideosEnabled !== "boolean") {
+			return json(
+				{ error: "Invalid picturesAndVideosEnabled" },
+				{ status: 400 },
+			);
+		}
+		updates.picturesAndVideosEnabled = body.picturesAndVideosEnabled;
+	}
+
+	// The person's own "Send with Enter" switch, on their own row: the message
+	// box reads it to send on Enter (components/chat/composer-keys.ts). Only a
+	// boolean, for the same reason as the switch above.
+	if (body.sendWithEnter !== undefined) {
+		if (typeof body.sendWithEnter !== "boolean") {
+			return json({ error: "Invalid sendWithEnter" }, { status: 400 });
+		}
+		updates.sendWithEnter = body.sendWithEnter;
 	}
 
 	if (body.personalInstructions !== undefined) {

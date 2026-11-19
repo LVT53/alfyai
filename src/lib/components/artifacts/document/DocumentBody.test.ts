@@ -4776,4 +4776,242 @@ describe("DocumentBody", () => {
 			}
 		});
 	});
+	// Read aloud on a Document (read-aloud-documents): the body hands the panel a
+	// source for its page, draws the marks around its editor, and offers Read from
+	// here on a selection.
+	describe("read aloud", () => {
+		afterEach(async () => {
+			const { setReadAloudAvailable, setReadAloudView, idleReadAloudView } =
+				await import("$lib/stores/read-aloud");
+			setReadAloudView(idleReadAloudView);
+			setReadAloudAvailable(false);
+			vi.restoreAllMocks();
+			vi.unstubAllGlobals();
+		});
+
+		async function mountForReading(props: Record<string, unknown> = {}) {
+			const registerPanelActions = vi.fn();
+			const onReadAloudChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				registerPanelActions,
+				onReadAloudChange,
+				...props,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0] as {
+				readAloud?: import("$lib/client/read-aloud/controller").DocumentReadingSource;
+			};
+			return { actions, onReadAloudChange };
+		}
+
+		it("hands the panel a source for its page: the editor's host, the version shown, what is not text", async () => {
+			const { actions } = await mountForReading();
+			const source = actions.readAloud;
+			expect(source).toBeDefined();
+			await waitFor(() =>
+				expect(source?.root()).toBe(
+					document.querySelector(".document-editor-host"),
+				),
+			);
+			expect(source?.version()).toBe(1);
+			expect(source?.skip).toContain(".tracker-chip");
+			expect(source?.skip).toContain(".change-pill-mount");
+			// A save that lands moves the version the panel shows.
+			vi.useFakeTimers();
+			try {
+				simulateTyping("<!--b:p1-->\nHello there.");
+				await vi.advanceTimersByTimeAsync(2000);
+			} finally {
+				vi.useRealTimers();
+			}
+			await waitFor(() => expect(source?.version()).toBe(2));
+		});
+
+		it("reports what its readability hangs on, so the header's speaker asks again", async () => {
+			const { onReadAloudChange } = await mountForReading();
+			await waitFor(() => expect(onReadAloudChange).toHaveBeenCalled());
+			const first = onReadAloudChange.mock.calls.at(-1)?.[0];
+			(latestEditor().options.onEmptyChange as (empty: boolean) => void)(true);
+			await waitFor(() =>
+				expect(onReadAloudChange.mock.calls.at(-1)?.[0]).not.toBe(first),
+			);
+		});
+
+		it("draws the marks of its own reading around the editor, and isolates that frame while marked", async () => {
+			const { setReadAloudAvailable, setReadAloudView, idleReadAloudView } =
+				await import("$lib/stores/read-aloud");
+			// Reduced motion: the marks leave at once, with no fade to wait out.
+			vi.stubGlobal("matchMedia", (query: string) => ({
+				matches: query.includes("reduce"),
+				media: query,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+				addListener: () => {},
+				removeListener: () => {},
+			}));
+			setReadAloudAvailable(true);
+			await mountForReading();
+			const host = document.querySelector(
+				".document-editor-host",
+			) as HTMLElement;
+			const frame = host.parentElement as HTMLElement;
+			expect(frame.classList.contains("document-read-aloud-frame")).toBe(true);
+			host.innerHTML = "<p>Hello there.</p>";
+			const text = host.querySelector("p")?.firstChild as Text;
+			const range = document.createRange();
+			range.setStart(text, 0);
+			range.setEnd(text, 5);
+			// jsdom lays nothing out and has no Range.getClientRects: this range is a box.
+			Object.defineProperty(range, "getClientRects", {
+				configurable: true,
+				value: () => [new DOMRect(30, 40, 50, 20)],
+			});
+			vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(
+				new DOMRect(10, 10, 600, 400),
+			);
+			setReadAloudView({
+				...idleReadAloudView,
+				status: "playing",
+				key: "document:artifact-1",
+				target: "document",
+				count: 1,
+				marks: { sentence: [range], word: null, target: [] },
+			});
+			await waitFor(() =>
+				expect(
+					frame.querySelector(".read-aloud-marks .read-aloud-box"),
+				).not.toBeNull(),
+			);
+			expect(frame.hasAttribute("data-read-aloud-marked")).toBe(true);
+			// Another reading's marks are not this page's.
+			setReadAloudView({
+				...idleReadAloudView,
+				status: "playing",
+				key: "document:artifact-2",
+				target: "document",
+				count: 1,
+				marks: { sentence: [range], word: null, target: [] },
+			});
+			await waitFor(() =>
+				expect(frame.querySelector(".read-aloud-marks")).toBeNull(),
+			);
+		});
+
+		it("offers Read from here on a selection, which reads the Document from the selection's start", async () => {
+			const { setReadAloudAvailable } = await import("$lib/stores/read-aloud");
+			const controller = await import("$lib/client/read-aloud/controller");
+			const start = vi
+				.spyOn(controller.getReadAloud(), "start")
+				.mockImplementation(() => {});
+			setReadAloudAvailable(true);
+			const { actions } = await mountForReading();
+			const host = document.querySelector(
+				".document-editor-host",
+			) as HTMLElement;
+			host.innerHTML = "<p>Hello there, and welcome.</p>";
+			const text = host.querySelector("p")?.firstChild as Text;
+			const selection = window.getSelection();
+			selection?.removeAllRanges();
+			const range = document.createRange();
+			range.setStart(text, 6);
+			range.setEnd(text, 11);
+			selection?.addRange(range);
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "there",
+				prefix: "Hello ",
+				suffix: ", and",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			const button = await screen.findByRole("button", {
+				name: "Read from here",
+			});
+			await fireEvent.click(button);
+			expect(start).toHaveBeenCalledWith({
+				kind: "document",
+				artifactId: "artifact-1",
+				conversationId: "conv-1",
+				source: actions.readAloud,
+				from: { node: text, offset: 6 },
+			});
+			await waitFor(() =>
+				expect(screen.queryByTestId("selection-bubble")).toBeNull(),
+			);
+		});
+
+		// The editor redraws the selected text when the bubble rises (its "pending"
+		// highlight is a decoration over it), so the press reads the selection as it is
+		// then, never a text node the editor has since replaced.
+		it("reads from the selection as it is at the press, after the editor has redrawn it", async () => {
+			const { setReadAloudAvailable } = await import("$lib/stores/read-aloud");
+			const controller = await import("$lib/client/read-aloud/controller");
+			const start = vi
+				.spyOn(controller.getReadAloud(), "start")
+				.mockImplementation(() => {});
+			setReadAloudAvailable(true);
+			await mountForReading();
+			const host = document.querySelector(
+				".document-editor-host",
+			) as HTMLElement;
+			const select = (from: number, to: number) => {
+				const text = host.querySelector("p")?.firstChild as Text;
+				const range = document.createRange();
+				range.setStart(text, from);
+				range.setEnd(text, to);
+				const selection = window.getSelection();
+				selection?.removeAllRanges();
+				selection?.addRange(range);
+				return text;
+			};
+			host.innerHTML = "<p>Hello there, and welcome.</p>";
+			select(6, 11);
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "there",
+				prefix: "Hello ",
+				suffix: ", and",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			const button = await screen.findByRole("button", {
+				name: "Read from here",
+			});
+			// The editor draws the paragraph again, and puts the selection back on it.
+			host.innerHTML = "<p>Hello there, and welcome.</p>";
+			const redrawn = select(6, 11);
+			await fireEvent.click(button);
+			expect(start).toHaveBeenCalledTimes(1);
+			const from = start.mock.calls[0]?.[0].from;
+			expect(from?.node).toBe(redrawn);
+			expect(from?.node.isConnected).toBe(true);
+			expect(from?.offset).toBe(6);
+		});
+
+		it("offers no Read from here while read aloud is off", async () => {
+			await mountForReading();
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			expect(
+				screen.queryByRole("button", { name: "Read from here" }),
+			).toBeNull();
+		});
+	});
 });

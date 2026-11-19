@@ -1241,7 +1241,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "make_image",
-      "description": "Make a new picture from words, or change one: a picture in this message (its number) or an Image from \"In this chat\" (its id). One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures. No explicit, sexual or nude pictures: decline such a request in your reply, without calling make_image.",
+      "description": "Make a new picture from words, or change one: a picture in this message (its number) or an Image from \"In this chat\" (its id). Only on a clear request to make or change a picture; when they might want photos found or a description, ask with ask_user first. One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures. No explicit, sexual or nude pictures: decline such a request in your reply, without calling make_image.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1280,7 +1280,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             ]
           },
           "print": {
-            "description": "True only when the user wants print or wallpaper quality (about 4 MP, slower). The Qwen picture model doubles the canvas for it; MiniMax-H3-Image always makes 12 MP pictures, so print has no effect there.",
+            "description": "True only when the user wants print or wallpaper quality (about 4 MP, slower). The Qwen picture model doubles the canvas for it; MiniMax-H3-Image makes new pictures at 12 MP and changes keep the picture's shape at a 2048 px short edge, so print has no effect there.",
             "type": "boolean"
           },
           "transparent": {
@@ -1307,7 +1307,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "make_video",
-      "description": "Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from \"In this chat\", or a make_image takeId. Only for a clip: one at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound. No explicit, sexual or nude videos: decline such a request in your reply, without calling make_video.",
+      "description": "Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from \"In this chat\", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish something would move, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound. No explicit, sexual or nude videos: decline such a request in your reply, without calling make_video.",
       "parameters": {
         "type": "object",
         "properties": {

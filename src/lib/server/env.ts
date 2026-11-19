@@ -31,8 +31,8 @@ export interface ModelConfig {
 
 /**
  * Which ComfyUI picture model new pictures use. Qwen keeps the existing 1 MP /
- * 4 MP print / transparent path on `COMFYUI_URL`; H3 uses its own 12 MP server on
- * `COMFYUI_H3_URL`.
+ * 4 MP print / transparent path on `COMFYUI_URL`; H3 uses its own server on
+ * `COMFYUI_H3_URL` (12 MP new pictures, changes on a 2048 px short edge).
  */
 export type ImageModel = "qwen" | "h3";
 
@@ -159,6 +159,11 @@ interface Config {
 	ltxCaptionUrl: string;
 	ltxCaptionModel: string;
 	ltxCaptionApiKey: string;
+	// Read aloud: the speech service in deploy/speech-service/ (loopback, port
+	// 1920). The speaker shows only when the switch is on AND the address is
+	// set; either one missing leaves no speaker anywhere.
+	ttsEnabled: boolean;
+	ttsUrl: string;
 	imageReferenceCap: number;
 	// The explicit-picture filter (request check and picture check). On unless
 	// the environment says "false"; an admin may turn it off at runtime.
@@ -894,6 +899,8 @@ function readConfig(): Config {
 		ltxCaptionUrl: (process.env.LTX_CAPTION_URL || "").trim(),
 		ltxCaptionModel: (process.env.LTX_CAPTION_MODEL || "").trim(),
 		ltxCaptionApiKey: (process.env.LTX_CAPTION_API_KEY || "").trim(),
+		ttsEnabled: process.env.TTS_ENABLED === "true",
+		ttsUrl: (process.env.TTS_URL || "").trim(),
 		imageReferenceCap: clampParsedInt(
 			process.env.IMAGE_REFERENCE_CAP,
 			4,

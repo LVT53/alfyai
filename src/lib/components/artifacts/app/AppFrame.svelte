@@ -16,6 +16,7 @@ import {
 	type AppKvRefusalReason,
 } from "$lib/client/api/artifacts";
 import { t, type I18nKey } from "$lib/i18n";
+import { frameLoadTripwire } from "$lib/utils/frame-load-tripwire";
 
 interface Props {
 	artifactId: string;
@@ -414,56 +415,16 @@ $effect(() => {
 });
 
 /**
- * Ruling 58's tripwire (RV-2A open question 2). The CSP cannot stop a
- * sandboxed frame from navigating ITSELF — no `allow-top-navigation` is
- * needed for that, only for navigating the TOP page — so a hostile app can
- * still swap its own document for a fake "sign in again" form drawn inside
- * the panel. The parent cannot tell a load apart from the network response
- * alone, but it knows exactly which loads IT asked for: the initial `src`,
- * a version reload, and the `{#key src}` remount above are all the SAME
- * event from the DOM's point of view — a fresh iframe element being
- * inserted — so tracking "has THIS element's first load already happened"
- * covers all three at once with no separate counter needed. Any load after
- * that first one, in the SAME browsing context, was not asked for: the app
- * navigated itself. It acts after the fact (the app already ran once), but it
- * ends a phishing flow before the fake form can be interacted with for long.
- *
- * The parent can also cause a load on an element that is not new: taking the
- * element out of the page and putting it back (a Canvas block whose wrapper a
- * keyed list moves when a block joins a frame listed after it, RV-3 I1). A
- * browser destroys the frame's browsing context on removal and makes a new one
- * on insertion, which loads `src` again and fires `load` on the SAME element
- * — but with a NEW window, while a document that navigates itself stays in the
- * window it has (a frame's WindowProxy outlives every navigation of it, cross
- * origin too). So what arms the tripwire is the window: the first load, or the
- * first load in a window the element did not have before, is the parent's own;
- * only a further load in the SAME window is uncalled for. An app cannot make
- * its own element leave the page and come back — it has no reach into the
- * page — so this gives a hostile app nothing.
+ * Ruling 58's tripwire (RV-2A open question 2): a load of this element that the
+ * page did not ask for means the app navigated itself (`frameLoadTripwire`, where
+ * the reasoning lives; a standard report's preview frame uses it too). Tearing the
+ * element down (below) ends the runaway document at once; there is nothing further
+ * for it to say to the bridge.
  */
 let tripwireTripped = $state(false);
 
-function trackFrameLoad(node: HTMLIFrameElement) {
-	let armedWindow: Window | null = null;
-	function onLoad(): void {
-		const current = node.contentWindow;
-		// No window: the element is not in a page, so no document of an app's own
-		// can be the one that just loaded.
-		if (!current) return;
-		if (armedWindow === null || current !== armedWindow) {
-			armedWindow = current;
-			return;
-		}
-		// Tearing the element down (below) ends the runaway document
-		// immediately; there is nothing further for it to say to the bridge.
-		tripwireTripped = true;
-	}
-	node.addEventListener("load", onLoad);
-	return {
-		destroy(): void {
-			node.removeEventListener("load", onLoad);
-		},
-	};
+function tripFrame(): void {
+	tripwireTripped = true;
 }
 
 /** Re-enters the `{#if}` branch below, which mounts a brand-new iframe element (its own fresh WindowProxy and its own free first load) at the same src. */
@@ -504,7 +465,7 @@ function reloadAfterTripwire(): void {
 			     click cannot otherwise use the app at all. -->
 			<iframe
 				bind:this={iframe}
-				use:trackFrameLoad
+				use:frameLoadTripwire={tripFrame}
 				class="app-frame"
 				sandbox="allow-scripts allow-forms"
 				{src}

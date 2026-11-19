@@ -1,5 +1,6 @@
 import type { Handle, ResolveOptions } from "@sveltejs/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { standardReportPreviewCsp } from "$lib/server/services/file-serving-response-policy";
 
 type HookEvent = Parameters<Handle>[0]["event"];
 
@@ -1454,13 +1455,12 @@ describe("hooks.server.ts", () => {
 			).toBeNull();
 		});
 
-		// What /api/knowledge/[id]/preview actually returns: a tighter referrer
-		// policy and a default-src 'none' CSP whose exact text
-		// `allowsTrustedHtmlPreviewRuntime` matches to decide whether a
-		// generated HTML report may run scripts. It is an endpoint response, so
-		// it carries no x-sveltekit-page stamp.
-		const previewCsp =
-			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+		// What /api/knowledge/[id]/preview actually returns for a generated report: a
+		// tighter referrer policy and a default-src 'none' CSP naming the report's own
+		// scripts by their hashes, whose shape `allowsTrustedHtmlPreviewRuntime`
+		// checks to decide whether the report may run them. It is an endpoint
+		// response, so it carries no x-sveltekit-page stamp.
+		const previewCsp = standardReportPreviewCsp();
 
 		function handlePreview(): Promise<Response> {
 			return handleHtml({

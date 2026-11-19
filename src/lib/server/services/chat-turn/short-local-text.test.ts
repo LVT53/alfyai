@@ -13,7 +13,7 @@ vi.mock("../analytics", () => ({
 	recordControlModelUsage: recordControlModelUsageMock,
 }));
 
-vi.mock("./shared-normal-chat-model-run-helpers", () => ({
+vi.mock("$lib/server/utils/request-abort-signal", () => ({
 	createRequestAbortSignal: (timeoutMs: number, signal?: AbortSignal) =>
 		signal ?? (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined),
 }));

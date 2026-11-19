@@ -324,3 +324,108 @@ describe("the cross-engine gate", () => {
 		expect(freeCalls(h3)).toBe(1);
 	});
 });
+
+describe("whether an engine looks warm (the estimate's load time)", () => {
+	const NOW = 1_800_000_000_000;
+	const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000);
+
+	async function pictureTake(input: {
+		model: "qwen" | "h3";
+		status: "running" | "succeeded" | "failed";
+		phase: string;
+		completedAt?: Date | null;
+	}): Promise<string> {
+		const { insertTake, takeRequest } = await import("./testing/takes");
+		return insertTake({
+			userId,
+			conversationId,
+			cardId,
+			status: input.status,
+			phase: input.phase,
+			request: takeRequest({ model: input.model }),
+			completedAt: input.completedAt ?? null,
+		});
+	}
+
+	async function videoTake(input: {
+		status: "running" | "succeeded";
+		phase: string;
+		completedAt?: Date | null;
+	}): Promise<void> {
+		const { db } = await import("$lib/server/db");
+		db.insert(schema.videoJobs)
+			.values({
+				id: `video-${Math.random()}`,
+				userId,
+				conversationId,
+				status: input.status,
+				phase: input.phase,
+				origin: "turn",
+				requestJson: "{}",
+				seed: 1,
+				completedAt: input.completedAt ?? null,
+			})
+			.run();
+	}
+
+	it("is cold when nothing has run", async () => {
+		const { engineLooksWarm } = await import("./idle-free");
+		expect(await engineLooksWarm("h3", "this-take", NOW)).toBe(false);
+	});
+
+	it("is warm when the last take on the GPU was its own, a minute ago", async () => {
+		await pictureTake({
+			model: "h3",
+			status: "succeeded",
+			phase: "finishing",
+			completedAt: minutesAgo(1),
+		});
+		const { engineLooksWarm } = await import("./idle-free");
+		expect(await engineLooksWarm("h3", "this-take", NOW)).toBe(true);
+		expect(await engineLooksWarm("qwen", "this-take", NOW)).toBe(false);
+		expect(await engineLooksWarm("ltx", "this-take", NOW)).toBe(false);
+	});
+
+	it("is cold once another engine has run since, or the idle free has", async () => {
+		await pictureTake({
+			model: "h3",
+			status: "succeeded",
+			phase: "finishing",
+			completedAt: minutesAgo(3),
+		});
+		await videoTake({
+			status: "succeeded",
+			phase: "finishing",
+			completedAt: minutesAgo(2),
+		});
+		const { engineLooksWarm, IMAGE_IDLE_FREE_MS } = await import("./idle-free");
+		expect(await engineLooksWarm("h3", "this-take", NOW)).toBe(false);
+		expect(await engineLooksWarm("ltx", "this-take", NOW)).toBe(true);
+		expect(
+			await engineLooksWarm("ltx", "this-take", NOW + IMAGE_IDLE_FREE_MS),
+		).toBe(false);
+	});
+
+	it("is warm while another take of its own engine is on the GPU", async () => {
+		const { engineLooksWarm } = await import("./idle-free");
+		const other = await pictureTake({
+			model: "qwen",
+			status: "running",
+			phase: "rendering",
+		});
+		expect(await engineLooksWarm("qwen", "this-take", NOW)).toBe(true);
+		// The take itself is not its own warm neighbour.
+		expect(await engineLooksWarm("qwen", other, NOW)).toBe(false);
+	});
+
+	it("does not count a take that never reached the GPU", async () => {
+		await pictureTake({
+			model: "h3",
+			status: "failed",
+			phase: "submitted",
+			completedAt: minutesAgo(1),
+		});
+		const { engineLooksWarm } = await import("./idle-free");
+		expect(await engineLooksWarm("h3", "this-take", NOW)).toBe(false);
+	});
+});

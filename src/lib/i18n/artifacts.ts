@@ -1,12 +1,14 @@
 /**
  * The artifact family's surface (Feature 2 · Artifacts): the chat header's
- * count button, the panel's "what this chat made" list, the shared card, and
+ * count button, the panel's "Chat Artifacts" list, the shared card, and
  * the five type labels.
  *
- * "Artifact" is the engineering word and NEVER appears in a value, in either
- * language (ADR-0066) — `artifacts.test.ts` fails the build if it does, across
- * every merged dictionary. The UI names each kind: Document / Dokumentum,
- * App / Alkalmazás, Canvas / Tábla, Slides / Diasor, File / Fájl.
+ * "Artifact" is the engineering word and appears in no value, in either
+ * language (ADR-0066), with one exception: the English name of the panel's
+ * list, "Chat Artifacts", and the header and error strings that name it
+ * (owner, 2026-11-18). The Hungarian says "A beszélgetés elemei". The UI names
+ * each kind: Document / Dokumentum, App / Alkalmazás, Canvas / Tábla,
+ * Slides / Diasor, File / Fájl.
  *
  * `artifacts.type.canvas` is **Canvas** in English and **Tábla** in Hungarian
  * on purpose (ruling 20): the English word is the product's own term, and
@@ -21,12 +23,12 @@ const artifactsDict = {
 	en: {
 		// The chat header's quiet count button (surface 1). Not drawn at all at
 		// zero, so there is no "0" wording.
-		"artifacts.header.buttonA11y": "Open what this chat made ({count})",
+		"artifacts.header.buttonA11y": "Open Chat Artifacts ({count})",
 		// The dot state (redesign §5.2/§5.3): a change is waiting while the
 		// panel is closed. The dot itself is decorative (aria-hidden) — this is
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
-			"Open what this chat made ({count}) — a change is waiting",
+			"Open Chat Artifacts ({count}) — a change is waiting",
 		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
@@ -39,7 +41,7 @@ const artifactsDict = {
 		// The header's way back to the list: short, so it never wraps (FB-5, F28); the
 		// Hungarian says "Back" and the name says where it goes.
 		"artifacts.panel.crumb": "This chat",
-		"artifacts.panel.title": "What this chat made",
+		"artifacts.panel.title": "Chat Artifacts",
 		"artifacts.panel.count":
 			"{count} {count, plural, one {item} other {items}} · newest first",
 		"artifacts.panel.list": "Show list",
@@ -115,12 +117,14 @@ const artifactsDict = {
 		"artifacts.delete.button.slides": "Delete slides",
 		"artifacts.delete.button.file": "Delete file",
 		"artifacts.delete.button.video": "Delete video",
+		"artifacts.delete.button.image": "Delete picture",
 		"artifacts.delete.title.document": "Delete this document?",
 		"artifacts.delete.title.app": "Delete this app?",
 		"artifacts.delete.title.canvas": "Delete this canvas?",
 		"artifacts.delete.title.slides": "Delete these slides?",
 		"artifacts.delete.title.file": "Delete this file?",
 		"artifacts.delete.title.video": "Delete this video?",
+		"artifacts.delete.title.image": "Delete this picture?",
 		"artifacts.delete.body.document":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.app":
@@ -132,6 +136,8 @@ const artifactsDict = {
 		"artifacts.delete.body.file":
 			"“{title}” will be deleted. This can't be undone.",
 		"artifacts.delete.body.video":
+			"“{title}” will be deleted. This can't be undone.",
+		"artifacts.delete.body.image":
 			"“{title}” will be deleted. This can't be undone.",
 		// The same confirm for an item the chat can make again (the security
 		// review's L2): "can't be undone" is not true of it, so it says the way back.
@@ -147,6 +153,8 @@ const artifactsDict = {
 			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.video":
 			"“{title}” will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.image":
+			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.busy": "Deleting…",
 		"artifacts.delete.failed": "Couldn't delete this. Try again.",
 		"artifacts.delete.done.document": "Document deleted",
@@ -155,6 +163,7 @@ const artifactsDict = {
 		"artifacts.delete.done.slides": "Slides deleted",
 		"artifacts.delete.done.file": "File deleted",
 		"artifacts.delete.done.video": "Video deleted",
+		"artifacts.delete.done.image": "Picture deleted",
 		"artifacts.delete.rowMenu": "More actions for {title}",
 		// What a chat card or file row says once its item is gone (polish G2-A),
 		// per kind, and its Regenerate.
@@ -186,7 +195,7 @@ const artifactsDict = {
 		"artifacts.type.video": "Video",
 		// Failure states the panel and the later slices' writers report.
 		"artifacts.error.load": "Could not open this item.",
-		"artifacts.error.list": "Could not load what this chat made.",
+		"artifacts.error.list": "Could not load Chat Artifacts.",
 		"artifacts.error.gone": "This item was deleted.",
 		"artifacts.error.tooLarge": "This item is too large to save.",
 		"artifacts.action.retry": "Try again",
@@ -1102,20 +1111,38 @@ const artifactsDict = {
 		"artifacts.history.app.noSource": "This version has no source.",
 		"artifacts.history.app.unchangedLines":
 			"{count} unchanged {count, plural, one {line} other {lines}}",
+		// What every picture or video card says, whichever it is about (the one
+		// card shell, `components/artifacts/takes/`): its queue line and countdown,
+		// its failures, and the buttons of its actions row and More menu. A kind's
+		// own sentences ("Making the picture…") are its `artifacts.image.card.*`
+		// and `artifacts.video.card.*`.
+		"artifacts.take.nextUp": "Next up",
+		"artifacts.take.ahead": "{count} ahead of this one",
+		"artifacts.take.eta": "About {count} s left",
+		"artifacts.take.etaMinutes": "About {count} min left",
+		// The take has run past its estimate: in its last step, and before it.
+		"artifacts.take.almostDone": "Almost done…",
+		"artifacts.take.longer": "Taking a little longer…",
+		"artifacts.take.failed": "Couldn't make this one.",
+		"artifacts.take.nothingSaved": "Nothing was saved.",
+		"artifacts.take.stopped": "Stopped.",
+		"artifacts.take.stop": "Stop",
+		"artifacts.take.tryAgain": "Try again",
+		"artifacts.take.another": "Another",
+		"artifacts.take.more": "More",
+		"artifacts.take.download": "Download",
+		"artifacts.take.history": "History",
+		"artifacts.take.actionFailed": "That didn't work. Try again in a moment.",
+		"artifacts.take.elsewhereDetail": "Open it from the chat it was made in.",
 		// The picture card (a chat card for a made or changed picture).
 		"artifacts.image.subtitle.photo": "Image · from your photo",
 		"artifacts.image.subtitle.pictures": "Image · from {count} pictures",
 		"artifacts.image.subtitle.takes": "Image · {count} takes",
 		"artifacts.image.card.making": "Making the picture…",
-		"artifacts.image.card.eta": "About {count} s left",
 		"artifacts.image.card.waiting": "Another picture is being made",
-		"artifacts.image.card.ahead": "{count} ahead of this one",
-		"artifacts.image.card.nextUp": "Next up",
 		"artifacts.image.card.starting": "Starting the picture maker…",
 		"artifacts.image.card.startingDetail":
 			"After a quiet spell the model loads first, so this one takes longer.",
-		"artifacts.image.card.failed": "Couldn't make this one.",
-		"artifacts.image.card.nothingSaved": "Nothing was saved.",
 		"artifacts.image.card.unavailable": "Pictures can't be made right now.",
 		"artifacts.image.card.blocked": "This picture was blocked.",
 		"artifacts.image.card.blockedDetail":
@@ -1123,10 +1150,6 @@ const artifactsDict = {
 		"artifacts.image.card.unchecked": "This picture couldn't be checked.",
 		"artifacts.image.card.uncheckedDetail":
 			"Pictures are checked before they're shown, so this one wasn't kept.",
-		"artifacts.image.card.stopped": "Stopped.",
-		"artifacts.image.card.stop": "Stop",
-		"artifacts.image.card.tryAgain": "Try again",
-		"artifacts.image.card.another": "Another",
 		"artifacts.image.card.useThis": "Use this",
 		"artifacts.image.card.inUse": "In use",
 		"artifacts.image.card.attach": "Attach",
@@ -1134,20 +1157,13 @@ const artifactsDict = {
 		"artifacts.image.history.edit": "Edit this version",
 		"artifacts.image.history.editStop": "Stop editing",
 		"artifacts.image.attachNamed": "Attach: {name}",
-		"artifacts.image.card.download": "Download",
-		"artifacts.image.card.more": "More",
-		"artifacts.image.card.history": "History",
 		"artifacts.image.card.before": "Before",
 		"artifacts.image.card.after": "After",
 		"artifacts.image.card.madeFrom": "Made from",
 		"artifacts.image.card.seeThrough": "See-through background",
 		"artifacts.image.card.takeAlt": "{title}, take {number}",
-		"artifacts.image.card.actionFailed":
-			"That didn't work. Try again in a moment.",
 		"artifacts.image.card.checkingAgain": "Alfy is trying once more…",
 		"artifacts.image.card.goneDetail": "The picture is no longer kept.",
-		"artifacts.image.card.elsewhereDetail":
-			"Open it from the chat it was made in.",
 		"artifacts.image.panel.loadFailed": "Could not open the picture.",
 		"artifacts.image.panel.compare":
 			"Compare with the picture it was made from",
@@ -1178,8 +1194,6 @@ const artifactsDict = {
 		"artifacts.video.card.starting": "Starting the video maker…",
 		"artifacts.video.card.startingDetail":
 			"After a pause the model loads first, so this takes longer.",
-		"artifacts.video.card.failed": "Couldn't make this one.",
-		"artifacts.video.card.nothingSaved": "Nothing was saved.",
 		"artifacts.video.card.unavailable": "Videos can't be made right now.",
 		"artifacts.video.card.blocked": "This video was blocked.",
 		"artifacts.video.card.blockedDetail":
@@ -1187,20 +1201,11 @@ const artifactsDict = {
 		"artifacts.video.card.unchecked": "This video couldn't be checked.",
 		"artifacts.video.card.uncheckedDetail":
 			"Videos are checked before they appear, so it wasn't kept.",
-		"artifacts.video.card.stopped": "Stopped.",
-		"artifacts.video.card.stop": "Stop",
-		"artifacts.video.card.tryAgain": "Try again",
-		"artifacts.video.card.another": "Another",
-		"artifacts.video.card.download": "Download",
 		"artifacts.video.card.downloadGif": "Download as GIF",
-		"artifacts.video.card.more": "More",
-		"artifacts.video.card.history": "History",
 		"artifacts.video.card.historyUnavailable":
 			"History isn't shown for a clip yet.",
 		"artifacts.video.card.lengthA11y": "{count} seconds long",
 		"artifacts.video.card.goneDetail": "The video is no longer kept.",
-		"artifacts.video.card.elsewhereDetail":
-			"Open it from the chat it was made in.",
 		"artifacts.video.panel.loading": "Opening the video…",
 		"artifacts.video.panel.loadFailed": "Couldn't open the video.",
 		"artifacts.video.panel.downloadTitle": "Download {title}",
@@ -1229,10 +1234,9 @@ const artifactsDict = {
 		"artifacts.video.row.blocked": "The video was blocked",
 	},
 	hu: {
-		"artifacts.header.buttonA11y":
-			"Nyisd meg, amit ez a beszélgetés készített ({count})",
+		"artifacts.header.buttonA11y": "Nyisd meg a beszélgetés elemeit ({count})",
 		"artifacts.header.buttonA11yPending":
-			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
+			"Nyisd meg a beszélgetés elemeit ({count}) — egy módosítás vár rád",
 		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.
@@ -1240,7 +1244,7 @@ const artifactsDict = {
 		// Same colon trick as above, for the same reason.
 		"artifacts.chat.composerPlaceholderApp": "Kérj módosítást: {title}",
 		"artifacts.panel.crumb": "Vissza",
-		"artifacts.panel.title": "Amit ez a beszélgetés készített",
+		"artifacts.panel.title": "A beszélgetés elemei",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
 		"artifacts.panel.list": "Lista megjelenítése",
 		"artifacts.panel.back": "Vissza az elemhez",
@@ -1277,12 +1281,14 @@ const artifactsDict = {
 		"artifacts.delete.button.slides": "Diasor törlése",
 		"artifacts.delete.button.file": "Fájl törlése",
 		"artifacts.delete.button.video": "Videó törlése",
+		"artifacts.delete.button.image": "Kép törlése",
 		"artifacts.delete.title.document": "Törlöd ezt a dokumentumot?",
 		"artifacts.delete.title.app": "Törlöd ezt az alkalmazást?",
 		"artifacts.delete.title.canvas": "Törlöd ezt a táblát?",
 		"artifacts.delete.title.slides": "Törlöd ezt a diasort?",
 		"artifacts.delete.title.file": "Törlöd ezt a fájlt?",
 		"artifacts.delete.title.video": "Törlöd ezt a videót?",
+		"artifacts.delete.title.image": "Törlöd ezt a képet?",
 		"artifacts.delete.body.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.app":
@@ -1293,6 +1299,7 @@ const artifactsDict = {
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.video": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.image": "„{title}” törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.bodyRegenerable.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.app":
@@ -1305,6 +1312,8 @@ const artifactsDict = {
 			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.video":
 			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.image":
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.busy": "Törlés…",
 		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
 		"artifacts.delete.done.document": "Dokumentum törölve",
@@ -1313,6 +1322,7 @@ const artifactsDict = {
 		"artifacts.delete.done.slides": "Diasor törölve",
 		"artifacts.delete.done.file": "Fájl törölve",
 		"artifacts.delete.done.video": "Videó törölve",
+		"artifacts.delete.done.image": "Kép törölve",
 		"artifacts.delete.rowMenu": "További műveletek: {title}",
 		"artifacts.deleted.document": "Ez a dokumentum törölve lett",
 		"artifacts.deleted.app": "Ez az alkalmazás törölve lett",
@@ -1338,8 +1348,7 @@ const artifactsDict = {
 		"artifacts.type.image": "Kép",
 		"artifacts.type.video": "Videó",
 		"artifacts.error.load": "Nem sikerült megnyitni ezt az elemet.",
-		"artifacts.error.list":
-			"Nem sikerült betölteni, amit ez a beszélgetés készített.",
+		"artifacts.error.list": "Nem sikerült betölteni a beszélgetés elemeit.",
 		"artifacts.error.gone": "Ezt az elemet törölték.",
 		"artifacts.error.tooLarge": "Ez az elem túl nagy ahhoz, hogy elmentsük.",
 		"artifacts.action.retry": "Újrapróbálom",
@@ -2136,20 +2145,40 @@ const artifactsDict = {
 		"artifacts.history.app.codeLabel": "A változat forráskódja",
 		"artifacts.history.app.noSource": "Ebben a változatban nincs forráskód.",
 		"artifacts.history.app.unchangedLines": "{count} változatlan sor",
+		// Amit minden kép- vagy videókártya mond, bármiről szól (a kártyák közös
+		// héja, `components/artifacts/takes/`): a sorát és a visszaszámlálást, a
+		// hibáit, a műveletsor és a Továbbiak menü gombjait. Egy fajta saját
+		// mondatai („Készül a kép…”) az `artifacts.image.card.*` és az
+		// `artifacts.video.card.*` alatt vannak.
+		"artifacts.take.nextUp": "Következik",
+		"artifacts.take.ahead": "{count} van előtte",
+		"artifacts.take.eta": "Még kb. {count} mp",
+		"artifacts.take.etaMinutes": "Még kb. {count} perc",
+		// A kép vagy videó túlfutott a becslésén: az utolsó lépésben, és előtte.
+		"artifacts.take.almostDone": "Mindjárt kész…",
+		"artifacts.take.longer": "Kicsit tovább tart…",
+		"artifacts.take.failed": "Ezt nem sikerült elkészíteni.",
+		"artifacts.take.nothingSaved": "Nem lett elmentve semmi.",
+		"artifacts.take.stopped": "Leállítva.",
+		"artifacts.take.stop": "Leállítás",
+		"artifacts.take.tryAgain": "Újrapróbálom",
+		"artifacts.take.another": "Másik",
+		"artifacts.take.more": "Továbbiak",
+		"artifacts.take.download": "Letöltés",
+		"artifacts.take.history": "Előzmények",
+		"artifacts.take.actionFailed":
+			"Ez most nem sikerült. Próbáld újra egy kicsit később.",
+		"artifacts.take.elsewhereDetail":
+			"Abban a beszélgetésben nyitható meg, ahol készült.",
 		// A képkártya (a csevegésben egy elkészített vagy módosított kép kártyája).
 		"artifacts.image.subtitle.photo": "Kép · a fotódból",
 		"artifacts.image.subtitle.pictures": "Kép · {count} képből",
 		"artifacts.image.subtitle.takes": "Kép · {count} változat",
 		"artifacts.image.card.making": "Készül a kép…",
-		"artifacts.image.card.eta": "Még kb. {count} mp",
 		"artifacts.image.card.waiting": "Egy másik kép készül",
-		"artifacts.image.card.ahead": "{count} van előtte",
-		"artifacts.image.card.nextUp": "Következik",
 		"artifacts.image.card.starting": "Indul a képkészítő…",
 		"artifacts.image.card.startingDetail":
 			"Szünet után előbb betöltődik a modell, ezért ez tovább tart.",
-		"artifacts.image.card.failed": "Ezt nem sikerült elkészíteni.",
-		"artifacts.image.card.nothingSaved": "Nem lett elmentve semmi.",
 		"artifacts.image.card.unavailable": "Most nem lehet képet készíteni.",
 		"artifacts.image.card.blocked": "Ezt a képet a szűrő visszatartotta.",
 		"artifacts.image.card.blockedDetail":
@@ -2157,10 +2186,6 @@ const artifactsDict = {
 		"artifacts.image.card.unchecked": "Ezt a képet nem sikerült ellenőrizni.",
 		"artifacts.image.card.uncheckedDetail":
 			"A képeket megjelenés előtt ellenőrizzük, ezért ez nem maradt meg.",
-		"artifacts.image.card.stopped": "Leállítva.",
-		"artifacts.image.card.stop": "Leállítás",
-		"artifacts.image.card.tryAgain": "Újrapróbálom",
-		"artifacts.image.card.another": "Másik",
 		"artifacts.image.card.useThis": "Ez legyen",
 		"artifacts.image.card.inUse": "Használatban",
 		"artifacts.image.card.attach": "Csatolás",
@@ -2168,20 +2193,13 @@ const artifactsDict = {
 		"artifacts.image.history.edit": "E változat szerkesztése",
 		"artifacts.image.history.editStop": "Szerkesztés befejezése",
 		"artifacts.image.attachNamed": "Csatolás: {name}",
-		"artifacts.image.card.download": "Letöltés",
-		"artifacts.image.card.more": "Továbbiak",
-		"artifacts.image.card.history": "Előzmények",
 		"artifacts.image.card.before": "Előtte",
 		"artifacts.image.card.after": "Utána",
 		"artifacts.image.card.madeFrom": "Ebből készült",
 		"artifacts.image.card.seeThrough": "Átlátszó háttér",
 		"artifacts.image.card.takeAlt": "{title}, {number}. változat",
-		"artifacts.image.card.actionFailed":
-			"Ez most nem sikerült. Próbáld újra egy kicsit később.",
 		"artifacts.image.card.checkingAgain": "Alfy még egyszer próbálja…",
 		"artifacts.image.card.goneDetail": "A kép már nincs meg.",
-		"artifacts.image.card.elsewhereDetail":
-			"Abban a beszélgetésben nyitható meg, ahol készült.",
 		"artifacts.image.panel.loadFailed": "Nem sikerült megnyitni a képet.",
 		"artifacts.image.panel.compare": "Összevetés azzal, amiből készült",
 		"artifacts.image.panel.versions": "Korábbi képek",
@@ -2209,8 +2227,6 @@ const artifactsDict = {
 		"artifacts.video.card.starting": "Indul a videókészítő…",
 		"artifacts.video.card.startingDetail":
 			"Szünet után előbb betöltődik a modell, ezért ez tovább tart.",
-		"artifacts.video.card.failed": "Ezt nem sikerült elkészíteni.",
-		"artifacts.video.card.nothingSaved": "Nem lett elmentve semmi.",
 		"artifacts.video.card.unavailable": "Most nem lehet videót készíteni.",
 		"artifacts.video.card.blocked": "Ezt a videót a szűrő visszatartotta.",
 		"artifacts.video.card.blockedDetail":
@@ -2218,20 +2234,11 @@ const artifactsDict = {
 		"artifacts.video.card.unchecked": "Ezt a videót nem sikerült ellenőrizni.",
 		"artifacts.video.card.uncheckedDetail":
 			"A videókat megjelenés előtt ellenőrizzük, ezért ez nem maradt meg.",
-		"artifacts.video.card.stopped": "Leállítva.",
-		"artifacts.video.card.stop": "Leállítás",
-		"artifacts.video.card.tryAgain": "Újrapróbálom",
-		"artifacts.video.card.another": "Másik",
-		"artifacts.video.card.download": "Letöltés",
 		"artifacts.video.card.downloadGif": "Letöltés GIF-ként",
-		"artifacts.video.card.more": "Továbbiak",
-		"artifacts.video.card.history": "Előzmények",
 		"artifacts.video.card.historyUnavailable":
 			"A klip előzményei még nem jelennek meg.",
 		"artifacts.video.card.lengthA11y": "{count} másodperc hosszú",
 		"artifacts.video.card.goneDetail": "A videó már nincs meg.",
-		"artifacts.video.card.elsewhereDetail":
-			"Abban a beszélgetésben nyitható meg, ahol készült.",
 		"artifacts.video.panel.loading": "Videó megnyitása…",
 		"artifacts.video.panel.loadFailed": "Nem sikerült megnyitni a videót.",
 		"artifacts.video.panel.downloadTitle": "{title} letöltése",

@@ -74,10 +74,13 @@ export const SPOTLIGHT_IDS = [
 	"settings.style",
 	"settings.language",
 	"settings.skills",
+	"settings.pictures",
+	"settings.sendWithEnter",
 	"settings.twoStep",
 	"settings.data",
 	"settings.activity",
 	"settings.connections",
+	"settings.readAloud",
 ] as const;
 
 export type SpotlightId = (typeof SPOTLIGHT_IDS)[number];

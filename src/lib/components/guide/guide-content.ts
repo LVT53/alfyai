@@ -2,7 +2,7 @@ import type { AppPlaceId, SpotlightId } from "$lib/app-places";
 import type { I18nKey } from "$lib/i18n";
 
 /**
- * What the Feature Guide lists: six sections and thirty entries, as data.
+ * What the Feature Guide lists: six sections and thirty-five entries, as data.
  *
  * Every word is a `guide.*` key in `src/lib/i18n/guide.ts`; this file holds
  * only the ids, the order and what each entry can do. A change that adds,
@@ -116,6 +116,16 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 		action: { kind: "tryIt" },
 		added: "2026-11-05",
 	},
+	{
+		// Try it, not Show me: the speaker needs a finished reply, and Show me
+		// exists only where its control is always there. Its row lights the
+		// speaker in the chat drawing.
+		id: "listenToAReply",
+		section: "ask",
+		drawingSpot: "readAloud",
+		action: { kind: "tryIt" },
+		added: "2026-11-17",
+	},
 	// ── Make ─────────────────────────────────────────────────────────────
 	{
 		id: "documents",
@@ -203,6 +213,39 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 		action: { kind: "showMe", place: "settings", spotlight: "settings.skills" },
 		added: BEFORE_THE_GUIDE,
 	},
+	{
+		// The person's own switch for whether Alfy makes pictures and videos
+		// (Settings > Profile, the Assistant card, after Memory). Show me rings its
+		// row; the row lights the switch the Knows-you drawing draws after Memory.
+		id: "picturesAndVideos",
+		section: "knowsYou",
+		drawingSpot: "pictures",
+		action: {
+			kind: "showMe",
+			place: "settings",
+			spotlight: "settings.pictures",
+		},
+		added: "2026-11-17",
+	},
+	{
+		// Show me rings the Read aloud card's two voice pickers. The guide does
+		// not filter by configuration, so with read aloud off the row stays and
+		// Show me rings nothing, quietly. The row lights no part of its section's
+		// drawing: the Knows-you drawing is full (measured at 330 x 222: its right
+		// pane ends at 204 and a Read aloud card, row and button, would end at
+		// 269, and even the row alone would end at 255, past the frame; the
+		// Pictures and videos switch took the last of the room since), so the
+		// card is not drawn until that drawing is composed again.
+		id: "yourVoices",
+		section: "knowsYou",
+		drawingSpot: null,
+		action: {
+			kind: "showMe",
+			place: "settings",
+			spotlight: "settings.readAloud",
+		},
+		added: "2026-11-17",
+	},
 	// ── Your things ──────────────────────────────────────────────────────
 	{
 		id: "knowledgeBase",
@@ -288,6 +331,23 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 			spotlight: "settings.language",
 		},
 		added: BEFORE_THE_GUIDE,
+	},
+	{
+		// The person's own Send with Enter switch, the last row of the
+		// Preferences card. Show me rings its row. The row lights no part of its
+		// section's drawing: the Your account drawing shows only that card's
+		// Appearance and Interface language rows, and the switch sits below the
+		// time zone. The keys box at the end of the page shows the keys the
+		// switch gives (GuideShortcuts.svelte).
+		id: "sendWithEnter",
+		section: "account",
+		drawingSpot: null,
+		action: {
+			kind: "showMe",
+			place: "settings",
+			spotlight: "settings.sendWithEnter",
+		},
+		added: "2026-11-18",
 	},
 	{
 		id: "twoStep",

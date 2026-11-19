@@ -323,6 +323,42 @@ describe("video outputs", () => {
 		expect(Array.from(bytes.slice(4, 8))).toEqual([0x66, 0x74, 0x79, 0x70]);
 	});
 
+	it("reads the clip where ComfyUI's SaveVideo puts it, and fetches it from that subfolder only", async () => {
+		// ComfyUI's SaveVideo (`comfy_extras/nodes_video.py`) saves under its
+		// `filename_prefix`: `video/alfyai` is the subfolder `video` and a counted
+		// name, and the UI output marks the list as animated beside it
+		// (`PreviewVideo.as_dict()`), not inside each entry.
+		const client = makeClient();
+		const { promptId } = await client.submit({
+			...videoGraph,
+			"33": {
+				class_type: "SaveVideo",
+				inputs: {
+					video: ["32", 0],
+					filename_prefix: "video/alfyai",
+					format: "mp4",
+				},
+			},
+		});
+		const refs = await client.followVideo(promptId, {
+			signal: new AbortController().signal,
+			deadlineMs: 5000,
+			onEvent: () => undefined,
+		});
+		const ref = refs[0];
+		if (!ref) throw new Error("The fake stored no clip");
+		expect(ref).toEqual({
+			filename: expect.stringMatching(/^alfyai_\d{5}_\.mp4$/),
+			subfolder: "video",
+			type: "output",
+		});
+		expect((await client.fetchImage(ref)).length).toBeGreaterThan(0);
+		// A client that dropped the subfolder would find nothing there.
+		await expect(
+			client.fetchImage({ ...ref, subfolder: "" }),
+		).rejects.toBeTruthy();
+	});
+
 	it("reads videos and gifs keys too", async () => {
 		for (const key of ["videos", "gifs"] as const) {
 			fake.setOptions({ videoOutputKey: key });
@@ -334,7 +370,7 @@ describe("video outputs", () => {
 				onEvent: () => undefined,
 			});
 			expect(refs, key).toHaveLength(1);
-			expect(refs[0]?.filename).toBe(`fake_${promptId}.mp4`);
+			expect(refs[0]?.filename, key).toMatch(/^ComfyUI_\d{5}_\.mp4$/);
 		}
 	});
 

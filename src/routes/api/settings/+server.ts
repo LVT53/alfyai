@@ -41,6 +41,8 @@ export const GET: RequestHandler = async (event) => {
 			sidebarProjectsExpanded: userRow.sidebarProjectsExpanded ?? true,
 			sidebarChatsExpanded: userRow.sidebarChatsExpanded ?? true,
 			memoryEnabled: userRow.memoryEnabled ?? true,
+			picturesAndVideosEnabled: userRow.picturesAndVideosEnabled ?? true,
+			sendWithEnter: userRow.sendWithEnter ?? false,
 			personalInstructions: userRow.personalInstructions ?? null,
 		},
 		profilePicture: userRow.profilePicture ?? null,

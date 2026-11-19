@@ -44,10 +44,12 @@ SQLite persistence — all in a single Node deployment.
   Normal Chat bounds preparation, model execution and finalization with a 150 s meaningful-activity idle limit and the configured total deadline from admission, plus a 30 s finalization window: model execution ends at the deadline (`REQUEST_TIMEOUT_MS` is all the model time there is), and a reply that finished near it still has the window for the language call, the follow-up chips and the save, so it is saved instead of discarded. A finalization that hangs past the window ends in an explicit failure. If a database commit already started when the window expires, transport detaches while the durable receipt settles; plain send returns a scoped pending observation instead of inviting a duplicate retry.
 - **Picture model switch** — `IMAGE_MODEL` picks the model that makes new pictures. `qwen` (the
   default) keeps the existing Qwen-Image-2.1 path unchanged: 1 MP, 4 MP print and transparent on
-  `COMFYUI_URL`. `h3` uses MiniMax-H3-Image at 12 MP on `COMFYUI_H3_URL`, with no transparent
-  option, no 8 MP and no 16 MP; switch to Qwen when a transparent picture is wanted. Both URLs and
-  the model are live settings in admin System > Integrations > Pictures, and a picture already
-  queued keeps the model it was queued with. Leave `COMFYUI_H3_URL` empty and H3 pictures are off.
+  `COMFYUI_URL`. `h3` uses MiniMax-H3-Image on `COMFYUI_H3_URL`: new pictures at 12 MP, and a
+  change to a picture in its own shape with the short edge at 2048 px (about 4-7.5 MP for
+  ordinary shapes, and quicker), with no transparent option, no 8 MP and no 16 MP; switch to Qwen
+  when a transparent picture is wanted. Both URLs and the model are live settings in admin
+  System > Integrations > Pictures, and a picture already queued keeps the model it was queued
+  with. Leave `COMFYUI_H3_URL` empty and H3 pictures are off.
 - **Video** — `COMFYUI_LTX_URL` points Alfy at a ComfyUI server running LTX-2.5; leave it empty and
   video making is off. A video take is its own job kind (one at a time, because LTX and H3 cannot
   be resident on the card together). A 5 s clip is one render at 1280x704 (704x1280 for a portrait
@@ -61,6 +63,14 @@ SQLite persistence — all in a single Node deployment.
   (`LTX_CAPTION_URL` + `LTX_CAPTION_MODEL`, optionally `LTX_CAPTION_API_KEY`) whose system message
   is ComfyUI's own LTX-2.5 image-to-video instruction; with no endpoint the idea goes to LTX as it
   is.
+- **Read aloud** — `TTS_ENABLED` (default `false`) and `TTS_URL`, the speech service in
+  `deploy/speech-service/` on loopback (`http://127.0.0.1:1920`). With either unset, no speaker
+  appears and Settings has no Read aloud card. Both are live settings in admin System >
+  Integrations. When it is on, every finished reply has a speaker, and Settings → Read aloud picks
+  each language's voice and the default speed, makes personal voices (a built-in voice with five
+  knobs and seven styles) and plays a short preview of each voice. Why it is built this way:
+  [ADR-0070](docs/adr/0070-read-aloud-runs-beside-the-model.md). Deploying it (the box, the Apache
+  streaming routes, switching it on and off): [deploy/README.md](deploy/README.md#read-aloud).
 - **Explicit picture filter** — on for everyone by default (`IMAGE_EXPLICIT_FILTER_ENABLED`, a live
   setting in admin System > Integrations > Pictures; an admin can also exempt one person in Users).
   Alfy declines explicit picture requests, the server refuses a make_image prompt that plainly asks

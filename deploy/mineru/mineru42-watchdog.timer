@@ -1,0 +1,11 @@
+# /etc/systemd/system/mineru42-watchdog.timer: checks mineru42 once a minute (deploy/mineru/README.md).
+[Unit]
+Description=Check MinerU 4.2 (mineru42) every minute for a refusal only a restart clears
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

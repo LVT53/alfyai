@@ -11,6 +11,7 @@ import {
 	validateGeneratedOutputFile,
 } from "$lib/server/services/file-production/output-validation";
 import { getSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
+import { cspSha256 } from "$lib/server/services/file-production/renderers/standard-report-scripts";
 import {
 	applyFileServingRange,
 	buildFileServingResponseHeaders,
@@ -19,6 +20,10 @@ import {
 } from "$lib/server/services/file-serving-response-policy";
 import { isPosterFileName } from "$lib/shared/artifacts/poster-file";
 import { requiresFullContentValidation } from "$lib/shared/file-types/production";
+import {
+	reportBridgeScript,
+	withReportBridge,
+} from "$lib/shared/read-aloud/report-bridge";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
@@ -28,6 +33,8 @@ export interface GeneratedFileServingSuccess {
 	status: 200 | 206 | 416;
 	body: Uint8Array;
 	headers: Record<string, string>;
+	/** The preview profile its headers were made for, when it has one (a standard report's). */
+	previewProfile?: FileServingPreviewProfile;
 }
 
 export interface GeneratedFileServingError {
@@ -47,6 +54,12 @@ export async function resolveGeneratedFileServing(params: {
 	mode: GeneratedFileServingMode;
 	displayFilename?: string | null;
 	rangeHeader?: string | null;
+	/**
+	 * The app's origin (the request's), for read aloud's bridge: a standard report's
+	 * preview gets the bridge, written to post to this origin alone, as the last
+	 * thing in its body. Never a download, never another file; none without it.
+	 */
+	bridgeOrigin?: string | null;
 }): Promise<GeneratedFileServingResult> {
 	const chatFile =
 		(await getChatFileByUser(params.fileId, params.userId)) ??
@@ -131,27 +144,94 @@ export async function resolveGeneratedFileServing(params: {
 		};
 	}
 
+	const previewProfile = await resolvePreviewProfile({
+		mode: params.mode,
+		contentType,
+		resolveSucceededFileProductionJob,
+	});
+	// Read aloud's bridge, added to a standard report's preview at preview time (so a
+	// report made before read aloud gets it too), after the report's own bytes were
+	// checked. The panel frames the report by this address, so the bridge runs under
+	// the report's own policy, which names it by its hash (`reportScriptHashes`), as
+	// it names the renderer's scripts. HTML is always served whole (no range path),
+	// and the length counts what was added.
+	const bridgeHash =
+		previewProfile === "standard-report" && params.bridgeOrigin
+			? reportBridgeHash(params.bridgeOrigin)
+			: null;
+	const body =
+		bridgeHash !== null && params.bridgeOrigin
+			? Buffer.from(
+					withReportBridge(fileContent.toString("utf8"), params.bridgeOrigin),
+					"utf8",
+				)
+			: fileContent;
 	const rangedResponse = applyFileServingRange({
-		body: fileContent,
+		body,
 		rangeHeader: params.rangeHeader,
 		headers: buildFileServingResponseHeaders({
 			mode: params.mode,
-			contentLength: fileContent.length,
+			contentLength: body.length,
 			contentType,
 			filename,
 			safetyFilenames: [chatFile.filename],
-			previewProfile: await resolvePreviewProfile({
-				mode: params.mode,
-				contentType,
-				resolveSucceededFileProductionJob,
-			}),
+			previewProfile,
+			reportScriptHashes: bridgeHash !== null ? [bridgeHash] : [],
 		}),
 	});
 
 	return {
 		ok: true,
 		...rangedResponse,
+		...(previewProfile ? { previewProfile } : {}),
 	};
+}
+
+/**
+ * A standard report's HTML as the panel's preview serves it to this person: by the
+ * preview's own rules (their file, or a file of their chat), and only when it is
+ * served as a standard report, the one profile whose preview runs the report's
+ * scripts and read aloud's bridge. Null for anything else. Read aloud's session
+ * route checks the words it is asked to read against it.
+ */
+export async function readStandardReportHtml(params: {
+	userId: string;
+	fileId: string;
+}): Promise<string | null> {
+	const served = await resolveGeneratedFileServing({
+		userId: params.userId,
+		fileId: params.fileId,
+		mode: "preview",
+	});
+	if (
+		!served.ok ||
+		served.status !== 200 ||
+		served.previewProfile !== "standard-report"
+	)
+		return null;
+	return Buffer.from(served.body).toString("utf8");
+}
+
+/**
+ * The CSP hash of read aloud's bridge for an origin: its script's text, exactly as
+ * `withReportBridge` inserts it. The same for every report of one origin, so it is
+ * kept (an app answers at a handful of origins). Null for an origin the bridge takes
+ * no script for, and then none is added.
+ */
+const bridgeHashes = new Map<string, string | null>();
+function reportBridgeHash(origin: string): string | null {
+	const known = bridgeHashes.get(origin);
+	if (known !== undefined) return known;
+	const script = reportBridgeScript(origin);
+	const open = "<script>";
+	const close = "</script>";
+	const hash =
+		script.startsWith(open) && script.endsWith(close)
+			? cspSha256(script.slice(open.length, -close.length))
+			: null;
+	if (bridgeHashes.size >= 16) bridgeHashes.clear();
+	bridgeHashes.set(origin, hash);
+	return hash;
 }
 
 async function resolvePreviewProfile(params: {

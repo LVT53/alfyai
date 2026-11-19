@@ -56,6 +56,7 @@ import { detectBrowserTimeZone } from "$lib/shared/time-zone";
 import {
 	setSelectedModelAndSync,
 	setModelPreferenceAndSync,
+	setSendWithEnterAndSync,
 	setTitleLanguageAndSync,
 	setUiLanguageAndSync,
 	uiLanguage,
@@ -84,11 +85,14 @@ import {
 } from "./_components/account-form";
 import { getOAuthErrorReasonKey } from "./oauth-return";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
+import type { ReadAloudVoiceSettings } from "$lib/client/api/read-aloud-voices";
 import type { TwoStepStatus } from "$lib/client/api/settings";
 import type { PageProps } from "./$types";
 
 // Extended data interface for admin-specific properties
 interface SettingsPageData {
+	/** The Read aloud card's voices (null while read aloud is off). */
+	readAloudVoices?: ReadAloudVoiceSettings | null;
 	userSettings: {
 		id: string;
 		email: string;
@@ -103,6 +107,8 @@ interface SettingsPageData {
 			uiLanguage: "en" | "hu";
 			timeZone?: string | null;
 			memoryEnabled?: boolean;
+			picturesAndVideosEnabled?: boolean;
+			sendWithEnter?: boolean;
 		};
 		profilePicture: string | null;
 	};
@@ -262,6 +268,16 @@ let selectedMemoryEnabled = $state<boolean>(
 	initialPreferences.memoryEnabled ?? true,
 );
 let memorySaving = $state(false);
+// The person's own "Pictures and videos" switch (on unless they turned it off).
+let selectedPicturesAndVideos = $state<boolean>(
+	initialPreferences.picturesAndVideosEnabled ?? true,
+);
+let picturesAndVideosSaving = $state(false);
+// The person's own "Send with Enter" switch (off unless they turned it on).
+let selectedSendWithEnter = $state<boolean>(
+	initialPreferences.sendWithEnter ?? false,
+);
+let sendWithEnterSaving = $state(false);
 
 // Personal instructions (Workspaces feature 1, slice C). The page owns the
 // write; the shared dialog owns the editing, so Slice D's project scope and
@@ -788,6 +804,36 @@ async function changeMemoryEnabled(enabled: boolean) {
 	}
 }
 
+// Optimistic like changeMemoryEnabled: the switch moves at once and goes back
+// if the save fails.
+async function changePicturesAndVideos(enabled: boolean) {
+	const previous = selectedPicturesAndVideos;
+	selectedPicturesAndVideos = enabled;
+	picturesAndVideosSaving = true;
+	try {
+		await updateUserPreferences({ picturesAndVideosEnabled: enabled });
+	} catch {
+		selectedPicturesAndVideos = previous;
+	} finally {
+		picturesAndVideosSaving = false;
+	}
+}
+
+// Optimistic like changeMemoryEnabled. The save goes through the store, so the
+// message box takes the new keys at once and gives them back with the switch.
+async function changeSendWithEnter(enabled: boolean) {
+	const previous = selectedSendWithEnter;
+	selectedSendWithEnter = enabled;
+	sendWithEnterSaving = true;
+	try {
+		await setSendWithEnterAndSync(enabled);
+	} catch {
+		selectedSendWithEnter = previous;
+	} finally {
+		sendWithEnterSaving = false;
+	}
+}
+
 // Optimistic like changeMemoryEnabled, but it answers the dialog instead of
 // swallowing: the dialog stays open with the text intact when the write fails,
 // because closing would throw away what the user just wrote.
@@ -1299,9 +1345,15 @@ $effect(() => {
 				onChangeTitleLanguage={changeTitleLanguage}
 				onChangeUiLanguage={changeUiLanguage}
 				onChangeTimeZone={changeTimeZone}
+				sendWithEnter={selectedSendWithEnter}
+				{sendWithEnterSaving}
+				onChangeSendWithEnter={changeSendWithEnter}
 				memoryEnabled={selectedMemoryEnabled}
 				{memorySaving}
 				onChangeMemoryEnabled={changeMemoryEnabled}
+				picturesAndVideosEnabled={selectedPicturesAndVideos}
+				{picturesAndVideosSaving}
+				onChangePicturesAndVideos={changePicturesAndVideos}
 				{personalInstructions}
 				onOpenPersonalInstructions={() => (instructionsDialogOpen = true)}
 				{personalityProfiles}
@@ -1318,6 +1370,7 @@ $effect(() => {
 				privacyControlsMessage={privacyMessage}
 				skillsEnabled={(data as SettingsPageData).composerCommandRegistryEnabled ?? false}
 				projects={$projects}
+				readAloudVoices={(data as SettingsPageData).readAloudVoices ?? null}
 				personalAnalyticsData={analyticsData}
 				personalAnalyticsLoading={analyticsLoading}
 				personalAnalyticsError={analyticsError}

@@ -1,0 +1,37 @@
+# AlfyAI read-aloud speech service: sentences in, one MP3 stream and a word timeline out.
+# Loopback only, beside zonos3 (127.0.0.1:1919); FuseAlign's native CLI times the words on the CPU.
+# Install: copy to /etc/systemd/system/, then `systemctl daemon-reload && systemctl enable --now speech-service`.
+# It never restarts or reconfigures zonos3 or vllm-flashnext: After= only orders the start, it pulls nothing in.
+[Unit]
+Description=AlfyAI read-aloud speech service (loopback; Zonos voice, FuseAlign word times)
+After=network-online.target zonos3.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alfyws
+Group=alfyws
+WorkingDirectory=/home/alfyws/opt/speech-service
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SPEECH_HOST=127.0.0.1
+Environment=SPEECH_PORT=1920
+Environment=SPEECH_ZONOS_URL=http://127.0.0.1:1919
+Environment=SPEECH_ALIGNER=native
+Environment=SPEECH_ALIGNER_CLI=/home/alfyws/opt/fusealign/fusealign-multilingual/ggml/build/fusealign-cli
+Environment=SPEECH_ALIGNER_MODEL=/home/alfyws/opt/fusealign/models/fusealign-multilingual-cjkft-step2500-q8_0.gguf
+Environment=SPEECH_ALIGNER_THREADS=8
+# Settings binds to SPEECH_HOST:SPEECH_PORT and refuses a non-loopback host; never start it through the uvicorn CLI.
+ExecStart=/home/alfyws/venvs/speech-service/bin/python -m speech_service
+Restart=on-failure
+RestartSec=5
+# Budget about 1.5 GB resident; one long alignment peaks near 0.9 GB.
+MemoryMax=2G
+# The native aligner's one temporary folder (a sentence's WAV and JSONL) lives here and vanishes with the service.
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

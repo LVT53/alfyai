@@ -54,6 +54,25 @@ export const users = sqliteTable("users", {
 	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// "Pictures and videos" (Settings > Profile), the person's own switch. When
+	// false, that person's turns are not offered make_image or make_video, and
+	// the turn guidance tells the model it is switched off and where to switch
+	// it on (images/picture-making.ts). Pictures and videos already made stay
+	// viewable; attaching photos and the model seeing them are separate.
+	picturesAndVideosEnabled: integer("pictures_and_videos_enabled", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(true),
+	// "Send with Enter" (Settings > Profile, Preferences), the person's own
+	// switch for the message box's keys. Off, Enter writes a new line and
+	// Ctrl/Cmd+Enter sends, the keys every account had before the switch; on,
+	// Enter sends and Shift+Enter writes the new line. A touch-only screen keeps
+	// Enter for new lines either way (components/chat/composer-keys.ts). The
+	// shell hands it to the browser's `sendWithEnter` store (app-shell.ts).
+	sendWithEnter: integer("send_with_enter", { mode: "boolean" })
+		.notNull()
+		.default(false),
 	// True once the user has acknowledged the "connector data is sent to a
 	// third-party cloud model" warning at least once (Option C in the
 	// connections locality guard). Sticky — never reset back to false.
@@ -89,6 +108,15 @@ export const users = sqliteTable("users", {
 	homeMemoryReviewDismissedAt: integer("home_memory_review_dismissed_at", {
 		mode: "timestamp",
 	}),
+	// Read aloud (spec §6.5): the voice each language reads with, as a built-in
+	// voice key or the id of one of this person's own voices
+	// (`read_aloud_voices`); NULL means the language's default. A value that is
+	// not the person's, not of that language or not a voice any more reads as
+	// the default (services/read-aloud/personal-voices.ts).
+	readAloudEnVoice: text("read_aloud_en_voice"),
+	readAloudHuVoice: text("read_aloud_hu_voice"),
+	// The speed every reading starts at: one of 0.75, 1, 1.25, 1.5, 1.75, 2.
+	readAloudSpeed: real("read_aloud_speed").notNull().default(1),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
@@ -714,7 +742,9 @@ export const imageJobs = sqliteTable(
 		phaseAt: integer("phase_at"),
 		queueAhead: integer("queue_ahead"),
 		progressPercent: integer("progress_percent"),
-		etaSeconds: integer("eta_seconds"),
+		// Milliseconds: when the take is expected to be done (`take-eta.ts`); it
+		// only ever moves earlier. The older `eta_seconds` column is unused.
+		etaAt: integer("eta_at"),
 		resultFileId: text("result_file_id").references(() => imageFiles.id, {
 			onDelete: "set null",
 		}),
@@ -781,7 +811,9 @@ export const videoJobs = sqliteTable(
 		phaseAt: integer("phase_at"),
 		queueAhead: integer("queue_ahead"),
 		progressPercent: integer("progress_percent"),
-		etaSeconds: integer("eta_seconds"),
+		// Milliseconds: when the take is expected to be done (`take-eta.ts`); it
+		// only ever moves earlier. The older `eta_seconds` column is unused.
+		etaAt: integer("eta_at"),
 		resultFileId: text("result_file_id").references(() => imageFiles.id, {
 			onDelete: "set null",
 		}),
@@ -3187,6 +3219,46 @@ export const normalChatRunLog = sqliteTable(
 	(t) => ({
 		segmentIdx: uniqueIndex("normal_chat_run_log_segment_idx").on(t.segmentId),
 	}),
+);
+
+/**
+ * A person's own voices for read aloud (spec §4.6 and §6.5): a built-in voice
+ * plus five knob values and a name. Private to its maker: every query filters
+ * by `user_id`, and the rows go with the person (cascade). `language` is the
+ * base voice's language when the voice was saved, so a voice whose base was
+ * taken out of the list still knows which picker it belongs to. The knob
+ * values are slider values (pace -2…2 and so on); a Zonos control is made from
+ * them only when a reading or a preview is made, by `knobsToControls`
+ * (`$lib/shared/read-aloud/voice-knobs`). Nothing about audio is stored.
+ */
+export const readAloudVoices = sqliteTable(
+	"read_aloud_voices",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		baseVoice: text("base_voice").notNull(),
+		language: text("language").notNull(),
+		pace: real("pace").notNull().default(0),
+		pitch: real("pitch").notNull().default(0),
+		depth: real("depth").notNull().default(0),
+		energy: real("energy").notNull().default(0),
+		projection: real("projection").notNull().default(0),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("read_aloud_voices_user_created_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+	],
 );
 
 // Native Hindsight replacement. Legacy tables coexist until explicit per-user cutover.

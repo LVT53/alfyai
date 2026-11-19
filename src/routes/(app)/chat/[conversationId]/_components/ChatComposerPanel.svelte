@@ -7,6 +7,7 @@ import type {
 	ComposerPictureRef,
 } from "$lib/components/chat/composer-pictures";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
+import ReadAloudPlayer from "$lib/components/read-aloud/ReadAloudPlayer.svelte";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type {
@@ -23,6 +24,11 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import {
+	readAloudAvailable,
+	readAloudPlayerInPanel,
+	readAloudView,
+} from "$lib/stores/read-aloud";
 import type { DraftChangePayload, SendPayload } from "../_helpers";
 
 let {
@@ -247,10 +253,24 @@ $effect(() => {
 $effect(() => {
 	onLayerHeightChange?.(layerHeight);
 });
+
+// Read aloud's player lives in this layer, so the measured height includes it. It hushes
+// while the command tray is open; the composer column gets a backdrop while it reads. A
+// Document's reading whose panel draws the player itself (a phone, an expanded panel) is
+// not this layer's.
+let commandTrayOpen = $state(false);
+const reading = $derived(
+	$readAloudAvailable &&
+		$readAloudView.status !== "idle" &&
+		!($readAloudView.target === "document" && $readAloudPlayerInPanel),
+);
 </script>
 
 <div class='composer-layer' bind:this={layerEl}>
-	<div class='composer-shell mx-auto flex w-full max-w-[780px] flex-col gap-3'>
+	<div
+		class='composer-shell mx-auto flex w-full max-w-[780px] flex-col gap-3'
+		data-reading={reading ? '' : undefined}
+	>
 		{#if sendError}
 			<ErrorMessage
 				error={sendError}
@@ -261,6 +281,10 @@ $effect(() => {
 		{/if}
 
 		{@render children?.()}
+
+		{#if $readAloudAvailable}
+			<ReadAloudPlayer {conversationId} hushed={commandTrayOpen} />
+		{/if}
 
 		<!-- Only the box is dimmed while a question waits: the error line and the
 		     snippet above it are not part of it. -->
@@ -330,6 +354,7 @@ $effect(() => {
 				{checkingCloudWarning}
 				{onCapabilitiesReady}
 				{placeholder}
+				onCommandTrayChange={(open) => (commandTrayOpen = open)}
 			/>
 		</div>
 	</div>
@@ -356,10 +381,33 @@ $effect(() => {
 	}
 
 	.composer-shell {
+		position: relative;
+		isolation: isolate;
 		background: transparent;
 		border: 0;
 		box-shadow: none;
 		pointer-events: auto;
+	}
+
+	/* While read aloud reads, the composer column (not the whole layer, so the thread's
+	   scrollbar stays clear) gets a page-coloured backdrop that fades in over 20 px above
+	   the player: nothing in the thread shows through around it (spec §4.3). */
+	.composer-shell::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: -20px;
+		bottom: calc(-0.35rem - env(safe-area-inset-bottom));
+		z-index: -1;
+		pointer-events: none;
+		background: linear-gradient(to bottom, transparent 0, var(--surface-page) 20px);
+		opacity: 0;
+		transition: opacity var(--duration-emphasis) var(--ease-emphasis);
+	}
+
+	.composer-shell[data-reading]::before {
+		opacity: 1;
 	}
 
 	/* A question waits for the person's answer: the message box is off, and what it holds

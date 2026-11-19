@@ -3,6 +3,7 @@ import type { ModelId } from "$lib/model-types";
 import {
 	getAvailableModelsWithProviders,
 	getConfig,
+	getReadAloudUrl,
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
@@ -52,6 +53,12 @@ export interface AppShellData {
 	 */
 	disabledFileTypeIds: string[];
 	composerCommandRegistryEnabled: boolean;
+	/**
+	 * Whether read aloud is on: switched on and the speech service has an
+	 * address. Seeds `$lib/stores/read-aloud` from `(app)/+layout.svelte`'s
+	 * `onMount`, on the client only, for the same reason as the upload limit.
+	 */
+	readAloudEnabled: boolean;
 	atlasAvailability: AtlasAvailability;
 	userTheme: "system" | "light" | "dark";
 	userModel: ModelId;
@@ -68,6 +75,12 @@ export interface AppShellData {
 	userPersonality: string | null;
 	userSidebarProjectsExpanded: boolean;
 	userSidebarChatsExpanded: boolean;
+	/**
+	 * "Send with Enter" (Settings > Profile). Seeds `$lib/stores/settings`'s
+	 * `sendWithEnter` from `(app)/+layout.svelte`'s `onMount`, on the client
+	 * only: the message box reads it on a key press, after hydration.
+	 */
+	userSendWithEnter: boolean;
 	modelNames: Record<string, string>;
 	availableModels: AvailableShellModel[];
 	appVersion: Promise<AppVersionMetadata>;
@@ -113,6 +126,7 @@ export async function getAuthenticatedAppShellData(
 		maxFileUploadSize: config.maxFileUploadSize,
 		disabledFileTypeIds: [...gate.disabledEntryIds],
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
+		readAloudEnabled: getReadAloudUrl() !== "",
 		atlasAvailability: getAtlasAvailability(config),
 		userTheme: resolveUserTheme(userRow?.theme),
 		userModel: resolvedModelPreference.effectiveModel,
@@ -127,6 +141,7 @@ export async function getAuthenticatedAppShellData(
 		userPersonality: userRow?.preferredPersonalityId ?? null,
 		userSidebarProjectsExpanded: userRow?.sidebarProjectsExpanded ?? true,
 		userSidebarChatsExpanded: userRow?.sidebarChatsExpanded ?? true,
+		userSendWithEnter: userRow?.sendWithEnter ?? false,
 		modelNames,
 		availableModels: availableModelsList,
 		appVersion,

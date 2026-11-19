@@ -766,3 +766,69 @@ describe("DialogShell phone presentation", () => {
 		expect(queryByTestId("dialog-shell-footer")).toBeNull();
 	});
 });
+
+// A centred panel that scrolls inside itself, with its footer stuck to its foot,
+// is the voice editor's (taller than any window). Others keep the panel they always
+// had: their popups (the Nextcloud folder list, InfoTooltip) paint past its edge,
+// which a scrolling panel would clip (Plan 3 fix verification, D1 and D3).
+describe("DialogShell scroll panel", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("lets a centred panel grow with what it holds, and the layer behind it scroll", () => {
+		// A panel capped at 85dvh stopped scrolling once its intro had run (the
+		// transition clears an inline overflow), and a tall dialog spilled past
+		// the window, out of reach. The panel has no height of its own now, so no
+		// popup past its edge is cut off, and the layer it sits on scrolls.
+		vi.stubGlobal("innerWidth", 1200);
+		const { getByRole } = render(DialogShell, {
+			props: { title: "Plain", children: focusableChildren },
+		});
+		const panel = getByRole("dialog");
+		expect(panel.classList.contains("dialog-shell__panel")).toBe(false);
+		expect(panel.getAttribute("style")).toBeNull();
+		expect(
+			panel
+				.closest("[data-presentation]")
+				?.classList.contains("dialog-shell__scroller"),
+		).toBe(true);
+	});
+
+	it("covers the whole stage the panel sits on with its scrim, however far it is scrolled", () => {
+		vi.stubGlobal("innerWidth", 1200);
+		const { getByRole } = render(DialogShell, {
+			props: { title: "Plain", children: focusableChildren },
+		});
+		const panel = getByRole("dialog");
+		const scrim = getByRole("button", { name: "Close" });
+		expect(scrim.parentElement).toBe(panel.parentElement);
+		expect(panel.parentElement?.classList.contains("min-h-full")).toBe(true);
+	});
+
+	it("leaves a phone's sheet to scroll its own body", () => {
+		vi.stubGlobal("innerWidth", 390);
+		const { getByRole } = render(DialogShell, {
+			props: {
+				title: "Sheet",
+				phonePresentation: "sheet",
+				children: focusableChildren,
+			},
+		});
+		expect(
+			getByRole("dialog")
+				.closest("[data-presentation]")
+				?.classList.contains("dialog-shell__scroller"),
+		).toBe(false);
+	});
+
+	it("scrolls inside itself, from a class, when the dialog opts in", () => {
+		vi.stubGlobal("innerWidth", 1200);
+		const { getByRole } = render(DialogShell, {
+			props: { title: "Tall", scrollPanel: true, children: focusableChildren },
+		});
+		const panel = getByRole("dialog");
+		expect(panel.classList.contains("dialog-shell__panel")).toBe(true);
+		expect(panel.getAttribute("style")).toBe("max-height: 85dvh;");
+	});
+});

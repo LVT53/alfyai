@@ -33,6 +33,7 @@ import {
 import { getContext, tick } from "svelte";
 import { t } from "$lib/i18n";
 import Spinner from "../ui/Spinner.svelte";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 import {
 	COMPOSER_CHIP_ROW_CONTEXT,
 	type ComposerChipKind,
@@ -236,6 +237,7 @@ function handleBodyKeydown(event: KeyboardEvent) {
 				src={thumbnailUrl}
 				alt=""
 				aria-hidden="true"
+				use:replayEarlyImageEvent
 				onerror={() => (thumbnailBroken = true)}
 			/>
 		{:else}

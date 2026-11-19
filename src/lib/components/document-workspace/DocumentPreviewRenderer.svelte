@@ -1,5 +1,13 @@
 <script lang="ts">
 import UploadPictureMarks from "$lib/components/artifacts/image/UploadPictureMarks.svelte";
+import ReportReadAloud from "$lib/components/read-aloud/ReportReadAloud.svelte";
+import type { ReportReadingSource } from "$lib/client/read-aloud/controller";
+import { frameLoadTripwire } from "$lib/utils/frame-load-tripwire";
+import { reportFrameAddress } from "$lib/shared/read-aloud/report-frame-address";
+import {
+	type ReportAddress,
+	reportAddressOf,
+} from "$lib/shared/read-aloud/report-address";
 import type { ImageMark } from "$lib/shared/artifacts/image-body";
 import { isGenericMimeType } from "$lib/shared/file-types";
 import { ensureFilenameExtension } from "$lib/shared/file-types/download-name";
@@ -24,6 +32,7 @@ import {
 	type PdfPreviewComponent as PdfPreviewComponentType,
 	type PreviewRuntimeAdapter,
 } from "./preview-runtime";
+import { htmlPreviewSandbox } from "./preview-runtime/html-sandbox";
 import type { TextPreviewRenderResult } from "./preview-runtime/text";
 
 let {
@@ -37,6 +46,7 @@ let {
 	marks = [],
 	onMarksChange,
 	onMarksContinue,
+	readAloudReport = null,
 }: {
 	open: boolean;
 	artifactId: string | null;
@@ -49,6 +59,18 @@ let {
 	marks?: ImageMark[];
 	onMarksChange?: ((marks: ImageMark[]) => void) | undefined;
 	onMarksContinue?: (() => void) | undefined;
+	/**
+	 * Read aloud on a standard report (`ReportReadAloud.svelte`): where the panel
+	 * takes the reading source from, with the report named by the address the
+	 * preview showed it by (`reportAddressOf`: a chat file, or a library item). The
+	 * report's own response carries read aloud's bridge (the server adds it); this
+	 * only mounts the page's half over the frame.
+	 */
+	readAloudReport?: {
+		onSource: (
+			reading: { report: ReportAddress; source: ReportReadingSource } | null,
+		) => void;
+	} | null;
 } = $props();
 
 let content = $state<Blob | null>(null);
@@ -63,9 +85,24 @@ let missingPreviewSource = $state(false);
 let PdfPreviewComponent = $state<PdfPreviewComponentType | null>(null);
 let ImagePreviewComponent = $state<ImagePreviewComponentType | null>(null);
 let previewLoadToken = 0;
-let previewSourceForMarks = $derived(
+let htmlFrame = $state<HTMLIFrameElement | null>(null);
+/**
+ * A standard report, from the one load that found it trusted to run its scripts:
+ * the address it was loaded from, which is what the frame shows (never the live
+ * props, which can already name another file before the next load resets this:
+ * security review M2), and its HTML as that address answered, the page's own copy
+ * read aloud reads (never the frame).
+ */
+let trustedReport = $state<{ url: string; html: string } | null>(null);
+/** The report navigated itself (`frameLoadTripwire`): its frame is gone until Reload. */
+let reportFrameTripped = $state(false);
+/** Bumped by Reload: a new frame element, with its own first load. */
+let reportFrameGeneration = $state(0);
+let previewSource = $derived(
 	resolvePreviewSourceUrl({ artifactId, previewUrl }),
 );
+/** The report this preview shows, for read aloud: by its chat file or its library item. */
+let reportAddress = $derived(reportAddressOf(trustedReport?.url ?? null));
 
 $effect(() => {
 	const previewSourceUrl = resolvePreviewSourceUrl({ artifactId, previewUrl });
@@ -117,6 +154,8 @@ function resetPreviewState() {
 	content = null;
 	adapter = null;
 	textPreview = null;
+	trustedReport = null;
+	reportFrameTripped = false;
 	officePreview = null;
 	error = null;
 	fileType = "unsupported";
@@ -168,6 +207,12 @@ async function fetchFile(loadToken: number) {
 			});
 			if (isStalePreviewLoad(loadToken)) return;
 			textPreview = renderedText;
+			// A standard report is framed by the address it was loaded from (below); the
+			// page keeps what that address answered with.
+			trustedReport =
+				result.adapter.kind === "html" && result.adapter.trustedRuntime
+					? { url: result.sourceUrl, html: result.adapter.text }
+					: null;
 			return;
 		}
 
@@ -207,16 +252,19 @@ async function fetchFile(loadToken: number) {
 	}
 }
 
+function tripReportFrame(): void {
+	reportFrameTripped = true;
+}
+
+function reloadReportFrame(): void {
+	reportFrameGeneration += 1;
+	reportFrameTripped = false;
+}
+
 function isDarkTheme(): boolean {
 	return browser
 		? (document?.documentElement?.classList.contains("dark") ?? false)
 		: false;
-}
-
-function htmlPreviewSandbox(preview: TextPreviewRenderResult | null): string {
-	return preview?.kind === "html" && preview.trustedRuntime
-		? "allow-scripts allow-popups allow-popups-to-escape-sandbox"
-		: "";
 }
 
 function reportAdapterError(message: string) {
@@ -304,9 +352,9 @@ function downloadFile() {
 					{/if}
 				{:else if fileType === "image"}
 					{#if content && adapter?.kind === "image" && ImagePreviewComponent}
-						{#if onMarksChange && previewSourceForMarks}
+						{#if onMarksChange && previewSource}
 							<UploadPictureMarks
-								url={previewSourceForMarks}
+								url={previewSource}
 								{filename}
 								{marks}
 								onChange={onMarksChange}
@@ -346,13 +394,49 @@ function downloadFile() {
 							class="html-preview-shell"
 							style="height: 100%; padding: 0; background: rgba(0, 0, 0, 0);"
 						>
-							<iframe
-								class="html-preview-frame"
-								title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
-								sandbox={htmlPreviewSandbox(textPreview)}
-								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
-								srcdoc={textPreview.srcdoc}
-							></iframe>
+							{#if textPreview.trustedRuntime}
+								<!-- A standard report, framed by its own preview address: it runs under the
+								     policy its response carries, never the page's, in an opaque origin.
+								     A load the page did not ask for means it navigated itself: the frame
+								     goes, and Reload frames it again as a new element. -->
+								{#if reportFrameTripped}
+									<div class="html-preview-tripwire" role="alert">
+										<p>{$t('documentWorkspace.reportFrame.tripwire')}</p>
+										<button type="button" class="btn-secondary" onclick={reloadReportFrame}>
+											{$t('documentWorkspace.reportFrame.reload')}
+										</button>
+									</div>
+								{:else if trustedReport}
+									{@const frameAddress = reportFrameAddress(trustedReport.url)}
+									{#key `${frameAddress}#${reportFrameGeneration}`}
+										<iframe
+											bind:this={htmlFrame}
+											use:frameLoadTripwire={tripReportFrame}
+											class="html-preview-frame"
+											title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
+											sandbox={htmlPreviewSandbox(true)}
+											style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
+											src={frameAddress}
+										></iframe>
+									{/key}
+									{#if readAloudReport && reportAddress && htmlFrame}
+										<ReportReadAloud
+											frame={htmlFrame}
+											html={trustedReport.html}
+											report={reportAddress}
+											onSource={readAloudReport.onSource}
+										/>
+									{/if}
+								{/if}
+							{:else}
+								<iframe
+									class="html-preview-frame"
+									title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
+									sandbox={htmlPreviewSandbox(false)}
+									style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
+									srcdoc={textPreview.srcdoc}
+								></iframe>
+							{/if}
 						</div>
 					{/if}
 				{:else if isOfficePreviewKind(fileType)}
@@ -792,12 +876,27 @@ function downloadFile() {
 	}
 
 	.html-preview-shell {
+		/* Read aloud's Read from here over a report is placed in it (`ReportReadAloud.svelte`). */
+		position: relative;
 		display: flex;
 		min-height: 0;
 		height: 100%;
 		flex: 1 1 auto;
 		padding: 0;
 		background: transparent;
+	}
+
+	.html-preview-tripwire {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-md);
+		flex: 1 1 auto;
+		padding: var(--space-lg);
+		text-align: center;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
 	}
 
 	.html-preview-frame {

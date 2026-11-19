@@ -1,12 +1,16 @@
+import { createHash } from "node:crypto";
 import { config } from "$lib/server/env";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
+	baseGroundedWebDiagnostics,
 	type GroundedWebResult,
 	type GroundedWebSource,
 	MAX_PAYLOAD_EVIDENCE,
 	MAX_PAYLOAD_SOURCES,
 } from "$lib/server/services/parallel-search/types";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { stableStringify } from "./normal-chat-tools/stable-stringify";
 
 export type GroundedWebPayloadSource = {
 	id: string;
@@ -382,7 +386,12 @@ function isWebGroundingTool(tool: ToolCallEntry): boolean {
 function candidateToGroundedWebCitationSource(
 	candidate: ToolEvidenceCandidate,
 ): GroundedWebCitationSource | null {
-	if (candidate.sourceType !== "web" || !candidate.url) return null;
+	if (
+		candidate.sourceType !== "web" ||
+		!candidate.url ||
+		candidate.material === false
+	)
+		return null;
 	const canonical = canonicalizeGroundedWebUrl(candidate.url);
 	if (!canonical) return null;
 	return {
@@ -408,4 +417,243 @@ export function extractGroundedWebCitationSources(
 		}
 	}
 	return Array.from(uniqueSources.values());
+}
+
+export type WebViewCoverage = {
+	bounded: true;
+	coverage: "full" | "partial" | "none";
+	omitted: { sources: number; evidence: number; pages: number };
+	pageRanges: Array<{
+		sourceId: string;
+		contentHash: string;
+		start: number;
+		end: number;
+		totalChars: number;
+	}>;
+	hint: string;
+};
+
+/** Select a NEW model view; never mutate the fetched/cache backing data. */
+export function boundGroundedWebView(input: {
+	result: GroundedWebResult;
+	pages: GroundedWebPage[];
+	name: "research_web" | "fetch_url";
+	cached: boolean;
+	maxPayloadTokens: number;
+}): {
+	modelPayload: GroundedWebModelPayload & WebViewCoverage;
+	candidates: ToolEvidenceCandidate[];
+	metadata: GroundedWebMetadata;
+} {
+	const { result, pages, name, cached } = input;
+	const limit = Math.min(32_000, input.maxPayloadTokens);
+	const allSources = result.sources.map((source) => ({
+		id: source.id,
+		title: source.title,
+		url: source.url,
+		provider: source.provider,
+		authorityClass: source.authorityClass,
+		authorityScore: source.authorityScore,
+		publishedAt: source.publishedAt,
+		updatedAt: source.updatedAt,
+		...(source.snippet ? { snippet: source.snippet } : {}),
+	}));
+	const allEvidence = result.evidence.map((evidence) => ({ ...evidence }));
+	type View = GroundedWebModelPayload & WebViewCoverage;
+	const make = (
+		sources: GroundedWebPayloadSource[],
+		evidence: GroundedWebPayloadEvidence[],
+		selectedPages: GroundedWebPage[],
+		ranges: WebViewCoverage["pageRanges"],
+		full = false,
+	): View => ({
+		success:
+			sources.length > 0 &&
+			(evidence.length > 0 ||
+				selectedPages.length > 0 ||
+				sources.some((s) => !!s.snippet)),
+		name,
+		sourceType: "web",
+		query: result.query,
+		queries: result.queries.map((q) => q.query),
+		answerBrief: {
+			sourceCount: sources.length,
+			evidenceCount: evidence.length,
+		},
+		answerBriefMarkdown: full ? result.answerBrief.markdown : "",
+		sources,
+		evidence,
+		...(selectedPages.length ? { pages: selectedPages } : {}),
+		...(cached ? { cached: true } : {}),
+		bounded: true,
+		coverage: full ? "full" : sources.length ? "partial" : "none",
+		omitted: {
+			sources: allSources.length - sources.length,
+			evidence: allEvidence.length - evidence.length,
+			pages:
+				pages.length -
+				ranges.filter((range) => range.end === range.totalChars).length,
+		},
+		pageRanges: ranges,
+		hint: "Coverage describes only this fetched content version. Narrow the topic or URL for a new read; more content may require another read.",
+	});
+	const rangeFor = (page: GroundedWebPage, sourceId: string, end: number) => ({
+		sourceId,
+		contentHash: createHash("sha256")
+			.update(page.contentMarkdown)
+			.digest("hex"),
+		start: 0,
+		end,
+		totalChars: page.contentMarkdown.length,
+	});
+	const fits = (view: View) =>
+		Number.isFinite(limit) &&
+		estimateTokenCount(stableStringify(view)) <= limit;
+	const sourceFor = (page: GroundedWebPage) =>
+		allSources.find((source) => source.url === page.url);
+	const fullRanges = pages.flatMap((page) => {
+		const source = sourceFor(page);
+		return source
+			? [rangeFor(page, source.id, page.contentMarkdown.length)]
+			: [];
+	});
+	let selected = make(allSources, allEvidence, pages, fullRanges, true);
+	if (
+		!fits(selected) ||
+		fullRanges.length !== pages.length ||
+		allEvidence.some((e) => !allSources.some((s) => s.id === e.sourceId))
+	) {
+		selected = make([], [], [], []);
+		const metadataOnly: GroundedWebPayloadSource[] = [];
+		for (const source of allSources) {
+			const beforeSource = selected;
+			let next = make(
+				[...selected.sources, source],
+				selected.evidence,
+				selected.pages ?? [],
+				selected.pageRanges,
+			);
+			if (!fits(next)) continue;
+			selected = next;
+			for (const evidence of allEvidence.filter(
+				(e) => e.sourceId === source.id,
+			)) {
+				next = make(
+					selected.sources,
+					[...selected.evidence, evidence],
+					selected.pages ?? [],
+					selected.pageRanges,
+				);
+				if (fits(next)) selected = next;
+			}
+			for (const page of pages.filter((p) => p.url === source.url)) {
+				const range = rangeFor(page, source.id, page.contentMarkdown.length);
+				const withPrefix = (end: number) =>
+					make(
+						selected.sources,
+						selected.evidence,
+						[
+							...(selected.pages ?? []),
+							{ ...page, contentMarkdown: page.contentMarkdown.slice(0, end) },
+						],
+						[...selected.pageRanges, { ...range, end }],
+					);
+				let low = 0,
+					high = page.contentMarkdown.length;
+				while (low < high) {
+					const middle = Math.ceil((low + high) / 2);
+					if (fits(withPrefix(middle))) low = middle;
+					else high = middle - 1;
+				}
+				// UTF-16 offsets are end-exclusive; a high surrogate needs its pair.
+				const last = page.contentMarkdown.charCodeAt(low - 1);
+				if (last >= 0xd800 && last <= 0xdbff) low--;
+				if (low > 0 && fits(withPrefix(low))) selected = withPrefix(low);
+			}
+			// A source identity alone must not consume a later material bundle's room.
+			if (
+				!source.snippet &&
+				selected.evidence.length === beforeSource.evidence.length &&
+				(selected.pages?.length ?? 0) === (beforeSource.pages?.length ?? 0)
+			) {
+				selected = beforeSource;
+				metadataOnly.push(source);
+			}
+		}
+		for (const source of metadataOnly) {
+			const sources = [...selected.sources, source].sort(
+				(a, b) =>
+					allSources.findIndex((s) => s.id === a.id) -
+					allSources.findIndex((s) => s.id === b.id),
+			);
+			const next = make(
+				sources,
+				selected.evidence,
+				selected.pages ?? [],
+				selected.pageRanges,
+			);
+			if (fits(next)) selected = next;
+		}
+	}
+	// Candidates never recover snippets/highlights or diagnostics from omitted content.
+	const selectedResult: GroundedWebResult = {
+		...result,
+		sources: selected.sources.map((source) => ({
+			...source,
+			providerRank: result.sources.findIndex((s) => s.id === source.id),
+			title: source.title,
+			url: source.url,
+			snippet:
+				source.snippet ??
+				selected.evidence.find((e) => e.sourceId === source.id)?.quote ??
+				null,
+			highlights: [],
+		})),
+		evidence: selected.evidence,
+		diagnostics: baseGroundedWebDiagnostics({
+			mode: result.diagnostics.mode,
+			freshness: result.diagnostics.freshness,
+			sourcePolicy: result.diagnostics.sourcePolicy,
+			fetchedSourceCount: selected.sources.length,
+			fusedSourceCount: selected.sources.length,
+			selectedSourceCount: selected.sources.length,
+			evidenceCandidateCount: selected.evidence.length,
+			openedPageCount: selected.pages?.length ?? 0,
+		}),
+		answerBrief: { markdown: selected.answerBriefMarkdown, instructions: [] },
+	};
+	const candidates = selectedResult.sources.map((source) => ({
+		id: source.id,
+		title: source.title,
+		url: source.url,
+		snippet: source.snippet,
+		sourceType: "web" as const,
+		material:
+			!!source.snippet ||
+			selected.pageRanges.some((range) => range.sourceId === source.id),
+		metadata: {
+			provider: source.provider,
+			authorityClass: source.authorityClass,
+			authorityScore: source.authorityScore,
+			providerRank: source.providerRank,
+		},
+	}));
+	const metadata = createGroundedWebMetadata(selectedResult);
+	return {
+		modelPayload: selected,
+		candidates,
+		metadata: {
+			...metadata,
+			ok: selected.success,
+			evidenceReady: selected.success,
+			fetchedSourceCount: selected.sources.length,
+			fusedSourceCount: selected.sources.length,
+			selectedSourceCount: selected.sources.length,
+			evidenceCandidateCount: selected.evidence.length,
+			openedPageCount: selected.pages?.length ?? 0,
+			coverage: selected.coverage,
+			bounded: true,
+			...(cached ? { cached: true } : {}),
+		},
+	};
 }

@@ -22,6 +22,7 @@ const queued = vi.hoisted(() => ({
 	stored: vi.fn(),
 	explicit: vi.fn(),
 	caption: vi.fn(),
+	continuation: vi.fn(),
 }));
 
 vi.mock("$lib/server/config-store", () => ({
@@ -54,6 +55,7 @@ vi.mock("$lib/server/services/images/picture-check/policy", () => ({
 
 vi.mock("$lib/server/services/video-caption", () => ({
 	buildVideoPrompt: queued.caption,
+	buildVideoContinuationPrompt: queued.continuation,
 }));
 
 vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
@@ -109,6 +111,7 @@ beforeEach(() => {
 	queued.stored.mockReset();
 	queued.explicit.mockReset();
 	queued.caption.mockReset();
+	queued.continuation.mockReset();
 
 	queued.named.mockResolvedValue({ ok: true, sources: [still()] });
 	// The real read echoes the source's own file; a source of another chat is null.
@@ -123,6 +126,9 @@ beforeEach(() => {
 	queued.stored.mockResolvedValue({ id: "stored-1" });
 	queued.explicit.mockResolvedValue(true);
 	queued.caption.mockImplementation(async (idea: string) => `caption: ${idea}`);
+	queued.continuation.mockImplementation(
+		async (idea: string, first: string) => `next after "${first}": ${idea}`,
+	);
 	queued.enqueue.mockResolvedValue({ takeId: "take-1" });
 	queued.cancel.mockResolvedValue(true);
 });
@@ -135,6 +141,7 @@ type RunOptions = {
 	state?: { takeId: string | null };
 	turnPictures?: TurnPictureIndex | null;
 	turnTakes?: import("$lib/server/services/images/turn-takes").TurnTakes;
+	askedForVideo?: () => Promise<boolean | null>;
 };
 
 async function run(options: RunOptions = {}) {
@@ -162,6 +169,7 @@ async function run(options: RunOptions = {}) {
 		signal: options.signal ?? new AbortController().signal,
 		waitForTake,
 		state,
+		...(options.askedForVideo ? { askedForVideo: options.askedForVideo } : {}),
 	});
 	return { outcome, state, waitForTake };
 }
@@ -313,6 +321,49 @@ describe("make_video's refusals", () => {
 	});
 });
 
+// A video starts only on a clear request for one (owner, 2026-11-17): the
+// person's words are judged once, when make_video is called (video-request.ts),
+// and a "no" stops the call before it costs anything, with the model sent to ask.
+describe("make_video and a request that was not for a video", () => {
+	it("refuses before any still, caption or take when the person did not ask for a video, and sends the model to ask first", async () => {
+		const askedForVideo = vi.fn(async () => false);
+		const { outcome } = await run({ askedForVideo });
+
+		expect(askedForVideo).toHaveBeenCalledTimes(1);
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "not_asked_for",
+		});
+		const message = (outcome.modelPayload as { message: string }).message;
+		expect(message).toContain("ask_user");
+		expect(message).toMatch(/^[ -~]+$/);
+		expect(queued.named).not.toHaveBeenCalled();
+		expect(queued.loaded).not.toHaveBeenCalled();
+		expect(queued.caption).not.toHaveBeenCalled();
+		expect(queued.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("starts the take when the person asked for a video", async () => {
+		const { outcome } = await run({ askedForVideo: async () => true });
+		expect(outcome.modelPayload.ok).toBe(true);
+		expect(queued.enqueue).toHaveBeenCalledTimes(1);
+	});
+
+	it("starts the take when the check has no answer: the model's own call stands", async () => {
+		const { outcome } = await run({ askedForVideo: async () => null });
+		expect(outcome.modelPayload.ok).toBe(true);
+		expect(queued.enqueue).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks nothing for a server with no video model, and refuses as before", async () => {
+		config.video = false;
+		const askedForVideo = vi.fn(async () => false);
+		const { outcome } = await run({ askedForVideo });
+		expect(outcome.modelPayload).toMatchObject({ errorCode: "not_configured" });
+		expect(askedForVideo).not.toHaveBeenCalled();
+	});
+});
+
 describe("make_video's take request", () => {
 	it("enqueues the still, the length, the words and the caption as LTX reads them", async () => {
 		const { outcome } = await run({
@@ -341,6 +392,9 @@ describe("make_video's take request", () => {
 				request: {
 					v: 1,
 					prompt: "caption: the tide comes in slowly",
+					// Segment 2 goes on from where segment 1 ends (review C-2).
+					continuationPrompt:
+						'next after "caption: the tide comes in slowly": the tide comes in slowly',
 					durationSeconds: 10,
 					sourceFileId: "file-1",
 					title: "Harbour at dawn",
@@ -351,9 +405,13 @@ describe("make_video's take request", () => {
 		);
 	});
 
-	it("defaults the take to 5 seconds", async () => {
+	it("defaults the take to 5 seconds, which has one segment and one caption", async () => {
 		await run();
 		expect(queued.enqueue.mock.calls[0][0].request.durationSeconds).toBe(5);
+		expect(queued.continuation).not.toHaveBeenCalled();
+		expect(queued.enqueue.mock.calls[0][0].request).not.toHaveProperty(
+			"continuationPrompt",
+		);
 	});
 
 	it("titles a clip from a Hungarian message when the model gives no title", async () => {

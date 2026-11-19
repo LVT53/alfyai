@@ -79,6 +79,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"COMFYUI_LTX_URL",
 	"LTX_CAPTION_URL",
 	"LTX_CAPTION_MODEL",
+	"TTS_ENABLED",
+	"TTS_URL",
 	"IMAGE_REFERENCE_CAP",
 	"IMAGE_EXPLICIT_FILTER_ENABLED",
 	"MINERU_API_KEY",
@@ -305,6 +307,8 @@ export interface RuntimeConfig {
 	ltxCaptionModel: string;
 	// Env-only, never an admin override (a local caption server usually has no key).
 	ltxCaptionApiKey: string;
+	ttsEnabled: boolean;
+	ttsUrl: string;
 	imageReferenceCap: number;
 	imageExplicitFilterEnabled: boolean;
 	mineruApiKey: string;
@@ -872,6 +876,12 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	LTX_CAPTION_MODEL: (config, value) => {
 		config.ltxCaptionModel = value.trim();
+	},
+	TTS_ENABLED: (config, value) => {
+		config.ttsEnabled = value.trim() === "true";
+	},
+	TTS_URL: (config, value) => {
+		config.ttsUrl = value.trim();
 	},
 	IMAGE_REFERENCE_CAP: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -1507,6 +1517,19 @@ export function isVideoMakingConfigured(
 	return config.comfyuiLtxUrl.trim() !== "";
 }
 
+/**
+ * The read-aloud speech service's address: trimmed, with no trailing slash, and
+ * empty unless the feature is switched on AND has an address, so one without
+ * the other leaves no speaker anywhere. Read it here, never from `env.ts`: an
+ * admin override has to count.
+ */
+export function getReadAloudUrl(
+	config: Pick<RuntimeConfig, "ttsEnabled" | "ttsUrl"> = runtimeConfig,
+): string {
+	if (!config.ttsEnabled) return "";
+	return config.ttsUrl.trim().replace(/\/+$/u, "");
+}
+
 /** The caption endpoint's OpenAI-compatible base URL, trimmed; empty means no caption step. */
 export function getLtxCaptionUrl(): string {
 	return runtimeConfig.ltxCaptionUrl.trim();
@@ -1830,6 +1853,8 @@ export function getResolvedAdminConfigValues(
 		COMFYUI_LTX_URL: config.comfyuiLtxUrl,
 		LTX_CAPTION_URL: config.ltxCaptionUrl,
 		LTX_CAPTION_MODEL: config.ltxCaptionModel,
+		TTS_ENABLED: config.ttsEnabled ? "true" : "false",
+		TTS_URL: config.ttsUrl,
 		IMAGE_REFERENCE_CAP: String(config.imageReferenceCap),
 		IMAGE_EXPLICIT_FILTER_ENABLED: String(config.imageExplicitFilterEnabled),
 		// Masked from day one. The four older API-key rows above return their

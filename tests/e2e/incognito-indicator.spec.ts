@@ -342,7 +342,7 @@ test.describe("Incognito, one-way — desktop", () => {
 		await expect(popover).toBeVisible();
 		await expect(popover).toContainText("Incognito is on");
 		await expect(popover).toContainText(
-			"Nothing in this chat is remembered or counted.",
+			"Nothing in this chat is remembered. It stays that way",
 		);
 		// One-way: no switch anywhere in the card.
 		await expect(page.getByTestId("incognito-popover-toggle")).toHaveCount(0);

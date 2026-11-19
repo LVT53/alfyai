@@ -62,6 +62,7 @@ import type {
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
 import { describeToolCall, type ToolSummaryOutcome } from "./tool-call-summary";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let {
 	item,
@@ -301,66 +302,38 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	};
 }
 
-type ImageCardActivityBody = Extract<ToolActivityBody, { kind: "image-card" }>;
-
-/**
- * A picture card's head (plan 2b T2): the Image kind's tile, the card's title,
- * what it was made from or how many takes it holds, and Open › once the
- * picture is an item. No "edited … ago": an older card keeps its own turn's
- * picture (preflight F33).
- */
-function imageCardView(
-	body: ImageCardActivityBody & {
-		card: NonNullable<ImageCardActivityBody["card"]>;
-	},
-): ArtifactCardView {
-	const card = body.card;
-	// The same answer the other kinds' cards read. A picture is never made
-	// again (no Regenerate); its card keeps its box and says so (ImageCardBody).
-	const gone = goneState(card.artifactId);
-	return {
-		id: card.artifactId ?? `image-card:${card.id}`,
-		kind: "image",
-		title: card.title || body.title,
-		subtitle:
-			gone === "unreachable"
-				? $t("artifacts.madeInOriginalChat")
-				: gone === "deleted"
-					? $t("artifacts.deleted.image")
-					: cardSubtitle(card, $t),
-		openTargetId: gone ? null : card.artifactId,
-		current:
-			!gone && activeArtifactId != null && activeArtifactId === card.artifactId,
-		deleted: gone === "deleted",
-		unreachable: gone === "unreachable",
-		editedLabel: null,
-	};
-}
-
 type VideoCardActivityBody = Extract<ToolActivityBody, { kind: "video-card" }>;
 
 /**
- * A video card's head (video plan, slice 3): the Video kind's tile, the card's
- * title, the kind's own second line, and Open › once the clip is an item. A clip
- * has no versions, so no History and no "edited … ago" line.
+ * A picture's or a clip's card head (plan 2b T2, video plan slice 3): the
+ * kind's tile, the card's title, its second line (what a picture was made
+ * from or how many takes it holds; a clip's kind), and Open › once the result
+ * is an item. No "edited … ago": an older picture card keeps its own turn's
+ * picture (preflight F33), and a clip shows no History yet. A take's result is
+ * never made again (no Regenerate): its card keeps its box and says so (the
+ * take card shell), with the same gone answer the other kinds' cards read.
  */
-function videoCardView(
-	body: VideoCardActivityBody & {
-		card: NonNullable<VideoCardActivityBody["card"]>;
-	},
+function takeCardView(
+	kind: "image" | "video",
+	card: { id: string; artifactId: string | null; title: string },
+	fallbackTitle: string,
+	subtitle: string,
 ): ArtifactCardView {
-	const card: VideoCardView = body.card;
 	const gone = goneState(card.artifactId);
 	return {
-		id: card.artifactId ?? `video-card:${card.id}`,
-		kind: "video",
-		title: card.title || body.title,
+		id: card.artifactId ?? `${kind}-card:${card.id}`,
+		kind,
+		title: card.title || fallbackTitle,
 		subtitle:
 			gone === "unreachable"
 				? $t("artifacts.madeInOriginalChat")
 				: gone === "deleted"
-					? $t("artifacts.deleted.video")
-					: videoCardSubtitle(card, $t),
+					? $t(
+							kind === "image"
+								? "artifacts.deleted.image"
+								: "artifacts.deleted.video",
+						)
+					: subtitle,
 		openTargetId: gone ? null : card.artifactId,
 		current:
 			!gone && activeArtifactId != null && activeArtifactId === card.artifactId,
@@ -653,6 +626,7 @@ function handleToggle() {
 					loading="lazy"
 					decoding="async"
 					referrerpolicy="no-referrer"
+					use:replayEarlyImageEvent
 					onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 				/>
 			{:else}
@@ -754,7 +728,7 @@ function handleToggle() {
 		     drawn once the chat's cards hold it; until then the row stands alone. -->
 		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
 			<ArtifactCard
-				view={imageCardView({ ...body, card })}
+				view={takeCardView("image", card, body.title, cardSubtitle(card, $t))}
 				chrome="full"
 				imageCard={card}
 				{onImageAction}
@@ -772,7 +746,7 @@ function handleToggle() {
 		     alone. -->
 		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
 			<ArtifactCard
-				view={videoCardView({ ...body, card })}
+				view={takeCardView("video", card, body.title, videoCardSubtitle($t))}
 				chrome="full"
 				videoCard={card}
 				{onVideoAction}

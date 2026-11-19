@@ -1,6 +1,6 @@
 ## Memory replacement supersession
 
-ADR-0070 authorizes the native Hindsight replacement inside `memory-profile/` for authority-gated accounts. Keep native extraction/consolidation native; the app owns source/control fences, deliberate actions, published UI generations and delivery through the existing job engine. `chat-turn/request-activity.ts` owns content-free foreground leases for private background inference admission; tracking errors never block chat. Supported native auth/admission extensions live in `deploy/hindsight/`. Legacy Judge/Consolidation below remain only for legacy-authority migration/rollback and must not run for migrated accounts. No new nightly reconciliation, secondary extractor or scheduler.
+ADR-0071 authorizes the native Hindsight replacement inside `memory-profile/` for authority-gated accounts. Keep native extraction/consolidation native; the app owns source/control fences, deliberate actions, published UI generations and delivery through the existing job engine. `chat-turn/request-activity.ts` owns content-free foreground leases for private background inference admission; tracking errors never block chat. Supported native auth/admission extensions live in `deploy/hindsight/`. Legacy Judge/Consolidation below remain only for legacy-authority migration/rollback and must not run for migrated accounts. No new nightly reconciliation, secondary extractor or scheduler.
 
 # Server Services — Internal Map
 
@@ -75,7 +75,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
 - `prompts.ts` (src/lib/server/prompts.ts) — shared prompt configuration helpers (consumed by normal-chat context)
 - `analytics.ts` — analytics event ingestion plus the Analytics Dashboard Read Model. Event ingestion records usage/conversation facts during chat-turn finalization. `getAnalyticsDashboardReadModel(...)` projects the `/api/analytics` dashboard payload, including personal analytics, admin-only system/per-user analytics, timeline rows, available months, and mock analytics. The route remains an adapter for auth, `mock`/`month`/`systemMonth`/`timeline` query parameters, and `json(...)` mapping.
 - `file-production/` — durable generated-file jobs, source validation, renderers, sandbox execution, retry/cancel, storage, and legacy generated-file backfill
-- `generated-file-serving.ts` — generated chat-file lookup, ownership fallback, assigned/succeeded-job eligibility, byte/type validation, and preview/download headers for chat routes and Working Document generated-output serving
+- `generated-file-serving.ts` — generated chat-file lookup, ownership fallback, assigned/succeeded-job eligibility, byte/type validation, and preview/download headers for chat routes and Working Document generated-output serving; a standard report's preview (never a download) also gets read aloud's bridge as the last thing in its body (`bridgeOrigin`, the request's own origin; `withReportBridge` in `$lib/shared/read-aloud/report-bridge.ts`), after its own bytes were checked, with the length counting it
 - `image-search.ts` — image search integration used by direct normal-chat tools
 - `vision/` — what the chat model sees of an image: preparation to a JPEG within a pixel budget, who may receive pixels; its rules are in `vision/AGENTS.md`
 - `projects.ts` (src/lib/server/services/projects.ts) — project CRUD using db + schema.ts directly (active service, not legacy)
@@ -300,6 +300,7 @@ Other services in active use:
 - Memory, in every `memory-*/` folder and in `memory.ts`, `memory-maintenance.ts`, `memory-behavior-log.ts` and `memory-recuration.ts`: `memory-profile/AGENTS.md`.
 - `chat-files.ts` and produced files: `file-production/AGENTS.md`.
 - `images/` (the ComfyUI client and its fake, graphs, pixel guards, picture files, cards and takes, the image job): `images/AGENTS.md`.
+- Read aloud (`read-aloud/`: who may read a reply, the containment check, one reading per person, the replay of the speech service's audio and timeline, the idle end, the fake of the service): `read-aloud/AGENTS.md`.
 - Background jobs (the lifecycle of Atlas, extraction and file-production jobs: claim, lease, retry, cancel, recovery, scheduling, waiting for a verdict): `jobs/AGENTS.md` (ADR-0069). Nothing outside `jobs/` changes a job's lifecycle columns.
 - `normal-chat-tools/artifact-tools/` and anything else that writes an artifact: `artifacts/AGENTS.md`; a board's ops, placement and stale-read rules: `src/lib/components/artifacts/canvas/AGENTS.md`.
 - An address fetched or embedded without a click (tools, `web-grounding.ts`, favicons, thumbnails): `url-provenance/AGENTS.md` (ADR-0068).

@@ -65,6 +65,7 @@ Server:
 - `src/lib/server/services/knowledge/` — the knowledge store, uploads, retrieval, the library's rules.
 - `src/lib/server/services/memory-profile/` — all profile memory (every `memory-*/` folder and `memory*.ts`): the intake judge, consolidation, recall, user-protected facts.
 - `src/lib/server/services/task-state/` — task continuity.
+- `src/lib/server/services/read-aloud/` — read aloud's sessions: who may read a reply, the containment check, one reading per person, the replay, the idle end.
 - `src/lib/server/services/url-provenance/` — ADR-0068: which addresses the app may fetch without a click.
 - `src/lib/server/services/vision/` — what the chat model sees of an image: preparation, pixel budgets, who may receive pixels.
 - `src/lib/server/db/` — connection bootstrap, schema, migrations; `src/lib/server/sandbox/` — the sandbox's security model; `src/lib/server/utils/` — shared server helpers.
@@ -72,11 +73,12 @@ Server:
 Browser and shared:
 
 - `src/lib/client/` — reusable browser `fetch` calls and the landing-to-chat handoff; `src/lib/stores/` — browser state; `src/lib/services/` — the stream protocol and browser stream transport.
+- `src/lib/client/read-aloud/` — read aloud in the browser: the speech script, marks, the reading machine and controller, its language detector.
 - `src/lib/shared/artifacts/` — shared artifact types, and where the board's rules live.
 - `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
 - `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
 - `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
-- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/` and `tour/` each keep their own file.
+- `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/`, `takes/` (the picture and video cards' one shell) and `tour/` each keep their own file.
 - `src/lib/components/drawings/` — the drawing kit: small drawn copies of real controls (words from their keys, Lucide icons, colours, fonts and shadows from tokens and sizes in design pixels, hidden from screen readers, spots a guide row lights), and the rule that a drawing follows its control.
 - `src/lib/components/guide/` — the Feature Guide page: its content list and words, its six drawings, Try it and Show me, NEW, and the rule that every Show me spotlight has a marker on its real control and a line in the end-to-end spec.
 
@@ -84,6 +86,10 @@ Routes and tests:
 
 - `src/routes/` — API routes; `src/routes/(app)/` — the app shell, page boundaries, announcements.
 - `tests/` — the e2e harness and spec conventions.
+
+Deploy:
+
+- `deploy/speech-service/` — the read-aloud speech service on the GPU box: loopback only, nothing on disk, no reply text in logs; how to run its tests.
 
 ## Config And Environment
 
@@ -158,7 +164,7 @@ Do not:
 - New continuity or evidence-context logic:
   - `src/lib/server/services/task-state.ts`
 - New profile-memory behavior:
-  - `src/lib/server/services/memory-profile/` (native replacement; see ADR-0070); `memory-judge/` and `memory-consolidation/` are legacy-authority compatibility only
+  - `src/lib/server/services/memory-profile/` (native replacement; see ADR-0071); `memory-judge/` and `memory-consolidation/` are legacy-authority compatibility only
 - New reusable browser API call:
   - `src/lib/client/api/`
 - New client state transition:
@@ -205,6 +211,7 @@ Name the specs that cover what you changed (they run in full; the `@smoke` set c
 - making pictures (the `make_image` tool, the picture job, the card and the Image item, against the fake ComfyUI): `tests/e2e/images-pipeline.spec.ts`
 - an Image (the picture card, the panel, History, Attach and marks in the composer, the Knowledge Base's Images chip): `tests/e2e/images*.spec.ts`
 - asking the person (`ask_user`, the card, the folded line, the resume): `tests/e2e/ask-me-first.spec.ts`
+- read aloud (the speaker, the player, Read from here, the session routes, the speech script, Settings → Read aloud and the voice editor; a Document or a standard report read aloud in the side panel, the report's bridge): `tests/e2e/read-aloud.spec.ts tests/e2e/read-aloud-failures.spec.ts tests/e2e/read-aloud-voices.spec.ts tests/e2e/read-aloud-document.spec.ts tests/e2e/read-aloud-report.spec.ts`
 
 Playwright runs against the **production build** (`npm run build` first, about 15 s alone; a build older than `src/` is refused before any server starts, and a build that does not hydrate stops the run in two seconds), with one server and one SQLite file per worker slot: slot N is Playwright's `TEST_PARALLEL_INDEX` N, served on `E2E_PORT + N` with `data/playwright-e2e-chat-wN.db` and its own seeded admin, so spec files run side by side without meeting each other's rows. `tests/e2e/e2e-env.ts` says what a slot is, `tests/e2e/global-setup.ts` makes the databases and starts the servers, `playwright.config.ts` points each worker at its slot. **Never run `npm run check` or `npm test` while `npm run build` runs** (both run `svelte-kit sync`, which rewrites `.svelte-kit/` under the build: it still exits 0 and the app it made does not hydrate); `scripts/gates.sh` orders them for you.
 
@@ -224,7 +231,7 @@ Run these too when relevant:
 ## What Not To Reintroduce
 
 - No new top-level `src/lib/server/services/*.ts` public boundary just because one file is getting large.
-- No parallel memory subsystem beside `task-state.ts` (continuity) and the authority-gated profile-memory boundary. ADR-0070 authorizes the native Hindsight replacement under `memory-profile/`; legacy Judge/Consolidation remain only for migration/rollback accounts. Keep native extraction native and use the existing job engine.
+- No parallel memory subsystem beside `task-state.ts` (continuity) and the authority-gated profile-memory boundary. ADR-0071 authorizes the native Hindsight replacement under `memory-profile/`; legacy Judge/Consolidation remain only for migration/rollback accounts. Keep native extraction native and use the existing job engine.
 - No duplicated route-specific chat execution logic.
 - No new raw `sessionStorage` protocol outside `conversation-session.ts`.
 - No direct env reads in override-aware runtime services.

@@ -257,6 +257,7 @@ function appShellDataFixture(
 		maxFileUploadSize: 104_857_600,
 		disabledFileTypeIds: [],
 		composerCommandRegistryEnabled: false,
+		readAloudEnabled: false,
 		atlasAvailability: {
 			enabled: true,
 			configured: true,
@@ -273,6 +274,7 @@ function appShellDataFixture(
 		userPersonality: null,
 		userSidebarProjectsExpanded: true,
 		userSidebarChatsExpanded: true,
+		userSendWithEnter: false,
 		modelNames: { model1: "Model 1" },
 		availableModels: [
 			{
@@ -3548,7 +3550,7 @@ describe("chat page runtime integration", () => {
 			expect(fetchConversationDetail).not.toHaveBeenCalled();
 
 			// The answer held a finished picture: applied to the page's cards, it
-			// clears `shouldPollImageCards`, so no later tick reads anything.
+			// clears `shouldPollTakeCards`, so no later tick reads anything.
 			await vi.advanceTimersByTimeAsync(5000);
 			expect(fetchConversationImageCards).toHaveBeenCalledTimes(1);
 			expect(fetchConversationDetail).not.toHaveBeenCalled();
@@ -4205,7 +4207,7 @@ describe("chat page runtime integration", () => {
 				screen.getByTestId("artifact-count-dot-compact"),
 			).toBeInTheDocument();
 			expect(countButton).toHaveAccessibleName(
-				"Open what this chat made (1) — a change is waiting",
+				"Open Chat Artifacts (1) — a change is waiting",
 			);
 		});
 

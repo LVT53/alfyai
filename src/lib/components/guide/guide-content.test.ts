@@ -33,11 +33,153 @@ describe("the feature guide's content", () => {
 		]);
 	});
 
-	it("has thirty-one entries with unique ids, 7/7/4/4/5/4 per section", () => {
-		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(31);
+	it("has thirty-five entries with unique ids, 8/7/6/4/5/5 per section", () => {
+		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(35);
 		expect(GUIDE_SECTION_IDS.map((s) => guideEntriesFor(s).length)).toEqual([
-			7, 7, 4, 4, 5, 4,
+			8, 7, 6, 4, 5, 5,
 		]);
+	});
+
+	// The person's own Pictures and videos switch (Settings > Profile, the
+	// Assistant card): Show me rings its row, and the row lights the switch the
+	// Knows-you drawing draws after Memory.
+	it("lists Pictures and videos in It knows you, before Voices, with Show me on its Settings row", () => {
+		const knowsYou = guideEntriesFor("knowsYou");
+		expect(knowsYou.at(-2)).toEqual({
+			id: "picturesAndVideos",
+			section: "knowsYou",
+			drawingSpot: "pictures",
+			action: {
+				kind: "showMe",
+				place: "settings",
+				spotlight: "settings.pictures",
+			},
+			added: "2026-11-17",
+		});
+		const expected = {
+			en: {
+				"guide.entry.picturesAndVideos.name": "Pictures and videos",
+				"guide.entry.picturesAndVideos.line":
+					"Alfy makes them only when you ask, and you can switch them off.",
+			},
+			hu: {
+				"guide.entry.picturesAndVideos.name": "Képek és videók",
+				"guide.entry.picturesAndVideos.line":
+					"Alfy csak kérésre készít ilyet, és ki is kapcsolhatod.",
+			},
+		} as const;
+		for (const lang of LANGUAGES) {
+			for (const [key, value] of Object.entries(expected[lang])) {
+				expect(words[lang][key], `${lang} ${key}`).toBe(value);
+			}
+			expect(
+				words[lang]["guide.entry.picturesAndVideos.example"],
+			).toBeUndefined();
+		}
+	});
+
+	// The person's own Send with Enter switch (Settings > Profile, the last row of
+	// the Preferences card): Show me rings its row. The Your account drawing
+	// shows only that card's first two rows, so the entry lights nothing.
+	it("lists Send with Enter in Your account, after Language and look, with Show me on its Settings row", () => {
+		const account = guideEntriesFor("account");
+		expect(account.map((e) => e.id).slice(0, 2)).toEqual([
+			"languageAndLook",
+			"sendWithEnter",
+		]);
+		expect(account[1]).toEqual({
+			id: "sendWithEnter",
+			section: "account",
+			drawingSpot: null,
+			action: {
+				kind: "showMe",
+				place: "settings",
+				spotlight: "settings.sendWithEnter",
+			},
+			added: "2026-11-18",
+		});
+		const expected = {
+			en: {
+				"guide.entry.sendWithEnter.name": "Send with Enter",
+				"guide.entry.sendWithEnter.line":
+					"Enter sends your message and Shift+Enter starts a new line.",
+			},
+			hu: {
+				"guide.entry.sendWithEnter.name": "Küldés Enterrel",
+				"guide.entry.sendWithEnter.line":
+					"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd.",
+			},
+		} as const;
+		for (const lang of LANGUAGES) {
+			for (const [key, value] of Object.entries(expected[lang])) {
+				expect(words[lang][key], `${lang} ${key}`).toBe(value);
+			}
+			// A Show me has no example: only Try it has one.
+			expect(words[lang]["guide.entry.sendWithEnter.example"]).toBeUndefined();
+		}
+	});
+
+	// Read aloud (Plan 4, Task 1). The speaker needs a finished reply, so its
+	// entry has Try it and its row lights the speaker in the chat drawing; Show me
+	// goes to the Read aloud card in Settings, which is always there when the
+	// feature is on (the guide's rule: Show me only where the control is).
+	it("lists Listen to a reply last in Ask, with Try it, and Voices that read to you last in It knows you, with Show me on the Read aloud card", () => {
+		expect(guideEntriesFor("ask").at(-1)).toEqual({
+			id: "listenToAReply",
+			section: "ask",
+			drawingSpot: "readAloud",
+			action: { kind: "tryIt" },
+			added: "2026-11-17",
+		});
+		expect(guideEntriesFor("knowsYou").at(-1)).toEqual({
+			id: "yourVoices",
+			section: "knowsYou",
+			// The Knows-you drawing has no room for the Read aloud card (see the entry).
+			drawingSpot: null,
+			action: {
+				kind: "showMe",
+				place: "settings",
+				spotlight: "settings.readAloud",
+			},
+			added: "2026-11-17",
+		});
+	});
+
+	// Read aloud on Documents and reports (read-aloud-documents): the same entry
+	// says a document or a report can be read too.
+	it("words the two read-aloud entries in English and Hungarian", () => {
+		const expected = {
+			en: {
+				"guide.entry.listenToAReply.name": "Listen to a reply or a document",
+				"guide.entry.listenToAReply.line":
+					"Press the speaker under a reply, or at the top of a document or a report, to hear it, and follow the words as they are read.",
+				"guide.entry.listenToAReply.example":
+					"Tell me a short story about a lighthouse keeper.",
+				"guide.entry.yourVoices.name": "Voices that read to you",
+				"guide.entry.yourVoices.line":
+					"Choose a voice for each language and the speed it starts at, or make a voice of your own.",
+			},
+			hu: {
+				"guide.entry.listenToAReply.name":
+					"Hallgasd meg a választ vagy a dokumentumot",
+				"guide.entry.listenToAReply.line":
+					"Nyomd meg a hangszórót a válasz alatt, vagy egy dokumentum vagy jelentés tetején, és kövesd a szavakat, ahogy elhangzanak.",
+				"guide.entry.listenToAReply.example":
+					"Mesélj egy rövid történetet egy világítótorony-őrről.",
+				"guide.entry.yourVoices.name": "Felolvasó hangok",
+				"guide.entry.yourVoices.line":
+					"Válassz hangot minden nyelvhez és kezdősebességet, vagy készíts saját hangot.",
+			},
+		} as const;
+		for (const lang of LANGUAGES) {
+			for (const [key, value] of Object.entries(expected[lang])) {
+				expect(words[lang][key], `${lang} ${key}`).toBe(value);
+			}
+		}
+		// A Show me has no example: only Try it has one.
+		for (const lang of LANGUAGES) {
+			expect(words[lang]["guide.entry.yourVoices.example"]).toBeUndefined();
+		}
 	});
 
 	it("gives every entry a name and a line, and every Try it an example, in both languages", () => {
@@ -152,7 +294,14 @@ describe("the feature guide's content", () => {
 			GUIDE_ENTRIES.filter((e) => e.added !== BEFORE_THE_GUIDE).map(
 				(e) => e.id,
 			),
-		).toEqual(["asksFirst", "videos"]);
+		).toEqual([
+			"asksFirst",
+			"listenToAReply",
+			"videos",
+			"picturesAndVideos",
+			"yourVoices",
+			"sendWithEnter",
+		]);
 	});
 
 	it("shows NEW for thirty days from the added date", () => {

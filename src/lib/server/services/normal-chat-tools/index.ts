@@ -2,7 +2,6 @@ import type { JSONSchema7 } from "@ai-sdk/provider";
 import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { z } from "zod";
 import type { ModelId } from "$lib/model-types";
-
 import {
 	getConfig,
 	isImageMakingConfigured,
@@ -46,7 +45,9 @@ import {
 import { modelIdCanSeeImages } from "$lib/server/services/vision/model-vision";
 import type { StepImageQueue } from "$lib/server/services/vision/step-images";
 import {
+	boundGroundedWebView,
 	buildGroundedWebModelPayload,
+	buildGroundedWebPageFromFetch,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
 	summarizeGroundedWebResult,
@@ -150,6 +151,10 @@ import {
 } from "./memory-context";
 import { resolveModelContextTokens } from "./model-context-tokens";
 import {
+	getReadResultGrant,
+	markBudgetedReadTool,
+} from "./model-payload-budget";
+import {
 	photosToolInputSchema,
 	runPhotosTool,
 	sanitizePhotosToolInput,
@@ -245,6 +250,7 @@ import {
 	setCachedToolResult,
 } from "./tool-result-cache";
 import { dropUnsourcedImages, withUrlProvenance } from "./url-provenance";
+import { askedForVideo } from "./video-request";
 
 const useSkillInputSchema = z.object({
 	name: z
@@ -385,12 +391,12 @@ const TOOL_TEXT: ToolText = {
 	},
 	make_image: {
 		description:
-			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
+			'Make a new picture from words, or change one: a picture in this message (its number) or an Image from "In this chat" (its id). Only on a clear request to make or change a picture; when they might want photos found or a description, ask with ask_user first. One picture per call. For several, count them first, then make every call in one step: different pictures, one call each (up to 8); options of one picture, the identical call repeated (up to 4). Write `prompt` in English: what changes and what stays. Do not use it to find, show or describe existing pictures.',
 		errorPrefix: "Making the picture failed",
 	},
 	make_video: {
 		description:
-			'Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only for a clip: one at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
+			'Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish something would move, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
 		errorPrefix: "Making the video failed",
 	},
 	read_generated_file: {
@@ -919,11 +925,26 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// Keep the answer brief sized to the same model-aware cap the
 										// fetch used, so the detailed full_content isn't re-truncated
 										// below it when building the model payload.
+										const grant = getReadResultGrant(options);
+										const page =
+											grant && result.sources.length === 1
+												? buildGroundedWebPageFromFetch(result)
+												: null;
+										const selected = grant
+											? boundGroundedWebView({
+													result,
+													pages: page ? [page] : [],
+													name: "fetch_url",
+													cached: !!cached,
+													maxPayloadTokens: grant.maxPayloadTokens,
+												})
+											: undefined;
 										const modelPayload = {
-											...buildGroundedWebModelPayload(result, {
-												maxMarkdownChars: maxCharsTotal,
-												name: "fetch_url",
-											}),
+											...(selected?.modelPayload ??
+												buildGroundedWebModelPayload(result, {
+													maxMarkdownChars: maxCharsTotal,
+													name: "fetch_url",
+												})),
 											...(cached ? { cached: true as const } : {}),
 											...(refusedCount > 0
 												? {
@@ -931,7 +952,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													}
 												: {}),
 										};
-										const candidates = createGroundedWebCandidates(result);
+										const candidates =
+											selected?.candidates ??
+											createGroundedWebCandidates(result);
 										return {
 											modelPayload,
 											entry: {
@@ -941,11 +964,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												// included: the one place they are kept.
 												input: safeInput,
 												status: "done",
-												outputSummary: summarizeGroundedWebResult(result),
+												outputSummary: selected
+													? `${selected.modelPayload.sources.length} sources, ${selected.modelPayload.evidence.length} evidence items (${selected.modelPayload.coverage}).`
+													: summarizeGroundedWebResult(result),
 												sourceType: "web",
 												candidates,
 												metadata: {
-													...createGroundedWebMetadata(result),
+													...(selected?.metadata ??
+														createGroundedWebMetadata(result)),
 													...(cached ? { cached: true as const } : {}),
 													...(refusedCount > 0
 														? { refusedUrlCount: refusedCount }
@@ -2418,6 +2444,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											signal: abortSignal,
 											onTick: ctx.onToolActivity,
 											state,
+											// A video only on a clear request for one: the person's own
+											// words are judged here (video-request.ts). A turn that
+											// carries on a reply that asked them goes on their answer.
+											...(ctx.resumeProvenance
+												? {}
+												: {
+														askedForVideo: () =>
+															askedForVideo({
+																userId: ctx.userId,
+																conversationId: ctx.conversationId,
+																requestText: ctx.requestText ?? "",
+																signal: abortSignal,
+															}),
+													}),
 										});
 										const ok = result.modelPayload.ok;
 										return {
@@ -3370,6 +3410,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		compactToolSchemas(tools),
 		collectDegradedToolHints(getCachedToolHealthSnapshot()),
 	);
+
+	if (tools.fetch_url) markBudgetedReadTool(tools.fetch_url);
 
 	return {
 		tools: hintedTools,

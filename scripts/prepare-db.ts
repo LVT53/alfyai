@@ -124,6 +124,7 @@ const requiredExistingTables = [
 	"user_backup_codes",
 	"sign_in_challenges",
 	"routing_regions",
+	"read_aloud_voices",
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [

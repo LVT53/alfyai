@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
 	applyFileServingRange,
 	buildFileServingResponseHeaders,
+	type FileServingPreviewProfile,
 	parseFileServingRange,
 } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
@@ -30,6 +31,12 @@ export interface WorkingDocumentFileServingSuccess {
 	status: 200 | 206 | 416;
 	body: Uint8Array;
 	headers: Record<string, string>;
+	/**
+	 * The preview profile its headers were made for, carried from a generated output's
+	 * serving (`resolveGeneratedFileServing`): a standard report's. Read aloud reads a
+	 * library report only when it is set (`read-aloud/report-html.ts`).
+	 */
+	previewProfile?: FileServingPreviewProfile;
 }
 
 export interface WorkingDocumentFileServingError {
@@ -47,6 +54,8 @@ export async function resolveWorkingDocumentFileServing(params: {
 	artifactId: string;
 	mode: WorkingDocumentFileServingMode;
 	rangeHeader?: string | null;
+	/** The app's origin, for read aloud's bridge in a generated standard report (`resolveGeneratedFileServing`). */
+	bridgeOrigin?: string | null;
 }): Promise<WorkingDocumentFileServingResolution> {
 	let artifact = await getArtifactForUser(params.userId, params.artifactId);
 	if (!artifact) {
@@ -75,6 +84,7 @@ export async function resolveWorkingDocumentFileServing(params: {
 		artifact,
 		mode: params.mode,
 		rangeHeader: params.rangeHeader,
+		bridgeOrigin: params.bridgeOrigin,
 	});
 	if (generatedSource) {
 		return generatedSource;
@@ -140,6 +150,7 @@ async function resolveGeneratedOutputSource(params: {
 	artifact: Artifact;
 	mode: WorkingDocumentFileServingMode;
 	rangeHeader?: string | null;
+	bridgeOrigin?: string | null;
 }): Promise<WorkingDocumentFileServingResolution | null> {
 	if (
 		params.artifact.type !== "generated_output" ||
@@ -159,6 +170,7 @@ async function resolveGeneratedOutputSource(params: {
 		mode: params.mode,
 		displayFilename: params.artifact.name || null,
 		rangeHeader: params.rangeHeader,
+		bridgeOrigin: params.bridgeOrigin,
 	});
 }
 

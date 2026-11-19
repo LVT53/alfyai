@@ -6,18 +6,14 @@ import type {
 	ImageTakeView,
 } from "$lib/server/services/images/read-model";
 import { uiLanguage } from "$lib/stores/settings";
+import { takeCardState } from "../takes/take-card-view";
 import {
 	canCompareBeforeAfter,
 	cardSubtitle,
-	elapsedClock,
-	etaLabel,
 	hasActiveImageTakes,
 	isCheckingAgain,
-	makingDetail,
 	shownTake,
-	takeState,
 	visibleTakes,
-	waitingLine,
 } from "./image-card-view";
 
 let n = 0;
@@ -72,95 +68,6 @@ function card(
 
 afterEach(() => uiLanguage.set("en"));
 
-describe("takeState", () => {
-	it("queued is waiting with nobody counted", () => {
-		expect(takeState(take({ status: "queued" }), 0)).toEqual({
-			kind: "waiting",
-			ahead: null,
-		});
-	});
-	it("submitted counts those ahead", () => {
-		expect(
-			takeState(
-				take({ status: "running", phase: "submitted", queueAhead: 2 }),
-				0,
-			),
-		).toEqual({ kind: "waiting", ahead: 2 });
-	});
-	it("starting is making for 2 s and starting from 3 s", () => {
-		const s = take({ status: "running", phase: "starting", phaseAt: 10_000 });
-		expect(takeState(s, 12_000).kind).toBe("making");
-		expect(takeState(s, 13_000)).toEqual({ kind: "starting" });
-	});
-	it("rendering carries the eta, and the times the card's clock reads", () => {
-		expect(
-			takeState(
-				take({
-					status: "running",
-					phase: "rendering",
-					phaseAt: 1_000,
-					createdAt: 500,
-					etaSeconds: 8,
-					progressPercent: 40,
-				}),
-				0,
-			),
-		).toEqual({
-			kind: "making",
-			etaSeconds: 8,
-			progressPercent: 40,
-			phaseAt: 1_000,
-			createdAt: 500,
-		});
-	});
-	it("succeeded is ready and cancelled is stopped", () => {
-		expect(takeState(take(), 0)).toEqual({ kind: "ready" });
-		expect(takeState(take({ status: "cancelled" }), 0)).toEqual({
-			kind: "stopped",
-		});
-	});
-	it("failed separates every cannot-reach code from a failed render", () => {
-		for (const errorCode of [
-			"image_server_unreachable",
-			"image_server_not_configured",
-		]) {
-			expect(
-				takeState(take({ status: "failed", errorCode, retryable: true }), 0),
-			).toEqual({ kind: "failed", unavailable: true, retryable: true });
-		}
-		expect(
-			takeState(
-				take({ status: "failed", errorCode: "image_render_failed" }),
-				0,
-			),
-		).toEqual({ kind: "failed", unavailable: false, retryable: false });
-	});
-});
-
-describe("takeState for a picture the explicit-picture filter stopped", () => {
-	it("is blocked, never a failure to make it", () => {
-		expect(
-			takeState(
-				take({ status: "failed", errorCode: "image_blocked", fileId: null }),
-				0,
-			),
-		).toEqual({ kind: "blocked", unchecked: false });
-	});
-	it("is blocked as unchecked when the check could not run", () => {
-		expect(
-			takeState(
-				take({
-					status: "failed",
-					errorCode: "image_unchecked",
-					fileId: null,
-					retryable: true,
-				}),
-				0,
-			),
-		).toEqual({ kind: "blocked", unchecked: true });
-	});
-});
-
 describe("visibleTakes and shownTake", () => {
 	it("folds a held automatic retry into its first take's slot", () => {
 		const first = take();
@@ -205,7 +112,7 @@ describe("visibleTakes and shownTake", () => {
 		});
 		const c = card([first, retry]);
 		expect(visibleTakes(c)).toContain(retry);
-		expect(takeState(retry, 0)).toEqual({
+		expect(takeCardState(retry, 0, "image")).toEqual({
 			kind: "failed",
 			unavailable: false,
 			retryable: true,
@@ -225,17 +132,19 @@ describe("visibleTakes and shownTake", () => {
 	});
 	it("treats starting with no phase time as making", () => {
 		expect(
-			takeState(
+			takeCardState(
 				take({ status: "running", phase: "starting", phaseAt: null }),
 				99_000,
+				"image",
 			).kind,
 		).toBe("making");
 	});
 	it("does not count zero ahead", () => {
 		expect(
-			takeState(
+			takeCardState(
 				take({ status: "running", phase: "submitted", queueAhead: 0 }),
 				0,
+				"image",
 			),
 		).toEqual({ kind: "waiting", ahead: null });
 	});
@@ -289,89 +198,6 @@ describe("cardSubtitle", () => {
 			take({ origin: "auto_retry", retryOf: first.id, held: true }),
 		]);
 		expect(cardSubtitle(c, get(t))).toBe("Image");
-	});
-});
-
-describe("etaLabel", () => {
-	it("rounds up and is null for nothing", () => {
-		expect(etaLabel(7.2, get(t))).toBe("About 8 s left");
-		uiLanguage.set("hu");
-		expect(etaLabel(7.2, get(t))).toBe("Még kb. 8 mp");
-		expect(etaLabel(null, get(t))).toBeNull();
-		expect(etaLabel(0, get(t))).toBeNull();
-	});
-});
-
-describe("elapsedClock", () => {
-	it("is m:ss, and h:mm:ss once an hour has gone", () => {
-		expect(elapsedClock(0)).toBe("0:00");
-		expect(elapsedClock(7_000)).toBe("0:07");
-		expect(elapsedClock(7_999)).toBe("0:07");
-		expect(elapsedClock(59_999)).toBe("0:59");
-		expect(elapsedClock(60_000)).toBe("1:00");
-		expect(elapsedClock(3_599_000)).toBe("59:59");
-		expect(elapsedClock(3_600_000)).toBe("1:00:00");
-		expect(elapsedClock(3_661_000)).toBe("1:01:01");
-	});
-	it("never counts below zero", () => {
-		expect(elapsedClock(-2_000)).toBe("0:00");
-	});
-});
-
-describe("makingDetail", () => {
-	const making = (
-		over: Partial<{
-			etaSeconds: number | null;
-			phaseAt: number | null;
-			createdAt: number;
-		}> = {},
-	) => ({
-		etaSeconds: null as number | null,
-		phaseAt: 10_000 as number | null,
-		createdAt: 1_000,
-		...over,
-	});
-
-	it("is the estimate whenever the render reports one, exactly as before", () => {
-		expect(makingDetail(making({ etaSeconds: 7.2 }), 4_000, get(t))).toBe(
-			"About 8 s left",
-		);
-		uiLanguage.set("hu");
-		expect(makingDetail(making({ etaSeconds: 7.2 }), 4_000, get(t))).toBe(
-			"Még kb. 8 mp",
-		);
-	});
-	it("is the time this phase has taken when there is no estimate", () => {
-		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
-	});
-	it("counts up as the card's clock advances", () => {
-		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
-		expect(makingDetail(making(), 18_000, get(t))).toBe("0:08");
-		expect(makingDetail(making(), 79_999, get(t))).toBe("1:09");
-	});
-	it("counts from when the take was created when its phase has no stamp, never blank", () => {
-		expect(
-			makingDetail(
-				making({ phaseAt: null, createdAt: 10_000 }),
-				17_000,
-				get(t),
-			),
-		).toBe("0:07");
-	});
-	it("stays numeric in Hungarian too: the clock is no string", () => {
-		uiLanguage.set("hu");
-		expect(makingDetail(making(), 17_000, get(t))).toBe("0:07");
-	});
-});
-
-describe("waitingLine", () => {
-	it("counts the pictures ahead, and says Next up when none are (never 'another picture')", () => {
-		expect(waitingLine(2, get(t))).toBe("2 ahead of this one");
-		expect(waitingLine(0, get(t))).toBe("Next up");
-		expect(waitingLine(null, get(t))).toBe("Next up");
-		uiLanguage.set("hu");
-		expect(waitingLine(2, get(t))).toBe("2 van előtte");
-		expect(waitingLine(null, get(t))).toBe("Következik");
 	});
 });
 

@@ -10,7 +10,14 @@ import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { abortedByTurnDeadline } from "$lib/server/utils/turn-deadline-reason";
-import { capModelPayload } from "./model-payload-budget";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import {
+	boundedWebReadFailure,
+	capModelPayload,
+	getReadResultGrant,
+	ReadResultCapacityError,
+	TOOL_RESULT_MAX_TOKENS,
+} from "./model-payload-budget";
 import { stableStringify } from "./stable-stringify";
 import { deriveToolResultDigest } from "./tool-result-digest";
 
@@ -185,12 +192,10 @@ export interface ToolCallRecorder {
 	): "definitely_not_executed" | "failed" | "uncertain" | undefined;
 	getEntries(): ToolCallEntry[];
 	/**
-	 * Optional: sees what the model was handed by a call that SUCCEEDED, with the
-	 * entry that is about to be recorded for it. Called by `executeToolWithEnvelope`
-	 * after the payload is compacted and before `record`, so whatever an observer
-	 * writes is in place before the call's result reaches the model or any event
-	 * about it reaches the browser. A failed call is not observed: its error text
-	 * can echo the model's own input, so it is not a source of anything.
+	 * Observes the final compact model view before record/return. Legacy calls
+	 * observe successes only. Granted web reads also observe their fixed bounded
+	 * failures: no candidates, URLs or echoed error/input, coverage:none and
+	 * evidenceReady:false. Certainty remains bound to that exact final object.
 	 */
 	observeResult?(result: {
 		toolName: string;
@@ -427,6 +432,87 @@ export function modelSafeToolError(error: unknown, fallback: string): string {
 	return truncateText(trimmed || fallback, 500);
 }
 
+function validBoundedWebPayload(
+	payload: Record<string, unknown>,
+	entry: ToolCallEntry,
+): boolean {
+	if (
+		payload.bounded !== true ||
+		(payload.coverage !== "full" && payload.coverage !== "partial") ||
+		!isRecord(payload.omitted) ||
+		!Array.isArray(payload.pageRanges) ||
+		typeof payload.hint !== "string" ||
+		!Array.isArray(payload.sources) ||
+		!Array.isArray(payload.evidence)
+	)
+		return false;
+	if (
+		!["sources", "evidence", "pages"].every(
+			(key) =>
+				Number.isInteger((payload.omitted as Record<string, unknown>)[key]) &&
+				Number((payload.omitted as Record<string, unknown>)[key]) >= 0,
+		)
+	)
+		return false;
+	const sources = payload.sources.filter(isRecord);
+	if (
+		sources.length !== payload.sources.length ||
+		sources.some((s) => typeof s.id !== "string" || typeof s.url !== "string")
+	)
+		return false;
+	if (
+		!payload.evidence.every(
+			(e) =>
+				isRecord(e) &&
+				typeof e.quote === "string" &&
+				sources.some((s) => s.id === e.sourceId && s.url === e.url),
+		)
+	)
+		return false;
+	const pages = Array.isArray(payload.pages) ? payload.pages : [];
+	if (
+		pages.length !== payload.pageRanges.length ||
+		!payload.pageRanges.every((range, index) => {
+			const page = pages[index];
+			return (
+				isRecord(range) &&
+				isRecord(page) &&
+				typeof page.contentMarkdown === "string" &&
+				range.start === 0 &&
+				Number.isInteger(range.end) &&
+				Number.isInteger(range.totalChars) &&
+				Number(range.end) >= 0 &&
+				Number(range.end) <= Number(range.totalChars) &&
+				range.end === page.contentMarkdown.length &&
+				typeof range.contentHash === "string" &&
+				sources.some((s) => s.id === range.sourceId && s.url === page.url)
+			);
+		})
+	)
+		return false;
+	return (
+		(entry.candidates ?? []).every((candidate) =>
+			sources.some(
+				(source) =>
+					source.id === candidate.id &&
+					source.url === candidate.url &&
+					(!candidate.snippet ||
+						source.snippet === candidate.snippet ||
+						(payload.evidence as unknown[]).some(
+							(e) =>
+								isRecord(e) &&
+								e.sourceId === source.id &&
+								e.quote === candidate.snippet,
+						)),
+			),
+		) &&
+		(entry.metadata?.sourceCount === undefined ||
+			entry.metadata.sourceCount === sources.length) &&
+		(entry.metadata?.evidenceCount === undefined ||
+			entry.metadata.evidenceCount === payload.evidence.length)
+	);
+}
+
 export async function executeToolWithEnvelope<
 	TModelPayload,
 	TErrorPayload = TModelPayload,
@@ -459,10 +545,78 @@ export async function executeToolWithEnvelope<
 	};
 }): Promise<TModelPayload | TErrorPayload> {
 	const startedAt = Date.now();
+	const grant = getReadResultGrant(params.options);
+	let ran = false;
+	let resultEntry: ToolCallEntry | undefined;
+	// Only capability-granted reads use this boundary; legacy callers retain
+	// their existing compaction/cap and error behavior.
+	const commit = (
+		raw: unknown,
+		entry: ToolCallEntry,
+		state?: "failed" | "uncertain" | "definitely_not_executed",
+	) => {
+		if (!grant) throw new Error("Missing read-result grant");
+		let payload = compactModelPayload(raw);
+		if (isRecord(raw) && raw.bounded === true && isRecord(payload)) {
+			// Coverage is a protocol: empty ranges and zero omission counts carry meaning.
+			payload = {
+				...payload,
+				omitted: raw.omitted,
+				pageRanges: raw.pageRanges,
+				...(Array.isArray(raw.sources) ? { sources: raw.sources } : {}),
+				...(Array.isArray(raw.evidence) ? { evidence: raw.evidence } : {}),
+			};
+		}
+		const valid =
+			isRecord(payload) &&
+			payload.success === true &&
+			!state &&
+			validBoundedWebPayload(payload, entry) &&
+			estimateTokenCount(stableStringify(payload)) <=
+				Math.min(grant.maxPayloadTokens, TOOL_RESULT_MAX_TOKENS);
+		if (!valid) {
+			const fixedFailure = boundedWebReadFailure(params.toolName);
+			payload = fixedFailure;
+			if (!state) state = "failed";
+			if (
+				!Number.isFinite(grant.maxFailurePayloadTokens) ||
+				estimateTokenCount(stableStringify(payload)) >
+					grant.maxFailurePayloadTokens
+			)
+				throw new ReadResultCapacityError(ran);
+			entry.status = "failed";
+			entry.candidates = [];
+			entry.outputSummary = fixedFailure.hint;
+			entry.metadata = {
+				ok: false,
+				evidenceReady: false,
+				sourceCount: 0,
+				evidenceCount: 0,
+				bounded: true,
+				coverage: "none",
+			};
+		}
+		entry.resultDigest = deriveToolResultDigest(payload);
+		entry.metadata = withMeasuredDuration(entry.metadata, startedAt);
+		params.recorder.observeResult?.({
+			toolName: params.toolName,
+			payload,
+			entry,
+		});
+		params.recorder.record(
+			entry,
+			state && isRecord(payload) ? { state, result: payload } : undefined,
+		);
+		return payload as TModelPayload | TErrorPayload;
+	};
 	try {
 		if (params.options.abortSignal?.aborted) {
 			throw toolAbortError(params.toolName, params.options.abortSignal.reason);
 		}
+		if (grant?.kind === "denied")
+			throw new ToolCallRefusedError(
+				"Web read capacity exhausted before execution",
+			);
 		const timeoutController = new AbortController();
 		const runSignal = params.options.abortSignal
 			? AbortSignal.any([params.options.abortSignal, timeoutController.signal])
@@ -492,6 +646,7 @@ export async function executeToolWithEnvelope<
 			}
 		});
 		const call = { localDistilled: false };
+		ran = true;
 		const result = await Promise.race([
 			callInProgress.run(call, () => params.run(runSignal)),
 			timeoutOrAbort,
@@ -499,6 +654,19 @@ export async function executeToolWithEnvelope<
 			if (timer) clearTimeout(timer);
 			removeAbortListener?.();
 		});
+		resultEntry = result.entry;
+		if (grant) {
+			if (call.localDistilled)
+				result.entry.metadata = {
+					...result.entry.metadata,
+					localDistilled: true,
+				};
+			return commit(
+				result.modelPayload,
+				result.entry,
+				entryExecutionFacts.get(result.entry),
+			);
+		}
 		// Strip empty/placeholder keys from the payload before it reaches the
 		// model — see compactModelPayload above — then hold the result under the
 		// envelope's hard ceiling (`capModelPayload`, the slice-2 safety net).
@@ -536,7 +704,32 @@ export async function executeToolWithEnvelope<
 		);
 		return modelPayload;
 	} catch (error) {
-		const failure = params.onError(error);
+		if (error instanceof ReadResultCapacityError) throw error;
+		let failure: { modelPayload: TErrorPayload; entry: ToolCallEntry };
+		try {
+			failure = params.onError(error);
+		} catch (onErrorFailure) {
+			if (!grant) throw onErrorFailure;
+			failure = {
+				modelPayload: boundedWebReadFailure(params.toolName) as TErrorPayload,
+				entry: resultEntry ?? {
+					name: params.toolName,
+					callId: params.options.toolCallId,
+					input: {},
+					status: "failed",
+				},
+			};
+		}
+		if (grant) {
+			const state =
+				params.options.abortSignal?.aborted &&
+				!abortedByTurnDeadline(params.options.abortSignal)
+					? "uncertain"
+					: error instanceof ToolCallRefusedError && !resultEntry
+						? "definitely_not_executed"
+						: "failed";
+			return commit(failure.modelPayload, resultEntry ?? failure.entry, state);
+		}
 		failure.entry.metadata = withMeasuredDuration(
 			failure.entry.metadata,
 			startedAt,

@@ -89,7 +89,9 @@ test.describe("Chat send/receive messages", () => {
 	// So: press what ships. The companion assertion — that a bare Enter does
 	// NOT send, and leaves the newline in the textarea — is a unit test
 	// (MessageInput.test.ts, "does not send on plain Enter…"), where the
-	// textarea's own value is readable.
+	// textarea's own value is readable. A person who turns on Send with Enter
+	// (Settings > Profile, ADR 0035's amendment) sends with Enter instead:
+	// send-with-enter.spec.ts.
 	test("pressing Cmd/Ctrl+Enter sends the message", async ({ page }) => {
 		await openConversationComposer(page);
 		await page.getByTestId("message-input").fill("Message via the send key");

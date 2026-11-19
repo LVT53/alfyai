@@ -1,5 +1,9 @@
 <script lang="ts">
-/** Knowledge Memory uses the Quiet list and scope dropdown. Settings owns the Memory switch. */
+/**
+ * The Knowledge Memory list and scope selector sit beside Settings > Profile.
+ * The Memory spot lights the Knowledge list and the settings switch. The other
+ * spots follow the model, style, instructions, Pictures and videos, and Skills rows.
+ */
 import { Pencil } from "@lucide/svelte";
 import DrawingFrame from "$lib/components/drawings/DrawingFrame.svelte";
 import DrawnBar from "$lib/components/drawings/DrawnBar.svelte";
@@ -34,7 +38,7 @@ let { lit = null }: { lit?: string | null } = $props();
 		</DrawnSettingsCard>
 		<DrawnSettingsCard>
 			<DrawnSpot spot="instructions" {lit} bleed={4}>
-				<DrawnSettingsRow label="profileTab.personalInstructions" help={['86%']} stacked>
+				<DrawnSettingsRow label="profileTab.personalInstructions" stacked>
 					<div class="instructions">
 						<span class="preview"><DrawnBar width="54%" tone="soft" /></span>
 						<DrawnButton word="profileTab.personalInstructionsEdit" icon={Pencil} />
@@ -45,6 +49,12 @@ let { lit = null }: { lit?: string | null } = $props();
 				<DrawnSettingsRow label="settings_memory" divider>
 					<DrawnSwitch />
 					<span class="state">{$t('profileTab.memoryOn')}</span>
+				</DrawnSettingsRow>
+			</DrawnSpot>
+			<DrawnSpot spot="pictures" {lit} bleed={4}>
+				<DrawnSettingsRow label="profileTab.picturesAndVideos" divider>
+					<DrawnSwitch />
+					<span class="state">{$t('profileTab.picturesAndVideosOn')}</span>
 				</DrawnSettingsRow>
 			</DrawnSpot>
 			<DrawnSpot spot="skills" {lit} bleed={4}>
@@ -67,7 +77,7 @@ let { lit = null }: { lit?: string | null } = $props();
 		flex-direction: column;
 		gap: calc(var(--u) * 5);
 		box-sizing: border-box;
-		padding: calc(var(--u) * 10) calc(var(--u) * 9);
+		padding: calc(var(--u) * 8) calc(var(--u) * 9);
 		background: var(--surface-page);
 	}
 

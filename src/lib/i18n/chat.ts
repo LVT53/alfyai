@@ -220,7 +220,7 @@ const chatDict = {
 		"chat.incognitoPlaceholder": "Incognito · nothing here is remembered",
 		"chat.incognitoPlaceholderShort": "Incognito · not remembered",
 		"chat.incognitoPopoverBody":
-			"Nothing in this chat is remembered or counted. It stays that way for the whole conversation.",
+			"Nothing in this chat is remembered. It stays that way for the whole conversation.",
 		"chat.incognitoNewChat": "New chat",
 		"chat.incognitoNewChatHint": "To be remembered again",
 		"chat.thinkingToggleOn": "Thinking on",
@@ -747,6 +747,11 @@ const chatDict = {
 		// decoration.
 		"documentWorkspace.imagePreviewLabel": "{filename} image preview",
 		"documentWorkspace.htmlPreviewLabel": "{filename} preview",
+		// Ruling 58's tripwire on a standard report's frame: it loaded a page the panel
+		// did not ask for (it navigated itself), so the frame was taken down.
+		"documentWorkspace.reportFrame.tripwire":
+			"This report tried to open another page in the panel, so Alfy stopped it.",
+		"documentWorkspace.reportFrame.reload": "Reload the report",
 		"documentWorkspace.invalidNumber": "Please enter a valid number",
 		"documentWorkspace.invalidPageRange":
 			"Invalid: page must be between 1 and {total}",
@@ -1528,7 +1533,7 @@ const chatDict = {
 		"chat.incognitoPlaceholder": "Inkognitó · itt semmi nem marad meg",
 		"chat.incognitoPlaceholderShort": "Inkognitó · nem marad meg",
 		"chat.incognitoPopoverBody":
-			"Ebből a beszélgetésből semmi nem marad meg, és nem is számít bele semmibe. Ez az egész beszélgetésre így marad.",
+			"Ebből a beszélgetésből semmi nem kerül a memóriába. Ez végig így marad.",
 		"chat.incognitoNewChat": "Új beszélgetés",
 		"chat.incognitoNewChatHint": "Hogy újra megjegyezhető legyen",
 		"chat.thinkingToggleOn": "Gondolkodás bekapcsolva",
@@ -2012,6 +2017,9 @@ const chatDict = {
 		"documentWorkspace.historical": "Korábbi",
 		"documentWorkspace.imagePreviewLabel": "{filename} – képelőnézet",
 		"documentWorkspace.htmlPreviewLabel": "{filename} – előnézet",
+		"documentWorkspace.reportFrame.tripwire":
+			"Ez a jelentés egy másik oldalt próbált megnyitni a panelen, ezért Alfy leállította.",
+		"documentWorkspace.reportFrame.reload": "Jelentés újratöltése",
 		"documentWorkspace.invalidNumber": "Adj meg egy érvényes számot",
 		"documentWorkspace.invalidPageRange":
 			"Érvénytelen: az oldalnak 1 és {total} között kell lennie",

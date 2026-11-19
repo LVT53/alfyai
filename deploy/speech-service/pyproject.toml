@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speech-service"
+version = "0.1.0"
+description = "AlfyAI read-aloud speech service: Zonos voice and FuseAlign word timing behind a loopback HTTP API"
+requires-python = ">=3.12"
+dependencies = [
+    # app.py's `_Stream` relies on StreamingResponse internals: check it before allowing Starlette 2.
+    "starlette<2",
+    # speech_service/app.py imports it directly (its task group and cancel scope).
+    "anyio",
+    "uvicorn[standard]",
+    "httpx",
+    "numpy",
+    "soundfile",
+    # The version Zonos's ggml server builds: the voice and our normalizer must agree.
+    "zyphra-textnorm==0.2.0",
+]
+
+[project.optional-dependencies]
+aligner-python = [
+    "fusealign-hub @ git+https://github.com/Zyphra/fusealign-multilingual.git",
+]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    # Starlette 1.x's TestClient wants it, and warns when it finds only httpx.
+    "httpx2",
+]
+
+[tool.setuptools.packages.find]
+include = ["speech_service*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Set explicitly: pytest-asyncio warns while it is unset (the default will become "function").
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "live: needs the owner's Mac: FuseAlign weights and local audio; run with SPEECH_LIVE=1",
+]
+# The live tests run under a Python without pytest-asyncio, where the two asyncio_* options above are
+# unknown to pytest. This hides exactly those two warnings and no other unknown key (a new asyncio_*
+# option must be added here too). The `.` matches the colon: the filter syntax splits on colons.
+filterwarnings = [
+    "ignore:Unknown config option. asyncio_(mode|default_fixture_loop_scope)$:pytest.PytestConfigWarning",
+]

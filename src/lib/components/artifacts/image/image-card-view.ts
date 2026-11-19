@@ -1,40 +1,14 @@
-// What a picture card shows, worked out from its takes. Pure: the component
-// threads its own clock and `$t` in, so every state is testable here.
+// What a picture card shows of its takes: which takes it has and which one it
+// shows. Pure. The take's own state, its words and the countdown are every
+// take card's (`../takes/take-card-view.ts`); what is here is the picture's
+// own: the takes strip, the held automatic retry, the pick.
 
 import type {
 	ImageCardView,
 	ImageTakeView,
 } from "$lib/server/services/images/read-model";
 import type { Translate } from "$lib/utils/tool-evidence-presentation";
-
-export type ImageCardState =
-	| { kind: "waiting"; ahead: number | null }
-	| { kind: "starting" }
-	| {
-			kind: "making";
-			etaSeconds: number | null;
-			progressPercent: number | null;
-			/**
-			 * When the take entered this phase, and when the take began: the
-			 * clock's own times (the take's, for a phase with no stamp yet).
-			 */
-			phaseAt: number | null;
-			createdAt: number;
-	  }
-	| { kind: "failed"; unavailable: boolean; retryable: boolean }
-	/** The explicit-picture filter kept the picture back: it looked explicit, or (unchecked) the check could not run. */
-	| { kind: "blocked"; unchecked: boolean }
-	| { kind: "stopped" }
-	| { kind: "ready" };
-
-/** A take that has sat in its "starting" phase this long says the model is loading. */
-export const STARTING_SHOWN_AFTER_MS = 3_000;
-
-/** Every way of not reaching the picture server (not only an unreachable one). */
-const UNAVAILABLE_CODES: readonly string[] = [
-	"image_server_unreachable",
-	"image_server_not_configured",
-];
+import { isTakeActive } from "../takes/take-card-view";
 
 /**
  * The takes the card shows, oldest first. Only the server's automatic retry
@@ -77,9 +51,6 @@ export function isCheckingAgain(
 	);
 }
 
-const isBeingMade = (take: ImageTakeView) =>
-	take.status === "queued" || take.status === "running";
-
 export function shownTake(
 	card: ImageCardView,
 	selectedTakeId: string | null,
@@ -90,53 +61,10 @@ export function shownTake(
 	return (
 		byId(selectedTakeId) ??
 		byId(card.pickedTakeId) ??
-		takes.findLast(isBeingMade) ??
+		takes.findLast(isTakeActive) ??
 		takes.at(-1) ??
 		null
 	);
-}
-
-export function takeState(take: ImageTakeView, now: number): ImageCardState {
-	switch (take.status) {
-		case "queued":
-			return { kind: "waiting", ahead: null };
-		case "running": {
-			if (take.phase === "submitted") {
-				return { kind: "waiting", ahead: take.queueAhead || null };
-			}
-			if (
-				take.phase === "starting" &&
-				take.phaseAt !== null &&
-				now - take.phaseAt >= STARTING_SHOWN_AFTER_MS
-			) {
-				return { kind: "starting" };
-			}
-			return {
-				kind: "making",
-				etaSeconds: take.etaSeconds,
-				progressPercent: take.progressPercent,
-				phaseAt: take.phaseAt,
-				createdAt: take.createdAt,
-			};
-		}
-		case "succeeded":
-			return { kind: "ready" };
-		case "cancelled":
-			return { kind: "stopped" };
-		case "failed":
-			if (take.errorCode === "image_blocked") {
-				return { kind: "blocked", unchecked: false };
-			}
-			if (take.errorCode === "image_unchecked") {
-				return { kind: "blocked", unchecked: true };
-			}
-			return {
-				kind: "failed",
-				unavailable:
-					take.errorCode !== null && UNAVAILABLE_CODES.includes(take.errorCode),
-				retryable: take.retryable,
-			};
-	}
 }
 
 /** The card's second line. A change reads as words: no "edited ... ago". */
@@ -151,67 +79,12 @@ export function cardSubtitle(card: ImageCardView, t: Translate): string {
 		: t("artifacts.type.image");
 }
 
-/**
- * A waiting take's line: how many pictures are ahead of it, or Next up when
- * none are (or none is counted yet: a take waiting in the app's own queue is
- * there for a moment before it reaches the picture server). Never "another
- * picture is being made": on a chat's first picture or right after Another
- * that read as something else being busy.
- */
-export function waitingLine(ahead: number | null, t: Translate): string {
-	return ahead !== null && ahead >= 1
-		? t("artifacts.image.card.ahead", { count: ahead })
-		: t("artifacts.image.card.nextUp");
-}
-
-export function etaLabel(seconds: number | null, t: Translate): string | null {
-	if (seconds === null || seconds <= 0) return null;
-	return t("artifacts.image.card.eta", { count: Math.ceil(seconds) });
-}
-
-/**
- * How long something being made has taken, as `m:ss` (`0:07`) and `h:mm:ss`
- * past an hour. Numeric and locale-neutral on purpose: no dictionary entry, and
- * nothing to translate. Never negative.
- */
-export function elapsedClock(elapsedMs: number): string {
-	const total = Math.max(0, Math.floor(elapsedMs / 1000));
-	const seconds = total % 60;
-	const minutes = Math.floor(total / 60) % 60;
-	const hours = Math.floor(total / 3600);
-	const two = (value: number) => String(value).padStart(2, "0");
-	return hours > 0
-		? `${hours}:${two(minutes)}:${two(seconds)}`
-		: `${minutes}:${two(seconds)}`;
-}
-
-/**
- * The detail slot while a take is being made: the render's estimate when it
- * reports one ("About 8 s left"), otherwise how long the current phase has
- * taken ("0:07"). Never null, so a picture being made always has a time beside
- * its words. A phase with no stamp yet counts from when the take was created,
- * the earliest moment known to be running; that is an elapsed time that really
- * happened, not a claim about a phase the card has no time for.
- */
-export function makingDetail(
-	making: Pick<
-		Extract<ImageCardState, { kind: "making" }>,
-		"etaSeconds" | "phaseAt" | "createdAt"
-	>,
-	now: number,
-	t: Translate,
-): string {
-	const estimate = etaLabel(making.etaSeconds, t);
-	if (estimate !== null) return estimate;
-	return elapsedClock(now - (making.phaseAt ?? making.createdAt));
-}
-
 export function canCompareBeforeAfter(take: ImageTakeView | null): boolean {
 	return Boolean(take?.fileId && take.baseFileId);
 }
 
 export function hasActiveImageTakes(cards: readonly ImageCardView[]): boolean {
-	return cards.some((card) => card.takes.some(isBeingMade));
+	return cards.some((card) => card.takes.some(isTakeActive));
 }
 
 /**

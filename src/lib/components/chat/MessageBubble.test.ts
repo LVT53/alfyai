@@ -15,6 +15,7 @@ import {
 	type NormalChatOutputMessage,
 	normalChatOutputView,
 } from "$lib/client/normal-chat-output-view";
+import { getReadAloud } from "$lib/client/read-aloud/controller";
 import chatDict from "$lib/i18n/chat";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -27,6 +28,11 @@ import type {
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import type { AskQuestion, AskQuestionDto } from "$lib/shared/ask-user";
 import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
+import {
+	idleReadAloudView,
+	setReadAloudAvailable,
+	setReadAloudView,
+} from "$lib/stores/read-aloud";
 import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
@@ -587,6 +593,101 @@ describe("MessageBubble", () => {
 		expect(screen.queryByText("First next")).toBeNull();
 		expect(screen.queryByTestId("normal-chat-commentary")).toBeNull();
 		expect(list[0].content).toBe("");
+	});
+
+	it("keeps the words before a refused card in the answer area while the next step thinks", async () => {
+		// The engine holds a step whose only call was an ask card (chat-turn/AGENTS.md,
+		// The Pause): its words stay provisional, and the fixed card's step thinks first
+		// (the measured retry). Words written before a card never leave the reply.
+		const output = createNormalChatOutputAccumulator();
+		const step = (stepId: string) =>
+			({
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId,
+				phase: "working",
+			}) as const;
+		const intro = "The biggest fork is the day itself.";
+		for (const event of [
+			{
+				...step("a:0"),
+				sequence: 0,
+				type: "block_start",
+				blockId: "w",
+				nativeId: "0",
+				kind: "text",
+				role: "provisional",
+			},
+			{
+				...step("a:0"),
+				sequence: 1,
+				type: "block_delta",
+				blockId: "w",
+				text: intro,
+			},
+			{
+				...step("a:0"),
+				sequence: 2,
+				type: "step_end",
+				finishReason: "tool-calls",
+				toolAttempted: true,
+			},
+			{
+				...step("a:1"),
+				sequence: 3,
+				type: "block_start",
+				blockId: "r",
+				nativeId: "0",
+				kind: "reasoning",
+				role: "activity",
+			},
+			{
+				...step("a:1"),
+				sequence: 4,
+				type: "block_delta",
+				blockId: "r",
+				text: "Mark exactly one option recommended.",
+			},
+		] as const)
+			output.apply(event);
+		let list: ChatMessage[] = applyNormalChatOutputView(
+			[
+				{
+					id: "live-output",
+					role: "assistant",
+					timestamp: 1,
+					content: "",
+					isStreaming: true,
+				},
+			],
+			"live-output",
+			output.getProjection(),
+		);
+		const { container, rerender } = render(MessageBubble, {
+			message: list[0],
+		});
+		// The streaming renderer wraps new words one by one, so read the answer area.
+		const answerArea = () =>
+			container.querySelector(".prose-container")?.textContent ?? "";
+		await waitFor(() => expect(answerArea()).toContain(intro));
+		// The pause settles them as the answer: still there, now the reply's own.
+		output.apply({
+			...step("a:0"),
+			sequence: 5,
+			type: "step_settled",
+			role: "answer",
+			finishReason: "tool-calls",
+		});
+		list = applyNormalChatOutputView(
+			list,
+			"live-output",
+			output.getProjection(),
+		);
+		await rerender({ message: list[0] });
+		expect(list[0].content).toBe(intro);
+		await waitFor(() => expect(answerArea()).toContain(intro));
 	});
 
 	// A browser that only polls (the connection dropped, replay was unavailable and
@@ -4907,6 +5008,7 @@ describe("MessageBubble", () => {
 		function place(overrides: Partial<ReplyPlace> = {}): ReplyPlace {
 			return {
 				firstMessageId: "assistant-seg-1",
+				segmentIds: ["assistant-seg-1"],
 				continuesAbove: false,
 				continuedBelow: false,
 				question: null,
@@ -6122,6 +6224,7 @@ describe("the rail while a tool call runs after the reply has begun", () => {
 
 	const place: ReplyPlace = {
 		firstMessageId: "assistant-seg-1",
+		segmentIds: ["assistant-seg-1", "assistant-seg-2"],
 		continuesAbove: true,
 		continuedBelow: false,
 		question: null,
@@ -6197,6 +6300,176 @@ describe("the rail while a tool call runs after the reply has begun", () => {
 		).toBeNull();
 		expect(container.querySelector(".thinking-label")?.textContent).toMatch(
 			/Thought/,
+		);
+	});
+});
+
+describe("MessageBubble: read aloud", () => {
+	const reply = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
+		id: "assistant-read-1",
+		renderKey: "assistant-read-1",
+		role: "assistant",
+		content: "The bread rises in about an hour.",
+		timestamp: Date.now(),
+		isStreaming: false,
+		isThinkingStreaming: false,
+		...overrides,
+	});
+
+	afterEach(() => {
+		setReadAloudAvailable(false);
+		setReadAloudView(idleReadAloudView);
+	});
+
+	it("shows the speaker after Copy only on a finished reply when read aloud is on", async () => {
+		const off = render(MessageBubble, {
+			message: reply(),
+			conversationId: "c1",
+		});
+		expect(
+			off.container.querySelector("[data-testid='read-aloud-speaker']"),
+		).toBeNull();
+		off.unmount();
+
+		setReadAloudAvailable(true);
+		const on = render(MessageBubble, {
+			message: reply(),
+			conversationId: "c1",
+		});
+		const speaker = on.container.querySelector(
+			"[data-testid='read-aloud-speaker']",
+		);
+		const copy = screen.getByRole("button", { name: "Copy message" });
+		expect(speaker?.getAttribute("aria-label")).toBe("Read aloud");
+		expect(
+			copy.compareDocumentPosition(speaker as Node) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		on.unmount();
+
+		const streaming = render(MessageBubble, {
+			message: reply({ isStreaming: true }),
+			conversationId: "c1",
+		});
+		expect(
+			streaming.container.querySelector("[data-testid='read-aloud-speaker']"),
+		).toBeNull();
+		streaming.unmount();
+
+		const person = render(MessageBubble, {
+			message: reply({ id: "user-1", renderKey: "user-1", role: "user" }),
+			conversationId: "c1",
+		});
+		expect(
+			person.container.querySelector("[data-testid='read-aloud-speaker']"),
+		).toBeNull();
+	});
+
+	it("a reply drawn in segments reads from its last segment with every segment's id", async () => {
+		setReadAloudAvailable(true);
+		const start = vi
+			.spyOn(getReadAloud(), "start")
+			.mockImplementation(() => {});
+		const place = (overrides: Partial<ReplyPlace>): ReplyPlace => ({
+			firstMessageId: "seg-1",
+			segmentIds: ["seg-1", "seg-2"],
+			continuesAbove: false,
+			continuedBelow: false,
+			question: null,
+			copyText: null,
+			userIntent: null,
+			drawsSources: true,
+			sources: null,
+			...overrides,
+		});
+		const first = render(MessageBubble, {
+			message: reply({ id: "seg-1", renderKey: "seg-1" }),
+			conversationId: "c1",
+			replyPlace: place({ continuedBelow: true, drawsSources: false }),
+		});
+		expect(
+			first.container.querySelector("[data-testid='read-aloud-speaker']"),
+		).toBeNull();
+		const last = render(MessageBubble, {
+			message: reply({
+				id: "seg-2",
+				renderKey: "seg-2",
+				continuesMessageId: "seg-1",
+			}),
+			conversationId: "c1",
+			replyPlace: place({ continuesAbove: true, copyText: "One.\n\nTwo." }),
+		});
+		await fireEvent.click(
+			last.container.querySelector(
+				"[data-testid='read-aloud-speaker']",
+			) as HTMLElement,
+		);
+		expect(start).toHaveBeenCalledWith({
+			kind: "reply",
+			conversationId: "c1",
+			messageId: "seg-2",
+			segmentIds: ["seg-1", "seg-2"],
+		});
+		start.mockRestore();
+	});
+
+	it("names its reply's segments on the row, for Read from here, once the reply is finished", () => {
+		const finished = render(MessageBubble, {
+			message: reply({ id: "seg-2", renderKey: "seg-2" }),
+			conversationId: "c1",
+			replyPlace: {
+				firstMessageId: "seg-1",
+				segmentIds: ["seg-1", "seg-2"],
+				continuesAbove: true,
+				continuedBelow: false,
+				question: null,
+				copyText: null,
+				userIntent: null,
+				drawsSources: true,
+				sources: null,
+			},
+		});
+		expect(
+			finished.container
+				.querySelector("[data-message-id='seg-2']")
+				?.getAttribute("data-read-aloud-segments"),
+		).toBe("seg-1 seg-2");
+		finished.unmount();
+		const streaming = render(MessageBubble, {
+			message: reply({ isStreaming: true }),
+			conversationId: "c1",
+		});
+		expect(
+			streaming.container.querySelector("[data-read-aloud-segments]"),
+		).toBeNull();
+		streaming.unmount();
+		const person = render(MessageBubble, {
+			message: reply({ id: "user-2", renderKey: "user-2", role: "user" }),
+			conversationId: "c1",
+		});
+		expect(
+			person.container.querySelector("[data-read-aloud-segments]"),
+		).toBeNull();
+	});
+
+	it("keeps the action row shown while its reply is read", async () => {
+		setReadAloudAvailable(true);
+		const { container } = render(MessageBubble, {
+			message: reply(),
+			conversationId: "c1",
+		});
+		const actions = container.querySelector(".message-actions") as HTMLElement;
+		expect(actions.hasAttribute("data-pinned")).toBe(false);
+		setReadAloudView({
+			...idleReadAloudView,
+			status: "playing",
+			key: "assistant-read-1",
+			segmentIds: ["assistant-read-1"],
+		});
+		await waitFor(() => expect(actions.hasAttribute("data-pinned")).toBe(true));
+		setReadAloudView(idleReadAloudView);
+		await waitFor(() =>
+			expect(actions.hasAttribute("data-pinned")).toBe(false),
 		);
 	});
 });

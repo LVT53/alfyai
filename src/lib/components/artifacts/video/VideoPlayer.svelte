@@ -128,40 +128,48 @@ function syncTime(
 	bufferedMs = Math.max(bufferedMs, positionMs);
 }
 
+/**
+ * The element is the truth for whether the clip plays. A busy browser runs a
+ * press before the media tasks of the press before it, so a `play` event or a
+ * play() answer can land after the clip was paused again (and a `pause` event
+ * after it was played again): each of them reads the element instead of
+ * trusting its own news.
+ */
+function followMedia(): void {
+	playing = videoEl !== null && !videoEl.paused;
+	if (playing) claimPlayback(self);
+	else releasePlayback(self);
+}
+
 async function togglePlay(): Promise<void> {
 	const el = videoEl;
 	if (!el) return;
-	// The media is the truth for a pause: the state can lag a delegated click,
-	// and a press must pause a playing clip even then.
-	if (!el.paused || playing) {
+	// The element decides, never `playing`: the state can lag the media, or run
+	// ahead of it while a late `play` event lands, and a press must still do
+	// the opposite of what the clip is doing.
+	if (!el.paused) {
 		el.pause();
-		playing = false;
-		releasePlayback(self);
+		followMedia();
 		return;
 	}
 	try {
 		await el.play();
-		playing = true;
-		claimPlayback(self);
 	} catch {
 		// A browser can refuse (no user gesture, no codec): stay on the poster.
-		playing = false;
-		releasePlayback(self);
 	}
+	followMedia();
 }
 
 function handlePlay(): void {
-	playing = true;
+	followMedia();
 	syncTime({ force: true });
-	claimPlayback(self);
 }
 
 function handlePause(): void {
-	playing = false;
+	followMedia();
 	// The thumb holds the position the clip actually stopped at; the pause
 	// event's transient report cannot reset it.
 	syncTime({ force: true });
-	releasePlayback(self);
 }
 
 function handleEnded(): void {

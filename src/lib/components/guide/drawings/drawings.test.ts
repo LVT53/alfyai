@@ -146,6 +146,8 @@ describe("the guide's drawings", () => {
 			"profileTab.personalInstructionsEdit",
 			"settings_memory",
 			"profileTab.memoryOn",
+			"profileTab.picturesAndVideos",
+			"profileTab.picturesAndVideosOn",
 			"settings_skillsManagerSummaryLabel",
 			"profileTab.manageSkills",
 		],
@@ -208,6 +210,127 @@ describe("the guide's drawings", () => {
 		for (const key of WORDS[section]) {
 			expect(screen.getAllByText(get(t)(key)).length).toBeGreaterThan(0);
 		}
+	});
+
+	// The reply's row of actions in `MessageBubble.svelte`: regenerate, fork,
+	// copy, and then, while read aloud is on, the speaker (spec 4.1). The speaker
+	// is a spot of its own (the guide's Listen to a reply lights it), inside the
+	// row's, which Steer a reply lights.
+	it("the reply's row of actions draws the speaker after Copy", () => {
+		const { container } = render(SectionDrawing, {
+			props: { section: "ask", lit: null },
+		});
+		const actions = container.querySelector<HTMLElement>(
+			'[data-drawing-spot="replyActions"]',
+		);
+		expect(actions).not.toBeNull();
+		const iconNames = [...(actions?.querySelectorAll("svg") ?? [])].map((svg) =>
+			[...svg.classList].find(
+				(name) => name.startsWith("lucide-") && name !== "lucide-icon",
+			),
+		);
+		expect(iconNames).toEqual([
+			"lucide-refresh-cw",
+			"lucide-git-branch",
+			"lucide-copy",
+			"lucide-volume-2",
+		]);
+		const speaker = actions?.querySelector<HTMLElement>(
+			'[data-drawing-spot="readAloud"]',
+		);
+		expect(speaker).not.toBeNull();
+		expect(speaker?.querySelector("svg")).toHaveClass("lucide-volume-2");
+	});
+
+	it("follows the real row: the speaker comes after Copy in the message's action row", () => {
+		const bubble = readFileSync(
+			join(HERE, "..", "..", "chat", "MessageBubble.svelte"),
+			"utf8",
+		);
+		const copy = bubble.indexOf("onclick={copyToClipboard}");
+		const speaker = bubble.indexOf("<ReadAloudSpeaker");
+		expect(copy).toBeGreaterThan(0);
+		expect(speaker).toBeGreaterThan(copy);
+	});
+
+	// Settings > Profile's Assistant behaviour card, as `SettingsProfileTab`
+	// draws it: Personal instructions, the Memory switch, the Pictures and
+	// videos switch, Skills. The Knows-you drawing draws that slice in that order.
+	it("draws the Assistant card's rows in the order Settings draws them", () => {
+		const { container } = render(SectionDrawing, {
+			props: { section: "knowsYou", lit: null },
+		});
+		const card = container
+			.querySelector('[data-drawing-spot="instructions"]')
+			?.closest(".drawn-settings-card");
+		expect(card).toBeTruthy();
+		expect(
+			[
+				...(card?.querySelectorAll<HTMLElement>("[data-drawing-spot]") ?? []),
+			].map((n) => n.dataset.drawingSpot),
+		).toEqual(["instructions", "memory", "pictures", "skills"]);
+
+		const tab = readFileSync(
+			join(
+				HERE,
+				"..",
+				"..",
+				"..",
+				"..",
+				"routes",
+				"(app)",
+				"settings",
+				"_components",
+				"SettingsProfileTab.svelte",
+			),
+			"utf8",
+		);
+		const at = (needle: string) => {
+			const index = tab.indexOf(needle);
+			expect(index, needle).toBeGreaterThan(0);
+			return index;
+		};
+		const order = [
+			at("$t('profileTab.personalInstructions')"),
+			at("$t('settings_memory')"),
+			at("$t('profileTab.picturesAndVideos')"),
+			at("$t('settings_skillsManagerSummaryLabel')"),
+		];
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+	});
+
+	// Read aloud on Documents: the Document panel's header has the speaker, first of its
+	// actions, so the Make drawing's panel draws it before Download.
+	it("the side panel's header draws the speaker before Download", () => {
+		const { container } = render(SectionDrawing, {
+			props: { section: "make", lit: null },
+		});
+		const head = container.querySelector<HTMLElement>(".drawn-panel .head");
+		const iconNames = [...(head?.querySelectorAll("svg") ?? [])].map((svg) =>
+			[...svg.classList].find(
+				(name) => name.startsWith("lucide-") && name !== "lucide-icon",
+			),
+		);
+		expect(iconNames).toEqual([
+			"lucide-chevron-left",
+			"lucide-clock",
+			"lucide-volume-2",
+			"lucide-download",
+			"lucide-x",
+		]);
+	});
+
+	it("follows the real header: the speaker comes before Download in the panel's actions", () => {
+		const workspace = readFileSync(
+			join(HERE, "..", "..", "document-workspace", "DocumentWorkspace.svelte"),
+			"utf8",
+		);
+		const speaker = workspace.indexOf("<ReadAloudSpeaker");
+		const download = workspace.indexOf(
+			'data-testid="artifact-download-button"',
+		);
+		expect(speaker).toBeGreaterThan(0);
+		expect(download).toBeGreaterThan(speaker);
 	});
 
 	it("is hidden from screen readers", () => {
@@ -335,9 +458,22 @@ describe("the drawing kit", () => {
 		// The frame answers to its own width, keeps its proportions from the
 		// first paint, and gives its parts one design pixel (`--u`) to size
 		// themselves in: nothing measures and nothing jumps after hydration.
+		// A campaign picture passes its own size; the guide's drawings never do.
 		expect(frame).toMatch(/container-type:\s*inline-size/);
-		expect(frame).toMatch(/aspect-ratio:\s*330\s*\/\s*222/);
-		expect(frame).toMatch(/--u:\s*calc\(100cqw\s*\/\s*330\)/);
+		expect(frame).toMatch(/width = 330,/);
+		expect(frame).toMatch(/height = 222,/);
+		expect(frame).toMatch(
+			/aspect-ratio:\s*var\(--design-width\)\s*\/\s*var\(--design-height\)/,
+		);
+		expect(frame).toMatch(/--u:\s*calc\(100cqw\s*\/\s*var\(--design-width\)\)/);
+		for (const file of readdirSync(HERE).filter((name) =>
+			name.endsWith(".svelte"),
+		)) {
+			const source = readFileSync(join(HERE, file), "utf-8");
+			expect(source, file).not.toMatch(
+				/<DrawingFrame[^>]*\b(width|height|bare)\b/,
+			);
+		}
 	});
 
 	it("keeps to the tokens and to Lucide", () => {

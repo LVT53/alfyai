@@ -1,0 +1,71 @@
+# /etc/systemd/system/mineru42.service
+# MinerU 4.2.3 for AlfyAI on loopback :8004, in place of 4.1.7 (mineru41.service): both apps' admin_config
+# MINERU_API_URL stays http://127.0.0.1:8004, so the swap needed no app change. 4.1.7 was retired on 2026-11-18: its
+# unit and files are deleted, so a rollback means installing it again first (deploy/mineru/README.md, "Rollback").
+# Conflicts= and After= on mineru41.service stay for that case: starting one stops the other.
+# (docs/plans/mineru-4-1/build-log.md, "MinerU 4.2.3"; deploy/mineru/README.md.)
+# --task-timeout is 4.2.3's hang guard: after one file outlives it the server answers 503 task_timeout until it
+# is restarted, and it never exits, so Restart= never fires; mineru42-watchdog.timer restarts it.
+# NEVER run `systemctl status` or `ps` unfiltered on this unit: --api-key has no env fallback, so argv carries the key.
+[Unit]
+Description=MinerU 4.2 API server (standard tier, loopback :8004) - 4.2.3
+Documentation=https://github.com/opendatalab/MinerU
+# Conflicts= works both ways (starting mineru41 stops this unit too); the After= on it only orders the swap, so
+# the stop of the one always finishes before the start of the other and they never race for :8004.
+After=network-online.target mineru41.service
+Wants=network-online.target
+Conflicts=mineru41.service
+
+[Service]
+Type=simple
+User=alfydesign
+Group=alfydesign
+WorkingDirectory=/home/alfydesign/apps/mineru4
+
+# GPU1 only, never GPU0 (the chat model and the voice, under MPS). PCI order, as nvidia-smi numbers the cards.
+Environment=CUDA_DEVICE_ORDER=PCI_BUS_ID
+Environment=CUDA_VISIBLE_DEVICES=1
+Environment=NVIDIA_VISIBLE_DEVICES=1
+# A copy of 4.1.7's m41p, never shared: 4.2 rewrites the model markers at load.
+Environment=MINERU_HOME=/home/alfydesign/m42p
+Environment=MINERU_DEVICE_MODE=cuda
+Environment=MINERU_MODEL_SMALL_BACKEND=torch
+Environment=PYTHONUNBUFFERED=1
+# Keep every model/download cache inside MINERU_HOME (ProtectHome=read-only).
+Environment=HF_HOME=/home/alfydesign/m42p/hf
+Environment=HF_XET_CACHE=/home/alfydesign/m42p/hf/xet
+Environment=XDG_CACHE_HOME=/home/alfydesign/m42p/cache
+Environment=MODELSCOPE_CACHE=/home/alfydesign/m42p/modelscope
+# Models load from MINERU_HOME only; no HuggingFace calls at runtime (checked 2026-11-18: 4.2.3 starts and parses offline).
+Environment=HF_HUB_OFFLINE=1
+# Telemetry off. doclib.db (copied from m41p) is seeded telemetry_state=disabled (state_source=user).
+Environment=MINERU_TELEMETRY_DISABLED=1
+Environment=DO_NOT_TRACK=1
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+
+# The key the apps already hold; it only ever comes from this mode-600 file.
+EnvironmentFile=/home/alfydesign/apps/mineru4/mineru4.env
+
+ExecStart=/home/alfydesign/apps/mineru4/.venv-4.2.3/bin/mineru-kit api-server \
+    --host 127.0.0.1 \
+    --port 8004 \
+    --tier standard \
+    --api-key ${MINERU4_API_KEY} \
+    --upload-dir /home/alfydesign/apps/mineru4/uploads-42 \
+    --concurrency 4 \
+    --task-timeout 3600 \
+    --vlm-server-url http://127.0.0.1:30001/v1
+
+# Production service: no CPU/nice throttling.
+MemoryMax=32G
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/alfydesign/apps/mineru4 /home/alfydesign/m42p
+
+[Install]
+WantedBy=multi-user.target

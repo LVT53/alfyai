@@ -251,6 +251,66 @@ function recordPhases(
 			.all(takeId) as string[];
 }
 
+/**
+ * Every finish time the runner writes, in order, with the phase it was written
+ * in, recorded by the database itself (a poll could miss one).
+ */
+function recordEtaWrites(
+	sqlite: ImageFixture["sqlite"],
+): (takeId: string) => Array<{ etaAt: number | null; phase: string | null }> {
+	sqlite.exec(`
+		CREATE TABLE eta_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			take_id TEXT NOT NULL,
+			eta_at INTEGER,
+			phase TEXT
+		);
+		CREATE TRIGGER eta_log_write AFTER UPDATE OF eta_at ON image_jobs
+		WHEN NEW.eta_at IS NOT OLD.eta_at
+		BEGIN
+			INSERT INTO eta_log (take_id, eta_at, phase) VALUES (NEW.id, NEW.eta_at, NEW.phase);
+		END;
+	`);
+	return (takeId) =>
+		(
+			sqlite
+				.prepare(
+					"SELECT eta_at, phase FROM eta_log WHERE take_id = ? ORDER BY id",
+				)
+				.all(takeId) as Array<{ eta_at: number | null; phase: string | null }>
+		).map((row) => ({ etaAt: row.eta_at, phase: row.phase }));
+}
+
+describe("the estimate", () => {
+	it("starts with the prompt, only ever moves earlier, and is cleared when the take lands", async () => {
+		const etaOf = recordEtaWrites(fixture.sqlite);
+		await startFake({ startDelayMs: 60, steps: 6, stepDelayMs: 60 });
+		const takeId = await queueTake(
+			request({ canvas: { width: 256, height: 192 } }),
+		);
+		await drainImageTakes();
+
+		const writes = etaOf(takeId);
+		const times = writes.flatMap((write) =>
+			write.etaAt === null ? [] : [write.etaAt],
+		);
+		// The first time is written as ComfyUI starts the prompt, not at the
+		// first step (the old "about 3 s left" came from there).
+		expect(writes[0]?.phase).toBe("starting");
+		expect(times.length).toBeGreaterThanOrEqual(2);
+		for (let index = 1; index < times.length; index += 1) {
+			expect(
+				times[index],
+				`the finish time moved later: ${times.join(", ")}`,
+			).toBeLessThanOrEqual(times[index - 1] ?? 0);
+		}
+		// The fake is far faster than a real engine: the time came down.
+		expect(times.at(-1)).toBeLessThan(times[0] ?? 0);
+		const take = await readTake(takeId);
+		expect([take.status, take.etaAt]).toEqual(["succeeded", null]);
+	});
+});
+
 describe("a new picture", () => {
 	it("renders to a stored PNG and passes every phase", async () => {
 		// A small canvas: the fake paints, and the runner decodes, guards and
@@ -289,6 +349,45 @@ describe("a new picture", () => {
 		const meta = await sharp(await resultBytes(takeId)).metadata();
 		expect(meta.channels).toBe(3);
 		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
+	});
+});
+
+describe("a take that fails while its prompt is on the GPU", () => {
+	it("stops the prompt when the render deadline runs out", async () => {
+		// A wedged render: ComfyUI keeps the prompt running past the take's time.
+		const server = await startFake({ steps: 2, hangAfterPromptCount: 0 });
+		const { setImageRenderDeadlineMsForTests } = await import("./take-request");
+		setImageRenderDeadlineMsForTests(1_000);
+		try {
+			const takeId = await queueTake(
+				request({ canvas: { width: 256, height: 192 } }),
+			);
+			await drainImageTakes();
+
+			const take = await readTake(takeId);
+			expect([take.status, take.errorCode]).toEqual([
+				"failed",
+				"image_render_timeout",
+			]);
+			// The ledger says the GPU is free, so the GPU must be: the prompt the
+			// take posted is interrupted rather than left rendering for nobody.
+			const posted = server.requests.find(
+				(entry) => entry.method === "POST" && entry.path === "/prompt",
+			)?.json as { prompt_id?: string } | undefined;
+			expect(posted?.prompt_id).toBeTruthy();
+			expect(
+				server.requests.some(
+					(entry) =>
+						entry.method === "POST" &&
+						entry.path === "/interrupt" &&
+						(entry.json as { prompt_id?: string } | undefined)?.prompt_id ===
+							posted?.prompt_id,
+				),
+			).toBe(true);
+		} finally {
+			setImageRenderDeadlineMsForTests(undefined);
+			server.releaseHanging();
+		}
 	});
 });
 
@@ -411,7 +510,7 @@ describe("an H3 take", () => {
 		return h3Fake;
 	}
 
-	it("runs the take's own model on the request's canvas with 6 steps / CFG 1, and stores no alpha", async () => {
+	it("runs a new picture on the take's own model, on the request's canvas, with 4 steps / CFG 1, and stores no alpha", async () => {
 		const comfy = await startH3Only();
 		const takeId = await queueTake(
 			request({ model: "h3", canvas: { width: 2496, height: 1664 } }),
@@ -433,7 +532,7 @@ describe("an H3 take", () => {
 		const sampler = Object.values(body.prompt).find(
 			(node) => node.class_type === "KSampler",
 		);
-		expect(sampler?.inputs.steps).toBe(6);
+		expect(sampler?.inputs.steps).toBe(4);
 		expect(sampler?.inputs.cfg).toBe(1);
 
 		const meta = await sharp(await resultBytes(takeId)).metadata();
@@ -466,7 +565,10 @@ describe("an H3 take", () => {
 			comfy.requests.filter((r) => r.path === "/upload/image"),
 		).toHaveLength(1);
 		const body = comfy.requests.find((r) => r.path === "/prompt")?.json as {
-			prompt: Record<string, { inputs: Record<string, unknown> }>;
+			prompt: Record<
+				string,
+				{ class_type: string; inputs: Record<string, unknown> }
+			>;
 		};
 		const conditioning = Object.values(body.prompt).find(
 			(node) => "images.image_1" in node.inputs,
@@ -475,6 +577,12 @@ describe("an H3 take", () => {
 		const prompt = String(conditioning?.inputs.prompt);
 		expect(prompt.startsWith("<Picture 1> ")).toBe(true);
 		expect(prompt).toContain("Make this change only at");
+		// An edit keeps H3's six steps; only a new picture runs four.
+		const sampler = Object.values(body.prompt).find(
+			(node) => node.class_type === "KSampler",
+		);
+		expect(sampler?.inputs.steps).toBe(6);
+		expect(sampler?.inputs.cfg).toBe(1);
 		expect(await storedHasAlpha(take.resultFileId)).toBe(0);
 	});
 });

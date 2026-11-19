@@ -103,7 +103,7 @@ We chose the last. Raw trace with a counter quantifies a wait without explaining
 
 Ordinary ModelRun working prose is retained structural activity, not native reasoning or an anchored/classified Interim Thought Step. Reusing ThinkingBlock does not authorize a classifier claim or replace persisted thought-step state.
 
-- Never show ordinary activity or provisional answer prose in the thinking block while its segment is live, even in an expanded rail. The answer area streams the current provisional step and withdraws it immediately if a tool call arrives. Retain existing live status, tool rows and native-reasoning behavior.
+- Never show ordinary activity or provisional answer prose in the thinking block while its segment is live, even in an expanded rail. The answer area streams the current provisional step and withdraws it immediately if a tool call arrives, except an `ask_user` card's (ADR-0026, amended 2026-11-18). Retain existing live status, tool rows and native-reasoning behavior.
 - Only explicit stopped, paused, incomplete or failed completion makes that segment's retained activity eligible for deliberate terminal disclosure. Missing completion and successful outcomes do not. Expansion while live does not authorize later disclosure.
 - Disclosure authority follows turn/segment/outcome identity and is revoked on eligibility changes, including a round trip through another identity. An independently resumed segment does not revoke an explicitly opened paused segment.
 - Preserve the existing clean anchored rail, selected-span reveal and full-reasoning opt-in. Where no anchored rail exists, preserve the native-reasoning fallback. Ordinary activity never enters answer Copy/export.

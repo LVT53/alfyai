@@ -6,9 +6,9 @@
 // segment (one at 5 s, two at 10 s). A segment is submitted under a prompt id
 // written to the checkpoint BEFORE the POST, followed, and its mp4 fetched;
 // segment 2 is guided by the LAST DECODED FRAME of segment 1, which is what
-// makes the chain a chain. The clips are concatenated, the poster and four
-// more frames are sampled for the explicit-picture filter, and only then is
-// anything stored. A later attempt finds the checkpointed prompt (and every
+// makes the chain a chain. The clips are concatenated, every frame of the
+// clip passes the explicit-picture filter (never a sample: the owner's
+// ruling), and only then is anything stored. A later attempt finds the checkpointed prompt (and every
 // finished segment's saved clip) and resumes instead of rendering it twice; a
 // ComfyUI that forgot the prompt is resubmitted once per segment.
 //
@@ -41,15 +41,18 @@ import {
 	readImageFileBytes,
 } from "../files";
 import {
+	engineLooksWarm,
 	freeOtherPictureModels,
 	scheduleIdleFree,
 	waitForOtherEnginesIdle,
 } from "../idle-free";
 import { checkFinishedFrames } from "../picture-check";
 import { isExplicitFilterOnFor } from "../picture-check/policy";
+import { createTakeEta, type TakeEta } from "../take-eta";
+import { promptIdOf } from "../take-request";
 import { discardStoredVideoFile, storeVideoFile } from "../video-files";
 import { createVideoComfyClient } from "./comfy-client";
-import { createVideoEtaTracker, type VideoEtaTracker } from "./eta";
+import { videoPlan } from "./eta";
 import {
 	concatClips,
 	decodeCheckFrames,
@@ -63,11 +66,11 @@ import {
 import {
 	parseVideoCheckpoint,
 	parseVideoTakeRequest,
-	VIDEO_RENDER_DEADLINE_MS,
 	type VideoCheckpoint,
 	type VideoSegmentRecord,
 	type VideoTakeRequest,
 	videoDurationMs,
+	videoRenderDeadlineMs,
 	videoSegmentCount,
 	videoSizeForSource,
 } from "./request";
@@ -173,7 +176,9 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 		return;
 	}
 
-	let currentPromptId: string | null = null;
+	// A take resumed after a restart follows the prompt its checkpoint names
+	// before anything here submits: a Stop must reach that one too.
+	let currentPromptId: string | null = promptIdOf(row.checkpoint);
 	let stopping: Promise<void> = Promise.resolve();
 
 	// What a Stop asked for was written on the take before the engine cancelled
@@ -198,6 +203,17 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 	const onAbort = () => {
 		if (signal.reason === "cancelled") stopping = stopPrompt();
 	};
+	// A failed take's prompt, whatever a Stop would have asked: nothing will
+	// read its result. Never throws.
+	const releasePrompt = async (): Promise<void> => {
+		try {
+			if (currentPromptId) {
+				await client.cancel(currentPromptId, { interrupt: true });
+			}
+		} catch {
+			// The server is down or refusing; it drops the prompt on its own.
+		}
+	};
 	signal.addEventListener("abort", onAbort, { once: true });
 
 	try {
@@ -205,6 +221,7 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 			setPromptId: (id) => {
 				currentPromptId = id;
 			},
+			releasePrompt,
 		});
 		// A cancel that landed while the submit was in flight found no prompt.
 		if (signal.aborted && signal.reason === "cancelled") await stopPrompt();
@@ -213,6 +230,12 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 			if (signal.reason === "cancelled") await stopPrompt();
 			return;
 		}
+		// The take fails, but a prompt it posted may still be on the GPU: the
+		// deadline ran out mid-render, or the POST's answer was lost after
+		// ComfyUI took it. Once the take is failed the ledger says the GPU is
+		// free, so the GPU must be: the prompt is deleted or interrupted (the
+		// client interrupts only a prompt `/queue` shows as ours and running).
+		await releasePrompt();
 		await ctx.fail(failureOf(error));
 	} finally {
 		signal.removeEventListener("abort", onAbort);
@@ -222,12 +245,22 @@ export async function runVideoTake(ctx: Ctx): Promise<void> {
 	}
 }
 
-/** Moves the phase and stamps when (ms), for the card's "how long has it been here". */
-async function enterPhase(ctx: Ctx, phase: string): Promise<void> {
+/**
+ * Moves the phase and stamps when (ms), for the card's "how long has it been
+ * here", with the estimate's finish time when the phase moves it.
+ */
+async function enterPhase(
+	ctx: Ctx,
+	phase: string,
+	etaAt?: number,
+): Promise<void> {
 	await ctx.progress({ phase });
 	await ctx.write((tx) => {
 		tx.update(videoJobs)
-			.set({ phaseAt: Date.now() })
+			.set({
+				phaseAt: Date.now(),
+				...(etaAt === undefined ? {} : { etaAt }),
+			})
 			.where(eq(videoJobs.id, ctx.row.id))
 			.run();
 	});
@@ -245,17 +278,6 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 	});
 }
 
-/** Writes the chip's remaining baseline time for a phase that emits no progress. */
-async function writeEtaTick(ctx: Ctx, eta: VideoEtaTracker): Promise<void> {
-	const etaSeconds = eta.tick();
-	await ctx.write((tx) => {
-		tx.update(videoJobs)
-			.set({ etaSeconds })
-			.where(eq(videoJobs.id, ctx.row.id))
-			.run();
-	});
-}
-
 /**
  * Follows a submitted prompt. A server that stops answering (or answers with
  * an error) after the checkpoint is written is most likely reloading, so the
@@ -266,11 +288,11 @@ async function followWithGrace(
 	client: ComfyUiClient,
 	promptId: string,
 	startedAt: number,
-	eta: VideoEtaTracker,
+	eta: TakeEta,
 ) {
 	let downSince = 0;
 	for (;;) {
-		const left = VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+		const left = videoRenderDeadlineMs() - (Date.now() - startedAt);
 		if (left <= 0) throw new ComfyUiError("timeout", "ComfyUI took too long");
 		try {
 			return await followSegment(ctx, client, promptId, left, eta);
@@ -291,7 +313,7 @@ async function followSegment(
 	client: ComfyUiClient,
 	promptId: string,
 	deadlineMs: number,
-	eta: VideoEtaTracker,
+	eta: TakeEta,
 ): Promise<ComfyImageRef[]> {
 	let chain: Promise<unknown> = Promise.resolve();
 	const queue = (work: () => Promise<unknown>) => {
@@ -319,23 +341,23 @@ async function followSegment(
 		} else if (event.type === "started") {
 			if (started) return;
 			started = true;
-			queue(async () => {
-				await enterPhase(ctx, "starting");
-				await writeEtaTick(ctx, eta);
-			});
+			// The segment's prompt is on the GPU: the first one starts the
+			// countdown with the whole plan, a later one its own segment's load.
+			const etaAt = eta.start(Date.now());
+			queue(() => enterPhase(ctx, "starting", etaAt));
 		} else if (event.type === "progress") {
 			const now = Date.now();
 			if (!rendering) {
 				rendering = true;
 				queue(() => enterPhase(ctx, "rendering"));
 			}
-			// The tracker sees every event (so a node reset re-bases the rate),
-			// but the row is written at most once a second.
+			// The estimate sees every event (so a node reset starts the next
+			// pass), but the row is written at most once a second.
 			const value = event.value ?? 0;
 			const max = event.max ?? 0;
-			const sample = eta.onProgress({ value, max }, now);
+			const etaAt = eta.progress({ value, max }, now);
 			// A node that just finished is worth a write even inside the throttle:
-			// it is where a pass's percent lands (and the second pass begins).
+			// it is where a pass ends (and the second pass begins).
 			const passFinished = max > 0 && value >= max;
 			if (
 				!passFinished &&
@@ -348,10 +370,7 @@ async function followSegment(
 			queue(() =>
 				ctx.write((tx) => {
 					tx.update(videoJobs)
-						.set({
-							progressPercent: sample.progressPercent,
-							etaSeconds: sample.etaSeconds,
-						})
+						.set({ etaAt })
 						.where(eq(videoJobs.id, ctx.row.id))
 						.run();
 				}),
@@ -412,7 +431,7 @@ async function fitStill(
  * starting another call, and the signal carries the take's Stop into the child.
  */
 function mediaOptions(ctx: Ctx, startedAt: number): MediaCallOptions {
-	const left = VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+	const left = videoRenderDeadlineMs() - (Date.now() - startedAt);
 	if (left <= 0) {
 		throw new TakeError(
 			"video_render_timeout",
@@ -443,7 +462,7 @@ async function renderSegment(
 		/** The finished segments before this one; at segment n this is length n-1. */
 		segments: readonly VideoSegmentRecord[];
 		startedAt: number;
-		eta: VideoEtaTracker;
+		eta: TakeEta;
 		freedOthers: boolean;
 		setPromptId: (id: string) => void;
 	},
@@ -459,7 +478,12 @@ async function renderSegment(
 	}
 	if (signal.aborted) return null;
 	const graph = buildLtxVideoGraph({
-		prompt: input.request.prompt,
+		// Segment 2 goes on from where segment 1 ends: its own caption when the
+		// tool wrote one (review C-2), else the take's one prompt again.
+		prompt:
+			input.segment === 2
+				? (input.request.continuationPrompt ?? input.request.prompt)
+				: input.request.prompt,
 		// Segment 2 uses the next seed, so the chain does not repeat the noise.
 		seed: ctx.row.seed + (input.segment - 1),
 		width: input.size.width,
@@ -491,7 +515,6 @@ async function renderSegment(
 		await ctx.progress({ checkpoint });
 	}
 	await enterPhase(ctx, "submitted");
-	await writeEtaTick(ctx, input.eta);
 	if (signal.aborted) return null;
 
 	const refs = await followWithGrace(
@@ -502,8 +525,7 @@ async function renderSegment(
 		input.eta,
 	);
 	if (signal.aborted) return null;
-	await enterPhase(ctx, "finishing");
-	await writeEtaTick(ctx, input.eta);
+	await enterPhase(ctx, "finishing", input.eta.enter("finish"));
 	const ref = refs[0];
 	if (!ref) {
 		throw new ComfyUiError("missing_result", "ComfyUI finished without a clip");
@@ -526,38 +548,26 @@ async function renderTake(
 	ctx: Ctx,
 	request: VideoTakeRequest,
 	client: ComfyUiClient,
-	prompt: { setPromptId(id: string): void },
+	prompt: { setPromptId(id: string): void; releasePrompt(): Promise<void> },
 ): Promise<void> {
 	const { row, signal } = ctx;
 	const startedAt = Date.now();
-	const eta = createVideoEtaTracker({
-		durationSeconds: request.durationSeconds,
-		startedAt,
-	});
-	// The chip's first value, before any progress can arrive: a plausible
-	// baseline for the take's length, counting down while ComfyUI stages the
-	// models (a phase that emits nothing).
-	const baseline = eta.baseline(startedAt);
-	const baselineWritten = await ctx.write((tx) => {
-		tx.update(videoJobs)
-			.set({
-				etaSeconds: baseline,
-				progressPercent: 0,
-				phaseAt: Date.now(),
-			})
-			.where(eq(videoJobs.id, row.id))
-			.run();
-	});
-	if (!baselineWritten || signal.aborted) return;
+	if (signal.aborted) return;
 
 	// One GPU, one engine's models: wait until no picture take is queued or
-	// running before touching the LTX server. The baseline keeps counting down
-	// while the take waits, so the chip shows waiting, not an error.
+	// running before touching the LTX server. The card shows the take as
+	// waiting; its countdown starts when ComfyUI starts the prompt. The gate
+	// orders takes still inside it by the stamp their claim wrote
+	// (`video-job.ts` `onTransition`), the one every other take reads too.
 	const waited = await waitForOtherEnginesIdle("ltx", {
 		signal,
-		deadlineMs: VIDEO_RENDER_DEADLINE_MS - (Date.now() - startedAt),
-		claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
-		onTick: () => writeEtaTick(ctx, eta),
+		deadlineMs: videoRenderDeadlineMs() - (Date.now() - startedAt),
+		claim: {
+			id: row.id,
+			phaseAt: row.phaseAt ?? Date.now(),
+			// Resumed after a restart: its prompt is already on the GPU.
+			onGpu: promptIdOf(row.checkpoint) !== null,
+		},
 	});
 	if (waited === "cancelled") return;
 	if (waited === "timeout") {
@@ -568,6 +578,11 @@ async function renderTake(
 		);
 	}
 	if (signal.aborted) return;
+	// The estimate's plan: LTX's staging (short while it is still warm from a
+	// clip a moment ago), both passes and the decode, segment by segment.
+	let eta = createTakeEta(
+		videoPlan(request.durationSeconds, await engineLooksWarm("ltx", row.id)),
+	);
 
 	const still = await readStill(ctx, request.sourceFileId);
 	const size = videoSizeForSource({
@@ -618,6 +633,7 @@ async function renderTake(
 				done?.promptId ??
 				(resumedSegment === segmentNumber ? resumedPromptId : null);
 			if (recordedPrompt) {
+				prompt.setPromptId(recordedPrompt);
 				try {
 					const refs = await followWithGrace(
 						ctx,
@@ -627,8 +643,7 @@ async function renderTake(
 						eta,
 					);
 					if (signal.aborted) return;
-					await enterPhase(ctx, "finishing");
-					await writeEtaTick(ctx, eta);
+					await enterPhase(ctx, "finishing", eta.enter("finish"));
 					const ref = refs[0];
 					if (!ref) {
 						throw new ComfyUiError(
@@ -676,17 +691,34 @@ async function renderTake(
 				const guide = await client.uploadImage(lastFrame, `${row.id}-2.png`);
 				imageName = guide.filename;
 			}
-			const rendered = await renderSegment(ctx, client, {
-				request,
-				size,
-				imageName,
-				segment: segmentNumber,
-				segments: segments.slice(0, segmentNumber - 1),
-				startedAt,
-				eta,
-				freedOthers,
-				setPromptId: prompt.setPromptId,
-			});
+			let rendered: Awaited<ReturnType<typeof renderSegment>> = null;
+			for (let resubmitted = false; ; resubmitted = true) {
+				try {
+					rendered = await renderSegment(ctx, client, {
+						request,
+						size,
+						imageName,
+						segment: segmentNumber,
+						segments: segments.slice(0, segmentNumber - 1),
+						startedAt,
+						eta,
+						freedOthers,
+						setPromptId: prompt.setPromptId,
+					});
+					break;
+				} catch (error) {
+					if (signal.aborted || resubmitted || !isForgotten(error)) throw error;
+					// ComfyUI restarted mid-render and no longer knows the prompt:
+					// this segment once more, under a fresh prompt id, with a fresh
+					// estimate from a cold load (the one real reason the time left may
+					// go up), as the picture path does. A server that does still know
+					// the old prompt (its history answered garbage) has it deleted or
+					// interrupted first, so the GPU never renders the segment twice. A
+					// second miss fails the take.
+					await prompt.releasePrompt();
+					eta = createTakeEta(videoPlan(request.durationSeconds, false));
+				}
+			}
 			if (!rendered) return;
 			freedOthers = true;
 			segments[segmentNumber - 1] = rendered.record;
@@ -744,7 +776,7 @@ async function renderTake(
 		takeId: row.id,
 		frames: checkFrames,
 		signal,
-		deadlineAt: startedAt + VIDEO_RENDER_DEADLINE_MS,
+		deadlineAt: startedAt + videoRenderDeadlineMs(),
 	});
 	if (signal.aborted) return;
 	if (verdict === "blocked") {
@@ -826,7 +858,7 @@ async function renderTake(
 					resultFileId: file.id,
 					artifactId: artifact.artifactId,
 					progressPercent: 100,
-					etaSeconds: null,
+					etaAt: null,
 				})
 				.where(eq(videoJobs.id, row.id))
 				.run();

@@ -71,6 +71,7 @@ describe("placeReplySegments", () => {
 
 		expect(places.get("a-1")).toEqual({
 			firstMessageId: "a-1",
+			segmentIds: ["a-1", "a-2"],
 			continuesAbove: false,
 			continuedBelow: true,
 			question,
@@ -81,6 +82,7 @@ describe("placeReplySegments", () => {
 		});
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-1",
+			segmentIds: ["a-1", "a-2"],
 			continuesAbove: true,
 			continuedBelow: false,
 			question: null,
@@ -154,6 +156,7 @@ describe("placeReplySegments", () => {
 
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-2",
+			segmentIds: ["a-2"],
 			continuesAbove: false,
 			continuedBelow: false,
 			question: null,
@@ -333,6 +336,32 @@ describe("placeReplySegments", () => {
 		expect(places.get("a-1")?.continuedBelow).toBe(false);
 	});
 
+	it("a reply drawn in segments reads from its last segment with every segment's id", () => {
+		const places = placeReplySegments(
+			[
+				row("u-1", "user", "Plan dad's 60th"),
+				row("a-1", "assistant", "One."),
+				row("a-2", "assistant", "Two.", { continuesMessageId: "a-1" }),
+				row("a-3", "assistant", "Three.", { continuesMessageId: "a-2" }),
+				row("u-2", "user", "Thanks"),
+				row("a-4", "assistant", "Four."),
+			],
+			[],
+			null,
+		);
+
+		// Every row of a reply knows all of them, first to last: the speaker on the last
+		// row reads them as one, and each row's marks know whose reading it is.
+		expect(
+			["a-1", "a-2", "a-3"].map((id) => places.get(id)?.segmentIds),
+		).toEqual([
+			["a-1", "a-2", "a-3"],
+			["a-1", "a-2", "a-3"],
+			["a-1", "a-2", "a-3"],
+		]);
+		expect(places.get("a-4")?.segmentIds).toEqual(["a-4"]);
+	});
+
 	it("gives a reply of one row the plain place, and the person's rows none", () => {
 		const places = placeReplySegments(
 			[
@@ -348,6 +377,7 @@ describe("placeReplySegments", () => {
 		expect([...places.keys()]).toEqual(["a-1", "a-2"]);
 		expect(places.get("a-1")).toEqual({
 			firstMessageId: "a-1",
+			segmentIds: ["a-1"],
 			continuesAbove: false,
 			continuedBelow: false,
 			question: null,
@@ -358,6 +388,7 @@ describe("placeReplySegments", () => {
 		});
 		expect(places.get("a-2")).toEqual({
 			firstMessageId: "a-2",
+			segmentIds: ["a-2"],
 			continuesAbove: false,
 			continuedBelow: false,
 			question: null,

@@ -76,6 +76,11 @@ const guideDict = {
 		"guide.entry.asksFirst.line":
 			"When a request could go two ways, Alfy asks with answers to click.",
 		"guide.entry.asksFirst.example": "Help me choose a laptop.",
+		"guide.entry.listenToAReply.name": "Listen to a reply or a document",
+		"guide.entry.listenToAReply.line":
+			"Press the speaker under a reply, or at the top of a document or a report, to hear it, and follow the words as they are read.",
+		"guide.entry.listenToAReply.example":
+			"Tell me a short story about a lighthouse keeper.",
 
 		// ── Make ───────────────────────────────────────────────────────────
 		"guide.entry.documents.name": "Documents",
@@ -120,6 +125,12 @@ const guideDict = {
 		"guide.entry.skills.name": "Skills",
 		"guide.entry.skills.line":
 			"Ready-made helpers like Study Coach, and your own.",
+		"guide.entry.picturesAndVideos.name": "Pictures and videos",
+		"guide.entry.picturesAndVideos.line":
+			"Alfy makes them only when you ask, and you can switch them off.",
+		"guide.entry.yourVoices.name": "Voices that read to you",
+		"guide.entry.yourVoices.line":
+			"Choose a voice for each language and the speed it starts at, or make a voice of your own.",
 
 		// ── Your things ────────────────────────────────────────────────────
 		"guide.entry.knowledgeBase.name": "Knowledge Base",
@@ -155,6 +166,9 @@ const guideDict = {
 		"guide.entry.languageAndLook.name": "Language and look",
 		"guide.entry.languageAndLook.line":
 			"Interface and title language, time zone, light or dark.",
+		"guide.entry.sendWithEnter.name": "Send with Enter",
+		"guide.entry.sendWithEnter.line":
+			"Enter sends your message and Shift+Enter starts a new line.",
 		"guide.entry.twoStep.name": "Two-step sign-in",
 		"guide.entry.twoStep.line":
 			"A code from your phone as well as your password.",
@@ -234,6 +248,12 @@ const guideDict = {
 		"guide.entry.asksFirst.line":
 			"Ha egy kérés félreérthető, Alfy kattintható válaszokkal kérdez vissza.",
 		"guide.entry.asksFirst.example": "Segíts laptopot választani.",
+		"guide.entry.listenToAReply.name":
+			"Hallgasd meg a választ vagy a dokumentumot",
+		"guide.entry.listenToAReply.line":
+			"Nyomd meg a hangszórót a válasz alatt, vagy egy dokumentum vagy jelentés tetején, és kövesd a szavakat, ahogy elhangzanak.",
+		"guide.entry.listenToAReply.example":
+			"Mesélj egy rövid történetet egy világítótorony-őrről.",
 
 		// ── Make ───────────────────────────────────────────────────────────
 		"guide.entry.documents.name": "Dokumentumok",
@@ -283,6 +303,12 @@ const guideDict = {
 		"guide.entry.skills.name": "Készségek",
 		"guide.entry.skills.line":
 			"Beépített segítők, például a Tanulási coach, és a sajátjaid.",
+		"guide.entry.picturesAndVideos.name": "Képek és videók",
+		"guide.entry.picturesAndVideos.line":
+			"Alfy csak kérésre készít ilyet, és ki is kapcsolhatod.",
+		"guide.entry.yourVoices.name": "Felolvasó hangok",
+		"guide.entry.yourVoices.line":
+			"Válassz hangot minden nyelvhez és kezdősebességet, vagy készíts saját hangot.",
 
 		// ── Your things ────────────────────────────────────────────────────
 		"guide.entry.knowledgeBase.name": "Tudásbázis",
@@ -318,6 +344,9 @@ const guideDict = {
 		"guide.entry.languageAndLook.name": "Nyelv és megjelenés",
 		"guide.entry.languageAndLook.line":
 			"A felület és a címek nyelve, időzóna, világos vagy sötét.",
+		"guide.entry.sendWithEnter.name": "Küldés Enterrel",
+		"guide.entry.sendWithEnter.line":
+			"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd.",
 		"guide.entry.twoStep.name": "Kétlépcsős bejelentkezés",
 		"guide.entry.twoStep.line":
 			"A jelszó mellett egy kód is kell a telefonodról.",

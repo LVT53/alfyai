@@ -999,3 +999,118 @@ describe("renderInlineMarkdown (checklist item bodies)", () => {
 		expect(html).toContain('target="_blank"');
 	});
 });
+
+describe("renderMarkdown: a character reference shows its character once", () => {
+	// marked 17 hands its renderers the Markdown as written. A character reference in it
+	// (`&amp;`, `&#39;`, `&nbsp;`: a reply copies them from the pages it read) stands for
+	// its character, and marked keeps it when it escapes text, so the browser shows the
+	// character once. What the renderer writes itself must do the same: an escape that also
+	// encodes the reference's own `&` made the chat show "&amp;" as written.
+	const drawn = (html: string) => {
+		const box = document.createElement("div");
+		box.innerHTML = html;
+		return box;
+	};
+
+	it("in a reply's text with source chips, as without them", async () => {
+		const mod = await import("./markdown");
+		const markdown =
+			"Salt &amp; pepper, it&#39;s A&nbsp;B & C. See [BBC](https://example.com/news).";
+		for (const options of [{}, { compactExternalLinks: true }]) {
+			const box = drawn(await mod.renderMarkdown(markdown, false, options));
+			expect(box.textContent).toContain("Salt & pepper, it's A B & C.");
+		}
+	});
+
+	it("in a source chip's words and accessible name", async () => {
+		const mod = await import("./markdown");
+		const box = drawn(
+			await mod.renderMarkdown(
+				"See [Salt &amp; Pepper & Co](https://example.com/page).",
+				false,
+				{ compactExternalLinks: true },
+			),
+		);
+		const chip = box.querySelector(".source-link-chip");
+		expect(chip?.querySelector(".source-link-chip__label")?.textContent).toBe(
+			"Salt & Pepper & Co",
+		);
+		expect(chip?.getAttribute("aria-label")).toBe(
+			"Open source: Salt & Pepper & Co - https://example.com/page",
+		);
+	});
+
+	it("in a callout's title, which marked has already escaped", async () => {
+		const mod = await import("./markdown");
+		for (const markdown of [
+			"> [!NOTE] Salt & pepper\n> Mind the gap.",
+			"> [!NOTE] Salt &amp; pepper\n> Mind the gap.",
+		]) {
+			const box = drawn(await mod.renderMarkdown(markdown, false));
+			expect(box.querySelector(".markdown-callout-title")?.textContent).toBe(
+				"Salt & pepper",
+			);
+		}
+	});
+
+	it("in a picture's words, title and alt text", async () => {
+		const mod = await import("./markdown");
+		const blocked = drawn(
+			await mod.renderMarkdown(
+				"![Salt &amp; pepper](https://example.com/x.png)",
+				false,
+			),
+		);
+		expect(blocked.querySelector(".source-link-chip__label")?.textContent).toBe(
+			"Salt & pepper",
+		);
+		const loaded = drawn(
+			await mod.renderMarkdown(
+				`![Salt &amp; pepper](${CAT} "Salt &amp; pepper")`,
+				false,
+				{ toolImages: [CAT_RESULT] },
+			),
+		).querySelector("img");
+		expect(loaded?.getAttribute("alt")).toBe("Salt & pepper");
+		expect(loaded?.getAttribute("title")).toBe("Salt & pepper");
+	});
+
+	it("in a link's title and address, as a link and as a chip", async () => {
+		const mod = await import("./markdown");
+		const markdown =
+			'Watch [it](https://example.com/watch?v=abc&amp;t=10s "Salt &amp; pepper").';
+		const link = drawn(await mod.renderMarkdown(markdown, false)).querySelector(
+			"a",
+		);
+		expect(link?.getAttribute("href")).toBe(
+			"https://example.com/watch?v=abc&t=10s",
+		);
+		expect(link?.getAttribute("title")).toBe("Salt & pepper");
+		const chip = drawn(
+			await mod.renderMarkdown(markdown, false, { compactExternalLinks: true }),
+		).querySelector(".source-link-chip");
+		expect(chip?.getAttribute("href")).toBe(
+			"https://example.com/watch?v=abc&t=10s",
+		);
+	});
+
+	it("while a bare & still shows once, and code shows a reference as written", async () => {
+		const mod = await import("./markdown");
+		const box = drawn(
+			await mod.renderMarkdown(
+				"> [!NOTE] Salt & pepper\n> Mind the gap.\n\nA & B, `a &amp; b`. See [Salt & Co](https://example.com/page?a=1&b=2).",
+				false,
+				{ compactExternalLinks: true },
+			),
+		);
+		expect(box.querySelector(".markdown-callout-title")?.textContent).toBe(
+			"Salt & pepper",
+		);
+		expect(box.textContent).toContain("A & B, a &amp; b.");
+		const chip = box.querySelector(".source-link-chip");
+		expect(chip?.querySelector(".source-link-chip__label")?.textContent).toBe(
+			"Salt & Co",
+		);
+		expect(chip?.getAttribute("href")).toBe("https://example.com/page?a=1&b=2");
+	});
+});

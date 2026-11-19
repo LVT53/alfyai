@@ -8,6 +8,15 @@ import {
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import type { NormalChatStopCause } from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputPhase } from "$lib/shared/normal-chat-output";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import {
+	bindReadResultGrant,
+	boundedWebReadFailure,
+	ReadResultCapacityError,
+	type ReadResultGrantSpec,
+	supportsReadResultBudget,
+} from "../normal-chat-tools/model-payload-budget";
+import { stableStringify } from "../normal-chat-tools/stable-stringify";
 import type {
 	NormalChatAttemptPolicy,
 	NormalChatContinuationSnapshot,
@@ -15,9 +24,120 @@ import type {
 } from "./completion";
 import { cloneNormalChatContextValue as clone } from "./continuation-codec";
 
+type ReadProposal = Pick<
+	NormalChatExecution,
+	| "turnId"
+	| "segmentId"
+	| "attemptId"
+	| "stepId"
+	| "executionId"
+	| "callId"
+	| "toolName"
+	| "input"
+>;
+
+/** Call/result framing and SDK JSON wrapper, separate from payload spending. */
+export function measureReadResultFraming(
+	entry: Pick<ReadProposal, "callId" | "toolName" | "input">,
+): number {
+	return (
+		8 +
+		estimateTokenCount(
+			stableStringify([
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "tool-call",
+							toolCallId: entry.callId,
+							toolName: entry.toolName,
+							input: entry.input,
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: entry.callId,
+							toolName: entry.toolName,
+							output: { type: "json", value: null },
+						},
+					],
+				},
+			]),
+		)
+	);
+}
+
+/** Invocation-local leases. A step freezes once; settlement never refunds it. */
+export function createCompletionReadBudget() {
+	let step: string | undefined,
+		remaining = 0,
+		refusal = 0,
+		ordinal = 0,
+		exhausted = false;
+	return {
+		freeze(
+			stepId: string,
+			unallocatedTokens: number,
+			terminalRefusalTokens: number,
+		) {
+			if (step === stepId) return;
+			step = stepId;
+			remaining = Number.isFinite(unallocatedTokens)
+				? Math.max(0, Math.floor(unallocatedTokens))
+				: 0;
+			refusal = Number.isFinite(terminalRefusalTokens)
+				? Math.max(0, Math.floor(terminalRefusalTokens))
+				: 0;
+			ordinal = 0;
+			exhausted = false;
+		},
+		allocate(entry: ReadProposal): ReadResultGrantSpec {
+			const base = {
+				turnId: entry.turnId,
+				segmentId: entry.segmentId,
+				attemptId: entry.attemptId,
+				stepId: entry.stepId,
+				executionId: entry.executionId,
+				proposalOrdinal: ordinal++,
+			};
+			const h = measureReadResultFraming(entry);
+			const f = estimateTokenCount(
+				stableStringify(boundedWebReadFailure(entry.toolName)),
+			);
+			if (entry.stepId === step && remaining >= h + f) {
+				const p = f + Math.floor((remaining - h - f) / 2);
+				remaining -= h + p;
+				return {
+					...base,
+					kind: "admitted",
+					maxPayloadTokens: p,
+					maxFailurePayloadTokens: f,
+				};
+			}
+			exhausted = true;
+			const allowance = refusal >= h + f ? f : 0;
+			if (allowance) refusal -= h + f;
+			return {
+				...base,
+				kind: "denied",
+				maxPayloadTokens: 0,
+				maxFailurePayloadTokens: allowance,
+			};
+		},
+		get exhausted() {
+			return exhausted;
+		},
+	};
+}
+
 /** Executable tools exist only in working generations. Every dispatch retains its scoped result. */
 export function buildCompletionTools(context: {
 	phase: NormalChatOutputPhase;
+	readBudget: ReturnType<typeof createCompletionReadBudget>;
 	policy: NormalChatAttemptPolicy;
 	snapshot: NormalChatContinuationSnapshot;
 	params: { tools?: ToolSet };
@@ -40,6 +160,7 @@ export function buildCompletionTools(context: {
 }): ToolSet | undefined {
 	const {
 		phase,
+		readBudget,
 		policy,
 		snapshot,
 		params,
@@ -113,12 +234,15 @@ export function buildCompletionTools(context: {
 										throw failure("uncertain_execution");
 									}
 								}
+								const executionOptions = supportsReadResultBudget(original)
+									? bindReadResultGrant(options, readBudget.allocate(entry))
+									: options;
 								entry.state = "dispatched";
 								clearFirstOutputTimeout();
 								notify();
 								try {
 									const pending = Promise.resolve(
-										original.execute?.(input, options),
+										original.execute?.(input, executionOptions),
 									);
 									const settle = pending.then(async (output) => {
 										// Streaming tool executors require explicit finality; never mistake an iterator for a final result.
@@ -179,6 +303,15 @@ export function buildCompletionTools(context: {
 										remove();
 									}
 								} catch (error) {
+									if (error instanceof ReadResultCapacityError) {
+										entry.state = options.abortSignal?.aborted
+											? "uncertain"
+											: error.executed
+												? "failed"
+												: "definitely_not_executed";
+										notify();
+										throw failure("context_capacity");
+									}
 									const classified = policy.classifyExecution?.(entry, {
 										success: false,
 										error,

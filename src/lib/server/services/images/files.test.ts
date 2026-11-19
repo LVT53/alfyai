@@ -731,9 +731,13 @@ describe("the large copy", () => {
 			png: await photoPng(2048, 1536),
 		});
 		expect(files.hasImageLargeCopy(file)).toBe(false);
-		expect(await files.readImageFileBytes(file, "large")).toEqual(
-			await files.readImageFileBytes(file, "full"),
-		);
+		// Compare every PNG byte without deep equality's per-byte object allocations.
+		expect(
+			Buffer.compare(
+				await files.readImageFileBytes(file, "large"),
+				await files.readImageFileBytes(file, "full"),
+			),
+		).toBe(0);
 		expect(
 			(await readdir(join(workdir, "data", "image-files", "c1"))).some((name) =>
 				name.endsWith(".large.webp"),

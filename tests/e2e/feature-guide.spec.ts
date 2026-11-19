@@ -13,6 +13,10 @@ import {
 	login,
 	waitForHydration,
 } from "./helpers";
+import {
+	startFakeSpeechForSpec,
+	stopFakeSpeechForSpec,
+} from "./read-aloud-helpers";
 
 // The Feature Guide (`/guide`, "What AlfyAI can do"), end to end: the three ways
 // in, Try it, every Show me, the page at phone width in both languages, the
@@ -195,6 +199,12 @@ type ShowMeRow = {
 	spotlight: SpotlightId;
 	/** The real control, as the person finds it. */
 	control: (page: Page, where: Where) => Locator;
+	/**
+	 * The control is drawn only while read aloud is on (`TTS_ENABLED`), and the
+	 * guide does not filter by configuration, so the row's test switches read
+	 * aloud on for itself, against the fake speech service, and puts it back.
+	 */
+	readAloud?: boolean;
 };
 
 const settingsRowWith = (page: Page, testId: string) =>
@@ -242,6 +252,22 @@ const SHOW_ME: readonly ShowMeRow[] = [
 		name: "Skills",
 		spotlight: "settings.skills",
 		control: (page) => settingsRowWith(page, "skills-summary-card"),
+	},
+	{
+		entry: "picturesAndVideos",
+		name: "Pictures and videos",
+		spotlight: "settings.pictures",
+		control: (page) =>
+			page.locator(".settings-row").filter({
+				has: page.getByRole("switch", { name: "Pictures and videos" }),
+			}),
+	},
+	{
+		entry: "yourVoices",
+		name: "Voices that read to you",
+		spotlight: "settings.readAloud",
+		control: (page) => page.getByTestId("read-aloud-voice-rows"),
+		readAloud: true,
 	},
 	{
 		entry: "knowledgeBase",
@@ -297,6 +323,15 @@ const SHOW_ME: readonly ShowMeRow[] = [
 		name: "Language and look",
 		spotlight: "settings.language",
 		control: (page) => page.getByRole("group", { name: "Interface language" }),
+	},
+	{
+		entry: "sendWithEnter",
+		name: "Send with Enter",
+		spotlight: "settings.sendWithEnter",
+		control: (page) =>
+			page.locator(".settings-row").filter({
+				has: page.getByRole("switch", { name: "Send with Enter" }),
+			}),
 	},
 	{
 		entry: "twoStep",
@@ -436,7 +471,7 @@ test.describe("the Feature Guide: the ways in", () => {
 		await expect(
 			page.getByTestId("guide-section").getByRole("heading", { level: 2 }),
 		).toHaveText(SECTION_NAMES);
-		await expect(page.getByTestId("guide-row")).toHaveCount(31);
+		await expect(page.getByTestId("guide-row")).toHaveCount(35);
 	});
 
 	test("the collapsed rail and the phone menu open it too", async ({
@@ -547,7 +582,12 @@ test.describe("the Feature Guide: every Show me rings its control", () => {
 	for (const row of SHOW_ME) {
 		test(`${row.spotlight}: Show me ${row.name}`, async ({ page }) => {
 			await ensureSidebarExpanded(page);
-			await expectShowMeRings(page, row, { narrow: false, rail: false });
+			const fake = row.readAloud ? await startFakeSpeechForSpec(page) : null;
+			try {
+				await expectShowMeRings(page, row, { narrow: false, rail: false });
+			} finally {
+				if (fake) await stopFakeSpeechForSpec(page, fake);
+			}
 		});
 	}
 

@@ -53,7 +53,10 @@ import {
 	videoJob,
 } from "$lib/server/services/images/video/video-job";
 import { waitForVerdict } from "$lib/server/services/jobs";
-import { buildVideoPrompt } from "$lib/server/services/video-caption";
+import {
+	buildVideoContinuationPrompt,
+	buildVideoPrompt,
+} from "$lib/server/services/video-caption";
 
 export const makeVideoInputSchema = z.object({
 	prompt: z
@@ -130,6 +133,7 @@ export type MakeVideoPayload =
 
 type RefusalCode =
 	| "not_configured"
+	| "not_asked_for"
 	| "explicit_request"
 	| "unknown_picture"
 	| "video_error"
@@ -208,6 +212,10 @@ const TITLE_FALLBACK = "Video";
 
 type Metadata = Record<string, string | number | boolean | null>;
 type Outcome = { modelPayload: MakeVideoPayload; metadata: Metadata };
+
+/** What the model is told when the person did not ask for a video: ask first. */
+const NOT_ASKED_FOR_VIDEO_MESSAGE =
+	"The user did not ask for a video in so many words, so none was started. Ask with ask_user whether they want a short video of the picture, offering a changed still picture as the other choice, and make the video only once they choose it.";
 
 function refusal(errorCode: RefusalCode, message: string): Outcome {
 	return {
@@ -400,6 +408,8 @@ async function planTake(params: {
 	turnPictures: TurnPictureIndex | null;
 	turnTakes: TurnTakes;
 	signal: AbortSignal;
+	/** Whether the person asked for a video (video-request.ts); omitted, nothing is asked. */
+	askedForVideo?: () => Promise<boolean | null>;
 }): Promise<Planned> {
 	const { userId, conversationId, input, turnPictures, turnTakes } = params;
 	if (params.signal.aborted) return { ok: false, refused: stoppedRefusal() };
@@ -419,6 +429,15 @@ async function planTake(params: {
 		return {
 			ok: false,
 			refused: refusal("explicit_request", EXPLICIT_REQUEST_MESSAGE),
+		};
+	}
+	// A video starts only on a clear request for one (video-request.ts): a "no"
+	// stops the call here, before a still, a caption or a take, and sends the
+	// model to ask. No answer is the model's own call, which goes on.
+	if (params.askedForVideo && (await params.askedForVideo()) === false) {
+		return {
+			ok: false,
+			refused: refusal("not_asked_for", NOT_ASKED_FOR_VIDEO_MESSAGE),
 		};
 	}
 
@@ -480,6 +499,14 @@ async function planTake(params: {
 	const prompt = await buildVideoPrompt(input.prompt.trim(), {
 		signal: params.signal,
 	});
+	// A 10 s take's second segment starts on the first one's last frame: its
+	// caption goes on from there, never the first one's again (review C-2).
+	const continuationPrompt =
+		durationSeconds === 10 && !params.signal.aborted
+			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
+					signal: params.signal,
+				})
+			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
 	// queued, because a render started here would run for minutes for nothing.
 	if (params.signal.aborted) return { ok: false, refused: stoppedRefusal() };
@@ -516,6 +543,7 @@ async function planTake(params: {
 			request: {
 				v: 1,
 				prompt,
+				...(continuationPrompt ? { continuationPrompt } : {}),
 				durationSeconds,
 				sourceFileId,
 				title,
@@ -543,6 +571,8 @@ export async function runMakeVideoTool(params: {
 	waitBudgetMs?: number;
 	/** The wait itself; tests replace it, production reads the video kind. */
 	waitForTake?: WaitForVideoTake;
+	/** Whether the person asked for a video (video-request.ts); omitted, nothing is asked. */
+	askedForVideo?: () => Promise<boolean | null>;
 }): Promise<Outcome> {
 	const planned = await planTake(params);
 	if (!planned.ok) return planned.refused;

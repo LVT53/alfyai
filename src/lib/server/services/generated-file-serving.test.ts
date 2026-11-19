@@ -21,7 +21,17 @@ import {
 	readChatFileContentByUser,
 } from "$lib/server/services/chat-files";
 import { getSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
-import { resolveGeneratedFileServing } from "./generated-file-serving";
+import { withReportBridge } from "$lib/shared/read-aloud/report-bridge";
+import {
+	cspSha256,
+	STANDARD_REPORT_HANDLER_HASHES,
+	STANDARD_REPORT_SCRIPT_HASHES,
+} from "./file-production/renderers/standard-report-scripts";
+import { standardReportPreviewCsp } from "./file-serving-response-policy";
+import {
+	readStandardReportHtml,
+	resolveGeneratedFileServing,
+} from "./generated-file-serving";
 
 const mockGetChatFileByUser = vi.mocked(getChatFileByUser);
 const mockGetChatFileByConversationOwner = vi.mocked(
@@ -209,7 +219,7 @@ describe("resolveGeneratedFileServing", () => {
 		if (!result.ok) return;
 		expect(result.headers["Content-Type"]).toBe("text/html; charset=utf-8");
 		expect(result.headers["Content-Security-Policy"]).toBe(
-			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+			standardReportPreviewCsp(),
 		);
 		expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
 		expect(result.headers["Referrer-Policy"]).toBe("no-referrer");
@@ -596,5 +606,206 @@ describe("resolveGeneratedFileServing", () => {
 		);
 		expect(result.headers["Cache-Control"]).toBe("private, no-store");
 		expect(result.headers["Content-Security-Policy"]).toBeUndefined();
+	});
+});
+
+// Read aloud's report target (`/api/read-aloud/sessions`): the words are checked
+// against the report the panel's preview shows, read by the preview's own rules.
+describe("readStandardReportHtml", () => {
+	const REPORT_HTML = "<!doctype html><h1>Report</h1>";
+	const reportFile = () =>
+		chatFile({
+			filename: "atlas-report.html",
+			mimeType: "text/html",
+			sizeBytes: 31,
+			storagePath: "conv-1/file-1.html",
+		});
+	const documentSourceJob = {
+		id: "job-1",
+		sourceMode: "document_source" as const,
+		origin: "file_production" as const,
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(null);
+	});
+
+	it("is a standard report's HTML, for the person the preview serves it to", async () => {
+		mockGetChatFileByUser.mockResolvedValue(reportFile());
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(
+			documentSourceJob,
+		);
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from(REPORT_HTML));
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBe(REPORT_HTML);
+		expect(mockGetChatFileByUser).toHaveBeenCalledWith("file-1", "user-1");
+	});
+
+	it("is null for a file the preview would not serve this person", async () => {
+		mockGetChatFileByUser.mockResolvedValue(null);
+		mockGetChatFileByConversationOwner.mockResolvedValue(null);
+		await expect(
+			readStandardReportHtml({ userId: "user-2", fileId: "file-1" }),
+		).resolves.toBeNull();
+		expect(mockReadChatFileContentByUser).not.toHaveBeenCalled();
+	});
+
+	it("is null for HTML that is not a standard report (its preview runs no script)", async () => {
+		mockGetChatFileByUser.mockResolvedValue(reportFile());
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from(REPORT_HTML));
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBeNull();
+	});
+
+	it("is null for a file that is not HTML, whatever made it", async () => {
+		mockGetChatFileByUser.mockResolvedValue(chatFile());
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(
+			documentSourceJob,
+		);
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from("hello world"));
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBeNull();
+	});
+});
+
+// Read aloud's bridge (`$lib/shared/read-aloud/report-bridge.ts`): the server adds
+// it to a standard report's preview response, at preview time, so a report made
+// before read aloud gets it too. The panel frames the report by that address.
+describe("read aloud's bridge in a standard report's preview", () => {
+	const REPORT_HTML =
+		"<!doctype html><html><body><h1>Report</h1><script>window.ready=true</script></body></html>";
+	const ORIGIN = "https://alfy.example";
+	const reportFile = () =>
+		chatFile({
+			filename: "atlas-report.html",
+			mimeType: "text/html",
+			sizeBytes: REPORT_HTML.length,
+			storagePath: "conv-1/file-1.html",
+		});
+	const documentSourceJob = {
+		id: "job-1",
+		sourceMode: "document_source" as const,
+		origin: "file_production" as const,
+	};
+	const serve = (
+		mode: "preview" | "download",
+		bridgeOrigin: string | null = ORIGIN,
+	) =>
+		resolveGeneratedFileServing({
+			userId: "user-1",
+			fileId: "file-1",
+			mode,
+			bridgeOrigin,
+		});
+	const text = (body: Uint8Array) => Buffer.from(body).toString("utf8");
+	/** The CSP hash of the last script in a served body: the bridge the preview added. */
+	const bridgeHashIn = (body: string) =>
+		cspSha256(
+			[...body.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].at(-1)?.[1] ??
+				"",
+		);
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGetChatFileByUser.mockResolvedValue(reportFile());
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(
+			documentSourceJob,
+		);
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from(REPORT_HTML));
+	});
+
+	it("is the last thing in a standard report's preview, and its length counts it", async () => {
+		const result = await serve("preview");
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const body = text(result.body);
+		expect(body).toBe(withReportBridge(REPORT_HTML, ORIGIN));
+		expect(body).not.toBe(REPORT_HTML);
+		expect(result.headers["Content-Length"]).toBe(
+			String(Buffer.byteLength(body)),
+		);
+		// The report's own policy, unchanged: it is what lets the bridge run.
+		expect(result.headers["Content-Security-Policy"]).toBe(
+			standardReportPreviewCsp([bridgeHashIn(body)]),
+		);
+	});
+
+	it("is counted by a range: the range is of the report with the bridge in it", async () => {
+		const full = Buffer.from(withReportBridge(REPORT_HTML, ORIGIN), "utf8");
+		const ranged = (rangeHeader: string) =>
+			resolveGeneratedFileServing({
+				userId: "user-1",
+				fileId: "file-1",
+				mode: "preview",
+				bridgeOrigin: ORIGIN,
+				rangeHeader,
+			});
+		const head = await ranged("bytes=0-9");
+		expect(head.ok && head.status).toBe(206);
+		if (!head.ok) return;
+		expect(head.headers["Content-Range"]).toBe(`bytes 0-9/${full.length}`);
+		expect(text(head.body)).toBe(full.subarray(0, 10).toString("utf8"));
+		const end = full.length - 1;
+		const tail = await ranged(`bytes=${end - 19}-${end}`);
+		expect(tail.ok && text(tail.body)).toBe(
+			full.subarray(end - 19).toString("utf8"),
+		);
+		expect(tail.ok && tail.headers["Content-Range"]).toBe(
+			`bytes ${end - 19}-${end}/${full.length}`,
+		);
+	});
+
+	// Security review I1: the policy names the app's own scripts and nothing else a
+	// stored report holds, whatever that is.
+	it("is named in the report's policy by its own hash, and nothing the file holds is", async () => {
+		const injected = "window.injected = true";
+		mockReadChatFileContentByUser.mockResolvedValue(
+			Buffer.from(
+				REPORT_HTML.replace("</body>", `<script>${injected}</script></body>`),
+			),
+		);
+		const result = await serve("preview");
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const policy = result.headers["Content-Security-Policy"] ?? "";
+		const scriptSources =
+			policy
+				.split(";")
+				.map((part) => part.trim())
+				.find((part) => part.startsWith("script-src "))
+				?.split(/\s+/)
+				.slice(1) ?? [];
+		expect(scriptSources).toEqual([
+			...STANDARD_REPORT_SCRIPT_HASHES,
+			bridgeHashIn(text(result.body)),
+			"'unsafe-hashes'",
+			...STANDARD_REPORT_HANDLER_HASHES,
+		]);
+		expect(scriptSources).not.toContain(cspSha256(injected));
+		expect(scriptSources).not.toContain(cspSha256("window.ready=true"));
+		expect(policy).not.toContain("'unsafe-inline'; object-src");
+	});
+
+	it("is never in a download", async () => {
+		const result = await serve("download");
+		expect(result.ok && text(result.body)).toBe(REPORT_HTML);
+	});
+
+	it("is never in HTML that is not a standard report", async () => {
+		mockGetSucceededFileProductionJobForChatFile.mockResolvedValue(null);
+		const result = await serve("preview");
+		expect(result.ok && text(result.body)).toBe(REPORT_HTML);
+	});
+
+	it("is not added without the app's origin, and the session route reads the report as written", async () => {
+		const result = await serve("preview", null);
+		expect(result.ok && text(result.body)).toBe(REPORT_HTML);
+		await expect(
+			readStandardReportHtml({ userId: "user-1", fileId: "file-1" }),
+		).resolves.toBe(REPORT_HTML);
 	});
 });

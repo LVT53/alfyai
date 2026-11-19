@@ -71,8 +71,9 @@ export function applyNormalChatOutputView(
 }
 
 /**
- * Whether the answer area draws the provisional preview: the text of the step
- * being written, which its first tool call withdraws. Only a reply that is
+ * Whether the answer area draws the provisional preview: the text being written
+ * (the current step's, after the words of steps that only asked with a card),
+ * which a tool call withdraws. Only a reply that is
  * being read live shows it: not in its finalizing tail, not once it has a
  * completion, and not while the browser only polls (`polling`: a pending
  * observation after the connection dropped and the turn could not be replayed).

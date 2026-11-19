@@ -18,6 +18,7 @@ import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import {
+	boundGroundedWebView,
 	buildGroundedWebModelPayload,
 	buildGroundedWebPageFromFetch,
 	createGroundedWebCandidates,
@@ -28,6 +29,10 @@ import {
 } from "$lib/server/services/web-grounding";
 import { resolveFetchContentCharCap } from "./fetch-url";
 import { resolveModelContextTokens } from "./model-context-tokens";
+import {
+	getReadResultGrant,
+	markBudgetedReadTool,
+} from "./model-payload-budget";
 import {
 	researchWebInputSchema,
 	sanitizeResearchWebInput,
@@ -93,7 +98,7 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 	const ctx = params;
 	const { recorder } = params;
 
-	return asExecutableTool(
+	const researchTool = asExecutableTool(
 		tool({
 			description: RESEARCH_WEB_TEXT.description,
 			inputSchema: researchWebInputSchema,
@@ -222,12 +227,23 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 							}
 						}
 
+						const grant = getReadResultGrant(options);
+						const selected = grant
+							? boundGroundedWebView({
+									result,
+									pages,
+									name: "research_web",
+									cached,
+									maxPayloadTokens: grant.maxPayloadTokens,
+								})
+							: undefined;
 						const modelPayload = {
-							...buildGroundedWebModelPayload(result),
-							...(pages.length > 0 ? { pages } : {}),
+							...(selected?.modelPayload ??
+								buildGroundedWebModelPayload(result)),
+							...(!selected && pages.length > 0 ? { pages } : {}),
 							...(cached ? { cached: true as const } : {}),
 						};
-						const candidates = [
+						const candidates = selected?.candidates ?? [
 							...createGroundedWebCandidates(result),
 							...pageCandidates,
 						];
@@ -238,11 +254,13 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 								name: "research_web",
 								input: safeInput,
 								status: "done",
-								outputSummary: summarizeGroundedWebResult(result),
+								outputSummary: selected
+									? `${selected.modelPayload.sources.length} sources, ${selected.modelPayload.evidence.length} evidence items (${selected.modelPayload.coverage}).`
+									: summarizeGroundedWebResult(result),
 								sourceType: "web",
 								candidates,
 								metadata: {
-									...createGroundedWebMetadata(result),
+									...(selected?.metadata ?? createGroundedWebMetadata(result)),
 									...(cached ? { cached: true as const } : {}),
 								},
 							},
@@ -279,4 +297,5 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 			},
 		}),
 	);
+	return markBudgetedReadTool(researchTool);
 }

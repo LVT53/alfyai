@@ -39,6 +39,7 @@ import {
 	type ImageLightboxComponent,
 	loadImageLightbox,
 } from "./image-lightbox-loader";
+import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let { cards }: { cards: ToolCallFileCard[] } = $props();
 
@@ -257,6 +258,7 @@ async function closeViewer() {
 						height="56"
 						loading="lazy"
 						alt=""
+						use:replayEarlyImageEvent
 						onerror={() => markPreviewFailed(singleCard.preview)}
 					/>
 				{:else}
@@ -300,6 +302,7 @@ async function closeViewer() {
 										height="78"
 										loading="lazy"
 										alt=""
+										use:replayEarlyImageEvent
 										onerror={() => markPreviewFailed(tile.preview)}
 									/>
 								{:else}
@@ -335,6 +338,7 @@ async function closeViewer() {
 										height="78"
 										loading="lazy"
 										alt=""
+										use:replayEarlyImageEvent
 										onerror={() => markPreviewFailed(tile.cover)}
 									/>
 								{/if}
@@ -377,6 +381,7 @@ async function closeViewer() {
 										height="40"
 										loading="lazy"
 										alt=""
+										use:replayEarlyImageEvent
 										onerror={() => markPreviewFailed(row.preview)}
 									/>
 								{:else}

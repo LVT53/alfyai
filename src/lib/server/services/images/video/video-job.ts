@@ -44,14 +44,23 @@ export const videoJob = defineJobKind({
 	userRetry: { from: ["failed", "cancelled"] },
 	// A take that goes (back) to the queue starts its display columns afresh and
 	// forgets which kind of Stop an earlier run was given. The checkpoint is the
-	// engine's and survives on purpose: that is what resumes a segment.
+	// engine's and survives on purpose: that is what resumes a segment. A claim
+	// stamps `phase_at` in its own transaction: from that moment the take holds
+	// the GPU for the cross-engine gate (`idle-free.ts`).
 	onTransition: (tx, row, to) => {
+		if (to === "running") {
+			tx.update(videoJobs)
+				.set({ phaseAt: Date.now() })
+				.where(eq(videoJobs.id, row.id))
+				.run();
+			return;
+		}
 		if (to !== "queued") return;
 		tx.update(videoJobs)
 			.set({
 				queueAhead: null,
 				progressPercent: null,
-				etaSeconds: null,
+				etaAt: null,
 				phaseAt: null,
 				cancelInterrupt: 1,
 			})

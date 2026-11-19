@@ -1,0 +1,65 @@
+[
+	{
+		"titleEn": "Read aloud",
+		"titleHu": "Felolvasás",
+		"bodyEn": "The speaker under a reply reads it to you, and the one at the top of an open document or report does the same. The sentence being read is highlighted, and so is each word as it is spoken. The player steps back or ahead a sentence, jumps to any sentence on its line, and sets the speed. Select some text and press “Read from here” to start there.\n\nWhere to find it: the speaker under every finished reply, and at the top of an open document or report.",
+		"bodyHu": "A válasz alatti hangszóróval Alfy felolvassa a választ, a megnyitott dokumentum vagy jelentés tetején lévővel pedig azt. A felolvasott mondat és az éppen kimondott szó is kiemelést kap. A lejátszóval mondatonként léphetsz előre vagy vissza, a sávon bármelyik mondatra ugorhatsz, és beállíthatod a sebességet. Jelölj ki szöveget, és a „Felolvasás innen” gombbal onnan indul.\n\nHol találod: minden kész válasz alatt, és a megnyitott dokumentumok, jelentések tetején, a hangszóró gombbal.",
+		"altTextEn": "A reply being read aloud: one sentence tinted and the spoken word marked; further down a few selected words with the Read from here button; the reply's speaker shown as a pause inside a progress ring; above the message box the player with previous and next sentence, pause, 0:09, the sentence line with its notches, 0:24, go to where it reads, 1× and stop.",
+		"altTextHu": "Egy felolvasott válasz: az egyik mondat színezve, a kimondott szó kiemelve; lejjebb néhány kijelölt szó a Felolvasás innen gombbal; a válasz hangszórója szünet jelként egy haladást mutató gyűrűben; az üzenetmező fölött a lejátszó: előző és következő mondat, szünet, 0:09, a mondatokat jelölő sáv, 0:24, ugrás oda, ahol tart, 1× és leállítás.",
+		"desktopFile": "slides/01-read-aloud-desktop.png",
+		"mobileFile": "slides/01-read-aloud-mobile.png"
+	},
+	{
+		"titleEn": "Six voices, and your own",
+		"titleHu": "Hat hang, és a saját hangjaid",
+		"bodyEn": "Each paragraph gets the voice of its language, so an English email inside a Hungarian reply is read in English. English: Imogen, Rupert, Savannah and Wyatt. Hungarian: Berta and Imre.\n\nMake a voice of your own: start from one of the six, pick a style such as Bedtime, then set pace, pitch, depth, energy and projection. Only you see it.\n\nWhere to find it: Profile & Settings › Profile › Read aloud, where you also choose your two voices and the starting speed.",
+		"bodyHu": "Minden bekezdést a nyelvének a hangja olvas fel, így egy magyar válaszban lévő angol e-mailt angol hang olvas. Angolul Imogen, Rupert, Savannah és Wyatt, magyarul Berta és Imre.\n\nKészíts saját hangot: indulj ki a hat hang egyikéből, válassz stílust, például az Estit, majd állítsd be a tempót, a hangmagasságot, a mélységet, az energiát és a hangerőt. Csak te látod.\n\nHol találod: Profil és beállítások › Profil › Felolvasás; itt választod ki a két hangodat és a kezdő sebességet is.",
+		"altTextEn": "The New voice editor: the voices to start from, English (Imogen, Rupert, Savannah, Wyatt) and Hungarian (Berta, Imre), each with a play button, Berta chosen; the styles, Bedtime chosen; the sliders with the word of each setting, Pace at Slower and Depth at A little fuller; Cancel and Save voice.",
+		"altTextHu": "Az Új hang szerkesztő: a kiinduló hangok angolul (Imogen, Rupert, Savannah, Wyatt) és magyarul (Berta, Imre), mindegyik lejátszás gombbal, Berta kiválasztva; a stílusok, kiválasztva az Esti; a csúszkák a beállításuk szavával, a Tempó a Lassabbon, a Mélység a Kicsit teltebben; Mégse és Hang mentése.",
+		"actionLabelEn": "Open settings",
+		"actionLabelHu": "Beállítások megnyitása",
+		"actionDestination": "/settings",
+		"desktopFile": "slides/02-voices-desktop.png",
+		"mobileFile": "slides/02-voices-mobile.png"
+	},
+	{
+		"titleEn": "Alfy asks first",
+		"titleHu": "Alfy előbb kérdez",
+		"bodyEn": "When a request could go two ways, Alfy stops and asks, with answers to click. Pick one, type your own answer, or choose “Decide for me”, and the same reply carries on from your answer. Before making a picture or a video, it asks too when it isn't sure that's what you want. A chat that waits for you shows a question mark in the sidebar, on all your devices.\n\nWhere to find it: it happens by itself; try “Help me choose a laptop.”",
+		"bodyHu": "Ha egy kérés többféleképpen érthető, Alfy megáll, és kattintható válaszokkal visszakérdez. Válassz egyet, írd be a saját válaszodat, vagy bízd rá a „Rád bízom” gombbal, és ugyanaz a válasz a döntéseddel folytatódik. Kép vagy videó készítése előtt is rákérdez, ha nem biztos benne, hogy ezt szeretnéd. Az oldalsávban kérdőjel jelzi a válaszodra váró beszélgetést, minden eszközödön.\n\nHol találod: magától jelentkezik; próbáld ki: „Segíts laptopot választani.”",
+		"altTextEn": "A chat in which Alfy's reply stopped at a question card: three answers to click, one marked Recommended, the Other row for your own words, Decide for me and the X; the message box dimmed, and in the sidebar a question mark beside the chat.",
+		"altTextHu": "Egy beszélgetés, amelyben Alfy válasza egy kérdéskártyánál megállt: három kattintható válasz, az egyik Javasolt jelöléssel, az Egyéb sor a saját válaszhoz, a Rád bízom gomb és az X; az üzenetmező halványítva, az oldalsávban a beszélgetés mellett kérdőjel.",
+		"desktopFile": "slides/03-asks-first-desktop.png",
+		"mobileFile": "slides/03-asks-first-mobile.png"
+	},
+	{
+		"titleEn": "Videos from your pictures",
+		"titleHu": "Videó a képeidből",
+		"bodyEn": "Ask Alfy to animate a picture, one it made or a photo of yours, and you get a 5 or 10 second clip. It plays in the chat, Another makes a new take, and More › Download as GIF saves it as a GIF. Your clips are in the Knowledge Base, under Videos.\n\nPictures are better too: they now come from a newer image model that draws in more detail. Rather not have pictures and videos? Switch them off in Profile & Settings › Profile › Pictures and videos.\n\nWhere to find it: attach a picture and ask, for example “Animate this photo: the waves roll in slowly.”",
+		"bodyHu": "Kérd meg Alfyt, hogy keltsen életre egy képet, akár az általa készítettet, akár a saját fotódat, és 5 vagy 10 másodperces klipet kapsz. A beszélgetésben lejátszhatod, a Másik gombbal új változatot kérhetsz, a Továbbiak › Letöltés GIF-ként pedig GIF-ként menti. A klipjeidet a Tudásbázisban, a Videók között találod.\n\nA képek is jobbak lettek: egy újabb képmodell készíti őket, részletesebben. Nem kérsz képeket és videókat? Kikapcsolhatod őket: Profil és beállítások › Profil › Képek és videók.\n\nHol találod: csatolj egy képet, és kérd, például: „Keltsd életre ezt a fotót: lassan begördülnek a hullámok.”",
+		"altTextEn": "A message with a photo and a request to animate it, and Alfy's clip card under the reply: VIDEO, its title and 0:05, the clip with its play button, Another, and the More menu open on Download and Download as GIF.",
+		"altTextHu": "Egy üzenet egy fotóval és azzal a kéréssel, hogy keljen életre, alatta Alfy klipkártyája: VIDEÓ, a címe és 0:05, a klip a lejátszás gombbal, a Másik gomb és a megnyitott Továbbiak menü a Letöltés és a Letöltés GIF-ként sorral.",
+		"desktopFile": "slides/04-videos-desktop.png",
+		"mobileFile": "slides/04-videos-mobile.png"
+	},
+	{
+		"titleEn": "Other new features",
+		"titleHu": "További újdonságok",
+		"bodyEn": "• Edit a sent message in the message box: the pencil puts it there, and the box says how many later replies will be deleted.\n• A ruler at the left of a long chat shows where you are; hover it to see every message and jump to one. On a phone, the “11 / 30” pill does the same.\n• Files Alfy finds in your Nextcloud show up under the reply: pictures open right here, other files in Nextcloud.\n• Before you say yes, permission cards show exactly what will change: an email by its subject, sender and date, an event and each change to it.\n• The ? beside the version number opens What AlfyAI can do: every feature in one place, with Try it and Show me.",
+		"bodyHu": "• Az elküldött üzenetet az üzenetmezőben szerkesztheted: a ceruza visszateszi oda, és a mező jelzi, hány későbbi válasz törlődik.\n• Hosszú beszélgetésben a bal oldali vonalzó mutatja, hol tartasz; ha fölé viszed az egeret, felsorolja az üzeneteket, és bármelyikre odaugorhatsz. Telefonon a „11 / 30” jelvény teszi ugyanezt.\n• A Nextcloudban talált fájlok a válasz alatt jelennek meg: a képek itt nyílnak meg, a többi fájl a Nextcloudban.\n• Az engedélykérő kártyák pontosan megmondják, mi fog változni, mielőtt rábólintasz: egy e-mailt a tárgyával, a feladójával és a dátumával, egy eseményt minden változásával.\n• A verziószám melletti ? megnyitja az „Amit az AlfyAI tud” oldalt: minden funkció egy helyen, Kipróbálom és Megnézem gombbal.",
+		"altTextEn": "A long chat: at the left the ruler with its list of turns open, the current one in orange; a reply with a strip of files found in Nextcloud (two pictures, a PDF and +3); the message box editing a sent message, saying 2 later replies will be deleted, with Cancel.",
+		"altTextHu": "Egy hosszú beszélgetés: bal oldalon a vonalzó a megnyitott üzenetlistával, az aktuális narancssárgán; egy válasz a Nextcloudban talált fájlok sávjával (két kép, egy PDF és +3); az üzenetmező egy elküldött üzenet szerkesztésével, a „2 későbbi válasz törlődik.” felirattal és a Mégse gombbal.",
+		"desktopFile": "slides/05-new-desktop.png",
+		"mobileFile": "slides/05-new-mobile.png"
+	},
+	{
+		"titleEn": "Smaller changes and speed-ups",
+		"titleHu": "Kisebb változások és gyorsítások",
+		"bodyEn": "• AlfyAI and its pictures load faster.\n• Alfy knows your local date and time (set your time zone in Settings).\n• A message you send during an update goes out by itself when it's over, drafts stay with their chat, and Retry sends a failed message again.\n• iPhone (HEIC) photos work, PDFs keep their charts and equations, and document search finds the right file far more often.\n• Ask for several pictures at once, and mark parts of your own photos with boxes too.\n• In a long chat you can scroll back to the very first message, and a chat gets its title even if you leave before the reply ends.",
+		"bodyHu": "• Gyorsabban betölt az AlfyAI, és a képek is hamarabb megjelennek.\n• Alfy tudja, nálad hány óra van (az időzónádat a beállításokban adhatod meg).\n• A frissítés közben küldött üzenet a frissítés után magától elmegy, a piszkozat a saját beszélgetésénél marad, az Újrapróbálkozás pedig újraküldi a sikertelen üzenetet.\n• Az iPhone-os (HEIC) fotók is működnek, a PDF-ek grafikonjai és képletei megmaradnak, a dokumentumkeresés pedig sokkal gyakrabban találja meg a jó fájlt.\n• Egyszerre több képet is kérhetsz, és a saját fotóidon is megjelölhetsz részeket keretekkel.\n• Hosszú beszélgetésben egészen az első üzenetig visszagörgethetsz, és a beszélgetés akkor is címet kap, ha a válasz vége előtt kilépsz.",
+		"altTextEn": "The Preferences card in Settings: Appearance, Interface language and the new Time zone row, ringed.",
+		"altTextHu": "A beállítások Beállítások kártyája: Megjelenés, Felület nyelve és az új, kiemelt Időzóna sor.",
+		"desktopFile": "slides/06-smaller-desktop.png",
+		"mobileFile": "slides/06-smaller-mobile.png"
+	}
+]

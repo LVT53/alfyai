@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { type ModelMessage, tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
@@ -31,6 +31,7 @@ vi.mock("$lib/server/services/provider-models", () => ({
 }));
 
 import {
+	type NormalChatContinuationSnapshot,
 	parseNormalChatContinuation,
 	prepareNormalChatCompletionRun,
 	runPlainNormalChatModelRun,
@@ -1138,6 +1139,414 @@ describe("opt-in structural completion with real SDK", () => {
 			);
 		}
 	});
+	it.each([
+		false,
+		true,
+	])("closes catalogue-only working overflow losslessly, streaming=%s", async (streaming) => {
+		const args = setup();
+		const workingText = "I found evidence and am checking it.";
+		const evidence = "settled evidence ".repeat(300);
+		const answer = "The settled evidence answers the original request.";
+		const maxOutputTokens = 1000;
+		const execute = vi.fn(async () => evidence);
+		const tools = {
+			lookup: tool({
+				description: "Look up evidence.",
+				inputSchema: z.object({}).describe("Lookup constraint. ".repeat(1000)),
+				execute,
+			}),
+		};
+		const catalogue = await countToolCatalogueTokens(tools);
+		const required = (messages: ModelMessage[]) =>
+			estimateHistoryMessagesTokens(messages, estimateTokenCount) +
+			maxOutputTokens +
+			CONTEXT_GUARD_MARGIN_TOKENS;
+		const initialRequired = required(args.messages) + catalogue;
+		const window = initialRequired + 500;
+		const bodies: Array<{
+			messages: Array<{ role: string; content: unknown }>;
+			tools?: unknown;
+			tool_choice?: unknown;
+			max_completion_tokens: number;
+		}> = [];
+		const workingInputs: ModelMessage[][] = [];
+		const snapshots: NormalChatContinuationSnapshot[] = [];
+		const params = {
+			...args,
+			provider: { ...provider, maxModelContext: window, maxOutputTokens },
+			maxOutputTokens,
+			maxToolSteps: 3,
+			toolChoice: "required" as const,
+			firstStepToolChoice: { type: "tool" as const, toolName: "lookup" },
+			tools,
+			completionPolicy: {
+				...args.completionPolicy,
+				onSnapshot: (snapshot: NormalChatContinuationSnapshot) =>
+					snapshots.push(snapshot),
+				forAttempt: ({ phase }: { phase: string }) => ({
+					...args.completionPolicy.forAttempt(),
+					projectContext: ({
+						system,
+						messages,
+					}: {
+						system?: string;
+						messages: ModelMessage[];
+					}) => {
+						if (phase === "working") workingInputs.push(messages);
+						return { system, messages };
+					},
+				}),
+			},
+			fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+				bodies.push(JSON.parse(String(init?.body)));
+				if (bodies.length > 2)
+					throw new Error("Closing allowance was repeated");
+				if (streaming)
+					return bodies.length === 1
+						? streamed(
+								[
+									{ content: workingText },
+									{ tool_calls: [{ index: 0, ...call }] },
+								],
+								"tool_calls",
+							)
+						: streamed([{ content: answer }]);
+				return bodies.length === 1
+					? reply(workingText, "tool_calls", [call])
+					: reply(answer);
+			},
+		};
+		let plainText: string | undefined;
+		if (streaming) {
+			for await (const _event of runStreamingNormalChatModelRun(params)) {
+				// Drain the real SDK stream through terminal settlement.
+			}
+		} else plainText = (await runPlainNormalChatModelRun(params)).text;
+
+		const snapshot = snapshots.at(-1);
+		const nextWorking = workingInputs.at(-1);
+		if (!snapshot || !nextWorking)
+			throw new Error("Missing retained working input");
+		// Measure complete canonical input, not wire bytes. Closing adds its
+		// instruction but removes the catalogue, retaining O and every result.
+		const closingInput: ModelMessage[] = [
+			...nextWorking,
+			{
+				role: "user",
+				content:
+					"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.",
+			},
+		];
+		expect(initialRequired).toBeLessThanOrEqual(window);
+		expect(required(nextWorking) + catalogue).toBeGreaterThan(window);
+		expect(required(closingInput)).toBeLessThanOrEqual(window);
+		expect(JSON.stringify(nextWorking)).toContain(workingText);
+		expect(
+			nextWorking.flatMap((message) =>
+				message.role === "tool"
+					? message.content
+							.filter((part) => part.type === "tool-result")
+							.map((part) => part.output)
+					: [],
+			),
+		).toEqual([{ type: "text", value: evidence }]);
+		expect(snapshot.executions).toHaveLength(1);
+		expect(snapshot.executions[0]).toMatchObject({
+			state: "succeeded",
+			output: evidence,
+		});
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(snapshot.prepared.maxOutputTokens).toBe(maxOutputTokens);
+		console.info("Lossless closing capacity fixture", {
+			streaming,
+			initialRequired,
+			nextWorkingRequired: required(nextWorking) + catalogue,
+			closingRequired: required(closingInput),
+			catalogue,
+			window,
+			maxOutputTokens,
+			requests: bodies.length,
+			completion: snapshot.completion,
+		});
+
+		expect.soft(snapshot.usage[0]).toMatchObject({
+			inputTokens: 10,
+			outputTokens: 3,
+			totalTokens: 13,
+			complete: true,
+			safeStopCause: "context_capacity",
+			outcome: "incomplete",
+		});
+		expect.soft(bodies).toHaveLength(2);
+		expect.soft(snapshot.completion).toMatchObject({
+			outcome: "answered",
+			workingStopCause: "context_capacity",
+			closingAttempted: true,
+		});
+		expect
+			.soft(snapshot.closingSegments)
+			.toEqual([args.completionPolicy.segmentId]);
+		expect.soft(projectNormalChatOutput(args.output).answer).toBe(answer);
+		if (!streaming) expect.soft(plainText).toBe(answer);
+		const closing = bodies[1];
+		if (closing) {
+			expect(closing.tools).toBeUndefined();
+			expect(closing.tool_choice).toBeUndefined();
+			expect(closing.max_completion_tokens).toBe(maxOutputTokens);
+			expect(
+				closing.messages.filter((message) => message.role === "tool"),
+			).toEqual([expect.objectContaining({ content: evidence })]);
+			expect(JSON.stringify(closing.messages)).toContain(workingText);
+		}
+		expect(
+			args.output.filter((event) => event.type === "completion"),
+		).toHaveLength(1);
+	});
+	it.each([
+		false,
+		true,
+	])("allocates lossless closing output at the original destination, streaming=%s", async (streaming) => {
+		for (const [maxOutputTokens, room, allowed] of [
+			[2048, 2048, true],
+			[2048, 1600, true],
+			[2048, 1024, true],
+			[2048, 1023, false],
+			[820, 820, true],
+			[820, 819, false],
+		] as const) {
+			const args = setup();
+			const system = "Use all the exact evidence.";
+			const working = "Working evidence.";
+			const evidence = "evidence value ".repeat(1500);
+			const instruction =
+				"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.";
+			const completeInput: ModelMessage[] = [
+				...args.messages,
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: working },
+						{
+							type: "tool-call",
+							toolCallId: call.id,
+							toolName: "lookup",
+							input: {},
+						},
+					],
+				},
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: call.id,
+							toolName: "lookup",
+							output: { type: "text", value: evidence },
+						},
+					],
+				},
+				{ role: "user", content: instruction },
+			];
+			const prompt =
+				estimateTokenCount(system) +
+				estimateHistoryMessagesTokens(completeInput, estimateTokenCount);
+			const window = prompt + CONTEXT_GUARD_MARGIN_TOKENS + room;
+			const execute = vi.fn(async () => evidence);
+			const tools = {
+				lookup: tool({
+					inputSchema: z.object({}).describe("constraint ".repeat(300)),
+					execute,
+				}),
+			};
+			expect(
+				estimateHistoryMessagesTokens(args.messages, estimateTokenCount) +
+					estimateTokenCount(system) +
+					(await countToolCatalogueTokens(tools)) +
+					maxOutputTokens +
+					CONTEXT_GUARD_MARGIN_TOKENS,
+			).toBeLessThanOrEqual(window);
+			const bodies: Array<Record<string, unknown>> = [];
+			let snapshot: NormalChatContinuationSnapshot | undefined;
+			const params = {
+				...args,
+				system,
+				tools,
+				maxToolSteps: 3,
+				maxOutputTokens,
+				provider: {
+					...provider,
+					modelName: "qwen3",
+					maxModelContext: window,
+					maxOutputTokens,
+					thinkingType: "enabled" as const,
+				},
+				completionPolicy: {
+					...args.completionPolicy,
+					onSnapshot: (s: NormalChatContinuationSnapshot) => {
+						snapshot = s;
+					},
+				},
+				fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+					bodies.push(JSON.parse(String(init?.body)));
+					return streaming
+						? bodies.length === 1
+							? streamed(
+									[
+										{ content: working },
+										{ tool_calls: [{ index: 0, ...call }] },
+									],
+									"tool_calls",
+								)
+							: streamed([{ content: "Closed." }])
+						: bodies.length === 1
+							? reply(working, "tool_calls", [call])
+							: reply("Closed.");
+				},
+			};
+			if (streaming) {
+				for await (const _event of runStreamingNormalChatModelRun(params)) {
+				}
+			} else await runPlainNormalChatModelRun(params);
+			expect(execute).toHaveBeenCalledTimes(1);
+			expect(snapshot?.prepared.maxOutputTokens).toBe(maxOutputTokens);
+			expect(snapshot?.executions[0].output).toBe(evidence);
+			expect
+				.soft(bodies, `O=${maxOutputTokens}, R=${room}`)
+				.toHaveLength(allowed ? 2 : 1);
+			expect.soft(snapshot?.completion).toMatchObject({
+				outcome: allowed ? "answered" : "incomplete",
+				workingStopCause: "context_capacity",
+				closingAttempted: true,
+			});
+			if (!allowed)
+				expect(snapshot?.completion?.stopCause).toBe("context_capacity");
+			const closing = bodies[1];
+			if (closing) {
+				expect(closing.max_tokens).toBe(Math.min(maxOutputTokens, room));
+				expect(closing.tools).toBeUndefined();
+				for (const key of [
+					"temperature",
+					"top_p",
+					"top_k",
+					"chat_template_kwargs",
+					"reasoning_effort",
+				])
+					expect(closing[key]).toEqual(bodies[0][key]);
+				expect(closing.messages).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ role: "tool", content: evidence }),
+					]),
+				);
+			}
+			expect
+				.soft(projectNormalChatOutput(args.output).answer)
+				.toBe(allowed ? "Closed." : "");
+		}
+	});
+	it.each([
+		false,
+		true,
+	])("settles parallel pressure before capacity closing and preserves pause/uncertainty precedence, streaming=%s", async (streaming) => {
+		for (const mode of ["full", "pause", "uncertain"] as const) {
+			const args = setup();
+			const evidence = "evidence ".repeat(2000);
+			const lookup = vi.fn(async () => evidence);
+			const ask = vi.fn(async () => ({ status: "waiting_for_user" }));
+			let requests = 0;
+			const sibling =
+				mode === "pause"
+					? {
+							...call,
+							id: "sibling",
+							function: { name: "ask_user", arguments: "{}" },
+						}
+					: { ...call, id: "sibling" };
+			let snapshot: NormalChatContinuationSnapshot | undefined;
+			const params = {
+				...args,
+				provider: { ...provider, maxModelContext: 8000 },
+				maxToolSteps: 3,
+				tools: {
+					lookup: tool({ inputSchema: z.object({}), execute: lookup }),
+					ask_user: tool({ inputSchema: z.object({}), execute: ask }),
+				},
+				completionPolicy: {
+					...args.completionPolicy,
+					onSnapshot: (s: NormalChatContinuationSnapshot) => {
+						snapshot = s;
+					},
+					forAttempt: () => ({
+						classifyExecution: (entry: { callId: string }) =>
+							mode === "uncertain" && entry.callId === "sibling"
+								? ("uncertain" as const)
+								: ("succeeded" as const),
+					}),
+				},
+				fetch: async () => {
+					requests++;
+					return streaming
+						? streamed(
+								[
+									{ content: "Working." },
+									{
+										tool_calls: [
+											{ index: 0, ...call },
+											{ index: 1, ...sibling },
+										],
+									},
+								],
+								"tool_calls",
+							)
+						: reply("Working.", "tool_calls", [call, sibling]);
+				},
+			};
+			if (streaming) {
+				for await (const _event of runStreamingNormalChatModelRun(params)) {
+				}
+			} else await runPlainNormalChatModelRun(params);
+			expect(requests).toBe(1);
+			expect(lookup).toHaveBeenCalledTimes(mode === "pause" ? 1 : 2);
+			expect(ask).toHaveBeenCalledTimes(mode === "pause" ? 1 : 0);
+			expect(snapshot?.executions[0].output).toBe(evidence);
+			expect(snapshot?.completion).toMatchObject({
+				outcome: mode === "pause" ? "paused" : "incomplete",
+				stopCause:
+					mode === "pause"
+						? "ask_pause"
+						: mode === "uncertain"
+							? "uncertain_execution"
+							: "context_capacity",
+				closingAttempted: mode === "full",
+			});
+		}
+	});
+	it("keeps missing working usage unknown after a locally prevented capacity request", async () => {
+		const args = setup();
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			provider: { ...provider, maxModelContext: 8000 },
+			maxToolSteps: 3,
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence ".repeat(2000),
+				}),
+			},
+			fetch: async () => {
+				if (++requests > 1) return reply("Closed.");
+				const first = await reply("Working.", "tool_calls", [call]).json();
+				delete first.usage;
+				return new Response(JSON.stringify(first), {
+					headers: { "content-type": "application/json" },
+				});
+			},
+		});
+		expect(requests).toBe(1);
+		expect(result.continuation?.usage[0].complete).toBe(false);
+		expect(result.usage.inputTokens).toBeUndefined();
+		expect(result.usage.outputTokens).toBeUndefined();
+	});
 	it("reports capacity failure without shrinking completed evidence", async () => {
 		const args = setup();
 		let requests = 0;
@@ -1284,4 +1693,479 @@ it.each([
 	const completion = await run(true);
 	expect(legacy).toBe(1);
 	expect(completion).toBe(legacy);
+});
+
+describe("the words a reply writes before it asks with a card", () => {
+	// Owner, 2026-11-18: words written before a card are the reply's, never the
+	// thinking tab's ("they weren't intermediary agent messages or part of
+	// thinking"). A remark before any other tool still folds away (ruling of
+	// 2026-11-11). chat-turn/AGENTS.md, The Pause.
+	const pause = { status: "waiting_for_user" };
+	const refusal = {
+		ok: false,
+		errorCode: "invalid_questions",
+		message: "Question 1 needs 2 to 4 options.",
+	};
+	const askCall = (id: string) => ({
+		index: 0,
+		id,
+		type: "function",
+		function: { name: "ask_user", arguments: "{}" },
+	});
+	async function runAsking(
+		replies: Response[],
+		askResults: unknown[],
+		options: {
+			stopAtStepEnd?: boolean;
+			abortCause?: "transport_error" | "deadline";
+		} = {},
+	) {
+		const args = setup();
+		const stop = new AbortController();
+		let requests = 0;
+		let asks = 0;
+		const deltas: string[] = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			...args,
+			abortSignal: stop.signal,
+			completionPolicy: {
+				...args.completionPolicy,
+				...(options.abortCause ? { abortCause: () => options.abortCause } : {}),
+				onOutputEvent: (event: NormalChatOutputEvent) => {
+					args.output.push(event);
+					if (options.stopAtStepEnd && event.type === "step_end") stop.abort();
+				},
+			},
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+				ask_user: tool({
+					inputSchema: z.object({}),
+					execute: async () => askResults[asks++],
+				}),
+			},
+			fetch: async () =>
+				replies[requests++] ?? streamed([{ content: "an extra request" }]),
+		}))
+			if (event.type === "text_delta") deltas.push(event.text);
+		return {
+			output: args.output,
+			requests,
+			projection: projectNormalChatOutput(args.output),
+			saved: deltas.join(""),
+		};
+	}
+	const roleOf = (
+		blocks: ReturnType<typeof projectNormalChatOutput>["blocks"],
+		text: string,
+	) => blocks.find((block) => block.text === text)?.role;
+
+	it("keeps the words written before the card as the reply's answer and sends them to be saved", async () => {
+		const intro = "The biggest fork is the shape of the day itself.";
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(requests).toBe(1);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe(intro);
+		expect(projection.activity).toEqual([]);
+		expect(saved).toBe(intro);
+	});
+
+	it("never withdraws those words while the card is asked: the step settles once, as the answer", async () => {
+		const { output } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "The biggest fork is the shape of the day itself." },
+						{ tool_calls: [askCall("ask-1")] },
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(
+			output.flatMap((event) =>
+				event.type === "step_settled" ? [event.role] : [],
+			),
+		).toEqual(["answer"]);
+	});
+
+	it("keeps a remark before another tool as activity, and the words of the step that asked as the answer", async () => {
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "Let me look first." },
+						{ tool_calls: [{ index: 0, ...call }] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Which one suits you?" },
+						{ tool_calls: [askCall("ask-1")] },
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(requests).toBe(2);
+		expect(projection.answer).toBe("Which one suits you?");
+		expect(projection.activity.map((block) => block.text)).toEqual([
+			"Let me look first.",
+		]);
+		expect(saved).toBe("Which one suits you?");
+	});
+
+	it("takes the words before a card the app refused into the reply, a paragraph above the words that ask with the fixed card", async () => {
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "The biggest fork is the day itself." },
+						{ tool_calls: [askCall("ask-broken")] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Which way suits you best?" },
+						{ tool_calls: [askCall("ask-fixed")] },
+					],
+					"tool_calls",
+				),
+			],
+			[refusal, pause],
+		);
+		expect(requests).toBe(2);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe(
+			"The biggest fork is the day itself.\n\nWhich way suits you best?",
+		);
+		expect(saved).toBe(
+			"The biggest fork is the day itself.\n\nWhich way suits you best?",
+		);
+		expect(projection.activity).toEqual([]);
+	});
+
+	it("settles the words before a refused card as activity when the reply goes on without asking", async () => {
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "Let me ask you something." },
+						{ tool_calls: [askCall("ask-broken")] },
+					],
+					"tool_calls",
+				),
+				streamed([{ content: "A party at home it is." }]),
+			],
+			[refusal],
+		);
+		expect(projection.completion?.outcome).toBe("answered");
+		expect(projection.answer).toBe("A party at home it is.");
+		expect(roleOf(projection.blocks, "Let me ask you something.")).toBe(
+			"activity",
+		);
+		expect(saved).toBe("A party at home it is.");
+	});
+
+	it("keeps words written after the card's call in the same step with the words before it", async () => {
+		const { output, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "The biggest fork is the day itself." },
+						{ tool_calls: [askCall("ask-1")] },
+						{ content: " Pick whichever feels right." },
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(projection.answer).toBe(
+			"The biggest fork is the day itself. Pick whichever feels right.",
+		);
+		expect(saved).toBe(
+			"The biggest fork is the day itself. Pick whichever feels right.",
+		);
+		// No text of the step ever started in the thinking tab.
+		expect(
+			output.flatMap((e) =>
+				e.type === "block_start" && e.kind === "text" ? [e.role] : [],
+			),
+		).not.toContain("activity");
+	});
+
+	it("withdraws the words of a step that also calls another tool at that tool's call, as any remark", async () => {
+		const intro = "Let me check the forecast and ask you.";
+		const { output, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: intro },
+						{
+							tool_calls: [
+								askCall("ask-1"),
+								{ ...call, index: 1, id: "lookup-1" },
+							],
+						},
+					],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe("");
+		expect(roleOf(projection.blocks, intro)).toBe("activity");
+		expect(saved).toBe("");
+		// Withdrawn when the other call starts, before the step ends.
+		const firstSettled = output.findIndex((e) => e.type === "step_settled");
+		const stepEnd = output.findIndex((e) => e.type === "step_end");
+		expect(firstSettled).toBeGreaterThan(-1);
+		expect(firstSettled).toBeLessThan(stepEnd);
+	});
+
+	it("keeps the words before a refused card, and only them, when the fixed card comes after a thought and no words", async () => {
+		// The pattern measured on the production model (run 2, prompts 1 and 4).
+		const intro =
+			"Happy to help. A few things would change what I suggest, so let me ask first.";
+		const { requests, projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-broken")] }],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ reasoning_content: "Mark exactly one option recommended." },
+						{ tool_calls: [askCall("ask-fixed")] },
+					],
+					"tool_calls",
+				),
+			],
+			[refusal, pause],
+		);
+		expect(requests).toBe(2);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe(intro);
+		expect(saved).toBe(intro);
+	});
+
+	it("withdraws the words before a refused card when a later step calls another tool, at that call", async () => {
+		const { output, projection, saved } = await runAsking(
+			[
+				streamed(
+					[
+						{ content: "Let me ask you something." },
+						{ tool_calls: [askCall("ask-broken")] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Let me look it up first." },
+						{ tool_calls: [{ index: 0, ...call }] },
+					],
+					"tool_calls",
+				),
+				streamed(
+					[
+						{ content: "Which one suits you?" },
+						{ tool_calls: [askCall("ask-1")] },
+					],
+					"tool_calls",
+				),
+			],
+			[refusal, pause],
+		);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(projection.answer).toBe("Which one suits you?");
+		expect(projection.activity.map((block) => block.text)).toEqual([
+			"Let me ask you something.",
+			"Let me look it up first.",
+		]);
+		expect(saved).toBe("Which one suits you?");
+		const stepOf = (text: string) =>
+			projection.blocks.find((block) => block.text === text)?.stepId;
+		const refusedStepSettled = output.findIndex(
+			(e) =>
+				e.type === "step_settled" &&
+				e.stepId === stepOf("Let me ask you something."),
+		);
+		const lookupStepEnd = output.findIndex(
+			(e) =>
+				e.type === "step_end" &&
+				e.stepId === stepOf("Let me look it up first."),
+		);
+		expect(refusedStepSettled).toBeGreaterThan(-1);
+		expect(refusedStepSettled).toBeLessThan(lookupStepEnd);
+	});
+
+	it("sends nothing to be saved when the words before the card are blank", async () => {
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: "  \n" }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+		);
+		expect(projection.completion?.outcome).toBe("paused");
+		expect(saved).toBe("");
+	});
+
+	it("leaves the words out of the answer when the run is cut off after it asked", async () => {
+		const intro = "The biggest fork is the shape of the day itself.";
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+			{ stopAtStepEnd: true, abortCause: "transport_error" },
+		);
+		expect(projection.completion?.outcome).not.toBe("paused");
+		expect(projection.completion?.outcome).not.toBe("stopped");
+		expect(projection.answer).toBe("");
+		expect(roleOf(projection.blocks, intro)).toBe("activity");
+		expect(saved).toBe("");
+	});
+
+	it("gives the words before the card as the run's text on the plain path too", async () => {
+		const args = setup();
+		const intro = "The biggest fork is the shape of the day itself.";
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			tools: {
+				ask_user: tool({
+					inputSchema: z.object({}),
+					execute: async () => pause,
+				}),
+			},
+			fetch: async () =>
+				reply(intro, "tool_calls", [
+					{
+						...call,
+						id: "ask",
+						function: { name: "ask_user", arguments: "{}" },
+					},
+				]),
+		});
+		expect(result.completion?.outcome).toBe("paused");
+		expect(result.text).toBe(intro);
+		expect(projectNormalChatOutput(args.output).answer).toBe(intro);
+	});
+
+	it("keeps the words before a card the schema refused, which never reaches the tool", async () => {
+		const args = setup();
+		const intro = "The biggest fork is the day itself.";
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			...args,
+			tools: {
+				ask_user: tool({
+					inputSchema: z.object({ questions: z.array(z.string()) }),
+					execute: async () => pause,
+				}),
+			},
+			fetch: async () =>
+				++requests === 1
+					? reply(intro, "tool_calls", [
+							{
+								...call,
+								id: "ask-broken",
+								function: { name: "ask_user", arguments: '{"questions":5}' },
+							},
+						])
+					: reply("", "tool_calls", [
+							{
+								...call,
+								id: "ask-fixed",
+								function: {
+									name: "ask_user",
+									arguments: '{"questions":["Which way?"]}',
+								},
+							},
+						]),
+		});
+		expect(requests).toBe(2);
+		expect(result.completion?.outcome).toBe("paused");
+		expect(result.text).toBe(intro);
+	});
+
+	it("gives a resumed segment its own words as its text, not the words its first segment asked with", async () => {
+		const args = setup();
+		const tools = {
+			ask_user: tool({
+				inputSchema: z.object({}),
+				execute: async () => pause,
+			}),
+		};
+		const first = await runPlainNormalChatModelRun({
+			...args,
+			tools,
+			fetch: async () =>
+				reply("before ask", "tool_calls", [
+					{
+						...call,
+						id: "ask",
+						function: { name: "ask_user", arguments: "{}" },
+					},
+				]),
+		});
+		expect(first.text).toBe("before ask");
+		if (!first.continuation) throw new Error("Missing capture");
+		const resumed = await runPlainNormalChatModelRun({
+			...args,
+			tools,
+			completionPolicy: {
+				...args.completionPolicy,
+				segmentId: "resume",
+				continuation: first.continuation,
+				continuationKind: "user_resume",
+				forAttempt: () => ({
+					...args.completionPolicy.forAttempt(),
+					authorizeExecution: () => ({ kind: "new" as const }),
+				}),
+			},
+			fetch: async () => reply("resumed answer"),
+		});
+		expect(resumed.completion?.outcome).toBe("answered");
+		expect(resumed.text).toBe("resumed answer");
+	});
+
+	it("leaves the words out of the answer when the person stops the reply as it asks", async () => {
+		const intro = "The biggest fork is the shape of the day itself.";
+		const { projection, saved } = await runAsking(
+			[
+				streamed(
+					[{ content: intro }, { tool_calls: [askCall("ask-1")] }],
+					"tool_calls",
+				),
+			],
+			[pause],
+			{ stopAtStepEnd: true },
+		);
+		expect(projection.completion?.outcome).toBe("stopped");
+		expect(projection.answer).toBe("");
+		expect(roleOf(projection.blocks, intro)).toBe("activity");
+		expect(saved).toBe("");
+	});
 });

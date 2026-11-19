@@ -1,12 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { bindReadResultGrant } from "./normal-chat-tools/model-payload-budget";
+import {
+	createToolCallRecorder,
+	executeToolWithEnvelope,
+	type ToolCallRecorder,
+} from "./normal-chat-tools/shared";
+import { stableStringify } from "./normal-chat-tools/stable-stringify";
 import {
 	baseGroundedWebDiagnostics,
 	type GroundedWebResult,
 	MAX_PAYLOAD_SOURCES,
 } from "./parallel-search/types";
 import {
+	boundGroundedWebView,
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
@@ -411,4 +420,338 @@ describe("groundedWebSourcesFromCandidates", () => {
 		]);
 		expect(rebuilt.map((source) => source.id)).toEqual([web.id]);
 	});
+});
+
+// Task 2 RED: only the NEW selected view may become evidence. Old captures and
+// the candidate/cache backing data must remain unchanged.
+describe("Task 2 bounded NEW web view", () => {
+	function select(
+		result: GroundedWebResult,
+		maxPayloadTokens: number,
+		pages = [] as import("./web-grounding").GroundedWebPage[],
+	) {
+		expect(boundGroundedWebView).toBeTypeOf("function");
+		return boundGroundedWebView({
+			result,
+			pages,
+			name: "research_web",
+			cached: true,
+			maxPayloadTokens,
+		});
+	}
+
+	it("preserves the complete fitting candidate view and its brief", () => {
+		const result = fixture();
+		const before = structuredClone(result);
+		const view = select(result, 8_000);
+		expect(view.modelPayload).toMatchObject({
+			...buildGroundedWebModelPayload(result),
+			bounded: true,
+			coverage: "full",
+			omitted: { sources: 0, evidence: 0, pages: 0 },
+			pageRanges: [],
+		});
+		expect(view.candidates.map((candidate) => candidate.id)).toEqual([
+			"p0",
+			"p1",
+		]);
+		expect(result).toEqual(before);
+	});
+
+	it("drops the unscoped brief when quotes are omitted even with every source retained", () => {
+		const base = fixture();
+		const result = fixture({
+			sources: [base.sources[0]],
+			evidence: [
+				base.evidence[0],
+				...Array.from({ length: 20 }, (_, index) => ({
+					...base.evidence[0],
+					id: `tail-${index}`,
+					quote: "OMITTED_QUOTE_FACT ".repeat(45),
+				})),
+			],
+			answerBrief: {
+				markdown: "OMITTED_QUOTE_FACT is confirmed.",
+				instructions: [],
+			},
+		});
+		const view = select(result, 1_200);
+		expect(view.modelPayload.sources.map((source) => source.id)).toEqual([
+			"p0",
+		]);
+		expect(view.modelPayload.coverage).toBe("partial");
+		expect(view.modelPayload.omitted.evidence).toBeGreaterThan(0);
+		expect(view.modelPayload.answerBriefMarkdown ?? "").toBe("");
+		expect(JSON.stringify(view.candidates)).not.toContain("OMITTED_QUOTE_FACT");
+		expect(view.metadata.evidenceCount).toBe(view.modelPayload.evidence.length);
+		expect(
+			estimateTokenCount(stableStringify(view.modelPayload)),
+		).toBeLessThanOrEqual(1_200);
+	});
+
+	it("exposes a versioned exact page prefix without its unseen tail or brief-only fact", () => {
+		const base = fixture();
+		const result = fixture({
+			sources: [base.sources[0]],
+			evidence: [base.evidence[0]],
+			answerBrief: { markdown: "UNSEEN_PAGE_TAIL_FACT", instructions: [] },
+		});
+		const page = {
+			url: base.sources[0].url,
+			title: "Page",
+			contentMarkdown: `${"Visible 😀 evidence. ".repeat(2_000)}UNSEEN_PAGE_TAIL_FACT`,
+		};
+		const view = select(result, 1_200, [page]);
+		expect(view.modelPayload.sources.map((source) => source.id)).toEqual([
+			"p0",
+		]);
+		expect(view.modelPayload.coverage).toBe("partial");
+		const range = view.modelPayload.pageRanges[0];
+		expect(range).toMatchObject({
+			sourceId: "p0",
+			start: 0,
+			totalChars: page.contentMarkdown.length,
+		});
+		expect(range.contentHash).toBeTruthy();
+		expect(range.end).toBeGreaterThan(0);
+		expect(range.end).toBeLessThan(page.contentMarkdown.length);
+		expect(view.modelPayload.pages?.[0].contentMarkdown).toBe(
+			page.contentMarkdown.slice(0, range.end),
+		);
+		const lastUnit = page.contentMarkdown.charCodeAt(range.end - 1);
+		expect(lastUnit >= 0xd800 && lastUnit <= 0xdbff).toBe(false);
+		expect(JSON.stringify(view)).not.toContain("UNSEEN_PAGE_TAIL_FACT");
+		expect(view.modelPayload.answerBriefMarkdown ?? "").toBe("");
+		expect(
+			estimateTokenCount(stableStringify(view.modelPayload)),
+		).toBeLessThanOrEqual(1_200);
+	});
+
+	it("selects deterministically on a new cache lease and keeps omitted sources out of citation eligibility", () => {
+		const base = fixture();
+		const sources = Array.from({ length: 8 }, (_, index) => ({
+			...base.sources[0],
+			id: `s${index}`,
+			url: `https://source${index}.example/a`,
+			snippet: "source detail ".repeat(35),
+		}));
+		const result = fixture({
+			sources,
+			evidence: sources.map((source) => ({
+				...base.evidence[0],
+				id: `${source.id}e0`,
+				sourceId: source.id,
+				url: source.url,
+				quote: "supported quote ".repeat(40),
+			})),
+		});
+		const before = structuredClone(result);
+		const oldView = select(result, 16_000);
+		const oldCapture = structuredClone(oldView);
+		const view = select(result, 1_200);
+		expect(select(result, 1_200)).toEqual(view);
+		expect(view.modelPayload.omitted.sources).toBeGreaterThan(0);
+		const selected = view.modelPayload.sources.map((source) => source.id);
+		expect(selected.length).toBeGreaterThan(0);
+		expect(view.candidates.map((candidate) => candidate.id)).toEqual(selected);
+		for (const evidence of view.modelPayload.evidence)
+			expect(selected).toContain(evidence.sourceId);
+		const citations = extractGroundedWebCitationSources([
+			{
+				name: "research_web",
+				input: {},
+				status: "done",
+				candidates: view.candidates,
+				metadata: view.metadata,
+			},
+		]);
+		expect(citations.map((citation) => citation.id)).toEqual(selected);
+		expect(view.metadata.sourceCount).toBe(selected.length);
+		expect(view.metadata.evidenceCount).toBe(view.modelPayload.evidence.length);
+		expect(result).toEqual(before);
+		expect(oldView).toEqual(oldCapture);
+	});
+});
+
+it("Task 2 never restores an omitted raw highlight as factual candidate support", () => {
+	const base = fixture();
+	const result = fixture({
+		sources: [
+			{
+				...base.sources[0],
+				snippet: null,
+				highlights: ["HIDDEN_HIGHLIGHT_FACT"],
+			},
+			base.sources[1],
+		],
+		evidence: [base.evidence[1]],
+		answerBrief: {
+			markdown: `HIDDEN_HIGHLIGHT_FACT ${"brief detail ".repeat(3_000)}`,
+			instructions: [],
+		},
+	});
+	const view = boundGroundedWebView({
+		result,
+		pages: [],
+		name: "research_web",
+		cached: false,
+		maxPayloadTokens: 1_200,
+	});
+	expect(view.modelPayload.coverage).toBe("partial");
+	expect(view.modelPayload.sources.map((source) => source.id)).toContain("p0");
+	const metadataOnly = view.candidates.find(
+		(candidate) => candidate.id === "p0",
+	);
+	expect(metadataOnly?.snippet).toBeNull();
+	expect(metadataOnly?.material).toBe(false);
+	expect(
+		extractGroundedWebCitationSources([
+			{
+				name: "research_web",
+				input: {},
+				status: "done",
+				candidates: view.candidates,
+				metadata: view.metadata,
+			},
+		]).map((source) => source.id),
+	).toEqual(["p1"]);
+	expect(JSON.stringify(view)).not.toContain("HIDDEN_HIGHLIGHT_FACT");
+});
+
+it.each([
+	"no support",
+	"unfittable quote",
+	"unfittable page",
+] as const)("Task 2 admits useful B before metadata-only A with %s consumes its room", async (kind) => {
+	const base = fixture();
+	const a = {
+		...base.sources[0],
+		snippet: null,
+		highlights: ["UNEXPOSED_A_FACT"],
+	};
+	const b = {
+		...base.sources[1],
+		snippet: "Useful exposed B evidence.",
+		highlights: [],
+	};
+	const evidence =
+		kind === "unfittable quote"
+			? [{ ...base.evidence[0], quote: "UNEXPOSED_A_FACT ".repeat(2_000) }]
+			: [];
+	const pages =
+		kind === "unfittable page"
+			? [
+					{
+						url: a.url,
+						title: "Page header too large to fit ".repeat(1_000),
+						contentMarkdown: "UNEXPOSED_A_FACT ".repeat(2_000),
+					},
+				]
+			: [];
+	const result = fixture({
+		sources: [a, b],
+		evidence,
+		answerBrief: { markdown: "UNEXPOSED_A_FACT", instructions: [] },
+	});
+	const before = structuredClone({ result, pages });
+	const bOnly = boundGroundedWebView({
+		result: {
+			...result,
+			sources: [b],
+			evidence: [],
+			answerBrief: { markdown: "", instructions: [] },
+		},
+		pages: [],
+		name: "research_web",
+		cached: false,
+		maxPayloadTokens: 32_000,
+	}).modelPayload;
+	const expectedB = {
+		...bOnly,
+		coverage: "partial",
+		omitted: { sources: 1, evidence: evidence.length, pages: pages.length },
+	};
+	const limit = estimateTokenCount(stableStringify(expectedB));
+	const aAndB = {
+		...expectedB,
+		sources: buildGroundedWebModelPayload(result).sources,
+		answerBrief: { sourceCount: 2, evidenceCount: 0 },
+		omitted: { ...expectedB.omitted, sources: 0 },
+	};
+	expect(estimateTokenCount(stableStringify(aAndB))).toBeGreaterThan(limit);
+	const selected = boundGroundedWebView({
+		result,
+		pages,
+		name: "research_web",
+		cached: false,
+		maxPayloadTokens: limit,
+	});
+	expect.soft(selected.modelPayload.success).toBe(true);
+	expect
+		.soft(selected.modelPayload.sources.map((source) => source.id))
+		.toEqual(["p1"]);
+	const baseRecorder = createToolCallRecorder();
+	const observed: unknown[] = [];
+	const recorder: ToolCallRecorder = {
+		...baseRecorder,
+		observeResult: ({ payload }) => {
+			observed.push(payload);
+		},
+	};
+	const options = bindReadResultGrant(
+		{ toolCallId: "material-bundle", messages: [] },
+		{
+			kind: "admitted",
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: limit,
+			maxFailurePayloadTokens: 256,
+		},
+	);
+	const returned = await executeToolWithEnvelope({
+		toolName: "research_web",
+		timeoutMs: 5_000,
+		readOnly: true,
+		options,
+		recorder,
+		run: async () => ({
+			modelPayload: selected.modelPayload,
+			entry: {
+				name: "research_web",
+				callId: "material-bundle",
+				input: {},
+				status: "done" as const,
+				candidates: selected.candidates,
+				metadata: selected.metadata,
+			},
+		}),
+		onError: () => {
+			throw new Error("A fitting material bundle must not fail");
+		},
+	});
+	expect(returned).toMatchObject({
+		success: true,
+		coverage: "partial",
+		sources: [expectedB.sources[0]],
+		evidence: [],
+	});
+	expect(observed).toEqual([returned]);
+	expect(baseRecorder.getEntries()[0].candidates).toEqual(selected.candidates);
+	expect(selected.candidates).toMatchObject([
+		{ id: "p1", snippet: b.snippet, material: true },
+	]);
+	expect(
+		extractGroundedWebCitationSources(baseRecorder.getEntries()).map(
+			(source) => source.id,
+		),
+	).toEqual(["p1"]);
+	expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+		limit,
+	);
+	expect(JSON.stringify(returned)).not.toContain("UNEXPOSED_A_FACT");
+	expect({ result, pages }).toEqual(before);
 });

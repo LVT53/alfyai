@@ -7,7 +7,7 @@
 // hold. The take's own service is never freed — a list, not a pair, because a
 // third engine makes "the other one" wrong.
 
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
 import {
 	getComfyuiLtxUrl,
 	getComfyuiUrlForModel,
@@ -45,6 +45,88 @@ async function anyLiveTake(): Promise<boolean> {
 		.where(inArray(videoJobs.status, ["queued", "running"]))
 		.limit(1);
 	return videos.length > 0;
+}
+
+/** The phases of a take that reached the GPU: its engine's models were loaded for it. */
+const ON_THE_GPU = ["starting", "rendering", "finishing"];
+
+/**
+ * Whether `engine` most likely still holds its models, for the estimate's load
+ * time (`take-eta.ts`): another take of it is on the GPU now, or the take that
+ * last reached the GPU (on any engine) was on it and ended within
+ * IMAGE_IDLE_FREE_MS. A take on another engine frees this one before it
+ * submits, and the idle timer frees every engine after that long. A guess: a
+ * wrong one only makes the countdown run faster or run over, nothing else.
+ */
+export async function engineLooksWarm(
+	engine: PictureEngine,
+	takeId: string,
+	now = Date.now(),
+): Promise<boolean> {
+	if (engine === "ltx") {
+		const [busy] = await db
+			.select({ id: videoJobs.id })
+			.from(videoJobs)
+			.where(
+				and(
+					eq(videoJobs.status, "running"),
+					ne(videoJobs.id, takeId),
+					inArray(videoJobs.phase, ON_THE_GPU),
+				),
+			)
+			.limit(1);
+		if (busy) return true;
+	} else {
+		const busy = await db
+			.select({ requestJson: imageJobs.requestJson })
+			.from(imageJobs)
+			.where(
+				and(
+					eq(imageJobs.status, "running"),
+					ne(imageJobs.id, takeId),
+					inArray(imageJobs.phase, ON_THE_GPU),
+				),
+			);
+		if (
+			busy.some((take) => parseTakeRequest(take.requestJson)?.model === engine)
+		) {
+			return true;
+		}
+	}
+	const [picture] = await db
+		.select({
+			completedAt: imageJobs.completedAt,
+			requestJson: imageJobs.requestJson,
+		})
+		.from(imageJobs)
+		.where(
+			and(
+				isNotNull(imageJobs.completedAt),
+				inArray(imageJobs.phase, ON_THE_GPU),
+			),
+		)
+		.orderBy(desc(imageJobs.completedAt))
+		.limit(1);
+	const [video] = await db
+		.select({ completedAt: videoJobs.completedAt })
+		.from(videoJobs)
+		.where(
+			and(
+				isNotNull(videoJobs.completedAt),
+				inArray(videoJobs.phase, ON_THE_GPU),
+			),
+		)
+		.orderBy(desc(videoJobs.completedAt))
+		.limit(1);
+	const pictureAt = picture?.completedAt?.getTime() ?? 0;
+	const videoAt = video?.completedAt?.getTime() ?? 0;
+	const lastAt = Math.max(pictureAt, videoAt);
+	if (lastAt === 0 || now - lastAt >= IMAGE_IDLE_FREE_MS) return false;
+	const lastEngine: PictureEngine | null =
+		videoAt >= pictureAt
+			? "ltx"
+			: (parseTakeRequest(picture?.requestJson ?? "")?.model ?? null);
+	return lastEngine === engine;
 }
 
 /** Frees ComfyUI when the app has no live take and ComfyUI's queue is empty. True when /free was sent. */
@@ -119,7 +201,17 @@ async function hasLiveTakeOnEngine(engine: PictureEngine): Promise<boolean> {
 }
 
 /** The take the gate is deciding for: its claim time (ms) and id (a same-ms tie-break). */
-export type EngineClaim = { id: string; phaseAt: number };
+export type EngineClaim = {
+	id: string;
+	phaseAt: number;
+	/**
+	 * The take already holds a prompt it posted before (a run resumed after a
+	 * restart, `promptIdOf(checkpoint)`). Its checkpoint has held the GPU all
+	 * along, queued or running, so every other take is waiting for it: waiting
+	 * here would only stand it against takes that wait for it (review M-1).
+	 */
+	onGpu?: boolean;
+};
 
 /**
  * Whether another engine holds the card:
@@ -129,9 +221,11 @@ export type EngineClaim = { id: string; phaseAt: number };
  *    earlier (`phase_at` is milliseconds), so two takes that start together
  *    have a deterministic order and cannot wait on each other until both
  *    deadlines.
- * A queued take does not block: it is not on the GPU, and when it claims it
- * will see this take running and wait itself. Its own engine's takes never
- * block (ComfyUI's queue orders those).
+ * A queued take does not block (it is not on the GPU, and when it claims it
+ * will see this take running and wait itself), unless it carries a checkpoint:
+ * a take an app restart put back in the queue, whose prompt may still be
+ * rendering, holds the GPU until it resumes (review M-1). Its own engine's
+ * takes never block (ComfyUI's queue orders those).
  */
 async function hasLiveTakeOnOtherEngine(
 	engine: PictureEngine,
@@ -144,7 +238,9 @@ async function hasLiveTakeOnOtherEngine(
 		phaseAt: number | null;
 	}): boolean => {
 		if (row.phase !== "submitted" || row.checkpoint !== null) return true;
-		if (row.phaseAt === null) return false;
+		// The claim stamps `phase_at` (each kind's `onTransition`), so a running
+		// take without one is one this code cannot place: it holds the GPU.
+		if (row.phaseAt === null) return true;
 		return (
 			row.phaseAt < claim.phaseAt ||
 			(row.phaseAt === claim.phaseAt && row.id < claim.id)
@@ -159,7 +255,12 @@ async function hasLiveTakeOnOtherEngine(
 			requestJson: imageJobs.requestJson,
 		})
 		.from(imageJobs)
-		.where(eq(imageJobs.status, "running"));
+		.where(
+			or(
+				eq(imageJobs.status, "running"),
+				and(eq(imageJobs.status, "queued"), isNotNull(imageJobs.checkpoint)),
+			),
+		);
 	for (const picture of pictures) {
 		const model = parseTakeRequest(picture.requestJson)?.model ?? null;
 		// An unreadable request cannot be placed on our engine: it counts as another.
@@ -176,7 +277,12 @@ async function hasLiveTakeOnOtherEngine(
 			phaseAt: videoJobs.phaseAt,
 		})
 		.from(videoJobs)
-		.where(eq(videoJobs.status, "running"));
+		.where(
+			or(
+				eq(videoJobs.status, "running"),
+				and(eq(videoJobs.status, "queued"), isNotNull(videoJobs.checkpoint)),
+			),
+		);
 	return videos.some(occupies);
 }
 
@@ -209,10 +315,13 @@ export async function waitForOtherEnginesIdle(
 		deadlineMs: number;
 		/** The waiting take; only takes older than it block (oldest wins). */
 		claim: EngineClaim;
-		/** Called once per poll while waiting: the take's own clock keeps ticking. */
-		onTick?: () => Promise<void> | void;
 	},
 ): Promise<OtherEngineWaitResult> {
+	// A take whose own prompt is already on the GPU is the one the others wait
+	// for: it goes on (`EngineClaim.onGpu`).
+	if (options.claim.onGpu) {
+		return options.signal.aborted ? "cancelled" : "idle";
+	}
 	const override = waitTestOverride();
 	const intervalMs = override.intervalMs ?? OTHER_ENGINE_POLL_MS;
 	const startedAt = Date.now();
@@ -225,8 +334,6 @@ export async function waitForOtherEnginesIdle(
 		if (!(await hasLiveTakeOnOtherEngine(engine, options.claim))) return "idle";
 		const elapsed = Date.now() - startedAt;
 		if (elapsed >= deadlineMs) return "timeout";
-		await options.onTick?.();
-		if (options.signal.aborted) return "cancelled";
 		await waitPause(
 			Math.max(1, Math.min(intervalMs, deadlineMs - elapsed)),
 			options.signal,

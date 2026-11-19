@@ -77,6 +77,8 @@ vi.mock("../env", () => ({
 		composerCommandRegistryEnabled: true,
 		parallelApiKey: "",
 		parallelBaseUrl: "https://api.parallel.ai",
+		ttsEnabled: false,
+		ttsUrl: "",
 	},
 	envConfig: {
 		workingSetDocumentTokenBudget: 4000,
@@ -120,6 +122,8 @@ vi.mock("../env", () => ({
 		composerCommandRegistryEnabled: true,
 		parallelApiKey: "",
 		parallelBaseUrl: "https://api.parallel.ai",
+		ttsEnabled: false,
+		ttsUrl: "",
 	},
 }));
 
@@ -144,6 +148,7 @@ const {
 	refreshConfig,
 	getConfig,
 	getResolvedAdminConfigValues,
+	getReadAloudUrl,
 	getAvailableModels,
 	getAvailableModelsWithProviders,
 	modelIconUrl,
@@ -339,6 +344,36 @@ describe("Knowledge Store Config", () => {
 			expect(getResolvedAdminConfigValues()).toMatchObject({
 				PARALLEL_BASE_URL: "http://127.0.0.1:4321",
 			});
+		});
+
+		it("reads TTS_ENABLED and TTS_URL, and lets an admin override them", async () => {
+			// The env defaults: off, with no address.
+			expect(getReadAloudUrl()).toBe("");
+			expect(getResolvedAdminConfigValues()).toMatchObject({
+				TTS_ENABLED: "false",
+				TTS_URL: "",
+			});
+
+			adminConfigRows = [
+				{ key: "TTS_ENABLED", value: "true" },
+				{ key: "TTS_URL", value: " http://127.0.0.1:1920/ " },
+			];
+
+			await refreshConfig();
+
+			expect(getReadAloudUrl()).toBe("http://127.0.0.1:1920");
+			expect(getResolvedAdminConfigValues().TTS_ENABLED).toBe("true");
+			expect(getResolvedAdminConfigValues().TTS_URL).toBe(
+				"http://127.0.0.1:1920/",
+			);
+		});
+
+		it("is off when enabled without an address, and when an address is set but not enabled", () => {
+			expect(getReadAloudUrl({ ttsEnabled: true, ttsUrl: "" })).toBe("");
+			expect(getReadAloudUrl({ ttsEnabled: true, ttsUrl: "   " })).toBe("");
+			expect(
+				getReadAloudUrl({ ttsEnabled: false, ttsUrl: "http://127.0.0.1:1920" }),
+			).toBe("");
 		});
 
 		it("getConfig() should fall back to the default Parallel base URL when blank", async () => {

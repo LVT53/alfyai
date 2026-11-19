@@ -70,6 +70,7 @@ import {
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
 } from "./index";
+import { supportsReadResultBudget } from "./model-payload-budget";
 import { MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN } from "./produce-file";
 import {
 	type ReadGeneratedFileResult,
@@ -396,6 +397,31 @@ function withoutResultDigest<
 }
 
 describe("createNormalChatTools", () => {
+	it("Task 2 opts only the real research/fetch factory executors into result budgets", () => {
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "opt-in",
+			turnId: "opt-in",
+			enabledConnectionCapabilities: new Set([
+				"files",
+				"calendar",
+				"email",
+				"photos",
+				"media",
+				"location",
+				"contacts",
+				"repos",
+				"tasks",
+			]),
+		});
+		expect(
+			Object.entries(tools)
+				.filter(([, definition]) => supportsReadResultBudget(definition))
+				.map(([name]) => name)
+				.sort(),
+		).toEqual(["fetch_url", "research_web"]);
+	});
+
 	type SubmitIntakeBodyShape = {
 		body: {
 			idempotencyKey?: string;
@@ -5904,7 +5930,19 @@ describe("tool description hygiene", () => {
 	// description and the explicit-picture sentence it shares with make_image
 	// (604 characters, 151 estimated tokens). Re-measured: 5,490 before and
 	// 5,641 after, so the ceiling is raised by exactly that. No margin.
-	const CATALOGUE_TOKEN_CEILING = 5641;
+	// 2026-11-17: generation becomes explicit (asked for by the owner): make_image
+	// and make_video each say in one sentence that they run only on a clear
+	// request (a video only when asked for in so many words) and that anything
+	// less goes to ask_user first. The rule in full rides the turn guidance
+	// (normal-chat-context.ts's PICTURE_REQUEST_GUIDANCE), where it did most of
+	// the work on the real model (docs/plans/explicit-generation/results.md); the
+	// sentences sit where the model chooses the tool, as ADR-0055 puts a tool's
+	// rules on the tool. Nothing else in the catalogue says it, so no words could
+	// pay for it, and make_video's "Only for a clip" went in its place.
+	// Re-measured: 5,639 before (2 under the ceiling) and 5,702 after, 63 tokens
+	// spent (make_image 135 -> 168, make_video 149 -> 179), so the ceiling is
+	// raised to exactly 5,702. No margin.
+	const CATALOGUE_TOKEN_CEILING = 5702;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -6067,6 +6105,32 @@ describe("tool description hygiene", () => {
 		expect(estimateTokens(entry?.description ?? "")).toBeLessThanOrEqual(
 			PER_TOOL_TOKEN_CEILING,
 		);
+	});
+
+	// Generation is explicit (owner, 2026-11-17): a picture only on a clear
+	// request, a video only when asked for in so many words, and a card first
+	// otherwise. The turn guidance carries the rule in full
+	// (normal-chat-context.ts's PICTURE_REQUEST_GUIDANCE); each tool says it in
+	// one sentence where the model chooses it.
+	it("make_image makes a picture only on a clear request, and asks first when the person may want photos or a description", () => {
+		const entry = buildFullToolCatalogue().find(
+			(candidate) => candidate.name === "make_image",
+		);
+		expect(entry?.description).toContain(
+			"Only on a clear request to make or change a picture",
+		);
+		expect(entry?.description).toContain("ask with ask_user first");
+	});
+
+	it("make_video starts a clip only when asked for one in so many words, and asks first otherwise", () => {
+		const entry = buildFullToolCatalogue().find(
+			(candidate) => candidate.name === "make_video",
+		);
+		expect(entry?.description).toContain(
+			"Only when the user asks for a video, clip or animation in so many words",
+		);
+		expect(entry?.description).toContain("ask with ask_user first");
+		expect(entry?.description).toContain("One at a time, minutes each.");
 	});
 
 	it("make_image waits inside a 120 s envelope", () => {

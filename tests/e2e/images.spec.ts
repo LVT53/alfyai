@@ -429,14 +429,23 @@ test.describe("Pictures end to end", () => {
 		).toBe(true);
 
 		comfy.holdQueue(false);
-		// Being made: the box shows the shimmer and the time the phase has taken
-		// (an estimate, or the clock); the state's own words are for screen readers.
+		// Being made: the box shows only the shimmer; the state's own words are
+		// for screen readers, and the card's head says how long is left, beside
+		// the kind, counting down (the owner's call of 17 Nov).
 		await expect(
 			card.locator('[data-testid="image-card-body"][data-state="making"]'),
 		).toBeVisible({ timeout: 30_000 });
 		await expect(card.getByTestId("image-card-shimmer")).toBeVisible();
+		await expect(card.getByTestId("image-card-shimmer")).toHaveText("");
 		await expect(card.getByTestId("image-card-status")).toHaveText(
 			/^Making the picture…/,
+		);
+		await expect(
+			card
+				.getByTestId("artifact-card-head")
+				.getByTestId("artifact-card-take-time"),
+		).toHaveText(
+			/^(?:About \d+ (?:s|min) left|Almost done…|Taking a little longer…)$/,
 		);
 		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
 		await expect(
@@ -893,6 +902,45 @@ test.describe("Pictures end to end", () => {
 		await expect(card.getByTestId("image-card-retry")).toHaveText("Try again");
 	});
 
+	// A take that lands after its tool call stopped waiting makes its Image only
+	// then, and the page read the cards alone: the header's count and the panel's
+	// list stayed as they were until a reload (owner's chat, 2026-11-18). A card's
+	// Try again always lands that way: the turn is long over when the take is
+	// made again.
+	test("a picture that lands after the turn is in the header's count and the list, with no reload", async ({
+		page,
+	}) => {
+		videoName = "late-picture-in-the-list";
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const comfy = fake as FakeComfyUi;
+		comfy.setOptions({ fail: "execution" });
+		const conversationId = await openChat(page);
+		await sendMessage(page, AI_SMOKE_LATE_PICTURE_MARKER);
+		const card = page.locator(CARD).last();
+		const retry = card.getByTestId("image-card-retry");
+		await expect(retry).toBeVisible({ timeout: 45_000 });
+		await expectTerminalActivityGone(page);
+		// Nothing was made yet, so the header counts nothing.
+		await expect(page.getByTestId("artifact-count-button")).toHaveCount(0);
+
+		comfy.setOptions({ fail: undefined });
+		await retry.click();
+		await expect(page.locator(LOADED).last()).toBeVisible({ timeout: 45_000 });
+		await waitForSettledCard(page, conversationId, 1);
+
+		const count = page.getByTestId("artifact-count-button");
+		await expect(
+			count,
+			"the header counts the picture that landed after the turn",
+		).toBeVisible({ timeout: 15_000 });
+		await expect(count).toContainText("1");
+		await count.click();
+		await expect(
+			page.getByTestId("artifact-panel-list").getByTestId("artifact-row"),
+			"the list has a row for the picture",
+		).toHaveCount(1);
+	});
+
 	test.describe("a phone in Hungarian", () => {
 		test.use({
 			viewport: { width: 360, height: 780 },
@@ -945,7 +993,7 @@ test.describe("Pictures end to end", () => {
 					[
 						"the card's actions",
 						document.querySelector(
-							'[data-testid="message-deliverables"] .image-card-actions',
+							'[data-testid="message-deliverables"] [data-testid="image-card-actions"]',
 						),
 					],
 					[

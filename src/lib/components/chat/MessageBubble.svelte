@@ -3,7 +3,10 @@ import {
 	normalChatOutputView,
 	showsProvisionalPreview,
 } from "$lib/client/normal-chat-output-view";
-import { sanitizeNormalChatAnswer } from "$lib/shared/normal-chat-output";
+import {
+	joinBlocksByStep,
+	sanitizeNormalChatAnswer,
+} from "$lib/shared/normal-chat-output";
 import { get } from "svelte/store";
 import {
 	recordAnswerNowClicked,
@@ -78,6 +81,9 @@ import { getClipboardText } from "$lib/shared/reply-text";
 import AskQuestionCard from "./AskQuestionCard.svelte";
 import FilesStrip from "./FilesStrip.svelte";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
+import ReadAloudMarks from "$lib/components/read-aloud/ReadAloudMarks.svelte";
+import ReadAloudSpeaker from "$lib/components/read-aloud/ReadAloudSpeaker.svelte";
+import { readAloudAvailable } from "$lib/stores/read-aloud";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ToolActivityList from "./ToolActivityList.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
@@ -294,6 +300,11 @@ let {
 } = $props();
 
 let copied = $state(false);
+/** The prose the read-aloud marks are drawn in, and whether they are: it is isolated only then. */
+let proseContainer = $state<HTMLElement | null>(null);
+let readAloudMarked = $state(false);
+/** The speaker reports its reply being read, or one of its notes open: the action row stays shown. */
+let readAloudPinned = $state(false);
 let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 let showTimestampTooltip = $state(false);
 let showForkDetails = $state(false);
@@ -424,24 +435,24 @@ const isStreaming = $derived(
 );
 let markdownIsStreaming = $derived(isStreaming && !isFinalizing);
 // Provisional prose is a live display only: Copy, export and saved content
-// continue to consume the canonical answer. A tool occurrence settles its
-// step as activity immediately, withdrawing the preview before execution ends.
+// continue to consume the canonical answer. It is the text of the attempt being
+// written: the current step's, after the words of the steps that only asked with
+// a card, which the engine holds until the attempt ends (chat-turn/AGENTS.md,
+// The Pause). Any other tool occurrence settles its step as activity at once,
+// withdrawing the preview before execution ends.
 const displayContent = $derived.by(() => {
 	if (!showsProvisionalPreview(message, outputView)) return message.content;
 	const current = outputView?.blocks.at(-1);
-	const provisional =
-		outputView?.blocks
-			.filter(
-				(block) =>
-					block.kind === "text" &&
-					block.role === "provisional" &&
-					block.turnId === current?.turnId &&
-					block.segmentId === current?.segmentId &&
-					block.attemptId === current?.attemptId &&
-					block.stepId === current?.stepId,
-			)
-			.map((block) => block.text)
-			.join("") ?? "";
+	const provisional = joinBlocksByStep(
+		outputView?.blocks.filter(
+			(block) =>
+				block.kind === "text" &&
+				block.role === "provisional" &&
+				block.turnId === current?.turnId &&
+				block.segmentId === current?.segmentId &&
+				block.attemptId === current?.attemptId,
+		) ?? [],
+	);
 	return message.content + sanitizeNormalChatAnswer(provisional);
 });
 let liveResponseActivityEntries = $derived(
@@ -1292,6 +1303,9 @@ function sendFollowUp(question: string) {
 	<div
 		id={`message-${message.id}`}
 		data-message-id={message.id}
+		data-read-aloud-segments={!isUser && !message.isStreaming
+			? (replyPlace?.segmentIds ?? [message.id]).join(' ')
+			: undefined}
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
 		class="message-body relative flex min-w-0 flex-col font-sans
 		{isUser
@@ -1416,7 +1430,11 @@ function sendFollowUp(question: string) {
 				{/if}
 			</div>
 		{:else}
-			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]">
+			<div
+				class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.6]"
+				bind:this={proseContainer}
+				data-read-aloud-marked={readAloudMarked ? "" : undefined}
+			>
 			<!-- An Atlas turn is no longer a dead end: the v2 pipeline posts the
 			     report's executive summary as the assistant message, so it renders
 			     here like any other answer (the row below carries the document). -->
@@ -1427,6 +1445,13 @@ function sendFollowUp(question: string) {
 				compactExternalLinks
 				toolResults={renderResources}
 			/>
+			{#if $readAloudAvailable}
+				<ReadAloudMarks
+					readingKey={replyPlace?.segmentIds.at(-1) ?? message.id}
+					container={proseContainer}
+					onMarkedChange={(marked) => (readAloudMarked = marked)}
+				/>
+			{/if}
 			</div>
 			{#if hasDeliverables}
 				<!-- What the turn made, after what it said: the words above never move
@@ -1678,7 +1703,7 @@ function sendFollowUp(question: string) {
 		     touch screen of any width (a phone, an iPad in landscape) shows both
 		     at rest. Opacity only, so the rows keep their space and the reveal
 		     moves nothing. Reduced motion: the app's global rule. -->
-		<div class="message-actions">
+		<div class="message-actions" data-pinned={readAloudPinned ? "" : undefined}>
 			<div
 				class="copy-action-row flex w-full items-center gap-0.5"
 				class:justify-end={isUser}
@@ -1875,6 +1900,19 @@ function sendFollowUp(question: string) {
 					</div>
 				</div>
 
+				{#if !isUser && $readAloudAvailable && conversationId}
+					<ReadAloudSpeaker
+						target={{
+							kind: "reply",
+							conversationId,
+							messageId: message.id,
+							segmentIds: replyPlace?.segmentIds ?? [message.id],
+						}}
+						contentKey={replyText}
+						onPinnedChange={(pinned) => (readAloudPinned = pinned)}
+					/>
+				{/if}
+
 			</div>
 			{#if followUpChips.length > 0}
 				<div class="follow-up-row" data-testid="follow-up-chips">
@@ -1901,6 +1939,14 @@ function sendFollowUp(question: string) {
 
 <style lang="postcss">
 	/* Override Tailwind prose base font size to match reduced chat text size */
+	/* Read aloud's marks are an overlay behind the text (z-index: -1): the prose becomes its own
+	   stacking context only while it is marked, so they paint behind the words, inside the message,
+	   and never over the composer layer. */
+	.prose-container[data-read-aloud-marked] {
+		position: relative;
+		isolation: isolate;
+	}
+
 	.prose-container {
 		min-width: 0;
 		width: 100%;
@@ -2214,6 +2260,11 @@ function sendFollowUp(question: string) {
 			opacity: 0;
 		}
 
+		/* While its reply is read, or a read-aloud note is open, the row stays shown. */
+		.message-actions[data-pinned] {
+			opacity: 1;
+		}
+
 		:global(.group:hover) .message-actions,
 		.message-actions:focus-within {
 			opacity: 1;
@@ -2221,6 +2272,8 @@ function sendFollowUp(question: string) {
 	}
 
 	.copy-action-row {
+		/* Read aloud's notes anchor here, at the row's start, so a phone shows them whole. */
+		position: relative;
 		flex-wrap: wrap;
 		row-gap: var(--space-xs);
 	}
@@ -2253,15 +2306,6 @@ function sendFollowUp(question: string) {
 			width: 44px;
 			height: 44px;
 		}
-	}
-
-	.mini-spinner {
-		width: 1rem;
-		height: 1rem;
-		border: 2px solid currentColor;
-		border-right-color: transparent;
-		border-radius: 999px;
-		animation: spin 700ms linear infinite;
 	}
 
 	.file-production-inline {
@@ -2437,10 +2481,6 @@ function sendFollowUp(question: string) {
 	@keyframes fadeIn {
 		from { opacity: 0; }
 		to { opacity: 1; }
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
 	}
 
 	.info-container {

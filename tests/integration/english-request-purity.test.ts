@@ -691,6 +691,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"exempt: the connector distill prompt is English-only, held by layer 4",
 	"lib/server/services/vision/describe.ts":
 		"exempt: the one image-description prompt is English-only, held by layer 4",
+	"lib/server/services/normal-chat-tools/video-request.ts":
+		"exempt: one English yes/no question about the person's own message, asked when make_video is called; the message is their own text, held by layer 4 and video-request.test.ts",
 	"lib/server/services/video-caption.ts":
 		"exempt: the LTX caption instruction is ComfyUI's own, English-only, held by layer 4 and video-caption.test.ts",
 	"lib/server/services/chatgpt-import/summarizer.ts":
@@ -776,6 +778,13 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/atlas-v3/verify.ts": "atlas placeholders",
 	"lib/server/services/atlas-v3/workspace.ts": "atlas hu set",
 	"lib/server/services/atlas-v3/writer.ts": "atlas hu set",
+	// read aloud: how the voice says code, symbols and abbreviations in
+	// Hungarian; spoken by the speech service, never sent to a model
+	"lib/shared/read-aloud/reading-dictionary.ts":
+		"the Hungarian spoken forms of read aloud",
+	// read aloud: the Hungarian sample of the voice editor and Settings
+	"lib/shared/read-aloud/voice-samples.ts":
+		"the Hungarian sample the voice editor plays; spoken by the speech service, never sent to a model",
 	// proper nouns of the places the routing tools cover
 	"lib/server/services/routing/gtfs-catalogue.ts":
 		"operator names (MAV, Bus Eireann) in the coverage label",

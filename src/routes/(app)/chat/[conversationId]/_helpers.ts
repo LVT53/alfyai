@@ -14,7 +14,7 @@ import {
 	hasActiveImageTakes,
 	hasHeldImageTakes,
 } from "$lib/components/artifacts/image/image-card-view";
-import { isVideoTakeActive } from "$lib/components/artifacts/video/video-card-view";
+import { isTakeActive } from "$lib/components/artifacts/takes/take-card-view";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import {
 	type ComposerMarks,
@@ -439,83 +439,118 @@ export function filesWaitingForTheList(
 	);
 }
 
+/** How long after a take was made the page still expects its item to be a row of the list (a clip may take minutes). */
+const TAKE_LIST_EXPECTED_WITHIN_MS = 20 * 60_000;
+
+/**
+ * A picture or a clip the chat shows on its card whose Image or Video is not yet
+ * a row of the panel's list, or whose row holds an older version than the card's
+ * pick. A take that lands after its tool call stopped waiting makes or changes
+ * its item only when it lands, and what the page reads then is the cards alone
+ * (`hydrateConversationImageCards`), so the list and the header's count kept
+ * what they had until a reload. The page asks again with the files' delays
+ * (`FILE_LIST_RETRY_DELAYS_MS`).
+ *
+ * `listed` maps each row of the list (as the server last sent it) to its
+ * version; `gone` holds the ids deleted or out of this chat's reach. Only a
+ * recent take counts, so an item listed nowhere for another reason never makes
+ * the page ask on every visit.
+ */
+export function takesWaitingForTheList(
+	imageCards: readonly ImageCardView[],
+	videoCards: readonly VideoCardView[],
+	listed: ReadonlyMap<string, number>,
+	gone: ReadonlySet<string>,
+	nowMs: number,
+): boolean {
+	const waits = (
+		artifactId: string | null,
+		versionNumber: number | null,
+		madeAt: number,
+	) => {
+		if (!artifactId || gone.has(artifactId)) return false;
+		if (nowMs - madeAt >= TAKE_LIST_EXPECTED_WITHIN_MS) return false;
+		const row = listed.get(artifactId);
+		return row === undefined || (versionNumber !== null && versionNumber > row);
+	};
+	return (
+		imageCards.some((card) => {
+			const picked = card.takes.find((take) => take.id === card.pickedTakeId);
+			return (
+				picked !== undefined &&
+				waits(card.artifactId, picked.versionNumber, picked.createdAt)
+			);
+		}) ||
+		videoCards.some(
+			(card) =>
+				card.take?.status === "succeeded" &&
+				waits(card.artifactId, null, card.take.createdAt),
+		)
+	);
+}
+
 export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
 	return jobs.some(
 		(job) => job.status === "queued" || job.status === "running",
 	);
 }
 
+/** Whether a take of the chat's picture or video cards is still being made. */
+function hasActiveTakes(
+	imageCards: readonly ImageCardView[],
+	videoCards: readonly VideoCardView[],
+): boolean {
+	return (
+		hasActiveImageTakes(imageCards) ||
+		videoCards.some((card) => isTakeActive(card.take))
+	);
+}
+
 /**
- * Whether the chat page keeps polling for its picture cards (plan 2b T2, F4):
- * a take is still being made, or a make_image call of the reply being streamed
- * runs before its card exists (the stream carries no card; only the cards read
+ * Whether the chat page keeps polling for its picture and video cards (plan 2b
+ * T2, F4; video slice 3b): a take is still being made; a picture's take is
+ * held, which is settled for the card only once its hold is let go or runs
+ * out, and nothing announces that (a clip has no held takes, no takes strip to
+ * settle); or a make_image or make_video call of the reply being streamed runs
+ * before its card exists (the stream carries no card; only the cards read
  * does).
  */
-export function shouldPollImageCards(
-	cards: readonly ImageCardView[],
+export function shouldPollTakeCards(
+	imageCards: readonly ImageCardView[],
+	videoCards: readonly VideoCardView[],
 	streamingToolCalls: readonly { name: string; status: string }[],
 ): boolean {
 	return (
-		hasActiveImageTakes(cards) ||
-		hasHeldImageTakes(cards) ||
+		hasActiveTakes(imageCards, videoCards) ||
+		hasHeldImageTakes(imageCards) ||
 		streamingToolCalls.some(
-			(call) => call.name === "make_image" && call.status === "running",
+			(call) =>
+				(call.name === "make_image" || call.name === "make_video") &&
+				call.status === "running",
 		)
 	);
 }
 
-/**
- * Whether the chat page keeps polling for its video cards (video plan, slice
- * 3b): a take is still being made, or a make_video call of the reply being
- * streamed runs before its card exists (the stream carries no card; only the
- * cards read does). The same rule as `shouldPollImageCards` — a video take has
- * no held takes, because a clip has no takes strip to settle.
- */
-export function shouldPollVideoCards(
-	cards: readonly VideoCardView[],
-	streamingToolCalls: readonly { name: string; status: string }[],
-): boolean {
-	return (
-		cards.some((card) => isVideoTakeActive(card.take)) ||
-		streamingToolCalls.some(
-			(call) => call.name === "make_video" && call.status === "running",
-		)
-	);
-}
-
-/** The poll while a take is being made: the card must show the picture the moment it lands. */
-const IMAGE_CARDS_ACTIVE_POLL_MS = 750;
-/** The poll otherwise: file and Atlas jobs still need their full detail reads, but no picture waits. */
-const IMAGE_CARDS_IDLE_POLL_MS = 2500;
+/** The poll while a take is being made: the card must show the result the moment it lands. */
+const TAKE_CARDS_ACTIVE_POLL_MS = 750;
+/** The poll otherwise: file and Atlas jobs still need their full detail reads, but no result waits. */
+const TAKE_CARDS_IDLE_POLL_MS = 2500;
 
 /**
- * How often the chat page polls while it watches the picture cards
- * (`shouldPollImageCards`): fast while a take is being made, so a picture that
- * lands between two reads waits at most ~0.75 s instead of ~2.5 s, and the
- * chat's ordinary 2.5 s otherwise (a held take, a streaming make_image call
- * before its card exists, or only file and Atlas jobs moving).
+ * How often the chat page polls while it watches the picture and video cards
+ * (`shouldPollTakeCards`): fast while a take of either is being made, so a
+ * picture or a clip that lands between two reads waits at most ~0.75 s
+ * instead of ~2.5 s, and the chat's ordinary 2.5 s otherwise (a held take, a
+ * streaming call before its card exists, or only file and Atlas jobs moving).
+ * One tick reads both kinds.
  */
-export function imageCardsPollIntervalMs(
-	cards: readonly ImageCardView[],
+export function takeCardsPollIntervalMs(
+	imageCards: readonly ImageCardView[],
+	videoCards: readonly VideoCardView[],
 ): number {
-	return hasActiveImageTakes(cards)
-		? IMAGE_CARDS_ACTIVE_POLL_MS
-		: IMAGE_CARDS_IDLE_POLL_MS;
-}
-
-/**
- * How often the chat page polls while it watches the video cards
- * (`shouldPollVideoCards`): fast while a take is being made, so a clip that
- * lands between two reads waits at most ~0.75 s, and the chat's ordinary 2.5 s
- * otherwise. The same two numbers as the picture cards', since one tick reads
- * both.
- */
-export function videoCardsPollIntervalMs(
-	cards: readonly VideoCardView[],
-): number {
-	return cards.some((card) => isVideoTakeActive(card.take))
-		? IMAGE_CARDS_ACTIVE_POLL_MS
-		: IMAGE_CARDS_IDLE_POLL_MS;
+	return hasActiveTakes(imageCards, videoCards)
+		? TAKE_CARDS_ACTIVE_POLL_MS
+		: TAKE_CARDS_IDLE_POLL_MS;
 }
 
 export function isConversationReadOnly(conversation: {

@@ -8,7 +8,7 @@
  * rail summary, the turn acknowledgment, memory recuration/consolidation/
  * summary/judge). An owner who had sent a few dozen messages was shown "249
  * this week". The count is now the user's OWN messages — and not the ones in
- * an incognito chat, which says "Nothing in this chat is remembered or counted".
+ * an incognito chat, which Your Activity leaves out too.
  */
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
@@ -216,9 +216,8 @@ describe("the weekly count counts the user's own messages", () => {
 		expect((await summaryFor(userId, NOW)).weeklyTotal).toBe(3);
 	});
 
-	// The incognito copy promises "Nothing in this chat is remembered or
-	// counted", and Your Activity already leaves these chats out (analytics.ts):
-	// the bars on Home must not be the one place that counts them.
+	// Your Activity leaves incognito chats out (analytics.ts): the bars on Home
+	// must not be the one place that counts them.
 	it("leaves messages in an incognito chat out of the bars and the count", async () => {
 		const userId = randomUUID();
 		seedUser(userId);

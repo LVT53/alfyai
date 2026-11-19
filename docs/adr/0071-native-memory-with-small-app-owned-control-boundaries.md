@@ -1,4 +1,4 @@
-# ADR-0070: Native Memory with small app-owned control boundaries
+# ADR-0071: Native Memory with small app-owned control boundaries
 
 Status: Accepted for implementation; deployment and real-user migration are not authorized by this ADR.
 

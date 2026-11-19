@@ -38,6 +38,13 @@ export function selectNormalChatToolsForRequest(
 		// for a conversation's whole life, so this gate never changes inside
 		// one, which is what keeps the cached prefix stable.
 		incognito?: boolean;
+		// The person's own "Pictures and videos" switch (Settings > Profile),
+		// resolved by the caller (images/picture-making.ts's isPictureMakingOnFor).
+		// False withholds the two tools that make something to look at; finding
+		// pictures (image_search), seeing the ones the person sends and asking
+		// stay. Omitted/true keeps today's behaviour. It changes only when the
+		// person flips it, so the cached prefix stays put between their turns.
+		picturesAndVideos?: boolean;
 	},
 ): Partial<NormalChatToolSet> {
 	const selected: Partial<NormalChatToolSet> = { ...tools };
@@ -49,6 +56,10 @@ export function selectNormalChatToolsForRequest(
 	}
 	if (params.incognito === true) {
 		delete selected.suggest_instruction;
+	}
+	if (params.picturesAndVideos === false) {
+		delete selected.make_image;
+		delete selected.make_video;
 	}
 	return selected;
 }

@@ -37,14 +37,16 @@ import {
 import { guardEdit } from "./guards/guard-edit";
 import { decodeRaw, encodePng } from "./guards/raw-image";
 import {
+	engineLooksWarm,
 	freeOtherPictureModel,
 	scheduleIdleFree,
 	waitForOtherEnginesIdle,
 } from "./idle-free";
 import { promptWithMarks } from "./marks";
 import { checkFinishedPicture } from "./picture-check";
+import { createTakeEta, picturePlan, type TakeEta } from "./take-eta";
 import {
-	IMAGE_RENDER_DEADLINE_MS,
+	imageRenderDeadlineMs,
 	parseTakeRequest,
 	promptIdOf,
 	type StoredTakeMeasures,
@@ -52,8 +54,6 @@ import {
 } from "./take-request";
 
 const PROGRESS_WRITE_EVERY_MS = 1000;
-/** Added to the remaining-steps estimate for decoding the result and the guard. */
-const ETA_FINISH_SECONDS = 3;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /** A failure the runner raises itself, with the code the take will carry. */
@@ -169,6 +169,15 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 	const onAbort = () => {
 		if (signal.reason === "cancelled") stopping = stopPrompt();
 	};
+	// A failed take's prompt, whatever a Stop would have asked: nothing will
+	// read its result. Never throws.
+	const releasePrompt = async (): Promise<void> => {
+		try {
+			if (promptId) await client.cancel(promptId, { interrupt: true });
+		} catch {
+			// The server is down or refusing; it drops the prompt on its own.
+		}
+	};
 	signal.addEventListener("abort", onAbort, { once: true });
 
 	try {
@@ -176,8 +185,13 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 		// video, or the other picture model) is done before touching this one.
 		const waited = await waitForOtherEnginesIdle(request.model, {
 			signal,
-			deadlineMs: IMAGE_RENDER_DEADLINE_MS - (Date.now() - startedAt),
-			claim: { id: row.id, phaseAt: row.phaseAt ?? Date.now() },
+			deadlineMs: imageRenderDeadlineMs() - (Date.now() - startedAt),
+			claim: {
+				id: row.id,
+				phaseAt: row.phaseAt ?? Date.now(),
+				// Resumed after a restart: its prompt is already on the GPU.
+				onGpu: promptId !== null,
+			},
 		});
 		if (waited === "cancelled") return;
 		if (waited === "timeout") {
@@ -207,6 +221,12 @@ export async function runImageTake(ctx: Ctx): Promise<void> {
 			if (signal.reason === "cancelled") await stopPrompt();
 			return;
 		}
+		// The take fails, but a prompt it posted may still be on the GPU: the
+		// deadline ran out mid-render, or the POST's answer was lost after
+		// ComfyUI took it. Once the take is failed the ledger says the GPU is
+		// free, so the GPU must be: the prompt is deleted or interrupted (the
+		// client interrupts only a prompt `/queue` shows as ours and running).
+		await releasePrompt();
 		await ctx.fail(failureOf(error));
 	} finally {
 		signal.removeEventListener("abort", onAbort);
@@ -335,18 +355,22 @@ async function submitTake(
 	return answer.promptId;
 }
 
-/** Moves the phase and stamps when (ms), for the card's "how long has it been here". */
+/**
+ * Moves the phase and stamps when (ms), for the card's "how long has it been
+ * here", with the estimate's finish time when the phase moves it.
+ */
 async function enterPhase(
 	ctx: Ctx,
 	phase: string,
-	checkpoint?: unknown,
+	etaAt?: number,
 ): Promise<void> {
-	await ctx.progress(
-		checkpoint === undefined ? { phase } : { phase, checkpoint },
-	);
+	await ctx.progress({ phase });
 	await ctx.write((tx) => {
 		tx.update(imageJobs)
-			.set({ phaseAt: Date.now() })
+			.set({
+				phaseAt: Date.now(),
+				...(etaAt === undefined ? {} : { etaAt }),
+			})
 			.where(eq(imageJobs.id, ctx.row.id))
 			.run();
 	});
@@ -358,6 +382,7 @@ async function followTake(
 	client: ComfyUiClient,
 	promptId: string,
 	deadlineMs: number,
+	eta: TakeEta,
 ) {
 	let chain: Promise<unknown> = Promise.resolve();
 	// Writes go one after another, never overlapping, and never reject.
@@ -366,7 +391,6 @@ async function followTake(
 	};
 	let started = false;
 	let rendering = false;
-	let firstStepAt = 0;
 	let lastWriteAt = 0;
 
 	const onEvent = (event: ComfyEvent) => {
@@ -382,31 +406,35 @@ async function followTake(
 		} else if (event.type === "started") {
 			if (started) return;
 			started = true;
-			queue(() => enterPhase(ctx, "starting"));
+			// The prompt is on the GPU: the countdown starts with the whole plan.
+			const etaAt = eta.start(Date.now());
+			queue(() => enterPhase(ctx, "starting", etaAt));
 		} else if (event.type === "progress") {
 			const now = Date.now();
+			// The estimate sees every step (its rate needs them all); the row is
+			// written at most once a second, and on the last step.
+			const etaAt = eta.progress({ value: event.value, max: event.max }, now);
 			if (!rendering) {
 				rendering = true;
-				firstStepAt = now;
 				queue(() => enterPhase(ctx, "rendering"));
 			}
-			if (lastWriteAt !== 0 && now - lastWriteAt < PROGRESS_WRITE_EVERY_MS) {
+			const lastStep = event.max > 0 && event.value >= event.max;
+			if (
+				!lastStep &&
+				lastWriteAt !== 0 &&
+				now - lastWriteAt < PROGRESS_WRITE_EVERY_MS
+			) {
 				return;
 			}
 			lastWriteAt = now;
-			const done = Math.max(1, event.value);
-			const left = Math.max(0, event.max - event.value);
 			const percent = Math.min(
 				100,
 				Math.round((event.value / Math.max(1, event.max)) * 100),
 			);
-			const eta = Math.round(
-				(((now - firstStepAt) / 1000) * left) / done + ETA_FINISH_SECONDS,
-			);
 			queue(() =>
 				ctx.write((tx) => {
 					tx.update(imageJobs)
-						.set({ progressPercent: percent, etaSeconds: eta })
+						.set({ progressPercent: percent, etaAt })
 						.where(eq(imageJobs.id, ctx.row.id))
 						.run();
 				}),
@@ -453,15 +481,16 @@ async function followWithGrace(
 	client: ComfyUiClient,
 	promptId: string,
 	startedAt: number,
+	eta: TakeEta,
 ) {
 	let downSince = 0;
 	for (;;) {
-		const left = IMAGE_RENDER_DEADLINE_MS - (Date.now() - startedAt);
+		const left = imageRenderDeadlineMs() - (Date.now() - startedAt);
 		if (left <= 0) {
 			throw new ComfyUiError("timeout", "ComfyUI took too long");
 		}
 		try {
-			return await followTake(ctx, client, promptId, left);
+			return await followTake(ctx, client, promptId, left, eta);
 		} catch (error) {
 			const transient =
 				error instanceof ComfyUiError &&
@@ -484,6 +513,11 @@ async function renderTake(
 	const { row, signal } = ctx;
 	let resubmitted = false;
 	let output: Uint8Array;
+	// The estimate's plan: this engine's model load (next to none when its
+	// models are still loaded), the sampler and the finish, for this canvas.
+	let eta = createTakeEta(
+		picturePlan(request, await engineLooksWarm(request.model, row.id)),
+	);
 
 	for (;;) {
 		let promptId = prompt.getPromptId();
@@ -495,9 +529,9 @@ async function renderTake(
 			if (signal.aborted) return;
 		}
 		try {
-			const refs = await followWithGrace(ctx, client, promptId, startedAt);
+			const refs = await followWithGrace(ctx, client, promptId, startedAt, eta);
 			if (signal.aborted) return;
-			await enterPhase(ctx, "finishing");
+			await enterPhase(ctx, "finishing", eta.enter("finish"));
 			const first = refs[0];
 			if (!first) {
 				throw new ComfyUiError(
@@ -513,9 +547,12 @@ async function renderTake(
 				error instanceof ComfyUiError &&
 				(error.code === "missing_result" || error.code === "bad_response");
 			if (!forgotten || resubmitted || signal.aborted) throw error;
-			// ComfyUI no longer knows the prompt or its picture (it restarted): once more, from the start.
+			// ComfyUI no longer knows the prompt or its picture (it restarted): once
+			// more, from the start, with a fresh estimate from a cold load (the one
+			// real reason the time left may go up).
 			resubmitted = true;
 			prompt.setPromptId("");
+			eta = createTakeEta(picturePlan(request, false));
 			await ctx.progress({ checkpoint: null });
 		}
 	}
@@ -605,7 +642,7 @@ async function renderTake(
 					resultFileId: file.id,
 					measuresJson: measures ? JSON.stringify(measures) : null,
 					progressPercent: 100,
-					etaSeconds: null,
+					etaAt: null,
 				})
 				.where(eq(imageJobs.id, row.id))
 				.run();

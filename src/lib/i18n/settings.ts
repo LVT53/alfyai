@@ -1822,13 +1822,19 @@ const settingsDict = {
 			"The ComfyUI server that makes pictures. Leave empty to turn picture making off.",
 		"admin.system.keys.IMAGE_MODEL.label": "Picture model",
 		"admin.system.keys.IMAGE_MODEL.meaning":
-			"Which picture model new pictures use. H3 makes 12 MP pictures and has no transparent option; Qwen keeps 1 MP, 4 MP print and transparent. Pictures already queued keep the model they started with.",
+			"Which picture model new pictures use. H3 makes pictures at 12 MP but changes a picture at a 2048 px short edge, and has no transparent option; Qwen keeps 1 MP, 4 MP print and transparent. Pictures already queued keep the model they started with.",
 		"admin.system.keys.COMFYUI_H3_URL.label": "H3 picture server",
 		"admin.system.keys.COMFYUI_H3_URL.meaning":
 			"The separate ComfyUI server for the H3 picture model. Used only when the picture model is H3; leave it empty and H3 pictures are off.",
 		"admin.system.keys.COMFYUI_LTX_URL.label": "Video server",
 		"admin.system.keys.COMFYUI_LTX_URL.meaning":
 			"The ComfyUI server that runs LTX and makes short videos. Leave it empty to turn video making off.",
+		"admin.system.keys.TTS_ENABLED.label": "Read aloud",
+		"admin.system.keys.TTS_ENABLED.meaning":
+			"Puts a speaker on every finished reply that reads it aloud through the speech service.",
+		"admin.system.keys.TTS_URL.label": "Speech service",
+		"admin.system.keys.TTS_URL.meaning":
+			"Where the read-aloud speech service listens on this machine (http://127.0.0.1:1920). Read aloud stays off while it is empty.",
 		"admin.system.keys.LTX_CAPTION_URL.label": "Caption endpoint",
 		"admin.system.keys.LTX_CAPTION_URL.meaning":
 			"An OpenAI-compatible chat server that rewrites the motion idea into the caption style LTX reads. Leave it empty and the motion idea is used as it is.",
@@ -2072,6 +2078,14 @@ const settingsDict = {
 		"profileTab.timeZoneHelp": "Lets AlfyAI know your local date and time.",
 		"profileTab.timeZoneThisDevice": "This device",
 		"profileTab.timeZoneOthers": "Other zones",
+		// Send with Enter: the person's own switch for the message box's keys.
+		// Off, Enter writes a new line and Ctrl/Cmd+Enter sends. A touch-only
+		// screen has no Shift+Enter, so Enter stays a new line there either way.
+		"profileTab.sendWithEnter": "Send with Enter",
+		"profileTab.sendWithEnterHelp":
+			"Enter sends your message and Shift+Enter starts a new line. On a touch screen, Enter still starts a new line.",
+		"profileTab.sendWithEnterOn": "On",
+		"profileTab.sendWithEnterOff": "Off",
 
 		// Assistant behaviour.
 		"profileTab.assistantTitle": "Assistant behaviour",
@@ -2087,6 +2101,14 @@ const settingsDict = {
 		"profileTab.personalInstructionsEmpty": "Not set",
 		"profileTab.memoryOn": "On",
 		"profileTab.memoryOff": "Off",
+		// Pictures and videos: the person's own switch for whether Alfy makes
+		// pictures and videos in their chats. Off, it makes none; what was made
+		// stays, and sending photos is not affected.
+		"profileTab.picturesAndVideos": "Pictures and videos",
+		"profileTab.picturesAndVideosHelp":
+			"Alfy makes pictures and short videos when you ask. Off, it makes none; the ones you have stay.",
+		"profileTab.picturesAndVideosOn": "On",
+		"profileTab.picturesAndVideosOff": "Off",
 		"profileTab.skillsHelp":
 			"Short instructions AlfyAI follows for a kind of task. Opens the full manager.",
 		"profileTab.manageSkills": "Manage skills",
@@ -4018,13 +4040,19 @@ const settingsDict = {
 			"A képeket készítő ComfyUI-szerver. Üresen hagyva nincs képkészítés.",
 		"admin.system.keys.IMAGE_MODEL.label": "Képmodell",
 		"admin.system.keys.IMAGE_MODEL.meaning":
-			"Melyik modellel készülnek az új képek. A H3 12 MP-en készít képet, átlátszó hátteret nem; a Qwennél marad az 1 MP, a 4 MP-es nyomat és az átlátszó kép. A már sorban álló képek megtartják a saját modelljüket.",
+			"Melyik modellel készülnek az új képek. A H3 12 MP-en készít képet, módosításkor viszont a kép rövidebb oldala 2048 px; átlátszó hátteret nem tud. A Qwennél marad az 1 MP, a 4 MP-es nyomat és az átlátszó kép. A már sorban álló képek megtartják a saját modelljüket.",
 		"admin.system.keys.COMFYUI_H3_URL.label": "H3-as képszerver",
 		"admin.system.keys.COMFYUI_H3_URL.meaning":
 			"A H3-as képmodell külön ComfyUI-szervere. Csak akkor használja, ha a képmodell H3; üresen hagyva nincs H3-as képkészítés.",
 		"admin.system.keys.COMFYUI_LTX_URL.label": "Videószerver",
 		"admin.system.keys.COMFYUI_LTX_URL.meaning":
 			"A ComfyUI-szerver, amely az LTX-et futtatja és rövid videókat készít. Üresen hagyva nincs videókészítés.",
+		"admin.system.keys.TTS_ENABLED.label": "Felolvasás",
+		"admin.system.keys.TTS_ENABLED.meaning":
+			"Minden kész válaszra hangszórót tesz, amely a beszédszolgáltatással felolvassa.",
+		"admin.system.keys.TTS_URL.label": "Beszédszolgáltatás",
+		"admin.system.keys.TTS_URL.meaning":
+			"A felolvasó beszédszolgáltatás címe ezen a gépen (http://127.0.0.1:1920). Amíg üres, a felolvasás ki van kapcsolva.",
 		"admin.system.keys.LTX_CAPTION_URL.label": "Képaláírás-végpont",
 		"admin.system.keys.LTX_CAPTION_URL.meaning":
 			"OpenAI-kompatibilis csevegőszerver, amely a mozgásötletet az LTX által olvasott képaláírás-stílusra írja át. Üresen hagyva a mozgásötlet változatlanul kerül a videóhoz.",
@@ -4260,6 +4288,11 @@ const settingsDict = {
 		"profileTab.timeZoneHelp": "Ebből tudja az AlfyAI, mennyi az idő nálad.",
 		"profileTab.timeZoneThisDevice": "Ez az eszköz",
 		"profileTab.timeZoneOthers": "Más időzónák",
+		"profileTab.sendWithEnter": "Küldés Enterrel",
+		"profileTab.sendWithEnterHelp":
+			"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd. Érintőképernyőn az Enter továbbra is új sort kezd.",
+		"profileTab.sendWithEnterOn": "Be",
+		"profileTab.sendWithEnterOff": "Ki",
 
 		// Az asszisztens viselkedése.
 		"profileTab.assistantTitle": "Az asszisztens viselkedése",
@@ -4272,6 +4305,11 @@ const settingsDict = {
 		"profileTab.personalInstructionsEmpty": "Nincs beállítva",
 		"profileTab.memoryOn": "Be",
 		"profileTab.memoryOff": "Ki",
+		"profileTab.picturesAndVideos": "Képek és videók",
+		"profileTab.picturesAndVideosHelp":
+			"Alfy képeket és rövid videókat készít, ha kéred. Kikapcsolva nem készít, a meglévők megmaradnak.",
+		"profileTab.picturesAndVideosOn": "Be",
+		"profileTab.picturesAndVideosOff": "Ki",
 		"profileTab.skillsHelp":
 			"Rövid utasítások, amelyeket az AlfyAI egy-egy feladattípusnál követ. A teljes kezelőt nyitja meg.",
 		"profileTab.manageSkills": "Készségek kezelése",

@@ -9,7 +9,7 @@ import { consumeHomeComposerSeed } from "$lib/client/conversation-session";
 import { STATIC_COMPOSER_COMMANDS } from "$lib/composer-commands";
 import { type I18nKey, t } from "$lib/i18n";
 import guideDict from "$lib/i18n/guide";
-import { uiLanguage } from "$lib/stores/settings";
+import { sendWithEnter, uiLanguage } from "$lib/stores/settings";
 import { spotlightRequest } from "$lib/stores/spotlight";
 import GuidePage from "./GuidePage.svelte";
 import {
@@ -83,19 +83,19 @@ function stubReducedMotion(reduce: boolean) {
 }
 
 describe("the guide page", () => {
-	it("shows six sections and thirty-one rows", () => {
+	it("shows six sections and thirty-five rows", () => {
 		render(GuidePage);
 
 		const sections = screen.getAllByTestId("guide-section");
 		expect(sections.map((section) => section.id)).toEqual(
 			GUIDE_SECTION_IDS.map((id) => `guide-section-${id}`),
 		);
-		expect(screen.getAllByTestId("guide-row")).toHaveLength(31);
+		expect(screen.getAllByTestId("guide-row")).toHaveLength(35);
 		expect(
 			sections.map(
 				(section) => within(section).getAllByTestId("guide-row").length,
 			),
-		).toEqual([7, 7, 4, 4, 5, 4]);
+		).toEqual([8, 7, 6, 4, 5, 5]);
 		for (const entry of GUIDE_ENTRIES) {
 			expect(rowOf(entry.id).closest("section")?.id).toBe(
 				`guide-section-${entry.section}`,
@@ -161,10 +161,24 @@ describe("NEW", () => {
 		);
 	});
 
+	it("marks the two read-aloud entries NEW from the day they were added", () => {
+		vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+		render(GuidePage);
+
+		const rows = screen
+			.getAllByText("NEW")
+			.map((mark) => mark.closest('[data-testid="guide-row"]'));
+		expect(rows).toContain(rowOf("listenToAReply"));
+		expect(rows).toContain(rowOf("yourVoices"));
+		expect(rows).not.toContain(rowOf("memory"));
+	});
+
 	it("is gone after the thirty days, and nothing else ever wore it", () => {
-		// Past both entries' windows: "Alfy asks first" (2026-11-05) and
-		// Videos (2026-11-15).
-		vi.setSystemTime(new Date("2026-12-16T00:00:00Z"));
+		// Past all the windows: "Alfy asks first" (2026-11-05), Videos
+		// (2026-11-15), Listen to a reply and Voices that read to you
+		// (2026-11-17), and Send with Enter (2026-11-18, NEW up to but not
+		// including 2026-12-18).
+		vi.setSystemTime(new Date("2026-12-18T00:00:00Z"));
 		render(GuidePage);
 
 		expect(screen.queryByText("NEW")).not.toBeInTheDocument();
@@ -236,18 +250,18 @@ describe("a row's buttons", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("has nine Try its, eighteen Show mes and four rows with neither", () => {
+	it("has ten Try its, twenty-one Show mes and four rows with neither", () => {
 		render(GuidePage);
 
 		const kinds = GUIDE_ENTRIES.map((entry) => entry.action.kind);
-		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(9);
-		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(18);
+		expect(kinds.filter((kind) => kind === "tryIt")).toHaveLength(10);
+		expect(kinds.filter((kind) => kind === "showMe")).toHaveLength(21);
 		expect(kinds.filter((kind) => kind === "none")).toHaveLength(4);
 		expect(screen.getAllByRole("button", { name: /^Try it: / })).toHaveLength(
-			9,
+			10,
 		);
 		expect(screen.getAllByRole("button", { name: /^Show me: / })).toHaveLength(
-			18,
+			21,
 		);
 	});
 });
@@ -291,8 +305,8 @@ describe("Try it and Show me", () => {
 			examples.push(consumeHomeComposerSeed() ?? "");
 			unmount();
 		}
-		expect(examples).toHaveLength(9);
-		expect(new Set(examples).size).toBe(9);
+		expect(examples).toHaveLength(10);
+		expect(new Set(examples).size).toBe(10);
 		expect(examples).not.toContain("");
 	});
 
@@ -316,6 +330,32 @@ describe("Try it and Show me", () => {
 
 		expect(get(spotlightRequest)?.spotlight).toBe("sidebar.search");
 		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it("Show me for the voices opens Settings and asks for the Read aloud card's pickers", async () => {
+		render(GuidePage);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Show me: Voices that read to you" }),
+		);
+
+		expect(get(spotlightRequest)?.spotlight).toBe("settings.readAloud");
+		expect(goto).toHaveBeenCalledWith("/settings");
+	});
+
+	it("Try it for Listen to a reply or a document hands Home its example", async () => {
+		render(GuidePage);
+
+		await fireEvent.click(
+			screen.getByRole("button", {
+				name: "Try it: Listen to a reply or a document",
+			}),
+		);
+
+		expect(consumeHomeComposerSeed()).toBe(
+			"Tell me a short story about a lighthouse keeper.",
+		);
+		expect(goto).toHaveBeenCalledWith("/");
 	});
 
 	it("Show me for Memory opens Knowledge on its Memory tab", async () => {
@@ -532,6 +572,42 @@ describe("the shortcuts and commands box", () => {
 		] as const) {
 			expect(keys.getByText(key).tagName).toBe("KBD");
 			expect(keys.getByText(wording)).toBeInTheDocument();
+		}
+	});
+
+	it("shows the reader's own Enter keys, and follows their Send with Enter switch", async () => {
+		const pairs = () =>
+			[
+				...screen
+					.getByTestId("guide-shortcut-keys")
+					.querySelectorAll(".guide-shortcuts__item"),
+			].map((item) => [
+				item.querySelector("kbd")?.textContent,
+				item.querySelector("dd")?.textContent,
+			]);
+		sendWithEnter.set(true);
+		try {
+			render(GuidePage);
+
+			expect(pairs()).toEqual([
+				["Ctrl/⌘+K", "Open Search"],
+				["/", "Go to the message box"],
+				["Enter", "Send"],
+				["Shift+Enter", "New line"],
+				["Esc", "Close a menu or dialog"],
+			]);
+
+			sendWithEnter.set(false);
+			await tick();
+			expect(pairs()).toEqual([
+				["Ctrl/⌘+K", "Open Search"],
+				["/", "Go to the message box"],
+				["Ctrl/⌘+Enter", "Send"],
+				["Enter", "New line"],
+				["Esc", "Close a menu or dialog"],
+			]);
+		} finally {
+			sendWithEnter.set(false);
 		}
 	});
 

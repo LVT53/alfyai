@@ -1,4 +1,7 @@
-import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import type {
+	LanguageModelV3CallOptions,
+	LanguageModelV3StreamPart,
+} from "@ai-sdk/provider";
 import { type ModelMessage, tool } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
@@ -55,6 +58,13 @@ function dependencies(model: MockLanguageModelV3) {
 		mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
 	};
 }
+async function collect(run: ReturnType<typeof runNormalChatCompletion>) {
+	for (;;) {
+		const next = await run.next();
+		if (next.done) return next.value;
+	}
+}
+
 describe("installed SDK native shapes", () => {
 	function textParts(text: string): LanguageModelV3StreamPart[] {
 		return [
@@ -130,12 +140,7 @@ describe("installed SDK native shapes", () => {
 			0,
 		);
 	}
-	async function collect(run: ReturnType<typeof runNormalChatCompletion>) {
-		for (;;) {
-			const next = await run.next();
-			if (next.done) return next.value;
-		}
-	}
+
 	it("withdraws provisional text when a tool starts, before its result settles", async () => {
 		let releaseTool!: () => void;
 		let beganTool!: () => void;
@@ -1119,4 +1124,355 @@ describe("installed SDK native shapes", () => {
 		expect(JSON.stringify(final?.steps)).toContain('"signature":"signed"');
 		expect(JSON.stringify(final?.steps)).toContain('"type":"tool-result"');
 	}, 1500);
+});
+
+describe("lossless closing admission", () => {
+	const instruction =
+		"Complete the original request using the evidence and working text already present. Preserve useful completed subanswers. Do not repeat already committed answer parts. Tools are unavailable. State unresolved limitations honestly.";
+	async function retainedWork() {
+		let seed: NormalChatContinuationSnapshot | undefined;
+		const execute = vi.fn(async () => "exact evidence ".repeat(1000));
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => ({
+				content: options.tools?.length
+					? [
+							{ type: "text" as const, text: "Working." },
+							{
+								type: "tool-call" as const,
+								toolCallId: "lookup",
+								toolName: "lookup",
+								input: "{}",
+							},
+						]
+					: [{ type: "text" as const, text: "Closed." }],
+				finishReason: {
+					unified: options.tools?.length
+						? ("tool-calls" as const)
+						: ("stop" as const),
+					raw: "synthetic",
+				},
+				usage,
+				warnings: [],
+			}),
+		});
+		await collect(
+			runNormalChatCompletion(
+				{
+					provider: { ...provider, maxOutputTokens: 2048 },
+					maxOutputTokens: 2048,
+					messages: [{ role: "user", content: "Find evidence." }],
+					maxToolSteps: 1,
+					tools: { lookup: tool({ inputSchema: z.object({}), execute }) },
+					completionPolicy: {
+						turnId: "t",
+						segmentId: "s",
+						deadlineAt: Date.now() + 300000,
+						totalTimeoutMs: 300000,
+						forAttempt: () => ({ classifyExecution: () => "succeeded" }),
+						onSnapshot: (s) => {
+							if (s.steps[0]?.finished && !s.closingSegments.length) seed = s;
+						},
+					},
+				},
+				dependencies(model),
+				false,
+			),
+		);
+		if (!seed) throw new Error("No settled SDK snapshot");
+		return { seed, execute };
+	}
+	async function closingWindow(
+		seed: NormalChatContinuationSnapshot,
+		room: number,
+		system = "",
+	) {
+		const { estimateHistoryMessagesTokens } = await import(
+			"$lib/server/services/chat-turn/conversation-history"
+		);
+		const { estimateTokenCount } = await import("$lib/utils/tokens");
+		const { CONTEXT_GUARD_MARGIN_TOKENS } = await import(
+			"$lib/server/services/normal-chat-model/context-guard"
+		);
+		const messages: ModelMessage[] = [
+			...seed.original.messages,
+			...seed.steps.flatMap((step) => [...step.inserts, ...step.response]),
+			...seed.pendingImageEntries.map((entry) => ({
+				role: "user" as const,
+				content: [
+					{ type: "text" as const, text: entry.label },
+					{ type: "text" as const, text: STRIPPED_IMAGE_NOTE },
+				],
+			})),
+			{ role: "user", content: instruction },
+		];
+		return (
+			estimateTokenCount(system) +
+			estimateHistoryMessagesTokens(messages, estimateTokenCount) +
+			CONTEXT_GUARD_MARGIN_TOKENS +
+			room
+		);
+	}
+	it.each([
+		"same",
+		"id",
+		"base",
+		"model",
+		"model-fits",
+		"unknown-window",
+		"unknown-output",
+		"spent",
+	] as const)("gates adaptive closing on exact original identity and known limits: %s", async (kind) => {
+		const { seed, execute } = await retainedWork();
+		const doGenerate = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+			content: [{ type: "text" as const, text: "Closed." }],
+			finishReason: { unified: "stop" as const, raw: "stop" },
+			usage,
+			warnings: [],
+		}));
+		const model = new MockLanguageModelV3({ doGenerate });
+		const destination = {
+			...provider,
+			maxOutputTokens: kind === "unknown-output" ? undefined : 2048,
+			...(kind === "id" ? { id: "other" } : {}),
+			...(kind === "base" ? { baseUrl: "https://other.invalid" } : {}),
+			...(kind === "model" || kind === "model-fits"
+				? { modelName: "other" }
+				: {}),
+		};
+		if (kind === "unknown-output") seed.prepared.maxOutputTokens = null;
+		if (kind === "spent") seed.closingSegments = ["s"];
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					provider: destination,
+					messages: [],
+					completionPolicy: {
+						turnId: "t",
+						segmentId: "s",
+						deadlineAt: seed.deadlineAt,
+						totalTimeoutMs: seed.totalTimeoutMs,
+						continuation: seed,
+						forAttempt: () => ({
+							projectContext: ({ system, messages }) => ({ system, messages }),
+						}),
+					},
+				},
+				{
+					...dependencies(model),
+					maxModelContext:
+						kind === "unknown-window"
+							? undefined
+							: await closingWindow(seed, kind === "model-fits" ? 2048 : 1024),
+				},
+				false,
+			),
+		);
+		const allowed = kind === "same" || kind === "model-fits";
+		expect(doGenerate).toHaveBeenCalledTimes(allowed ? 1 : 0);
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(result.completion?.outcome).toBe(
+			allowed ? "answered" : "incomplete",
+		);
+		if (allowed)
+			expect(doGenerate.mock.calls[0][0].maxOutputTokens).toBe(
+				kind === "same" ? 1024 : 2048,
+			);
+		else if (kind !== "spent") {
+			expect(result.completion?.stopCause).toBe("context_capacity");
+			expect(result.continuation?.usage.at(-1)).toMatchObject({
+				complete: true,
+				inputTokens: 0,
+				outputTokens: 0,
+				totalTokens: 0,
+			});
+		}
+	});
+	it("caches the complete projected closing input with pending images before allocating its cap", async () => {
+		const { seed } = await retainedWork();
+		const label = "pending picture label ".repeat(500);
+		seed.pendingImageEntries.push({ label, images: [] });
+		const projectedSystem =
+			"Use the projected system and exact pending picture label.";
+		const projectContext = vi.fn(
+			({ messages }: { messages: ModelMessage[] }) => ({
+				system: projectedSystem,
+				messages,
+			}),
+		);
+		const doGenerate = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+			content: [{ type: "text" as const, text: "Closed." }],
+			finishReason: { unified: "stop" as const, raw: "stop" },
+			usage,
+			warnings: [],
+		}));
+		const model = new MockLanguageModelV3({ doGenerate });
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					provider: { ...provider, maxOutputTokens: 2048 },
+					messages: [],
+					completionPolicy: {
+						turnId: "t",
+						segmentId: "s",
+						deadlineAt: seed.deadlineAt,
+						totalTimeoutMs: seed.totalTimeoutMs,
+						continuation: seed,
+						forAttempt: () => ({ projectContext }),
+					},
+				},
+				{
+					...dependencies(model),
+					maxModelContext: await closingWindow(seed, 1024, projectedSystem),
+				},
+				false,
+			),
+		);
+		expect(result.completion?.outcome).toBe("answered");
+		expect(projectContext).toHaveBeenCalledTimes(1);
+		expect(doGenerate).toHaveBeenCalledTimes(1);
+		const request = doGenerate.mock.calls[0][0];
+		expect(request.maxOutputTokens).toBe(1024);
+		expect(JSON.stringify(request.prompt).split(label)).toHaveLength(2);
+		expect(JSON.stringify(request.prompt).split(instruction)).toHaveLength(2);
+		expect(JSON.stringify(request.prompt)).toContain(projectedSystem);
+		expect(result.continuation?.pendingImageEntries).toEqual([]);
+		expect(result.continuation?.steps.at(-1)?.imageEntries).toEqual([
+			{ label, images: [] },
+		]);
+	});
+	it.each([
+		[false, "sync"],
+		[false, "microtask"],
+		[true, "sync"],
+		[true, "microtask"],
+	] as const)("retains images queued after the closing observed-input notification and refuses stale dispatch, streaming=%s insertion=%s", async (streaming, insertion) => {
+		const { seed, execute } = await retainedWork();
+		const queue = createStepImageQueue();
+		const lateEntry = {
+			label: "Late picture evidence",
+			images: [],
+			localOnly: true,
+			labelWithoutNames: "Late private evidence",
+		};
+		let queued = false;
+		let pendingAtNotification: number | undefined;
+		const doGenerate = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+			content: [{ type: "text" as const, text: "Stale answer." }],
+			finishReason: { unified: "stop" as const, raw: "stop" },
+			usage,
+			warnings: [],
+		}));
+		const doStream = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+			stream: stream([
+				{ type: "text-start", id: "late" },
+				{ type: "text-delta", id: "late", delta: "Stale answer." },
+				{ type: "text-end", id: "late" },
+				{
+					type: "finish",
+					usage,
+					finishReason: { unified: "stop", raw: "stop" },
+				},
+			]),
+		}));
+		const model = new MockLanguageModelV3({ doGenerate, doStream });
+		const result = await collect(
+			runNormalChatCompletion(
+				{
+					provider,
+					messages: [],
+					stepImages: queue,
+					completionPolicy: {
+						turnId: "t",
+						segmentId: "s",
+						deadlineAt: seed.deadlineAt,
+						totalTimeoutMs: seed.totalTimeoutMs,
+						continuation: seed,
+						onSnapshot: (snapshot) => {
+							if (
+								queued ||
+								!snapshot.steps.some(
+									(step) => step.phase === "closing" && step.observedInput,
+								)
+							)
+								return;
+							queued = true;
+							pendingAtNotification = snapshot.pendingImageEntries.length;
+							if (insertion === "sync") queue.push(lateEntry);
+							else queueMicrotask(() => queue.push(lateEntry));
+						},
+					},
+				},
+				dependencies(model),
+				streaming,
+			),
+		);
+		expect(queued).toBe(true);
+		expect(pendingAtNotification).toBe(0);
+		expect.soft(doGenerate).not.toHaveBeenCalled();
+		expect.soft(doStream).not.toHaveBeenCalled();
+		expect.soft(result.completion).toMatchObject({
+			outcome: "incomplete",
+			stopCause: "context_capacity",
+			closingAttempted: true,
+		});
+		expect(result.continuation?.closingSegments).toEqual(["s"]);
+		expect(result.continuation?.pendingImageEntries).toEqual([lateEntry]);
+		expect(result.continuation?.steps.at(-1)?.imageEntries).toEqual([]);
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+	it.each([
+		"stop",
+		"deadline",
+		"new-image",
+	] as const)("rechecks %s while closing preparation yields before SDK dispatch", async (kind) => {
+		const { seed } = await retainedWork();
+		const controller = new AbortController();
+		const queue = createStepImageQueue();
+		const doGenerate = vi.fn();
+		const model = new MockLanguageModelV3({ doGenerate });
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+		try {
+			const result = await collect(
+				runNormalChatCompletion(
+					{
+						provider,
+						messages: [],
+						abortSignal: controller.signal,
+						stepImages: queue,
+						completionPolicy: {
+							turnId: "t",
+							segmentId: "s",
+							deadlineAt: seed.deadlineAt,
+							totalTimeoutMs: seed.totalTimeoutMs,
+							continuation: seed,
+							forAttempt: () => ({
+								projectContext: ({ system, messages }) => {
+									queueMicrotask(() => {
+										if (kind === "stop") controller.abort();
+										else if (kind === "deadline")
+											clock.mockReturnValue(seed.deadlineAt + 1);
+										else queue.push({ label: "new picture", images: [] });
+									});
+									return { system, messages };
+								},
+							}),
+						},
+					},
+					dependencies(model),
+					false,
+				),
+			);
+			expect(doGenerate).not.toHaveBeenCalled();
+			expect(result.completion?.stopCause).toBe(
+				kind === "stop"
+					? "user_stop"
+					: kind === "deadline"
+						? "deadline"
+						: "context_capacity",
+			);
+		} finally {
+			clock.mockRestore();
+		}
+	});
 });

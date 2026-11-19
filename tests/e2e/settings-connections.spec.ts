@@ -1,6 +1,6 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
-import { login } from "./helpers";
+import { expectTopmost, login, waitForMotionToSettle } from "./helpers";
 
 // Connections redesign — a smoke test of the tab's four states, the connect
 // wizard per provider, and the detail dialog.
@@ -399,5 +399,239 @@ test.describe("settings connections tab", () => {
 				await expect(page.getByRole("dialog")).toHaveCount(0);
 			}
 		});
+	});
+});
+
+// A dialog taller than the window. The panel of a centred dialog stopped scrolling
+// once its intro had run (Svelte's transition writes the panel's saved inline
+// overflow back, which clears `overflow-y`), so its bottom spilled past the panel and
+// the window, out of reach: Settings above all, and on a phone on its side every
+// dialog. A panel that scrolls inside itself was tried first, and it cut off what
+// paints past the panel's edge (the Plan 3 fix verification: D1 the folder list,
+// D2 focus under a sticky footer, D3 a help bubble, D4 a sideways scrollbar). Now the
+// window behind the dialog scrolls and the panel grows with what it holds. These
+// hold it on the tallest dialog with popups, Nextcloud's details with its folder box.
+test.describe("the detail dialog on a short screen", () => {
+	const nextcloud = connection({ allowWrites: true, writeAllowlist: [] });
+	const folders = Array.from({ length: 8 }, (_, i) => ({
+		path: `/Documents/Folder ${i + 1}`,
+		name: `Folder ${i + 1}`,
+	}));
+
+	/** Whether every box that clips (an overflow that is not visible) holds all of it, the window too. */
+	async function drawnWhole(locator: Locator): Promise<string[]> {
+		return locator.evaluate((node) => {
+			const box = node.getBoundingClientRect();
+			const cut: string[] = [];
+			const holds = (
+				outer:
+					| DOMRect
+					| { left: number; top: number; right: number; bottom: number },
+			) =>
+				box.left >= outer.left - 1 &&
+				box.top >= outer.top - 1 &&
+				box.right <= outer.right + 1 &&
+				box.bottom <= outer.bottom + 1;
+			if (!holds({ left: 0, top: 0, right: innerWidth, bottom: innerHeight }))
+				cut.push("the window");
+			for (let up = node.parentElement; up; up = up.parentElement) {
+				const style = getComputedStyle(up);
+				if (style.overflowX === "visible" && style.overflowY === "visible")
+					continue;
+				if (!holds(up.getBoundingClientRect()))
+					cut.push(`${up.localName}.${[...up.classList].join(".")}`);
+			}
+			return cut;
+		});
+	}
+
+	for (const { where, size } of [
+		{ where: "a short desktop window", size: { width: 1280, height: 600 } },
+		{ where: "a phone", size: { width: 390, height: 664 } },
+		{ where: "a phone on its side", size: { width: 844, height: 390 } },
+	] as const) {
+		test(`reaches the bottom of the dialog and cuts nothing off, on ${where}`, async ({
+			page,
+		}) => {
+			await page.setViewportSize(size);
+			await login(page);
+			await stubConnections(page, [nextcloud]);
+			await page.route(
+				"**/api/connections/conn-nextcloud/nextcloud-folders*",
+				async (route) => {
+					await route.fulfill({
+						status: 200,
+						contentType: "application/json",
+						body: JSON.stringify({ folders }),
+					});
+				},
+			);
+			await openConnectionsTab(page);
+			await page.getByTestId("connection-details-conn-nextcloud").click();
+			const panel = page.getByRole("dialog");
+			await expect(
+				panel.getByTestId("connection-detail-conn-nextcloud"),
+			).toBeVisible();
+			await waitForMotionToSettle(page);
+
+			// The dialog is taller than the window, or this proves nothing.
+			expect(await panel.evaluate((el) => el.scrollHeight)).toBeGreaterThan(
+				size.height,
+			);
+			// Nothing spills past the panel's edge: a panel that does not scroll holds
+			// all of what it draws.
+			expect(
+				await panel.evaluate((el) =>
+					getComputedStyle(el).overflowY === "visible"
+						? el.scrollHeight - el.clientHeight
+						: 0,
+				),
+			).toBeLessThanOrEqual(1);
+
+			// A wheel over the dialog brings its foot into the window.
+			const box = await panel.boundingBox();
+			if (!box) throw new Error("the dialog has no box");
+			await page.mouse.move(
+				box.x + box.width / 2,
+				Math.min(box.y + 40, size.height / 2),
+			);
+			await page.mouse.wheel(0, 4000);
+			const done = panel.getByRole("button", { name: "Done", exact: true });
+			await expectTopmost(done, {
+				message: "Done is in the window, on top",
+				probe: "center",
+			});
+			const scrolled = await panel.boundingBox();
+			expect(
+				(scrolled?.y ?? 0) + (scrolled?.height ?? 0),
+				"the panel's foot is in the window",
+			).toBeLessThanOrEqual(size.height);
+
+			// D4: no sideways scrollbar, whatever the dialog holds.
+			expect(
+				await panel.evaluate((el) => {
+					const overlay = el.closest<HTMLElement>("[data-presentation]");
+					return overlay ? overlay.scrollWidth - overlay.clientWidth : -1;
+				}),
+			).toBe(0);
+
+			// D1: the folder list opens below its field, whole, and its last folder is on top.
+			const field = panel.getByRole("combobox", {
+				name: "Folders Alfy may write to",
+			});
+			await field.click();
+			const list = page.getByRole("listbox");
+			await expect(list.getByRole("option")).toHaveCount(folders.length);
+			await list.evaluate((el) => el.scrollIntoView({ block: "nearest" }));
+			expect(await drawnWhole(list), "the folder list is cut by").toEqual([]);
+			const last = list.getByRole("option").last();
+			await last.scrollIntoViewIfNeeded();
+			await expectTopmost(last, {
+				message: "the last folder is on top",
+				probe: "center",
+			});
+			await field.blur();
+			await expect(list).toHaveCount(0);
+
+			// D3: a help bubble beside the panel's edge is drawn whole. It opens below
+			// its button, so the button is brought to the middle of the window first.
+			const help = panel.getByRole("button", {
+				name: /^Writing is off by default\./,
+			});
+			await help.evaluate((el) => el.scrollIntoView({ block: "center" }));
+			await help.hover();
+			const bubble = page.getByRole("tooltip");
+			await expect(bubble).toBeVisible();
+			expect(await drawnWhole(bubble), "the help bubble is cut by").toEqual([]);
+			await page.mouse.move(0, 0);
+			await expect(bubble).toHaveCount(0);
+
+			// D2: Tab from the top never leaves the focus out of the window or under
+			// anything. The folder list, which opens on focus, closes 150 ms after the
+			// field loses it, so each step is asked until it settles.
+			await panel.evaluate((el) => {
+				el.closest<HTMLElement>("[data-presentation]")?.scrollTo(0, 0);
+				el.focus();
+			});
+			const focusShown = () =>
+				page.evaluate(() => {
+					const active = document.activeElement as HTMLElement | null;
+					if (!active?.closest('[role="dialog"]')) return true;
+					const rect = active.getBoundingClientRect();
+					const top = document.elementFromPoint(
+						rect.left + rect.width / 2,
+						rect.top + rect.height / 2,
+					);
+					return !!top && (active === top || active.contains(top));
+				});
+			for (let step = 0; step < 40; step += 1) {
+				await page.keyboard.press("Tab");
+				await expect
+					.poll(focusShown, {
+						message: `the control Tab reached at step ${step + 1} is in sight`,
+						timeout: 2000,
+					})
+					.toBe(true);
+			}
+
+			// A press beside the panel, at the foot of the window, still closes the dialog.
+			await page.mouse.wheel(0, 4000);
+			await page.mouse.click(4, size.height - 4);
+			await expect(page.getByRole("dialog")).toHaveCount(0);
+		});
+	}
+
+	// D1 and D3 as they were seen: with room in the window below and beside the
+	// panel, the folder list and a help bubble paint past the panel's edge as they
+	// open, whole, with nothing scrolled. A panel that scrolls inside itself cut both.
+	test("draws the folder list and a help bubble whole past the panel's edge", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 1440 });
+		await login(page);
+		await stubConnections(page, [nextcloud]);
+		await page.route(
+			"**/api/connections/conn-nextcloud/nextcloud-folders*",
+			async (route) => {
+				await route.fulfill({
+					status: 200,
+					contentType: "application/json",
+					body: JSON.stringify({ folders }),
+				});
+			},
+		);
+		await openConnectionsTab(page);
+		await page.getByTestId("connection-details-conn-nextcloud").click();
+		const panel = page.getByRole("dialog");
+		await expect(
+			panel.getByTestId("connection-detail-conn-nextcloud"),
+		).toBeVisible();
+		await waitForMotionToSettle(page);
+		const panelBox = await panel.boundingBox();
+		if (!panelBox) throw new Error("the dialog has no box");
+		expect(panelBox.height, "the dialog fits the window").toBeLessThan(1440);
+
+		await panel
+			.getByRole("combobox", { name: "Folders Alfy may write to" })
+			.click();
+		const list = page.getByRole("listbox");
+		await expect(list.getByRole("option")).toHaveCount(folders.length);
+		const listBox = await list.boundingBox();
+		expect(
+			(listBox?.y ?? 0) + (listBox?.height ?? 0),
+			"the list reaches past the panel's foot",
+		).toBeGreaterThan(panelBox.y + panelBox.height);
+		expect(await drawnWhole(list), "the folder list is cut by").toEqual([]);
+		await panel
+			.getByRole("combobox", { name: "Folders Alfy may write to" })
+			.blur();
+		await expect(list).toHaveCount(0);
+
+		await panel
+			.getByRole("button", { name: /^Writing is off by default\./ })
+			.hover();
+		const bubble = page.getByRole("tooltip");
+		await expect(bubble).toBeVisible();
+		expect(await drawnWhole(bubble), "the help bubble is cut by").toEqual([]);
 	});
 });

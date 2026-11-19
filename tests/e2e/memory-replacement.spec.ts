@@ -166,6 +166,28 @@ test("acknowledged removal remains excluded when its cleanup warning is dismisse
 		page.getByText("This memory is no longer used. Cleanup is still pending."),
 	).toBeVisible();
 });
+test("Edit and Remove actions stay reachable on a short screen", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 740, height: 300 });
+	await mount(page);
+	await open(page);
+
+	await page.getByRole("button", { name: "Edit", exact: true }).click();
+	const editor = page.getByTestId("memory-editor");
+	const save = editor.getByRole("button", { name: "Save changes" });
+	await save.scrollIntoViewIfNeeded();
+	await expect(save).toBeInViewport();
+	await editor.getByRole("button", { name: "Cancel" }).click();
+
+	await page.getByRole("button", { name: "Remove", exact: true }).click();
+	const remove = page.getByTestId("memory-remove");
+	const confirm = remove.getByRole("button", { name: "Remove" });
+	await confirm.scrollIntoViewIfNeeded();
+	await expect(confirm).toBeInViewport();
+	await remove.getByRole("button", { name: "Cancel" }).click();
+	await expect(page.getByTestId("memory-detail")).toBeVisible();
+});
 test("320px, reduced motion and keyboard return preserve the list context", async ({
 	page,
 }) => {

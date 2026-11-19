@@ -44,7 +44,6 @@ import {
 	getWorkspacePresentationAfterDocumentOpen,
 	type HeldComposer,
 	hasActiveFileProductionJobs,
-	imageCardsPollIntervalMs,
 	isConversationReadOnly,
 	isPendingSkillUnavailableError,
 	isQuestionOpen,
@@ -61,10 +60,10 @@ import {
 	type SendPayload,
 	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
-	shouldPollImageCards,
-	shouldPollVideoCards,
+	shouldPollTakeCards,
+	takeCardsPollIntervalMs,
+	takesWaitingForTheList,
 	toFriendlySendError,
-	videoCardsPollIntervalMs,
 	waitingQuestionsWithoutRow,
 	withinOrNull,
 	withQuestionAnswering,
@@ -2487,59 +2486,204 @@ describe("awaitOpenStepSave", () => {
 	});
 });
 
-describe("shouldPollImageCards", () => {
-	it("polls while a take is queued or running", () => {
+describe("shouldPollTakeCards", () => {
+	it("polls while a picture's or a clip's take is queued or running", () => {
 		expect(
-			shouldPollImageCards([imageCard([imageTake({ status: "queued" })])], []),
+			shouldPollTakeCards(
+				[imageCard([imageTake({ status: "queued" })])],
+				[],
+				[],
+			),
 		).toBe(true);
 		expect(
-			shouldPollImageCards([imageCard([imageTake({ status: "running" })])], []),
+			shouldPollTakeCards(
+				[imageCard([imageTake({ status: "running" })])],
+				[],
+				[],
+			),
 		).toBe(true);
-	});
-
-	it("polls for a make_image call still running in the streaming reply before its card exists", () => {
 		expect(
-			shouldPollImageCards([], [{ name: "make_image", status: "running" }]),
+			shouldPollTakeCards([], [videoCard(videoTake({ status: "queued" }))], []),
 		).toBe(true);
-	});
-
-	it("keeps polling while a settled take is still held, so the card re-reads when the hold runs out", () => {
-		// A turn that died with its automatic retry held: every take has settled,
-		// but "checking again" and a disabled Use this must not stick until a reload.
 		expect(
-			shouldPollImageCards(
-				[imageCard([imageTake({ status: "succeeded", held: true })])],
+			shouldPollTakeCards(
+				[],
+				[videoCard(videoTake({ status: "running" }))],
 				[],
 			),
 		).toBe(true);
 	});
 
-	it("stops once every take has settled and no picture call runs", () => {
+	it("polls for a make_image or make_video call still running in the streaming reply before its card exists", () => {
 		expect(
-			shouldPollImageCards(
+			shouldPollTakeCards([], [], [{ name: "make_image", status: "running" }]),
+		).toBe(true);
+		expect(
+			shouldPollTakeCards([], [], [{ name: "make_video", status: "running" }]),
+		).toBe(true);
+	});
+
+	it("keeps polling while a settled picture take is still held, so the card re-reads when the hold runs out", () => {
+		// A turn that died with its automatic retry held: every take has settled,
+		// but "checking again" and a disabled Use this must not stick until a reload.
+		expect(
+			shouldPollTakeCards(
+				[imageCard([imageTake({ status: "succeeded", held: true })])],
+				[],
+				[],
+			),
+		).toBe(true);
+	});
+
+	it("stops once every take has settled and no picture or video call runs", () => {
+		expect(
+			shouldPollTakeCards(
 				[imageCard([imageTake({ status: "succeeded" })])],
+				[videoCard(videoTake({ status: "succeeded" }))],
 				[
 					{ name: "make_image", status: "done" },
+					{ name: "make_video", status: "done" },
 					{ name: "research_web", status: "running" },
 				],
+			),
+		).toBe(false);
+		expect(shouldPollTakeCards([], [], [])).toBe(false);
+	});
+});
+
+// A take that lands after its tool call stopped waiting makes or changes its item
+// when it lands, and the page then reads the cards alone: the panel's list and the
+// header's count kept what they had until a reload (owner's chat, 2026-11-18).
+describe("takesWaitingForTheList", () => {
+	const NOW = 10_000_000;
+	const landed = (versionNumber: number | null = 2) =>
+		imageTake({ versionNumber, createdAt: NOW - 30_000 });
+	const none = new Set<string>();
+
+	it("waits for a picked picture whose Image is not a row of the list yet", () => {
+		expect(
+			takesWaitingForTheList([imageCard([landed()])], [], new Map(), none, NOW),
+		).toBe(true);
+	});
+
+	it("waits for a picked picture newer than its Image's row", () => {
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed(9)])],
+				[],
+				new Map([["artifact-1", 8]]),
+				none,
+				NOW,
+			),
+		).toBe(true);
+	});
+
+	it("is done once the list holds the Image at the card's version or a newer one", () => {
+		for (const listed of [9, 12]) {
+			expect(
+				takesWaitingForTheList(
+					[imageCard([landed(9)])],
+					[],
+					new Map([["artifact-1", listed]]),
+					none,
+					NOW,
+				),
+			).toBe(false);
+		}
+	});
+
+	it("does not wait for a card with no item or no pick yet, or an item that is gone", () => {
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed()], { artifactId: null })],
+				[],
+				new Map(),
+				none,
+				NOW,
+			),
+		).toBe(false);
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed()], { pickedTakeId: null })],
+				[],
+				new Map(),
+				none,
+				NOW,
+			),
+		).toBe(false);
+		expect(
+			takesWaitingForTheList(
+				[imageCard([landed()])],
+				[],
+				new Map(),
+				new Set(["artifact-1"]),
+				NOW,
+			),
+		).toBe(false);
+	});
+
+	it("waits for a landed clip whose Video is not a row yet, not for one still being made", () => {
+		const clip = (status: "succeeded" | "running") =>
+			videoCard(videoTake({ status, createdAt: NOW - 30_000 }));
+		expect(
+			takesWaitingForTheList([], [clip("succeeded")], new Map(), none, NOW),
+		).toBe(true);
+		expect(
+			takesWaitingForTheList([], [clip("running")], new Map(), none, NOW),
+		).toBe(false);
+		expect(
+			takesWaitingForTheList(
+				[],
+				[clip("succeeded")],
+				new Map([["video-1", 1]]),
+				none,
+				NOW,
+			),
+		).toBe(false);
+	});
+
+	it("does not make the page ask on every visit about an old take", () => {
+		expect(
+			takesWaitingForTheList(
+				[
+					imageCard([
+						imageTake({ versionNumber: 2, createdAt: NOW - 60 * 60_000 }),
+					]),
+				],
+				[],
+				new Map(),
+				none,
+				NOW,
 			),
 		).toBe(false);
 	});
 });
 
-describe("imageCardsPollIntervalMs", () => {
-	it("reads the chat fast while a take is queued or running", () => {
-		expect(imageCardsPollIntervalMs([])).toBe(2500);
+describe("takeCardsPollIntervalMs", () => {
+	it("reads the chat fast while a take of either kind is queued or running", () => {
+		expect(takeCardsPollIntervalMs([], [])).toBe(2500);
 		expect(
-			imageCardsPollIntervalMs([imageCard([imageTake({ status: "queued" })])]),
+			takeCardsPollIntervalMs(
+				[imageCard([imageTake({ status: "queued" })])],
+				[],
+			),
 		).toBe(750);
 		expect(
-			imageCardsPollIntervalMs([
-				imageCard([
-					imageTake({ status: "succeeded" }),
-					imageTake({ status: "running" }),
-				]),
-			]),
+			takeCardsPollIntervalMs(
+				[
+					imageCard([
+						imageTake({ status: "succeeded" }),
+						imageTake({ status: "running" }),
+					]),
+				],
+				[],
+			),
+		).toBe(750);
+		expect(
+			takeCardsPollIntervalMs(
+				[imageCard([imageTake({ status: "succeeded" })])],
+				[videoCard(videoTake({ status: "running" }))],
+			),
 		).toBe(750);
 	});
 
@@ -2547,63 +2691,16 @@ describe("imageCardsPollIntervalMs", () => {
 		// A settled take, even one still held: its hold is let go by the server,
 		// not by a fast read, and the card re-reads on the 2.5 s poll.
 		expect(
-			imageCardsPollIntervalMs([
-				imageCard([imageTake({ status: "succeeded", held: true })]),
-			]),
-		).toBe(2500);
-		expect(
-			imageCardsPollIntervalMs([imageCard([imageTake({ status: "failed" })])]),
-		).toBe(2500);
-	});
-});
-
-describe("shouldPollVideoCards", () => {
-	it("polls while a take is queued or running", () => {
-		expect(
-			shouldPollVideoCards([videoCard(videoTake({ status: "queued" }))], []),
-		).toBe(true);
-		expect(
-			shouldPollVideoCards([videoCard(videoTake({ status: "running" }))], []),
-		).toBe(true);
-	});
-
-	it("polls for a make_video call still running in the streaming reply before its card exists", () => {
-		expect(
-			shouldPollVideoCards([], [{ name: "make_video", status: "running" }]),
-		).toBe(true);
-	});
-
-	it("stops once every take has settled and no video call runs", () => {
-		expect(
-			shouldPollVideoCards(
+			takeCardsPollIntervalMs(
+				[imageCard([imageTake({ status: "succeeded", held: true })])],
 				[videoCard(videoTake({ status: "succeeded" }))],
-				[
-					{ name: "make_video", status: "done" },
-					{ name: "make_image", status: "running" },
-				],
 			),
-		).toBe(false);
-		expect(shouldPollVideoCards([], [])).toBe(false);
-	});
-});
-
-describe("videoCardsPollIntervalMs", () => {
-	it("reads the chat fast while a take is queued or running", () => {
-		expect(videoCardsPollIntervalMs([])).toBe(2500);
-		expect(
-			videoCardsPollIntervalMs([videoCard(videoTake({ status: "queued" }))]),
-		).toBe(750);
-		expect(
-			videoCardsPollIntervalMs([videoCard(videoTake({ status: "running" }))]),
-		).toBe(750);
-	});
-
-	it("keeps the ordinary 2.5 s poll when nothing is being made", () => {
-		expect(
-			videoCardsPollIntervalMs([videoCard(videoTake({ status: "succeeded" }))]),
 		).toBe(2500);
 		expect(
-			videoCardsPollIntervalMs([videoCard(videoTake({ status: "failed" }))]),
+			takeCardsPollIntervalMs(
+				[imageCard([imageTake({ status: "failed" })])],
+				[videoCard(videoTake({ status: "failed" }))],
+			),
 		).toBe(2500);
 	});
 });

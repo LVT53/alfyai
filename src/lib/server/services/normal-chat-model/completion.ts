@@ -21,6 +21,7 @@ import type {
 } from "$lib/shared/normal-chat-completion";
 import {
 	createNormalChatOutputJournal,
+	joinAnswerSteps,
 	type NormalChatOutputEvent,
 	type NormalChatOutputPhase,
 	type NormalChatOutputScope,
@@ -29,6 +30,8 @@ import {
 } from "$lib/shared/normal-chat-output";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "../chat-turn/conversation-history";
+import { boundedWebReadFailure } from "../normal-chat-tools/model-payload-budget";
+import { stableStringify } from "../normal-chat-tools/stable-stringify";
 import {
 	providerCanSeeImages,
 	providerRunsLocally,
@@ -40,6 +43,8 @@ import {
 import { buildStepImagesMessage, stripImageParts } from "../vision/turn-images";
 import {
 	buildCompletionTools,
+	createCompletionReadBudget,
+	measureReadResultFraming,
 	toolCallRepairFunction,
 } from "./completion-tools";
 import {
@@ -414,11 +419,17 @@ export async function* runNormalChatCompletion(
 			? (policy.abortCause?.() ?? "user_stop")
 			: undefined;
 	const stopped = () => externalAbort() === "user_stop";
+	// The run's text is its own segment's answer: a resume carries the segment that
+	// asked, whose words are that segment's answer, not this one's.
+	const segmentAnswer = () =>
+		projectNormalChatOutput(
+			snapshot.events.filter((e) => e.segmentId === policy.segmentId),
+		).answer;
 	// Complete terminal observations are read-only. A resume is a distinct authorized segment.
 	if (snapshot.completion && !resumed) {
 		const saved = snapshot.completion;
 		return {
-			text: projectNormalChatOutput(snapshot.events).answer,
+			text: segmentAnswer(),
 			finishReason: saved.outcome === "answered" ? "stop" : "other",
 			usage: aggregateUsage(
 				snapshot.usage.filter((entry) => entry.segmentId === policy.segmentId),
@@ -553,29 +564,78 @@ export async function* runNormalChatCompletion(
 		}
 		return counted;
 	};
-	const assertFits = async (
+	const assertActive = () => {
+		const aborted = externalAbort();
+		if (aborted) throw new CompletionExit(aborted);
+		if (uncertain()) throw new CompletionExit("uncertain_execution");
+		if (Date.now() >= snapshot.deadlineAt) throw new CompletionExit("deadline");
+	};
+	const measureRequest = async (
 		input: { system?: string; messages: ModelMessage[] },
 		tools: ToolSet | undefined,
 	) => {
-		const output = params.maxOutputTokens ?? params.provider.maxOutputTokens;
-		const capacity = deps.maxModelContext;
-		const toolTokens = await countCatalogue(tools);
-		const aborted = externalAbort();
-		if (aborted) throw new CompletionExit(aborted);
-		if (Date.now() >= snapshot.deadlineAt) throw new CompletionExit("deadline");
-		// No invented model table and no shrinking of continuation evidence.
-		if (
-			capacity === undefined ||
-			output === undefined ||
-			estimateHistoryMessagesTokens(input.messages, estimateTokenCount) +
+		const catalogueTokens = await countCatalogue(tools);
+		assertActive();
+		// History's text renderer excludes native reasoning; projected reasoning
+		// is still sent on compatible destinations and consumes the same window.
+		let reasoningTokens = 0,
+			imageTokens = 0;
+		const knownImages = snapshot.steps.flatMap((step) =>
+			step.imageEntries.flatMap((entry) => entry.images),
+		);
+		for (const message of input.messages) {
+			if (!Array.isArray(message.content)) continue;
+			for (const part of message.content) {
+				if (part.type === "reasoning")
+					reasoningTokens += estimateTokenCount(part.text);
+				if (part.type === "image") {
+					const encoded =
+						typeof part.image === "string"
+							? part.image
+							: part.image instanceof Uint8Array
+								? Buffer.from(part.image).toString("base64")
+								: undefined;
+					const known = knownImages.find(
+						({ image }) => image.base64 === encoded,
+					);
+					if (known && Number.isFinite(known.image.estimatedTokens))
+						imageTokens += Math.max(0, known.image.estimatedTokens);
+				}
+			}
+		}
+		return {
+			inputTokens:
+				estimateHistoryMessagesTokens(input.messages, estimateTokenCount) +
 				estimateTokenCount(input.system ?? "") +
-				toolTokens +
+				reasoningTokens,
+			catalogueTokens,
+			imageTokens,
+			capacity: deps.maxModelContext,
+			preparedOutput: params.maxOutputTokens ?? params.provider.maxOutputTokens,
+		};
+	};
+	const assertFits = async (
+		input: { system?: string; messages: ModelMessage[] },
+		tools: ToolSet | undefined,
+		output = params.maxOutputTokens ?? params.provider.maxOutputTokens,
+	) => {
+		const measured = await measureRequest(input, tools);
+		if (
+			measured.capacity === undefined ||
+			!Number.isFinite(measured.capacity) ||
+			output === undefined ||
+			!Number.isFinite(output) ||
+			output <= 0 ||
+			measured.inputTokens +
+				measured.catalogueTokens +
+				measured.imageTokens +
 				output +
 				CONTEXT_GUARD_MARGIN_TOKENS >
-				capacity
+				measured.capacity
 		)
 			throw new CompletionExit("context_capacity");
 	};
+
 	while (true) {
 		if (stopped()) {
 			outcome = "stopped";
@@ -645,6 +705,12 @@ export async function* runNormalChatCompletion(
 			: undefined;
 
 		const stepsByNumber = new Map<number, NormalChatContinuationStep>();
+		// The steps whose only tool calls are ask cards. Words that lead into a card
+		// are not withdrawn by its call: they are settled as activity as soon as the
+		// reply calls another tool, else when the attempt ends, as the reply's answer
+		// if it paused for the person and as activity otherwise (chat-turn/AGENTS.md,
+		// The Pause).
+		const heldSteps = new Set<string>();
 		let preparedStepNumber = 0;
 		let attemptFinished = false;
 		let attemptError = false;
@@ -652,6 +718,9 @@ export async function* runNormalChatCompletion(
 		let attemptCause: NormalChatStopCause | undefined;
 		let lastReason: string | null = null;
 		let missingUsage = false;
+		// Set only after a step's final pre-dispatch check; a settled callback
+		// clears it. Capacity before the next dispatch cannot add unknown usage.
+		let requestOutstanding = false;
 		let firstOutputTimedOut = false;
 		const firstOutputController = new AbortController();
 		const firstOutputMs =
@@ -730,12 +799,32 @@ export async function* runNormalChatCompletion(
 			providerExecuted = false,
 			current = ensureStep(),
 		) => {
-			if (!current.toolAttempted && phase === "working")
-				emit(scope(current), {
-					type: "step_settled",
-					role: "activity",
-					finishReason: null,
-				});
+			// The first tool occurrence withdraws the step's words, unless it is an
+			// ask card: then the step is held. Any other tool withdraws the words of
+			// every held step at once, since they can no longer lead into a card.
+			if (phase === "working") {
+				if (toolName === ASK_USER_TOOL_NAME) {
+					if (!current.toolAttempted) heldSteps.add(current.stepId);
+				} else {
+					for (const step of snapshot.steps)
+						if (
+							step !== current &&
+							step.attemptId === attemptId &&
+							heldSteps.delete(step.stepId)
+						)
+							emit(scope(step), {
+								type: "step_settled",
+								role: "activity",
+								finishReason: step.finishReason,
+							});
+					if (!current.toolAttempted || heldSteps.delete(current.stepId))
+						emit(scope(current), {
+							type: "step_settled",
+							role: "activity",
+							finishReason: null,
+						});
+				}
+			}
 			current.toolAttempted = true;
 			let entry = executionsForStep(current).find(
 				(e) => e.callId === callId && e.toolName === toolName,
@@ -835,8 +924,10 @@ export async function* runNormalChatCompletion(
 						part.providerOptions = clone(entry.providerOptions);
 					}
 		};
+		const readBudget = createCompletionReadBudget();
 		const tools = buildCompletionTools({
 			phase,
+			readBudget,
 			policy: attemptPolicy,
 			snapshot,
 			params: { tools: effectiveTools },
@@ -960,6 +1051,16 @@ export async function* runNormalChatCompletion(
 				finishReason,
 				toolAttempted: current.toolAttempted,
 			});
+			const calls = executionsForStep(current);
+			if (
+				phase === "working" &&
+				calls.length > 0 &&
+				calls.every((call) => call.toolName === ASK_USER_TOOL_NAME)
+			) {
+				heldSteps.add(current.stepId);
+				return;
+			}
+			heldSteps.delete(current.stepId);
 			emit(scope(current), {
 				type: "step_settled",
 				role: phase === "closing" ? "answer" : "activity",
@@ -967,6 +1068,7 @@ export async function* runNormalChatCompletion(
 			});
 		};
 		const finishStep = (event: OnStepFinishEvent<ToolSet>) => {
+			requestOutstanding = false;
 			receivedUpstreamOutput = true;
 			clearFirstOutputTimeout();
 			const current = ensureStep(event.stepNumber);
@@ -1050,12 +1152,11 @@ export async function* runNormalChatCompletion(
 				);
 			notify();
 		};
-		const prepareStep: PrepareStepFunction<ToolSet> = async (options) => {
-			if (stopped()) throw new CompletionExit("user_stop");
-			if (uncertain()) throw new CompletionExit("uncertain_execution");
-			if (Date.now() >= deadline) throw new CompletionExit("deadline");
-			preparedStepNumber = options.stepNumber;
-			const current = ensureStep(options.stepNumber);
+		type PreparedInput = { system?: string; messages: ModelMessage[] };
+		let closingInput: PreparedInput | undefined;
+		let invocationOutput =
+			params.maxOutputTokens ?? params.provider.maxOutputTokens;
+		const prepareInput = async (current: NormalChatContinuationStep) => {
 			const entries = [
 				...snapshot.pendingImageEntries.splice(0),
 				...clone(params.stepImages?.drain() ?? []),
@@ -1067,13 +1168,102 @@ export async function* runNormalChatCompletion(
 			const messages = canonical();
 			if (phase === "closing")
 				messages.push({ role: "user", content: closingInstruction });
-			const input = await project(messages);
-			await assertFits(input, tools);
+			return project(messages);
+		};
+		const prepareStep: PrepareStepFunction<ToolSet> = async (options) => {
+			if (stopped()) throw new CompletionExit("user_stop");
+			if (uncertain()) throw new CompletionExit("uncertain_execution");
+			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+			preparedStepNumber = options.stepNumber;
+			const current = ensureStep(options.stepNumber);
+			// SDK 6 cannot override maxOutputTokens from prepareStep. Closing's
+			// exact projected step-zero input and cap were fixed before invocation.
+			const input = closingInput
+				? clone(closingInput)
+				: await prepareInput(current);
+			if (closingInput && snapshot.pendingImageEntries.length)
+				throw new CompletionExit("context_capacity");
+			await assertFits(input, tools, invocationOutput);
+			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+			if (phase === "working") {
+				const measured = await measureRequest(input, tools);
+				const output = measured.preparedOutput;
+				const originalDestination =
+					snapshot.original.providerId === params.provider.id &&
+					snapshot.original.providerBaseUrl === params.provider.baseUrl &&
+					snapshot.original.modelName === params.provider.modelName;
+				const closingMinimum =
+					output === undefined
+						? Number.NaN
+						: originalDestination
+							? Math.min(output, 1024)
+							: output;
+				const framing = estimateHistoryMessagesTokens(
+					[
+						{ role: "assistant", content: "" },
+						{ role: "tool", content: [] },
+					],
+					estimateTokenCount,
+				);
+				// Hold proposal-sized framing independently of leases: generated input
+				// occurs once, while the call ID occurs in both request and result.
+				// Two prepared output budgets plus measured fixed framing define the
+				// supported allowance; allocation still checks the actual proposal.
+				const terminal =
+					2 * (output ?? Number.NaN) +
+					measureReadResultFraming({
+						callId: "capacity-refusal",
+						toolName: "research_web",
+						input: {},
+					}) +
+					estimateTokenCount(
+						stableStringify(boundedWebReadFailure("research_web")),
+					);
+				const room = Math.floor(
+					(measured.capacity ?? Number.NaN) -
+						measured.inputTokens -
+						measured.catalogueTokens -
+						measured.imageTokens -
+						(output ?? Number.NaN) -
+						closingMinimum -
+						CONTEXT_GUARD_MARGIN_TOKENS -
+						estimateHistoryMessagesTokens(
+							[{ role: "user", content: closingInstruction }],
+							estimateTokenCount,
+						) -
+						framing,
+				);
+				const reserved =
+					Number.isFinite(room) && Number.isFinite(terminal)
+						? Math.min(Math.max(0, room), terminal)
+						: 0;
+				readBudget.freeze(
+					current.stepId,
+					Math.max(0, room - reserved),
+					reserved,
+				);
+			}
 			current.observedInput = clone({
 				providerId: params.provider.id,
 				...input,
 			});
 			notify();
+			// Snapshot callbacks may stop the turn or admit more pictures. Never
+			// dispatch the cached input after that invalidates its preflight.
+			await assertFits(input, tools, invocationOutput);
+			if (closingInput) {
+				// notify drains before its callback. Retain anything that callback
+				// queued, including during the final await, before rejecting stale input.
+				snapshot.pendingImageEntries.push(
+					...clone(params.stepImages?.drain() ?? []),
+				);
+				if (snapshot.pendingImageEntries.length)
+					throw new CompletionExit("context_capacity");
+			}
+			if (Date.now() >= deadline) throw new CompletionExit("deadline");
+
+			assertActive();
+			requestOutstanding = true;
 			return {
 				...input,
 				...(phase === "working" &&
@@ -1085,10 +1275,37 @@ export async function* runNormalChatCompletion(
 		};
 		try {
 			deps.validateTools?.(tools);
-			const input = await project(canonical());
-			if (phase === "closing")
-				input.messages.push({ role: "user", content: closingInstruction });
-			await assertFits(input, tools);
+			const input =
+				phase === "closing"
+					? await prepareInput(ensureStep(0))
+					: await project(canonical());
+			assertActive();
+			if (phase === "closing") {
+				closingInput = clone(input);
+				const capacity = deps.maxModelContext;
+				const output = invocationOutput;
+				if (
+					capacity !== undefined &&
+					Number.isFinite(capacity) &&
+					output !== undefined &&
+					Number.isFinite(output) &&
+					snapshot.original.providerId === params.provider.id &&
+					snapshot.original.providerBaseUrl === params.provider.baseUrl &&
+					snapshot.original.modelName === params.provider.modelName
+				) {
+					const measured = await measureRequest(input, undefined);
+					const room = Math.floor(
+						capacity -
+							measured.inputTokens -
+							measured.imageTokens -
+							CONTEXT_GUARD_MARGIN_TOKENS,
+					);
+					if (room < Math.min(output, 1024))
+						throw new CompletionExit("context_capacity");
+					invocationOutput = Math.min(output, room);
+				}
+			}
+			await assertFits(input, tools, invocationOutput);
 			const request = {
 				model: deps.model,
 				...input,
@@ -1111,14 +1328,17 @@ export async function* runNormalChatCompletion(
 										attemptCause = "deadline";
 										return true;
 									}
+									if (readBudget.exhausted) {
+										attemptCause = "context_capacity";
+										return true;
+									}
 									return segmentWorkingSteps >= (params.maxToolSteps ?? 20);
 								},
 							],
 						}
 					: {}),
 				prepareStep,
-				maxOutputTokens:
-					params.maxOutputTokens ?? params.provider.maxOutputTokens,
+				maxOutputTokens: invocationOutput,
 				...resolveModelCallSampling(params.provider),
 				providerOptions: deps.providerOptions,
 				maxRetries: 0,
@@ -1311,6 +1531,19 @@ export async function* runNormalChatCompletion(
 					usage.totalTokens !== null;
 			}
 		} catch (error) {
+			if (
+				error instanceof CompletionExit &&
+				error.causeCode === "context_capacity" &&
+				!requestOutstanding &&
+				!missingUsage
+			) {
+				// Only this local capacity rejection proves the next request never
+				// went out. Known settled totals (or pre-dispatch zero) stay known.
+				usage.inputTokens ??= 0;
+				usage.outputTokens ??= 0;
+				usage.totalTokens ??= 0;
+				usage.complete = true;
+			}
 			attemptError = true;
 			rawError = firstOutputTimedOut
 				? new Error("Timed out waiting for first upstream output")
@@ -1366,15 +1599,7 @@ export async function* runNormalChatCompletion(
 		const finalStep = snapshot.steps
 			.filter((s) => s.attemptId === attemptId)
 			.at(-1);
-		const finalText =
-			finalStep?.response
-				.filter((m) => m.role === "assistant")
-				.flatMap((m) =>
-					typeof m.content === "string"
-						? [m.content]
-						: m.content.filter((p) => p.type === "text").map((p) => p.text),
-				)
-				.join("") ?? "";
+		const finalText = finalStep ? stepWords(finalStep) : "";
 		stopCause =
 			externalAbort() ??
 			(stopped()
@@ -1396,6 +1621,39 @@ export async function* runNormalChatCompletion(
 			finalStep?.finished &&
 			!finalStep.toolAttempted &&
 			hasVisibleCharacter(sanitizeNormalChatAnswer(finalText));
+		// The words that lead into the card are the reply's when the attempt pauses
+		// for the person, which the branch below takes only when nothing stopped it:
+		// the step that asked, and the steps right before it whose only calls were
+		// cards the app refused. The words of every other held step were a remark.
+		const askedIn =
+			paused && !stopped() && !externalAbort()
+				? snapshot.executions.find(
+						(e) =>
+							e.attemptId === attemptId &&
+							e.segmentId === policy.segmentId &&
+							e.toolName === ASK_USER_TOOL_NAME &&
+							e.state === "succeeded" &&
+							isAskPauseOutput(e.output),
+					)?.stepId
+				: undefined;
+		const attemptSteps = snapshot.steps.filter(
+			(s) => s.attemptId === attemptId,
+		);
+		const leadIn: NormalChatContinuationStep[] = [];
+		for (
+			let i = attemptSteps.findIndex((s) => s.stepId === askedIn);
+			i >= 0 && heldSteps.has(attemptSteps[i].stepId);
+			i--
+		)
+			leadIn.unshift(attemptSteps[i]);
+		for (const step of attemptSteps)
+			if (heldSteps.has(step.stepId))
+				emit(scope(step), {
+					type: "step_settled",
+					role: leadIn.includes(step) ? "answer" : "activity",
+					finishReason: step.finishReason,
+				});
+		heldSteps.clear();
 		// These facts describe this attempt, never the later closing attempt.
 		usage.safeStopCause = stopped()
 			? "user_stop"
@@ -1422,6 +1680,10 @@ export async function* runNormalChatCompletion(
 			break;
 		}
 		if (paused) {
+			// Saved as the reply's own words, as a natural stop's are.
+			const words = joinAnswerSteps(leadIn.map(stepWords));
+			if (streaming && hasVisibleCharacter(sanitizeNormalChatAnswer(words)))
+				yield { type: "text_delta", text: words };
 			outcome = "paused";
 			stopCause = "ask_pause";
 			break;
@@ -1543,7 +1805,12 @@ export async function* runNormalChatCompletion(
 		}
 		if (
 			phase === "closing" ||
-			stopCause === "context_capacity" ||
+			(stopCause === "context_capacity" &&
+				!(
+					receivedUpstreamOutput ||
+					hasToolOccurrence() ||
+					(resumed && snapshot.steps.some((step) => step.response.length > 0))
+				)) ||
 			stopCause === "incompatible_continuation" ||
 			Date.now() >= snapshot.deadlineAt
 		) {
@@ -1595,13 +1862,24 @@ export async function* runNormalChatCompletion(
 		model: deps.metadata(responseModel),
 	};
 	return {
-		text: projectNormalChatOutput(snapshot.events).answer,
+		text: segmentAnswer(),
 		finishReason: finalFinish,
 		usage: aggregate,
 		model: deps.metadata(responseModel),
 		completion,
 		continuation: snapshot,
 	};
+}
+/** A step's words: the text parts of its assistant messages, as the model wrote them. */
+function stepWords(step: NormalChatContinuationStep): string {
+	return step.response
+		.filter((m) => m.role === "assistant")
+		.flatMap((m) =>
+			typeof m.content === "string"
+				? [m.content]
+				: m.content.filter((p) => p.type === "text").map((p) => p.text),
+		)
+		.join("");
 }
 function addKnown(total: number | null, value: number | undefined) {
 	return value === undefined ? total : (total ?? 0) + value;

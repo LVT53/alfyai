@@ -1099,4 +1099,75 @@ describe("ArtifactCard, the picture card (plan 2b T2)", () => {
 			/artifact/i,
 		);
 	});
+
+	it("shows a take's time beside the kind in the head, out of the box and out of the head's name", async () => {
+		const making = imageTake({
+			status: "running",
+			phase: "rendering",
+			phaseAt: Date.now(),
+			etaSeconds: 24,
+			fileId: null,
+			width: null,
+			height: null,
+		});
+		const { rerender } = render(ArtifactCard, {
+			view: view({
+				id: "artifact-9",
+				kind: "image",
+				title: "Cosy room",
+				subtitle: "Image · 2 takes",
+			}),
+			imageCard: imageCard([making]),
+		});
+		await screen.findByTestId("image-card-body");
+		const time = await screen.findByTestId("artifact-card-take-time");
+		expect(time).toHaveTextContent("About 24 s left");
+		expect(time).toHaveClass("artifact-card-take-time");
+		// Visual only: the head's name does not change every second (the body's
+		// sr-only detail carries the same words).
+		expect(time).toHaveAttribute("aria-hidden", "true");
+		const head = screen.getByTestId("artifact-card-head");
+		expect(head).toContainElement(time);
+		expect(head).toHaveTextContent("Image · 2 takes");
+		// Nothing in the box but the shimmer.
+		expect(screen.getByTestId("image-card-shimmer").textContent?.trim()).toBe(
+			"",
+		);
+
+		// The picture lands: the head says what it is again, with no time.
+		await rerender({
+			view: view({
+				id: "artifact-9",
+				kind: "image",
+				title: "Cosy room",
+				subtitle: "Image · 2 takes",
+			}),
+			imageCard: imageCard([{ ...making, status: "succeeded", fileId: "f" }]),
+		});
+		await vi.waitFor(() =>
+			expect(screen.queryByTestId("artifact-card-take-time")).toBeNull(),
+		);
+		expect(screen.getByTestId("artifact-card-head")).toHaveTextContent(
+			"Image · 2 takes",
+		);
+	});
+
+	it("shows a take's time in Hungarian", async () => {
+		uiLanguage.set("hu");
+		render(ArtifactCard, {
+			view: view({ kind: "image", title: "Hangulatos szoba" }),
+			imageCard: imageCard([
+				imageTake({
+					status: "running",
+					phase: "rendering",
+					phaseAt: Date.now(),
+					etaSeconds: 24,
+					fileId: null,
+				}),
+			]),
+		});
+		const time = await screen.findByTestId("artifact-card-take-time");
+		expect(time).toHaveTextContent("Még kb. 24 mp");
+		expect(screen.getByTestId("artifact-card-head")).toHaveTextContent("Kép");
+	});
 });

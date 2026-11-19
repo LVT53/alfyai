@@ -1,0 +1,1421 @@
+/**
+ * The reading controller: it carries out what the reading machine decides
+ * (`reading-machine.ts`). It owns the one `<audio>` element, the session's
+ * `EventSource`, the timers, and the calls to the session routes, and it turns
+ * what happens to them back into the machine's events. Components read
+ * `readAloudView` and call this; nothing else touches the audio or the routes.
+ *
+ * Built on the speech service's contract (`deploy/speech-service/README.md`):
+ * - position is reported from playback time, so synthesis keeps two sentences ahead;
+ * - `done` means synthesis finished, not playback: it never ends a reading, and the
+ *   events stream stays open after it (closed with the session), so a reading another
+ *   tab or device starts meanwhile still reaches this one as `replaced`;
+ * - an events stream that ends without `done` or `error` is a stop (after `done`, its
+ *   end is not: everything was made, and the audio plays out);
+ * - a jump, a resume after a long pause and a retry are new sessions.
+ *
+ * It reads a reply (found by its message ids), a Document (the panel's Document body hands it a
+ * `DocumentReadingSource`) or a standard report (the panel's report preview hands it a
+ * `ReportReadingSource`): what it reads is a `ReadingTarget`, named in the machine by its key.
+ */
+
+import { get } from "svelte/store";
+import { fetchServerHealth, type ServerHealth } from "$lib/client/api/health";
+import { ApiError } from "$lib/client/api/http";
+import {
+	cancelReadingSession,
+	createReadingSession,
+	type ReadingRequestBody,
+	type ReadingStart,
+	readingAudioUrl,
+	readingEventsUrl,
+	reportReadingPosition,
+} from "$lib/client/api/read-aloud";
+import {
+	SERVER_UPDATE_WATCH_MAX_MS,
+	SERVER_UPDATE_WATCH_POLL_MS,
+} from "$lib/client/server-update-watch";
+import type { ReportAddress } from "$lib/shared/read-aloud/report-address";
+import { MAX_SENTENCES_PER_SESSION } from "$lib/shared/read-aloud/session-limits";
+import { silentMp3DataUri } from "$lib/shared/read-aloud/silent-mp3";
+import { type ReadAloudView, setReadAloudView } from "$lib/stores/read-aloud";
+import { reportServerUpdateSign } from "$lib/stores/server-update";
+import { uiLanguage } from "$lib/stores/settings";
+import { requestThreadFocus } from "$lib/stores/thread-focus";
+import { paintCodeMarks } from "./code-marks";
+import { type Detect, loadDetector } from "./language";
+import {
+	type BreakKind,
+	classifyBreak,
+	initialReadingState,
+	READING_TIMER_MS,
+	type ReadingCommand,
+	type ReadingEvent,
+	type ReadingState,
+	type ReadingStatus,
+	type ReadingTimer,
+	reduce,
+} from "./reading-machine";
+import {
+	buildSpeechScript,
+	type ScriptSentence,
+	type SpeechScript,
+	sentenceAtPoint,
+} from "./speech-script";
+import {
+	drawnNotches,
+	estimateSeconds,
+	formatClock,
+	notches,
+	SessionTimeline,
+	shareAt,
+} from "./timeline";
+
+/** A finished reply: the conversation, the message, and the segments it is drawn in ("Ask me first"). */
+export type ReplyTarget = {
+	kind: "reply";
+	conversationId: string;
+	messageId: string;
+	segmentIds: readonly string[];
+};
+
+/**
+ * What the panel's Document body hands the controller to read the Document it shows
+ * (`DocumentBody.svelte`): the controller finds, checks and scrolls the Document only through it.
+ */
+export type DocumentReadingSource = {
+	/** The element the Document's text is drawn in, or null when it is not (still loading, the panel closed, another item opened). */
+	root(): Element | null;
+	/** What the page draws that is not the Document's text (its chips, Alfy's pill): never read. */
+	readonly skip?: string;
+	/** The version the panel shows: the session route checks the words read against its text. Null until it has loaded. */
+	version(): number | null;
+	/** Changes whenever the text the panel shows changes (an edit, Alfy's change, a restore, another tab): the reading then stops. */
+	revision(): unknown;
+	/** Saves what the panel shows and has not stored yet, so its version holds every word read. Never rejects. */
+	settle(): Promise<void>;
+	/** Brings a place of the Document into view: the sentence being read (⌖, "center") or a drag's target ("reveal"). */
+	focus(rect: () => DOMRect | null, mode: "center" | "reveal"): void;
+};
+
+/** A Document open in the panel. */
+export type DocumentTarget = {
+	kind: "document";
+	artifactId: string;
+	/** The chat the panel is in, or null outside one: an incognito chat's own Document is reached only through it. */
+	conversationId: string | null;
+	source: DocumentReadingSource;
+};
+
+/**
+ * What the panel's report preview hands the controller to read a standard report
+ * (`ReportReadAloud.svelte`): the page's own inert copy of the report, which is what
+ * is read, and the report's frame, which is reached only by message
+ * (`report-bridge-host.ts`): the frame never hands the page a word.
+ */
+export type ReportReadingSource = {
+	/** The copy's content (`#report-content`), or null when the report is not shown any more. */
+	root(): Element | null;
+	/** The report's chrome (`REPORT_CHROME`: its source chips, tooltips, Sources): never read. */
+	readonly skip: string;
+	/** Changes when another copy of the report is loaded: the reading then stops. */
+	revision(): unknown;
+	/**
+	 * Brings a place into view in the frame: the ranges, over the copy, of the sentence being
+	 * read (⌖, "center") or of a drag's target ("reveal").
+	 */
+	focus(ranges: readonly Range[], mode: "center" | "reveal"): void;
+};
+
+/**
+ * A standard report open in the panel, named by the preview that showed it: its chat
+ * file (opened from a chat) or its library item (opened from the Knowledge library).
+ */
+export type ReportTarget = {
+	kind: "report";
+	report: ReportAddress;
+	source: ReportReadingSource;
+};
+
+export type ReadingTarget = ReplyTarget | DocumentTarget | ReportTarget;
+
+export type StartRequest = ReadingTarget & {
+	/** Read from here: the selection's start. */
+	from?: { node: Node; offset: number };
+};
+
+/** A Document's reading key: what the machine and the view name its reading by. */
+export function documentReadingKey(artifactId: string): string {
+	return `document:${artifactId}`;
+}
+
+/** A report's reading key: what the machine and the view name its reading by. */
+export function reportReadingKey(report: ReportAddress): string {
+	return "fileId" in report
+		? `report:${report.fileId}`
+		: `report:library:${report.artifactId}`;
+}
+
+/** What the machine and the view name a reading by: a reply's message id, or a Document's or a report's key. */
+export function readingKey(target: ReadingTarget): string {
+	if (target.kind === "document") return documentReadingKey(target.artifactId);
+	if (target.kind === "report") return reportReadingKey(target.report);
+	return target.messageId;
+}
+
+/** A report's address, its one key alone. */
+function addressOf(report: ReportAddress): ReportAddress {
+	return "fileId" in report
+		? { fileId: report.fileId }
+		: { artifactId: report.artifactId };
+}
+
+function targetOf(r: StartRequest): ReadingTarget {
+	if (r.kind === "document")
+		return {
+			kind: "document",
+			artifactId: r.artifactId,
+			conversationId: r.conversationId,
+			source: r.source,
+		};
+	if (r.kind === "report")
+		return { kind: "report", report: addressOf(r.report), source: r.source };
+	return {
+		kind: "reply",
+		conversationId: r.conversationId,
+		messageId: r.messageId,
+		segmentIds: [...r.segmentIds],
+	};
+}
+
+export type Readability =
+	| { kind: "ready" }
+	| { kind: "noVoice"; language: string | null }
+	| { kind: "nothing" }
+	| { kind: "unknown" };
+
+/**
+ * What a player's pill calls (`ReadAloudPlayerPill.svelte`): the reply controller, or the
+ * voice preview in Settings and the editor, which has no locate, speed or stop of its own.
+ */
+export type ReadAloudPlayerActions = Pick<
+	ReadAloudController,
+	| "toggle"
+	| "retry"
+	| "seek"
+	| "beginDrag"
+	| "dragTo"
+	| "endDrag"
+	| "sentencePreview"
+> &
+	Partial<Pick<ReadAloudController, "setSpeed" | "locate" | "stop">>;
+
+export interface ReadAloudController {
+	start(r: StartRequest): void;
+	toggle(): void;
+	seek(i: number): void;
+	retry(): void;
+	beginDrag(): void;
+	dragTo(i: number): void;
+	endDrag(i: number): void;
+	setSpeed(v: number): void;
+	stop(): void;
+	locate(): void;
+	/** `"4/9 · Feed it once a day…"`: the sentence's number and its first written words. */
+	sentencePreview(i: number): string;
+	assessReadability(target: ReadingTarget): Promise<Readability>;
+}
+
+/** What the controller needs of an `<audio>` element. */
+export type AudioLike = EventTarget & {
+	src: string;
+	currentTime: number;
+	playbackRate: number;
+	preservesPitch: boolean;
+	readonly paused: boolean;
+	readonly ended: boolean;
+	play(): Promise<void>;
+	pause(): void;
+	load(): void;
+	removeAttribute(name: string): void;
+};
+
+/**
+ * The browser's Media Session: what the OS's media keys, headphones and Now
+ * Playing talk to. Without handlers of its own, a page's paused audio is theirs to
+ * resume; the reading holds it while it reads and lets it go when it ends.
+ */
+export type MediaSessionLike = {
+	playbackState: "none" | "paused" | "playing";
+	metadata: unknown;
+	setActionHandler(
+		action: "play" | "pause" | "stop",
+		handler: (() => void) | null,
+	): void;
+};
+
+/** What the controller needs of an `EventSource`. */
+export type EventSourceLike = EventTarget & {
+	readonly readyState: number;
+	close(): void;
+};
+
+export type ReadAloudDeps = {
+	audio: AudioLike;
+	createEventSource: (url: string) => EventSourceLike;
+	api: {
+		createReadingSession: (body: ReadingRequestBody) => Promise<ReadingStart>;
+		cancelReadingSession: (id: string) => void;
+		reportReadingPosition: (id: string, sentenceId: string) => void;
+		readingAudioUrl: (id: string) => string;
+		readingEventsUrl: (id: string) => string;
+	};
+	loadDetector: () => Promise<Detect>;
+	document: Document;
+	/** Where `online` and `offline` are heard. */
+	window: EventTarget;
+	isOnline: () => boolean;
+	isHidden: () => boolean;
+	fetchHealth: () => Promise<ServerHealth>;
+	reportUpdateSign: () => void;
+	setTimeout: (fn: () => void, ms: number) => unknown;
+	clearTimeout: (handle: unknown) => void;
+	requestFrame: (fn: () => void) => unknown;
+	cancelFrame: (handle: unknown) => void;
+	now: () => number;
+	uiLanguage: () => "en" | "hu";
+	setView: (view: ReadAloudView) => void;
+	requestFocus: (rect: () => DOMRect | null, mode: "center" | "reveal") => void;
+	/** Calls `onChange` when the thread's DOM changes; returns the way to stop. */
+	observe: (target: Node, onChange: () => void) => () => void;
+	/** Absent (null) where the browser has none. */
+	mediaSession?: MediaSessionLike | null;
+};
+
+const EVENTSOURCE_CLOSED = 2;
+const DEFAULT_CHARS_PER_SECOND: Record<"en" | "hu", number> = {
+	en: 15,
+	hu: 15,
+};
+const TIMER_EVENTS: Record<ReadingTimer, ReadingEvent["type"]> = {
+	busy: "busyTimeout",
+	start: "startTimeout",
+	failedSpeaker: "startFailedTimeout",
+	longPause: "longPause",
+	finished: "finishedTimeout",
+};
+const NO_READING: ReadonlySet<ReadingStatus> = new Set([
+	"idle",
+	"finished",
+	"startFailed",
+]);
+
+/** One reply or Document being read: what it is, its script, and what its sessions have measured. */
+type Reading = {
+	target: ReadingTarget;
+	key: string;
+	/** Which `.code-block` of the reply Read from here started in, by its place (the element may be redrawn). */
+	readBlockIndex: number | null;
+	script: SpeechScript | null;
+	/** A Document's revision when its script was built: another one means its text changed. */
+	revision: unknown;
+	/**
+	 * Each sentence's first text node, kept when the script was built. Word ranges are live: when a
+	 * re-render removes their node they collapse onto its parent and still look connected, so a
+	 * redrawn reply is noticed by these nodes, not by the ranges.
+	 */
+	anchors: Node[];
+	known: Map<number, number>;
+	charsPerSecond: Record<"en" | "hu", number>;
+};
+
+/** One session of the speech service: a reading from sentence `from` on, up to (not including) `to`. */
+type Session = {
+	id: string;
+	from: number;
+	/** The first sentence this session does not carry: the reply goes on from here when it ends. */
+	to: number;
+	timeline: SessionTimeline;
+	events: EventSourceLike | null;
+	/** How the stream said it failed, held until the audio made before it has played. */
+	failure: { serviceError: boolean; sentenceId: string | null } | null;
+};
+
+function quoteId(id: string): string {
+	return id.replace(/["\\]/g, "\\$&");
+}
+
+function uniqueRanges(ranges: readonly Range[]): Range[] {
+	return [...new Set(ranges)];
+}
+
+function unionRect(ranges: readonly Range[]): DOMRect | null {
+	let left = Number.POSITIVE_INFINITY;
+	let top = Number.POSITIVE_INFINITY;
+	let right = Number.NEGATIVE_INFINITY;
+	let bottom = Number.NEGATIVE_INFINITY;
+	for (const range of ranges) {
+		const rect = range.getBoundingClientRect();
+		if (rect.width === 0 && rect.height === 0) continue;
+		left = Math.min(left, rect.left);
+		top = Math.min(top, rect.top);
+		right = Math.max(right, rect.right);
+		bottom = Math.max(bottom, rect.bottom);
+	}
+	if (!Number.isFinite(left)) return null;
+	return new DOMRect(left, top, right - left, bottom - top);
+}
+
+function parseData(event: Event): Record<string, unknown> | null {
+	if (!(event instanceof MessageEvent) || typeof event.data !== "string")
+		return null;
+	try {
+		const data = JSON.parse(event.data) as unknown;
+		return data && typeof data === "object"
+			? (data as Record<string, unknown>)
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+export function createReadAloudController(
+	deps: ReadAloudDeps,
+): ReadAloudController {
+	const { audio, api } = deps;
+	let state: ReadingState = initialReadingState;
+	let reading: Reading | null = null;
+	/** The reading a press or a selection asked for, taken by the `open` it causes. */
+	let pending: Reading | null = null;
+	let starting = false;
+	let session: Session | null = null;
+	let openToken = 0;
+	let defaultSpeedPending = false;
+	let expectPause = false;
+	let unlocked = false;
+	let detect: Detect | null = null;
+	let lastLocate: {
+		sentence: number;
+		word: number | null;
+		within: number;
+	} | null = null;
+	let frame: unknown = null;
+	let active = false;
+	let stopObserving: (() => void) | null = null;
+	let endRecovery: (() => void) | null = null;
+	let lastViewKey = "";
+	const timers = new Map<ReadingTimer, unknown>();
+
+	const isUnlockClip = () => audio.src.startsWith("data:");
+	const hasSessionAudio = () => session !== null && !isUnlockClip();
+
+	// -------------------------------------------------------------------
+	// The machine
+	// -------------------------------------------------------------------
+
+	function dispatch(event: ReadingEvent) {
+		const previous = state;
+		const step = reduce(state, event);
+		state = step.state;
+		for (const command of step.commands) run(command, previous);
+		if (previous.status === "waiting" && state.status !== "waiting")
+			stopRecovery();
+		if (state.status === "idle") deactivate();
+		else activate();
+		holdMediaSession();
+		publish();
+	}
+
+	// -------------------------------------------------------------------
+	// The OS's media keys (the owner's replay on staging, 2026-11-17)
+	// -------------------------------------------------------------------
+
+	/** A reading that has, or is getting, sound to stop or resume. */
+	const reads = () =>
+		state.status !== "idle" &&
+		state.status !== "finished" &&
+		state.status !== "startFailed";
+	/** The reading asked for sound: a start, a jump, a resume, or the unlock clip. */
+	const wantsSound = () =>
+		isUnlockClip() ||
+		state.status === "opening" ||
+		state.status === "seeking" ||
+		state.status === "playing";
+
+	let mediaHeld = false;
+
+	function setMediaAction(
+		action: "play" | "pause" | "stop",
+		handler: (() => void) | null,
+	) {
+		try {
+			deps.mediaSession?.setActionHandler(action, handler);
+		} catch {
+			// An action this browser does not know: its keys do nothing here.
+		}
+	}
+
+	/**
+	 * While a reading reads, the Media Session is the reading's: play and pause go
+	 * to the machine and its state is published. When it ends the session is let
+	 * go ("none", no handlers), so no key can wake a reading that is over.
+	 */
+	function holdMediaSession() {
+		const media = deps.mediaSession;
+		if (!media) return;
+		if (!reads()) {
+			if (!mediaHeld) return;
+			mediaHeld = false;
+			for (const action of ["play", "pause", "stop"] as const)
+				setMediaAction(action, null);
+			media.playbackState = "none";
+			media.metadata = null;
+			return;
+		}
+		if (!mediaHeld) {
+			mediaHeld = true;
+			setMediaAction("play", () => {
+				if (state.status === "paused" || state.status === "stopped")
+					dispatch({ type: "toggle" });
+			});
+			setMediaAction("pause", () => {
+				if (state.status === "playing") dispatch({ type: "toggle" });
+			});
+			setMediaAction("stop", () => dispatch({ type: "stop" }));
+		}
+		media.playbackState = wantsSound() ? "playing" : "paused";
+	}
+
+	function run(command: ReadingCommand, previous: ReadingState) {
+		switch (command.kind) {
+			case "open":
+				void openSession(command.key, command.from, previous);
+				return;
+			case "close":
+				openToken += 1;
+				closeSession({ cancel: command.ended !== true });
+				return;
+			case "play":
+				expectPause = false;
+				void audio.play().catch(() => {});
+				return;
+			case "pause":
+				if (!audio.paused) expectPause = true;
+				audio.pause();
+				return;
+			case "report": {
+				const sentence = reading?.script?.sentences[command.sentence];
+				if (session && sentence)
+					api.reportReadingPosition(session.id, sentence.id);
+				return;
+			}
+			case "speed":
+				audio.playbackRate = command.value;
+				return;
+			case "startTimer": {
+				clearTimer(command.timer);
+				const timer = command.timer;
+				timers.set(
+					timer,
+					deps.setTimeout(() => {
+						timers.delete(timer);
+						dispatch({ type: TIMER_EVENTS[timer] } as ReadingEvent);
+					}, READING_TIMER_MS[timer]),
+				);
+				return;
+			}
+			case "clearTimer":
+				clearTimer(command.timer);
+				return;
+			case "awaitRecovery":
+				startRecovery(command.from);
+				return;
+		}
+	}
+
+	function clearTimer(timer: ReadingTimer) {
+		const handle = timers.get(timer);
+		if (handle === undefined) return;
+		deps.clearTimeout(handle);
+		timers.delete(timer);
+	}
+
+	// -------------------------------------------------------------------
+	// The reply and its script
+	// -------------------------------------------------------------------
+
+	function messageElement(id: string): Element | null {
+		return deps.document.querySelector(`[data-message-id="${quoteId(id)}"]`);
+	}
+
+	function rootsOf(target: ReadingTarget): Element[] | null {
+		if (target.kind !== "reply") {
+			const root = target.source.root();
+			return root ? [root] : null;
+		}
+		const roots: Element[] = [];
+		for (const id of target.segmentIds) {
+			const root = messageElement(id)?.querySelector(".markdown-container");
+			if (!root) return null;
+			roots.push(root);
+		}
+		return roots;
+	}
+
+	const skipOf = (target: ReadingTarget) =>
+		target.kind === "reply" ? undefined : target.source.skip;
+
+	const codeBlocksOf = (roots: readonly Element[]) =>
+		roots.flatMap((root) => [...root.querySelectorAll(".code-block, pre")]);
+
+	function buildFor(
+		reading: Pick<Reading, "target" | "readBlockIndex">,
+	): SpeechScript | null {
+		const roots = rootsOf(reading.target);
+		if (!roots || !detect) return null;
+		const readBlock =
+			reading.readBlockIndex === null
+				? null
+				: (codeBlocksOf(roots)[reading.readBlockIndex] ?? null);
+		return buildSpeechScript(roots, detect, {
+			fallbackLanguage: deps.uiLanguage(),
+			readBlock,
+			skip: skipOf(reading.target),
+		});
+	}
+
+	function setScript(target: Reading, script: SpeechScript | null) {
+		target.script = script;
+		target.revision =
+			target.target.kind === "reply" ? null : target.target.source.revision();
+		target.anchors = script
+			? script.sentences.flatMap((sentence) => {
+					const node = sentence.ranges[0]?.startContainer;
+					return node ? [node] : [];
+				})
+			: [];
+	}
+
+	/** Builds a reading's script once its detector is there; a reading that has one keeps it. */
+	function buildScriptOnce(target: Reading) {
+		if (target.script || !detect) return;
+		setScript(target, buildFor(target));
+		target.known = new Map();
+	}
+
+	async function ensureDetector(): Promise<Detect> {
+		detect ??= await deps.loadDetector();
+		return detect;
+	}
+
+	/**
+	 * A harmless re-render (evidence loading, a theme switch) replaces the text nodes: rebuild and
+	 * go on, or stop if the words changed. A reply that is gone, a Document that is not drawn any
+	 * more, and a Document whose text changed (an editor changes its text nodes in place, so its own
+	 * revision says so) stop the reading.
+	 */
+	function checkStale() {
+		if (!reading || state.status === "idle") return;
+		const target = reading.target;
+		if (target.kind !== "reply") {
+			if (
+				!target.source.root() ||
+				(reading.script !== null &&
+					target.source.revision() !== reading.revision)
+			) {
+				dispatch({ type: "stop" });
+				return;
+			}
+		} else {
+			for (const id of target.segmentIds) {
+				if (!messageElement(id)) {
+					dispatch({ type: "stop" });
+					return;
+				}
+			}
+		}
+		const script = reading.script;
+		if (!script || reading.anchors.every((node) => node.isConnected)) return;
+		const rebuilt = buildFor(reading);
+		const same =
+			rebuilt !== null &&
+			rebuilt.sentences.length === script.sentences.length &&
+			rebuilt.sentences.every(
+				(sentence, i) => sentence.text === script.sentences[i]?.text,
+			);
+		if (!same) {
+			dispatch({ type: "stop" });
+			return;
+		}
+		setScript(reading, rebuilt);
+	}
+
+	// -------------------------------------------------------------------
+	// Sessions
+	// -------------------------------------------------------------------
+
+	async function openSession(
+		key: string,
+		from: number,
+		previous: ReadingState,
+	) {
+		const token = ++openToken;
+		closeSession();
+		const sameReading =
+			reading !== null &&
+			reading.key === key &&
+			!NO_READING.has(previous.status);
+		if (starting && pending && pending.key === key) {
+			// A selection (Read from here) brings its own script; a speaker press on the
+			// reply being read resumes it as it is, with the script its sentences index.
+			const changed = !sameReading || pending.script !== null;
+			if (changed) {
+				if (!sameReading) defaultSpeedPending = true;
+				reading = {
+					...pending,
+					charsPerSecond: reading?.charsPerSecond ?? DEFAULT_CHARS_PER_SECOND,
+				};
+			}
+			pending = null;
+		}
+		const target = reading;
+		if (!target || target.key !== key) {
+			dispatch({ type: "stop" });
+			return;
+		}
+		// After the first reading the detector is there, so the script is built before
+		// this press's view is published: a switch inside the open player shows the
+		// new reply's sentences at once, never "Sentence 0 of 0".
+		buildScriptOnce(target);
+		try {
+			await ensureDetector();
+		} catch {
+			if (token !== openToken) return;
+			// The page's own code did not load (a chunk gone after a deploy: an old tab asks for
+			// it until it is reloaded). No voice was asked for, so this is a failed start now, not
+			// a spinner for 20 s; and the app is told its code may be out of date, which is what
+			// makes its shell offer a reload.
+			deps.reportUpdateSign();
+			dispatch({ type: "sessionFailed", kind: "voice" });
+			return;
+		}
+		if (token !== openToken) return;
+		buildScriptOnce(target);
+		const script = target.script;
+		// A reply of more than 2,000 sentences is read in sessions of that size (early review R21).
+		const sentences =
+			script?.sentences.slice(from, from + MAX_SENTENCES_PER_SESSION) ?? [];
+		if (!script || sentences.length === 0) {
+			dispatch({ type: "stop" });
+			return;
+		}
+		const body = await requestBody(target.target, sentences);
+		if (token !== openToken) return;
+		if (body === null) {
+			dispatch({ type: "stop" });
+			return;
+		}
+		let answer: ReadingStart;
+		try {
+			answer = await api.createReadingSession(body);
+		} catch (error) {
+			if (token !== openToken) return;
+			// A later press of this person's, here or in another tab, overtook this one on
+			// the server (409 superseded): that one carries on, and this one ends quietly.
+			if (
+				error instanceof ApiError &&
+				error.status === 409 &&
+				(error.message === "superseded" || error.code === "superseded")
+			) {
+				dispatch({ type: "stop" });
+				return;
+			}
+			const serviceError =
+				error instanceof ApiError && !error.serverUnavailable;
+			const kind = await classify(serviceError);
+			if (token === openToken) dispatch({ type: "sessionFailed", kind });
+			return;
+		}
+		if (token !== openToken) {
+			api.cancelReadingSession(answer.sessionId);
+			return;
+		}
+		target.charsPerSecond = answer.charsPerSecond;
+		session = {
+			id: answer.sessionId,
+			from,
+			to: from + sentences.length,
+			timeline: new SessionTimeline(script, from),
+			events: null,
+			failure: null,
+		};
+		if (defaultSpeedPending) {
+			defaultSpeedPending = false;
+			dispatch({ type: "speed", value: answer.defaultSpeed });
+		}
+		audio.src = api.readingAudioUrl(answer.sessionId);
+		audio.playbackRate = state.speed;
+		audio.preservesPitch = true;
+		expectPause = false;
+		void audio.play().catch(() => {});
+		session.events = openEvents(session);
+		publish();
+	}
+
+	/**
+	 * What the session route is asked for: the reply, or the Document and the version it shows.
+	 * A Document's unsaved words are saved first (its version must hold every word read); null when
+	 * it has no version yet.
+	 */
+	async function requestBody(
+		target: ReadingTarget,
+		sentences: readonly ScriptSentence[],
+	): Promise<ReadingRequestBody | null> {
+		const words = sentences.map(toRequestSentence);
+		if (target.kind === "reply")
+			return {
+				conversationId: target.conversationId,
+				messageId: target.messageId,
+				sentences: words,
+			};
+		// A report is named by the preview that showed it: the server reads it as that preview does.
+		if (target.kind === "report")
+			return { report: addressOf(target.report), sentences: words };
+		await target.source.settle();
+		const version = target.source.version();
+		if (version === null) return null;
+		return {
+			document: { artifactId: target.artifactId, version },
+			conversationId: target.conversationId,
+			sentences: words,
+		};
+	}
+
+	function toRequestSentence(
+		sentence: ScriptSentence,
+	): ReadingRequestBody["sentences"][number] {
+		return {
+			id: sentence.id,
+			language: sentence.language,
+			paragraphStart: sentence.paragraphStart,
+			words: sentence.words.map((word) => ({
+				shown: word.shown,
+				kind: word.kind,
+				tokens: [...word.tokens],
+			})),
+		};
+	}
+
+	/** `cancel`: tell the server to close it too (not when the reading came to its end). */
+	function closeSession({ cancel = true }: { cancel?: boolean } = {}) {
+		endBuffering();
+		const closing = session;
+		session = null;
+		lastLocate = null;
+		expectPause = false;
+		closing?.events?.close();
+		// Torn down, so nothing can resume it: paused, with no source left to play.
+		if (!isUnlockClip() && audio.src !== "") {
+			audio.pause();
+			audio.removeAttribute("src");
+			audio.load();
+		}
+		if (closing && cancel) api.cancelReadingSession(closing.id);
+	}
+
+	function openEvents(owner: Session): EventSourceLike {
+		const events = deps.createEventSource(api.readingEventsUrl(owner.id));
+		const mine = () => session === owner && owner.events === events;
+		events.addEventListener("sentence", (event) => {
+			const data = parseData(event);
+			if (!mine() || !data || typeof data.id !== "string") return;
+			if (typeof data.start === "number" && typeof data.end === "number") {
+				owner.timeline.addSentence(data.id, data.start, data.end);
+			}
+		});
+		events.addEventListener("words", (event) => {
+			const data = parseData(event);
+			if (
+				!mine() ||
+				!data ||
+				typeof data.id !== "string" ||
+				!Array.isArray(data.times)
+			)
+				return;
+			owner.timeline.addWords(
+				data.id,
+				data.times as Array<[number, number] | null>,
+			);
+		});
+		events.addEventListener("done", () => {
+			if (!mine()) return;
+			// The stream stays: `done` is the voice finished, not the listening, and the
+			// server tells a replaced reading through it (closed with the session).
+			dispatch({ type: "done" });
+		});
+		events.addEventListener("replaced", () => {
+			if (mine()) dispatch({ type: "replaced" });
+		});
+		events.addEventListener("error", (event) => {
+			if (!mine()) return;
+			const data = parseData(event);
+			if (data !== null) {
+				// The service's own `error` event, the stream's last: the voice failed at that
+				// sentence. The audio made before it still reaches the player whole.
+				events.close();
+				owner.failure = {
+					serviceError: true,
+					sentenceId: typeof data.id === "string" ? data.id : null,
+				};
+				return;
+			}
+			// A stream that ended without `done` or `error` (an EventSource that gave up
+			// reconnecting) is a stop. What was made still plays out first. After `done`
+			// everything was made: the server closing the stream (it ended the reading, and
+			// a reconnect found nothing) is no break.
+			if (events.readyState === EVENTSOURCE_CLOSED && !state.doneReceived) {
+				owner.failure ??= { serviceError: false, sentenceId: null };
+			}
+		});
+		return events;
+	}
+
+	/**
+	 * The audio ended (or could not play) before `done`: the reading broke. A failure the
+	 * stream named lands here, after the audio made before it has played, at the sentence
+	 * that failed; any other is asked of the browser and the server's health.
+	 */
+	async function landBreak() {
+		const owner = session;
+		if (!owner) return;
+		const failure = owner.failure ?? { serviceError: false, sentenceId: null };
+		const kind = await classify(failure.serviceError);
+		if (session !== owner) return;
+		const failed =
+			failure.sentenceId === null
+				? undefined
+				: reading?.script?.sentences.find(
+						(sentence) => sentence.id === failure.sentenceId,
+					);
+		if (failed && state.status === "playing" && failed.index > state.sentence) {
+			dispatch({ type: "progress", sentence: failed.index, word: null });
+		}
+		fail(kind);
+	}
+
+	/** Before the first audio a failure is a failed start; after it, a break. */
+	function fail(kind: BreakKind) {
+		dispatch(
+			state.status === "opening"
+				? { type: "sessionFailed", kind }
+				: { type: "broke", kind },
+		);
+	}
+
+	async function classify(serviceError: boolean): Promise<BreakKind> {
+		if (serviceError) return "voice";
+		const online = deps.isOnline();
+		const health = online ? (await deps.fetchHealth()).state : null;
+		const kind = classifyBreak({ serviceError, online, health });
+		if (kind === "updating") deps.reportUpdateSign();
+		return kind;
+	}
+
+	// -------------------------------------------------------------------
+	// Recovery
+	// -------------------------------------------------------------------
+
+	function startRecovery(from: "offline" | "updating") {
+		stopRecovery();
+		if (from === "offline") {
+			const onOnline = () => {
+				stopRecovery();
+				dispatch({ type: "recovered" });
+			};
+			deps.window.addEventListener("online", onOnline);
+			endRecovery = () => deps.window.removeEventListener("online", onOnline);
+			return;
+		}
+		let ended = false;
+		let handle: unknown = null;
+		const startedAt = deps.now();
+		const poll = async () => {
+			handle = null;
+			const health = await deps.fetchHealth();
+			if (ended) return;
+			if (health.state === "up") {
+				stopRecovery();
+				dispatch({ type: "recovered" });
+				return;
+			}
+			if (deps.now() - startedAt >= SERVER_UPDATE_WATCH_MAX_MS) {
+				stopRecovery();
+				dispatch({ type: "broke", kind: "voice" });
+				return;
+			}
+			handle = deps.setTimeout(() => void poll(), SERVER_UPDATE_WATCH_POLL_MS);
+		};
+		handle = deps.setTimeout(() => void poll(), SERVER_UPDATE_WATCH_POLL_MS);
+		endRecovery = () => {
+			ended = true;
+			if (handle !== null) deps.clearTimeout(handle);
+		};
+	}
+
+	function stopRecovery() {
+		const end = endRecovery;
+		endRecovery = null;
+		end?.();
+	}
+
+	// -------------------------------------------------------------------
+	// The page, the audio and the frame loop
+	// -------------------------------------------------------------------
+
+	const onOffline = () => {
+		if (state.status === "playing" || state.status === "seeking")
+			dispatch({ type: "broke", kind: "offline" });
+	};
+	const onVisibility = () => {
+		if (deps.isHidden()) dispatch({ type: "hidden" });
+	};
+
+	function activate() {
+		if (active) return;
+		active = true;
+		deps.window.addEventListener("offline", onOffline);
+		deps.document.addEventListener("visibilitychange", onVisibility);
+		stopObserving = deps.observe(deps.document.body, () => checkStale());
+		frame = deps.requestFrame(tick);
+	}
+
+	function deactivate() {
+		if (!active) return;
+		active = false;
+		deps.window.removeEventListener("offline", onOffline);
+		deps.document.removeEventListener("visibilitychange", onVisibility);
+		stopObserving?.();
+		stopObserving = null;
+		if (frame !== null) deps.cancelFrame(frame);
+		frame = null;
+		stopRecovery();
+		for (const timer of [...timers.keys()]) clearTimer(timer);
+	}
+
+	function tick() {
+		frame = null;
+		if (!active) return;
+		checkStale();
+		if (state.status === "playing" && session) {
+			const at = session.timeline.locate(audio.currentTime);
+			if (at) {
+				lastLocate = at;
+				dispatch({ type: "progress", sentence: at.sentence, word: at.word });
+			}
+		}
+		publish();
+		if (active) frame = deps.requestFrame(tick);
+	}
+
+	// The voice falls behind (owner, 2026-11-17: "Yes, spin it"): the audio waits for
+	// data while the reading plays. Shown after a wait of over half a second, so it
+	// never flickers, and gone the moment playback goes on.
+	const BUFFERING_SHOWS_AFTER_MS = 500;
+	let buffering = false;
+	let bufferingTimer: unknown = null;
+	function endBuffering() {
+		if (bufferingTimer !== null) deps.clearTimeout(bufferingTimer);
+		bufferingTimer = null;
+		if (!buffering) return;
+		buffering = false;
+		publish();
+	}
+	audio.addEventListener("waiting", () => {
+		if (!hasSessionAudio() || state.status !== "playing") return;
+		if (bufferingTimer !== null || buffering) return;
+		bufferingTimer = deps.setTimeout(() => {
+			bufferingTimer = null;
+			if (state.status !== "playing" || !hasSessionAudio()) return;
+			buffering = true;
+			publish();
+		}, BUFFERING_SHOWS_AFTER_MS);
+	});
+
+	// Nothing plays that the reading did not ask for: the OS's media keys, Now
+	// Playing or headphones may resume a paused or finished reading by themselves.
+	audio.addEventListener("play", () => {
+		if (wantsSound()) return;
+		if (hasSessionAudio()) expectPause = true;
+		audio.pause();
+	});
+	audio.addEventListener("playing", () => {
+		endBuffering();
+		if (!hasSessionAudio()) return;
+		expectPause = false;
+		if (state.status === "opening" || state.status === "seeking")
+			dispatch({ type: "firstAudio" });
+	});
+	audio.addEventListener("pause", () => {
+		endBuffering();
+		if (!hasSessionAudio() || audio.ended) return;
+		if (expectPause) {
+			expectPause = false;
+			return;
+		}
+		if (state.status === "playing") dispatch({ type: "interrupted" });
+	});
+	audio.addEventListener("ended", () => {
+		if (!hasSessionAudio()) return;
+		if (!state.doneReceived || session?.failure) {
+			void landBreak();
+			return;
+		}
+		const next = session?.to ?? count();
+		if (next < count() && state.status === "playing") {
+			// Every sentence this session carried is read and the reply goes on: the next session
+			// opens where this one stopped. This one ended with all its audio read, so the server
+			// closes it when its stream closes, and there is nothing to cancel.
+			closeSession({ cancel: false });
+			dispatch({ type: "seek", sentence: next });
+			return;
+		}
+		dispatch({ type: "ended" });
+	});
+	audio.addEventListener("error", () => {
+		if (hasSessionAudio()) void landBreak();
+	});
+
+	// -------------------------------------------------------------------
+	// The view
+	// -------------------------------------------------------------------
+
+	type Marks = NonNullable<ReadAloudView["marks"]>;
+	let lastMarks: {
+		current: ScriptSentence;
+		target: ScriptSentence | undefined;
+		word: number | null;
+		marks: Marks;
+	} | null = null;
+
+	/**
+	 * The marks of a view, the same object while the sentence, the word and the drag's target
+	 * are the same: a reading with no word times moves its progress every frame, and the marks'
+	 * boxes (a forced layout each) are measured again only when what they mark changes (early
+	 * review R22).
+	 */
+	function marksFor(
+		current: ScriptSentence,
+		target: ScriptSentence | undefined,
+		word: number | null,
+	): Marks {
+		if (
+			lastMarks &&
+			lastMarks.current === current &&
+			lastMarks.target === target &&
+			lastMarks.word === word
+		)
+			return lastMarks.marks;
+		const marks: Marks = {
+			sentence: uniqueRanges(current.ranges),
+			word: word === null ? null : (current.ranges[word] ?? null),
+			target: target ? uniqueRanges(target.ranges) : [],
+		};
+		lastMarks = { current, target, word, marks };
+		return marks;
+	}
+
+	function publish() {
+		const script = reading?.script ?? null;
+		if (session)
+			for (const [index, seconds] of session.timeline.durations())
+				reading?.known.set(index, seconds);
+		const known = reading?.known ?? new Map<number, number>();
+		const rates = reading?.charsPerSecond ?? DEFAULT_CHARS_PER_SECOND;
+		const speed = state.speed > 0 ? state.speed : 1;
+		const total = script
+			? estimateSeconds(script, known, rates)
+			: { seconds: 0, estimate: false };
+		let elapsed = 0;
+		if (script) {
+			const sameAudio =
+				session !== null &&
+				(state.status === "playing" ||
+					(state.status === "paused" && !state.restartOnResume));
+			elapsed = sameAudio
+				? estimateSeconds(script, known, rates, session?.from).seconds +
+					audio.currentTime
+				: estimateSeconds(script, known, rates, state.sentence).seconds;
+		}
+		if (state.status === "finished") elapsed = total.seconds;
+		const within =
+			lastLocate && lastLocate.sentence === state.sentence
+				? lastLocate.within
+				: 0;
+		const progress =
+			state.status === "finished"
+				? 1
+				: script
+					? shareAt(script, state.sentence, within)
+					: 0;
+		const current = script?.sentences[state.sentence];
+		const target = state.drag
+			? script?.sentences[state.drag.target]
+			: undefined;
+		const reads = state.status === "idle" ? null : (reading?.target ?? null);
+		const view: ReadAloudView = {
+			status: state.status,
+			key: state.key,
+			target: reads?.kind ?? null,
+			segmentIds: reads?.kind === "reply" ? reads.segmentIds : [],
+			sentence: state.sentence,
+			count: script?.sentences.length ?? 0,
+			notches: script ? notches(script) : [],
+			// One rule for a reply, a Document and a report: never a crowd of dots.
+			drawnNotches: script ? drawnNotchesOf(script) : null,
+			progress,
+			elapsed: formatClock(elapsed / speed),
+			total: formatClock(total.seconds / speed),
+			totalIsEstimate: total.estimate,
+			speed: state.speed,
+			failure: state.failure,
+			busy: state.busy,
+			buffering: buffering && state.status === "playing",
+			drag: state.drag?.target ?? null,
+			// The end's marks fade while "Finished" shows (spec §4.2).
+			marks:
+				state.status === "idle" || state.status === "finished" || !current
+					? null
+					: marksFor(current, target, state.word),
+		};
+		const key = JSON.stringify([
+			view.status,
+			view.key,
+			view.target,
+			view.segmentIds,
+			view.sentence,
+			view.count,
+			view.progress,
+			view.elapsed,
+			view.total,
+			view.totalIsEstimate,
+			view.speed,
+			view.failure,
+			view.busy,
+			view.buffering,
+			view.drag,
+			state.word,
+			script !== null && script === reading?.script ? script.totalChars : null,
+		]);
+		if (key === lastViewKey && view.marks?.sentence[0] === lastMarksAnchor)
+			return;
+		lastViewKey = key;
+		lastMarksAnchor = view.marks?.sentence[0];
+		deps.setView(view);
+		// The overlay cannot show through code's background: code is marked by highlights.
+		// A report's ranges are over the page's inert copy: the frame draws its marks itself.
+		paintCodeMarks(reads?.kind === "report" ? { ...view, marks: null } : view);
+	}
+	let lastMarksAnchor: Range | undefined;
+
+	/** A script's drawn notches, worked out once: `publish` runs every frame while a reading plays. */
+	const drawnNotchesKept = new WeakMap<SpeechScript, number[] | null>();
+	function drawnNotchesOf(script: SpeechScript): number[] | null {
+		if (!drawnNotchesKept.has(script))
+			drawnNotchesKept.set(script, drawnNotches(script));
+		return drawnNotchesKept.get(script) ?? null;
+	}
+
+	// -------------------------------------------------------------------
+	// The surface
+	// -------------------------------------------------------------------
+
+	function unlock() {
+		if (unlocked) return;
+		unlocked = true;
+		audio.src = silentMp3DataUri();
+		void audio.play().catch(() => {});
+	}
+
+	function startWith(event: ReadingEvent) {
+		starting = true;
+		try {
+			dispatch(event);
+		} finally {
+			starting = false;
+		}
+	}
+
+	const count = () => reading?.script?.sentences.length ?? 0;
+	const clamp = (i: number) =>
+		Math.min(Math.max(0, Math.round(i)), Math.max(0, count() - 1));
+
+	function focusSentence(index: number, mode: "center" | "reveal") {
+		const sentence = reading?.script?.sentences[index];
+		if (!reading || !sentence) return;
+		const ranges = uniqueRanges(sentence.ranges);
+		const rect = () => unionRect(ranges);
+		// A Document scrolls in its panel, a report in its frame; a reply, in the thread.
+		if (reading.target.kind === "document")
+			reading.target.source.focus(rect, mode);
+		else if (reading.target.kind === "report")
+			reading.target.source.focus(ranges, mode);
+		else deps.requestFocus(rect, mode);
+	}
+
+	return {
+		start(r) {
+			unlock();
+			const target = targetOf(r);
+			const key = readingKey(target);
+			const base: Reading = {
+				target,
+				key,
+				readBlockIndex: null,
+				script: null,
+				revision: null,
+				anchors: [],
+				known: new Map(),
+				charsPerSecond: DEFAULT_CHARS_PER_SECOND,
+			};
+			const from = r.from;
+			if (!from) {
+				pending = base;
+				startWith({ type: "press", key, from: 0 });
+				return;
+			}
+			void (async () => {
+				try {
+					await ensureDetector();
+				} catch {
+					// As in `openSession`: the code did not load; nothing was started.
+					deps.reportUpdateSign();
+					return;
+				}
+				const roots = rootsOf(base.target);
+				if (!roots) return;
+				const element =
+					from.node instanceof Element ? from.node : from.node.parentElement;
+				const block = element?.closest(".code-block, pre") ?? null;
+				const index = block ? codeBlocksOf(roots).indexOf(block) : -1;
+				const candidate: Reading = {
+					...base,
+					readBlockIndex: index >= 0 ? index : null,
+				};
+				setScript(candidate, buildFor(candidate));
+				if (!candidate.script) return;
+				const sentence = sentenceAtPoint(
+					candidate.script,
+					from.node,
+					from.offset,
+				);
+				if (sentence === null) return;
+				pending = candidate;
+				startWith({ type: "readFrom", key, from: sentence });
+			})();
+		},
+		toggle: () => dispatch({ type: "toggle" }),
+		seek: (i) => dispatch({ type: "seek", sentence: clamp(i) }),
+		retry: () => dispatch({ type: "retry" }),
+		beginDrag: () => dispatch({ type: "dragStart" }),
+		dragTo(i) {
+			const sentence = clamp(i);
+			dispatch({ type: "dragMove", sentence });
+			if (state.drag) focusSentence(sentence, "reveal");
+		},
+		endDrag: (i) => dispatch({ type: "dragEnd", sentence: clamp(i) }),
+		setSpeed: (v) => dispatch({ type: "speed", value: v }),
+		stop: () => dispatch({ type: "stop" }),
+		locate: () => focusSentence(state.sentence, "center"),
+		sentencePreview(i) {
+			const script = reading?.script;
+			const sentence = script?.sentences[i];
+			if (!script || !sentence) return "";
+			const words = sentence.words
+				.filter((word) => word.kind !== "listNumber")
+				.map((word) => word.range.toString().trim())
+				.filter((word) => word !== "");
+			const head = words.slice(0, 5).join(" ");
+			return `${i + 1}/${script.sentences.length} · ${head}${words.length > 5 ? "…" : ""}`;
+		},
+		async assessReadability(target) {
+			const roots = rootsOf(target);
+			if (!roots) return { kind: "unknown" };
+			// A reply with no text has not been drawn yet; a Document's page that is drawn and empty
+			// has nothing to read.
+			const empty = roots.some(
+				(root) => (root.textContent ?? "").trim() === "",
+			);
+			if (empty)
+				return target.kind === "reply"
+					? { kind: "unknown" }
+					: { kind: "nothing" };
+			let detector: Detect;
+			try {
+				detector = await ensureDetector();
+			} catch {
+				// Not known yet: the speaker asks again a little later.
+				return { kind: "unknown" };
+			}
+			const script = buildSpeechScript(roots, detector, {
+				fallbackLanguage: deps.uiLanguage(),
+				skip: skipOf(target),
+			});
+			if (script.sentences.length > 0) return { kind: "ready" };
+			if (script.missingLanguage !== null)
+				return { kind: "noVoice", language: script.missingLanguage };
+			return script.nothingToRead ? { kind: "nothing" } : { kind: "unknown" };
+		},
+	};
+}
+
+let singleton: ReadAloudController | null = null;
+
+/** The browser's one controller, made on first use. */
+export function getReadAloud(): ReadAloudController {
+	singleton ??= createReadAloudController(browserDeps());
+	return singleton;
+}
+
+function browserDeps(): ReadAloudDeps {
+	const audio = document.createElement("audio");
+	audio.preload = "auto";
+	return {
+		audio,
+		createEventSource: (url) => new EventSource(url),
+		api: {
+			createReadingSession,
+			cancelReadingSession,
+			reportReadingPosition,
+			readingAudioUrl,
+			readingEventsUrl,
+		},
+		loadDetector,
+		document,
+		window,
+		isOnline: () => navigator.onLine,
+		isHidden: () => document.visibilityState === "hidden",
+		fetchHealth: () => fetchServerHealth(),
+		reportUpdateSign: reportServerUpdateSign,
+		setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+		clearTimeout: (handle) => window.clearTimeout(handle as number),
+		requestFrame: (fn) => window.requestAnimationFrame(fn),
+		cancelFrame: (handle) => window.cancelAnimationFrame(handle as number),
+		now: () => performance.now(),
+		uiLanguage: () => get(uiLanguage),
+		setView: setReadAloudView,
+		requestFocus: requestThreadFocus,
+		observe: (target, onChange) => {
+			const observer = new MutationObserver(onChange);
+			observer.observe(target, {
+				childList: true,
+				subtree: true,
+				characterData: true,
+			});
+			return () => observer.disconnect();
+		},
+		mediaSession:
+			typeof navigator !== "undefined" && "mediaSession" in navigator
+				? navigator.mediaSession
+				: null,
+	};
+}

@@ -21,6 +21,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 - `normal_chat_turns` / `normal_chat_attempts` - Content-free completion and actual-attempt accounting audit, owned by `services/chat-turn/turn-ledger.ts`. Ownership derives from the conversation FK (and its user FK); both cascade with chat/account erasure. Terminal message references survive assistant-row deletion. Incognito stays untracked. Analytics owns pricing and `usage_events` billing. Pass `turnSegmentId` to message analytics; association, terminal writes and late usage reconcile in either order inside the modules.
 - `normal_chat_run_log` - Anonymous, content-free record of one Normal Chat model run (outcome, each attempt's model, tokens and time, finalize's timing), written by `services/chat-turn/run-log.ts`. No foreign keys and no user, conversation or message id, so it survives deleting any of them and covers incognito runs (their row has no segment or attempt ids). `settled_at` null means the run never reported an end.
 - `ask_questions` - The questions a reply asked, its captured continuation, cascades with the chat and the asking row
+- `read_aloud_voices` - A person's own read-aloud voices (a built-in voice, five knob values and a name), written by `services/read-aloud/personal-voices.ts`. Private to its maker: every query filters by `user_id`, and the rows cascade with the person. The person's voice choice and Default speed are columns on `users` (`read_aloud_en_voice`, `read_aloud_hu_voice`, `read_aloud_speed`), not rows here
 
 **Knowledge Tables:**
 - `artifacts` - Files, generated outputs, work capsules with retrieval class
@@ -37,7 +38,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 
 **Config Tables:**
 - `runtime_config` - Admin UI overrides for env vars
-- `user_preferences` - Account-level settings
+- Account-level settings are columns on `users` (theme, language, time zone, the read-aloud voice choice and speed, the Pictures and videos switch `pictures_and_videos_enabled`, the Send with Enter switch `send_with_enter`); there is no `user_preferences` table
 
 ## Conventions
 
