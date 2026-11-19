@@ -1690,6 +1690,16 @@ const settingsDict = {
 		"admin.system.keys.TEI_TIMEOUT_MS.label": "Embedding timeout",
 		"admin.system.keys.TEI_TIMEOUT_MS.meaning":
 			"Wall clock for one embedder or reranker call.",
+		"admin.system.keys.HINDSIGHT_URL.label": "Hindsight service address",
+		"admin.system.keys.HINDSIGHT_URL.meaning":
+			"Private address of the Hindsight service. The deployment configuration must allow this address.",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.label":
+			"Hindsight background processing",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.meaning":
+			"Runs queued Hindsight Memory jobs when the deployment's restore hold is off.",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.label": "Parallel Hindsight jobs",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.meaning":
+			"Maximum number of Hindsight Memory jobs the app runs at once. The service limits model calls separately.",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.label": "Judge dry run",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.meaning":
 			"The judge decides and logs, but writes nothing to the profile.",
@@ -3896,6 +3906,17 @@ const settingsDict = {
 		"admin.system.keys.TEI_TIMEOUT_MS.label": "Beágyazási időkorlát",
 		"admin.system.keys.TEI_TIMEOUT_MS.meaning":
 			"Egy beágyazó- vagy újrarangsoroló-hívás futásideje.",
+		"admin.system.keys.HINDSIGHT_URL.label": "A Hindsight szolgáltatás címe",
+		"admin.system.keys.HINDSIGHT_URL.meaning":
+			"A Hindsight szolgáltatás belső címe. A címet a telepítési beállításokban engedélyezni kell.",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.label":
+			"Hindsight háttérfeldolgozás",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.meaning":
+			"Futtatja a sorban álló Hindsight-memóriafeladatokat, ha nincs érvényben a visszaállítási zárolás.",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.label":
+			"Párhuzamos Hindsight-feladatok",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.meaning":
+			"Ennyi Hindsight-memóriafeladatot futtathat egyszerre az alkalmazás. A modellhívásokat a szolgáltatás külön korlátozza.",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.label": "Bíráló próbafutás",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.meaning":
 			"A bíráló dönt és naplóz, de semmit nem ír a profilba.",
