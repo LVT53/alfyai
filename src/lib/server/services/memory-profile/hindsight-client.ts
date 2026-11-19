@@ -211,8 +211,8 @@ export class HindsightClient {
 			throw new NativeMemoryError("native_format_unsupported", false);
 		return { id, status: r.status };
 	}
-	async consolidate(): Promise<string> {
-		const r = await this.request("/consolidate", "POST", {});
+	async consolidate(beforeDispatch?: () => void): Promise<string> {
+		const r = await this.request("/consolidate", "POST", {}, beforeDispatch);
 		if (typeof r.operation_id !== "string")
 			throw new NativeMemoryError("native_format_unsupported", false);
 		return r.operation_id;
@@ -354,6 +354,20 @@ export class HindsightClient {
 			patch,
 			beforeDispatch,
 		);
+	}
+	async resetUnsupportedFactObservations(
+		id: string,
+		beforeDispatch: () => void,
+	): Promise<void> {
+		const result = await this.request(
+			`/memories/${encodeURIComponent(id)}/observations`,
+			"DELETE",
+			undefined,
+			beforeDispatch,
+		);
+		// This recovery is qualified only when the raw fact has no observation links.
+		if (result.deleted_count !== 0)
+			throw new NativeMemoryError("memory_edit_readback_mismatch", false);
 	}
 	async deleteDocument(id: string): Promise<void> {
 		await this.request(`/documents/${encodeURIComponent(id)}`, "DELETE");

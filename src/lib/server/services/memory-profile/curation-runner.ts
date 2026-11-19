@@ -1153,6 +1153,37 @@ function removeSharedSupportObservations(
 	return siblings;
 }
 
+function unsupportedEditFact(
+	memories: NativeMemory[],
+	sourceId: string,
+	expected: ActionIntentRecord["nativeFacts"],
+) {
+	if (!expected?.length) return;
+	const support = new Set<string>();
+	for (const observation of memories) {
+		if (observation.fact_type !== "observation") continue;
+		if (!observation.source_memory_ids?.length) return;
+		for (const id of observation.source_memory_ids) support.add(id);
+	}
+	const candidates = memories.filter(
+		(fact) =>
+			(fact.fact_type === "world" || fact.fact_type === "experience") &&
+			fact.document_id === sourceId &&
+			typeof fact.consolidated_at === "string" &&
+			!!fact.consolidated_at &&
+			!fact.consolidation_failed_at &&
+			!support.has(fact.id) &&
+			expected.some(
+				(saved) =>
+					saved.id === fact.id &&
+					saved.text === fact.text &&
+					saved.native_mentioned_at === (fact.mentioned_at ?? null),
+			),
+	);
+	// A bounded repair is only qualified for one independently identified fact.
+	if (candidates.length === 1) return candidates[0];
+}
+
 async function executeMemoryAction(
 	ctx: Context,
 	client: HindsightClient,
@@ -1511,14 +1542,100 @@ async function executeMemoryAction(
 	await fence(ctx);
 	await native.settle(client, [await client.consolidate()], ctx.signal);
 	let memories = await native.capture(client, ctx.signal);
-	verifyEarlierFacts(memories);
-	if (intent.nativeFacts && intent.addedSourceId)
-		verifyFixedNativeFacts(memories, intent.addedSourceId, intent.nativeFacts);
-	if (intent.proposal)
-		verifySourceResult(memories, sourceIds, [
-			...intent.proposal,
-			...(intent.nativeFacts ?? []),
-		]);
+	const validateReadback = () => {
+		verifyEarlierFacts(memories);
+		if (intent.nativeFacts && intent.addedSourceId)
+			verifyFixedNativeFacts(
+				memories,
+				intent.addedSourceId,
+				intent.nativeFacts,
+			);
+		if (intent.proposal)
+			verifySourceResult(memories, sourceIds, [
+				...intent.proposal,
+				...(intent.nativeFacts ?? []),
+			]);
+	};
+	validateReadback();
+	const addedSourceId = intent.addedSourceId;
+	if (
+		action.kind === "edit" &&
+		addedSourceId &&
+		intent.plan?.replace.length &&
+		!intent.removalOnly &&
+		!intent.observationResetFactId
+	) {
+		const target = unsupportedEditFact(
+			memories,
+			addedSourceId,
+			intent.nativeFacts,
+		);
+		if (target) {
+			const assertCurrent = (tx: Tx, expectedReset?: string) => {
+				assertActionAttemptCurrent(tx, ctx);
+				const current = actionFence(tx, ctx);
+				checkSources(tx);
+				const source = assertMemorySourceCurrent(
+					tx,
+					addedSourceId,
+					bank.userId,
+					bank.id,
+				);
+				const saved = parseActionIntent(
+					tx
+						.select({ intentJson: memoryActions.intentJson })
+						.from(memoryActions)
+						.where(eq(memoryActions.id, action.id))
+						.get()?.intentJson ?? null,
+				);
+				if (
+					current.revision !== bank.revision ||
+					source.epoch !== bank.epoch ||
+					source.controlRevision !== ctx.row.controlRevision ||
+					source.state !== "pending" ||
+					!source.nativeSubmitted ||
+					!source.nativeAcknowledged ||
+					source.eventId !== `manual:${action.id}` ||
+					source.text !== action.text ||
+					source.assertedAt.getTime() !== action.createdAt.getTime() ||
+					saved.addedSourceId !== addedSourceId ||
+					saved.rollbackPending ||
+					saved.outcome ||
+					saved.observationResetFactId !== expectedReset ||
+					!saved.nativeFacts?.some(
+						(fact) =>
+							fact.id === target.id &&
+							fact.text === target.text &&
+							fact.assertion_at === source.assertedAt.toISOString() &&
+							fact.native_mentioned_at === (target.mentioned_at ?? null),
+					)
+				)
+					throw new NativeMemoryError("memory_candidate_curation_drift", true);
+			};
+			const marked = { ...intent, observationResetFactId: target.id };
+			if (
+				!(await ctx.write((tx) => {
+					assertCurrent(tx);
+					tx.update(memoryActions)
+						.set({ intentJson: JSON.stringify(marked) })
+						.where(eq(memoryActions.id, action.id))
+						.run();
+				}))
+			)
+				throw new NativeMemoryError("memory_cancelled", false);
+			intent = marked;
+			const beforeDispatch = () =>
+				db.transaction((tx) => assertCurrent(tx, target.id));
+			await client.resetUnsupportedFactObservations(target.id, beforeDispatch);
+			await native.settle(
+				client,
+				[await client.consolidate(beforeDispatch)],
+				ctx.signal,
+			);
+			memories = await native.capture(client, ctx.signal);
+			validateReadback();
+		}
+	}
 	if (
 		action.kind === "add" &&
 		!memories.some(

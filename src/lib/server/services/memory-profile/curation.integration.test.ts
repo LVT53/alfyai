@@ -167,6 +167,8 @@ async function nativeFixture(
 		else if (path.includes("/operations/")) data = { status: "completed" };
 		else if (path.endsWith("/memories") && init?.method === "POST")
 			data = { operation_id: JSON.parse(String(init.body)).operation_id };
+		else if (path.endsWith("/observations") && init?.method === "DELETE")
+			data = { deleted_count: 0 };
 		else if (path.endsWith("/consolidate"))
 			data = { operation_id: "consolidation" };
 		else if (path.includes("/memories/") && init?.method === "PATCH") {

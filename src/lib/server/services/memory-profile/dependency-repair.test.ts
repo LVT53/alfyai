@@ -598,6 +598,7 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 	let observationText:
 		| ((fact: { id: string; text: string }) => string | null)
 		| undefined;
+	let resetObservation: ((id: string) => { deleted_count: number }) | undefined;
 	let loseAck = false;
 	const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
 		const path = String(url);
@@ -609,6 +610,9 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 			deleted.push(id);
 			for (const [key, fact] of facts)
 				if (fact.document_id === id) facts.delete(key);
+		} else if (path.endsWith("/observations") && init?.method === "DELETE") {
+			const id = decodeURIComponent(path.split("/memories/")[1].split("/")[0]);
+			data = resetObservation?.(id) ?? { deleted_count: 0 };
 		} else if (path.includes("/memories/") && init?.method === "PATCH") {
 			const id = decodeURIComponent(path.split("/memories/")[1]);
 			const patch = JSON.parse(String(init.body));
@@ -742,6 +746,9 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 			fn: (fact: { id: string; text: string }) => string | null,
 		) => {
 			observationText = fn;
+		},
+		setObservationReset: (fn: NonNullable<typeof resetObservation>) => {
+			resetObservation = fn;
 		},
 		loseAck: () => {
 			loseAck = true;
@@ -2983,5 +2990,126 @@ it.each([
 				...(descendant ? [descendant.text] : []),
 			].sort(),
 		);
+	},
+);
+
+it.each([
+	"recovered",
+	"response lost",
+	"unexpected links",
+	"already supported",
+] as const)(
+	"reconsolidates an unsupported acknowledged Edit fact at most once (%s)",
+	async (mode) => {
+		const oldName = "The touring kayak is named Meridian.";
+		const newName = "The touring kayak is named Suncairn.";
+		const green = "The touring kayak is green.";
+		const f = await nativeFixture((text) =>
+			text.includes('"kind":"source_edit"') ? [newName] : [text],
+		);
+		const original = f.source([], oldName);
+		const independent = f.source([], green);
+		f.seed(original);
+		f.seed(independent);
+		const publication = await import("./publication");
+		const generation = f.db.transaction((tx) =>
+			publication.publishNativeSnapshot(tx, {
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				expectedRevision: 0,
+				memories: [
+					...f.facts.values(),
+					...Array.from(f.facts.values(), (fact) => ({
+						id: `observation:${fact.id}`,
+						fact_type: "observation",
+						text: fact.text,
+						source_memory_ids: [fact.id],
+					})),
+				],
+			}),
+		);
+		const retainedReplacementId = () =>
+			`fact:${f.retained[0]?.items[0].document_id}`;
+		const retriedFacts: string[] = [];
+		f.setObservationText((fact) =>
+			fact.id === retainedReplacementId() &&
+			mode !== "already supported" &&
+			(mode === "response lost" || !retriedFacts.includes(fact.id))
+				? null
+				: fact.text,
+		);
+		f.setObservationReset((id) => {
+			retriedFacts.push(id);
+			if (mode === "response lost")
+				throw new Error("synthetic lost acknowledgement");
+			return { deleted_count: mode === "unexpected links" ? 1 : 0 };
+		});
+		const checker = vi
+			.fn(async (_prompt, payload: unknown) => {
+				const input = payload as {
+					displayed_observations?: Array<{ text: string }>;
+				};
+				return {
+					valid:
+						input.displayed_observations?.some(
+							({ text }) => text === newName,
+						) ?? true,
+					issues: [],
+				};
+			})
+			.mockResolvedValueOnce({
+				forget: [],
+				replace: ["Meridian to Suncairn"],
+				preserve: [],
+			})
+			.mockResolvedValueOnce({
+				facts: [{ id: `fact:${original.id}`, text: "" }],
+			});
+		vi.spyOn(await import("./curation"), "createCurationModel").mockReturnValue(
+			withDatedNativeFacts(checker),
+		);
+		const { submitMemoryAction, getMemoryOperation } = await import(
+			"./curation-actions"
+		);
+		const operation = await submitMemoryAction(h.userId, {
+			kind: "edit",
+			text: newName,
+			requestId: randomUUID(),
+			ref: {
+				scope: { kind: "personal" },
+				generation,
+				rowId: `observation:fact:${original.id}`,
+			},
+		});
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		if (mode === "response lost") {
+			f.db
+				.update(f.s.memoryDeliveryJobs)
+				.set({ runAfter: new Date(0) })
+				.where(awaitEq(f.s.memoryDeliveryJobs.actionId, operation.id))
+				.run();
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+		}
+		expect(retriedFacts).toEqual(
+			mode === "already supported" ? [] : [retainedReplacementId()],
+		);
+		const published = publication
+			.readPublishedMemory(h.userId, f.bank.id)
+			.map(({ text }) => text);
+		if (mode === "response lost" || mode === "unexpected links") {
+			expect(published).toEqual(expect.arrayContaining([oldName, green]));
+			expect(published).not.toContain(newName);
+			expect(
+				getMemoryOperation(h.userId, { id: operation.id }).status,
+			).not.toBe("applied");
+			return;
+		}
+		expect(getMemoryOperation(h.userId, { id: operation.id })).toMatchObject({
+			status: "applied",
+			cleanupPending: false,
+		});
+		expect(published).toEqual(expect.arrayContaining([newName, green]));
+		expect(published).not.toContain(oldName);
 	},
 );

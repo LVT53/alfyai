@@ -31,6 +31,8 @@ export interface ActionIntentRecord {
 	previousResultActionId?: string;
 	addedSourceId?: string;
 	nativeFacts?: EditedFact[];
+	/** A possibly submitted, one-time targeted consolidation retry. */
+	observationResetFactId?: string;
 	rejectionCode?: string;
 	rollbackPending?: boolean;
 }
@@ -60,6 +62,9 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 						typeof fact.sourceId !== "string" ||
 						typeof fact.textHash !== "string",
 				))) ||
+		(value.observationResetFactId !== undefined &&
+			(typeof value.observationResetFactId !== "string" ||
+				!value.observationResetFactId)) ||
 		(value.omissionEarlierFingerprint !== undefined &&
 			typeof value.omissionEarlierFingerprint !== "string")
 	)
