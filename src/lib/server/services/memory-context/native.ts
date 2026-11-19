@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray } from "drizzle-orm";
 import type {
 	AdmittedMemoryEvidence,
 	MemoryScope,
@@ -13,7 +13,10 @@ import {
 } from "$lib/server/db/schema";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isMemoryActiveForConversation } from "../memory-controls";
-import type { NativeMemory } from "../memory-profile/contracts";
+import {
+	type NativeMemory,
+	NativeMemoryError,
+} from "../memory-profile/contracts";
 import { nativeMemoryClient } from "../memory-profile/hindsight-client";
 import {
 	admittedNativeFacts,
@@ -51,65 +54,76 @@ export async function recallMemory(
 		"personal",
 		...(chat.projectId ? [`project:${chat.projectId}`] : []),
 	];
-	const banks = db
-		.select()
-		.from(memoryBanks)
-		.where(
-			and(
-				eq(memoryBanks.userId, userId),
-				eq(memoryBanks.epoch, account.epoch),
-				ne(memoryBanks.status, "retired"),
-				inArray(memoryBanks.scopeKey, scopeKeys),
-			),
-		)
-		.all();
+	const isStillActive = (database: Pick<typeof db, "select">) =>
+		Boolean(
+			database
+				.select({ id: conversations.id })
+				.from(conversations)
+				.innerJoin(users, eq(users.id, conversations.userId))
+				.innerJoin(memoryAccounts, eq(memoryAccounts.userId, users.id))
+				.where(
+					and(
+						eq(conversations.id, input.conversationId),
+						eq(conversations.userId, userId),
+						eq(conversations.memoryIncognito, false),
+						chat.projectId === null
+							? isNull(conversations.projectId)
+							: eq(conversations.projectId, chat.projectId),
+						eq(users.memoryEnabled, true),
+						eq(memoryAccounts.authority, "hindsight"),
+						eq(memoryAccounts.lifecycleState, "active"),
+						eq(memoryAccounts.tenantId, account.tenantId),
+						eq(memoryAccounts.epoch, account.epoch),
+						eq(memoryAccounts.controlRevision, account.controlRevision),
+					),
+				)
+				.get(),
+		);
+	const readableBanks = (database: Pick<typeof db, "select">) =>
+		database
+			.select()
+			.from(memoryBanks)
+			.where(
+				and(
+					eq(memoryBanks.userId, userId),
+					eq(memoryBanks.epoch, account.epoch),
+					notInArray(memoryBanks.status, ["retired", "repair_blocked"]),
+					inArray(memoryBanks.scopeKey, scopeKeys),
+				),
+			)
+			.all();
+	const banks = readableBanks(db);
 	const rankings = new Map<string, NativeMemory[] | null>();
 	for (const bank of banks) {
+		if (!isStillActive(db)) return [];
 		let ranking: NativeMemory[] | null = null;
 		try {
 			const matches = await nativeMemoryClient(
 				bank.id,
 				account.tenantId,
 				AbortSignal.timeout(2_000),
-			).recall(input.query, Math.max(0, Math.floor(input.tokenBudget)));
+			).recall(input.query, Math.max(0, Math.floor(input.tokenBudget)), () => {
+				// Capability verification and name resolution can outlast consent.
+				if (
+					!readableBanks(db).some(({ id }) => id === bank.id) ||
+					!isStillActive(db)
+				)
+					throw new NativeMemoryError("native_cancelled", false);
+			});
 			ranking = matches.filter((m) => m.fact_type === "observation");
 		} catch {
 			/* Last accepted view remains useful during native outages. */
 		}
 		rankings.set(bank.id, ranking);
 	}
-	// No asynchronous boundary inside final admission: every bank shares one live snapshot.
+	// Every eligible bank shares one live snapshot, including holds set during a native call.
 	return db.transaction((tx) => {
-		const current = tx
-			.select()
-			.from(memoryAccounts)
-			.where(eq(memoryAccounts.userId, userId))
-			.get();
-		const owner = tx.select().from(users).where(eq(users.id, userId)).get();
-		const currentChat = tx
-			.select()
-			.from(conversations)
-			.where(
-				and(
-					eq(conversations.id, input.conversationId),
-					eq(conversations.userId, userId),
-				),
-			)
-			.get();
-		if (
-			!owner?.memoryEnabled ||
-			current?.authority !== "hindsight" ||
-			current.lifecycleState !== "active" ||
-			current.epoch !== account.epoch ||
-			current.controlRevision !== account.controlRevision ||
-			!currentChat ||
-			currentChat.memoryIncognito ||
-			currentChat.projectId !== chat.projectId
-		)
-			return [];
+		if (!isStillActive(tx)) return [];
+		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
 		const output: AdmittedMemoryEvidence[] = [];
 		let remaining = Math.max(0, Math.floor(input.tokenBudget));
 		for (const bank of banks) {
+			if (!readableIds.has(bank.id)) continue;
 			const ranking = rankings.get(bank.id) ?? null;
 			const accepted = readPublishedMemory(userId, bank.id, undefined, tx);
 			const facts = admittedNativeFacts(userId, bank.id, tx);

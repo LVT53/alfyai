@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -13,15 +13,33 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 const recall = vi.fn();
-vi.mock("../memory-profile/hindsight-client", () => ({
-	nativeMemoryClient: (
-		_bank: string,
-		_tenant: string,
-		signal: AbortSignal,
-	) => ({
-		recall: (query: string, budget: number) => recall(query, budget, signal),
-	}),
-}));
+const wireEndpoint = "http://127.0.0.1:18890";
+let wire: typeof fetch | undefined;
+vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
+	const { HindsightClient } =
+		await importOriginal<typeof import("../memory-profile/hindsight-client")>();
+	return {
+		nativeMemoryClient: (
+			bankId: string,
+			tenantId: string,
+			signal: AbortSignal,
+		) =>
+			wire
+				? new HindsightClient({
+						baseUrl: wireEndpoint,
+						allowedUrls: [wireEndpoint],
+						bankId,
+						tenantId,
+						apiKey: "synthetic-key",
+						fetcher: wire,
+						signal,
+					})
+				: {
+						recall: (query: string, budget: number) =>
+							recall(query, budget, signal),
+					},
+	};
+});
 beforeEach(() => {
 	sqlite = new Database(":memory:");
 	sqlite.pragma("foreign_keys=ON");
@@ -43,7 +61,10 @@ beforeEach(() => {
 		.run();
 	recall.mockRejectedValue(new Error("offline"));
 });
-afterEach(() => sqlite.close());
+afterEach(() => {
+	wire = undefined;
+	sqlite.close();
+});
 function seed(bankId: string, scopeKey: string, text: string) {
 	const db = drizzle(sqlite, { schema });
 	db.insert(schema.memoryBanks)
@@ -228,6 +249,136 @@ it("rejects a combined recall if off-on changes control revision during native r
 		}),
 	).toEqual([]);
 });
+
+it.each([
+	{ held: ["b2"], expected: ["Personal preference"] },
+	{ held: ["b1"], expected: ["Project decision"] },
+	{ held: ["b1", "b2"], expected: [] },
+	{ held: [], expected: ["Personal preference"] },
+])(
+	"keeps healthy recall scopes available with repair holds ($held)",
+	async ({ held, expected }) => {
+		seed("b1", "personal", "Personal preference");
+		seed("b2", "project:p", "Project decision");
+		const db = drizzle(sqlite, { schema });
+		const hold = (id: string) =>
+			db
+				.update(schema.memoryBanks)
+				.set({ status: "repair_blocked" })
+				.where(eq(schema.memoryBanks.id, id))
+				.run();
+		for (const id of held) hold(id);
+		recall.mockClear();
+		if (!held.length) {
+			let calls = 0;
+			recall.mockImplementation(async () => {
+				if (++calls === 2) hold("b2");
+				throw new Error("offline");
+			});
+		}
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "c",
+			query: "preferences",
+			tokenBudget: 1000,
+		});
+		expect(result.map(({ text }) => text)).toEqual(expected);
+		expect(recall).toHaveBeenCalledTimes(2 - held.length);
+	},
+);
+
+it.each([
+	{ change: "no change", hold: "capability", allowedPosts: 2 },
+	{ change: "off and on", hold: "capability", allowedPosts: 0 },
+	{ change: "incognito", hold: "capability", allowedPosts: 0 },
+	{ change: "project move", hold: "first recall", allowedPosts: 1 },
+] as const)(
+	"checks permission at the private recall dispatch ($change during $hold)",
+	async ({ change, hold, allowedPosts }) => {
+		seed("b1", "personal", "Personal preference");
+		seed("b2", "project:p", "Project decision");
+		const db = drizzle(sqlite, { schema });
+		const account = db.select().from(schema.memoryAccounts).get();
+		if (!account) throw new Error("Missing synthetic Memory account");
+		const { tenantId } = account;
+		const { HINDSIGHT_ENGINE_COMMIT } = await import(
+			"../memory-profile/contracts"
+		);
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const query = "Synthetic private query";
+		const sentQueries: unknown[] = [];
+		let capabilities = 0;
+		wire = async (input, init) => {
+			const path = new URL(String(input)).pathname;
+			if (path === "/ext/alfyai/capabilities") {
+				if (++capabilities === 1 && hold === "capability") {
+					entered.resolve();
+					await release.promise;
+				}
+				return Response.json({
+					engine_commit: HINDSIGHT_ENGINE_COMMIT,
+					extension: "alfyai-identity-v1",
+					tenant_extension: "AlfyTenant",
+					tenant_binding: createHash("sha256")
+						.update(`alfyai_t_${tenantId.replaceAll("-", "_")}`)
+						.digest("hex"),
+				});
+			}
+			expect(path).toMatch(/\/banks\/b[12]\/memories\/recall$/);
+			expect(init?.method).toBe("POST");
+			sentQueries.push(JSON.parse(String(init?.body)).query);
+			if (sentQueries.length === 1 && hold === "first recall") {
+				entered.resolve();
+				await release.promise;
+			}
+			const personal = path.includes("/banks/b1/");
+			return Response.json({
+				results: [
+					{
+						id: personal ? "n-b1" : "n-b2",
+						text: personal ? "Personal preference" : "Project decision",
+						type: "observation",
+					},
+				],
+			});
+		};
+		const { recallMemory } = await import("./native");
+		const result = recallMemory("u", {
+			conversationId: "c",
+			query,
+			tokenBudget: 1000,
+		});
+		await entered.promise;
+		try {
+			if (change === "off and on") {
+				db.update(schema.users).set({ memoryEnabled: false }).run();
+				db.update(schema.memoryAccounts).set({ controlRevision: 1 }).run();
+				db.update(schema.users).set({ memoryEnabled: true }).run();
+				db.update(schema.memoryAccounts).set({ controlRevision: 2 }).run();
+			} else if (change === "incognito") {
+				db.update(schema.conversations)
+					.set({ memoryIncognito: true })
+					.where(eq(schema.conversations.id, "c"))
+					.run();
+			} else if (change === "project move") {
+				db.update(schema.conversations)
+					.set({ projectId: "other" })
+					.where(eq(schema.conversations.id, "c"))
+					.run();
+			}
+		} finally {
+			release.resolve();
+		}
+
+		const recalled = await result;
+		expect(sentQueries).toEqual(Array(allowedPosts).fill(query));
+		expect(capabilities).toBe(change === "no change" ? 2 : 1);
+		expect(recalled.map(({ text }) => text).sort()).toEqual(
+			change === "no change" ? ["Personal preference", "Project decision"] : [],
+		);
+	},
+);
 
 it.each([
 	"exact",

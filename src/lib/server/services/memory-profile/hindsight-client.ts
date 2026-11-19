@@ -74,10 +74,11 @@ export class HindsightClient {
 	private async send(
 		url: string,
 		init: RequestInit,
-		beforeDispatch?: () => Promise<void>,
+		beforeDispatch?: () => void | Promise<void>,
 	): Promise<Response> {
 		if (!this.options.allowedUrls && this.options.fetcher) {
-			if (beforeDispatch) await beforeDispatch();
+			const preparation = beforeDispatch?.();
+			if (preparation) await preparation;
 			init.signal?.throwIfAborted();
 			return this.options.fetcher(url, init);
 		}
@@ -119,7 +120,7 @@ export class HindsightClient {
 		path: string,
 		method = "GET",
 		body?: unknown,
-		beforeDispatch?: () => Promise<void>,
+		beforeDispatch?: () => void | Promise<void>,
 	): Promise<Record<string, unknown>> {
 		try {
 			if (this.options.tenantId) {
@@ -270,18 +271,27 @@ export class HindsightClient {
 		}
 		throw new NativeMemoryError("native_capture_too_large", false);
 	}
-	async recall(query: string, maxTokens: number): Promise<NativeMemory[]> {
-		const r = await this.request("/memories/recall", "POST", {
-			query,
-			types: ["observation"],
-			budget: "mid",
-			max_tokens: maxTokens,
-			include: {
-				entities: null,
-				chunks: null,
-				source_facts: { max_tokens: 0, max_tokens_per_observation: 0 },
+	async recall(
+		query: string,
+		maxTokens: number,
+		beforeDispatch?: () => void,
+	): Promise<NativeMemory[]> {
+		const r = await this.request(
+			"/memories/recall",
+			"POST",
+			{
+				query,
+				types: ["observation"],
+				budget: "mid",
+				max_tokens: maxTokens,
+				include: {
+					entities: null,
+					chunks: null,
+					source_facts: { max_tokens: 0, max_tokens_per_observation: 0 },
+				},
 			},
-		});
+			beforeDispatch,
+		);
 		if (!Array.isArray(r.results))
 			throw new NativeMemoryError("native_format_unsupported", false);
 		return r.results.map((value) => {

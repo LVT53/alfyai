@@ -6,6 +6,14 @@ const mockShortlistSemanticMatchesBySubject = vi.fn();
 const mockGetConversationProjectId = vi.fn();
 const mockRecordMemoryReworkTelemetry = vi.fn();
 
+// The legacy retrieval fixture represents an owned, opted-in conversation.
+vi.mock("./memory-controls", () => ({
+	isMemoryActiveForConversation: vi.fn().mockResolvedValue(true),
+}));
+vi.mock("./memory-profile/chat-delivery", () => ({
+	usesNativeMemory: vi.fn().mockReturnValue(false),
+}));
+
 vi.mock("./memory-consolidation/summary", () => ({
 	getPersonaSummary: mockGetPersonaSummary,
 }));
