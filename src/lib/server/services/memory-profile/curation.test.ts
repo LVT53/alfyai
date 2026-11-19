@@ -97,33 +97,33 @@ it("allows exactly one repair and checks collective preservation", async () => {
 	).toEqual([{ id: "a", text: "kayak" }]);
 	expect(model).toHaveBeenCalledTimes(4);
 });
-it.each([
-	false,
-	true,
-])("uses reasoning only to review verified protected facts (%s)", async (isProtected) => {
-	const current = { id: "ownership", text: "The user owns a kayak." };
-	const protectedFact = {
-		id: "standalone",
-		text: "The user paddles a purple kayak.",
-	};
-	const model = vi
-		.fn<CurationModel>()
-		.mockResolvedValueOnce({ facts: [current] })
-		.mockResolvedValueOnce({ valid: true, issues: [] });
-	await applyMemoryEdit(
-		{
-			before: "I own a green kayak.",
-			after: "I own a kayak.",
-			intent,
-			facts: [{ ...current, text: "The user owns a green kayak." }],
-			protectedFacts: isProtected ? [protectedFact] : [],
-		},
-		model,
-	);
-	expect(model).toHaveBeenCalledTimes(2);
-	expect(model.mock.calls[0]).toHaveLength(3);
-	expect(model.mock.calls[1][3]).toBe(isProtected ? "on" : undefined);
-});
+it.each([false, true])(
+	"uses reasoning only to review verified protected facts (%s)",
+	async (isProtected) => {
+		const current = { id: "ownership", text: "The user owns a kayak." };
+		const protectedFact = {
+			id: "standalone",
+			text: "The user paddles a purple kayak.",
+		};
+		const model = vi
+			.fn<CurationModel>()
+			.mockResolvedValueOnce({ facts: [current] })
+			.mockResolvedValueOnce({ valid: true, issues: [] });
+		await applyMemoryEdit(
+			{
+				before: "I own a green kayak.",
+				after: "I own a kayak.",
+				intent,
+				facts: [{ ...current, text: "The user owns a green kayak." }],
+				protectedFacts: isProtected ? [protectedFact] : [],
+			},
+			model,
+		);
+		expect(model).toHaveBeenCalledTimes(2);
+		expect(model.mock.calls[0]).toHaveLength(3);
+		expect(model.mock.calls[1][3]).toBe(isProtected ? "on" : undefined);
+	},
+);
 it("honestly fails repeated loss without unbounded repair", async () => {
 	const model = vi
 		.fn<CurationModel>()
@@ -151,72 +151,72 @@ it("honestly fails repeated loss without unbounded repair", async () => {
 	expect(model).toHaveBeenCalledTimes(4);
 });
 
-it.each([
-	false,
-	true,
-])("prevents an older retained claim from being rewritten at a later date (invalid support: %s)", async (invalidSupport) => {
-	const earlier = {
-		id: "earlier",
-		text: "The user owns a kayak.",
-		assertion_at: "2026-08-03T12:00:00.000Z",
-	};
-	const delta = {
-		id: "later",
-		text: "The user's kayak is purple.",
-		assertion_at: "2026-08-05T12:00:00.000Z",
-	};
-	const model = vi
-		.fn<CurationModel>()
-		.mockResolvedValueOnce({ facts: [{ id: delta.id, text: earlier.text }] })
-		.mockResolvedValueOnce({
-			valid: true,
-			issues: [],
-			changed_proposal_origins: [
-				{
-					id: delta.id,
-					relation: "earlier",
-					supporting_fact_ids: [invalidSupport ? "unproven" : earlier.id],
-				},
-			],
-		})
-		.mockResolvedValueOnce({ facts: [{ id: delta.id, text: "" }] })
-		.mockResolvedValueOnce({
-			valid: true,
-			issues: [],
-			changed_proposal_origins: [
-				{ id: delta.id, relation: "empty", supporting_fact_ids: [] },
-			],
+it.each([false, true])(
+	"prevents an older retained claim from being rewritten at a later date (invalid support: %s)",
+	async (invalidSupport) => {
+		const earlier = {
+			id: "earlier",
+			text: "The user owns a kayak.",
+			assertion_at: "2026-08-03T12:00:00.000Z",
+		};
+		const delta = {
+			id: "later",
+			text: "The user's kayak is purple.",
+			assertion_at: "2026-08-05T12:00:00.000Z",
+		};
+		const model = vi
+			.fn<CurationModel>()
+			.mockResolvedValueOnce({ facts: [{ id: delta.id, text: earlier.text }] })
+			.mockResolvedValueOnce({
+				valid: true,
+				issues: [],
+				changed_proposal_origins: [
+					{
+						id: delta.id,
+						relation: "earlier",
+						supporting_fact_ids: [invalidSupport ? "unproven" : earlier.id],
+					},
+				],
+			})
+			.mockResolvedValueOnce({ facts: [{ id: delta.id, text: "" }] })
+			.mockResolvedValueOnce({
+				valid: true,
+				issues: [],
+				changed_proposal_origins: [
+					{ id: delta.id, relation: "empty", supporting_fact_ids: [] },
+				],
+			});
+		const apply = applyMemoryEdit(
+			{
+				before: delta.text,
+				after: earlier.text,
+				intent,
+				facts: [delta],
+				removalOnly: true,
+				earlierPreservedFacts: [earlier],
+			},
+			model,
+		);
+		if (invalidSupport) {
+			await expect(apply).rejects.toThrow("memory_edit_invalid");
+			expect(model).toHaveBeenCalledTimes(2);
+		} else {
+			await expect(apply).resolves.toEqual([{ id: delta.id, text: "" }]);
+			expect(model).toHaveBeenCalledTimes(4);
+			expect(model.mock.calls[2][1]).toMatchObject({
+				repair_issues: [
+					{ id: delta.id, problem: expect.stringContaining("earlier") },
+				],
+			});
+		}
+		expect(model.mock.calls[0][1]).toMatchObject({
+			earlier_preserved_facts: [earlier],
 		});
-	const apply = applyMemoryEdit(
-		{
-			before: delta.text,
-			after: earlier.text,
-			intent,
-			facts: [delta],
-			removalOnly: true,
-			earlierPreservedFacts: [earlier],
-		},
-		model,
-	);
-	if (invalidSupport) {
-		await expect(apply).rejects.toThrow("memory_edit_invalid");
-		expect(model).toHaveBeenCalledTimes(2);
-	} else {
-		await expect(apply).resolves.toEqual([{ id: delta.id, text: "" }]);
-		expect(model).toHaveBeenCalledTimes(4);
-		expect(model.mock.calls[2][1]).toMatchObject({
-			repair_issues: [
-				{ id: delta.id, problem: expect.stringContaining("earlier") },
-			],
+		expect(model.mock.calls[1][1]).toMatchObject({
+			earlier_preserved_facts: [earlier],
 		});
-	}
-	expect(model.mock.calls[0][1]).toMatchObject({
-		earlier_preserved_facts: [earlier],
-	});
-	expect(model.mock.calls[1][1]).toMatchObject({
-		earlier_preserved_facts: [earlier],
-	});
-});
+	},
+);
 
 it.each([
 	{
@@ -226,58 +226,57 @@ it.each([
 	},
 	{ relation: "mixed", prior: ["original"], accepted: false },
 	{ relation: "new", prior: [], accepted: true },
-])("requires proven new assertions before accepting their new date ($relation)", async ({
-	relation,
-	prior,
-	accepted,
-}) => {
-	const original = {
-		id: "original",
-		text: "A felhasználó távcsöve alumíniumból készült.",
-		assertion_at: "2026-08-05T12:00:00.000Z",
-		native_mentioned_at: "2026-08-05T12:00:00+00:00",
-	};
-	const fresh = {
-		id: "fresh",
-		text: accepted
-			? "A felhasználónak van egy új fényképezőgépe."
-			: "A felhasználónak van egy távcsöve.",
-		assertion_at: "2026-08-07T12:00:00.000Z",
-		native_mentioned_at: "2026-08-07T12:00:00+00:00",
-	};
-	const proposal = {
-		facts: [{ id: "original", text: accepted ? original.text : "" }],
-	};
-	const model = vi
-		.fn<CurationModel>()
-		.mockResolvedValueOnce(proposal)
-		.mockResolvedValueOnce({
-			valid: true,
-			issues: [],
-			date_correspondence: [{ id: "fresh", relation, prior_fact_ids: prior }],
+])(
+	"requires proven new assertions before accepting their new date ($relation)",
+	async ({ relation, prior, accepted }) => {
+		const original = {
+			id: "original",
+			text: "A felhasználó távcsöve alumíniumból készült.",
+			assertion_at: "2026-08-05T12:00:00.000Z",
+			native_mentioned_at: "2026-08-05T12:00:00+00:00",
+		};
+		const fresh = {
+			id: "fresh",
+			text: accepted
+				? "A felhasználónak van egy új fényképezőgépe."
+				: "A felhasználónak van egy távcsöve.",
+			assertion_at: "2026-08-07T12:00:00.000Z",
+			native_mentioned_at: "2026-08-07T12:00:00+00:00",
+		};
+		const proposal = {
+			facts: [{ id: "original", text: accepted ? original.text : "" }],
+		};
+		const model = vi
+			.fn<CurationModel>()
+			.mockResolvedValueOnce(proposal)
+			.mockResolvedValueOnce({
+				valid: true,
+				issues: [],
+				date_correspondence: [{ id: "fresh", relation, prior_fact_ids: prior }],
+			});
+		const result = applyMemoryEdit(
+			{
+				before: original.text,
+				after: accepted
+					? "Alumíniumból készült a távcsövem, és van egy új fényképezőgépem."
+					: "Van egy távcsövem.",
+				intent: { forget: [], replace: ["new detail"], preserve: [] },
+				facts: [original],
+				newFacts: [fresh],
+				verifyNewAssertionTiming: true,
+			},
+			model,
+		);
+		if (accepted) await expect(result).resolves.toEqual(proposal.facts);
+		else await expect(result).rejects.toThrow("memory_edit_rejected");
+		expect(model.mock.calls.at(1)?.[1]).toMatchObject({
+			original_facts: [original],
+			new_facts: [fresh],
+			proposed_facts: [{ ...original, text: proposal.facts[0].text }, fresh],
 		});
-	const result = applyMemoryEdit(
-		{
-			before: original.text,
-			after: accepted
-				? "Alumíniumból készült a távcsövem, és van egy új fényképezőgépem."
-				: "Van egy távcsövem.",
-			intent: { forget: [], replace: ["new detail"], preserve: [] },
-			facts: [original],
-			newFacts: [fresh],
-			verifyNewAssertionTiming: true,
-		},
-		model,
-	);
-	if (accepted) await expect(result).resolves.toEqual(proposal.facts);
-	else await expect(result).rejects.toThrow("memory_edit_rejected");
-	expect(model.mock.calls.at(1)?.[1]).toMatchObject({
-		original_facts: [original],
-		new_facts: [fresh],
-		proposed_facts: [{ ...original, text: proposal.facts[0].text }, fresh],
-	});
-	expect(model).toHaveBeenCalledTimes(2);
-});
+		expect(model).toHaveBeenCalledTimes(2);
+	},
+);
 
 it("refuses a timing verdict for an ID outside the current staged facts", async () => {
 	const model = vi
@@ -373,90 +372,98 @@ it("checks an ordered replay sequence once, allowing explicit later supersession
 	expect(model.mock.calls[0][1]).toMatchObject({ ordered_edits: edits });
 });
 
-it.each([
-	true,
-	false,
-])("checks a protected correction, the latest chat change and dependent withdrawal in one chronological review (%s)", async (valid) => {
-	const before = "I prefer Earl Grey tea.";
-	const after = `${before} I bake rye bread.`;
-	const plan = { forget: [], replace: ["Bread"], preserve: [before] };
-	const oldCorrection = {
-		before,
-		after: "I prefer jasmine tea.",
-		intent,
-		sources: ["manual"],
-	};
-	const olderChat = {
-		before,
-		after: before,
-		intent: plan,
-		sources: ["old-chat"],
-		chatRevision: true,
-	};
-	const edit = {
-		before,
-		after,
-		intent: plan,
-		sources: ["new-chat"],
-		chatRevision: true,
-	};
-	const old = [{ id: "jasmine", text: oldCorrection.after }];
-	const proposed = [...old, { id: "bread", text: "The user bakes rye bread." }];
-	const displayed = [{ id: "observed", text: "The user bakes rye bread." }];
-	const sourceAssertions = [
-		{
-			id: "rebuilt-reply",
-			originalSourceId: "old-reply",
-			assertion: "Yes. I also collect fountain pen nibs.",
-			priorContext: '{"prior_memory":[]}',
-			withdrawnContextSourceIds: ["old-question"],
-		},
-	];
-	const model = vi.fn<CurationModel>().mockResolvedValue({
-		valid,
-		issues: valid ? [] : [{ id: "bread", problem: "stale clause resurrected" }],
-	});
-	const review = checkMemoryEdit(
-		{
+it.each([true, false])(
+	"checks a protected correction, the latest chat change and dependent withdrawal in one chronological review (%s)",
+	async (valid) => {
+		const before = "I prefer Earl Grey tea.";
+		const after = `${before} I bake rye bread.`;
+		const plan = { forget: [], replace: ["Bread"], preserve: [before] };
+		const oldCorrection = {
+			before,
+			after: "I prefer jasmine tea.",
+			intent,
+			sources: ["manual"],
+		};
+		const olderChat = {
+			before,
+			after: before,
+			intent: plan,
+			sources: ["old-chat"],
+			chatRevision: true,
+		};
+		const edit = {
 			before,
 			after,
 			intent: plan,
-			latestChatSourceId: "new-chat",
-			orderedEdits: [oldCorrection, olderChat, edit],
-			originalFacts: old,
-			proposedFacts: proposed,
-			observations: displayed,
-			previousObservations: old,
-			sourceAssertions,
-			withdrawnSourceIds: ["old-question"],
-		},
-		model,
-	);
-	if (valid) await expect(review).resolves.toBeUndefined();
-	else await expect(review).rejects.toThrow("memory_dependency_check_rejected");
-	expect(model).toHaveBeenCalledTimes(1);
-	expect(model.mock.calls[0]).toHaveLength(3);
-	expect(model.mock.calls[0][0]).toContain("currently authorized priorContext");
-	expect(model.mock.calls[0][0]).toContain("latest explicit chat revision");
-	expect(model.mock.calls[0][1]).toEqual({
-		chronological_changes: [
-			{ ...oldCorrection, kind: "accepted standalone Memory correction" },
+			sources: ["new-chat"],
+			chatRevision: true,
+		};
+		const old = [{ id: "jasmine", text: oldCorrection.after }];
+		const proposed = [
+			...old,
+			{ id: "bread", text: "The user bakes rye bread." },
+		];
+		const displayed = [{ id: "observed", text: "The user bakes rye bread." }];
+		const sourceAssertions = [
+			{
+				id: "rebuilt-reply",
+				originalSourceId: "old-reply",
+				assertion: "Yes. I also collect fountain pen nibs.",
+				priorContext: '{"prior_memory":[]}',
+				withdrawnContextSourceIds: ["old-question"],
+			},
+		];
+		const model = vi.fn<CurationModel>().mockResolvedValue({
+			valid,
+			issues: valid
+				? []
+				: [{ id: "bread", problem: "stale clause resurrected" }],
+		});
+		const review = checkMemoryEdit(
 			{
 				before,
-				after: before,
-				sources: ["old-chat"],
-				kind: "earlier accepted chat revision",
+				after,
+				intent: plan,
+				latestChatSourceId: "new-chat",
+				orderedEdits: [oldCorrection, olderChat, edit],
+				originalFacts: old,
+				proposedFacts: proposed,
+				observations: displayed,
+				previousObservations: old,
+				sourceAssertions,
+				withdrawnSourceIds: ["old-question"],
 			},
-			{ before, after, sources: ["new-chat"], kind: "latest chat revision" },
-		],
-		original_facts: old,
-		proposed_facts: proposed,
-		displayed_observations: displayed,
-		previous_displayed_observations: old,
-		source_assertions: sourceAssertions,
-		withdrawn_source_ids: ["old-question"],
-	});
-});
+			model,
+		);
+		if (valid) await expect(review).resolves.toBeUndefined();
+		else
+			await expect(review).rejects.toThrow("memory_dependency_check_rejected");
+		expect(model).toHaveBeenCalledTimes(1);
+		expect(model.mock.calls[0]).toHaveLength(3);
+		expect(model.mock.calls[0][0]).toContain(
+			"currently authorized priorContext",
+		);
+		expect(model.mock.calls[0][0]).toContain("latest explicit chat revision");
+		expect(model.mock.calls[0][1]).toEqual({
+			chronological_changes: [
+				{ ...oldCorrection, kind: "accepted standalone Memory correction" },
+				{
+					before,
+					after: before,
+					sources: ["old-chat"],
+					kind: "earlier accepted chat revision",
+				},
+				{ before, after, sources: ["new-chat"], kind: "latest chat revision" },
+			],
+			original_facts: old,
+			proposed_facts: proposed,
+			displayed_observations: displayed,
+			previous_displayed_observations: old,
+			source_assertions: sourceAssertions,
+			withdrawn_source_ids: ["old-question"],
+		});
+	},
+);
 
 it("marks only the separately verified corrected assertion for the saved edit date", async () => {
 	const old = [

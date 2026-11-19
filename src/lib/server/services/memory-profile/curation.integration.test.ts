@@ -517,254 +517,265 @@ const ckProposal = (id: string, target: string, sister = "sister") => ({
 const ckOkay = { valid: true, issues: [] };
 const ckReject = { valid: false, issues: [{ id: "sister", problem: "loss" }] };
 
-it.each([
-	false,
-	true,
-])("binds a regenerated correction to the saved Edit only with unique support (split: %s)", async (split) => {
-	const f = await setup();
-	const replies: unknown[] = [ckPlan, ckProposal("kayak", ""), ckOkay, ckOkay];
-	const fixture = await nativeFixture(f, replies);
-	f.db
-		.insert(f.s.conversations)
-		.values({ id: "original-chat", userId: h.userId, title: "Paddling" })
-		.run();
-	f.db
-		.insert(f.s.messages)
-		.values({
-			id: "original-message",
-			conversationId: "original-chat",
-			role: "user",
-			content: f.source.text,
-		})
-		.run();
-	f.db
-		.update(f.s.memorySourceRevisions)
-		.set({
-			conversationId: "original-chat",
-			messageId: "original-message",
-			assertedAt: new Date(f.source.assertedAt.getTime() - 86_400_000),
-		})
-		.run();
-	const fetch = fixture.fetcher.getMockImplementation();
-	if (!fetch) throw Error("missing native fixture");
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const path = String(url);
-		if (path.endsWith("/memories") && init?.method === "POST") {
-			const item = JSON.parse(String(init.body)).items[0];
-			fixture.setFacts([
-				{ id: "kayak", text: "green kayak" },
-				{ id: "sister", text: "sister bicycle" },
-				{
-					id: "correction",
-					text: "purple kayak",
-					document_id: item.document_id,
-				},
-				...(split
-					? [
-							{
-								id: "second-correction",
-								text: "purple boat",
-								document_id: item.document_id,
-							},
-						]
-					: []),
-			]);
-		}
-		return fetch(url, init);
-	});
-	const actions = await import("./curation-actions");
-	const reads = await import("./native-read");
-	const jobs = await import("./delivery-job");
-	const op = await actions.submitMemoryAction(h.userId, {
-		kind: "edit",
-		ref: ckRef,
-		text: "I paddle a purple kayak",
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	const operation = actions.getMemoryOperation(h.userId, { id: op.id });
-	expect(operation.status).toBe("applied");
-	const page = reads.listMemory(h.userId, { scope: ckRef.scope });
-	const corrected = page.rows.find((row) => row.text === "purple kayak");
-	if (!corrected) throw Error("missing corrected memory");
-	const detail = reads.getMemoryDetail(h.userId, corrected.ref);
-	if (split) {
-		expect(operation.ref).toBeNull();
-		expect(detail.versions).toEqual([]);
-	} else {
-		expect(operation.ref).toEqual(corrected.ref);
-		expect(corrected.sourceCount).toBe(1);
-		expect(detail).toMatchObject({
-			origin: "conversation",
-			versions: [{ text: "kayak" }],
-			sources: [
-				{
-					title: "Paddling",
-					quote: "green kayak and sister's bicycle",
-					messageId: "original-message",
-					available: true,
-				},
-			],
-		});
-		const { eq } = await import("drizzle-orm");
-		f.db
-			.update(f.s.memoryPublishedRows)
-			.set({ nativeId: "regenerated-correction" })
-			.where(eq(f.s.memoryPublishedRows.nativeId, corrected.ref.rowId))
-			.run();
-		const regenerated = { ...corrected.ref, rowId: "regenerated-correction" };
-		expect(reads.getMemoryDetail(h.userId, regenerated).versions).toEqual(
-			detail.versions,
-		);
-
-		replies.push(
-			{ forget: ["purple"], replace: [], preserve: ["kayak ownership"] },
-			{ facts: [{ id: "correction", text: "kayak" }] },
-			{
-				...ckOkay,
-				changed_proposal_origins: [
-					{
-						id: "correction",
-						relation: "same_source",
-						supporting_fact_ids: ["correction"],
-					},
-				],
-			},
+it.each([false, true])(
+	"binds a regenerated correction to the saved Edit only with unique support (split: %s)",
+	async (split) => {
+		const f = await setup();
+		const replies: unknown[] = [
+			ckPlan,
+			ckProposal("kayak", ""),
 			ckOkay,
-		);
-		const omitted = await actions.submitMemoryAction(h.userId, {
-			kind: "edit",
-			ref: regenerated,
-			text: "I paddle a kayak",
-			requestId: randomUUID(),
-		});
-		await h.engine.drain(jobs.memoryDeliveryJob);
-		const afterOmission = actions.getMemoryOperation(h.userId, {
-			id: omitted.id,
-		});
-		if (!afterOmission.ref) throw Error("missing edited result");
-		expect(reads.getMemoryDetail(h.userId, afterOmission.ref)).toMatchObject({
-			origin: "conversation",
-			versions: [{ text: "purple kayak" }, { text: "kayak" }],
-			sources: [{ quote: "green kayak and sister's bicycle", available: true }],
-		});
-		f.db.update(f.s.conversations).set({ memoryIncognito: true }).run();
-		expect(reads.getMemoryDetail(h.userId, afterOmission.ref).origin).toBe(
-			"conversation",
-		);
-		expect(
-			reads.getMemoryDetail(h.userId, afterOmission.ref).sources,
-		).not.toContainEqual(expect.objectContaining({ available: true }));
-		f.db.update(f.s.conversations).set({ memoryIncognito: false }).run();
-		const rev = await import("./revisions");
-		const correctionSource = f.db
-			.select()
-			.from(f.s.memorySourceRevisions)
-			.where(eq(f.s.memorySourceRevisions.eventId, `manual:${op.id}`))
-			.get();
-		if (!correctionSource) throw Error("missing accepted correction source");
-		const appended = `${f.source.text}. I play chess.`;
+			ckOkay,
+		];
+		const fixture = await nativeFixture(f, replies);
+		f.db
+			.insert(f.s.conversations)
+			.values({ id: "original-chat", userId: h.userId, title: "Paddling" })
+			.run();
 		f.db
 			.insert(f.s.messages)
 			.values({
-				id: "appended-message",
+				id: "original-message",
 				conversationId: "original-chat",
 				role: "user",
-				content: appended,
+				content: f.source.text,
 			})
 			.run();
-		rev.revokeMemorySources(h.userId, [f.source.id]);
-		const resend = rev.recordMemorySource({
-			userId: h.userId,
-			bankId: f.bank.id,
-			epoch: 0,
-			eventId: "chat-append",
-			lineageId: f.source.lineageId,
-			conversationId: "original-chat",
-			messageId: "appended-message",
-			predecessorSourceId: f.source.id,
-			text: appended,
-			context: "",
-			assertedAt: f.source.assertedAt,
-			explicitEditAt: new Date(f.source.assertedAt.getTime() + 60_000),
-		});
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
+				conversationId: "original-chat",
+				messageId: "original-message",
+				assertedAt: new Date(f.source.assertedAt.getTime() - 86_400_000),
+			})
+			.run();
+		const fetch = fixture.fetcher.getMockImplementation();
+		if (!fetch) throw Error("missing native fixture");
 		fixture.fetcher.mockImplementation(async (url, init) => {
-			if (String(url).endsWith("/memories") && init?.method === "POST")
+			const path = String(url);
+			if (path.endsWith("/memories") && init?.method === "POST") {
+				const item = JSON.parse(String(init.body)).items[0];
 				fixture.setFacts([
+					{ id: "kayak", text: "green kayak" },
 					{ id: "sister", text: "sister bicycle" },
-					{ id: "correction", text: "kayak", document_id: correctionSource.id },
-					{ id: "chess", text: "I play chess.", document_id: resend.id },
+					{
+						id: "correction",
+						text: "purple kayak",
+						document_id: item.document_id,
+					},
+					...(split
+						? [
+								{
+									id: "second-correction",
+									text: "purple boat",
+									document_id: item.document_id,
+								},
+							]
+						: []),
 				]);
+			}
 			return fetch(url, init);
 		});
-		let finalVerification: unknown;
-		fixture.model.mockImplementation(async (_prompt, payload) => {
-			if ("facts" in payload)
-				return { facts: [{ id: "sister", text: "sister bicycle" }] };
-			if ("displayed_observations" in payload) {
-				finalVerification = payload;
-				return payload.ordered_edits?.some(
-					(edit: { before: string }) => edit.before === "purple kayak",
-				) &&
-					payload.proposed_facts.some(
-						(fact: { id: string; text: string }) =>
-							fact.id === "correction" && fact.text === "kayak",
-					)
-					? ckOkay
-					: ckReject;
-			}
-			if ("original_facts" in payload) return ckOkay;
-			return {
-				forget: [],
-				replace: ["I play chess"],
-				preserve: ["sister bicycle"],
-			};
-		});
-		const resendJob = await jobs.enqueueMemoryDelivery({
-			userId: h.userId,
-			bankId: f.bank.id,
-			epoch: 0,
-			kind: "source",
-			sourceId: resend.id,
-			requestId: "chat-append",
+		const actions = await import("./curation-actions");
+		const reads = await import("./native-read");
+		const jobs = await import("./delivery-job");
+		const op = await actions.submitMemoryAction(h.userId, {
+			kind: "edit",
+			ref: ckRef,
+			text: "I paddle a purple kayak",
+			requestId: randomUUID(),
 		});
 		await h.engine.drain(jobs.memoryDeliveryJob);
-		expect(finalVerification).toMatchObject({
-			ordered_edits: [
-				expect.objectContaining({
-					after: "I paddle a purple kayak",
-					sources: expect.arrayContaining([correctionSource.id]),
-				}),
-				expect.objectContaining({
-					after: "I paddle a kayak",
-					sources: [correctionSource.id],
-				}),
-				expect.objectContaining({ after: appended }),
-			],
-			proposed_facts: expect.arrayContaining([
-				expect.objectContaining({
-					id: "correction",
-					text: "kayak",
-					sourceId: correctionSource.id,
-				}),
-				expect.objectContaining({ id: "chess", text: "I play chess." }),
-			]),
-		});
-		expect(
+		const operation = actions.getMemoryOperation(h.userId, { id: op.id });
+		expect(operation.status).toBe("applied");
+		const page = reads.listMemory(h.userId, { scope: ckRef.scope });
+		const corrected = page.rows.find((row) => row.text === "purple kayak");
+		if (!corrected) throw Error("missing corrected memory");
+		const detail = reads.getMemoryDetail(h.userId, corrected.ref);
+		if (split) {
+			expect(operation.ref).toBeNull();
+			expect(detail.versions).toEqual([]);
+		} else {
+			expect(operation.ref).toEqual(corrected.ref);
+			expect(corrected.sourceCount).toBe(1);
+			expect(detail).toMatchObject({
+				origin: "conversation",
+				versions: [{ text: "kayak" }],
+				sources: [
+					{
+						title: "Paddling",
+						quote: "green kayak and sister's bicycle",
+						messageId: "original-message",
+						available: true,
+					},
+				],
+			});
+			const { eq } = await import("drizzle-orm");
 			f.db
+				.update(f.s.memoryPublishedRows)
+				.set({ nativeId: "regenerated-correction" })
+				.where(eq(f.s.memoryPublishedRows.nativeId, corrected.ref.rowId))
+				.run();
+			const regenerated = { ...corrected.ref, rowId: "regenerated-correction" };
+			expect(reads.getMemoryDetail(h.userId, regenerated).versions).toEqual(
+				detail.versions,
+			);
+
+			replies.push(
+				{ forget: ["purple"], replace: [], preserve: ["kayak ownership"] },
+				{ facts: [{ id: "correction", text: "kayak" }] },
+				{
+					...ckOkay,
+					changed_proposal_origins: [
+						{
+							id: "correction",
+							relation: "same_source",
+							supporting_fact_ids: ["correction"],
+						},
+					],
+				},
+				ckOkay,
+			);
+			const omitted = await actions.submitMemoryAction(h.userId, {
+				kind: "edit",
+				ref: regenerated,
+				text: "I paddle a kayak",
+				requestId: randomUUID(),
+			});
+			await h.engine.drain(jobs.memoryDeliveryJob);
+			const afterOmission = actions.getMemoryOperation(h.userId, {
+				id: omitted.id,
+			});
+			if (!afterOmission.ref) throw Error("missing edited result");
+			expect(reads.getMemoryDetail(h.userId, afterOmission.ref)).toMatchObject({
+				origin: "conversation",
+				versions: [{ text: "purple kayak" }, { text: "kayak" }],
+				sources: [
+					{ quote: "green kayak and sister's bicycle", available: true },
+				],
+			});
+			f.db.update(f.s.conversations).set({ memoryIncognito: true }).run();
+			expect(reads.getMemoryDetail(h.userId, afterOmission.ref).origin).toBe(
+				"conversation",
+			);
+			expect(
+				reads.getMemoryDetail(h.userId, afterOmission.ref).sources,
+			).not.toContainEqual(expect.objectContaining({ available: true }));
+			f.db.update(f.s.conversations).set({ memoryIncognito: false }).run();
+			const rev = await import("./revisions");
+			const correctionSource = f.db
 				.select()
-				.from(f.s.memoryDeliveryJobs)
-				.where(eq(f.s.memoryDeliveryJobs.id, resendJob.row.id))
-				.get()?.status,
-		).toBe("succeeded");
-		expect(
-			reads
-				.listMemory(h.userId, { scope: ckRef.scope })
-				.rows.map(({ text }) => text)
-				.sort(),
-		).toEqual(["I play chess.", "kayak", "sister bicycle"]);
-	}
-});
+				.from(f.s.memorySourceRevisions)
+				.where(eq(f.s.memorySourceRevisions.eventId, `manual:${op.id}`))
+				.get();
+			if (!correctionSource) throw Error("missing accepted correction source");
+			const appended = `${f.source.text}. I play chess.`;
+			f.db
+				.insert(f.s.messages)
+				.values({
+					id: "appended-message",
+					conversationId: "original-chat",
+					role: "user",
+					content: appended,
+				})
+				.run();
+			rev.revokeMemorySources(h.userId, [f.source.id]);
+			const resend = rev.recordMemorySource({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				eventId: "chat-append",
+				lineageId: f.source.lineageId,
+				conversationId: "original-chat",
+				messageId: "appended-message",
+				predecessorSourceId: f.source.id,
+				text: appended,
+				context: "",
+				assertedAt: f.source.assertedAt,
+				explicitEditAt: new Date(f.source.assertedAt.getTime() + 60_000),
+			});
+			fixture.fetcher.mockImplementation(async (url, init) => {
+				if (String(url).endsWith("/memories") && init?.method === "POST")
+					fixture.setFacts([
+						{ id: "sister", text: "sister bicycle" },
+						{
+							id: "correction",
+							text: "kayak",
+							document_id: correctionSource.id,
+						},
+						{ id: "chess", text: "I play chess.", document_id: resend.id },
+					]);
+				return fetch(url, init);
+			});
+			let finalVerification: unknown;
+			fixture.model.mockImplementation(async (_prompt, payload) => {
+				if ("facts" in payload)
+					return { facts: [{ id: "sister", text: "sister bicycle" }] };
+				if ("displayed_observations" in payload) {
+					finalVerification = payload;
+					return payload.ordered_edits?.some(
+						(edit: { before: string }) => edit.before === "purple kayak",
+					) &&
+						payload.proposed_facts.some(
+							(fact: { id: string; text: string }) =>
+								fact.id === "correction" && fact.text === "kayak",
+						)
+						? ckOkay
+						: ckReject;
+				}
+				if ("original_facts" in payload) return ckOkay;
+				return {
+					forget: [],
+					replace: ["I play chess"],
+					preserve: ["sister bicycle"],
+				};
+			});
+			const resendJob = await jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: resend.id,
+				requestId: "chat-append",
+			});
+			await h.engine.drain(jobs.memoryDeliveryJob);
+			expect(finalVerification).toMatchObject({
+				ordered_edits: [
+					expect.objectContaining({
+						after: "I paddle a purple kayak",
+						sources: expect.arrayContaining([correctionSource.id]),
+					}),
+					expect.objectContaining({
+						after: "I paddle a kayak",
+						sources: [correctionSource.id],
+					}),
+					expect.objectContaining({ after: appended }),
+				],
+				proposed_facts: expect.arrayContaining([
+					expect.objectContaining({
+						id: "correction",
+						text: "kayak",
+						sourceId: correctionSource.id,
+					}),
+					expect.objectContaining({ id: "chess", text: "I play chess." }),
+				]),
+			});
+			expect(
+				f.db
+					.select()
+					.from(f.s.memoryDeliveryJobs)
+					.where(eq(f.s.memoryDeliveryJobs.id, resendJob.row.id))
+					.get()?.status,
+			).toBe("succeeded");
+			expect(
+				reads
+					.listMemory(h.userId, { scope: ckRef.scope })
+					.rows.map(({ text }) => text)
+					.sort(),
+			).toEqual(["I play chess.", "kayak", "sister bicycle"]);
+		}
+	},
+);
 
 it("a removal-only Edit keeps the retained claim at its original date without a new native assertion", async () => {
 	const f = await setup();
@@ -833,198 +844,203 @@ it("a removal-only Edit keeps the retained claim at its original date without a 
 	expect(f.db.select().from(f.s.memorySourceRevisions).all()).toHaveLength(1);
 });
 
-it.each([
-	"rewritten",
-	"unchanged",
-	"independent later",
-] as const)("keeps exact assertion dates after chained omission (%s)", async (mode) => {
-	const f = await setup();
-	const { eq } = await import("drizzle-orm");
-	const { recordMemorySource } = await import("./revisions");
-	const { publishNativeSnapshot } = await import("./publication");
-	const olderDate = new Date("2026-08-03T12:00:00Z");
-	const laterDate = new Date("2026-08-05T12:00:00Z");
-	const acceptedAction = randomUUID();
-	const ownership = "The user owns a kayak.";
-	const laterClaim = "The user paddles on Mondays.";
-	const independent = mode === "independent later";
-	const material = `The user's kayak is purple.${independent ? ` ${laterClaim}` : ""}`;
-	const manual = recordMemorySource({
-		userId: h.userId,
-		bankId: f.bank.id,
-		epoch: 0,
-		eventId: `manual:${acceptedAction}`,
-		lineageId: acceptedAction,
-		text: independent
-			? "I own a purple kayak. I paddle on Mondays."
-			: "I own a purple kayak.",
-		context: "",
-		assertedAt: laterDate,
-	});
-	f.db
-		.update(f.s.memorySourceRevisions)
-		.set({
-			assertedAt: olderDate,
-			acknowledgedFactsJson: JSON.stringify([{ id: "kayak", text: ownership }]),
-		})
-		.where(eq(f.s.memorySourceRevisions.id, f.source.id))
-		.run();
-	f.db
-		.update(f.s.memorySourceRevisions)
-		.set({
-			state: "accepted",
-			acknowledgedFactsJson: JSON.stringify([{ id: "delta", text: material }]),
-		})
-		.where(eq(f.s.memorySourceRevisions.id, manual.id))
-		.run();
-	const requestId = randomUUID();
-	f.db
-		.insert(f.s.memoryActions)
-		.values({
-			id: acceptedAction,
+it.each(["rewritten", "unchanged", "independent later"] as const)(
+	"keeps exact assertion dates after chained omission (%s)",
+	async (mode) => {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const { recordMemorySource } = await import("./revisions");
+		const { publishNativeSnapshot } = await import("./publication");
+		const olderDate = new Date("2026-08-03T12:00:00Z");
+		const laterDate = new Date("2026-08-05T12:00:00Z");
+		const acceptedAction = randomUUID();
+		const ownership = "The user owns a kayak.";
+		const laterClaim = "The user paddles on Mondays.";
+		const independent = mode === "independent later";
+		const material = `The user's kayak is purple.${independent ? ` ${laterClaim}` : ""}`;
+		const manual = recordMemorySource({
 			userId: h.userId,
 			bankId: f.bank.id,
 			epoch: 0,
-			kind: "edit",
-			requestId,
-			text: manual.text,
-			previousText: "The user owns a green kayak.",
-			intentJson: JSON.stringify({
-				request: { kind: "edit", requestId, ref: ckRef, text: manual.text },
-				before: "The user owns a green kayak.",
-				outcome: "accepted",
-				sourceIds: [f.source.id],
-				addedSourceId: manual.id,
-				facts: [
+			eventId: `manual:${acceptedAction}`,
+			lineageId: acceptedAction,
+			text: independent
+				? "I own a purple kayak. I paddle on Mondays."
+				: "I own a purple kayak.",
+			context: "",
+			assertedAt: laterDate,
+		});
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
+				assertedAt: olderDate,
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "kayak", text: ownership },
+				]),
+			})
+			.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+			.run();
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
+				state: "accepted",
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "delta", text: material },
+				]),
+			})
+			.where(eq(f.s.memorySourceRevisions.id, manual.id))
+			.run();
+		const requestId = randomUUID();
+		f.db
+			.insert(f.s.memoryActions)
+			.values({
+				id: acceptedAction,
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "edit",
+				requestId,
+				text: manual.text,
+				previousText: "The user owns a green kayak.",
+				intentJson: JSON.stringify({
+					request: { kind: "edit", requestId, ref: ckRef, text: manual.text },
+					before: "The user owns a green kayak.",
+					outcome: "accepted",
+					sourceIds: [f.source.id],
+					addedSourceId: manual.id,
+					facts: [
+						{
+							id: "kayak",
+							text:
+								mode === "rewritten"
+									? "The user owns a green kayak."
+									: ownership,
+							sourceId: f.source.id,
+						},
+						...(mode === "rewritten"
+							? []
+							: [
+									{
+										id: "old-color",
+										text: "The user's kayak is green.",
+										sourceId: f.source.id,
+									},
+								]),
+					],
+					proposal: [
+						{ id: "kayak", text: ownership },
+						...(mode === "rewritten" ? [] : [{ id: "old-color", text: "" }]),
+					],
+					nativeFacts: [{ id: "delta", text: material }],
+				}),
+			})
+			.run();
+		const raw = [
+			{ id: "kayak", text: ownership, document_id: f.source.id },
+			{ id: "delta", text: material, document_id: manual.id },
+		];
+		const generation = f.db.transaction((tx) =>
+			publishNativeSnapshot(tx, {
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				expectedRevision: 0,
+				memories: [
+					...raw.map((fact) => ({
+						...fact,
+						fact_type: "world",
+						consolidated_at: "2026-08-05",
+					})),
+					...raw.map((fact) => ({
+						id: `observation-${fact.id}`,
+						text: fact.text,
+						fact_type: "observation",
+						source_memory_ids: [fact.id],
+					})),
+				],
+			}),
+		);
+		const fixture = await nativeFixture(f, []);
+		fixture.setFacts(raw);
+		fixture.model.mockImplementation(async (_prompt, payload) => {
+			if ("displayed_observations" in payload) return ckOkay;
+			if ("facts" in payload) {
+				expect(payload.earlier_preserved_facts).toMatchObject([
 					{
 						id: "kayak",
-						text:
-							mode === "rewritten" ? "The user owns a green kayak." : ownership,
 						sourceId: f.source.id,
+						assertion_at: olderDate.toISOString(),
 					},
-					...(mode === "rewritten"
-						? []
-						: [
-								{
-									id: "old-color",
-									text: "The user's kayak is green.",
-									sourceId: f.source.id,
-								},
-							]),
-				],
-				proposal: [
-					{ id: "kayak", text: ownership },
-					...(mode === "rewritten" ? [] : [{ id: "old-color", text: "" }]),
-				],
-				nativeFacts: [{ id: "delta", text: material }],
-			}),
-		})
-		.run();
-	const raw = [
-		{ id: "kayak", text: ownership, document_id: f.source.id },
-		{ id: "delta", text: material, document_id: manual.id },
-	];
-	const generation = f.db.transaction((tx) =>
-		publishNativeSnapshot(tx, {
-			userId: h.userId,
-			bankId: f.bank.id,
-			epoch: 0,
-			expectedRevision: 0,
-			memories: [
-				...raw.map((fact) => ({
-					...fact,
-					fact_type: "world",
-					consolidated_at: "2026-08-05",
-				})),
-				...raw.map((fact) => ({
-					id: `observation-${fact.id}`,
-					text: fact.text,
-					fact_type: "observation",
-					source_memory_ids: [fact.id],
-				})),
-			],
-		}),
-	);
-	const fixture = await nativeFixture(f, []);
-	fixture.setFacts(raw);
-	fixture.model.mockImplementation(async (_prompt, payload) => {
-		if ("displayed_observations" in payload) return ckOkay;
-		if ("facts" in payload) {
-			expect(payload.earlier_preserved_facts).toMatchObject([
-				{
-					id: "kayak",
-					sourceId: f.source.id,
-					assertion_at: olderDate.toISOString(),
-				},
-			]);
+				]);
+				return {
+					facts: [
+						{
+							id: "delta",
+							text: independent
+								? laterClaim
+								: payload.repair_issues
+									? ""
+									: ownership,
+						},
+					],
+				};
+			}
+			if ("original_facts" in payload) {
+				const removed =
+					payload.proposed_facts.find(
+						(fact: { id: string }) => fact.id === "delta",
+					).text === "";
+				return {
+					...ckOkay,
+					changed_proposal_origins: [
+						{
+							id: "delta",
+							relation: independent
+								? "same_source"
+								: removed
+									? "empty"
+									: "earlier",
+							supporting_fact_ids: independent
+								? ["delta"]
+								: removed
+									? []
+									: ["kayak"],
+						},
+					],
+				};
+			}
 			return {
-				facts: [
-					{
-						id: "delta",
-						text: independent
-							? laterClaim
-							: payload.repair_issues
-								? ""
-								: ownership,
-					},
-				],
+				forget: ["purple"],
+				replace: [],
+				preserve: independent ? [ownership, laterClaim] : [ownership],
 			};
-		}
-		if ("original_facts" in payload) {
-			const removed =
-				payload.proposed_facts.find(
-					(fact: { id: string }) => fact.id === "delta",
-				).text === "";
-			return {
-				...ckOkay,
-				changed_proposal_origins: [
-					{
-						id: "delta",
-						relation: independent
-							? "same_source"
-							: removed
-								? "empty"
-								: "earlier",
-						supporting_fact_ids: independent
-							? ["delta"]
-							: removed
-								? []
-								: ["kayak"],
-					},
-				],
-			};
-		}
-		return {
-			forget: ["purple"],
-			replace: [],
-			preserve: independent ? [ownership, laterClaim] : [ownership],
-		};
-	});
-	const actions = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const op = await actions.submitMemoryAction(h.userId, {
-		kind: "edit",
-		ref: { ...ckRef, generation, rowId: "observation-delta" },
-		text: independent
-			? "I own a kayak. I paddle on Mondays."
-			: "I own a kayak.",
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(actions.getMemoryOperation(h.userId, { id: op.id }).status).toBe(
-		"applied",
-	);
-	expect(fixture.patches).toEqual(["delta"]);
-	const { rows } = (await import("./native-read")).listMemory(h.userId, {
-		scope: ckRef.scope,
-	});
-	expect(rows.map(({ text, updatedAt }) => ({ text, updatedAt }))).toEqual([
-		...(independent
-			? [{ text: laterClaim, updatedAt: laterDate.toISOString() }]
-			: []),
-		{ text: ownership, updatedAt: olderDate.toISOString() },
-	]);
-});
+		});
+		const actions = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const op = await actions.submitMemoryAction(h.userId, {
+			kind: "edit",
+			ref: { ...ckRef, generation, rowId: "observation-delta" },
+			text: independent
+				? "I own a kayak. I paddle on Mondays."
+				: "I own a kayak.",
+			requestId: randomUUID(),
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(actions.getMemoryOperation(h.userId, { id: op.id }).status).toBe(
+			"applied",
+		);
+		expect(fixture.patches).toEqual(["delta"]);
+		const { rows } = (await import("./native-read")).listMemory(h.userId, {
+			scope: ckRef.scope,
+		});
+		expect(rows.map(({ text, updatedAt }) => ({ text, updatedAt }))).toEqual([
+			...(independent
+				? [{ text: laterClaim, updatedAt: laterDate.toISOString() }]
+				: []),
+			{ text: ownership, updatedAt: olderDate.toISOString() },
+		]);
+	},
+);
 
 it("the authoritative Edit check rejects a new assertion missed by a removal-only plan", async () => {
 	const f = await setup();
@@ -1339,96 +1355,96 @@ it("new native delta participates in the same bounded mixed Edit check", async (
 	).not.toContain("green kayak");
 });
 
-it.each([
-	false,
-	true,
-])("rejected Edit recovery republishes a regenerated observation only when its accepted support and text match (changed: %s)", async (changed) => {
-	const f = await setup();
-	const fixture = await nativeFixture(f, [
-		ckPlan,
-		ckProposal("kayak", "purple kayak"),
-		ckReject,
-		ckProposal("kayak", "purple kayak"),
-		ckReject,
-	]);
-	const { eq } = await import("drizzle-orm");
-	for (const [id, text] of [
-		["kayak", "green kayak"],
-		["sister", "sister bicycle"],
-	])
-		f.db
-			.update(f.s.memoryPublishedRows)
-			.set({ text, nativeText: text, nativeId: `observation-${id}` })
-			.where(eq(f.s.memoryPublishedRows.id, id))
-			.run();
-	const fetch = fixture.fetcher.getMockImplementation();
-	if (!fetch) throw Error("missing native fixture");
-	let deleted = false;
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const path = String(url);
-		if (init?.method === "DELETE" && path.includes("/documents/"))
-			deleted = true;
-		if (path.endsWith("/memories/recall"))
-			return new Response(
-				JSON.stringify({
-					results: [
-						{
-							id: "renumbered-kayak",
-							text: changed ? "the kayak was green" : "green kayak",
-							type: "observation",
-						},
-						{
-							id: "observation-sister",
-							text: "sister bicycle",
-							type: "observation",
-						},
-					],
-				}),
+it.each([false, true])(
+	"rejected Edit recovery republishes a regenerated observation only when its accepted support and text match (changed: %s)",
+	async (changed) => {
+		const f = await setup();
+		const fixture = await nativeFixture(f, [
+			ckPlan,
+			ckProposal("kayak", "purple kayak"),
+			ckReject,
+			ckProposal("kayak", "purple kayak"),
+			ckReject,
+		]);
+		const { eq } = await import("drizzle-orm");
+		for (const [id, text] of [
+			["kayak", "green kayak"],
+			["sister", "sister bicycle"],
+		])
+			f.db
+				.update(f.s.memoryPublishedRows)
+				.set({ text, nativeText: text, nativeId: `observation-${id}` })
+				.where(eq(f.s.memoryPublishedRows.id, id))
+				.run();
+		const fetch = fixture.fetcher.getMockImplementation();
+		if (!fetch) throw Error("missing native fixture");
+		let deleted = false;
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (init?.method === "DELETE" && path.includes("/documents/"))
+				deleted = true;
+			if (path.endsWith("/memories/recall"))
+				return new Response(
+					JSON.stringify({
+						results: [
+							{
+								id: "renumbered-kayak",
+								text: changed ? "the kayak was green" : "green kayak",
+								type: "observation",
+							},
+							{
+								id: "observation-sister",
+								text: "sister bicycle",
+								type: "observation",
+							},
+						],
+					}),
+				);
+			const response = await fetch(url, init);
+			if (!deleted || !path.includes("/memories/list")) return response;
+			const list = await response.json();
+			const observation = list.items.find(
+				(row: { id: string }) => row.id === "observation-kayak",
 			);
-		const response = await fetch(url, init);
-		if (!deleted || !path.includes("/memories/list")) return response;
-		const list = await response.json();
-		const observation = list.items.find(
-			(row: { id: string }) => row.id === "observation-kayak",
+			observation.id = "renumbered-kayak";
+			if (changed) observation.text = "the kayak was green";
+			return new Response(JSON.stringify(list));
+		});
+		const actions = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const op = await actions.submitMemoryAction(h.userId, {
+			kind: "edit",
+			text: "I paddle a purple kayak",
+			ref: { ...ckRef, rowId: "observation-kayak" },
+			requestId: randomUUID(),
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(actions.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+			status: "failed",
+			cleanupPending: false,
+		});
+		const rows = (await import("./native-read")).listMemory(h.userId, {
+			scope: ckRef.scope,
+		}).rows;
+		expect(rows).toHaveLength(2);
+		expect(rows.find(({ text }) => text === "green kayak")?.ref.rowId).toBe(
+			changed ? "observation-kayak" : "renumbered-kayak",
 		);
-		observation.id = "renumbered-kayak";
-		if (changed) observation.text = "the kayak was green";
-		return new Response(JSON.stringify(list));
-	});
-	const actions = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const op = await actions.submitMemoryAction(h.userId, {
-		kind: "edit",
-		text: "I paddle a purple kayak",
-		ref: { ...ckRef, rowId: "observation-kayak" },
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(actions.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
-		status: "failed",
-		cleanupPending: false,
-	});
-	const rows = (await import("./native-read")).listMemory(h.userId, {
-		scope: ckRef.scope,
-	}).rows;
-	expect(rows).toHaveLength(2);
-	expect(rows.find(({ text }) => text === "green kayak")?.ref.rowId).toBe(
-		changed ? "observation-kayak" : "renumbered-kayak",
-	);
-	f.db
-		.insert(f.s.conversations)
-		.values({ id: "recall-only", userId: h.userId, title: "Recall" })
-		.run();
-	const { recallMemory } = await import("../memory-context/native");
-	const recalled = await recallMemory(h.userId, {
-		conversationId: "recall-only",
-		query: "kayak and bicycle",
-		tokenBudget: 500,
-	});
-	expect(recalled.map(({ text }) => text)).toEqual(
-		changed ? ["sister bicycle"] : ["green kayak", "sister bicycle"],
-	);
-});
+		f.db
+			.insert(f.s.conversations)
+			.values({ id: "recall-only", userId: h.userId, title: "Recall" })
+			.run();
+		const { recallMemory } = await import("../memory-context/native");
+		const recalled = await recallMemory(h.userId, {
+			conversationId: "recall-only",
+			query: "kayak and bicycle",
+			tokenBudget: 500,
+		});
+		expect(recalled.map(({ text }) => text)).toEqual(
+			changed ? ["sister bicycle"] : ["green kayak", "sister bicycle"],
+		);
+	},
+);
 it("queued remember never dispatches after chat becomes Incognito", async () => {
 	const f = await setup();
 	const fixture = await nativeFixture(f, []);
@@ -2094,280 +2110,281 @@ it.each([
 		after: "I bought a blue kayak. My sister has a bicycle.",
 		extracted: "blue kayak",
 	},
-])("changed resend distinguishes an unchanged removed detail from a deliberate new assertion ($extracted)", async ({
-	repeated,
-	after,
-	extracted,
-}) => {
-	const f = await setup();
-	const fixture = await nativeFixture(f, [
-		{ forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] },
-		ckProposal("kayak", ""),
-		ckOkay,
-		ckOkay,
-	]);
-	const actions = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const revisions = await import("./revisions");
-	const { readPublishedMemory } = await import("./publication");
-	const op = await actions.submitMemoryAction(h.userId, {
-		kind: "remove",
-		ref: ckRef,
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(actions.getMemoryOperation(h.userId, { id: op.id }).status).toBe(
-		"applied",
-	);
-	revisions.revokeMemorySources(h.userId, [f.source.id]);
-	const next = revisions.recordMemorySource({
-		userId: h.userId,
-		bankId: f.bank.id,
-		epoch: 0,
-		eventId: "deliberate",
-		lineageId: f.source.lineageId,
-		predecessorSourceId: f.source.id,
-		text: after,
-		context: "",
-		assertedAt: f.source.assertedAt,
-		explicitEditAt: new Date(f.source.assertedAt.getTime() + 120_000),
-	});
-	const transport = fixture.fetcher.getMockImplementation();
-	if (!transport) throw Error("missing fixture");
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		if (String(url).endsWith("/memories") && init?.method === "POST") {
-			const content = JSON.parse(
-				JSON.parse(String(init.body)).items[0].content,
-			);
-			expect(content).toMatchObject({
-				kind: "source_edit",
-				before: f.source.text,
-				after,
-			});
-			fixture.setFacts([
-				{ id: "sister", text: "sister bicycle", document_id: f.source.id },
-				{ id: "changed-kayak", text: extracted, document_id: next.id },
-			]);
-		}
-		return transport(url, init);
-	});
-	fixture.model
-		.mockResolvedValueOnce({
-			forget: [],
-			replace: repeated ? [] : ["blue kayak"],
-			preserve: ["sister bicycle"],
-		})
-		.mockResolvedValueOnce({
-			facts: [{ id: "sister", text: "sister bicycle" }],
-		})
-		.mockResolvedValueOnce(ckOkay)
-		.mockImplementation(async (_prompt, input) => {
-			const beforeAndAfter = input.ordered_edits?.at(-1);
-			const previouslyRemoved =
-				input.ordered_edits?.[0]?.intent.forget.includes("green kayak");
-			const isUnchangedGreen =
-				beforeAndAfter?.before.includes("green kayak") &&
-				beforeAndAfter?.after.includes("green kayak");
-			return previouslyRemoved &&
-				isUnchangedGreen &&
-				input.displayed_observations.some(
-					({ text }: { text: string }) => text === "green kayak",
-				)
-				? ckReject
-				: ckOkay;
+])(
+	"changed resend distinguishes an unchanged removed detail from a deliberate new assertion ($extracted)",
+	async ({ repeated, after, extracted }) => {
+		const f = await setup();
+		const fixture = await nativeFixture(f, [
+			{ forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] },
+			ckProposal("kayak", ""),
+			ckOkay,
+			ckOkay,
+		]);
+		const actions = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const revisions = await import("./revisions");
+		const { readPublishedMemory } = await import("./publication");
+		const op = await actions.submitMemoryAction(h.userId, {
+			kind: "remove",
+			ref: ckRef,
+			requestId: randomUUID(),
 		});
-	const job = await jobs.enqueueMemoryDelivery({
-		userId: h.userId,
-		bankId: f.bank.id,
-		epoch: 0,
-		kind: "source",
-		sourceId: next.id,
-		requestId: "deliberate",
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	const { eq } = await import("drizzle-orm");
-	const result = f.db
-		.select()
-		.from(f.s.memoryDeliveryJobs)
-		.where(eq(f.s.memoryDeliveryJobs.id, job.row.id))
-		.get();
-	const rows = readPublishedMemory(h.userId, f.bank.id);
-	if (repeated) {
-		expect(result?.errorCode).toBe("memory_dependency_check_rejected");
-		expect(rows.map((row) => row.text)).not.toContain("green kayak");
-	} else {
-		expect(result?.status).toBe("succeeded");
-		expect(rows.map((row) => row.text).sort()).toEqual([
-			"blue kayak",
-			"sister bicycle",
-		]);
-		expect(rows.find((row) => row.text === "blue kayak")?.updatedAt).toEqual(
-			next.explicitEditAt,
-		);
-		expect(
-			rows.find((row) => row.text === "sister bicycle")?.updatedAt,
-		).toEqual(f.source.assertedAt);
-	}
-	expect(fixture.model.mock.calls.at(-1)?.[1]).toMatchObject({
-		ordered_edits: [
-			{ intent: { forget: ["green kayak"] } },
-			{ before: f.source.text, after },
-		],
-	});
-});
-
-it.each([
-	false,
-	true,
-])("turning Memory on compensates a cancelled Edit before unrelated delivery (lost restore response %s)", async (loseResponse) => {
-	const f = await setup();
-	const fixture = await nativeFixture(f, [
-		ckPlan,
-		ckProposal("kayak", "purple kayak"),
-		ckOkay,
-	]);
-	const { setMemoryEnabled } = await import("./migration-policy");
-	const actions = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const { recordMemorySource } = await import("./revisions");
-	const { readPublishedMemory } = await import("./publication");
-	const { eq } = await import("drizzle-orm");
-	const transport = fixture.fetcher.getMockImplementation();
-	if (!transport) throw Error("missing native fixture");
-	const nativeText = new Map([
-		["kayak", "green kayak"],
-		["sister", "sister bicycle"],
-	]);
-	let setOff = false;
-	let chessId: string | undefined;
-	let lost = false;
-	let deltaId: string | undefined;
-	let discardedDelta = false;
-	const syncFacts = () =>
-		fixture.setFacts([
-			...[...nativeText].map(([id, text]) => ({ id, text })),
-			...(deltaId && !discardedDelta
-				? [
-						{
-							id: "cancelled-delta",
-							text: "purple kayak",
-							document_id: deltaId,
-						},
-					]
-				: []),
-			...(chessId
-				? [{ id: "chess", text: "I play chess.", document_id: chessId }]
-				: []),
-		]);
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const pathname = String(url);
-		if (init?.method === "POST" && pathname.endsWith("/memories")) {
-			if (!chessId)
-				deltaId = JSON.parse(String(init.body)).items[0].document_id;
-			syncFacts();
-		}
-		if (
-			deltaId &&
-			init?.method === "DELETE" &&
-			pathname.endsWith(`/documents/${deltaId}`)
-		) {
-			discardedDelta = true;
-			syncFacts();
-		}
-		const response = await transport(url, init);
-		if (init?.method === "PATCH" && pathname.endsWith("/kayak")) {
-			const body = JSON.parse(String(init.body));
-			nativeText.set("kayak", body.text);
-			if (body.text === "purple kayak" && !setOff) {
-				setOff = true;
-				await setMemoryEnabled(h.userId, false);
-			}
-			if (body.text === "green kayak" && loseResponse && !lost) {
-				lost = true;
-				return new Response("restore applied, response lost", { status: 503 });
-			}
-		}
-		return response;
-	});
-	const op = await actions.submitMemoryAction(h.userId, {
-		kind: "edit",
-		ref: ckRef,
-		text: "purple kayak",
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(f.db.select().from(f.s.users).get()?.memoryEnabled).toBe(false);
-	expect(nativeText.get("kayak")).toBe("purple kayak");
-	expect(fixture.model).toHaveBeenCalledTimes(3);
-	// Rollback VERIFICATION is read-only and receives the original accepted wording.
-	fixture.model.mockImplementation(async (_prompt, input) => {
-		const restored =
-			input.proposed_facts.some(
-				({ text }: { text: string }) => text === "green kayak",
-			) &&
-			input.displayed_observations.some(
-				({ text }: { text: string }) => text === "green kayak",
-			);
-		return restored ? ckOkay : ckReject;
-	});
-	await setMemoryEnabled(h.userId, true);
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	if (loseResponse) {
-		expect(lost).toBe(true);
-		expect(nativeText.get("kayak")).toBe("green kayak");
-		f.db
-			.update(f.s.memoryDeliveryJobs)
-			.set({ runAfter: new Date(0) })
-			.where(eq(f.s.memoryDeliveryJobs.actionId, op.id))
-			.run();
 		await h.engine.drain(jobs.memoryDeliveryJob);
-	}
-	expect(actions.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
-		status: "failed",
-		errorCode: "memory_edit_cancelled",
-		cleanupPending: false,
-	});
-	expect(nativeText.get("kayak")).toBe("green kayak");
-	expect(fixture.patches.filter((id) => id === "kayak")).toHaveLength(2);
-	expect(deltaId).toBeDefined();
-	expect(discardedDelta).toBe(true);
-	const { verifiedMemoryHistory } = await import("./native-read");
-	expect(
-		verifiedMemoryHistory(h.userId, f.bank.id, 0, "observation-kayak"),
-	).toEqual([]);
-	const chess = recordMemorySource({
-		userId: h.userId,
-		bankId: f.bank.id,
-		epoch: 0,
-		eventId: "rollback-chess",
-		lineageId: "rollback-chess",
-		text: "I play chess.",
-		context: "",
-		assertedAt: new Date(),
-	});
-	chessId = chess.id;
-	const delivery = await jobs.enqueueMemoryDelivery({
-		userId: h.userId,
-		bankId: f.bank.id,
-		epoch: 0,
-		kind: "source",
-		sourceId: chess.id,
-		requestId: "rollback-chess",
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(
-		f.db
+		expect(actions.getMemoryOperation(h.userId, { id: op.id }).status).toBe(
+			"applied",
+		);
+		revisions.revokeMemorySources(h.userId, [f.source.id]);
+		const next = revisions.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "deliberate",
+			lineageId: f.source.lineageId,
+			predecessorSourceId: f.source.id,
+			text: after,
+			context: "",
+			assertedAt: f.source.assertedAt,
+			explicitEditAt: new Date(f.source.assertedAt.getTime() + 120_000),
+		});
+		const transport = fixture.fetcher.getMockImplementation();
+		if (!transport) throw Error("missing fixture");
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			if (String(url).endsWith("/memories") && init?.method === "POST") {
+				const content = JSON.parse(
+					JSON.parse(String(init.body)).items[0].content,
+				);
+				expect(content).toMatchObject({
+					kind: "source_edit",
+					before: f.source.text,
+					after,
+				});
+				fixture.setFacts([
+					{ id: "sister", text: "sister bicycle", document_id: f.source.id },
+					{ id: "changed-kayak", text: extracted, document_id: next.id },
+				]);
+			}
+			return transport(url, init);
+		});
+		fixture.model
+			.mockResolvedValueOnce({
+				forget: [],
+				replace: repeated ? [] : ["blue kayak"],
+				preserve: ["sister bicycle"],
+			})
+			.mockResolvedValueOnce({
+				facts: [{ id: "sister", text: "sister bicycle" }],
+			})
+			.mockResolvedValueOnce(ckOkay)
+			.mockImplementation(async (_prompt, input) => {
+				const beforeAndAfter = input.ordered_edits?.at(-1);
+				const previouslyRemoved =
+					input.ordered_edits?.[0]?.intent.forget.includes("green kayak");
+				const isUnchangedGreen =
+					beforeAndAfter?.before.includes("green kayak") &&
+					beforeAndAfter?.after.includes("green kayak");
+				return previouslyRemoved &&
+					isUnchangedGreen &&
+					input.displayed_observations.some(
+						({ text }: { text: string }) => text === "green kayak",
+					)
+					? ckReject
+					: ckOkay;
+			});
+		const job = await jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: next.id,
+			requestId: "deliberate",
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const { eq } = await import("drizzle-orm");
+		const result = f.db
 			.select()
 			.from(f.s.memoryDeliveryJobs)
-			.where(eq(f.s.memoryDeliveryJobs.id, delivery.row.id))
-			.get()?.status,
-	).toBe("succeeded");
-	expect(
-		readPublishedMemory(h.userId, f.bank.id)
-			.map(({ text }) => text)
-			.sort(),
-	).toEqual(["I play chess.", "green kayak", "sister bicycle"]);
-});
+			.where(eq(f.s.memoryDeliveryJobs.id, job.row.id))
+			.get();
+		const rows = readPublishedMemory(h.userId, f.bank.id);
+		if (repeated) {
+			expect(result?.errorCode).toBe("memory_dependency_check_rejected");
+			expect(rows.map((row) => row.text)).not.toContain("green kayak");
+		} else {
+			expect(result?.status).toBe("succeeded");
+			expect(rows.map((row) => row.text).sort()).toEqual([
+				"blue kayak",
+				"sister bicycle",
+			]);
+			expect(rows.find((row) => row.text === "blue kayak")?.updatedAt).toEqual(
+				next.explicitEditAt,
+			);
+			expect(
+				rows.find((row) => row.text === "sister bicycle")?.updatedAt,
+			).toEqual(f.source.assertedAt);
+		}
+		expect(fixture.model.mock.calls.at(-1)?.[1]).toMatchObject({
+			ordered_edits: [
+				{ intent: { forget: ["green kayak"] } },
+				{ before: f.source.text, after },
+			],
+		});
+	},
+);
+
+it.each([false, true])(
+	"turning Memory on compensates a cancelled Edit before unrelated delivery (lost restore response %s)",
+	async (loseResponse) => {
+		const f = await setup();
+		const fixture = await nativeFixture(f, [
+			ckPlan,
+			ckProposal("kayak", "purple kayak"),
+			ckOkay,
+		]);
+		const { setMemoryEnabled } = await import("./migration-policy");
+		const actions = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const { recordMemorySource } = await import("./revisions");
+		const { readPublishedMemory } = await import("./publication");
+		const { eq } = await import("drizzle-orm");
+		const transport = fixture.fetcher.getMockImplementation();
+		if (!transport) throw Error("missing native fixture");
+		const nativeText = new Map([
+			["kayak", "green kayak"],
+			["sister", "sister bicycle"],
+		]);
+		let setOff = false;
+		let chessId: string | undefined;
+		let lost = false;
+		let deltaId: string | undefined;
+		let discardedDelta = false;
+		const syncFacts = () =>
+			fixture.setFacts([
+				...[...nativeText].map(([id, text]) => ({ id, text })),
+				...(deltaId && !discardedDelta
+					? [
+							{
+								id: "cancelled-delta",
+								text: "purple kayak",
+								document_id: deltaId,
+							},
+						]
+					: []),
+				...(chessId
+					? [{ id: "chess", text: "I play chess.", document_id: chessId }]
+					: []),
+			]);
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const pathname = String(url);
+			if (init?.method === "POST" && pathname.endsWith("/memories")) {
+				if (!chessId)
+					deltaId = JSON.parse(String(init.body)).items[0].document_id;
+				syncFacts();
+			}
+			if (
+				deltaId &&
+				init?.method === "DELETE" &&
+				pathname.endsWith(`/documents/${deltaId}`)
+			) {
+				discardedDelta = true;
+				syncFacts();
+			}
+			const response = await transport(url, init);
+			if (init?.method === "PATCH" && pathname.endsWith("/kayak")) {
+				const body = JSON.parse(String(init.body));
+				nativeText.set("kayak", body.text);
+				if (body.text === "purple kayak" && !setOff) {
+					setOff = true;
+					await setMemoryEnabled(h.userId, false);
+				}
+				if (body.text === "green kayak" && loseResponse && !lost) {
+					lost = true;
+					return new Response("restore applied, response lost", {
+						status: 503,
+					});
+				}
+			}
+			return response;
+		});
+		const op = await actions.submitMemoryAction(h.userId, {
+			kind: "edit",
+			ref: ckRef,
+			text: "purple kayak",
+			requestId: randomUUID(),
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.s.users).get()?.memoryEnabled).toBe(false);
+		expect(nativeText.get("kayak")).toBe("purple kayak");
+		expect(fixture.model).toHaveBeenCalledTimes(3);
+		// Rollback VERIFICATION is read-only and receives the original accepted wording.
+		fixture.model.mockImplementation(async (_prompt, input) => {
+			const restored =
+				input.proposed_facts.some(
+					({ text }: { text: string }) => text === "green kayak",
+				) &&
+				input.displayed_observations.some(
+					({ text }: { text: string }) => text === "green kayak",
+				);
+			return restored ? ckOkay : ckReject;
+		});
+		await setMemoryEnabled(h.userId, true);
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		if (loseResponse) {
+			expect(lost).toBe(true);
+			expect(nativeText.get("kayak")).toBe("green kayak");
+			f.db
+				.update(f.s.memoryDeliveryJobs)
+				.set({ runAfter: new Date(0) })
+				.where(eq(f.s.memoryDeliveryJobs.actionId, op.id))
+				.run();
+			await h.engine.drain(jobs.memoryDeliveryJob);
+		}
+		expect(actions.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+			status: "failed",
+			errorCode: "memory_edit_cancelled",
+			cleanupPending: false,
+		});
+		expect(nativeText.get("kayak")).toBe("green kayak");
+		expect(fixture.patches.filter((id) => id === "kayak")).toHaveLength(2);
+		expect(deltaId).toBeDefined();
+		expect(discardedDelta).toBe(true);
+		const { verifiedMemoryHistory } = await import("./native-read");
+		expect(
+			verifiedMemoryHistory(h.userId, f.bank.id, 0, "observation-kayak"),
+		).toEqual([]);
+		const chess = recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "rollback-chess",
+			lineageId: "rollback-chess",
+			text: "I play chess.",
+			context: "",
+			assertedAt: new Date(),
+		});
+		chessId = chess.id;
+		const delivery = await jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: chess.id,
+			requestId: "rollback-chess",
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(
+			f.db
+				.select()
+				.from(f.s.memoryDeliveryJobs)
+				.where(eq(f.s.memoryDeliveryJobs.id, delivery.row.id))
+				.get()?.status,
+		).toBe("succeeded");
+		expect(
+			readPublishedMemory(h.userId, f.bank.id)
+				.map(({ text }) => text)
+				.sort(),
+		).toEqual(["I play chess.", "green kayak", "sister bicycle"]);
+	},
+);
 
 it("lifecycle re-review: a terminal dirty Edit restores accepted facts before unrelated publication", async () => {
 	const f = await setup();
@@ -2710,193 +2727,194 @@ it.each([
 		acceptedText: "I play chess.",
 		missing: true,
 	},
-])("lifecycle re-review: unchanged resend retains accepted lineage ($name)", async ({
-	acceptedText,
-	missing,
-}) => {
-	const f = await setup();
-	const rev = await import("./revisions");
-	const fixture = await nativeFixture(f, []);
-	const { eq } = await import("drizzle-orm");
-	f.db
-		.update(f.s.memorySourceRevisions)
-		.set({ nativeSubmitted: true, nativeAcknowledged: true })
-		.where(eq(f.s.memorySourceRevisions.id, f.source.id))
-		.run();
-	const before = f.source.text;
-	const after =
-		acceptedText === "I play chess."
-			? `${before}. ${acceptedText}`
-			: `${acceptedText} My sister still owns her bicycle.`;
-	const removePlan = {
-		forget: ["green kayak"],
-		replace: [],
-		preserve: ["sister bicycle"],
-	};
-	const unchangedFacts = [
-		{ id: "sister", text: "sister bicycle", document_id: f.source.id },
-	];
-	const payloads: Array<Record<string, unknown>> = [];
-	fixture.model.mockImplementation(
-		async (_prompt, input: Record<string, unknown>) => {
-			payloads.push(input);
-			if ("facts" in input) {
-				const plan = input.edit_plan as typeof removePlan;
-				const facts = input.facts as Array<{ id: string; text: string }>;
-				return {
-					facts: facts.map(({ id, text }) => ({
-						id,
-						text:
-							plan.forget.includes("green kayak") && text === "green kayak"
-								? ""
-								: text,
-					})),
-				};
-			}
-			if ("proposed_facts" in input) {
-				const hasRemove = JSON.stringify(input).includes(
-					'"forget":["green kayak"]',
-				);
-				const display = input.displayed_observations as
-					| Array<{ text: string }>
-					| undefined;
-				if (
-					hasRemove &&
-					display?.some(
-						({ text }) => text.includes("green kayak") && text !== acceptedText,
-					)
-				)
-					return ckReject;
-				if (
-					Array.isArray(input.new_facts) &&
-					input.new_facts.some(({ text }) => text === "green kayak")
-				)
-					return ckReject;
-				return ckOkay;
-			}
-			return input.user_saved_after === ""
-				? removePlan
-				: {
-						forget: [],
-						replace: [],
-						preserve: ["sister bicycle"],
+])(
+	"lifecycle re-review: unchanged resend retains accepted lineage ($name)",
+	async ({ acceptedText, missing }) => {
+		const f = await setup();
+		const rev = await import("./revisions");
+		const fixture = await nativeFixture(f, []);
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+			.run();
+		const before = f.source.text;
+		const after =
+			acceptedText === "I play chess."
+				? `${before}. ${acceptedText}`
+				: `${acceptedText} My sister still owns her bicycle.`;
+		const removePlan = {
+			forget: ["green kayak"],
+			replace: [],
+			preserve: ["sister bicycle"],
+		};
+		const unchangedFacts = [
+			{ id: "sister", text: "sister bicycle", document_id: f.source.id },
+		];
+		const payloads: Array<Record<string, unknown>> = [];
+		fixture.model.mockImplementation(
+			async (_prompt, input: Record<string, unknown>) => {
+				payloads.push(input);
+				if ("facts" in input) {
+					const plan = input.edit_plan as typeof removePlan;
+					const facts = input.facts as Array<{ id: string; text: string }>;
+					return {
+						facts: facts.map(({ id, text }) => ({
+							id,
+							text:
+								plan.forget.includes("green kayak") && text === "green kayak"
+									? ""
+									: text,
+						})),
 					};
-		},
-	);
-	const original = fixture.fetcher.getMockImplementation();
-	if (!original) throw Error("missing native fixture");
-	let changedId: string | undefined;
-	let predecessorDeleted = false;
-	const retained: string[] = [];
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const nativePath = String(url);
-		if (nativePath.endsWith("/memories") && init?.method === "POST") {
-			const item = JSON.parse(String(init.body)).items[0];
-			retained.push(item.document_id);
-			expect(JSON.parse(item.content).kind).toBe("source_edit");
-			changedId = item.document_id;
-			fixture.setFacts([
-				...unchangedFacts,
-				{ id: "chess", text: acceptedText, document_id: item.document_id },
-			]);
-		}
-		if (
-			changedId &&
-			nativePath.endsWith(`/documents/${changedId}`) &&
-			init?.method === "DELETE"
-		)
-			predecessorDeleted = true;
-		return original(url, init);
-	});
-	const a = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const list = await import("./native-read");
-	const texts = () =>
-		list
-			.listMemory(h.userId, { scope: { kind: "personal" } })
-			.rows.map(({ text }) => text)
-			.sort();
-	const remove = await a.submitMemoryAction(h.userId, {
-		kind: "remove",
-		ref: ckRef,
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	expect(a.getMemoryOperation(h.userId, { id: remove.id }).status).toBe(
-		"applied",
-	);
-	const resubmit = async (
-		previousId: string,
-		eventId: string,
-		explicitEditAt?: Date,
-	) => {
-		rev.revokeMemorySources(h.userId, [previousId]);
-		const source = rev.recordMemorySource({
-			userId: h.userId,
-			bankId: f.bank.id,
-			epoch: 0,
-			eventId,
-			lineageId: f.source.lineageId,
-			predecessorSourceId: previousId,
-			text: after,
-			context: "",
-			assertedAt: f.source.assertedAt,
-			explicitEditAt,
+				}
+				if ("proposed_facts" in input) {
+					const hasRemove = JSON.stringify(input).includes(
+						'"forget":["green kayak"]',
+					);
+					const display = input.displayed_observations as
+						| Array<{ text: string }>
+						| undefined;
+					if (
+						hasRemove &&
+						display?.some(
+							({ text }) =>
+								text.includes("green kayak") && text !== acceptedText,
+						)
+					)
+						return ckReject;
+					if (
+						Array.isArray(input.new_facts) &&
+						input.new_facts.some(({ text }) => text === "green kayak")
+					)
+						return ckReject;
+					return ckOkay;
+				}
+				return input.user_saved_after === ""
+					? removePlan
+					: {
+							forget: [],
+							replace: [],
+							preserve: ["sister bicycle"],
+						};
+			},
+		);
+		const original = fixture.fetcher.getMockImplementation();
+		if (!original) throw Error("missing native fixture");
+		let changedId: string | undefined;
+		let predecessorDeleted = false;
+		const retained: string[] = [];
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const nativePath = String(url);
+			if (nativePath.endsWith("/memories") && init?.method === "POST") {
+				const item = JSON.parse(String(init.body)).items[0];
+				retained.push(item.document_id);
+				expect(JSON.parse(item.content).kind).toBe("source_edit");
+				changedId = item.document_id;
+				fixture.setFacts([
+					...unchangedFacts,
+					{ id: "chess", text: acceptedText, document_id: item.document_id },
+				]);
+			}
+			if (
+				changedId &&
+				nativePath.endsWith(`/documents/${changedId}`) &&
+				init?.method === "DELETE"
+			)
+				predecessorDeleted = true;
+			return original(url, init);
 		});
-		const queued = await jobs.enqueueMemoryDelivery({
-			userId: h.userId,
-			bankId: f.bank.id,
-			epoch: 0,
-			kind: "source",
-			sourceId: source.id,
-			requestId: eventId,
+		const a = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const list = await import("./native-read");
+		const texts = () =>
+			list
+				.listMemory(h.userId, { scope: { kind: "personal" } })
+				.rows.map(({ text }) => text)
+				.sort();
+		const remove = await a.submitMemoryAction(h.userId, {
+			kind: "remove",
+			ref: ckRef,
+			requestId: randomUUID(),
 		});
 		await h.engine.drain(jobs.memoryDeliveryJob);
-		return {
-			id: source.id,
-			job: f.db
-				.select()
-				.from(f.s.memoryDeliveryJobs)
-				.where(eq(f.s.memoryDeliveryJobs.id, queued.row.id))
-				.get(),
+		expect(a.getMemoryOperation(h.userId, { id: remove.id }).status).toBe(
+			"applied",
+		);
+		const resubmit = async (
+			previousId: string,
+			eventId: string,
+			explicitEditAt?: Date,
+		) => {
+			rev.revokeMemorySources(h.userId, [previousId]);
+			const source = rev.recordMemorySource({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				eventId,
+				lineageId: f.source.lineageId,
+				predecessorSourceId: previousId,
+				text: after,
+				context: "",
+				assertedAt: f.source.assertedAt,
+				explicitEditAt,
+			});
+			const queued = await jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: source.id,
+				requestId: eventId,
+			});
+			await h.engine.drain(jobs.memoryDeliveryJob);
+			return {
+				id: source.id,
+				job: f.db
+					.select()
+					.from(f.s.memoryDeliveryJobs)
+					.where(eq(f.s.memoryDeliveryJobs.id, queued.row.id))
+					.get(),
+			};
 		};
-	};
-	const changed = await resubmit(
-		f.source.id,
-		"changed",
-		new Date(f.source.assertedAt.getTime() + 120_000),
-	);
-	expect(changed.job?.status).toBe("succeeded");
-	expect(texts()).toEqual([acceptedText, "sister bicycle"]);
-	expect(
-		payloads.some((p) =>
-			JSON.stringify(p.ordered_edits ?? []).includes("green kayak"),
-		),
-	).toBe(true);
-	const marker = payloads.length;
-	if (missing) fixture.setFacts(unchangedFacts);
-	const identical = await resubmit(changed.id, "identical");
-	if (missing) {
-		expect(identical.job).toMatchObject({
-			status: "queued",
-			errorCode: "memory_unchanged_source_fact_missing",
-		});
+		const changed = await resubmit(
+			f.source.id,
+			"changed",
+			new Date(f.source.assertedAt.getTime() + 120_000),
+		);
+		expect(changed.job?.status).toBe("succeeded");
+		expect(texts()).toEqual([acceptedText, "sister bicycle"]);
+		expect(
+			payloads.some((p) =>
+				JSON.stringify(p.ordered_edits ?? []).includes("green kayak"),
+			),
+		).toBe(true);
+		const marker = payloads.length;
+		if (missing) fixture.setFacts(unchangedFacts);
+		const identical = await resubmit(changed.id, "identical");
+		if (missing) {
+			expect(identical.job).toMatchObject({
+				status: "queued",
+				errorCode: "memory_unchanged_source_fact_missing",
+			});
+			expect(predecessorDeleted).toBe(false);
+			expect(texts()).toEqual(["sister bicycle"]);
+			return;
+		}
+		expect(identical.job?.status).toBe("succeeded");
 		expect(predecessorDeleted).toBe(false);
-		expect(texts()).toEqual(["sister bicycle"]);
-		return;
-	}
-	expect(identical.job?.status).toBe("succeeded");
-	expect(predecessorDeleted).toBe(false);
-	expect(retained).toEqual([changed.id]);
-	expect(payloads).toHaveLength(marker);
-	expect(texts()).toEqual([acceptedText, "sister bicycle"]);
-	const { readPublishedMemory } = await import("./publication");
-	expect(
-		readPublishedMemory(h.userId, f.bank.id).find(
-			(r) => r.text === acceptedText,
-		)?.updatedAt,
-	).toEqual(new Date(f.source.assertedAt.getTime() + 120_000));
-});
+		expect(retained).toEqual([changed.id]);
+		expect(payloads).toHaveLength(marker);
+		expect(texts()).toEqual([acceptedText, "sister bicycle"]);
+		const { readPublishedMemory } = await import("./publication");
+		expect(
+			readPublishedMemory(h.userId, f.bank.id).find(
+				(r) => r.text === acceptedText,
+			)?.updatedAt,
+		).toEqual(new Date(f.source.assertedAt.getTime() + 120_000));
+	},
+);
 
 it.each([
 	"unsubmitted",
@@ -2927,1091 +2945,1125 @@ it.each([
 	"accepted-empty",
 	"wrong-generation",
 	"ambiguous-submitted",
-] as const)("identical resend treats predecessor admission truthfully (%s)", async (mode) => {
-	const f = await setup();
-	const movedProject =
-		mode === "remove after dependent exact resend in a moved project" ||
-		mode === "remove after deleting the dependent exact tip in a moved project";
-	const projects = movedProject ? await import("../projects") : undefined;
-	const originProject = await projects?.createProject(
-		h.userId,
-		"Original project",
-	);
-	const destinationProject = await projects?.createProject(
-		h.userId,
-		"Destination project",
-	);
-	const scope = originProject
-		? ({ kind: "project", projectId: originProject.id } as const)
-		: ({ kind: "personal" } as const);
-	f.db.delete(f.s.memoryPublishedRows).run();
-	f.db.delete(f.s.memorySourceRevisions).run();
-	f.db
-		.update(f.s.memoryBanks)
-		.set({
-			generation: null,
-			scopeKey: originProject ? `project:${originProject.id}` : "personal",
-		})
-		.run();
-	const fixture = await nativeFixture(f, []);
-	fixture.setFacts([]);
-	const original = fixture.fetcher.getMockImplementation();
-	if (!original) throw Error("missing native fixture");
-	const drink = "I prefer decaf in the afternoon.";
-	const tea = "I prefer black tea in the afternoon.";
-	const independent = "My bike tyres are tubeless.";
-	const newAssertion =
-		mode === "carried correction followed by a genuinely new assertion";
-	const appendAfterCorrection =
-		newAssertion ||
-		mode === "carried correction followed by an unrelated append";
-	const freshFact = newAssertion
-		? "I now prefer green tea in the afternoon."
-		: "I bake rye bread on Sundays.";
-	const thirdText = newAssertion ? freshFact : `${drink} ${freshFact}`;
-	const removeLateCorrection =
-		mode === "removed correction added after exact carry";
-	const removeEarlyCorrection =
-		mode === "removed correction saved before exact carry";
-	const removeCorrection = removeEarlyCorrection || removeLateCorrection;
-	const removeCarried =
-		mode === "removed carried fact with a dependent reply" ||
-		mode === "remove after dependent exact resend" ||
-		mode === "remove after separately deleting the dependent exact tip" ||
-		mode === "dependent exact tip withdrawn during Remove" ||
-		movedProject;
-	const removeTarget = removeCorrection ? tea : drink;
-	const hasIndependentFact =
-		mode === "accepted carried next edit" ||
-		mode === "changed carry checks a surviving dependent" ||
-		mode === "changed carry supplies original context" ||
-		removeCarried;
-	const assertion = hasIndependentFact ? `${drink} ${independent}` : drink;
-	const corrected = hasIndependentFact ? `${tea} ${independent}` : tea;
-	const appendFact = "I collect maps.";
-	const appended = `${corrected} ${appendFact}`;
-	const reply = "Yes, I do. I also sort stamps.";
-	let retains: Array<{
-		content: string;
-		context: string;
-		timestamp: string;
-		document_id: string;
-	}> = [];
-	let initialEmpty = mode === "accepted-empty" || mode === "wrong-generation";
-	let driftAfterWithdrawal = false;
-	const derived = removeCorrection
-		? "Afternoon serving preference is black tea."
-		: "Afternoon serving preference is decaf.";
-	const carried =
-		mode === "repeated exact resend while queued" ||
-		mode === "accepted carried" ||
-		mode === "accepted carried next edit" ||
-		mode === "changed carry checks a surviving dependent" ||
-		mode === "changed carry supplies original context" ||
-		mode === "extra observation on exact resend" ||
-		mode === "changed native date on exact resend" ||
-		mode === "deleted queued successor" ||
-		mode === "deferred cleanup before successor" ||
-		mode === "deferred cleanup with queued successor" ||
-		removeCarried ||
-		removeCorrection ||
-		mode === "accepted carried correction" ||
-		appendAfterCorrection ||
-		mode === "correction after alias" ||
-		mode === "competing resends" ||
-		mode === "ordinary withdrawal before resend";
-	let nativeFacts: Array<{ id: string; text: string; document_id: string }> =
-		[];
-	const nativeDeletes: string[] = [];
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const path = String(url);
-		if (path.endsWith("/memories") && init?.method === "POST") {
-			const item = JSON.parse(String(init.body)).items[0];
-			retains.push(item);
-			if (item.content === assertion)
-				nativeFacts = initialEmpty
-					? []
-					: [
-							{ id: "decaf", text: drink, document_id: item.document_id },
-							...(hasIndependentFact
-								? [
-										{
-											id: "tyres",
-											text: independent,
-											document_id: item.document_id,
-										},
-									]
-								: []),
-						];
-			else if (item.content === reply) {
-				if (
-					(removeCarried || removeCorrection) &&
-					item.context.includes(removeTarget)
-				)
+] as const)(
+	"identical resend treats predecessor admission truthfully (%s)",
+	async (mode) => {
+		const f = await setup();
+		const movedProject =
+			mode === "remove after dependent exact resend in a moved project" ||
+			mode ===
+				"remove after deleting the dependent exact tip in a moved project";
+		const projects = movedProject ? await import("../projects") : undefined;
+		const originProject = await projects?.createProject(
+			h.userId,
+			"Original project",
+		);
+		const destinationProject = await projects?.createProject(
+			h.userId,
+			"Destination project",
+		);
+		const scope = originProject
+			? ({ kind: "project", projectId: originProject.id } as const)
+			: ({ kind: "personal" } as const);
+		f.db.delete(f.s.memoryPublishedRows).run();
+		f.db.delete(f.s.memorySourceRevisions).run();
+		f.db
+			.update(f.s.memoryBanks)
+			.set({
+				generation: null,
+				scopeKey: originProject ? `project:${originProject.id}` : "personal",
+			})
+			.run();
+		const fixture = await nativeFixture(f, []);
+		fixture.setFacts([]);
+		const original = fixture.fetcher.getMockImplementation();
+		if (!original) throw Error("missing native fixture");
+		const drink = "I prefer decaf in the afternoon.";
+		const tea = "I prefer black tea in the afternoon.";
+		const independent = "My bike tyres are tubeless.";
+		const newAssertion =
+			mode === "carried correction followed by a genuinely new assertion";
+		const appendAfterCorrection =
+			newAssertion ||
+			mode === "carried correction followed by an unrelated append";
+		const freshFact = newAssertion
+			? "I now prefer green tea in the afternoon."
+			: "I bake rye bread on Sundays.";
+		const thirdText = newAssertion ? freshFact : `${drink} ${freshFact}`;
+		const removeLateCorrection =
+			mode === "removed correction added after exact carry";
+		const removeEarlyCorrection =
+			mode === "removed correction saved before exact carry";
+		const removeCorrection = removeEarlyCorrection || removeLateCorrection;
+		const removeCarried =
+			mode === "removed carried fact with a dependent reply" ||
+			mode === "remove after dependent exact resend" ||
+			mode === "remove after separately deleting the dependent exact tip" ||
+			mode === "dependent exact tip withdrawn during Remove" ||
+			movedProject;
+		const removeTarget = removeCorrection ? tea : drink;
+		const hasIndependentFact =
+			mode === "accepted carried next edit" ||
+			mode === "changed carry checks a surviving dependent" ||
+			mode === "changed carry supplies original context" ||
+			removeCarried;
+		const assertion = hasIndependentFact ? `${drink} ${independent}` : drink;
+		const corrected = hasIndependentFact ? `${tea} ${independent}` : tea;
+		const appendFact = "I collect maps.";
+		const appended = `${corrected} ${appendFact}`;
+		const reply = "Yes, I do. I also sort stamps.";
+		let retains: Array<{
+			content: string;
+			context: string;
+			timestamp: string;
+			document_id: string;
+		}> = [];
+		let initialEmpty = mode === "accepted-empty" || mode === "wrong-generation";
+		let driftAfterWithdrawal = false;
+		const derived = removeCorrection
+			? "Afternoon serving preference is black tea."
+			: "Afternoon serving preference is decaf.";
+		const carried =
+			mode === "repeated exact resend while queued" ||
+			mode === "accepted carried" ||
+			mode === "accepted carried next edit" ||
+			mode === "changed carry checks a surviving dependent" ||
+			mode === "changed carry supplies original context" ||
+			mode === "extra observation on exact resend" ||
+			mode === "changed native date on exact resend" ||
+			mode === "deleted queued successor" ||
+			mode === "deferred cleanup before successor" ||
+			mode === "deferred cleanup with queued successor" ||
+			removeCarried ||
+			removeCorrection ||
+			mode === "accepted carried correction" ||
+			appendAfterCorrection ||
+			mode === "correction after alias" ||
+			mode === "competing resends" ||
+			mode === "ordinary withdrawal before resend";
+		let nativeFacts: Array<{ id: string; text: string; document_id: string }> =
+			[];
+		const nativeDeletes: string[] = [];
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (path.endsWith("/memories") && init?.method === "POST") {
+				const item = JSON.parse(String(init.body)).items[0];
+				retains.push(item);
+				if (item.content === assertion)
+					nativeFacts = initialEmpty
+						? []
+						: [
+								{ id: "decaf", text: drink, document_id: item.document_id },
+								...(hasIndependentFact
+									? [
+											{
+												id: "tyres",
+												text: independent,
+												document_id: item.document_id,
+											},
+										]
+									: []),
+							];
+				else if (item.content === reply) {
+					if (
+						(removeCarried || removeCorrection) &&
+						item.context.includes(removeTarget)
+					)
+						nativeFacts.push({
+							id: "derived-decaf",
+							text: derived,
+							document_id: item.document_id,
+						});
 					nativeFacts.push({
-						id: "derived-decaf",
-						text: derived,
-						document_id: item.document_id,
-					});
-				nativeFacts.push({
-					id: "stamps",
-					text: "I sort stamps.",
-					document_id: item.document_id,
-				});
-			} else {
-				const frame = JSON.parse(item.content);
-				if (
-					mode === "changed carry supplies original context" &&
-					frame.after === appended
-				) {
-					expect(frame).toMatchObject({
-						kind: "source_edit",
-						before: corrected,
-						after: appended,
-					});
-					nativeFacts.push({
-						id: "maps",
-						text: appendFact,
+						id: "stamps",
+						text: "I sort stamps.",
 						document_id: item.document_id,
 					});
 				} else {
-					expect(frame).toMatchObject({
-						kind: "source_edit",
-						before: assertion,
-						after:
-							appendAfterCorrection && frame.after !== corrected
-								? thirdText
-								: corrected,
-					});
-					nativeFacts.push(
-						frame.after === corrected
-							? { id: "tea", text: tea, document_id: item.document_id }
-							: {
-									id: "new-assertion",
-									text: freshFact,
-									document_id: item.document_id,
-								},
-					);
-				}
-			}
-			fixture.setFacts(nativeFacts);
-		}
-		if (path.includes("/documents/") && init?.method === "DELETE") {
-			const id = decodeURIComponent(path.split("/documents/")[1]);
-			nativeDeletes.push(id);
-			nativeFacts = nativeFacts.filter((fact) => fact.document_id !== id);
-			fixture.setFacts(nativeFacts);
-		}
-		if (path.includes("/memories/") && init?.method === "PATCH") {
-			const id = path.split("/").at(-1);
-			const patch = JSON.parse(String(init.body));
-			nativeFacts =
-				patch.state === "invalidated"
-					? nativeFacts.filter((fact) => fact.id !== id)
-					: nativeFacts.map((fact) =>
-							fact.id === id ? { ...fact, text: patch.text } : fact,
+					const frame = JSON.parse(item.content);
+					if (
+						mode === "changed carry supplies original context" &&
+						frame.after === appended
+					) {
+						expect(frame).toMatchObject({
+							kind: "source_edit",
+							before: corrected,
+							after: appended,
+						});
+						nativeFacts.push({
+							id: "maps",
+							text: appendFact,
+							document_id: item.document_id,
+						});
+					} else {
+						expect(frame).toMatchObject({
+							kind: "source_edit",
+							before: assertion,
+							after:
+								appendAfterCorrection && frame.after !== corrected
+									? thirdText
+									: corrected,
+						});
+						nativeFacts.push(
+							frame.after === corrected
+								? { id: "tea", text: tea, document_id: item.document_id }
+								: {
+										id: "new-assertion",
+										text: freshFact,
+										document_id: item.document_id,
+									},
 						);
-		}
-		const response = await original(url, init);
-		if (driftAfterWithdrawal && path.includes("/memories/list")) {
+					}
+				}
+				fixture.setFacts(nativeFacts);
+			}
+			if (path.includes("/documents/") && init?.method === "DELETE") {
+				const id = decodeURIComponent(path.split("/documents/")[1]);
+				nativeDeletes.push(id);
+				nativeFacts = nativeFacts.filter((fact) => fact.document_id !== id);
+				fixture.setFacts(nativeFacts);
+			}
+			if (path.includes("/memories/") && init?.method === "PATCH") {
+				const id = path.split("/").at(-1);
+				const patch = JSON.parse(String(init.body));
+				nativeFacts =
+					patch.state === "invalidated"
+						? nativeFacts.filter((fact) => fact.id !== id)
+						: nativeFacts.map((fact) =>
+								fact.id === id ? { ...fact, text: patch.text } : fact,
+							);
+			}
+			const response = await original(url, init);
+			if (driftAfterWithdrawal && path.includes("/memories/list")) {
+				const list = await response.json();
+				if (mode === "extra observation on exact resend")
+					list.items.push({
+						id: "unverified-extra",
+						text: "The user dislikes decaf.",
+						fact_type: "observation",
+						source_memory_ids: ["decaf"],
+					});
+				else
+					list.items.find(
+						(item: { id: string }) => item.id === "decaf",
+					).mentioned_at = "2026-11-18T00:00:00.000Z";
+				list.total = list.items.length;
+				return new Response(JSON.stringify(list));
+			}
+			if (
+				!newAssertion ||
+				!path.includes("/memories/list") ||
+				!nativeFacts.some((fact) => fact.id === "new-assertion")
+			)
+				return response;
 			const list = await response.json();
-			if (mode === "extra observation on exact resend")
-				list.items.push({
-					id: "unverified-extra",
-					text: "The user dislikes decaf.",
-					fact_type: "observation",
-					source_memory_ids: ["decaf"],
-				});
-			else
-				list.items.find(
-					(item: { id: string }) => item.id === "decaf",
-				).mentioned_at = "2026-11-18T00:00:00.000Z";
+			list.items = list.items.filter(
+				(item: { id: string }) => item.id !== "observation-tea",
+			);
+			list.items
+				.find((item: { id: string }) => item.id === "observation-new-assertion")
+				.source_memory_ids.push("tea");
 			list.total = list.items.length;
 			return new Response(JSON.stringify(list));
-		}
-		if (
-			!newAssertion ||
-			!path.includes("/memories/list") ||
-			!nativeFacts.some((fact) => fact.id === "new-assertion")
-		)
-			return response;
-		const list = await response.json();
-		list.items = list.items.filter(
-			(item: { id: string }) => item.id !== "observation-tea",
-		);
-		list.items
-			.find((item: { id: string }) => item.id === "observation-new-assertion")
-			.source_memory_ids.push("tea");
-		list.total = list.items.length;
-		return new Response(JSON.stringify(list));
-	});
-	const { eq } = await import("drizzle-orm");
-	const chat = await import("./chat-delivery");
-	const job = await import("./delivery-job");
-	const chatId = randomUUID();
-	f.db
-		.insert(f.s.memoryControlIntervals)
-		.values({
-			id: randomUUID(),
-			userId: h.userId,
-			epoch: 0,
-			enabled: true,
-			startedAt: new Date(Date.now() - 60_000),
-		})
-		.run();
-	f.db
-		.insert(f.s.conversations)
-		.values({
-			id: chatId,
-			title: "Synthetic chat",
-			userId: h.userId,
-			projectId: originProject?.id,
-		})
-		.run();
-	let sequence = 0;
-	const persist = async (
-		prefix: string,
-		previous?: string,
-		text = assertion,
-	) => {
-		const memoryAcceptance = chat.captureMemoryTurnAcceptance(h.userId, chatId);
-		const createdAt = new Date(Date.now() + (previous ? 20000 : 0));
+		});
+		const { eq } = await import("drizzle-orm");
+		const chat = await import("./chat-delivery");
+		const job = await import("./delivery-job");
+		const chatId = randomUUID();
 		f.db
-			.insert(f.s.messages)
-			.values([
-				{
-					id: prefix,
-					conversationId: chatId,
-					role: "user",
-					content: text,
-					messageSequence: ++sequence,
-					createdAt,
-				},
-				{
-					id: `${prefix}-assistant`,
-					conversationId: chatId,
-					role: "assistant",
-					content: "Understood.",
-					messageSequence: ++sequence,
-					createdAt,
-				},
-			])
+			.insert(f.s.memoryControlIntervals)
+			.values({
+				id: randomUUID(),
+				userId: h.userId,
+				epoch: 0,
+				enabled: true,
+				startedAt: new Date(Date.now() - 60_000),
+			})
 			.run();
-		await chat.deliverCompletedMemoryTurn({
-			memoryAcceptance,
-			userId: h.userId,
-			conversationId: chatId,
-			userMessageId: prefix,
-			assistantMessageId: `${prefix}-assistant`,
-			...(previous
-				? { turnOrigin: "edit_resend", editSourceMessageId: previous }
-				: {}),
-		});
-		const source = f.db
-			.select()
-			.from(f.s.memorySourceRevisions)
-			.where(eq(f.s.memorySourceRevisions.messageId, prefix))
-			.get();
-		if (!source) throw Error("missing recorded source");
-		return source;
-	};
-	const previous = await persist("before");
-	expect(previous).toMatchObject({
-		state: "pending",
-		nativeSubmitted: false,
-		acknowledgedFactsJson: "[]",
-	});
-	if (initialEmpty || carried) {
-		await h.engine.drain(job.memoryDeliveryJob);
-		const { publishNativeSnapshot } = await import("./publication");
-		for (let i = 0; initialEmpty && i < 2; i++) {
-			f.db.transaction((tx) => {
-				const bank = tx.select().from(f.s.memoryBanks).get();
-				if (!bank) throw Error("missing bank");
-				publishNativeSnapshot(tx, {
-					userId: h.userId,
-					bankId: bank.id,
-					epoch: bank.epoch,
-					expectedRevision: bank.revision,
-					memories: [],
-				});
-			});
-		}
-		const accepted = f.db
-			.select()
-			.from(f.s.memorySourceRevisions)
-			.where(eq(f.s.memorySourceRevisions.id, previous.id))
-			.get();
-		expect(accepted).toMatchObject({
-			state: "accepted",
-			acceptedGeneration: f.db.select().from(f.s.memoryBanks).get()?.generation,
-		});
-		// The accepted-empty receipt must outlive the job.
 		f.db
-			.delete(f.s.memoryDeliveryJobs)
-			.where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id))
+			.insert(f.s.conversations)
+			.values({
+				id: chatId,
+				title: "Synthetic chat",
+				userId: h.userId,
+				projectId: originProject?.id,
+			})
 			.run();
-		initialEmpty = false;
-		retains = [];
-	}
-	const saveCorrection = async () => {
-		fixture.model.mockImplementation(
-			async (_prompt, input: Record<string, unknown>) => {
-				if ("facts" in input) return { facts: [{ id: "decaf", text: "" }] };
-				if ("original_facts" in input) return ckOkay;
-				return { forget: [], replace: ["decaf to black tea"], preserve: [] };
-			},
-		);
-		const read = await import("./native-read");
-		const actions = await import("./curation-actions");
-		const card = read.listMemory(h.userId, { scope: { kind: "personal" } })
-			.rows[0];
-		const edit = await actions.submitMemoryAction(h.userId, {
-			kind: "edit",
-			text: corrected,
-			ref: card.ref,
-			requestId: randomUUID(),
-		});
-		await h.engine.drain(job.memoryDeliveryJob);
-		expect(actions.getMemoryOperation(h.userId, { id: edit.id }).status).toBe(
-			"applied",
-		);
-		retains = [];
-	};
-	if (
-		mode === "accepted carried correction" ||
-		appendAfterCorrection ||
-		removeEarlyCorrection
-	)
-		await saveCorrection();
-	if (mode === "ordinary withdrawal before resend")
-		await chat.revokeDeletedMemoryMessages(["before"]);
-	await chat.revokeDeletedMemoryMessages(["before"], {
-		editSourceMessageId: "before",
-	});
-	f.db.delete(f.s.messages).where(eq(f.s.messages.id, "before")).run();
-	if (mode === "ordinary withdrawal before resend") {
-		await expect(persist("after", "before")).rejects.toThrow(
-			"missing recorded source",
-		);
-		await h.engine.drain(job.memoryDeliveryJob);
-		expect(nativeDeletes).toContain(previous.id);
-		expect(retains).toEqual([]);
-		return;
-	}
-	if (mode === "wrong-generation")
-		f.db
-			.update(f.s.memorySourceRevisions)
-			.set({ acceptedGeneration: "unrelated-generation" })
-			.where(eq(f.s.memorySourceRevisions.id, previous.id))
-			.run();
-	if (mode === "ambiguous-submitted")
-		f.db
-			.update(f.s.memorySourceRevisions)
-			.set({ nativeSubmitted: true, nativeAcknowledged: true })
-			.where(eq(f.s.memorySourceRevisions.id, previous.id))
-			.run();
-	if (
-		mode === "deferred cleanup before successor" ||
-		mode === "deferred cleanup with queued successor"
-	)
-		f.db
-			.update(f.s.memoryDeliveryJobs)
-			.set({ runAfter: new Date(Date.now() - 1000) })
-			.where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id))
-			.run();
-	if (mode === "deferred cleanup before successor") {
-		await h.engine.drain(job.memoryDeliveryJob);
-		expect(nativeDeletes).toContain(previous.id);
-		await expect(persist("after", "before")).rejects.toThrow(
-			"missing recorded source",
-		);
-		expect(retains).toEqual([]);
-		return;
-	}
-	driftAfterWithdrawal =
-		mode === "extra observation on exact resend" ||
-		mode === "changed native date on exact resend";
-	const next = await persist("after", "before");
-	if (mode === "repeated exact resend while queued") {
-		const { deleteMessages } = await import("../messages");
-		await deleteMessages(["after", "after-assistant"], {
-			editSourceMessageId: "after",
-		});
-		const newest = await persist("newest", "after");
-		f.db
-			.update(f.s.memoryDeliveryJobs)
-			.set({ runAfter: new Date(Date.now() - 1000) })
-			.where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id))
-			.run();
-		await h.engine.drain(job.memoryDeliveryJob);
-		const delivery = f.db
-			.select()
-			.from(f.s.memoryDeliveryJobs)
-			.where(eq(f.s.memoryDeliveryJobs.sourceId, newest.id))
-			.get();
-		expect(delivery?.status).toBe("succeeded");
-		const read = await import("./native-read");
-		expect(
-			read
-				.listMemory(h.userId, { scope: { kind: "personal" } })
-				.rows.map(({ text }) => text),
-		).toEqual([assertion]);
-		expect(retains).toEqual([]);
-		expect(nativeDeletes).not.toContain(previous.id);
-		expect(nativeFacts.map((fact) => fact.document_id)).toEqual([previous.id]);
-		await expect(persist("stale-ancestor", "before")).rejects.toThrow(
-			"missing recorded source",
-		);
-		await expect(persist("stale-intermediate", "after")).rejects.toThrow(
-			"missing recorded source",
-		);
-		return;
-	}
-	if (mode === "deleted queued successor") {
-		const { deleteMessages } = await import("../messages");
-		await deleteMessages(["after"]);
-		await h.engine.drain(job.memoryDeliveryJob);
-		expect(nativeDeletes).toContain(previous.id);
-		await expect(persist("stale-successor", "before")).rejects.toThrow(
-			"missing recorded source",
-		);
-		expect(retains).toEqual([]);
-		return;
-	}
-	const competing =
-		mode === "competing resends" ? await persist("competing", "before") : null;
-	expect(next.predecessorSourceId).toBe(previous.id);
-	const successorMessage = f.db
-		.select()
-		.from(f.s.messages)
-		.where(eq(f.s.messages.id, "after"))
-		.get();
-	expect(successorMessage?.createdAt.getTime()).toBeGreaterThan(
-		previous.assertedAt.getTime(),
-	);
-	await h.engine.drain(job.memoryDeliveryJob);
-	const delivery = f.db
-		.select()
-		.from(f.s.memoryDeliveryJobs)
-		.where(eq(f.s.memoryDeliveryJobs.sourceId, next.id))
-		.get();
-	const texts = (await import("./native-read"))
-		.listMemory(h.userId, {
-			scope,
-		})
-		.rows.map(({ text }) => text);
-	if (driftAfterWithdrawal) {
-		expect(delivery).toMatchObject({
-			status: "queued",
-			errorCode: "memory_unchanged_source_fact_missing",
-		});
-		expect(texts).toEqual([]);
-		expect(retains).toEqual([]);
-		return;
-	}
-	if (mode === "deferred cleanup with queued successor") {
-		expect(delivery?.status).toBe("succeeded");
-		expect(nativeDeletes).not.toContain(previous.id);
-		expect(texts).toEqual([drink]);
-		expect(retains).toEqual([]);
-		return;
-	}
-	if (competing) {
-		const other = f.db
-			.select()
-			.from(f.s.memoryDeliveryJobs)
-			.where(eq(f.s.memoryDeliveryJobs.sourceId, competing.id))
-			.get();
-		expect([delivery?.status, other?.status].sort()).toEqual([
-			"failed",
-			"succeeded",
-		]);
-		expect([delivery?.errorCode, other?.errorCode]).toContain(
-			"memory_predecessor_invalid",
-		);
-		expect(retains).toEqual([]);
-		expect(texts).toEqual([assertion]);
-		await expect(persist("late", "before")).rejects.toThrow(
-			"missing recorded source",
-		);
-		return;
-	}
-	if (mode === "wrong-generation" || mode === "ambiguous-submitted") {
-		expect(delivery).toMatchObject({
-			status: "queued",
-			errorCode: "memory_unchanged_source_unverified",
-		});
-	} else {
-		expect(delivery?.status).toBe("succeeded");
-	}
-	if (mode === "unsubmitted") {
-		expect(retains).toHaveLength(1);
-		expect(retains[0]).toMatchObject({
-			content: assertion,
-			timestamp: previous.assertedAt.toISOString(),
-		});
-		expect(retains[0].context).toContain("Understood.");
-		expect(texts).toEqual([assertion]);
-	} else if (carried) {
-		expect(retains).toHaveLength(0);
-		let remembered =
-			mode === "accepted carried correction" ||
-			appendAfterCorrection ||
-			removeEarlyCorrection
-				? corrected
-				: drink;
-		expect([...texts].sort()).toEqual(
-			hasIndependentFact ? [remembered, independent] : [remembered],
-		);
-		expect(
+		let sequence = 0;
+		const persist = async (
+			prefix: string,
+			previous?: string,
+			text = assertion,
+		) => {
+			const memoryAcceptance = chat.captureMemoryTurnAcceptance(
+				h.userId,
+				chatId,
+			);
+			const createdAt = new Date(Date.now() + (previous ? 20000 : 0));
 			f.db
+				.insert(f.s.messages)
+				.values([
+					{
+						id: prefix,
+						conversationId: chatId,
+						role: "user",
+						content: text,
+						messageSequence: ++sequence,
+						createdAt,
+					},
+					{
+						id: `${prefix}-assistant`,
+						conversationId: chatId,
+						role: "assistant",
+						content: "Understood.",
+						messageSequence: ++sequence,
+						createdAt,
+					},
+				])
+				.run();
+			await chat.deliverCompletedMemoryTurn({
+				memoryAcceptance,
+				userId: h.userId,
+				conversationId: chatId,
+				userMessageId: prefix,
+				assistantMessageId: `${prefix}-assistant`,
+				...(previous
+					? { turnOrigin: "edit_resend", editSourceMessageId: previous }
+					: {}),
+			});
+			const source = f.db
 				.select()
 				.from(f.s.memorySourceRevisions)
-				.where(eq(f.s.memorySourceRevisions.id, next.id))
-				.get(),
-		).toMatchObject({ state: "accepted", nativeSubmitted: false });
-		const read = await import("./native-read");
-		const item = read.listMemory(h.userId, { scope }).rows[0];
-		if (
-			mode !== "accepted carried correction" &&
-			!appendAfterCorrection &&
-			!removeEarlyCorrection
-		)
-			expect(read.getMemoryDetail(h.userId, item.ref).sources).toEqual([
-				expect.objectContaining({
-					id: previous.id,
-					available: false,
-					quote: "",
-				}),
-			]);
-		const { deleteMessages } = await import("../messages");
-		if (appendAfterCorrection) {
-			const correction = nativeFacts.find(({ id }) => id === "tea");
-			if (!correction) throw Error("missing independently authored correction");
-			const textBeforeEdit = correction.text;
-			fixture.model.mockImplementation(
-				async (_prompt, input: Record<string, unknown>) => {
-					if ("facts" in input)
-						return {
-							facts: (input.facts as Array<{ id: string; text: string }>).map(
-								({ id, text }) => ({
-									id,
-									text: id === "tea" ? drink : text,
-								}),
-							),
-						};
-					if ("original_facts" in input) return ckOkay;
-					return { forget: [], replace: [freshFact], preserve: [drink] };
-				},
-			);
-			await deleteMessages(["after"], { editSourceMessageId: "after" });
-			const changed = await persist("edited", "after", thirdText);
+				.where(eq(f.s.memorySourceRevisions.messageId, prefix))
+				.get();
+			if (!source) throw Error("missing recorded source");
+			return source;
+		};
+		const previous = await persist("before");
+		expect(previous).toMatchObject({
+			state: "pending",
+			nativeSubmitted: false,
+			acknowledgedFactsJson: "[]",
+		});
+		if (initialEmpty || carried) {
 			await h.engine.drain(job.memoryDeliveryJob);
-			const retainedContext = retains.find(
-				(item) => item.document_id === changed.id,
-			)?.context;
-			expect(retainedContext).toContain(
-				"exclude editorial commentary, superseded values, and omitted details",
-			);
-			expect(retainedContext).toContain(
-				"Keep causal reasons and other details that the user actually asserts",
-			);
-			expect(fixture.patches).not.toContain("tea");
-			expect(nativeFacts.find(({ id }) => id === "tea")).toEqual({
-				...correction,
-				text: textBeforeEdit,
+			const { publishNativeSnapshot } = await import("./publication");
+			for (let i = 0; initialEmpty && i < 2; i++) {
+				f.db.transaction((tx) => {
+					const bank = tx.select().from(f.s.memoryBanks).get();
+					if (!bank) throw Error("missing bank");
+					publishNativeSnapshot(tx, {
+						userId: h.userId,
+						bankId: bank.id,
+						epoch: bank.epoch,
+						expectedRevision: bank.revision,
+						memories: [],
+					});
+				});
+			}
+			const accepted = f.db
+				.select()
+				.from(f.s.memorySourceRevisions)
+				.where(eq(f.s.memorySourceRevisions.id, previous.id))
+				.get();
+			expect(accepted).toMatchObject({
+				state: "accepted",
+				acceptedGeneration: f.db.select().from(f.s.memoryBanks).get()
+					?.generation,
 			});
-			expect(
-				nativeFacts.find(({ id }) => id === "new-assertion"),
-			).toMatchObject({
-				text: freshFact,
-				document_id: changed.id,
-			});
-			expect(
-				read
-					.listMemory(h.userId, { scope })
-					.rows.map(({ text }) => text)
-					.sort(),
-			).toEqual((newAssertion ? [freshFact] : [tea, freshFact]).sort());
-			return;
+			// The accepted-empty receipt must outlive the job.
+			f.db
+				.delete(f.s.memoryDeliveryJobs)
+				.where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id))
+				.run();
+			initialEmpty = false;
+			retains = [];
 		}
-		if (mode === "correction after alias" || removeLateCorrection) {
-			await saveCorrection();
-			remembered = corrected;
-		}
-		if (
-			mode === "accepted carried next edit" ||
-			mode === "changed carry checks a surviving dependent" ||
-			mode === "changed carry supplies original context"
-		) {
+		const saveCorrection = async () => {
 			fixture.model.mockImplementation(
 				async (_prompt, input: Record<string, unknown>) => {
-					if ("facts" in input)
-						return {
-							facts: [
-								{ id: "decaf", text: "" },
-								{ id: "tyres", text: independent },
-							],
-						};
+					if ("facts" in input) return { facts: [{ id: "decaf", text: "" }] };
 					if ("original_facts" in input) return ckOkay;
 					return { forget: [], replace: ["decaf to black tea"], preserve: [] };
 				},
 			);
-			const dependent =
-				mode === "changed carry checks a surviving dependent"
-					? await persist("dependent", undefined, reply)
-					: null;
-			if (dependent) await h.engine.drain(job.memoryDeliveryJob);
-			await deleteMessages(
-				["after", ...(dependent ? ["after-assistant"] : [])],
-				{ editSourceMessageId: "after" },
-			);
-			const edited = await persist("edited", "after", corrected);
+			const read = await import("./native-read");
+			const actions = await import("./curation-actions");
+			const card = read.listMemory(h.userId, { scope: { kind: "personal" } })
+				.rows[0];
+			const edit = await actions.submitMemoryAction(h.userId, {
+				kind: "edit",
+				text: corrected,
+				ref: card.ref,
+				requestId: randomUUID(),
+			});
 			await h.engine.drain(job.memoryDeliveryJob);
-			expect(fixture.patches).toContain("decaf");
+			expect(actions.getMemoryOperation(h.userId, { id: edit.id }).status).toBe(
+				"applied",
+			);
+			retains = [];
+		};
+		if (
+			mode === "accepted carried correction" ||
+			appendAfterCorrection ||
+			removeEarlyCorrection
+		)
+			await saveCorrection();
+		if (mode === "ordinary withdrawal before resend")
+			await chat.revokeDeletedMemoryMessages(["before"]);
+		await chat.revokeDeletedMemoryMessages(["before"], {
+			editSourceMessageId: "before",
+		});
+		f.db.delete(f.s.messages).where(eq(f.s.messages.id, "before")).run();
+		if (mode === "ordinary withdrawal before resend") {
+			await expect(persist("after", "before")).rejects.toThrow(
+				"missing recorded source",
+			);
+			await h.engine.drain(job.memoryDeliveryJob);
+			expect(nativeDeletes).toContain(previous.id);
+			expect(retains).toEqual([]);
+			return;
+		}
+		if (mode === "wrong-generation")
+			f.db
+				.update(f.s.memorySourceRevisions)
+				.set({ acceptedGeneration: "unrelated-generation" })
+				.where(eq(f.s.memorySourceRevisions.id, previous.id))
+				.run();
+		if (mode === "ambiguous-submitted")
+			f.db
+				.update(f.s.memorySourceRevisions)
+				.set({ nativeSubmitted: true, nativeAcknowledged: true })
+				.where(eq(f.s.memorySourceRevisions.id, previous.id))
+				.run();
+		if (
+			mode === "deferred cleanup before successor" ||
+			mode === "deferred cleanup with queued successor"
+		)
+			f.db
+				.update(f.s.memoryDeliveryJobs)
+				.set({ runAfter: new Date(Date.now() - 1000) })
+				.where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id))
+				.run();
+		if (mode === "deferred cleanup before successor") {
+			await h.engine.drain(job.memoryDeliveryJob);
+			expect(nativeDeletes).toContain(previous.id);
+			await expect(persist("after", "before")).rejects.toThrow(
+				"missing recorded source",
+			);
+			expect(retains).toEqual([]);
+			return;
+		}
+		driftAfterWithdrawal =
+			mode === "extra observation on exact resend" ||
+			mode === "changed native date on exact resend";
+		const next = await persist("after", "before");
+		if (mode === "repeated exact resend while queued") {
+			const { deleteMessages } = await import("../messages");
+			await deleteMessages(["after", "after-assistant"], {
+				editSourceMessageId: "after",
+			});
+			const newest = await persist("newest", "after");
+			f.db
+				.update(f.s.memoryDeliveryJobs)
+				.set({ runAfter: new Date(Date.now() - 1000) })
+				.where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id))
+				.run();
+			await h.engine.drain(job.memoryDeliveryJob);
+			const delivery = f.db
+				.select()
+				.from(f.s.memoryDeliveryJobs)
+				.where(eq(f.s.memoryDeliveryJobs.sourceId, newest.id))
+				.get();
+			expect(delivery?.status).toBe("succeeded");
+			const read = await import("./native-read");
 			expect(
 				read
-					.listMemory(h.userId, { scope })
-					.rows.map(({ text }) => text)
-					.sort(),
-			).toEqual(
-				dependent ? [tea, "I sort stamps.", independent] : [tea, independent],
+					.listMemory(h.userId, { scope: { kind: "personal" } })
+					.rows.map(({ text }) => text),
+			).toEqual([assertion]);
+			expect(retains).toEqual([]);
+			expect(nativeDeletes).not.toContain(previous.id);
+			expect(nativeFacts.map((fact) => fact.document_id)).toEqual([
+				previous.id,
+			]);
+			await expect(persist("stale-ancestor", "before")).rejects.toThrow(
+				"missing recorded source",
 			);
-			if (dependent) {
-				const verified = fixture.model.mock.calls.find(
-					([, input]) => "source_assertions" in input,
-				);
-				expect(verified?.[0]).toContain("explicit user edit");
-				expect(verified?.[0]).toContain("currently authorized priorContext");
-				expect(verified?.[1].source_assertions).toEqual([
-					expect.objectContaining({
-						originalSourceId: dependent.id,
-						assertion: reply,
-						priorContext: retains.at(-1)?.context,
-					}),
-				]);
-				expect(verified?.[3]).toBeUndefined();
-			}
-			const published = (await import("./publication")).readPublishedMemory(
-				h.userId,
-				f.bank.id,
+			await expect(persist("stale-intermediate", "after")).rejects.toThrow(
+				"missing recorded source",
+			);
+			return;
+		}
+		if (mode === "deleted queued successor") {
+			const { deleteMessages } = await import("../messages");
+			await deleteMessages(["after"]);
+			await h.engine.drain(job.memoryDeliveryJob);
+			expect(nativeDeletes).toContain(previous.id);
+			await expect(persist("stale-successor", "before")).rejects.toThrow(
+				"missing recorded source",
+			);
+			expect(retains).toEqual([]);
+			return;
+		}
+		const competing =
+			mode === "competing resends"
+				? await persist("competing", "before")
+				: null;
+		expect(next.predecessorSourceId).toBe(previous.id);
+		const successorMessage = f.db
+			.select()
+			.from(f.s.messages)
+			.where(eq(f.s.messages.id, "after"))
+			.get();
+		expect(successorMessage?.createdAt.getTime()).toBeGreaterThan(
+			previous.assertedAt.getTime(),
+		);
+		await h.engine.drain(job.memoryDeliveryJob);
+		const delivery = f.db
+			.select()
+			.from(f.s.memoryDeliveryJobs)
+			.where(eq(f.s.memoryDeliveryJobs.sourceId, next.id))
+			.get();
+		const texts = (await import("./native-read"))
+			.listMemory(h.userId, {
+				scope,
+			})
+			.rows.map(({ text }) => text);
+		if (driftAfterWithdrawal) {
+			expect(delivery).toMatchObject({
+				status: "queued",
+				errorCode: "memory_unchanged_source_fact_missing",
+			});
+			expect(texts).toEqual([]);
+			expect(retains).toEqual([]);
+			return;
+		}
+		if (mode === "deferred cleanup with queued successor") {
+			expect(delivery?.status).toBe("succeeded");
+			expect(nativeDeletes).not.toContain(previous.id);
+			expect(texts).toEqual([drink]);
+			expect(retains).toEqual([]);
+			return;
+		}
+		if (competing) {
+			const other = f.db
+				.select()
+				.from(f.s.memoryDeliveryJobs)
+				.where(eq(f.s.memoryDeliveryJobs.sourceId, competing.id))
+				.get();
+			expect([delivery?.status, other?.status].sort()).toEqual([
+				"failed",
+				"succeeded",
+			]);
+			expect([delivery?.errorCode, other?.errorCode]).toContain(
+				"memory_predecessor_invalid",
+			);
+			expect(retains).toEqual([]);
+			expect(texts).toEqual([assertion]);
+			await expect(persist("late", "before")).rejects.toThrow(
+				"missing recorded source",
+			);
+			return;
+		}
+		if (mode === "wrong-generation" || mode === "ambiguous-submitted") {
+			expect(delivery).toMatchObject({
+				status: "queued",
+				errorCode: "memory_unchanged_source_unverified",
+			});
+		} else {
+			expect(delivery?.status).toBe("succeeded");
+		}
+		if (mode === "unsubmitted") {
+			expect(retains).toHaveLength(1);
+			expect(retains[0]).toMatchObject({
+				content: assertion,
+				timestamp: previous.assertedAt.toISOString(),
+			});
+			expect(retains[0].context).toContain("Understood.");
+			expect(texts).toEqual([assertion]);
+		} else if (carried) {
+			expect(retains).toHaveLength(0);
+			let remembered =
+				mode === "accepted carried correction" ||
+				appendAfterCorrection ||
+				removeEarlyCorrection
+					? corrected
+					: drink;
+			expect([...texts].sort()).toEqual(
+				hasIndependentFact ? [remembered, independent] : [remembered],
 			);
 			expect(
-				published.find((row) => row.text === independent)?.updatedAt,
-			).toEqual(previous.assertedAt);
-			expect(published.find((row) => row.text === tea)?.updatedAt).toEqual(
-				edited.explicitEditAt,
-			);
-			if (mode === "changed carry supplies original context") {
-				vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
-				await persist("dependent-after-change", undefined, reply);
+				f.db
+					.select()
+					.from(f.s.memorySourceRevisions)
+					.where(eq(f.s.memorySourceRevisions.id, next.id))
+					.get(),
+			).toMatchObject({ state: "accepted", nativeSubmitted: false });
+			const read = await import("./native-read");
+			const item = read.listMemory(h.userId, { scope }).rows[0];
+			if (
+				mode !== "accepted carried correction" &&
+				!appendAfterCorrection &&
+				!removeEarlyCorrection
+			)
+				expect(read.getMemoryDetail(h.userId, item.ref).sources).toEqual([
+					expect.objectContaining({
+						id: previous.id,
+						available: false,
+						quote: "",
+					}),
+				]);
+			const { deleteMessages } = await import("../messages");
+			if (appendAfterCorrection) {
+				const correction = nativeFacts.find(({ id }) => id === "tea");
+				if (!correction)
+					throw Error("missing independently authored correction");
+				const textBeforeEdit = correction.text;
+				fixture.model.mockImplementation(
+					async (_prompt, input: Record<string, unknown>) => {
+						if ("facts" in input)
+							return {
+								facts: (input.facts as Array<{ id: string; text: string }>).map(
+									({ id, text }) => ({
+										id,
+										text: id === "tea" ? drink : text,
+									}),
+								),
+							};
+						if ("original_facts" in input) return ckOkay;
+						return { forget: [], replace: [freshFact], preserve: [drink] };
+					},
+				);
+				await deleteMessages(["after"], { editSourceMessageId: "after" });
+				const changed = await persist("edited", "after", thirdText);
 				await h.engine.drain(job.memoryDeliveryJob);
-				expect(retains.at(-1)?.context).toContain(tea);
-				expect(retains.at(-1)?.context).toContain(independent);
-				fixture.model
-					.mockReset()
-					.mockImplementation(
-						async (_prompt, input: Record<string, unknown>) => {
-							if ("facts" in input) return { facts: input.facts };
-							if ("original_facts" in input) return ckOkay;
-							return { forget: [], replace: [appendFact], preserve: [] };
-						},
-					);
-				await deleteMessages(["edited", "dependent-after-change"], {
-					editSourceMessageId: "edited",
+				const retainedContext = retains.find(
+					(item) => item.document_id === changed.id,
+				)?.context;
+				expect(retainedContext).toContain(
+					"exclude editorial commentary, superseded values, and omitted details",
+				);
+				expect(retainedContext).toContain(
+					"Keep causal reasons and other details that the user actually asserts",
+				);
+				expect(fixture.patches).not.toContain("tea");
+				expect(nativeFacts.find(({ id }) => id === "tea")).toEqual({
+					...correction,
+					text: textBeforeEdit,
 				});
-				await persist("appended", "edited", appended);
-				await h.engine.drain(job.memoryDeliveryJob);
-				const proposal = fixture.model.mock.calls.find(
-					([, input]) => "facts" in input,
-				);
-				expect(proposal?.[1].facts).toEqual(
-					expect.arrayContaining([
-						{ id: "tea", text: tea },
-						{ id: "tyres", text: independent },
-					]),
-				);
+				expect(
+					nativeFacts.find(({ id }) => id === "new-assertion"),
+				).toMatchObject({
+					text: freshFact,
+					document_id: changed.id,
+				});
 				expect(
 					read
 						.listMemory(h.userId, { scope })
 						.rows.map(({ text }) => text)
 						.sort(),
-				).toEqual([appendFact, tea, independent]);
+				).toEqual((newAssertion ? [freshFact] : [tea, freshFact]).sort());
+				return;
 			}
-			return;
-		}
-		await persist("dependent", undefined, reply);
-		await h.engine.drain(job.memoryDeliveryJob);
-		expect(retains).toHaveLength(1);
-		expect(retains[0].content).toBe(reply);
-		expect(retains[0].context).toContain(remembered);
-		expect(retains[0].context).not.toContain("carriedSourceIds");
-		if (removeCarried || removeCorrection) {
-			const deletedTip =
-				mode === "remove after separately deleting the dependent exact tip" ||
-				mode ===
-					"remove after deleting the dependent exact tip in a moved project";
-			const withdrawTipDuringRemove =
-				mode === "dependent exact tip withdrawn during Remove";
-			const dependentDocument = retains[0].document_id;
+			if (mode === "correction after alias" || removeLateCorrection) {
+				await saveCorrection();
+				remembered = corrected;
+			}
 			if (
-				mode === "remove after dependent exact resend" ||
-				deletedTip ||
-				withdrawTipDuringRemove ||
-				movedProject
+				mode === "accepted carried next edit" ||
+				mode === "changed carry checks a surviving dependent" ||
+				mode === "changed carry supplies original context"
 			) {
-				await deleteMessages(["dependent", "dependent-assistant"], {
-					editSourceMessageId: "dependent",
-				});
-				const alias = await persist("dependent-exact", "dependent", reply);
+				fixture.model.mockImplementation(
+					async (_prompt, input: Record<string, unknown>) => {
+						if ("facts" in input)
+							return {
+								facts: [
+									{ id: "decaf", text: "" },
+									{ id: "tyres", text: independent },
+								],
+							};
+						if ("original_facts" in input) return ckOkay;
+						return {
+							forget: [],
+							replace: ["decaf to black tea"],
+							preserve: [],
+						};
+					},
+				);
+				const dependent =
+					mode === "changed carry checks a surviving dependent"
+						? await persist("dependent", undefined, reply)
+						: null;
+				if (dependent) await h.engine.drain(job.memoryDeliveryJob);
+				await deleteMessages(
+					["after", ...(dependent ? ["after-assistant"] : [])],
+					{ editSourceMessageId: "after" },
+				);
+				const edited = await persist("edited", "after", corrected);
 				await h.engine.drain(job.memoryDeliveryJob);
+				expect(fixture.patches).toContain("decaf");
 				expect(
-					f.db
-						.select()
-						.from(f.s.memorySourceRevisions)
-						.where(eq(f.s.memorySourceRevisions.id, alias.id))
-						.get(),
-				).toMatchObject({ state: "accepted", nativeSubmitted: false });
-				expect(retains).toHaveLength(1);
-				if (destinationProject) {
-					const { moveConversationToProject } = await import(
-						"../conversations"
+					read
+						.listMemory(h.userId, { scope })
+						.rows.map(({ text }) => text)
+						.sort(),
+				).toEqual(
+					dependent ? [tea, "I sort stamps.", independent] : [tea, independent],
+				);
+				if (dependent) {
+					const verified = fixture.model.mock.calls.find(
+						([, input]) => "source_assertions" in input,
+					);
+					expect(verified?.[0]).toContain("explicit user edit");
+					expect(verified?.[0]).toContain("currently authorized priorContext");
+					expect(verified?.[1].source_assertions).toEqual([
+						expect.objectContaining({
+							originalSourceId: dependent.id,
+							assertion: reply,
+							priorContext: retains.at(-1)?.context,
+						}),
+					]);
+					expect(verified?.[3]).toBeUndefined();
+				}
+				const published = (await import("./publication")).readPublishedMemory(
+					h.userId,
+					f.bank.id,
+				);
+				expect(
+					published.find((row) => row.text === independent)?.updatedAt,
+				).toEqual(previous.assertedAt);
+				expect(published.find((row) => row.text === tea)?.updatedAt).toEqual(
+					edited.explicitEditAt,
+				);
+				if (mode === "changed carry supplies original context") {
+					vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+					await persist("dependent-after-change", undefined, reply);
+					await h.engine.drain(job.memoryDeliveryJob);
+					expect(retains.at(-1)?.context).toContain(tea);
+					expect(retains.at(-1)?.context).toContain(independent);
+					fixture.model
+						.mockReset()
+						.mockImplementation(
+							async (_prompt, input: Record<string, unknown>) => {
+								if ("facts" in input) return { facts: input.facts };
+								if ("original_facts" in input) return ckOkay;
+								return { forget: [], replace: [appendFact], preserve: [] };
+							},
+						);
+					await deleteMessages(["edited", "dependent-after-change"], {
+						editSourceMessageId: "edited",
+					});
+					await persist("appended", "edited", appended);
+					await h.engine.drain(job.memoryDeliveryJob);
+					const proposal = fixture.model.mock.calls.find(
+						([, input]) => "facts" in input,
+					);
+					expect(proposal?.[1].facts).toEqual(
+						expect.arrayContaining([
+							{ id: "tea", text: tea },
+							{ id: "tyres", text: independent },
+						]),
 					);
 					expect(
-						await moveConversationToProject(
-							h.userId,
-							chatId,
-							destinationProject.id,
-						),
-					).toMatchObject({ projectId: destinationProject.id });
+						read
+							.listMemory(h.userId, { scope })
+							.rows.map(({ text }) => text)
+							.sort(),
+					).toEqual([appendFact, tea, independent]);
+				}
+				return;
+			}
+			await persist("dependent", undefined, reply);
+			await h.engine.drain(job.memoryDeliveryJob);
+			expect(retains).toHaveLength(1);
+			expect(retains[0].content).toBe(reply);
+			expect(retains[0].context).toContain(remembered);
+			expect(retains[0].context).not.toContain("carriedSourceIds");
+			if (removeCarried || removeCorrection) {
+				const deletedTip =
+					mode === "remove after separately deleting the dependent exact tip" ||
+					mode ===
+						"remove after deleting the dependent exact tip in a moved project";
+				const withdrawTipDuringRemove =
+					mode === "dependent exact tip withdrawn during Remove";
+				const dependentDocument = retains[0].document_id;
+				if (
+					mode === "remove after dependent exact resend" ||
+					deletedTip ||
+					withdrawTipDuringRemove ||
+					movedProject
+				) {
+					await deleteMessages(["dependent", "dependent-assistant"], {
+						editSourceMessageId: "dependent",
+					});
+					const alias = await persist("dependent-exact", "dependent", reply);
+					await h.engine.drain(job.memoryDeliveryJob);
+					expect(
+						f.db
+							.select()
+							.from(f.s.memorySourceRevisions)
+							.where(eq(f.s.memorySourceRevisions.id, alias.id))
+							.get(),
+					).toMatchObject({ state: "accepted", nativeSubmitted: false });
+					expect(retains).toHaveLength(1);
+					if (destinationProject) {
+						const { moveConversationToProject } = await import(
+							"../conversations"
+						);
+						expect(
+							await moveConversationToProject(
+								h.userId,
+								chatId,
+								destinationProject.id,
+							),
+						).toMatchObject({ projectId: destinationProject.id });
+						expect(
+							read.listMemory(h.userId, {
+								scope: { kind: "project", projectId: destinationProject.id },
+							}).rows,
+						).toEqual([]);
+					}
+					if (deletedTip) {
+						await deleteMessages([
+							"dependent-exact",
+							"dependent-exact-assistant",
+						]);
+						await h.engine.drain(job.memoryDeliveryJob);
+						expect(nativeDeletes).toContain(dependentDocument);
+					}
+				}
+				const actions = await import("./curation-actions");
+				const list = () => read.listMemory(h.userId, { scope }).rows;
+				const target = list().find((row) => row.text === removeTarget);
+				if (!target) throw Error("missing carried Remove target");
+				if (!deletedTip)
+					expect(list().map((row) => row.text)).toContain(derived);
+				fixture.model.mockImplementation(
+					async (_prompt, input: Record<string, unknown>) => {
+						if ("facts" in input)
+							return {
+								facts: removeCorrection
+									? [{ id: "tea", text: "" }]
+									: [
+											{ id: "decaf", text: "" },
+											{ id: "tyres", text: independent },
+										],
+							};
+						if ("original_facts" in input) return ckOkay;
+						return { forget: [removeTarget], replace: [], preserve: [] };
+					},
+				);
+				const action = await actions.submitMemoryAction(h.userId, {
+					kind: "remove",
+					ref: target.ref,
+					requestId: randomUUID(),
+				});
+				expect(action.exclusionAcknowledged).toBe(true);
+				expect(list().map((row) => row.text)).not.toContain(derived);
+				if (withdrawTipDuringRemove)
+					await deleteMessages([
+						"dependent-exact",
+						"dependent-exact-assistant",
+					]);
+				await h.engine.drain(job.memoryDeliveryJob);
+				expect(
+					actions.getMemoryOperation(h.userId, { id: action.id }).status,
+				).toBe("applied");
+				expect(
+					list()
+						.map((row) => row.text)
+						.sort(),
+				).toEqual(
+					deletedTip || withdrawTipDuringRemove
+						? [independent]
+						: removeCorrection
+							? ["I sort stamps."]
+							: ["I sort stamps.", independent],
+				);
+				if (destinationProject)
 					expect(
 						read.listMemory(h.userId, {
 							scope: { kind: "project", projectId: destinationProject.id },
 						}).rows,
 					).toEqual([]);
-				}
-				if (deletedTip) {
-					await deleteMessages([
-						"dependent-exact",
-						"dependent-exact-assistant",
+				if (withdrawTipDuringRemove) {
+					const checked = fixture.model.mock.calls.find(
+						([, input]) => "withdrawn_source_ids" in input,
+					);
+					expect(checked?.[1].withdrawn_source_ids).toEqual([
+						dependentDocument,
 					]);
-					await h.engine.drain(job.memoryDeliveryJob);
-					expect(nativeDeletes).toContain(dependentDocument);
+					expect(JSON.stringify(checked?.[1])).not.toContain(reply);
 				}
-			}
-			const actions = await import("./curation-actions");
-			const list = () => read.listMemory(h.userId, { scope }).rows;
-			const target = list().find((row) => row.text === removeTarget);
-			if (!target) throw Error("missing carried Remove target");
-			if (!deletedTip) expect(list().map((row) => row.text)).toContain(derived);
-			fixture.model.mockImplementation(
-				async (_prompt, input: Record<string, unknown>) => {
-					if ("facts" in input)
-						return {
-							facts: removeCorrection
-								? [{ id: "tea", text: "" }]
-								: [
-										{ id: "decaf", text: "" },
-										{ id: "tyres", text: independent },
-									],
-						};
-					if ("original_facts" in input) return ckOkay;
-					return { forget: [removeTarget], replace: [], preserve: [] };
-				},
-			);
-			const action = await actions.submitMemoryAction(h.userId, {
-				kind: "remove",
-				ref: target.ref,
-				requestId: randomUUID(),
-			});
-			expect(action.exclusionAcknowledged).toBe(true);
-			expect(list().map((row) => row.text)).not.toContain(derived);
-			if (withdrawTipDuringRemove)
-				await deleteMessages(["dependent-exact", "dependent-exact-assistant"]);
-			await h.engine.drain(job.memoryDeliveryJob);
-			expect(
-				actions.getMemoryOperation(h.userId, { id: action.id }).status,
-			).toBe("applied");
-			expect(
-				list()
-					.map((row) => row.text)
-					.sort(),
-			).toEqual(
-				deletedTip || withdrawTipDuringRemove
-					? [independent]
-					: removeCorrection
-						? ["I sort stamps."]
-						: ["I sort stamps.", independent],
-			);
-			if (destinationProject)
-				expect(
-					read.listMemory(h.userId, {
-						scope: { kind: "project", projectId: destinationProject.id },
-					}).rows,
-				).toEqual([]);
-			if (withdrawTipDuringRemove) {
-				const checked = fixture.model.mock.calls.find(
-					([, input]) => "withdrawn_source_ids" in input,
-				);
-				expect(checked?.[1].withdrawn_source_ids).toEqual([dependentDocument]);
-				expect(JSON.stringify(checked?.[1])).not.toContain(reply);
-			}
-			if (deletedTip || withdrawTipDuringRemove) {
-				expect(retains).toHaveLength(1);
+				if (deletedTip || withdrawTipDuringRemove) {
+					expect(retains).toHaveLength(1);
+					return;
+				}
+				if (mode === "remove after dependent exact resend" || movedProject) {
+					expect(nativeDeletes).toContain(dependentDocument);
+					const repaired = f.db
+						.select()
+						.from(f.s.memorySourceRevisions)
+						.where(eq(f.s.memorySourceRevisions.id, retains[1].document_id))
+						.get();
+					expect(repaired).toMatchObject({
+						state: "accepted",
+						bankId: f.bank.id,
+						messageId: "dependent-exact",
+					});
+					const checked = fixture.model.mock.calls.find(
+						([, input]) => "source_assertions" in input,
+					);
+					expect(checked?.[1].source_assertions).toEqual([
+						{
+							id: repaired?.id,
+							originalSourceId: dependentDocument,
+							assertion: reply,
+							priorContext: retains[1].context,
+							withdrawnContextSourceIds: [],
+						},
+					]);
+					expect(checked?.[3]).toBe("on");
+				}
+				expect(retains).toHaveLength(2);
+				expect(retains.at(-1)?.context).not.toContain(removeTarget);
+				if (removeCarried)
+					expect(retains.at(-1)?.context).toContain(independent);
 				return;
 			}
-			if (mode === "remove after dependent exact resend" || movedProject) {
-				expect(nativeDeletes).toContain(dependentDocument);
-				const repaired = f.db
-					.select()
-					.from(f.s.memorySourceRevisions)
-					.where(eq(f.s.memorySourceRevisions.id, retains[1].document_id))
-					.get();
-				expect(repaired).toMatchObject({
-					state: "accepted",
-					bankId: f.bank.id,
-					messageId: "dependent-exact",
-				});
-				const checked = fixture.model.mock.calls.find(
-					([, input]) => "source_assertions" in input,
-				);
-				expect(checked?.[1].source_assertions).toEqual([
-					{
-						id: repaired?.id,
-						originalSourceId: dependentDocument,
-						assertion: reply,
-						priorContext: retains[1].context,
-						withdrawnContextSourceIds: [],
-					},
-				]);
-				expect(checked?.[3]).toBe("on");
-			}
-			expect(retains).toHaveLength(2);
-			expect(retains.at(-1)?.context).not.toContain(removeTarget);
-			if (removeCarried) expect(retains.at(-1)?.context).toContain(independent);
-			return;
+			await deleteMessages(["dependent", "after"]);
+			expect(
+				read.listMemory(h.userId, { scope }).rows.map(({ text }) => text),
+			).toEqual(
+				mode === "accepted carried correction" ||
+					mode === "correction after alias"
+					? [corrected]
+					: [],
+			);
+			await h.engine.drain(job.memoryDeliveryJob);
+			expect(nativeDeletes).toContain(previous.id);
+			await expect(persist("stale", "after")).rejects.toThrow(
+				"missing recorded source",
+			);
+			expect(retains).toHaveLength(1);
+		} else {
+			expect(retains).toHaveLength(0);
+			expect(texts).toEqual([]);
 		}
-		await deleteMessages(["dependent", "after"]);
-		expect(
-			read.listMemory(h.userId, { scope }).rows.map(({ text }) => text),
-		).toEqual(
-			mode === "accepted carried correction" ||
-				mode === "correction after alias"
-				? [corrected]
-				: [],
-		);
-		await h.engine.drain(job.memoryDeliveryJob);
-		expect(nativeDeletes).toContain(previous.id);
-		await expect(persist("stale", "after")).rejects.toThrow(
-			"missing recorded source",
-		);
-		expect(retains).toHaveLength(1);
-	} else {
-		expect(retains).toHaveLength(0);
-		expect(texts).toEqual([]);
-	}
-});
+	},
+);
 
-it.each([
-	"carry",
-	"missing receipt",
-	"changed current message",
-] as const)("curates only verified carried facts from an edited chat (%s)", async (mode) => {
-	const f = await setup();
-	const { eq } = await import("drizzle-orm");
-	const fixture = await nativeFixture(f, []);
-	const chat = await import("./chat-delivery");
-	const { deleteMessages } = await import("../messages");
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	const actions = await import("./curation-actions");
-	const read = await import("./native-read");
-	const conversationId = randomUUID();
-	const originalMessageId = randomUUID();
-	const currentMessageId = randomUUID();
-	const responseId = randomUUID();
-	const after = `${f.source.text}. I play chess.`;
-	const scope = { kind: "personal" } as const;
-	f.db
-		.insert(f.s.conversations)
-		.values({
-			id: conversationId,
-			title: "Curation source",
-			userId: h.userId,
-		})
-		.run();
-	f.db
-		.insert(f.s.messages)
-		.values({
-			id: originalMessageId,
-			conversationId,
-			role: "user",
-			content: f.source.text,
-			messageSequence: 1,
-		})
-		.run();
-	f.db
-		.update(f.s.memorySourceRevisions)
-		.set({
-			conversationId,
-			messageId: originalMessageId,
-			nativeSubmitted: true,
-			nativeAcknowledged: true,
-		})
-		.where(eq(f.s.memorySourceRevisions.id, f.source.id))
-		.run();
-	await deleteMessages([originalMessageId], {
-		editSourceMessageId: originalMessageId,
-	});
-	const acceptance = chat.captureMemoryTurnAcceptance(h.userId, conversationId);
-	f.db
-		.insert(f.s.messages)
-		.values([
-			{
-				id: currentMessageId,
+it.each(["carry", "missing receipt", "changed current message"] as const)(
+	"curates only verified carried facts from an edited chat (%s)",
+	async (mode) => {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const fixture = await nativeFixture(f, []);
+		const chat = await import("./chat-delivery");
+		const { deleteMessages } = await import("../messages");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const actions = await import("./curation-actions");
+		const read = await import("./native-read");
+		const conversationId = randomUUID();
+		const originalMessageId = randomUUID();
+		const currentMessageId = randomUUID();
+		const responseId = randomUUID();
+		const after = `${f.source.text}. I play chess.`;
+		const scope = { kind: "personal" } as const;
+		f.db
+			.insert(f.s.conversations)
+			.values({
+				id: conversationId,
+				title: "Curation source",
+				userId: h.userId,
+			})
+			.run();
+		f.db
+			.insert(f.s.messages)
+			.values({
+				id: originalMessageId,
 				conversationId,
-				messageSequence: 2,
 				role: "user",
-				content: after,
-				createdAt: new Date(f.source.assertedAt.getTime() + 60000),
-			},
-			{
-				id: responseId,
+				content: f.source.text,
+				messageSequence: 1,
+			})
+			.run();
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
 				conversationId,
-				messageSequence: 3,
-				role: "assistant",
-				content: "Understood.",
-			},
-		])
-		.run();
-	let successorId: string | undefined;
-	const retained = [
-		{ id: "kayak", text: "green kayak", document_id: f.source.id },
-		{ id: "sister", text: "sister bicycle", document_id: f.source.id },
-	];
-	const originalFetcher = fixture.fetcher.getMockImplementation();
-	if (!originalFetcher) throw Error("missing native fixture");
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const path = String(url);
-		if (path.endsWith("/memories") && init?.method === "POST") {
-			const item = JSON.parse(String(init.body)).items[0];
-			if (JSON.parse(item.content).kind === "source_edit") {
-				successorId = item.document_id;
-				retained.push({
-					id: "chess",
-					text: "I play chess.",
-					document_id: item.document_id,
-				});
+				messageId: originalMessageId,
+				nativeSubmitted: true,
+				nativeAcknowledged: true,
+			})
+			.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+			.run();
+		await deleteMessages([originalMessageId], {
+			editSourceMessageId: originalMessageId,
+		});
+		const acceptance = chat.captureMemoryTurnAcceptance(
+			h.userId,
+			conversationId,
+		);
+		f.db
+			.insert(f.s.messages)
+			.values([
+				{
+					id: currentMessageId,
+					conversationId,
+					messageSequence: 2,
+					role: "user",
+					content: after,
+					createdAt: new Date(f.source.assertedAt.getTime() + 60000),
+				},
+				{
+					id: responseId,
+					conversationId,
+					messageSequence: 3,
+					role: "assistant",
+					content: "Understood.",
+				},
+			])
+			.run();
+		let successorId: string | undefined;
+		const retained = [
+			{ id: "kayak", text: "green kayak", document_id: f.source.id },
+			{ id: "sister", text: "sister bicycle", document_id: f.source.id },
+		];
+		const originalFetcher = fixture.fetcher.getMockImplementation();
+		if (!originalFetcher) throw Error("missing native fixture");
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (path.endsWith("/memories") && init?.method === "POST") {
+				const item = JSON.parse(String(init.body)).items[0];
+				if (JSON.parse(item.content).kind === "source_edit") {
+					successorId = item.document_id;
+					retained.push({
+						id: "chess",
+						text: "I play chess.",
+						document_id: item.document_id,
+					});
+					fixture.setFacts(retained);
+				}
+			}
+			if (path.includes("/documents/") && init?.method === "DELETE") {
+				const id = decodeURIComponent(path.split("/documents/")[1]);
+				for (let index = retained.length - 1; index >= 0; index--)
+					if (retained[index].document_id === id) retained.splice(index, 1);
 				fixture.setFacts(retained);
 			}
-		}
-		if (path.includes("/documents/") && init?.method === "DELETE") {
-			const id = decodeURIComponent(path.split("/documents/")[1]);
-			for (let index = retained.length - 1; index >= 0; index--)
-				if (retained[index].document_id === id) retained.splice(index, 1);
-			fixture.setFacts(retained);
-		}
-		return originalFetcher(url, init);
-	});
-	fixture.model.mockImplementation(
-		async (_prompt, input: Record<string, unknown>) => {
-			const removing = input.user_saved_after === "";
-			if ("facts" in input)
-				return {
-					facts: (input.facts as Array<{ id: string; text: string }>).map(
-						(fact) =>
-							removing && fact.id === "kayak" ? { ...fact, text: "" } : fact,
-					),
-				};
-			if ("original_facts" in input) return ckOkay;
-			return removing
-				? { forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] }
-				: { forget: [], replace: ["I play chess."], preserve: [f.source.text] };
-		},
-	);
-	await chat.deliverCompletedMemoryTurn({
-		userId: h.userId,
-		conversationId,
-		memoryAcceptance: acceptance,
-		userMessageId: currentMessageId,
-		assistantMessageId: responseId,
-		turnOrigin: "edit_resend",
-		editSourceMessageId: originalMessageId,
-	});
-	await h.engine.drain(memoryDeliveryJob);
-	expect(successorId).toBeDefined();
-	const carried = f.db
-		.select()
-		.from(f.s.memorySourceRevisions)
-		.where(eq(f.s.memorySourceRevisions.id, f.source.id))
-		.get();
-	const current = read.listMemory(h.userId, { scope });
-	const ref = {
-		scope,
-		rowId: "observation-kayak",
-		generation: current.rows[0].ref.generation,
-	};
-	expect(carried).toMatchObject({
-		state: "accepted",
-		acceptedGeneration: ref.generation,
-	});
-	expect(read.getMemoryDetail(h.userId, ref).sources).toEqual([
-		expect.objectContaining({ available: false, messageId: null, quote: "" }),
-	]);
-	if (mode === "missing receipt")
-		f.db
-			.delete(f.s.memoryActions)
-			.where(eq(f.s.memoryActions.requestId, successorId ?? ""))
-			.run();
-	if (mode === "changed current message")
-		f.db
-			.update(f.s.messages)
-			.set({ content: "A different assertion." })
-			.where(eq(f.s.messages.id, currentMessageId))
-			.run();
-	const modelCalls = fixture.model.mock.calls.length;
-	const remove = await actions.submitMemoryAction(h.userId, {
-		kind: "remove",
-		ref,
-		requestId: randomUUID(),
-	});
-	await h.engine.drain(memoryDeliveryJob);
-	if (mode !== "carry") {
-		expect(
-			actions.getMemoryOperation(h.userId, { id: remove.id }),
-		).toMatchObject({
-			status: "failed",
-			cleanupPending: true,
+			return originalFetcher(url, init);
 		});
-		expect(fixture.model).toHaveBeenCalledTimes(modelCalls);
-		expect(fixture.patches).toEqual([]);
-		return;
-	}
-	expect(actions.getMemoryOperation(h.userId, { id: remove.id })).toMatchObject(
-		{
-			status: "applied",
-			cleanupPending: false,
-		},
-	);
-	expect(fixture.patches).toEqual(["kayak"]);
-	expect(
-		read
-			.listMemory(h.userId, { scope })
-			.rows.map(({ text }) => text)
-			.sort(),
-	).toEqual(["I play chess.", "sister bicycle"]);
-	await deleteMessages([currentMessageId]);
-	expect(read.listMemory(h.userId, { scope }).rows).toEqual([]);
-	await h.engine.drain(memoryDeliveryJob);
-	expect(
-		f.db
+		fixture.model.mockImplementation(
+			async (_prompt, input: Record<string, unknown>) => {
+				const removing = input.user_saved_after === "";
+				if ("facts" in input)
+					return {
+						facts: (input.facts as Array<{ id: string; text: string }>).map(
+							(fact) =>
+								removing && fact.id === "kayak" ? { ...fact, text: "" } : fact,
+						),
+					};
+				if ("original_facts" in input) return ckOkay;
+				return removing
+					? {
+							forget: ["green kayak"],
+							replace: [],
+							preserve: ["sister bicycle"],
+						}
+					: {
+							forget: [],
+							replace: ["I play chess."],
+							preserve: [f.source.text],
+						};
+			},
+		);
+		await chat.deliverCompletedMemoryTurn({
+			userId: h.userId,
+			conversationId,
+			memoryAcceptance: acceptance,
+			userMessageId: currentMessageId,
+			assistantMessageId: responseId,
+			turnOrigin: "edit_resend",
+			editSourceMessageId: originalMessageId,
+		});
+		await h.engine.drain(memoryDeliveryJob);
+		expect(successorId).toBeDefined();
+		const carried = f.db
 			.select()
 			.from(f.s.memorySourceRevisions)
 			.where(eq(f.s.memorySourceRevisions.id, f.source.id))
-			.get()?.state,
-	).toBe("revoked");
-	expect(retained).toEqual([]);
-});
+			.get();
+		const current = read.listMemory(h.userId, { scope });
+		const ref = {
+			scope,
+			rowId: "observation-kayak",
+			generation: current.rows[0].ref.generation,
+		};
+		expect(carried).toMatchObject({
+			state: "accepted",
+			acceptedGeneration: ref.generation,
+		});
+		expect(read.getMemoryDetail(h.userId, ref).sources).toEqual([
+			expect.objectContaining({ available: false, messageId: null, quote: "" }),
+		]);
+		if (mode === "missing receipt")
+			f.db
+				.delete(f.s.memoryActions)
+				.where(eq(f.s.memoryActions.requestId, successorId ?? ""))
+				.run();
+		if (mode === "changed current message")
+			f.db
+				.update(f.s.messages)
+				.set({ content: "A different assertion." })
+				.where(eq(f.s.messages.id, currentMessageId))
+				.run();
+		const modelCalls = fixture.model.mock.calls.length;
+		const remove = await actions.submitMemoryAction(h.userId, {
+			kind: "remove",
+			ref,
+			requestId: randomUUID(),
+		});
+		await h.engine.drain(memoryDeliveryJob);
+		if (mode !== "carry") {
+			expect(
+				actions.getMemoryOperation(h.userId, { id: remove.id }),
+			).toMatchObject({
+				status: "failed",
+				cleanupPending: true,
+			});
+			expect(fixture.model).toHaveBeenCalledTimes(modelCalls);
+			expect(fixture.patches).toEqual([]);
+			return;
+		}
+		expect(
+			actions.getMemoryOperation(h.userId, { id: remove.id }),
+		).toMatchObject({
+			status: "applied",
+			cleanupPending: false,
+		});
+		expect(fixture.patches).toEqual(["kayak"]);
+		expect(
+			read
+				.listMemory(h.userId, { scope })
+				.rows.map(({ text }) => text)
+				.sort(),
+		).toEqual(["I play chess.", "sister bicycle"]);
+		await deleteMessages([currentMessageId]);
+		expect(read.listMemory(h.userId, { scope }).rows).toEqual([]);
+		await h.engine.drain(memoryDeliveryJob);
+		expect(
+			f.db
+				.select()
+				.from(f.s.memorySourceRevisions)
+				.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+				.get()?.state,
+		).toBe("revoked");
+		expect(retained).toEqual([]);
+	},
+);
 
 const scope = { kind: "personal" } as const;
 const claim = { scope, generation: "g", rowId: "kayak" };
@@ -4100,218 +4152,231 @@ it.each([
 	"newer replaces native support",
 	"comparison source withdrawn at dispatch",
 	"comparison source withdrawn at publication",
-] as const)("re-review: only an actually supported newer assertion can supersede a checked edit (%s)", async (kind) => {
-	const withdrawAtDispatch = kind === "comparison source withdrawn at dispatch";
-	const withdrawAtPublication =
-		kind === "comparison source withdrawn at publication";
-	const newer =
-		kind === "newer assertion" ||
-		kind === "newer replaces native support" ||
-		withdrawAtDispatch ||
-		withdrawAtPublication;
-	const extraSupport = kind !== "unrelated";
-	const newAssertion = newer ? "I own a blue kayak now." : "lamp";
-	const f = await setup();
-	const fixture = await nativeFixture(f, [
-		plan,
-		{
-			facts: [
-				{ id: "kayak", text: "" },
-				{ id: "sister", text: "sister bicycle" },
-			],
-		},
-		yes,
-		yes,
-	]);
-	f.db
-		.insert(f.s.conversations)
-		.values({ id: "paddling", userId: h.userId, title: "Paddling" })
-		.run();
-	f.db
-		.insert(f.s.messages)
-		.values({
-			id: "original",
-			conversationId: "paddling",
-			role: "user",
-			content: f.source.text,
-		})
-		.run();
-	f.db
-		.update(f.s.memorySourceRevisions)
-		.set({ conversationId: "paddling", messageId: "original" })
-		.run();
-	const fetch = fixture.fetcher.getMockImplementation();
-	if (!fetch) throw Error("fixture");
-	let correctionSource: string | undefined;
-	let flip = false;
-	fixture.fetcher.mockImplementation(async (url, init) => {
-		const path = String(url);
-		if (path.endsWith("/memories") && init?.method === "POST") {
-			const item = JSON.parse(String(init.body)).items[0];
-			if (!correctionSource) {
-				correctionSource = item.document_id;
-				fixture.setFacts([
-					{ id: "kayak", text: "green kayak" },
+] as const)(
+	"re-review: only an actually supported newer assertion can supersede a checked edit (%s)",
+	async (kind) => {
+		const withdrawAtDispatch =
+			kind === "comparison source withdrawn at dispatch";
+		const withdrawAtPublication =
+			kind === "comparison source withdrawn at publication";
+		const newer =
+			kind === "newer assertion" ||
+			kind === "newer replaces native support" ||
+			withdrawAtDispatch ||
+			withdrawAtPublication;
+		const extraSupport = kind !== "unrelated";
+		const newAssertion = newer ? "I own a blue kayak now." : "lamp";
+		const f = await setup();
+		const fixture = await nativeFixture(f, [
+			plan,
+			{
+				facts: [
+					{ id: "kayak", text: "" },
 					{ id: "sister", text: "sister bicycle" },
-					{
-						id: "correction",
-						text: "purple kayak",
-						document_id: correctionSource,
-					},
-				]);
-			} else {
-				fixture.setFacts([
-					{ id: "sister", text: "sister bicycle" },
-					{
-						id: "correction",
-						text: "purple kayak",
-						document_id: correctionSource,
-					},
-					{ id: "incoming", text: newAssertion, document_id: item.document_id },
-				]);
-			}
-		}
-		if (flip && path.endsWith("/memories/recall"))
-			return new Response(
-				JSON.stringify({
-					results: [
-						{
-							id: "regenerated",
-							text: newer ? "blue kayak" : "green kayak",
-							type: "observation",
-						},
-					],
-				}),
-			);
-		const response = await fetch(url, init);
-		if (!flip || !path.includes("/memories/list")) return response;
-		const list = await response.json();
-		const row = list.items.find(
-			(r: { id: string }) => r.id === "observation-correction",
-		);
-		row.id = "regenerated";
-		row.text = newer ? "blue kayak" : "green kayak";
-		if (kind === "newer replaces native support") {
-			row.source_memory_ids = ["incoming"];
-			list.items = list.items.filter(
-				(item: { id: string }) => item.id !== "observation-incoming",
-			);
-			list.total = list.items.length;
-		} else if (extraSupport) row.source_memory_ids.push("incoming");
-		return new Response(JSON.stringify(list));
-	});
-	const actions = await import("./curation-actions");
-	const jobs = await import("./delivery-job");
-	const reads = await import("./native-read");
-	const edit = await actions.submitMemoryAction(
-		h.userId,
-		{
-			kind: "edit",
-			ref: claim,
-			text: "purple kayak",
-			requestId: randomUUID(),
-		},
-		withdrawAtDispatch || withdrawAtPublication ? "paddling" : undefined,
-	);
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	const corrected = actions.getMemoryOperation(h.userId, { id: edit.id }).ref;
-	if (!corrected) throw Error("no correction");
-	expect(reads.getMemoryDetail(h.userId, corrected)).toMatchObject({
-		versions: [{ text: "kayak" }],
-		sources: [{ quote: f.source.text, available: true }],
-	});
-	flip = true;
-	let verification: unknown;
-	let withdrew = false;
-	if (withdrawAtDispatch || withdrawAtPublication) {
-		const { revokeConversationMemory } = await import("./chat-delivery");
-		const withdraw = async () => {
-			await revokeConversationMemory(h.userId, ["paddling"]);
-			const source = f.db
-				.select()
-				.from(f.s.memorySourceRevisions)
-				.all()
-				.find((source) => source.id === correctionSource);
-			expect(source?.state).toBe("revoked");
-			withdrew = true;
-		};
-		vi.spyOn(await import("./curation"), "createCurationModel").mockReturnValue(
-			async (_prompt, payload, _schema, _thinking, assertCurrent) => {
-				if (withdrawAtDispatch) await withdraw();
-				assertCurrent?.();
-				verification = payload;
-				if (withdrawAtPublication) await withdraw();
-				return yes;
+				],
 			},
-		);
-	} else {
-		fixture.model.mockImplementationOnce(async (_prompt, payload) => {
-			verification = payload;
-			return newer ? yes : ckReject;
+			yes,
+			yes,
+		]);
+		f.db
+			.insert(f.s.conversations)
+			.values({ id: "paddling", userId: h.userId, title: "Paddling" })
+			.run();
+		f.db
+			.insert(f.s.messages)
+			.values({
+				id: "original",
+				conversationId: "paddling",
+				role: "user",
+				content: f.source.text,
+			})
+			.run();
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({ conversationId: "paddling", messageId: "original" })
+			.run();
+		const fetch = fixture.fetcher.getMockImplementation();
+		if (!fetch) throw Error("fixture");
+		let correctionSource: string | undefined;
+		let flip = false;
+		fixture.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (path.endsWith("/memories") && init?.method === "POST") {
+				const item = JSON.parse(String(init.body)).items[0];
+				if (!correctionSource) {
+					correctionSource = item.document_id;
+					fixture.setFacts([
+						{ id: "kayak", text: "green kayak" },
+						{ id: "sister", text: "sister bicycle" },
+						{
+							id: "correction",
+							text: "purple kayak",
+							document_id: correctionSource,
+						},
+					]);
+				} else {
+					fixture.setFacts([
+						{ id: "sister", text: "sister bicycle" },
+						{
+							id: "correction",
+							text: "purple kayak",
+							document_id: correctionSource,
+						},
+						{
+							id: "incoming",
+							text: newAssertion,
+							document_id: item.document_id,
+						},
+					]);
+				}
+			}
+			if (flip && path.endsWith("/memories/recall"))
+				return new Response(
+					JSON.stringify({
+						results: [
+							{
+								id: "regenerated",
+								text: newer ? "blue kayak" : "green kayak",
+								type: "observation",
+							},
+						],
+					}),
+				);
+			const response = await fetch(url, init);
+			if (!flip || !path.includes("/memories/list")) return response;
+			const list = await response.json();
+			const row = list.items.find(
+				(r: { id: string }) => r.id === "observation-correction",
+			);
+			row.id = "regenerated";
+			row.text = newer ? "blue kayak" : "green kayak";
+			if (kind === "newer replaces native support") {
+				row.source_memory_ids = ["incoming"];
+				list.items = list.items.filter(
+					(item: { id: string }) => item.id !== "observation-incoming",
+				);
+				list.total = list.items.length;
+			} else if (extraSupport) row.source_memory_ids.push("incoming");
+			return new Response(JSON.stringify(list));
 		});
-	}
-	const add = await actions.submitMemoryAction(h.userId, {
-		kind: "add",
-		scope,
-		text: newAssertion,
-		requestId: randomUUID(),
-	});
-	const { eq } = await import("drizzle-orm");
-	f.db
-		.update(f.s.memoryActions)
-		.set({ createdAt: new Date(Date.now() + 60_000) })
-		.where(eq(f.s.memoryActions.id, add.id))
-		.run();
-	await h.engine.drain(jobs.memoryDeliveryJob);
-	const operation = actions.getMemoryOperation(h.userId, { id: add.id });
-	if (withdrawAtDispatch || withdrawAtPublication) {
-		expect(withdrew).toBe(true);
-		if (withdrawAtDispatch) expect(verification).toBeUndefined();
-		else
-			expect(verification).toMatchObject({
-				previous_displayed_observations: [{ text: "purple kayak" }],
+		const actions = await import("./curation-actions");
+		const jobs = await import("./delivery-job");
+		const reads = await import("./native-read");
+		const edit = await actions.submitMemoryAction(
+			h.userId,
+			{
+				kind: "edit",
+				ref: claim,
+				text: "purple kayak",
+				requestId: randomUUID(),
+			},
+			withdrawAtDispatch || withdrawAtPublication ? "paddling" : undefined,
+		);
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const corrected = actions.getMemoryOperation(h.userId, { id: edit.id }).ref;
+		if (!corrected) throw Error("no correction");
+		expect(reads.getMemoryDetail(h.userId, corrected)).toMatchObject({
+			versions: [{ text: "kayak" }],
+			sources: [{ quote: f.source.text, available: true }],
+		});
+		flip = true;
+		let verification: unknown;
+		let withdrew = false;
+		if (withdrawAtDispatch || withdrawAtPublication) {
+			const { revokeConversationMemory } = await import("./chat-delivery");
+			const withdraw = async () => {
+				await revokeConversationMemory(h.userId, ["paddling"]);
+				const source = f.db
+					.select()
+					.from(f.s.memorySourceRevisions)
+					.all()
+					.find((source) => source.id === correctionSource);
+				expect(source?.state).toBe("revoked");
+				withdrew = true;
+			};
+			vi.spyOn(
+				await import("./curation"),
+				"createCurationModel",
+			).mockReturnValue(
+				async (_prompt, payload, _schema, _thinking, assertCurrent) => {
+					if (withdrawAtDispatch) await withdraw();
+					assertCurrent?.();
+					verification = payload;
+					if (withdrawAtPublication) await withdraw();
+					return yes;
+				},
+			);
+		} else {
+			fixture.model.mockImplementationOnce(async (_prompt, payload) => {
+				verification = payload;
+				return newer ? yes : ckReject;
 			});
-		expect(operation).toMatchObject({
-			status: "queued",
-			errorCode: "memory_dependency_source_changed",
+		}
+		const add = await actions.submitMemoryAction(h.userId, {
+			kind: "add",
+			scope,
+			text: newAssertion,
+			requestId: randomUUID(),
 		});
-		expect(reads.listMemory(h.userId, { scope }).rows).not.toContainEqual(
-			expect.objectContaining({ text: "blue kayak" }),
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.s.memoryActions)
+			.set({ createdAt: new Date(Date.now() + 60_000) })
+			.where(eq(f.s.memoryActions.id, add.id))
+			.run();
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const operation = actions.getMemoryOperation(h.userId, { id: add.id });
+		if (withdrawAtDispatch || withdrawAtPublication) {
+			expect(withdrew).toBe(true);
+			if (withdrawAtDispatch) expect(verification).toBeUndefined();
+			else
+				expect(verification).toMatchObject({
+					previous_displayed_observations: [{ text: "purple kayak" }],
+				});
+			expect(operation).toMatchObject({
+				status: "queued",
+				errorCode: "memory_dependency_source_changed",
+			});
+			expect(reads.listMemory(h.userId, { scope }).rows).not.toContainEqual(
+				expect.objectContaining({ text: "blue kayak" }),
+			);
+			return;
+		}
+		if (extraSupport)
+			expect(verification).toMatchObject({
+				new_assertion: { text: newAssertion, assertedAt: expect.any(String) },
+				previous_displayed_observations: [{ text: "purple kayak" }],
+				displayed_observations: [
+					{ text: newer ? "blue kayak" : "green kayak" },
+				],
+			});
+		else expect(verification).toBeUndefined();
+		const rows = reads.listMemory(h.userId, { scope }).rows;
+		expect(rows).not.toContainEqual(
+			expect.objectContaining({ text: "green kayak" }),
 		);
-		return;
-	}
-	if (extraSupport)
-		expect(verification).toMatchObject({
-			new_assertion: { text: newAssertion, assertedAt: expect.any(String) },
-			previous_displayed_observations: [{ text: "purple kayak" }],
-			displayed_observations: [{ text: newer ? "blue kayak" : "green kayak" }],
+		expect(reads.getMemoryDetail(h.userId, corrected)).toMatchObject({
+			row: { text: "purple kayak" },
+			versions: [{ text: "kayak" }],
 		});
-	else expect(verification).toBeUndefined();
-	const rows = reads.listMemory(h.userId, { scope }).rows;
-	expect(rows).not.toContainEqual(
-		expect.objectContaining({ text: "green kayak" }),
-	);
-	expect(reads.getMemoryDetail(h.userId, corrected)).toMatchObject({
-		row: { text: "purple kayak" },
-		versions: [{ text: "kayak" }],
-	});
-	const { recallMemory } = await import("../memory-context/native");
-	const recalled = await recallMemory(h.userId, {
-		conversationId: "paddling",
-		query: "kayak",
-		tokenBudget: 500,
-	});
-	if (newer) {
-		expect(operation.status).toBe("applied");
-		expect(rows).toContainEqual(
-			expect.objectContaining({ text: "blue kayak" }),
-		);
-		expect(recalled.map((row) => row.text)).toContain("blue kayak");
-	} else {
-		expect(operation.status).not.toBe("applied");
-		expect(recalled.map((row) => row.text)).not.toContain("green kayak");
-	}
-});
+		const { recallMemory } = await import("../memory-context/native");
+		const recalled = await recallMemory(h.userId, {
+			conversationId: "paddling",
+			query: "kayak",
+			tokenBudget: 500,
+		});
+		if (newer) {
+			expect(operation.status).toBe("applied");
+			expect(rows).toContainEqual(
+				expect.objectContaining({ text: "blue kayak" }),
+			);
+			expect(recalled.map((row) => row.text)).toContain("blue kayak");
+		} else {
+			expect(operation.status).not.toBe("applied");
+			expect(recalled.map((row) => row.text)).not.toContain("green kayak");
+		}
+	},
+);
 
 it("re-review: revocation cannot turn a captured split into a verified history", async () => {
 	const f = await setup();

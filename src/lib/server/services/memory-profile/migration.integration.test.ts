@@ -874,131 +874,132 @@ async function seedLegacyReviewCorrection() {
 	return { db, s, projection, corrected, itemId: corrected.itemId };
 }
 
-it.each([
-	"deleted",
-	"suppressed",
-] as const)("excludes a legacy review correction after the user makes it %s", async (status) => {
-	const { db, s, projection, corrected, itemId } =
-		await seedLegacyReviewCorrection();
-	const { eq } = await import("drizzle-orm");
-	await projection.updateMemoryProfileItemWithRevision({
-		userId: h.userId,
-		itemId,
-		expectedProjectionRevision: corrected.projectionRevision,
-		patch: { status },
-	});
-	expect(
-		db
+it.each(["deleted", "suppressed"] as const)(
+	"excludes a legacy review correction after the user makes it %s",
+	async (status) => {
+		const { db, s, projection, corrected, itemId } =
+			await seedLegacyReviewCorrection();
+		const { eq } = await import("drizzle-orm");
+		await projection.updateMemoryProfileItemWithRevision({
+			userId: h.userId,
+			itemId,
+			expectedProjectionRevision: corrected.projectionRevision,
+			patch: { status },
+		});
+		expect(
+			db
+				.select()
+				.from(s.memoryProfileItems)
+				.where(eq(s.memoryProfileItems.id, itemId))
+				.get()?.status,
+		).toBe(status);
+		await allowMigrationHistory();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		const prepared = await migration.prepareMemoryMigration(h.userId);
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		await h.engine.drain(memoryDeliveryJob);
+		const published = db
 			.select()
-			.from(s.memoryProfileItems)
-			.where(eq(s.memoryProfileItems.id, itemId))
-			.get()?.status,
-	).toBe(status);
-	await allowMigrationHistory();
-	const f = await nativeFixture();
-	const migration = await import("./migration");
-	const prepared = await migration.prepareMemoryMigration(h.userId);
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	await h.engine.drain(memoryDeliveryJob);
-	const published = db
-		.select()
-		.from(s.memoryPublishedRows)
-		.all()
-		.map((row) => row.text);
-	expect
-		.soft(
-			f.fetcher.mock.calls
-				.filter(
-					([url, options]) =>
-						String(url).endsWith("/memories") && options?.method === "POST",
-				)
-				.flatMap(([, options]) =>
-					JSON.parse(String(options?.body)).items.map(
-						(item: { content: string }) => item.content,
+			.from(s.memoryPublishedRows)
+			.all()
+			.map((row) => row.text);
+		expect
+			.soft(
+				f.fetcher.mock.calls
+					.filter(
+						([url, options]) =>
+							String(url).endsWith("/memories") && options?.method === "POST",
+					)
+					.flatMap(([, options]) =>
+						JSON.parse(String(options?.body)).items.map(
+							(item: { content: string }) => item.content,
+						),
 					),
-				),
-		)
-		.not.toContain("My bicycle is green");
-	expect.soft(published.join(" ")).not.toContain("My bicycle is green");
-	expect
-		.soft(JSON.stringify(f.curationInputs))
-		.not.toContain("My bicycle is green");
-	expect(published.join(" ")).toContain("My dog is Rex");
-	expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(
-		true,
-	);
-});
+			)
+			.not.toContain("My bicycle is green");
+		expect.soft(published.join(" ")).not.toContain("My bicycle is green");
+		expect
+			.soft(JSON.stringify(f.curationInputs))
+			.not.toContain("My bicycle is green");
+		expect(published.join(" ")).toContain("My dog is Rex");
+		expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(
+			true,
+		);
+	},
+);
 
-it.each([
-	"before packing",
-	"after packing",
-] as const)("excludes a known-off assistant reply when its disabled interval is recorded %s", async (when) => {
-	const { db, s } = await seed();
-	const { eq } = await import("drizzle-orm");
-	db.update(s.messages)
-		.set({ messageSequence: 1 })
-		.where(eq(s.messages.id, "m"))
-		.run();
-	db.insert(s.messages)
-		.values([
-			{
-				id: "assistant-off",
-				conversationId: "chat",
-				role: "assistant",
-				content: "Private text from a disabled period.",
-				createdAt: new Date("2020-01-03"),
-				messageSequence: 2,
-			},
-			{
-				id: "new-user",
-				conversationId: "chat",
-				role: "user",
-				content: "My plant is healthy.",
-				createdAt: new Date("2020-01-05"),
-				messageSequence: 3,
-			},
-		])
-		.run();
-	const recordDisabledInterval = () =>
-		db
-			.insert(s.memoryControlIntervals)
-			.values({
-				id: "off",
-				userId: h.userId,
-				enabled: false,
-				startedAt: new Date("2020-01-02"),
-				endedAt: new Date("2020-01-04"),
-				epoch: 0,
-			})
+it.each(["before packing", "after packing"] as const)(
+	"excludes a known-off assistant reply when its disabled interval is recorded %s",
+	async (when) => {
+		const { db, s } = await seed();
+		const { eq } = await import("drizzle-orm");
+		db.update(s.messages)
+			.set({ messageSequence: 1 })
+			.where(eq(s.messages.id, "m"))
 			.run();
-	if (when === "before packing") recordDisabledInterval();
-	await allowMigrationHistory();
-	const f = await nativeFixture();
-	const migration = await import("./migration");
-	await migration.prepareMemoryMigration(h.userId);
-	const packed = db
-		.select()
-		.from(s.memorySourceRevisions)
-		.where(eq(s.memorySourceRevisions.messageId, "new-user"))
-		.get()?.context;
-	if (when === "before packing") expect(packed).not.toContain("assistant-off");
-	else {
-		expect(packed).toContain("assistant-off");
-		recordDisabledInterval();
-	}
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	await h.engine.drain(memoryDeliveryJob);
-	const payloads = f.fetcher.mock.calls
-		.filter(
-			([url, options]) =>
-				String(url).endsWith("/memories") && options?.method === "POST",
-		)
-		.map(([, options]) => String(options?.body));
-	expect(payloads).toHaveLength(2);
-	expect(payloads.join(" ")).not.toContain(
-		"Private text from a disabled period.",
-	);
-});
+		db.insert(s.messages)
+			.values([
+				{
+					id: "assistant-off",
+					conversationId: "chat",
+					role: "assistant",
+					content: "Private text from a disabled period.",
+					createdAt: new Date("2020-01-03"),
+					messageSequence: 2,
+				},
+				{
+					id: "new-user",
+					conversationId: "chat",
+					role: "user",
+					content: "My plant is healthy.",
+					createdAt: new Date("2020-01-05"),
+					messageSequence: 3,
+				},
+			])
+			.run();
+		const recordDisabledInterval = () =>
+			db
+				.insert(s.memoryControlIntervals)
+				.values({
+					id: "off",
+					userId: h.userId,
+					enabled: false,
+					startedAt: new Date("2020-01-02"),
+					endedAt: new Date("2020-01-04"),
+					epoch: 0,
+				})
+				.run();
+		if (when === "before packing") recordDisabledInterval();
+		await allowMigrationHistory();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		await migration.prepareMemoryMigration(h.userId);
+		const packed = db
+			.select()
+			.from(s.memorySourceRevisions)
+			.where(eq(s.memorySourceRevisions.messageId, "new-user"))
+			.get()?.context;
+		if (when === "before packing")
+			expect(packed).not.toContain("assistant-off");
+		else {
+			expect(packed).toContain("assistant-off");
+			recordDisabledInterval();
+		}
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		await h.engine.drain(memoryDeliveryJob);
+		const payloads = f.fetcher.mock.calls
+			.filter(
+				([url, options]) =>
+					String(url).endsWith("/memories") && options?.method === "POST",
+			)
+			.map(([, options]) => String(options?.body));
+		expect(payloads).toHaveLength(2);
+		expect(payloads.join(" ")).not.toContain(
+			"Private text from a disabled period.",
+		);
+	},
+);
 
 it("catch-up moves prepared messages to their new project scope", async () => {
 	const { db, s } = await legacyItem();
@@ -1126,68 +1127,71 @@ it("a superseded terminal job does not block cutover of the new checkpoint", asy
 it.each([
 	["review_item_expired", "review_needed"],
 	["review_item_no_longer_pending", "retired"],
-] as const)("keeps %s out of the legacy deliberate-exclusion inventory", async (reason, status) => {
-	const { db, s } = await legacyItem(status);
-	const { eq } = await import("drizzle-orm");
-	db.insert(s.memoryReviewItems)
-		.values({
-			id: "review",
-			userId: h.userId,
-			subjectKey: "bicycle",
-			subjectLabel: "Bicycle",
-			question: "Which colour?",
-			reason: "manual review",
-			affectedItemIdsJson: '["item"]',
-		})
-		.run();
-	if (status === "review_needed") {
-		db.update(s.memoryProfileItems)
-			.set({ expiresAt: new Date("2021-06-01") })
-			.where(eq(s.memoryProfileItems.id, "item"))
-			.run();
-		const { expireOverdueReviewMemoryProfileItems } = await import(
-			"./projection-store"
-		);
-		expect(
-			await expireOverdueReviewMemoryProfileItems({
+] as const)(
+	"keeps %s out of the legacy deliberate-exclusion inventory",
+	async (reason, status) => {
+		const { db, s } = await legacyItem(status);
+		const { eq } = await import("drizzle-orm");
+		db.insert(s.memoryReviewItems)
+			.values({
+				id: "review",
 				userId: h.userId,
-				resetGeneration: 0,
-				projectionStateId: "projection",
-				now: new Date("2022-01-01"),
-			}),
-		).toBe(1);
-	} else {
-		db.update(s.memoryReviewItems)
-			.set({ subjectKey: "judge:bicycle" })
-			.where(eq(s.memoryReviewItems.id, "review"))
+				subjectKey: "bicycle",
+				subjectLabel: "Bicycle",
+				question: "Which colour?",
+				reason: "manual review",
+				affectedItemIdsJson: '["item"]',
+			})
 			.run();
-		const { listOpenReviewQueueRows } = await import("./review");
-		expect(
-			await listOpenReviewQueueRows({ userId: h.userId, resetGeneration: 0 }),
-		).toEqual([]);
-	}
-	expect(db.select().from(s.memoryReviewResolutions).get()).toMatchObject({
-		resolutionType: "do_not_remember",
-		metadataJson: JSON.stringify({ reason }),
-	});
-	await allowMigrationHistory();
-	const fixture = await nativeFixture();
-	const migration = await import("./migration");
-	const manifest = await migration.prepareMemoryMigration(h.userId);
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	await h.engine.drain(memoryDeliveryJob);
-	expect(migration.inspectMemoryMigration(h.userId)).toMatchObject({
-		actions: [],
-		holdHistory: false,
-	});
-	expect(db.select().from(s.memoryActions).all()).toHaveLength(0);
-	expect([...fixture.facts.values()].map((f) => f.text)).toEqual([
-		"My bicycle is blue. My dog is Rex.",
-	]);
-	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
-		true,
-	);
-});
+		if (status === "review_needed") {
+			db.update(s.memoryProfileItems)
+				.set({ expiresAt: new Date("2021-06-01") })
+				.where(eq(s.memoryProfileItems.id, "item"))
+				.run();
+			const { expireOverdueReviewMemoryProfileItems } = await import(
+				"./projection-store"
+			);
+			expect(
+				await expireOverdueReviewMemoryProfileItems({
+					userId: h.userId,
+					resetGeneration: 0,
+					projectionStateId: "projection",
+					now: new Date("2022-01-01"),
+				}),
+			).toBe(1);
+		} else {
+			db.update(s.memoryReviewItems)
+				.set({ subjectKey: "judge:bicycle" })
+				.where(eq(s.memoryReviewItems.id, "review"))
+				.run();
+			const { listOpenReviewQueueRows } = await import("./review");
+			expect(
+				await listOpenReviewQueueRows({ userId: h.userId, resetGeneration: 0 }),
+			).toEqual([]);
+		}
+		expect(db.select().from(s.memoryReviewResolutions).get()).toMatchObject({
+			resolutionType: "do_not_remember",
+			metadataJson: JSON.stringify({ reason }),
+		});
+		await allowMigrationHistory();
+		const fixture = await nativeFixture();
+		const migration = await import("./migration");
+		const manifest = await migration.prepareMemoryMigration(h.userId);
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		await h.engine.drain(memoryDeliveryJob);
+		expect(migration.inspectMemoryMigration(h.userId)).toMatchObject({
+			actions: [],
+			holdHistory: false,
+		});
+		expect(db.select().from(s.memoryActions).all()).toHaveLength(0);
+		expect([...fixture.facts.values()].map((f) => f.text)).toEqual([
+			"My bicycle is blue. My dog is Rex.",
+		]);
+		expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+			true,
+		);
+	},
+);
 
 it("preparing an already cut-over account does not issue an authority write", async () => {
 	const { db, s } = await seed();
@@ -1495,370 +1499,376 @@ it.each([
 	["edit", "scope"],
 	["edit", "mixed scope"],
 	["edit-then-remove", "consent"],
-] as const)("post-cutover replay preserves native %s during %s replay", async (kind, replay) => {
-	const { db, s } = await seed();
-	const { randomUUID } = await import("node:crypto");
-	const history = await import(
-		"../../../../routes/api/knowledge/memory/history-import/+server"
-	);
-	const actions = await import(
-		"../../../../routes/api/knowledge/memory/actions/+server"
-	);
-	const operation = await import(
-		"../../../../routes/api/knowledge/memory/operations/[operationId]/+server"
-	);
-	const conversation = await import(
-		"../../../../routes/api/conversations/[id]/+server"
-	);
-	const { readPublishedMemory } = await import("./publication");
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	const migration = await import("./migration");
-	const fixture = await migrationReplayNative();
+] as const)(
+	"post-cutover replay preserves native %s during %s replay",
+	async (kind, replay) => {
+		const { db, s } = await seed();
+		const { randomUUID } = await import("node:crypto");
+		const history = await import(
+			"../../../../routes/api/knowledge/memory/history-import/+server"
+		);
+		const actions = await import(
+			"../../../../routes/api/knowledge/memory/actions/+server"
+		);
+		const operation = await import(
+			"../../../../routes/api/knowledge/memory/operations/[operationId]/+server"
+		);
+		const conversation = await import(
+			"../../../../routes/api/conversations/[id]/+server"
+		);
+		const { readPublishedMemory } = await import("./publication");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const migration = await import("./migration");
+		const fixture = await migrationReplayNative();
 
-	if (replay !== "consent") {
-		db.insert(s.projects)
-			.values({ id: "project", userId: h.userId, name: "Project" })
-			.run();
-		db.insert(s.conversations)
-			.values({
-				id: "unmoved",
-				userId: h.userId,
-				title: "Independent project chat",
-				projectId: "project",
-			})
-			.run();
-		db.insert(s.messages)
-			.values({
-				id: "private-project-message",
-				conversationId: "unmoved",
-				role: "user",
-				content: replayProjectOnlyFact,
-				createdAt: new Date("2020-01-01"),
-			})
-			.run();
-	}
-	const prepared = await migration.prepareMemoryMigration(h.userId);
-	async function consent(choice: "include" | "decline") {
-		const result = await history.POST(
-			migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
-				choice,
-				requestId: randomUUID(),
-			}) as Parameters<typeof history.POST>[0],
+		if (replay !== "consent") {
+			db.insert(s.projects)
+				.values({ id: "project", userId: h.userId, name: "Project" })
+				.run();
+			db.insert(s.conversations)
+				.values({
+					id: "unmoved",
+					userId: h.userId,
+					title: "Independent project chat",
+					projectId: "project",
+				})
+				.run();
+			db.insert(s.messages)
+				.values({
+					id: "private-project-message",
+					conversationId: "unmoved",
+					role: "user",
+					content: replayProjectOnlyFact,
+					createdAt: new Date("2020-01-01"),
+				})
+				.run();
+		}
+		const prepared = await migration.prepareMemoryMigration(h.userId);
+		async function consent(choice: "include" | "decline") {
+			const result = await history.POST(
+				migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
+					choice,
+					requestId: randomUUID(),
+				}) as Parameters<typeof history.POST>[0],
+			);
+			expect(result.status).toBe(200);
+			expect(await result.json()).toMatchObject({ choice });
+			await h.engine.drain(memoryDeliveryJob);
+		}
+		await consent("include");
+		expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(
+			true,
 		);
-		expect(result.status).toBe(200);
-		expect(await result.json()).toMatchObject({ choice });
-		await h.engine.drain(memoryDeliveryJob);
-	}
-	await consent("include");
-	expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(
-		true,
-	);
-	const bank = (scope: string) =>
-		db
-			.select()
-			.from(s.memoryBanks)
-			.all()
-			.find((row) => row.scopeKey === scope);
-	const published = (scope: string) => {
-		const destination = bank(scope);
-		return destination ? readPublishedMemory(h.userId, destination.id) : [];
-	};
-	const personal = bank("personal");
-	const row = published("personal").find(
-		(row) => row.text === replayOldBicycle,
-	);
-	if (!personal || !row) throw Error("fixture personal Memory is missing");
-	expect(published("personal").map((row) => row.text)).toContain(
-		replayIndependentDog,
-	);
-	const accepted = await actions.POST(
-		migrationReplayEvent("/api/knowledge/memory/actions", "POST", {
-			kind: kind === "remove" ? "remove" : "edit",
-			requestId: randomUUID(),
-			ref: {
-				scope: { kind: "personal" },
-				generation: personal.generation,
-				rowId: row.nativeId,
-			},
-			...(kind !== "remove" ? { text: replayCorrectedBicycle } : {}),
-		}) as Parameters<typeof actions.POST>[0],
-	);
-	const action = await accepted.json();
-	expect({ status: accepted.status, error: action.error }).toEqual({
-		status: 200,
-		error: undefined,
-	});
-	await h.engine.drain(memoryDeliveryJob);
-	const status = await operation.GET({
-		locals: { user: { id: h.userId } },
-		params: { operationId: action.id },
-	} as Parameters<typeof operation.GET>[0]);
-	expect(await status.json()).toMatchObject({ status: "applied" });
-	expect(
-		published("personal")
-			.map((row) => row.text)
-			.sort(),
-	).toEqual(
-		[kind !== "remove" ? replayCorrectedBicycle : null, replayIndependentDog]
-			.filter(Boolean)
-			.sort(),
-	);
-	if (kind === "edit-then-remove") {
-		const currentBank = bank("personal");
-		const correction = published("personal").find(
-			(entry) => entry.text === replayCorrectedBicycle,
+		const bank = (scope: string) =>
+			db
+				.select()
+				.from(s.memoryBanks)
+				.all()
+				.find((row) => row.scopeKey === scope);
+		const published = (scope: string) => {
+			const destination = bank(scope);
+			return destination ? readPublishedMemory(h.userId, destination.id) : [];
+		};
+		const personal = bank("personal");
+		const row = published("personal").find(
+			(row) => row.text === replayOldBicycle,
 		);
-		if (!currentBank || !correction)
-			throw Error("fixture accepted correction is missing");
-		const removed = await actions.POST(
+		if (!personal || !row) throw Error("fixture personal Memory is missing");
+		expect(published("personal").map((row) => row.text)).toContain(
+			replayIndependentDog,
+		);
+		const accepted = await actions.POST(
 			migrationReplayEvent("/api/knowledge/memory/actions", "POST", {
-				kind: "remove",
+				kind: kind === "remove" ? "remove" : "edit",
 				requestId: randomUUID(),
 				ref: {
 					scope: { kind: "personal" },
-					generation: currentBank.generation,
-					rowId: correction.nativeId,
+					generation: personal.generation,
+					rowId: row.nativeId,
 				},
+				...(kind !== "remove" ? { text: replayCorrectedBicycle } : {}),
 			}) as Parameters<typeof actions.POST>[0],
 		);
-		expect(removed.status).toBe(200);
+		const action = await accepted.json();
+		expect({ status: accepted.status, error: action.error }).toEqual({
+			status: 200,
+			error: undefined,
+		});
 		await h.engine.drain(memoryDeliveryJob);
-		expect(published("personal").map((row) => row.text)).toEqual([
-			replayIndependentDog,
-		]);
-	}
-	const independentNote = "I prefer printed maps.";
-	const added = await actions.POST(
-		migrationReplayEvent("/api/knowledge/memory/actions", "POST", {
-			kind: "add",
-			scope: { kind: "personal" },
-			text: independentNote,
-			requestId: randomUUID(),
-		}) as Parameters<typeof actions.POST>[0],
-	);
-	expect(added.status).toBe(200);
-	await h.engine.drain(memoryDeliveryJob);
-	expect(published("personal").map((row) => row.text)).toContain(
-		independentNote,
-	);
-	const original = db
-		.select()
-		.from(s.memorySourceRevisions)
-		.all()
-		.find((row) => row.messageId === "m");
-	const originalAction = db
-		.select()
-		.from(s.memoryActions)
-		.all()
-		.find((row) => row.id === action.id);
-	if (!original || !originalAction)
-		throw Error("fixture source or action is missing");
-	const beforeReplayChecks = fixture.applications.length;
-	expect(beforeReplayChecks).toBeGreaterThan(0);
-	const assertReplay = (scope: string) => {
-		const active = db
-			.select()
-			.from(s.memorySourceRevisions)
-			.all()
-			.find(
-				(row) =>
-					row.messageId === "m" &&
-					row.bankId === bank(scope)?.id &&
-					row.state === "accepted",
-			);
-		if (!active) throw Error("fixture destination source is missing");
-		expect(active.id).not.toBe(original.id);
-		expect(active).toMatchObject({
-			lineageId: original.lineageId,
-			textHash: original.textHash,
-			assertedAt: original.assertedAt,
-		});
+		const status = await operation.GET({
+			locals: { user: { id: h.userId } },
+			params: { operationId: action.id },
+		} as Parameters<typeof operation.GET>[0]);
+		expect(await status.json()).toMatchObject({ status: "applied" });
 		expect(
-			fixture.requests.findLast(({ item }) => item.document_id === active.id),
-		).toMatchObject({
-			bank: active.bankId,
-			item: {
-				timestamp: original.assertedAt.toISOString(),
-				metadata: { lineage: original.lineageId },
-			},
-		});
-		expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(
-			true,
-		);
-		const aliases = db
-			.select()
-			.from(s.memoryActions)
-			.all()
-			.filter((row) => {
-				const intent = JSON.parse(row.intentJson ?? "{}");
-				return (
-					intent.replayOriginActionId === originalAction.id &&
-					intent.sourceIds.includes(active.id)
-				);
-			});
-		expect(aliases).toHaveLength(1);
-		expect(aliases[0]).toMatchObject({
-			bankId: active.bankId,
-			createdAt: originalAction.createdAt,
-		});
-		expect(JSON.parse(aliases[0].intentJson ?? "{}")).toMatchObject({
-			sourceIds: [active.id],
-			facts: [],
-		});
-		if (kind === "edit-then-remove")
-			expect(
-				fixture.applications
-					.slice(beforeReplayChecks)
-					.filter((call) =>
-						call.facts.some((fact) => fact.id.startsWith(`${active.id}:`)),
-					)
-					.map(({ before, after }) => [before, after]),
-			).toEqual([
-				[replayOldBicycle, replayCorrectedBicycle],
-				[replayCorrectedBicycle, ""],
-			]);
-		const visible = published(scope)
-			.map((row) => row.text)
-			.sort();
-		expect
-			.soft(visible, `${scope} replay publication`)
-			.toEqual(
-				[
-					replayIndependentDog,
-					...(kind === "edit" ? [replayCorrectedBicycle] : []),
-					...(scope.startsWith("project:")
-						? [replayProjectOnlyFact]
-						: [independentNote]),
-				].sort(),
-			);
-		expect
-			.soft(
-				fixture.applications
-					.slice(beforeReplayChecks)
-					.some((call) =>
-						call.facts.some((fact) => fact.id.startsWith(`${active.id}:`)),
-					),
-				`${scope} bounded replay checks`,
-			)
-			.toBe(true);
-	};
-	if (replay === "consent") {
-		await consent("decline");
-		expect(
-			db
-				.select()
-				.from(s.memorySourceRevisions)
-				.all()
-				.find((row) => row.id === original.id)?.state,
-		).toBe("revoked");
-		expect(published("personal").map((row) => row.text)).not.toContain(
-			replayIndependentDog,
-		);
-		await consent("include");
-		assertReplay("personal");
-	} else {
-		async function move(projectId: string | null) {
-			const reply = await conversation.PATCH(
-				migrationReplayEvent(
-					"/api/conversations/chat",
-					"PATCH",
-					{ projectId },
-					{ id: "chat" },
-				) as Parameters<typeof conversation.PATCH>[0],
-			);
-			expect(reply.status).toBe(200);
-			expect(await reply.json()).toMatchObject({ projectId });
-			await migration.prepareMemoryMigration(h.userId);
-			await h.engine.drain(memoryDeliveryJob);
-		}
-		if (replay === "mixed scope") fixture.combineNextAssertion();
-		await move("project");
-		if (replay === "mixed scope") {
-			const project = bank("project:project");
-			if (!project) throw Error("fixture project bank is missing");
-			const raw = [...(fixture.banks.get(project.id)?.values() ?? [])];
-			expect(
-				raw.find(
-					(fact) =>
-						fact.text.includes(replayOldBicycle) &&
-						fact.text.includes(replayIndependentDog),
-				)?.mentioned_at,
-			).toBe(original.assertedAt.toISOString());
-			expect(published("project:project").map((item) => item.text)).toEqual([
-				replayProjectOnlyFact,
-			]);
-			expect(
-				migration.verifyMemoryMigration(h.userId, prepared.id),
-			).toMatchObject({ ready: false, failed: 1 });
-			return;
-		}
-		assertReplay("project:project");
-		if (kind === "edit") {
-			const project = bank("project:project");
-			if (!project) throw Error("fixture project bank is missing");
-			const assertCorrectionDates = () => {
-				const raw = [...(fixture.banks.get(project.id)?.values() ?? [])];
-				expect(
-					raw.find((fact) => fact.text === replayCorrectedBicycle)
-						?.mentioned_at,
-				).toBe(originalAction.createdAt.toISOString());
-				expect(
-					raw.find((fact) => fact.text === replayIndependentDog)?.mentioned_at,
-				).toBe(original.assertedAt.toISOString());
-				expect(
-					published("project:project").find(
-						(item) => item.text === replayCorrectedBicycle,
-					)?.updatedAt,
-				).toEqual(originalAction.createdAt);
-				expect(
-					published("project:project").find(
-						(item) => item.text === replayIndependentDog,
-					)?.updatedAt,
-				).toEqual(original.assertedAt);
-			};
-			assertCorrectionDates();
-			db.insert(s.messages)
-				.values({
-					id: "later-project-message",
-					conversationId: "unmoved",
-					role: "user",
-					content: "My project also uses an atlas.",
-					createdAt: new Date("2020-01-02"),
-				})
-				.run();
-			await migration.prepareMemoryMigration(h.userId);
-			await h.engine.drain(memoryDeliveryJob);
-			expect(bank("project:project")?.generation).not.toBe(project.generation);
-			assertCorrectionDates();
-		}
-		expect(published("personal").map((row) => row.text)).not.toContain(
-			replayIndependentDog,
-		);
-		expect(published("personal").map((row) => row.text)).not.toContain(
-			replayCorrectedBicycle,
-		);
-		expect(published("personal").map((row) => row.text)).toContain(
-			independentNote,
-		);
-		await move(null);
-		assertReplay("personal");
-		expect(
-			published("project:project")
+			published("personal")
 				.map((row) => row.text)
 				.sort(),
 		).toEqual(
-			[
-				replayProjectOnlyFact,
+			[kind !== "remove" ? replayCorrectedBicycle : null, replayIndependentDog]
+				.filter(Boolean)
+				.sort(),
+		);
+		if (kind === "edit-then-remove") {
+			const currentBank = bank("personal");
+			const correction = published("personal").find(
+				(entry) => entry.text === replayCorrectedBicycle,
+			);
+			if (!currentBank || !correction)
+				throw Error("fixture accepted correction is missing");
+			const removed = await actions.POST(
+				migrationReplayEvent("/api/knowledge/memory/actions", "POST", {
+					kind: "remove",
+					requestId: randomUUID(),
+					ref: {
+						scope: { kind: "personal" },
+						generation: currentBank.generation,
+						rowId: correction.nativeId,
+					},
+				}) as Parameters<typeof actions.POST>[0],
+			);
+			expect(removed.status).toBe(200);
+			await h.engine.drain(memoryDeliveryJob);
+			expect(published("personal").map((row) => row.text)).toEqual([
 				replayIndependentDog,
-				...(kind === "edit" ? [replayCorrectedBicycle] : []),
-				...(kind === "edit" ? ["My project also uses an atlas."] : []),
-			].sort(),
+			]);
+		}
+		const independentNote = "I prefer printed maps.";
+		const added = await actions.POST(
+			migrationReplayEvent("/api/knowledge/memory/actions", "POST", {
+				kind: "add",
+				scope: { kind: "personal" },
+				text: independentNote,
+				requestId: randomUUID(),
+			}) as Parameters<typeof actions.POST>[0],
 		);
-		expect(published("personal").map((row) => row.text)).not.toContain(
-			replayProjectOnlyFact,
+		expect(added.status).toBe(200);
+		await h.engine.drain(memoryDeliveryJob);
+		expect(published("personal").map((row) => row.text)).toContain(
+			independentNote,
 		);
-	}
-});
+		const original = db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.find((row) => row.messageId === "m");
+		const originalAction = db
+			.select()
+			.from(s.memoryActions)
+			.all()
+			.find((row) => row.id === action.id);
+		if (!original || !originalAction)
+			throw Error("fixture source or action is missing");
+		const beforeReplayChecks = fixture.applications.length;
+		expect(beforeReplayChecks).toBeGreaterThan(0);
+		const assertReplay = (scope: string) => {
+			const active = db
+				.select()
+				.from(s.memorySourceRevisions)
+				.all()
+				.find(
+					(row) =>
+						row.messageId === "m" &&
+						row.bankId === bank(scope)?.id &&
+						row.state === "accepted",
+				);
+			if (!active) throw Error("fixture destination source is missing");
+			expect(active.id).not.toBe(original.id);
+			expect(active).toMatchObject({
+				lineageId: original.lineageId,
+				textHash: original.textHash,
+				assertedAt: original.assertedAt,
+			});
+			expect(
+				fixture.requests.findLast(({ item }) => item.document_id === active.id),
+			).toMatchObject({
+				bank: active.bankId,
+				item: {
+					timestamp: original.assertedAt.toISOString(),
+					metadata: { lineage: original.lineageId },
+				},
+			});
+			expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(
+				true,
+			);
+			const aliases = db
+				.select()
+				.from(s.memoryActions)
+				.all()
+				.filter((row) => {
+					const intent = JSON.parse(row.intentJson ?? "{}");
+					return (
+						intent.replayOriginActionId === originalAction.id &&
+						intent.sourceIds.includes(active.id)
+					);
+				});
+			expect(aliases).toHaveLength(1);
+			expect(aliases[0]).toMatchObject({
+				bankId: active.bankId,
+				createdAt: originalAction.createdAt,
+			});
+			expect(JSON.parse(aliases[0].intentJson ?? "{}")).toMatchObject({
+				sourceIds: [active.id],
+				facts: [],
+			});
+			if (kind === "edit-then-remove")
+				expect(
+					fixture.applications
+						.slice(beforeReplayChecks)
+						.filter((call) =>
+							call.facts.some((fact) => fact.id.startsWith(`${active.id}:`)),
+						)
+						.map(({ before, after }) => [before, after]),
+				).toEqual([
+					[replayOldBicycle, replayCorrectedBicycle],
+					[replayCorrectedBicycle, ""],
+				]);
+			const visible = published(scope)
+				.map((row) => row.text)
+				.sort();
+			expect
+				.soft(visible, `${scope} replay publication`)
+				.toEqual(
+					[
+						replayIndependentDog,
+						...(kind === "edit" ? [replayCorrectedBicycle] : []),
+						...(scope.startsWith("project:")
+							? [replayProjectOnlyFact]
+							: [independentNote]),
+					].sort(),
+				);
+			expect
+				.soft(
+					fixture.applications
+						.slice(beforeReplayChecks)
+						.some((call) =>
+							call.facts.some((fact) => fact.id.startsWith(`${active.id}:`)),
+						),
+					`${scope} bounded replay checks`,
+				)
+				.toBe(true);
+		};
+		if (replay === "consent") {
+			await consent("decline");
+			expect(
+				db
+					.select()
+					.from(s.memorySourceRevisions)
+					.all()
+					.find((row) => row.id === original.id)?.state,
+			).toBe("revoked");
+			expect(published("personal").map((row) => row.text)).not.toContain(
+				replayIndependentDog,
+			);
+			await consent("include");
+			assertReplay("personal");
+		} else {
+			async function move(projectId: string | null) {
+				const reply = await conversation.PATCH(
+					migrationReplayEvent(
+						"/api/conversations/chat",
+						"PATCH",
+						{ projectId },
+						{ id: "chat" },
+					) as Parameters<typeof conversation.PATCH>[0],
+				);
+				expect(reply.status).toBe(200);
+				expect(await reply.json()).toMatchObject({ projectId });
+				await migration.prepareMemoryMigration(h.userId);
+				await h.engine.drain(memoryDeliveryJob);
+			}
+			if (replay === "mixed scope") fixture.combineNextAssertion();
+			await move("project");
+			if (replay === "mixed scope") {
+				const project = bank("project:project");
+				if (!project) throw Error("fixture project bank is missing");
+				const raw = [...(fixture.banks.get(project.id)?.values() ?? [])];
+				expect(
+					raw.find(
+						(fact) =>
+							fact.text.includes(replayOldBicycle) &&
+							fact.text.includes(replayIndependentDog),
+					)?.mentioned_at,
+				).toBe(original.assertedAt.toISOString());
+				expect(published("project:project").map((item) => item.text)).toEqual([
+					replayProjectOnlyFact,
+				]);
+				expect(
+					migration.verifyMemoryMigration(h.userId, prepared.id),
+				).toMatchObject({ ready: false, failed: 1 });
+				return;
+			}
+			assertReplay("project:project");
+			if (kind === "edit") {
+				const project = bank("project:project");
+				if (!project) throw Error("fixture project bank is missing");
+				const assertCorrectionDates = () => {
+					const raw = [...(fixture.banks.get(project.id)?.values() ?? [])];
+					expect(
+						raw.find((fact) => fact.text === replayCorrectedBicycle)
+							?.mentioned_at,
+					).toBe(originalAction.createdAt.toISOString());
+					expect(
+						raw.find((fact) => fact.text === replayIndependentDog)
+							?.mentioned_at,
+					).toBe(original.assertedAt.toISOString());
+					expect(
+						published("project:project").find(
+							(item) => item.text === replayCorrectedBicycle,
+						)?.updatedAt,
+					).toEqual(originalAction.createdAt);
+					expect(
+						published("project:project").find(
+							(item) => item.text === replayIndependentDog,
+						)?.updatedAt,
+					).toEqual(original.assertedAt);
+				};
+				assertCorrectionDates();
+				db.insert(s.messages)
+					.values({
+						id: "later-project-message",
+						conversationId: "unmoved",
+						role: "user",
+						content: "My project also uses an atlas.",
+						createdAt: new Date("2020-01-02"),
+					})
+					.run();
+				await migration.prepareMemoryMigration(h.userId);
+				await h.engine.drain(memoryDeliveryJob);
+				expect(bank("project:project")?.generation).not.toBe(
+					project.generation,
+				);
+				assertCorrectionDates();
+			}
+			expect(published("personal").map((row) => row.text)).not.toContain(
+				replayIndependentDog,
+			);
+			expect(published("personal").map((row) => row.text)).not.toContain(
+				replayCorrectedBicycle,
+			);
+			expect(published("personal").map((row) => row.text)).toContain(
+				independentNote,
+			);
+			await move(null);
+			assertReplay("personal");
+			expect(
+				published("project:project")
+					.map((row) => row.text)
+					.sort(),
+			).toEqual(
+				[
+					replayProjectOnlyFact,
+					replayIndependentDog,
+					...(kind === "edit" ? [replayCorrectedBicycle] : []),
+					...(kind === "edit" ? ["My project also uses an atlas."] : []),
+				].sort(),
+			);
+			expect(published("personal").map((row) => row.text)).not.toContain(
+				replayProjectOnlyFact,
+			);
+		}
+	},
+);
 
 it("post-cutover replay does not bind prior choices to a genuinely newer explicit assertion", async () => {
 	const { db, s } = await seed();
@@ -2029,293 +2039,295 @@ it("post-cutover replay does not bind prior choices to a genuinely newer explici
 	);
 });
 
-it.each([
-	"delete source",
-	"decline history",
-] as const)("keeps learned Memory in the original project until %s", async (withdraw) => {
-	const { db, s } = await seed();
-	const { eq } = await import("drizzle-orm");
-	const { recallMemory } = await import("../memory-context/native");
-	const messagesRoute = await import(
-		"../../../../routes/api/conversations/[id]/messages/+server"
-	);
-	const { recordHistoryImportChoice } = await import("./migration-policy");
-	const { readPublishedMemory } = await import("./publication");
-	db.insert(s.projects)
-		.values([
-			{ id: "project", userId: h.userId, name: "Original project" },
-			{ id: "destination", userId: h.userId, name: "Other project" },
-		])
-		.run();
-	db.update(s.conversations)
-		.set({ projectId: "project" })
-		.where(eq(s.conversations.id, "chat"))
-		.run();
-	db.insert(s.conversations)
-		.values([
-			{
-				id: "original-chat",
-				userId: h.userId,
-				title: "Stays",
-				projectId: "project",
-			},
-			{ id: "personal-chat", userId: h.userId, title: "Personal" },
-		])
-		.run();
-	const personal = "I prefer printed maps.";
-	db.insert(s.messages)
-		.values({
-			id: "personal-message",
-			conversationId: "personal-chat",
-			role: "user",
-			content: personal,
-			createdAt: new Date("2020-01-01"),
-		})
-		.run();
-	const independentChild = "I maintain a seed library.";
-	const independentGrandchild = "My library has a seed press.";
-	if (withdraw === "delete source")
-		db.insert(s.messages)
+it.each(["delete source", "decline history"] as const)(
+	"keeps learned Memory in the original project until %s",
+	async (withdraw) => {
+		const { db, s } = await seed();
+		const { eq } = await import("drizzle-orm");
+		const { recallMemory } = await import("../memory-context/native");
+		const messagesRoute = await import(
+			"../../../../routes/api/conversations/[id]/messages/+server"
+		);
+		const { recordHistoryImportChoice } = await import("./migration-policy");
+		const { readPublishedMemory } = await import("./publication");
+		db.insert(s.projects)
 			.values([
-				{
-					id: "project-child",
-					conversationId: "chat",
-					messageSequence: 2,
-					role: "user",
-					content: independentChild,
-					createdAt: new Date("2020-01-02"),
-				},
-				{
-					id: "project-grandchild",
-					conversationId: "chat",
-					messageSequence: 3,
-					role: "user",
-					content: independentGrandchild,
-					createdAt: new Date("2020-01-03"),
-				},
+				{ id: "project", userId: h.userId, name: "Original project" },
+				{ id: "destination", userId: h.userId, name: "Other project" },
 			])
 			.run();
-	const fixture = await migrationReplayNative();
-	const migration = await import("./migration");
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	const { moveConversationToProject } = await import("../conversations");
-	await allowMigrationHistory();
-	const prepared = await migration.prepareMemoryMigration(h.userId);
-	await h.engine.drain(memoryDeliveryJob);
-	expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(
-		true,
-	);
-	const original = db
-		.select()
-		.from(s.memorySourceRevisions)
-		.where(eq(s.memorySourceRevisions.messageId, "m"))
-		.get();
-	if (!original) throw Error("fixture project source is missing");
-	const originalNativeIds = () =>
-		[...(fixture.banks.get(original.bankId)?.keys() ?? [])].sort();
-	const beforeMoveIds = originalNativeIds();
-	const includesChild = withdraw === "delete source";
-	expect(beforeMoveIds).toHaveLength(includesChild ? 4 : 2);
-	const recall = async (conversationId: string) =>
-		(
-			await recallMemory(h.userId, {
-				conversationId,
-				query: "Memory",
-				tokenBudget: 100,
-			})
-		)
-			.map(({ text }) => text)
-			.sort();
-	const originalRecall = [
-		personal,
-		replayOldBicycle,
-		replayIndependentDog,
-		...(includesChild ? [independentChild, independentGrandchild] : []),
-	].sort();
-	expect(
-		(await moveConversationToProject(h.userId, "chat", null))?.projectId,
-	).toBeNull();
-	expect.soft(await recall("original-chat")).toEqual(originalRecall);
-	expect.soft(await recall("chat")).toEqual([personal]);
-	expect(
-		(await moveConversationToProject(h.userId, "chat", "destination"))
-			?.projectId,
-	).toBe("destination");
-	expect.soft(await recall("original-chat")).toEqual(originalRecall);
-	expect.soft(await recall("chat")).toEqual([personal]);
-	await migration.prepareMemoryMigration(h.userId);
-	await h.engine.drain(memoryDeliveryJob);
-	expect.soft(await recall("original-chat")).toEqual(originalRecall);
-	expect.soft(await recall("chat")).toEqual([personal]);
-	expect.soft(originalNativeIds()).toEqual(beforeMoveIds);
-	expect(
-		fixture.requests.filter(({ item }) =>
-			item.content.includes(replayOldBicycle),
-		),
-	).toEqual([expect.objectContaining({ bank: original.bankId })]);
-	expect(migration.inspectMemoryMigration(h.userId).exceptions).toEqual(
-		expect.arrayContaining(
-			[{ reason: "native_curation_scope_unresolved", sourceIds: ["m"] }].map(
-				(exception) => expect.objectContaining(exception),
-			),
-		),
-	);
-	if (withdraw === "delete source") {
-		const response = await messagesRoute.DELETE(
-			migrationReplayEvent(
-				"/api/conversations/chat/messages",
-				"DELETE",
+		db.update(s.conversations)
+			.set({ projectId: "project" })
+			.where(eq(s.conversations.id, "chat"))
+			.run();
+		db.insert(s.conversations)
+			.values([
 				{
-					messageIds: ["m"],
+					id: "original-chat",
+					userId: h.userId,
+					title: "Stays",
+					projectId: "project",
 				},
-				{ id: "chat" },
-			) as Parameters<typeof messagesRoute.DELETE>[0],
-		);
-		expect(await response.json()).toEqual({ deleted: 1 });
-	} else {
-		await recordHistoryImportChoice(h.userId, {
-			choice: "decline",
-			requestId: "withdraw-history",
-		});
-	}
-	expect(readPublishedMemory(h.userId, original.bankId)).toEqual([]);
-	await h.engine.drain(memoryDeliveryJob);
-	expect(
-		[...(fixture.banks.get(original.bankId)?.values() ?? [])].map(
-			(fact) => fact.text,
-		),
-	).toEqual(includesChild ? [independentChild, independentGrandchild] : []);
-	expect(await recall("original-chat")).toEqual(
-		includesChild
-			? [personal, independentChild, independentGrandchild].sort()
-			: [],
-	);
-});
-
-it.each([
-	"before cutover",
-	"through two recorded moves",
-] as const)("migration holds project-origin text %s", async (scenario) => {
-	const { db, s } = await seed();
-	const { randomUUID } = await import("node:crypto");
-	const { eq } = await import("drizzle-orm");
-	const history = await import(
-		"../../../../routes/api/knowledge/memory/history-import/+server"
-	);
-	const conversation = await import(
-		"../../../../routes/api/conversations/[id]/+server"
-	);
-	const { readPublishedMemory } = await import("./publication");
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	const migration = await import("./migration");
-	const fixture = await migrationReplayNative();
-	db.insert(s.projects)
-		.values([
-			{ id: "origin", userId: h.userId, name: "Origin" },
-			{ id: "destination", userId: h.userId, name: "Destination" },
-		])
-		.run();
-	db.update(s.conversations)
-		.set({ projectId: "origin" })
-		.where(eq(s.conversations.id, "chat"))
-		.run();
-	if (scenario === "before cutover") await allowMigrationHistory();
-	const prepared = await migration.prepareMemoryMigration(h.userId);
-	await h.engine.drain(memoryDeliveryJob);
-	if (scenario === "before cutover") {
-		const bank = db
-			.select()
-			.from(s.memoryBanks)
-			.where(eq(s.memoryBanks.scopeKey, "project:origin"))
-			.get();
-		if (!bank) throw Error("fixture origin bank is missing");
-		expect(fixture.requests).toHaveLength(1);
-		expect(
-			readPublishedMemory(h.userId, bank.id).map((row) => row.text),
-		).toContain(replayOldBicycle);
-	} else {
-		expect(fixture.requests).toHaveLength(0);
+				{ id: "personal-chat", userId: h.userId, title: "Personal" },
+			])
+			.run();
+		const personal = "I prefer printed maps.";
+		db.insert(s.messages)
+			.values({
+				id: "personal-message",
+				conversationId: "personal-chat",
+				role: "user",
+				content: personal,
+				createdAt: new Date("2020-01-01"),
+			})
+			.run();
+		const independentChild = "I maintain a seed library.";
+		const independentGrandchild = "My library has a seed press.";
+		if (withdraw === "delete source")
+			db.insert(s.messages)
+				.values([
+					{
+						id: "project-child",
+						conversationId: "chat",
+						messageSequence: 2,
+						role: "user",
+						content: independentChild,
+						createdAt: new Date("2020-01-02"),
+					},
+					{
+						id: "project-grandchild",
+						conversationId: "chat",
+						messageSequence: 3,
+						role: "user",
+						content: independentGrandchild,
+						createdAt: new Date("2020-01-03"),
+					},
+				])
+				.run();
+		const fixture = await migrationReplayNative();
+		const migration = await import("./migration");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const { moveConversationToProject } = await import("../conversations");
+		await allowMigrationHistory();
+		const prepared = await migration.prepareMemoryMigration(h.userId);
+		await h.engine.drain(memoryDeliveryJob);
 		expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(
 			true,
 		);
-	}
-	for (const projectId of scenario === "before cutover"
-		? [null]
-		: [null, "destination"]) {
-		const moved = await conversation.PATCH(
-			migrationReplayEvent(
-				"/api/conversations/chat",
-				"PATCH",
-				{ projectId },
-				{ id: "chat" },
-			) as Parameters<typeof conversation.PATCH>[0],
+		const original = db
+			.select()
+			.from(s.memorySourceRevisions)
+			.where(eq(s.memorySourceRevisions.messageId, "m"))
+			.get();
+		if (!original) throw Error("fixture project source is missing");
+		const originalNativeIds = () =>
+			[...(fixture.banks.get(original.bankId)?.keys() ?? [])].sort();
+		const beforeMoveIds = originalNativeIds();
+		const includesChild = withdraw === "delete source";
+		expect(beforeMoveIds).toHaveLength(includesChild ? 4 : 2);
+		const recall = async (conversationId: string) =>
+			(
+				await recallMemory(h.userId, {
+					conversationId,
+					query: "Memory",
+					tokenBudget: 100,
+				})
+			)
+				.map(({ text }) => text)
+				.sort();
+		const originalRecall = [
+			personal,
+			replayOldBicycle,
+			replayIndependentDog,
+			...(includesChild ? [independentChild, independentGrandchild] : []),
+		].sort();
+		expect(
+			(await moveConversationToProject(h.userId, "chat", null))?.projectId,
+		).toBeNull();
+		expect.soft(await recall("original-chat")).toEqual(originalRecall);
+		expect.soft(await recall("chat")).toEqual([personal]);
+		expect(
+			(await moveConversationToProject(h.userId, "chat", "destination"))
+				?.projectId,
+		).toBe("destination");
+		expect.soft(await recall("original-chat")).toEqual(originalRecall);
+		expect.soft(await recall("chat")).toEqual([personal]);
+		await migration.prepareMemoryMigration(h.userId);
+		await h.engine.drain(memoryDeliveryJob);
+		expect.soft(await recall("original-chat")).toEqual(originalRecall);
+		expect.soft(await recall("chat")).toEqual([personal]);
+		expect.soft(originalNativeIds()).toEqual(beforeMoveIds);
+		expect(
+			fixture.requests.filter(({ item }) =>
+				item.content.includes(replayOldBicycle),
+			),
+		).toEqual([expect.objectContaining({ bank: original.bankId })]);
+		expect(migration.inspectMemoryMigration(h.userId).exceptions).toEqual(
+			expect.arrayContaining(
+				[{ reason: "native_curation_scope_unresolved", sourceIds: ["m"] }].map(
+					(exception) => expect.objectContaining(exception),
+				),
+			),
 		);
-		expect(moved.status).toBe(200);
-		expect(await moved.json()).toMatchObject({ projectId });
-	}
-	const moves = db
-		.select()
-		.from(s.memoryEvents)
-		.where(eq(s.memoryEvents.eventType, "memory_scope_moved"))
-		.all();
-	expect(
-		moves.map(({ conversationId, subjectId, relatedId, payloadJson }) => ({
-			conversationId,
-			subjectId,
-			relatedId,
-			payload: JSON.parse(payloadJson ?? "{}"),
-		})),
-	).toEqual([
-		{
-			conversationId: "chat",
-			subjectId: "project:origin",
-			relatedId: "personal",
-			payload: { epoch: 0 },
-		},
-		...(scenario === "before cutover"
-			? []
-			: [
+		if (withdraw === "delete source") {
+			const response = await messagesRoute.DELETE(
+				migrationReplayEvent(
+					"/api/conversations/chat/messages",
+					"DELETE",
 					{
-						conversationId: "chat",
-						subjectId: "personal",
-						relatedId: "project:destination",
-						payload: { epoch: 0 },
+						messageIds: ["m"],
 					},
-				]),
-	]);
-	const resumed = await history.POST(
-		migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
-			choice: "include",
-			requestId: randomUUID(),
-		}) as Parameters<typeof history.POST>[0],
-	);
-	expect(resumed.status).toBe(200);
-	await h.engine.drain(memoryDeliveryJob);
-	const scope =
-		scenario === "before cutover" ? "personal" : "project:destination";
-	const bank = db
-		.select()
-		.from(s.memoryBanks)
-		.where(eq(s.memoryBanks.scopeKey, scope))
-		.get();
-	expect
-		.soft(
-			fixture.requests.filter(({ bank: wireBank }) => wireBank === bank?.id),
-			"project-origin text in destination retains",
-		)
-		.toEqual([]);
-	expect
-		.soft(
-			bank ? readPublishedMemory(h.userId, bank.id).map((row) => row.text) : [],
-			"project-origin text in destination publication",
-		)
-		.not.toContain(replayOldBicycle);
-	expect
-		.soft(migration.inspectMemoryMigration(h.userId).sources[0])
-		.toMatchObject({
-			eligibility: "held",
-		});
-});
+					{ id: "chat" },
+				) as Parameters<typeof messagesRoute.DELETE>[0],
+			);
+			expect(await response.json()).toEqual({ deleted: 1 });
+		} else {
+			await recordHistoryImportChoice(h.userId, {
+				choice: "decline",
+				requestId: "withdraw-history",
+			});
+		}
+		expect(readPublishedMemory(h.userId, original.bankId)).toEqual([]);
+		await h.engine.drain(memoryDeliveryJob);
+		expect(
+			[...(fixture.banks.get(original.bankId)?.values() ?? [])].map(
+				(fact) => fact.text,
+			),
+		).toEqual(includesChild ? [independentChild, independentGrandchild] : []);
+		expect(await recall("original-chat")).toEqual(
+			includesChild
+				? [personal, independentChild, independentGrandchild].sort()
+				: [],
+		);
+	},
+);
+
+it.each(["before cutover", "through two recorded moves"] as const)(
+	"migration holds project-origin text %s",
+	async (scenario) => {
+		const { db, s } = await seed();
+		const { randomUUID } = await import("node:crypto");
+		const { eq } = await import("drizzle-orm");
+		const history = await import(
+			"../../../../routes/api/knowledge/memory/history-import/+server"
+		);
+		const conversation = await import(
+			"../../../../routes/api/conversations/[id]/+server"
+		);
+		const { readPublishedMemory } = await import("./publication");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const migration = await import("./migration");
+		const fixture = await migrationReplayNative();
+		db.insert(s.projects)
+			.values([
+				{ id: "origin", userId: h.userId, name: "Origin" },
+				{ id: "destination", userId: h.userId, name: "Destination" },
+			])
+			.run();
+		db.update(s.conversations)
+			.set({ projectId: "origin" })
+			.where(eq(s.conversations.id, "chat"))
+			.run();
+		if (scenario === "before cutover") await allowMigrationHistory();
+		const prepared = await migration.prepareMemoryMigration(h.userId);
+		await h.engine.drain(memoryDeliveryJob);
+		if (scenario === "before cutover") {
+			const bank = db
+				.select()
+				.from(s.memoryBanks)
+				.where(eq(s.memoryBanks.scopeKey, "project:origin"))
+				.get();
+			if (!bank) throw Error("fixture origin bank is missing");
+			expect(fixture.requests).toHaveLength(1);
+			expect(
+				readPublishedMemory(h.userId, bank.id).map((row) => row.text),
+			).toContain(replayOldBicycle);
+		} else {
+			expect(fixture.requests).toHaveLength(0);
+			expect(
+				migration.cutoverMemoryMigration(h.userId, prepared.id).ready,
+			).toBe(true);
+		}
+		for (const projectId of scenario === "before cutover"
+			? [null]
+			: [null, "destination"]) {
+			const moved = await conversation.PATCH(
+				migrationReplayEvent(
+					"/api/conversations/chat",
+					"PATCH",
+					{ projectId },
+					{ id: "chat" },
+				) as Parameters<typeof conversation.PATCH>[0],
+			);
+			expect(moved.status).toBe(200);
+			expect(await moved.json()).toMatchObject({ projectId });
+		}
+		const moves = db
+			.select()
+			.from(s.memoryEvents)
+			.where(eq(s.memoryEvents.eventType, "memory_scope_moved"))
+			.all();
+		expect(
+			moves.map(({ conversationId, subjectId, relatedId, payloadJson }) => ({
+				conversationId,
+				subjectId,
+				relatedId,
+				payload: JSON.parse(payloadJson ?? "{}"),
+			})),
+		).toEqual([
+			{
+				conversationId: "chat",
+				subjectId: "project:origin",
+				relatedId: "personal",
+				payload: { epoch: 0 },
+			},
+			...(scenario === "before cutover"
+				? []
+				: [
+						{
+							conversationId: "chat",
+							subjectId: "personal",
+							relatedId: "project:destination",
+							payload: { epoch: 0 },
+						},
+					]),
+		]);
+		const resumed = await history.POST(
+			migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
+				choice: "include",
+				requestId: randomUUID(),
+			}) as Parameters<typeof history.POST>[0],
+		);
+		expect(resumed.status).toBe(200);
+		await h.engine.drain(memoryDeliveryJob);
+		const scope =
+			scenario === "before cutover" ? "personal" : "project:destination";
+		const bank = db
+			.select()
+			.from(s.memoryBanks)
+			.where(eq(s.memoryBanks.scopeKey, scope))
+			.get();
+		expect
+			.soft(
+				fixture.requests.filter(({ bank: wireBank }) => wireBank === bank?.id),
+				"project-origin text in destination retains",
+			)
+			.toEqual([]);
+		expect
+			.soft(
+				bank
+					? readPublishedMemory(h.userId, bank.id).map((row) => row.text)
+					: [],
+				"project-origin text in destination publication",
+			)
+			.not.toContain(replayOldBicycle);
+		expect
+			.soft(migration.inspectMemoryMigration(h.userId).sources[0])
+			.toMatchObject({
+				eligibility: "held",
+			});
+	},
+);
 
 it("keeps a standalone legacy authored item in its learned project after a chat move", async () => {
 	const { db, s } = await seed();
@@ -2373,114 +2385,115 @@ it("keeps a standalone legacy authored item in its learned project after a chat 
 	).toEqual([statement]);
 });
 
-it.each([
-	"packing",
-	"dispatch",
-] as const)("keeps a project-origin assistant reply out of personal historical %s", async (stage) => {
-	const { db, s } = await seed();
-	const { eq } = await import("drizzle-orm");
-	const { moveConversationToProject } = await import("../conversations");
-	db.insert(s.projects)
-		.values({ id: "origin", userId: h.userId, name: "Origin" })
-		.run();
-	db.update(s.messages)
-		.set({ messageSequence: 1 })
-		.where(eq(s.messages.id, "m"))
-		.run();
-	const privateText = "Confidential line from the project reply.";
-	const publicText = "Later personal reply in the same chat.";
-	vi.useFakeTimers({ toFake: ["Date"] });
-	try {
-		vi.setSystemTime(new Date("2020-01-02"));
-		expect(
-			(await moveConversationToProject(h.userId, "chat", "origin"))?.projectId,
-		).toBe("origin");
-		db.insert(s.messages)
-			.values({
-				id: "project-assistant",
-				conversationId: "chat",
-				role: "assistant",
-				content: privateText,
-				createdAt: new Date("2020-01-03"),
-				messageSequence: 2,
-			})
+it.each(["packing", "dispatch"] as const)(
+	"keeps a project-origin assistant reply out of personal historical %s",
+	async (stage) => {
+		const { db, s } = await seed();
+		const { eq } = await import("drizzle-orm");
+		const { moveConversationToProject } = await import("../conversations");
+		db.insert(s.projects)
+			.values({ id: "origin", userId: h.userId, name: "Origin" })
 			.run();
-		vi.setSystemTime(new Date("2020-01-04"));
-		expect(
-			(await moveConversationToProject(h.userId, "chat", null))?.projectId,
-		).toBeNull();
-	} finally {
-		vi.useRealTimers();
-	}
-	db.insert(s.messages)
-		.values([
-			{
-				id: "personal-assistant",
-				conversationId: "chat",
-				role: "assistant",
-				content: publicText,
-				createdAt: new Date("2020-01-04T12:00:00Z"),
-				messageSequence: 3,
-			},
-			{
-				id: "later-personal",
-				conversationId: "chat",
-				role: "user",
-				content: "I use painted envelopes.",
-				createdAt: new Date("2020-01-05"),
-				messageSequence: 4,
-			},
-		])
-		.run();
-	await allowMigrationHistory();
-	const fixture = await nativeFixture();
-	const migration = await import("./migration");
-	await migration.prepareMemoryMigration(h.userId);
-	const source = db
-		.select()
-		.from(s.memorySourceRevisions)
-		.where(eq(s.memorySourceRevisions.messageId, "later-personal"))
-		.get();
-	if (!source) throw Error("fixture later source is missing");
-	if (stage === "packing") {
-		expect(source.context).not.toContain("project-assistant");
-	} else {
-		// Reconstruct the pre-fix packed context. The worker must fence a durable
-		// reference from an earlier prepare even when its user parent is eligible.
-		const parent = db
+		db.update(s.messages)
+			.set({ messageSequence: 1 })
+			.where(eq(s.messages.id, "m"))
+			.run();
+		const privateText = "Confidential line from the project reply.";
+		const publicText = "Later personal reply in the same chat.";
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(new Date("2020-01-02"));
+			expect(
+				(await moveConversationToProject(h.userId, "chat", "origin"))
+					?.projectId,
+			).toBe("origin");
+			db.insert(s.messages)
+				.values({
+					id: "project-assistant",
+					conversationId: "chat",
+					role: "assistant",
+					content: privateText,
+					createdAt: new Date("2020-01-03"),
+					messageSequence: 2,
+				})
+				.run();
+			vi.setSystemTime(new Date("2020-01-04"));
+			expect(
+				(await moveConversationToProject(h.userId, "chat", null))?.projectId,
+			).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+		db.insert(s.messages)
+			.values([
+				{
+					id: "personal-assistant",
+					conversationId: "chat",
+					role: "assistant",
+					content: publicText,
+					createdAt: new Date("2020-01-04T12:00:00Z"),
+					messageSequence: 3,
+				},
+				{
+					id: "later-personal",
+					conversationId: "chat",
+					role: "user",
+					content: "I use painted envelopes.",
+					createdAt: new Date("2020-01-05"),
+					messageSequence: 4,
+				},
+			])
+			.run();
+		await allowMigrationHistory();
+		const fixture = await nativeFixture();
+		const migration = await import("./migration");
+		await migration.prepareMemoryMigration(h.userId);
+		const source = db
 			.select()
 			.from(s.memorySourceRevisions)
-			.where(eq(s.memorySourceRevisions.messageId, "m"))
+			.where(eq(s.memorySourceRevisions.messageId, "later-personal"))
 			.get();
-		if (!parent) throw Error("fixture preceding source is missing");
-		const { memoryTextHash } = await import("./revisions");
-		const context = JSON.parse(source.context);
-		context.messages.unshift({
-			id: "project-assistant",
-			role: "assistant",
-			sourceId: parent.id,
-			textHash: parent.textHash,
-			messageTextHash: memoryTextHash(privateText),
-		});
-		db.update(s.memorySourceRevisions)
-			.set({ context: JSON.stringify(context) })
-			.where(eq(s.memorySourceRevisions.id, source.id))
-			.run();
-	}
-	const { memoryDeliveryJob } = await import("./delivery-job");
-	await h.engine.drain(memoryDeliveryJob);
-	const retain = fixture.fetcher.mock.calls
-		.filter(
-			([url, options]) =>
-				String(url).endsWith("/memories") && options?.method === "POST",
-		)
-		.find(([, options]) =>
-			String(options?.body).includes("I use painted envelopes."),
-		);
-	expect(retain).toBeDefined();
-	expect(String(retain?.[1]?.body)).not.toContain(privateText);
-	expect(String(retain?.[1]?.body)).toContain(publicText);
-});
+		if (!source) throw Error("fixture later source is missing");
+		if (stage === "packing") {
+			expect(source.context).not.toContain("project-assistant");
+		} else {
+			// Reconstruct the pre-fix packed context. The worker must fence a durable
+			// reference from an earlier prepare even when its user parent is eligible.
+			const parent = db
+				.select()
+				.from(s.memorySourceRevisions)
+				.where(eq(s.memorySourceRevisions.messageId, "m"))
+				.get();
+			if (!parent) throw Error("fixture preceding source is missing");
+			const { memoryTextHash } = await import("./revisions");
+			const context = JSON.parse(source.context);
+			context.messages.unshift({
+				id: "project-assistant",
+				role: "assistant",
+				sourceId: parent.id,
+				textHash: parent.textHash,
+				messageTextHash: memoryTextHash(privateText),
+			});
+			db.update(s.memorySourceRevisions)
+				.set({ context: JSON.stringify(context) })
+				.where(eq(s.memorySourceRevisions.id, source.id))
+				.run();
+		}
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		await h.engine.drain(memoryDeliveryJob);
+		const retain = fixture.fetcher.mock.calls
+			.filter(
+				([url, options]) =>
+					String(url).endsWith("/memories") && options?.method === "POST",
+			)
+			.find(([, options]) =>
+				String(options?.body).includes("I use painted envelopes."),
+			);
+		expect(retain).toBeDefined();
+		expect(String(retain?.[1]?.body)).not.toContain(privateText);
+		expect(String(retain?.[1]?.body)).toContain(publicText);
+	},
+);
 
 async function seedProjectRetentionHistory() {
 	const { db, s } = await seed();

@@ -454,121 +454,121 @@ it("cannot bind an old source to a new control revision merely by re-enqueueing"
 	);
 });
 
-it.each([
-	"uncurated",
-	"curated",
-	"changed question",
-])("resolves a short reply’s stored question only from an unchanged uncurated source (%s)", async (mode) => {
-	const f = await setup();
-	const { eq } = await import("drizzle-orm");
-	const chat = "short-reply-chat";
-	await f.db
-		.insert(f.schema.conversations)
-		.values({ id: chat, userId: h.userId, title: "Short reply" });
-	const question = "Is your sister the one who owns the bicycle?";
-	await f.db.insert(f.schema.messages).values([
-		{
-			id: "short-prior",
-			conversationId: chat,
-			role: "user",
-			messageSequence: 1,
-			content: "Someone in my family owns a bicycle.",
-		},
-		{
-			id: "short-question",
-			conversationId: chat,
-			role: "assistant",
-			messageSequence: 2,
-			content: mode === "changed question" ? "Unrelated replacement" : question,
-		},
-		{
-			id: "short-yes",
-			conversationId: chat,
-			role: "user",
-			messageSequence: 3,
-			content: "Yes.",
-		},
-	]);
-	const prior = f.rev.recordMemorySource({
-		userId: h.userId,
-		bankId: f.bank.id,
-		epoch: 0,
-		eventId: "short-prior",
-		lineageId: "short-prior",
-		conversationId: chat,
-		messageId: "short-prior",
-		text: "Someone in my family owns a bicycle.",
-		context: "",
-		assertedAt: new Date("2026-11-12"),
-	});
-	f.db
-		.update(f.schema.memorySourceRevisions)
-		.set({
-			state: "accepted",
-			acknowledgedFactsJson: JSON.stringify([
-				{ id: "short-fact", text: "A family member owns a bicycle." },
-			]),
-		})
-		.where(eq(f.schema.memorySourceRevisions.id, prior.id))
-		.run();
-	if (mode === "curated") {
-		f.db
-			.insert(f.schema.memoryActions)
-			.values({
-				id: "short-curation",
-				userId: h.userId,
-				bankId: f.bank.id,
-				epoch: 0,
-				requestId: "short-curation",
-				kind: "remove",
-				exclusionAcknowledged: true,
-				intentJson: JSON.stringify({
-					sourceIds: [prior.id],
-					outcome: "accepted",
-				}),
-			})
-			.run();
-	}
-	const context = JSON.stringify({
-		messages: [
+it.each(["uncurated", "curated", "changed question"])(
+	"resolves a short reply’s stored question only from an unchanged uncurated source (%s)",
+	async (mode) => {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const chat = "short-reply-chat";
+		await f.db
+			.insert(f.schema.conversations)
+			.values({ id: chat, userId: h.userId, title: "Short reply" });
+		const question = "Is your sister the one who owns the bicycle?";
+		await f.db.insert(f.schema.messages).values([
 			{
 				id: "short-prior",
+				conversationId: chat,
 				role: "user",
-				sourceId: prior.id,
-				textHash: prior.textHash,
+				messageSequence: 1,
+				content: "Someone in my family owns a bicycle.",
 			},
 			{
 				id: "short-question",
+				conversationId: chat,
 				role: "assistant",
-				sourceId: prior.id,
-				textHash: prior.textHash,
-				messageTextHash: f.rev.memoryTextHash(question),
+				messageSequence: 2,
+				content:
+					mode === "changed question" ? "Unrelated replacement" : question,
 			},
-		],
-	});
-	f.db
-		.update(f.schema.memorySourceRevisions)
-		.set({
+			{
+				id: "short-yes",
+				conversationId: chat,
+				role: "user",
+				messageSequence: 3,
+				content: "Yes.",
+			},
+		]);
+		const prior = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "short-prior",
+			lineageId: "short-prior",
 			conversationId: chat,
-			messageId: "short-yes",
-			text: "Yes.",
-			textHash: f.rev.memoryTextHash("Yes."),
-			context,
-		})
-		.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
-		.run();
-	await f.enqueue();
-	await h.engine.drain(f.jobs.memoryDeliveryJob);
-	const retain = f.fetcher.mock.calls.find(
-		([url, init]) =>
-			String(url).endsWith("/memories") && init?.method === "POST",
-	);
-	const payload = JSON.parse(String(retain?.[1]?.body)).items[0];
-	expect(payload.content).toBe("Yes.");
-	expect(payload.context).toContain("A family member owns a bicycle.");
-	expect(payload.context.includes(question)).toBe(mode === "uncurated");
-	expect(payload.context).not.toContain("Unrelated replacement");
-});
+			messageId: "short-prior",
+			text: "Someone in my family owns a bicycle.",
+			context: "",
+			assertedAt: new Date("2026-11-12"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				state: "accepted",
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "short-fact", text: "A family member owns a bicycle." },
+				]),
+			})
+			.where(eq(f.schema.memorySourceRevisions.id, prior.id))
+			.run();
+		if (mode === "curated") {
+			f.db
+				.insert(f.schema.memoryActions)
+				.values({
+					id: "short-curation",
+					userId: h.userId,
+					bankId: f.bank.id,
+					epoch: 0,
+					requestId: "short-curation",
+					kind: "remove",
+					exclusionAcknowledged: true,
+					intentJson: JSON.stringify({
+						sourceIds: [prior.id],
+						outcome: "accepted",
+					}),
+				})
+				.run();
+		}
+		const context = JSON.stringify({
+			messages: [
+				{
+					id: "short-prior",
+					role: "user",
+					sourceId: prior.id,
+					textHash: prior.textHash,
+				},
+				{
+					id: "short-question",
+					role: "assistant",
+					sourceId: prior.id,
+					textHash: prior.textHash,
+					messageTextHash: f.rev.memoryTextHash(question),
+				},
+			],
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				conversationId: chat,
+				messageId: "short-yes",
+				text: "Yes.",
+				textHash: f.rev.memoryTextHash("Yes."),
+				context,
+			})
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		const retain = f.fetcher.mock.calls.find(
+			([url, init]) =>
+				String(url).endsWith("/memories") && init?.method === "POST",
+		);
+		const payload = JSON.parse(String(retain?.[1]?.body)).items[0];
+		expect(payload.content).toBe("Yes.");
+		expect(payload.context).toContain("A family member owns a bicycle.");
+		expect(payload.context.includes(question)).toBe(mode === "uncurated");
+		expect(payload.context).not.toContain("Unrelated replacement");
+	},
+);
 
 it("waits for a late configuration commit before completing reset cleanup", async () => {
 	const f = await setup();

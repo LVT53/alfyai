@@ -31,7 +31,6 @@ import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import { t } from "$lib/i18n";
 
-// biome-ignore lint/style/useImportType: Svelte renders this component and binds its exported visit methods.
 import KnowledgeMemoryView from "./_components/KnowledgeMemoryView.svelte";
 import DocumentsList from "./_components/DocumentsList.svelte";
 import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";

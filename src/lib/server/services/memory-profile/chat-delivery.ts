@@ -360,8 +360,7 @@ export async function deliverCompletedMemoryTurn(input: {
 				.where(eq(memorySourceRevisions.id, predecessorSourceId))
 				.get();
 			if (
-				!previous ||
-				previous.state !== "revoked" ||
+				previous?.state !== "revoked" ||
 				!isEditResendWithdrawal(previous) ||
 				tx
 					.select({ id: memoryDeliveryJobs.id })

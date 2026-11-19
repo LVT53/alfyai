@@ -236,134 +236,137 @@ it.each([
 	"hidden split",
 	"late revoke",
 	"new generation",
-] as const)("uses only a unique currently admitted Edit result for replacement native ranks (%s)", async (mode) => {
-	seed("b1", "personal", "Accepted purple kayak");
-	const db = drizzle(sqlite, { schema });
-	const { memoryPresentationFingerprint, memorySupportFingerprint } =
-		await import("../memory-profile/publication");
-	const facts = [{ id: "f-b1", text: "Accepted purple kayak" }];
-	if (mode === "partial") {
-		facts.push({ id: "second", text: "A second accepted assertion" });
-		db.update(schema.memorySourceRevisions)
-			.set({ acknowledgedFactsJson: JSON.stringify(facts) })
-			.run();
-		db.update(schema.memoryPublishedRows)
-			.set({
-				sourceFingerprintsJson: JSON.stringify(facts),
-				sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
-			})
-			.run();
-	}
-	if (mode === "hidden split")
-		db.insert(schema.memoryPublishedRows)
-			.values({
-				id: "hidden",
-				bankId: "b1",
-				epoch: 0,
-				generation: "g",
-				nativeId: "hidden",
-				text: "Hidden split",
-				nativeText: "Hidden split",
-				sourceFingerprintsJson: JSON.stringify([
-					...facts,
-					{ id: "withdrawn", text: "Revoked source" },
-				]),
-				sourceIdsJson: JSON.stringify(["f-b1", "withdrawn"]),
-				updatedAt: new Date(),
-			})
-			.run();
-	const requestId = randomUUID();
-	db.insert(schema.memoryActions)
-		.values({
-			id: "edit",
-			userId: "u",
-			bankId: "b1",
-			epoch: 0,
-			kind: "edit",
-			requestId,
-			rowId: "older",
-			generation: "original",
-			resultRowId: "n-b1",
-			text: "Accepted purple kayak",
-			previousText: "Old kayak",
-			intentJson: JSON.stringify({
-				request: {
-					kind: "edit",
-					requestId,
-					ref: {
-						scope: { kind: "personal" },
-						generation: "original",
-						rowId: "older",
-					},
-					text: "Accepted purple kayak",
-				},
-				facts: [],
-				sourceIds: [],
-				before: "Old kayak",
-				outcome: "accepted",
-				resultGeneration: "g",
-				resultSupport: memorySupportFingerprint(facts),
-				resultPresentation: memoryPresentationFingerprint(
-					"Accepted purple kayak",
-					"Accepted purple kayak",
-				),
-			}),
-		})
-		.run();
-	recall.mockImplementation(async () => {
-		if (mode === "late revoke")
-			db.insert(schema.memoryRevocations)
-				.values({
-					id: "late",
-					userId: "u",
-					bankId: "b1",
-					epoch: 0,
-					sourceId: "s-b1",
-				})
+] as const)(
+	"uses only a unique currently admitted Edit result for replacement native ranks (%s)",
+	async (mode) => {
+		seed("b1", "personal", "Accepted purple kayak");
+		const db = drizzle(sqlite, { schema });
+		const { memoryPresentationFingerprint, memorySupportFingerprint } =
+			await import("../memory-profile/publication");
+		const facts = [{ id: "f-b1", text: "Accepted purple kayak" }];
+		if (mode === "partial") {
+			facts.push({ id: "second", text: "A second accepted assertion" });
+			db.update(schema.memorySourceRevisions)
+				.set({ acknowledgedFactsJson: JSON.stringify(facts) })
 				.run();
-		if (mode === "new generation") {
-			db.update(schema.memoryBanks)
-				.set({ generation: "new", previousGeneration: "g" })
-				.where(eq(schema.memoryBanks.id, "b1"))
-				.run();
-			db.insert(schema.memoryPublishedRows)
-				.values({
-					id: "new-row",
-					bankId: "b1",
-					epoch: 0,
-					generation: "new",
-					nativeId: "different-new-id",
-					text: "Accepted purple kayak",
-					nativeText: "Accepted purple kayak",
+			db.update(schema.memoryPublishedRows)
+				.set({
 					sourceFingerprintsJson: JSON.stringify(facts),
-					sourceIdsJson: JSON.stringify(["f-b1"]),
-					updatedAt: new Date(),
+					sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
 				})
 				.run();
 		}
-		return [
-			{
-				id: "native-new-id",
-				fact_type: "observation",
-				text: "Malicious native claim and quotation",
-				source_memory_ids:
-					mode === "mixed" ? ["f-b1", "not-admitted"] : ["f-b1"],
-			},
-		];
-	});
-	const { recallMemory } = await import("./native");
-	const result = await recallMemory("u", {
-		conversationId: "personal",
-		query: "kayak",
-		tokenBudget: 500,
-	});
-	if (mode === "exact")
-		expect(result).toEqual([
-			expect.objectContaining({
-				ref: { scope: { kind: "personal" }, generation: "g", rowId: "n-b1" },
+		if (mode === "hidden split")
+			db.insert(schema.memoryPublishedRows)
+				.values({
+					id: "hidden",
+					bankId: "b1",
+					epoch: 0,
+					generation: "g",
+					nativeId: "hidden",
+					text: "Hidden split",
+					nativeText: "Hidden split",
+					sourceFingerprintsJson: JSON.stringify([
+						...facts,
+						{ id: "withdrawn", text: "Revoked source" },
+					]),
+					sourceIdsJson: JSON.stringify(["f-b1", "withdrawn"]),
+					updatedAt: new Date(),
+				})
+				.run();
+		const requestId = randomUUID();
+		db.insert(schema.memoryActions)
+			.values({
+				id: "edit",
+				userId: "u",
+				bankId: "b1",
+				epoch: 0,
+				kind: "edit",
+				requestId,
+				rowId: "older",
+				generation: "original",
+				resultRowId: "n-b1",
 				text: "Accepted purple kayak",
-				sources: [expect.objectContaining({ quote: "" })],
-			}),
-		]);
-	else expect(result).toEqual([]);
-});
+				previousText: "Old kayak",
+				intentJson: JSON.stringify({
+					request: {
+						kind: "edit",
+						requestId,
+						ref: {
+							scope: { kind: "personal" },
+							generation: "original",
+							rowId: "older",
+						},
+						text: "Accepted purple kayak",
+					},
+					facts: [],
+					sourceIds: [],
+					before: "Old kayak",
+					outcome: "accepted",
+					resultGeneration: "g",
+					resultSupport: memorySupportFingerprint(facts),
+					resultPresentation: memoryPresentationFingerprint(
+						"Accepted purple kayak",
+						"Accepted purple kayak",
+					),
+				}),
+			})
+			.run();
+		recall.mockImplementation(async () => {
+			if (mode === "late revoke")
+				db.insert(schema.memoryRevocations)
+					.values({
+						id: "late",
+						userId: "u",
+						bankId: "b1",
+						epoch: 0,
+						sourceId: "s-b1",
+					})
+					.run();
+			if (mode === "new generation") {
+				db.update(schema.memoryBanks)
+					.set({ generation: "new", previousGeneration: "g" })
+					.where(eq(schema.memoryBanks.id, "b1"))
+					.run();
+				db.insert(schema.memoryPublishedRows)
+					.values({
+						id: "new-row",
+						bankId: "b1",
+						epoch: 0,
+						generation: "new",
+						nativeId: "different-new-id",
+						text: "Accepted purple kayak",
+						nativeText: "Accepted purple kayak",
+						sourceFingerprintsJson: JSON.stringify(facts),
+						sourceIdsJson: JSON.stringify(["f-b1"]),
+						updatedAt: new Date(),
+					})
+					.run();
+			}
+			return [
+				{
+					id: "native-new-id",
+					fact_type: "observation",
+					text: "Malicious native claim and quotation",
+					source_memory_ids:
+						mode === "mixed" ? ["f-b1", "not-admitted"] : ["f-b1"],
+				},
+			];
+		});
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "personal",
+			query: "kayak",
+			tokenBudget: 500,
+		});
+		if (mode === "exact")
+			expect(result).toEqual([
+				expect.objectContaining({
+					ref: { scope: { kind: "personal" }, generation: "g", rowId: "n-b1" },
+					text: "Accepted purple kayak",
+					sources: [expect.objectContaining({ quote: "" })],
+				}),
+			]);
+		else expect(result).toEqual([]);
+	},
+);

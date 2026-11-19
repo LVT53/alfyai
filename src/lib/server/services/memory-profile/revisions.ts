@@ -224,8 +224,7 @@ export function assertMemoryBankAccess(
 		.where(and(eq(memoryBanks.id, bankId), eq(memoryBanks.userId, userId)))
 		.get();
 	if (
-		!account ||
-		account.lifecycleState !== "active" ||
+		account?.lifecycleState !== "active" ||
 		!user ||
 		(mode === "memory" && !user.enabled) ||
 		!bank ||
@@ -454,8 +453,7 @@ export function assertMemorySourceCurrent(
 					.get()
 			: null;
 		if (
-			!message ||
-			message.role !== "user" ||
+			message?.role !== "user" ||
 			parseJsonRecord(message.metadataJson).forkCopy ||
 			(context.migration === true &&
 				message.createdAt.toISOString() !==
@@ -631,8 +629,7 @@ function assertAuthoredMigrationSourceCurrent(
 			)
 			.get();
 		if (
-			!item ||
-			item.status !== "active" ||
+			item?.status !== "active" ||
 			!isUserAuthoredMemoryMetadata(item.metadataJson) ||
 			item.statement !== source.text ||
 			item.updatedAt.getTime() !== source.assertedAt.getTime()
@@ -686,8 +683,7 @@ function assertAuthoredMigrationSourceCurrent(
 					.get()
 			: undefined;
 	if (
-		!resolution ||
-		resolution.resolutionType !== "edit_fact" ||
+		resolution?.resolutionType !== "edit_fact" ||
 		resolution.editedStatement !== source.text ||
 		resolution.createdAt.getTime() !== source.assertedAt.getTime()
 	)

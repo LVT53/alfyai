@@ -2480,8 +2480,7 @@ export async function prepareSourceCuration(
 			.where(eq(memorySourceRevisions.id, predecessor.id))
 			.get();
 		if (
-			!prior ||
-			prior.state !== "revoked" ||
+			prior?.state !== "revoked" ||
 			(source.eventId.startsWith("message:") &&
 				!isEditResendWithdrawal(prior)) ||
 			prior.textHash !== predecessor.textHash ||

@@ -83,8 +83,7 @@ export async function submitMemoryAction(
 			.where(eq(memoryBanks.id, bank.id))
 			.get();
 		if (
-			!account ||
-			account.authority !== "hindsight" ||
+			account?.authority !== "hindsight" ||
 			account.epoch !== bank.epoch ||
 			!current
 		)

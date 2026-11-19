@@ -2604,7 +2604,10 @@ function jumpInputFor(target: HTMLElement, scroller: HTMLElement) {
 /** Aims the one thread scroller; smooth, as a linked message has always been. */
 function scrollThreadBy(scroller: HTMLElement, offset: number) {
 	if (typeof scroller.scrollBy === "function") {
-		scroller.scrollBy({ top: offset, behavior: prefersReducedMotion() ? "instant" : "smooth" });
+		scroller.scrollBy({
+			top: offset,
+			behavior: prefersReducedMotion() ? "instant" : "smooth",
+		});
 	} else {
 		scroller.scrollTop += offset;
 	}
@@ -2998,27 +3001,72 @@ $effect(() => {
 // messages — each streamed token — would scroll back to the linked message.
 let focusedFromUrl: URL | null = null;
 
-async function navigateToSourceMessage(url:URL,messageId:string,conversationId:string){
- const isCurrent=()=>page.url===url&&data.conversation.id===conversationId;
- const result=await loadLinkedMessage({targetId:messageId,isCurrent,messageIds:()=>get(messages).map(message=>message.id),hasMore:()=>hasMoreMessages,loadOlder:async()=>{await handleLoadOlderMessages();if(isCurrent()&&olderMessagesFailed)throw new Error("Source pagination failed");}});
- if(!isCurrent()||result==='cancelled')return;
- if(result==='retryable'){focusedFromUrl=null;showToast({type:'error',message:get(t)('memoryNew.loadFailed'),actionLabel:get(t)('common.retry'),onAction:()=>{if(isCurrent()){focusedFromUrl=url;void navigateToSourceMessage(url,messageId,conversationId);}}});return;}
- if(result==='unavailable'){showToast({type:'error',message:get(t)('memoryNew.sourceUnavailable')});return;}
- await handleShowChatMessage(messageId);
- if(!isCurrent())return;
- requestAnimationFrame(()=>{if(isCurrent())replaceState(clearChatFocusMessageParam(url),page.state);});
+async function navigateToSourceMessage(
+	url: URL,
+	messageId: string,
+	conversationId: string,
+) {
+	const isCurrent = () =>
+		page.url === url && data.conversation.id === conversationId;
+	const result = await loadLinkedMessage({
+		targetId: messageId,
+		isCurrent,
+		messageIds: () => get(messages).map((message) => message.id),
+		hasMore: () => hasMoreMessages,
+		loadOlder: async () => {
+			await handleLoadOlderMessages();
+			if (isCurrent() && olderMessagesFailed)
+				throw new Error("Source pagination failed");
+		},
+	});
+	if (!isCurrent() || result === "cancelled") return;
+	if (result === "retryable") {
+		focusedFromUrl = null;
+		showToast({
+			type: "error",
+			message: get(t)("memoryNew.loadFailed"),
+			actionLabel: get(t)("common.retry"),
+			onAction: () => {
+				if (isCurrent()) {
+					focusedFromUrl = url;
+					void navigateToSourceMessage(url, messageId, conversationId);
+				}
+			},
+		});
+		return;
+	}
+	if (result === "unavailable") {
+		showToast({
+			type: "error",
+			message: get(t)("memoryNew.sourceUnavailable"),
+		});
+		return;
+	}
+	await handleShowChatMessage(messageId);
+	if (!isCurrent()) return;
+	requestAnimationFrame(() => {
+		if (isCurrent()) replaceState(clearChatFocusMessageParam(url), page.state);
+	});
 }
-$effect(()=>{
- const url=page.url;const conversationId=data.conversation.id;const messageId=getChatFocusMessageIdFromUrl(url);
- if(!messageId||url===focusedFromUrl)return;focusedFromUrl=url;
- untrack(()=>{void navigateToSourceMessage(url,messageId,conversationId);});
+$effect(() => {
+	const url = page.url;
+	const conversationId = data.conversation.id;
+	const messageId = getChatFocusMessageIdFromUrl(url);
+	if (!messageId || url === focusedFromUrl) return;
+	focusedFromUrl = url;
+	untrack(() => {
+		void navigateToSourceMessage(url, messageId, conversationId);
+	});
 });
 
 function recoverVisiblePageActivity() {
 	if (document.visibilityState !== "visible") return;
 	normalChatRuntime.handleVisibilityVisible();
- const target=getChatFocusMessageIdFromUrl(page.url);
- if(target&&focusedFromUrl!==page.url){focusedFromUrl=page.url;void navigateToSourceMessage(page.url,target,data.conversation.id);}
+	const target = getChatFocusMessageIdFromUrl(page.url);
+	if (target && focusedFromUrl !== page.url) {
+		focusedFromUrl = page.url;
+		void navigateToSourceMessage(page.url, target, data.conversation.id);
+	}
 
 	// Recover evidence for any messages with pending status
 	recoverPendingEvidence();
@@ -3328,11 +3376,22 @@ async function pollForCompletion(
  * The page's control state is the only source of truth: the thread reads it as
  * props and its scroll owner puts the reader's view back by the height added.
  */
-let olderMessagesRead:{conversationId:string,promise:Promise<void>}|null=null;
-function handleLoadOlderMessages():Promise<void>{
- const conversationId=data.conversation.id;
- if(olderMessagesRead?.conversationId===conversationId)return olderMessagesRead.promise;
- const read={conversationId,promise:loadOlderMessagesPage().finally(()=>{if(olderMessagesRead===read)olderMessagesRead=null;})};olderMessagesRead=read;return read.promise;
+let olderMessagesRead: {
+	conversationId: string;
+	promise: Promise<void>;
+} | null = null;
+function handleLoadOlderMessages(): Promise<void> {
+	const conversationId = data.conversation.id;
+	if (olderMessagesRead?.conversationId === conversationId)
+		return olderMessagesRead.promise;
+	const read = {
+		conversationId,
+		promise: loadOlderMessagesPage().finally(() => {
+			if (olderMessagesRead === read) olderMessagesRead = null;
+		}),
+	};
+	olderMessagesRead = read;
+	return read.promise;
 }
 async function loadOlderMessagesPage() {
 	if (!hasMoreMessages) return;

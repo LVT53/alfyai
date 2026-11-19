@@ -1,6 +1,6 @@
-import { beginForegroundRequest } from "./request-activity";
 import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import type { CompletionReceipt } from "./prepared-normal-chat-turn";
+import { beginForegroundRequest } from "./request-activity";
 import { createTurnWatchdog } from "./turn-watchdog";
 
 /**
@@ -98,7 +98,11 @@ export async function runBoundedPlainTurn<T>(
 			detached = true;
 			void commitTask
 				.catch(() => undefined)
-				.finally(() => finish().catch(() => undefined).finally(releaseActivity));
+				.finally(() =>
+					finish()
+						.catch(() => undefined)
+						.finally(releaseActivity),
+				);
 			return { state: "pending", segmentId: receipt?.segmentId };
 		}
 		throw error;

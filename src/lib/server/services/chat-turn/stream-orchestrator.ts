@@ -1,4 +1,3 @@
-import { beginForegroundRequest } from "./request-activity";
 import type { FinishReason } from "ai";
 import { buildMessageUserIntent } from "$lib/message-user-intent";
 import type { ModelId } from "$lib/model-types";
@@ -108,6 +107,7 @@ import {
 	createCanonicalOutputRelay,
 	createOutputEventWriter,
 } from "./output-event-writer";
+import { beginForegroundRequest } from "./request-activity";
 import type {
 	StreamingNormalChatPreparedContext,
 	StreamingNormalChatSendModelResult,
@@ -380,8 +380,17 @@ export function runChatStreamOrchestrator(
 			} finally {
 				releaseOwnedStream();
 				if (deferredFinalization) {
-					void deferredFinalization.catch(() => {}).then(releaseResumeClaim).finally(releaseActivity);
-				} else { try { await releaseResumeClaim(); } finally { releaseActivity(); } }
+					void deferredFinalization
+						.catch(() => {})
+						.then(releaseResumeClaim)
+						.finally(releaseActivity);
+				} else {
+					try {
+						await releaseResumeClaim();
+					} finally {
+						releaseActivity();
+					}
+				}
 			}
 		};
 

@@ -60,7 +60,7 @@ export async function prepareMemoryMigration(userId: string) {
 			.from(memoryAccounts)
 			.where(eq(memoryAccounts.userId, userId))
 			.get();
-		if (!account || account.lifecycleState !== "active")
+		if (account?.lifecycleState !== "active")
 			throw Error("memory_account_unavailable");
 		// Take only the legacy → preparing transition inside the same write barrier
 		// as the checkpoint. A concurrent cutover/rollback cannot be overwritten.
@@ -573,7 +573,7 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 			.from(memoryAccounts)
 			.where(eq(memoryAccounts.userId, userId))
 			.get();
-		if (!account || account.lifecycleState !== "active")
+		if (account?.lifecycleState !== "active")
 			throw Error("memory_migration_not_ready");
 		if (account.authority === "hindsight") {
 			const existing = tx

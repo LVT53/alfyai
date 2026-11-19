@@ -1,9 +1,4 @@
-import {
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type {

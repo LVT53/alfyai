@@ -97,31 +97,33 @@ describe("published Memory UI", () => {
 		expect(screen.getByText("A yellow touring kayak.")).toBeVisible();
 		expect(screen.getByText("No longer used")).toBeVisible();
 	});
-	it.each([
-		"en",
-		"hu",
-	] as const)("omits an unverified memory date and displays the original source date in %s", async (language) => {
-		uiLanguage.set(language);
-		const undated = { ...row, updatedAt: null };
-		api.fetchMemoryPage.mockResolvedValue({ ...page, rows: [undated] });
-		api.fetchMemoryDetail.mockResolvedValue({ ...detail, row: undated });
-		render(KnowledgeMemoryView, { memoryEnabled: true });
-		const item = await screen.findByRole("button", { name: /You own a green/ });
-		expect(item.querySelector("time")).toBeNull();
-		await fireEvent.click(item);
-		const panel = await screen.findByTestId("memory-detail");
-		const [sourceDate] = panel.querySelectorAll("time");
-		expect(panel.querySelectorAll("time")).toHaveLength(1);
-		expect(sourceDate).toHaveAttribute(
-			"datetime",
-			detail.sources[0].assertedAt,
-		);
-		expect(sourceDate).toHaveTextContent(
-			new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(
-				new Date(detail.sources[0].assertedAt),
-			),
-		);
-	});
+	it.each(["en", "hu"] as const)(
+		"omits an unverified memory date and displays the original source date in %s",
+		async (language) => {
+			uiLanguage.set(language);
+			const undated = { ...row, updatedAt: null };
+			api.fetchMemoryPage.mockResolvedValue({ ...page, rows: [undated] });
+			api.fetchMemoryDetail.mockResolvedValue({ ...detail, row: undated });
+			render(KnowledgeMemoryView, { memoryEnabled: true });
+			const item = await screen.findByRole("button", {
+				name: /You own a green/,
+			});
+			expect(item.querySelector("time")).toBeNull();
+			await fireEvent.click(item);
+			const panel = await screen.findByTestId("memory-detail");
+			const [sourceDate] = panel.querySelectorAll("time");
+			expect(panel.querySelectorAll("time")).toHaveLength(1);
+			expect(sourceDate).toHaveAttribute(
+				"datetime",
+				detail.sources[0].assertedAt,
+			);
+			expect(sourceDate).toHaveTextContent(
+				new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(
+					new Date(detail.sources[0].assertedAt),
+				),
+			);
+		},
+	);
 	it.each([
 		{
 			language: "en",
@@ -133,24 +135,23 @@ describe("published Memory UI", () => {
 			attribution: "Általad hozzáadva",
 			conversation: "Beszélgetés",
 		},
-	] as const)("shows verified manual provenance in $language", async ({
-		language,
-		attribution,
-		conversation,
-	}) => {
-		uiLanguage.set(language);
-		api.fetchMemoryDetail.mockResolvedValue({
-			...detail,
-			origin: "manual",
-			sources: [],
-			versions: [],
-		});
-		await open();
-		expect(screen.getByText(attribution)).toBeVisible();
-		expect(
-			screen.queryByRole("heading", { name: conversation }),
-		).not.toBeInTheDocument();
-	});
+	] as const)(
+		"shows verified manual provenance in $language",
+		async ({ language, attribution, conversation }) => {
+			uiLanguage.set(language);
+			api.fetchMemoryDetail.mockResolvedValue({
+				...detail,
+				origin: "manual",
+				sources: [],
+				versions: [],
+			});
+			await open();
+			expect(screen.getByText(attribution)).toBeVisible();
+			expect(
+				screen.queryByRole("heading", { name: conversation }),
+			).not.toBeInTheDocument();
+		},
+	);
 	it("omits the provenance card when origin is unknown and sources are empty", async () => {
 		api.fetchMemoryDetail.mockResolvedValue({
 			...detail,
@@ -269,33 +270,32 @@ describe("published Memory UI", () => {
 	it.each([
 		{ control: "Edit", action: "Save changes", panel: "memory-editor" },
 		{ control: "Remove", action: "Remove", panel: "memory-remove" },
-	])("disables the open $control action when a focus refresh reports Memory off", async ({
-		control,
-		action,
-		panel,
-	}) => {
-		await open();
-		await fireEvent.click(screen.getByRole("button", { name: control }));
-		const submit = screen.getByRole("button", { name: action });
-		expect(submit).toBeEnabled();
-		api.fetchMemoryPage.mockResolvedValue({
-			...page,
-			status: "off",
-			rows: [],
-			total: 0,
-		});
+	])(
+		"disables the open $control action when a focus refresh reports Memory off",
+		async ({ control, action, panel }) => {
+			await open();
+			await fireEvent.click(screen.getByRole("button", { name: control }));
+			const submit = screen.getByRole("button", { name: action });
+			expect(submit).toBeEnabled();
+			api.fetchMemoryPage.mockResolvedValue({
+				...page,
+				status: "off",
+				rows: [],
+				total: 0,
+			});
 
-		await fireEvent.focus(window);
+			await fireEvent.focus(window);
 
-		expect(await screen.findByTestId("memory-off-notice")).toHaveTextContent(
-			"Memory is off",
-		);
-		expect(submit).toBeDisabled();
-		await fireEvent.click(submit);
-		if (control === "Edit") await fireEvent.submit(screen.getByTestId(panel));
-		expect(api.submitMemoryAction).not.toHaveBeenCalled();
-		expect(screen.getByTestId(panel)).toBeVisible();
-	});
+			expect(await screen.findByTestId("memory-off-notice")).toHaveTextContent(
+				"Memory is off",
+			);
+			expect(submit).toBeDisabled();
+			await fireEvent.click(submit);
+			if (control === "Edit") await fireEvent.submit(screen.getByTestId(panel));
+			expect(api.submitMemoryAction).not.toHaveBeenCalled();
+			expect(screen.getByTestId(panel)).toBeVisible();
+		},
+	);
 	it("withdraws mutation Retry when Memory is turned off after a failed save", async () => {
 		await open();
 		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -420,29 +420,32 @@ describe("review regressions: asynchronous navigation", () => {
 	it.each([
 		{ scenario: "on a fresh visit", openedRecord: false },
 		{ scenario: "after visiting a different memory", openedRecord: true },
-	])("returns focus to Add after cancelling $scenario", async ({
-		openedRecord,
-	}) => {
-		if (openedRecord) {
-			await open();
-			await fireEvent.click(
-				screen.getByRole("button", { name: "Back to memories" }),
+	])(
+		"returns focus to Add after cancelling $scenario",
+		async ({ openedRecord }) => {
+			if (openedRecord) {
+				await open();
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Back to memories" }),
+				);
+				expect(
+					screen.getByRole("button", { name: /You own a green/ }),
+				).toHaveFocus();
+			} else {
+				render(KnowledgeMemoryView, { memoryEnabled: true });
+				await screen.findByRole("button", { name: /You own a green/ });
+			}
+			const add = screen.getByRole("button", { name: "Add memory" });
+			add.focus();
+			await fireEvent.click(add);
+			await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Add memory" }),
+				).toHaveFocus(),
 			);
-			expect(
-				screen.getByRole("button", { name: /You own a green/ }),
-			).toHaveFocus();
-		} else {
-			render(KnowledgeMemoryView, { memoryEnabled: true });
-			await screen.findByRole("button", { name: /You own a green/ });
-		}
-		const add = screen.getByRole("button", { name: "Add memory" });
-		add.focus();
-		await fireEvent.click(add);
-		await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		await waitFor(() =>
-			expect(screen.getByRole("button", { name: "Add memory" })).toHaveFocus(),
-		);
-	});
+		},
+	);
 	it("focuses Search on return when the last opened row is no longer listed", async () => {
 		await open();
 		api.fetchMemoryPage.mockResolvedValue({ ...page, rows: [], total: 0 });
@@ -586,21 +589,24 @@ describe("second review regressions", () => {
 	});
 });
 
-it.each([
-	401, 403, 404,
-])("removes accepted quotations and rows on authorization loss %s", async (status) => {
-	await open();
-	api.fetchMemoryPage.mockRejectedValue(new ApiError("denied", { status }));
-	api.fetchMemoryDetail.mockRejectedValue(new ApiError("denied", { status }));
-	await fireEvent.focus(window);
-	await waitFor(() =>
-		expect(screen.queryByText(detail.sources[0].quote)).not.toBeInTheDocument(),
-	);
-	expect(
-		screen.queryByRole("button", { name: /You own a green/ }),
-	).not.toBeInTheDocument();
-	expect(screen.getByRole("button", { name: "Add memory" })).toBeDisabled();
-});
+it.each([401, 403, 404])(
+	"removes accepted quotations and rows on authorization loss %s",
+	async (status) => {
+		await open();
+		api.fetchMemoryPage.mockRejectedValue(new ApiError("denied", { status }));
+		api.fetchMemoryDetail.mockRejectedValue(new ApiError("denied", { status }));
+		await fireEvent.focus(window);
+		await waitFor(() =>
+			expect(
+				screen.queryByText(detail.sources[0].quote),
+			).not.toBeInTheDocument(),
+		);
+		expect(
+			screen.queryByRole("button", { name: /You own a green/ }),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Add memory" })).toBeDisabled();
+	},
+);
 it("retains unresolved restored identity without blocking unrelated work or creating another mutation", async () => {
 	api.fetchMemoryOperationByRequest.mockRejectedValue(
 		new ApiError("unknown", { status: 404 }),
