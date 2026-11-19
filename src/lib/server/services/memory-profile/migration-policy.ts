@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { HistoryImportStatus } from "$lib/memory-types";
 import { db } from "$lib/server/db";
 import {
@@ -15,8 +15,11 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { ActionIntentRecord } from "./curation-intent";
-
-import { HISTORY_POLICY_VERSION } from "./history-eligibility";
+import {
+	HISTORY_POLICY_VERSION,
+	historicalMemoryExclusion,
+} from "./history-eligibility";
+import { parseJsonRecord } from "./internal-json";
 
 function accountFor(userId: string) {
 	const user = db
@@ -66,6 +69,16 @@ export async function getHistoryImportStatus(
 							eq(conversations.memoryIncognito, false),
 							eq(messages.role, "user"),
 							lte(messages.createdAt, account.createdAt),
+							sql`NOT EXISTS (
+								SELECT 1 FROM ${memorySourceRevisions}
+								WHERE ${memorySourceRevisions.userId} = ${userId}
+								AND ${memorySourceRevisions.epoch} = ${account.epoch}
+								AND ${memorySourceRevisions.messageId} = ${messages.id}
+								AND ${memorySourceRevisions.conversationId} = ${conversations.id}
+								AND ${memorySourceRevisions.text} = ${messages.content}
+								AND ${memorySourceRevisions.eventId} LIKE 'message:%'
+								AND ${memorySourceRevisions.state} <> 'revoked'
+							)`,
 						),
 					)
 					.all()
@@ -77,10 +90,10 @@ export async function getHistoryImportStatus(
 		.all();
 	const shouldPrompt = oldDates.some(
 		({ at }) =>
-			(!reset?.at || at > reset.at) &&
-			!intervals.some(
-				(i) => i.startedAt <= at && (!i.endedAt || i.endedAt > at),
-			),
+			historicalMemoryExclusion(
+				{ account, intervals, resetAt: reset?.at, enabled: true },
+				{ assertedAt: at },
+			) === "unknown_history",
 	);
 	return {
 		available,
@@ -114,9 +127,20 @@ export async function recordHistoryImportChoice(
 		!["include", "decline"].includes(input.choice)
 	)
 		throw new Error("invalid_history_choice");
-	const account = accountFor(userId);
+	const { enqueueMemoryMutation } = await import("./delivery-job");
+	const { revokeMemorySources } = await import("./revisions");
+	accountFor(userId);
 	const now = new Date(Math.floor(Date.now() / 1000) * 1000);
-	db.transaction((tx) => {
+	let prepare = false;
+	await enqueueMemoryMutation((tx) => {
+		const account = tx
+			.select()
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		if (!account) throw new Error("memory_account_unavailable");
+		prepare =
+			account.authority === "preparing" || account.authority === "hindsight";
 		const existing = tx
 			.select()
 			.from(memoryHistoryChoices)
@@ -130,33 +154,80 @@ export async function recordHistoryImportChoice(
 		if (existing) {
 			if (existing.choice !== input.choice)
 				throw new Error("history_request_conflict");
-			return;
+			if (account.historyChoice !== input.choice) return [];
+		} else {
+			tx.insert(memoryHistoryChoices)
+				.values({
+					id: randomUUID(),
+					userId,
+					requestId: input.requestId,
+					choice: input.choice,
+					cutoff: now,
+					decidedAt: now,
+					policyVersion: HISTORY_POLICY_VERSION,
+					epoch: account.epoch,
+				})
+				.run();
+			tx.update(memoryAccounts)
+				.set({
+					historyChoice: input.choice,
+					historyCutoff: now,
+					historyDecidedAt: now,
+					historyPolicyVersion: HISTORY_POLICY_VERSION,
+					historyStatus:
+						input.choice === "include" ? "pending" : "not_requested",
+				})
+				.where(eq(memoryAccounts.userId, userId))
+				.run();
 		}
-		tx.insert(memoryHistoryChoices)
-			.values({
-				id: randomUUID(),
-				userId,
-				requestId: input.requestId,
-				choice: input.choice,
-				cutoff: now,
-				decidedAt: now,
-				policyVersion: HISTORY_POLICY_VERSION,
-				epoch: account.epoch,
+		if (input.choice !== "decline") return [];
+		// Optional history loses read and dispatch admission in the same transaction as consent.
+		const intervals = tx
+			.select()
+			.from(memoryControlIntervals)
+			.where(eq(memoryControlIntervals.userId, userId))
+			.all();
+		const reset = tx
+			.select({ at: memoryResetGenerations.advancedAt })
+			.from(memoryResetGenerations)
+			.where(eq(memoryResetGenerations.userId, userId))
+			.get();
+		const controls = { intervals, resetAt: reset?.at, enabled: true };
+		return tx
+			.select()
+			.from(memorySourceRevisions)
+			.where(
+				and(
+					eq(memorySourceRevisions.userId, userId),
+					eq(memorySourceRevisions.epoch, account.epoch),
+					ne(memorySourceRevisions.state, "revoked"),
+				),
+			)
+			.all()
+			.filter((source) => {
+				const context = parseJsonRecord(source.context);
+				return (
+					context.migration === true &&
+					typeof context.migrationAuthoredId !== "string" &&
+					historicalMemoryExclusion(controls, {
+						assertedAt: source.explicitEditAt ?? source.assertedAt,
+					}) === "unknown_history"
+				);
 			})
-			.run();
-		tx.update(memoryAccounts)
-			.set({
-				historyChoice: input.choice,
-				historyCutoff: now,
-				historyDecidedAt: now,
-				historyPolicyVersion: HISTORY_POLICY_VERSION,
-				historyStatus: input.choice === "include" ? "pending" : "not_requested",
-			})
-			.where(eq(memoryAccounts.userId, userId))
-			.run();
+			.map((source) => {
+				revokeMemorySources(userId, [source.id]);
+				return {
+					userId,
+					bankId: source.bankId,
+					epoch: source.epoch,
+					kind: "source_cleanup" as const,
+					sourceId: source.id,
+					requestId: `source-cleanup:${source.id}`,
+				};
+			});
 	});
 	// A saved choice is not a migration trigger for legacy accounts. Existing prepared/native accounts resume their manifest.
-	if (account.authority === "preparing" || account.authority === "hindsight") {
+	if (prepare) {
 		const { prepareMemoryMigration } = await import("./migration");
 		await prepareMemoryMigration(userId);
 	}

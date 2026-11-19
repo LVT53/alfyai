@@ -349,6 +349,422 @@ it("permission withdrawal after enqueue prevents historical dispatch", async () 
 		"revoked",
 	);
 });
+
+it.each(["prepare", "first toggle on", "off then on"] as const)(
+	"uses persisted second boundaries for historical permission after %s",
+	async (boundary) => {
+		const { db, s } = await seed();
+		const m = await import("./migration");
+		const policy = await import("./migration-policy");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const { captureMemoryTurnAcceptance, deliverCompletedMemoryTurn } =
+			await import("./chat-delivery");
+		const native = await migrationReplayNative();
+		const boundaryAt = Date.parse("2026-01-01T12:00:00.000Z");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(boundaryAt - 1_000);
+			if (boundary === "off then on")
+				await policy.setMemoryEnabled(h.userId, false);
+			if (boundary === "first toggle on")
+				db.update(s.users).set({ memoryEnabled: false }).run();
+			db.update(s.messages)
+				.set({ createdAt: new Date(boundaryAt + 100) })
+				.run();
+			vi.setSystemTime(boundaryAt + 900);
+			if (boundary !== "prepare") await policy.setMemoryEnabled(h.userId, true);
+			await m.prepareMemoryMigration(h.userId);
+			expect(db.select().from(s.messages).get()?.createdAt.getTime()).toBe(
+				boundaryAt,
+			);
+			expect(
+				db
+					.select()
+					.from(s.memoryControlIntervals)
+					.all()
+					.at(-1)
+					?.startedAt.getTime(),
+			).toBe(boundaryAt);
+			const historicalSource = () =>
+				m.inspectMemoryMigration(h.userId).sources.find(({ id }) => id === "m");
+			expect
+				.soft(historicalSource())
+				.toMatchObject(
+					boundary === "off then on"
+						? { eligibility: "excluded", reason: "known_off" }
+						: { eligibility: "uncertain", reason: "unknown_history" },
+				);
+			expect
+				.soft((await policy.getHistoryImportStatus(h.userId)).shouldPrompt)
+				.toBe(boundary !== "off then on");
+			await h.engine.drain(memoryDeliveryJob);
+			expect.soft(native.requests).toHaveLength(0);
+
+			if (boundary === "prepare") {
+				db.insert(s.conversations)
+					.values({ id: "live", userId: h.userId, title: "Synthetic live" })
+					.run();
+				const stamp = captureMemoryTurnAcceptance(h.userId, "live");
+				db.insert(s.messages)
+					.values([
+						{
+							id: "live-user",
+							conversationId: "live",
+							messageSequence: 1,
+							role: "user",
+							content: "I restore fountain pens.",
+							createdAt: new Date(),
+						},
+						{
+							id: "live-assistant",
+							conversationId: "live",
+							messageSequence: 2,
+							role: "assistant",
+							content: "Understood.",
+							createdAt: new Date(),
+						},
+					])
+					.run();
+				await deliverCompletedMemoryTurn({
+					userId: h.userId,
+					conversationId: "live",
+					memoryAcceptance: stamp,
+					userMessageId: "live-user",
+					assistantMessageId: "live-assistant",
+				});
+				await h.engine.drain(memoryDeliveryJob);
+				expect(native.requests.map(({ item }) => item.content)).toContain(
+					"I restore fountain pens.",
+				);
+			}
+
+			vi.setSystemTime(boundaryAt + 2_000);
+			db.insert(s.messages)
+				.values({
+					id: "later",
+					conversationId: "chat",
+					role: "user",
+					content: "I paint garden signs.",
+					createdAt: new Date(boundaryAt + 1_000),
+				})
+				.run();
+			await m.prepareMemoryMigration(h.userId);
+			await h.engine.drain(memoryDeliveryJob);
+			const retainedText = () =>
+				native.requests.map(({ item }) => item.content);
+			expect(retainedText()).toContain("I paint garden signs.");
+			expect
+				.soft(JSON.stringify(native.requests))
+				.not.toContain("My dog is Rex.");
+			await policy.recordHistoryImportChoice(h.userId, {
+				choice: "include",
+				requestId: "explicit-include-boundary",
+			});
+			await h.engine.drain(memoryDeliveryJob);
+			if (boundary === "off then on")
+				expect(JSON.stringify(native.requests)).not.toContain("My dog is Rex.");
+			else
+				expect(retainedText()).toContain("My bicycle is blue. My dog is Rex.");
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
+
+it.each([
+	"enabled",
+	"disabled",
+	"disabled before preparation",
+	"interrupted older decline",
+] as const)(
+	"withdraws only optional imported history before follow-up preparation (%s)",
+	async (mode) => {
+		const { db, s } = await legacyItem("active", '{"origin":"user_authored"}');
+		const { eq } = await import("drizzle-orm");
+		const m = await import("./migration");
+		const policy = await import("./migration-policy");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const { getMemoryDetail, listMemory } = await import("./native-read");
+		const { readPublishedMemory } = await import("./publication");
+		const { recallMemory } = await import("../memory-context/native");
+		const { captureMemoryTurnAcceptance, deliverCompletedMemoryTurn } =
+			await import("./chat-delivery");
+		const { createMessage } = await import("../messages");
+		const native = await migrationReplayNative();
+		const knownOn = "I catalogue river stones.";
+		const live = "I restore fountain pens.";
+		const authored = "I maintain a seed archive.";
+		const unknown = "My dog is Rex.";
+		const scope = { kind: "personal" } as const;
+		db.delete(s.memoryProfileItemProvenance).run();
+		db.update(s.memoryProfileItems).set({ statement: authored }).run();
+		db.insert(s.memoryControlIntervals)
+			.values({
+				id: "known-on",
+				userId: h.userId,
+				enabled: true,
+				epoch: 0,
+				startedAt: new Date("2021-01-01"),
+			})
+			.run();
+		db.insert(s.conversations)
+			.values([
+				{ id: "known", userId: h.userId, title: "Synthetic known on" },
+				{ id: "live", userId: h.userId, title: "Synthetic live" },
+			])
+			.run();
+		db.insert(s.messages)
+			.values({
+				id: "known-on-user",
+				conversationId: "known",
+				role: "user",
+				content: knownOn,
+				createdAt: new Date("2022-01-01"),
+			})
+			.run();
+		await policy.recordHistoryImportChoice(h.userId, {
+			choice: "include",
+			requestId: "first-include",
+		});
+		const prepared = await m.prepareMemoryMigration(h.userId);
+		await h.engine.drain(memoryDeliveryJob);
+		expect(m.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(true);
+		const page = () => listMemory(h.userId, { scope });
+		const accepted = page().rows.find(({ text }) => text === unknown);
+		const sources = () => db.select().from(s.memorySourceRevisions).all();
+		const original = sources().find(({ messageId }) => messageId === "m");
+		if (!accepted || !original) throw Error("included source was not accepted");
+		const stamp = captureMemoryTurnAcceptance(h.userId, "live");
+		const user = await createMessage("live", "user", live);
+		const assistant = await createMessage("live", "assistant", "Understood.");
+		await deliverCompletedMemoryTurn({
+			userId: h.userId,
+			conversationId: "live",
+			userMessageId: user.id,
+			assistantMessageId: assistant.id,
+			memoryAcceptance: stamp,
+		});
+		await h.engine.drain(memoryDeliveryJob);
+		const recall = async () =>
+			(
+				await recallMemory(h.userId, {
+					conversationId: "live",
+					query: "Memory",
+					tokenBudget: 200,
+				})
+			).map(({ text }) => text);
+		expect(page().rows.map(({ text }) => text)).toEqual(
+			expect.arrayContaining([unknown, knownOn, live, authored]),
+		);
+		expect(await recall()).toContain(unknown);
+		expect(getMemoryDetail(h.userId, accepted.ref).row.text).toBe(unknown);
+		expect(page().generation).not.toBe(accepted.ref.generation);
+		const survivingIds = () =>
+			sources()
+				.filter(
+					({ state, text }) =>
+						state === "accepted" && [knownOn, live, authored].includes(text),
+				)
+				.map(({ id }) => id)
+				.sort();
+		const originalSurvivors = survivingIds();
+		expect(originalSurvivors).toHaveLength(3);
+		const decline = {
+			choice: "decline",
+			requestId: "withdraw-optional-history",
+		} as const;
+		const paused =
+			mode === "disabled" || mode === "disabled before preparation";
+		const retainedBeforePause = native.requests.length;
+		if (mode === "disabled") {
+			const previouslyAccepted = sources()
+				.filter(({ state }) => state === "accepted")
+				.map(({ id }) => id);
+			await policy.setMemoryEnabled(h.userId, false);
+			await m.prepareMemoryMigration(h.userId);
+			expect
+				.soft(
+					sources()
+						.filter(({ state }) => state === "accepted")
+						.map(({ id }) => id),
+				)
+				.toEqual(previouslyAccepted);
+		}
+		if (mode === "interrupted older decline") {
+			const now = new Date();
+			db.insert(s.memoryHistoryChoices)
+				.values({
+					id: "older-receipt",
+					userId: h.userId,
+					requestId: decline.requestId,
+					choice: decline.choice,
+					cutoff: now,
+					decidedAt: now,
+					policyVersion: "1",
+					epoch: 0,
+				})
+				.run();
+			db.update(s.memoryAccounts)
+				.set({
+					historyChoice: "decline",
+					historyCutoff: now,
+					historyDecidedAt: now,
+					historyPolicyVersion: "1",
+				})
+				.run();
+		}
+		const prepareMigration = m.prepareMemoryMigration;
+		const prepare = vi.spyOn(m, "prepareMemoryMigration");
+		if (mode === "disabled before preparation") {
+			prepare.mockImplementationOnce(async (userId) => {
+				await policy.setMemoryEnabled(userId, false);
+				return prepareMigration(userId);
+			});
+		}
+		if (paused) {
+			await expect(
+				policy.recordHistoryImportChoice(h.userId, decline),
+			).resolves.toMatchObject({ choice: "decline" });
+		} else {
+			prepare.mockRejectedValueOnce(
+				new Error("synthetic interruption after choice"),
+			);
+			await expect(
+				policy.recordHistoryImportChoice(h.userId, decline),
+			).rejects.toThrow("synthetic interruption after choice");
+		}
+		const cleanup = () =>
+			db
+				.select()
+				.from(s.memoryDeliveryJobs)
+				.where(
+					eq(s.memoryDeliveryJobs.requestId, `source-cleanup:${original.id}`),
+				)
+				.get();
+		expect
+			.soft(db.select().from(s.memoryAccounts).get()?.historyChoice)
+			.toBe("decline");
+		expect
+			.soft(sources().find(({ id }) => id === original.id)?.state)
+			.toBe("revoked");
+		expect.soft(cleanup()).toMatchObject({
+			kind: "source_cleanup",
+			sourceId: original.id,
+			bankId: original.bankId,
+			status: "queued",
+		});
+		expect
+			.soft(
+				sources()
+					.filter(({ state }) => state === "accepted")
+					.map(({ text }) => text),
+			)
+			.toEqual(expect.arrayContaining([knownOn, live, authored]));
+		if (!paused) {
+			expect
+				.soft(
+					page()
+						.rows.map(({ text }) => text)
+						.sort(),
+				)
+				.toEqual([knownOn, live, authored].sort());
+			expect
+				.soft(() => getMemoryDetail(h.userId, accepted.ref))
+				.toThrow("stale_memory");
+			expect
+				.soft(
+					readPublishedMemory(
+						h.userId,
+						original.bankId,
+						accepted.ref.generation,
+					).map(({ text }) => text),
+				)
+				.not.toContain(unknown);
+			expect
+				.soft((await recall()).sort())
+				.toEqual([knownOn, live, authored].sort());
+		}
+		// Check cleanup before a successful retry in the interrupted cases.
+		await h.engine.drain(memoryDeliveryJob);
+		expect.soft(cleanup()?.status).toBe("succeeded");
+		expect
+			.soft(
+				[...(native.banks.get(original.bankId)?.values() ?? [])].some(
+					({ document_id }) => document_id === original.id,
+				),
+			)
+			.toBe(false);
+		if (paused) {
+			expect.soft(native.requests).toHaveLength(retainedBeforePause);
+			await policy.setMemoryEnabled(h.userId, true);
+			expect
+				.soft(
+					page()
+						.rows.map(({ text }) => text)
+						.sort(),
+				)
+				.toEqual([knownOn, live, authored].sort());
+			expect
+				.soft((await recall()).sort())
+				.toEqual([knownOn, live, authored].sort());
+		}
+		prepare.mockRestore();
+		await policy.recordHistoryImportChoice(h.userId, decline);
+		await h.engine.drain(memoryDeliveryJob);
+		expect.soft(survivingIds()).toEqual(originalSurvivors);
+		expect
+			.soft((await recall()).sort())
+			.toEqual([knownOn, live, authored].sort());
+		if (paused) expect.soft(native.requests).toHaveLength(retainedBeforePause);
+		expect.soft(db.select().from(s.memoryHistoryChoices).all()).toHaveLength(2);
+		expect
+			.soft(
+				db
+					.select()
+					.from(s.memoryDeliveryJobs)
+					.all()
+					.filter(
+						({ requestId }) => requestId === `source-cleanup:${original.id}`,
+					),
+			)
+			.toHaveLength(1);
+	},
+);
+
+it("rolls back history decline if its cleanup cannot be durably queued", async () => {
+	const { db, s } = await seed();
+	const m = await import("./migration");
+	const policy = await import("./migration-policy");
+	await policy.recordHistoryImportChoice(h.userId, {
+		choice: "include",
+		requestId: "initial-include",
+	});
+	await m.prepareMemoryMigration(h.userId);
+	h.sqlite.exec(`CREATE TRIGGER fail_history_cleanup BEFORE INSERT ON memory_delivery_jobs
+		WHEN NEW.kind = 'source_cleanup' BEGIN SELECT RAISE(ABORT, 'synthetic cleanup insert failure'); END`);
+	await expect(
+		policy.recordHistoryImportChoice(h.userId, {
+			choice: "decline",
+			requestId: "atomic-decline",
+		}),
+	).rejects.toThrow("synthetic cleanup insert failure");
+	expect
+		.soft(db.select().from(s.memoryAccounts).get()?.historyChoice)
+		.toBe("include");
+	expect
+		.soft(
+			db
+				.select()
+				.from(s.memoryHistoryChoices)
+				.all()
+				.map(({ choice }) => choice),
+		)
+		.toEqual(["include"]);
+	expect(db.select().from(s.memorySourceRevisions).get()?.state).toBe(
+		"pending",
+	);
+	expect(db.select().from(s.memoryRevocations).all()).toHaveLength(0);
+});
 it("rollback refuses to revive legacy state after a post-cutover removal", async () => {
 	const { db, s } = await seed();
 	await nativeFixture();

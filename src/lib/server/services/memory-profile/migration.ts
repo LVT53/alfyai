@@ -3,10 +3,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
+	conversations,
 	memoryAccounts,
 	memoryActions,
 	memoryBanks,
 	memoryControlIntervals,
+	memoryDeliveryJobs,
 	memoryMigrationManifests,
 	memoryResetGenerations,
 	memoryRevocations,
@@ -138,6 +140,28 @@ export async function prepareMemoryMigration(userId: string) {
 		const inventoryByMessage = new Map(
 			inventory.sources.map((source) => [source.id, source]),
 		);
+		const durableControls = { ...controls, enabled: true };
+		const incognitoChats = user.memoryEnabled
+			? new Set<string>()
+			: new Set(
+					tx
+						.select({ id: conversations.id })
+						.from(conversations)
+						.where(
+							and(
+								eq(conversations.userId, userId),
+								eq(conversations.memoryIncognito, true),
+							),
+						)
+						.all()
+						.map(({ id }) => id),
+				);
+		const sourceActions = (messageId: string) =>
+			inventory.actions.filter((action) =>
+				action.sourceIds.includes(messageId),
+			);
+		const sourceRequestId = (id: string, actions: typeof inventory.actions) =>
+			`source:${id}:${memoryTextHash(JSON.stringify(actions))}`;
 		const authored = new Map(
 			inventory.actions
 				.filter(
@@ -146,7 +170,7 @@ export async function prepareMemoryMigration(userId: string) {
 						a.at &&
 						a.scope &&
 						!inventory.exceptions.some((e) => e.id === a.id) &&
-						historicalMemoryExclusion(controls, {
+						historicalMemoryExclusion(durableControls, {
 							assertedAt: new Date(a.at),
 							userAuthored: true,
 						}) === null,
@@ -165,6 +189,55 @@ export async function prepareMemoryMigration(userId: string) {
 			const scopeKey = scopeByBank.get(source.bankId);
 			const inOriginalScope =
 				current && memoryScopeKey(current.scope) === scopeKey;
+			if (
+				storedContext.migration === true &&
+				current &&
+				source.acceptedGeneration &&
+				(source.state === "accepted" || source.state === "repair_held") &&
+				current.messageAt ===
+					(storedContext.migrationMessageAt ??
+						source.assertedAt.toISOString()) &&
+				memoryTextHash(current.text) === source.textHash
+			) {
+				// The toggle pauses delivery. Only durable exclusions can retire a learned source.
+				if (
+					current.reason === "memory_off" &&
+					!inventory.holdHistory &&
+					(inOriginalScope || isLearnedProjectSource(tx, source, scopeKey)) &&
+					historicalMemoryExclusion(durableControls, {
+						assertedAt: new Date(current.explicitEditAt ?? current.assertedAt),
+						incognito: incognitoChats.has(current.conversationId ?? ""),
+					}) === null
+				)
+					continue;
+				if (
+					inOriginalScope &&
+					current.eligibility === "eligible" &&
+					source.state === "accepted"
+				) {
+					const actions = sourceActions(current.id);
+					if (
+						!actions.length ||
+						source.controlRevision === inventory.controlRevision ||
+						account.authority === "hindsight" ||
+						tx
+							.select({ id: memoryDeliveryJobs.id })
+							.from(memoryDeliveryJobs)
+							.where(
+								and(
+									eq(memoryDeliveryJobs.userId, userId),
+									eq(
+										memoryDeliveryJobs.requestId,
+										sourceRequestId(source.id, actions),
+									),
+									eq(memoryDeliveryJobs.status, "succeeded"),
+								),
+							)
+							.get()
+					)
+						continue;
+				}
+			}
 			// Accepted project documents keep their identity across moves and control
 			// revisions as long as the persisted source remains eligible.
 			if (
@@ -283,8 +356,7 @@ export async function prepareMemoryMigration(userId: string) {
 						s.state !== "revoked" &&
 						s.bankId === bank.id &&
 						(s.controlRevision === inventory.controlRevision ||
-							(s.state === "accepted" &&
-								isLearnedProjectSource(tx, s, bank.scopeKey))),
+							(s.state === "accepted" && s.acceptedGeneration)),
 				) ??
 				recordMemorySource({
 					userId,
@@ -323,7 +395,11 @@ export async function prepareMemoryMigration(userId: string) {
 			}
 			if (
 				row.state !== "revoked" &&
-				!(account.authority === "hindsight" && row.state === "accepted")
+				!(
+					row.state === "accepted" &&
+					(account.authority === "hindsight" ||
+						row.controlRevision !== inventory.controlRevision)
+				)
 			)
 				jobs.push({
 					userId,
@@ -331,7 +407,7 @@ export async function prepareMemoryMigration(userId: string) {
 					epoch: inventory.epoch,
 					kind: "source",
 					sourceId: row.id,
-					requestId: `source:${row.id}:${memoryTextHash(JSON.stringify(inventory.actions.filter((a) => a.sourceIds.includes(source.id))))}`,
+					requestId: sourceRequestId(row.id, sourceActions(source.id)),
 				});
 		}
 		if (replayTargets.size)
@@ -407,7 +483,8 @@ export async function prepareMemoryMigration(userId: string) {
 			)
 				continue;
 			if (action.kind === "authored") {
-				if (!action.scope || !authored.has(action.id)) continue;
+				if (!user.memoryEnabled || !action.scope || !authored.has(action.id))
+					continue;
 				const bank = ensureMemoryBank(userId, action.scope);
 				const scopedRows = currentRows.filter(
 					(s) => s.bankId === bank.id && s.lineageId === action.id,

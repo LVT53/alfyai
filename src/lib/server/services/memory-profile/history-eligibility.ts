@@ -37,9 +37,12 @@ export function historicalMemoryExclusion(
 	const periods = controls.intervals.filter((i) => i.startedAt <= at);
 	if (periods.some((i) => !i.enabled && (!i.endedAt || at <= i.endedAt)))
 		return "known_off";
+	// A message and a control change stored in the same second have no proven order.
 	if (
 		input.userAuthored ||
-		periods.some((i) => i.enabled && (!i.endedAt || at < i.endedAt))
+		periods.some(
+			(i) => i.enabled && i.startedAt < at && (!i.endedAt || at < i.endedAt),
+		)
 	)
 		return null;
 
