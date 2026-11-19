@@ -130,14 +130,23 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "image_search",
-      "description": "Find web pictures, including landmarks. Keep local names and accents in query. If useful, add international terms (\"aerial view\") in additionalQueries. Honor any requested search language. Put visual criteria in objective. Do not use for directions (map_route), personal photos (photos) or facts (research_web). Embed each selected url as `![alt text](url)` or it is invisible. Cite sourcePageUrl.",
+      "description": "Use supplied pictures first. Proactively find web pictures when appearance helps identify, compare or do something. Do not use for decoration, directions (map_route), personal photos (photos) or facts alone. Search, then inspect resultIds before relying on visual details. Embed helpful results as `![alt text](url)` or they are invisible. Cite sourcePageUrl.",
       "parameters": {
         "type": "object",
         "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "search",
+              "inspect"
+            ]
+          },
           "query": {
-            "type": "string"
+            "type": "string",
+            "description": "Short visual keywords; preserve local names and accents."
           },
           "additionalQueries": {
+            "description": "Optional complementary international terms. Honor any requested search language.",
             "maxItems": 2,
             "type": "array",
             "items": {
@@ -146,13 +155,21 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             }
           },
           "objective": {
+            "description": "What the picture must visibly show.",
             "type": "string",
             "maxLength": 5000
+          },
+          "resultIds": {
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^image-search:[0-9a-f]{12}$"
+            },
+            "description": "One or two image IDs from this turn's search results. No URLs."
           }
-        },
-        "required": [
-          "query"
-        ]
+        }
       }
     }
   },

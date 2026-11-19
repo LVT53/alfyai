@@ -224,12 +224,15 @@ function buildAttemptPrepareStep(params: {
 	maxOutputTokens?: number;
 	systemPromptTokens?: number;
 }): PrepareStepFunction<ToolSet> | undefined {
+	const providerCanSee = providerCanSeeImages(params.provider);
+	if (params.stepImages)
+		params.stepImages.visionAttempt = { canSee: providerCanSee };
 	return composePrepareSteps(
 		buildFirstStepOnlyPrepareStep(params.firstStepToolChoice),
 		params.stepImages
 			? buildVisionPrepareStep({
 					queue: params.stepImages,
-					providerCanSee: providerCanSeeImages(params.provider),
+					providerCanSee,
 					providerIsLocal: providerRunsLocally(params.provider),
 				})
 			: undefined,

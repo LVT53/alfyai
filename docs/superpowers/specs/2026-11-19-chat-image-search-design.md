@@ -4,7 +4,7 @@
 
 - [x] Establish the production baseline and confirm the budget. [Research and counts](../../research/2026-11-19-parallel-image-search.md)
 - [x] **Switch chat image search to Parallel Fast.** Implemented locally. The provider client, safe previews, historical Brave rendering and shared billing are wired into Normal Chat.
-- [ ] Improve when chat chooses a picture. Cover recognition, identifying differences and finding the appearance of a place. Keep maps for directions, routes and distances. Check equivalent English and Hungarian requests, including ones where a text answer is sufficient.
+- [x] Improve when chat chooses a picture. Normal Chat now uses references for recognition, comparison and steps that depend on matching a visible feature. The [bilingual evaluation](../../research/2026-11-19-parallel-image-search.md#normal-chat-picture-decisions) covers equivalent questions where pictures help and where words suffice.
 - [ ] Measure the outcome from selection to display. Distinguish attempted searches, provider failures, usable candidates, pictures included in a reply and previews that actually loaded. Assess usefulness separately from successful loading.
 
 ## First provider comparison

@@ -28,6 +28,7 @@ import {
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { HistoryChatTitleUnresolvedError } from "$lib/server/services/memory-context/history";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
@@ -47,8 +48,10 @@ import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	allAddressesRefusedMessage,
 	createTurnUrlProvenance,
+	hasSourceThumbnail,
 	imagesLeftOutWarning,
 	logRefusedAddresses,
+	noteToolEntrySources,
 	type ResumeProvenance,
 	someAddressesRefusedNote,
 } from "$lib/server/services/url-provenance";
@@ -126,7 +129,9 @@ import {
 import {
 	compactImageSearchResults,
 	createImageSearchCandidates,
+	createTurnImageInspection,
 	imageSearchInputSchema,
+	imageSearchShownSchema,
 } from "./image-search";
 import {
 	locationToolInputSchema,
@@ -357,6 +362,8 @@ export interface CreateNormalChatToolsContext {
 	// typed into their answers and the results the paused segment's tools handed the
 	// model, which this turn's address check has not seen (url-provenance/turn.ts).
 	resumeProvenance?: ResumeProvenance;
+	/** Server-recorded image searches and inspections from this logical reply. */
+	priorImageSearchCalls?: readonly ToolCallEntry[];
 }
 
 // Added to make_image's description while the explicit-picture filter applies
@@ -397,7 +404,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	image_search: {
 		description:
-			'Find web pictures, including landmarks. Keep local names and accents in query. If useful, add international terms ("aerial view") in additionalQueries. Honor any requested search language. Put visual criteria in objective. Do not use for directions (map_route), personal photos (photos) or facts (research_web). Embed each selected url as `![alt text](url)` or it is invisible. Cite sourcePageUrl.',
+			"Use supplied pictures first. Proactively find web pictures when appearance helps identify, compare or do something. Do not use for decoration, directions (map_route), personal photos (photos) or facts alone. Search, then inspect resultIds before relying on visual details. Embed helpful results as `![alt text](url)` or they are invisible. Cite sourcePageUrl.",
 		errorPrefix: "Image search failed",
 	},
 	produce_file: {
@@ -669,10 +676,38 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	for (const result of ctx.resumeProvenance?.priorResults ?? []) {
 		urlProvenance.noteToolResult(result);
 	}
+	// A resumed reply may run after a restart, when the user's thumbnail ledger
+	// is empty. Reapply the original input-echo check before minting any grant.
+	for (const entry of ctx.priorImageSearchCalls ?? []) {
+		if (
+			entry.name !== "image_search" ||
+			entry.status !== "done" ||
+			entry.metadata?.ok !== true ||
+			entry.metadata.action === "inspect"
+		)
+			continue;
+		urlProvenance.noteToolResult({
+			toolName: entry.name,
+			payload: undefined,
+			entry,
+		});
+		noteToolEntrySources(ctx.userId, entry, {
+			keepCandidate: (candidate) => urlProvenance.isKnown(candidate.url),
+		});
+	}
 	const recorder = withUrlProvenance(ctx.recorder ?? createToolCallRecorder(), {
 		userId: ctx.userId,
 		provenance: urlProvenance,
 	});
+	// Check at inspect time, after the search recorder has rejected any echoed
+	// model address and authorized the exact preview target for this user.
+	const imageInspection = createTurnImageInspection(
+		ctx.stepImages,
+		(result) =>
+			urlProvenance.isKnown(result.url) &&
+			(!result.thumbnail || hasSourceThumbnail(ctx.userId, result.thumbnail)),
+		ctx.priorImageSearchCalls,
+	);
 	const i18n = TOOL_TEXT;
 	// Recomputed every call (never cached at module load) so a newly
 	// registered create handler — in production, or in a test that pokes
@@ -1168,19 +1203,80 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		image_search: asExecutableTool(
 			tool({
 				description: i18n.image_search.description,
-				inputSchema: imageSearchInputSchema,
+				inputSchema: compactToolInputSchema(
+					imageSearchInputSchema,
+					imageSearchShownSchema,
+				),
 				execute: async (
 					input: z.infer<typeof imageSearchInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
 					const safeInput = imageSearchInputSchema.parse(input);
-					return executeToolWithEnvelope({
+					return executeToolWithEnvelope<Record<string, unknown>>({
 						toolName: "image_search",
 						timeoutMs: TOOL_TIMEOUTS_MS.image_search,
 						readOnly: true,
 						options,
 						recorder,
 						run: async (signal) => {
+							if (safeInput.action === "inspect") {
+								const { queuedIds, queuedImages, reason } =
+									await imageInspection.inspect(safeInput.resultIds, signal);
+								const queuedCount = queuedIds.length;
+								const requestedIds = [...new Set(safeInput.resultIds)];
+								const requestedCount = requestedIds.length;
+								const unavailableIds = requestedIds.filter(
+									(id) => !queuedIds.includes(id),
+								);
+								const message = queuedCount
+									? "Look at the ID-labeled previews if they follow. For a visible match, copy its exact queuedImages.url into ![what is visible](url) and cite its sourcePageUrl when provided. Never embed an unavailableId or another search result. If none visibly shows the requested detail, answer in text."
+									: "No pixels were available. Answer in text; do not infer visual details from titles or claim to have seen a picture.";
+								return {
+									modelPayload: {
+										success: queuedCount > 0,
+										name: "image_search",
+										action: "inspect",
+										queuedIds,
+										queuedImages: queuedImages.map(
+											({ id, url, sourcePageUrl }) => ({
+												id,
+												url,
+												...(sourcePageUrl &&
+												urlProvenance.isKnown(sourcePageUrl)
+													? { sourcePageUrl }
+													: {}),
+											}),
+										),
+										unavailableIds,
+										message,
+									},
+									entry: {
+										callId: options.toolCallId,
+										name: "image_search",
+										input: safeInput,
+										status: "done",
+										sourceType: "web",
+										outputSummary: message,
+										candidates: [],
+										metadata: {
+											action: "inspect",
+											ok: queuedCount > 0,
+											evidenceReady: false,
+											requestedCount,
+											queuedCount,
+											...(queuedCount > 0 && queuedCount < requestedCount
+												? { partialReason: reason ?? "unavailable" }
+												: {}),
+											...(queuedCount === 0
+												? reasonMetadata(
+														"image_search",
+														`inspection_${reason ?? "unavailable"}`,
+													)
+												: {}),
+										},
+									},
+								};
+							}
 							const results = await searchImages(safeInput, signal);
 							void recordParallelUsage({
 								userId: ctx.userId,
@@ -1188,12 +1284,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								tool: "image_search",
 							}).catch(() => {});
 							const compactResults = compactImageSearchResults(results);
+							imageInspection.remember(compactResults);
 							const candidates = createImageSearchCandidates(compactResults);
 							const modelPayload = {
 								success: true as const,
 								name: "image_search",
 								sourceType: "web",
 								message: `Found ${compactResults.length} ${compactResults.length === 1 ? "image" : "images"}`,
+								...(compactResults.length > 0
+									? {
+											guidance:
+												"These are search results, not inspected pictures. For a visual identification, comparison or instruction, call image_search with action inspect and up to two resultIds. Check the actual pixels before choosing what to show.",
+										}
+									: {}),
 								results: compactResults,
 							};
 							return {
@@ -1219,10 +1322,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							};
 						},
 						onError: (error) => {
-							const message = modelSafeToolError(
-								error,
-								i18n.image_search.errorPrefix,
-							);
+							const message =
+								safeInput.action === "inspect"
+									? "No pixels were available. Answer in text."
+									: modelSafeToolError(error, i18n.image_search.errorPrefix);
 							const modelPayload = {
 								success: false as const,
 								error: message,
@@ -1241,6 +1344,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										...(safeInput.action === "inspect"
+											? {
+													action: "inspect",
+													requestedCount: safeInput.resultIds.length,
+													queuedCount: 0,
+													...reasonMetadata(
+														"image_search",
+														"inspection_unavailable",
+													),
+												}
+											: {}),
 										// A search that was never set up, or one the provider refused
 										// (its plan ran out answers 402). A timeout and a Stop are the
 										// envelope's; any other failure names nothing.

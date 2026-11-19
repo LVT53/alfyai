@@ -25,6 +25,7 @@ import {
 	resolveHistoryToolMessagesMode,
 	resolveOpenAICompatibleProviderAdapterProfile,
 } from "../normal-chat-model/provider-compatibility";
+import { spentImageInspectionSlots } from "../normal-chat-tools/image-search";
 import { providerRunsLocally } from "../vision/provider-vision";
 import { createStepImageQueue } from "../vision/step-images";
 import { buildCurrentUserMessage } from "../vision/turn-images";
@@ -226,10 +227,25 @@ export async function prepareNormalChatTurn(
 		// preparation, where it always was.
 		const packs: ToolPack[] = [];
 		const stepImages = createStepImageQueue();
+		stepImages.reserve(
+			spentImageInspectionSlots(params.priorImageSearchCalls ?? []),
+		);
 		let numbered: TurnPictureIndex = emptyTurnPictureIndex();
 		const packFor = async (modelId: string) => {
 			const pack = await createToolPack(
-				params,
+				packs.length
+					? {
+							...params,
+							priorImageSearchCalls: [
+								...(params.priorImageSearchCalls ?? []),
+								...packs.flatMap((pack) =>
+									pack
+										.getToolCalls()
+										.filter((call) => call.name === "image_search"),
+								),
+							],
+						}
+					: params,
 				lifetime.scope.turnId,
 				effort,
 				modelId as ModelId,

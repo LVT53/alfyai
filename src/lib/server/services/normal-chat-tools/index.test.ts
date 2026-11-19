@@ -3855,6 +3855,7 @@ describe("createNormalChatTools", () => {
 			name: "image_search",
 			sourceType: "web",
 			message: "Found 2 images",
+			guidance: expect.stringContaining("Check the actual pixels"),
 			results: [
 				{
 					id: "image-search:4eebfc739407",
@@ -3925,6 +3926,58 @@ describe("createNormalChatTools", () => {
 				},
 			},
 		]);
+	});
+
+	it("inspects only results from this tool turn without issuing or charging a second search", async () => {
+		const result = {
+			provider: "parallel" as const,
+			url: "https://images.example/cat.jpg",
+			title: "Cat",
+			source: "example.com",
+			sourcePageUrl: "https://example.com/cats",
+			thumbnail: "https://images.example/cat.jpg",
+		};
+		searchImagesMock.mockResolvedValue([result]);
+		const context = {
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		};
+		const set = createNormalChatTools(context);
+		const options = { toolCallId: "search-1", messages: [] };
+		await set.tools.image_search.execute({ query: "cat" }, options);
+		const id = set.getToolCalls()[0]?.candidates?.[0]?.id;
+		if (!id) throw new Error("missing search result");
+		const inspect = { action: "inspect" as const, resultIds: [id] };
+		await expect(
+			set.tools.image_search.execute(inspect, {
+				...options,
+				toolCallId: "inspect-1",
+			}),
+		).resolves.toMatchObject({
+			success: false,
+			action: "inspect",
+			message: expect.stringContaining("No pixels"),
+		});
+		expect(set.getToolCalls()[1]).toMatchObject({
+			candidates: [],
+			metadata: {
+				action: "inspect",
+				queuedCount: 0,
+				requestedCount: 1,
+				reasonCode: "inspection_unavailable",
+			},
+		});
+		const later = createNormalChatTools({ ...context, turnId: "turn-2" });
+		await later.tools.image_search.execute(inspect, {
+			...options,
+			toolCallId: "inspect-2",
+		});
+		expect(later.getToolCalls()[0]?.metadata?.reasonCode).toBe(
+			"inspection_unknown_result",
+		);
+		expect(searchImagesMock).toHaveBeenCalledTimes(1);
+		expect(recordParallelUsageMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("records new tool service failures without evidence-ready candidates", async () => {

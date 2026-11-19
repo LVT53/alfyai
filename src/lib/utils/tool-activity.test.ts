@@ -2648,6 +2648,68 @@ describe("each tool's row shows what it found", () => {
 				},
 			})) as ToolCallSegment["candidates"];
 
+		it("describes prepared previews in both languages without counting another search or claiming they were seen", async () => {
+			const call = {
+				name: "image_search",
+				input: { action: "inspect", resultIds: ["image-search:123456789abc"] },
+				metadata: {
+					action: "inspect",
+					ok: true,
+					requestedCount: 2,
+					queuedCount: 1,
+				},
+			};
+			const result = row(call);
+			expect(result.verb).toBe("Picture previews");
+			expect(result.body).toEqual({
+				kind: "reason",
+				text: "Prepared 1 of 2 for a closer look.",
+			});
+			expect(result.summaryCount).toBeUndefined();
+			await inHungarian((hu) => {
+				expect(row(call, hu).body).toEqual({
+					kind: "reason",
+					text: "2 képből 1 előnézete készült el.",
+				});
+			});
+			const budget = {
+				...call,
+				metadata: { ...call.metadata, partialReason: "budget" },
+			};
+			const missing = {
+				...call,
+				metadata: { ...call.metadata, partialReason: "unavailable" },
+			};
+			expect(row(budget).body).toMatchObject({
+				text: expect.stringContaining("picture limit"),
+			});
+			expect(row(missing).body).toMatchObject({
+				text: expect.stringContaining("could not be opened"),
+			});
+			await inHungarian((hu) => {
+				expect(row(budget, hu).body).toMatchObject({
+					text: expect.stringContaining("több kép már nem fér bele"),
+				});
+				expect(row(missing, hu).body).toMatchObject({
+					text: expect.stringContaining("nem sikerült megnyitni"),
+				});
+			});
+			const withheld = row({
+				...call,
+				metadata: {
+					...call.metadata,
+					ok: false,
+					queuedCount: 0,
+					reasonCode: "inspection_text_only",
+				},
+			});
+			expect(withheld.status).toBe("skipped");
+			expect(withheld.body).toMatchObject({
+				text: expect.stringContaining("can't view pictures"),
+			});
+			expect(JSON.stringify(withheld)).not.toContain("123456789abc");
+		});
+
 		it("says how many pictures it found on the right, and shows them small with their sites", () => {
 			const item = row({
 				name: "image_search",

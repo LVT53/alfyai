@@ -4576,7 +4576,12 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				},
 			],
 			userTexts: ["Satin, please"],
-			priorSegmentToolCalls: [fetchEntry, searchEntry, askEntry] as never,
+			priorSegmentToolCalls: [
+				fetchEntry,
+				searchEntry,
+				{ name: "image_search", status: "done", input: { query: "plugs" } },
+				askEntry,
+			] as never,
 			keepConnectorDataLocal: true,
 			answerDigest: {
 				outputSummary: "The user picked: B",
@@ -4656,6 +4661,9 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				});
 				// no regeneration appendix: this is the same reply going on
 				expect(params.systemPromptAppendix).toBeUndefined();
+				expect(params.priorImageSearchCalls).toEqual([
+					{ name: "image_search", status: "done", input: { query: "plugs" } },
+				]);
 				expect(params.resumeProvenance).toEqual({
 					userTexts: ["Satin, please"],
 					priorResults: capturedProvenanceResults({

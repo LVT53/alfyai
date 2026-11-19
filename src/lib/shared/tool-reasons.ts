@@ -79,7 +79,15 @@ export const TOOL_REASON_CODES = {
 		"page_not_found",
 		"no_readable_text",
 	],
-	image_search: ["search_unavailable", "not_set_up", "nothing_found"],
+	image_search: [
+		"search_unavailable",
+		"not_set_up",
+		"nothing_found",
+		"inspection_unknown_result",
+		"inspection_text_only",
+		"inspection_budget",
+		"inspection_unavailable",
+	],
 	memory_context: [
 		"chat_out_of_reach",
 		"history_request_required",

@@ -237,6 +237,8 @@ export type NormalChatSendModelBaseParams = {
 	// What the paused segment's tools handed the model and the words the person
 	// typed into their answers, for this turn's address check (ADR-0068).
 	resumeProvenance?: ResumeProvenance;
+	/** Server-recorded image searches and inspections from this logical reply. */
+	priorImageSearchCalls?: readonly ToolCallEntry[];
 	personalityPrompt?: string;
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -639,6 +641,9 @@ export async function createToolPack(
 		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
 		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(params.canPause ? { canPause: true } : {}),
+		...(params.priorImageSearchCalls?.length
+			? { priorImageSearchCalls: params.priorImageSearchCalls }
+			: {}),
 		...(params.resumeProvenance
 			? { resumeProvenance: params.resumeProvenance }
 			: {}),

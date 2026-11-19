@@ -150,11 +150,13 @@ export async function fetchBraveThumbnail(
 async function fetchThumbnailBytes(
 	address: string,
 	fetchImpl: OutboundFetch,
+	signal?: AbortSignal,
 ): Promise<SearchThumbnail | null> {
 	// A fragment is never sent, and none goes into the request.
 	const target = new URL(address);
 	target.hash = "";
 
+	const deadline = AbortSignal.timeout(THUMBNAIL_FETCH_TIMEOUT_MS);
 	let upstream: Response;
 	try {
 		upstream = await fetchImpl(target.href, {
@@ -164,7 +166,7 @@ async function fetchThumbnailBytes(
 			// A redirect is an address nobody listed: it is never followed, and its
 			// 3xx answer is not `ok`, so it fails below.
 			redirect: "manual",
-			signal: AbortSignal.timeout(THUMBNAIL_FETCH_TIMEOUT_MS),
+			signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
 		});
 	} catch {
 		return null;
@@ -193,15 +195,17 @@ async function fetchThumbnailBytes(
 /** Decode untrusted publisher bytes into a small, single-frame raster preview. */
 export async function fetchPublisherThumbnail(
 	address: string,
-	options: { fetch?: OutboundFetch } = {},
+	options: { fetch?: OutboundFetch; signal?: AbortSignal } = {},
 ): Promise<SearchThumbnail | null> {
 	const target = imagePreviewTarget(address);
-	if (!target || !assessOutboundUrl(target).ok) return null;
+	if (options.signal?.aborted || !target || !assessOutboundUrl(target).ok)
+		return null;
 	const original = await fetchThumbnailBytes(
 		target,
 		options.fetch ?? thumbnailFetch,
+		options.signal,
 	);
-	if (!original) return null;
+	if (!original || options.signal?.aborted) return null;
 	const extension = original.contentType.slice("image/".length);
 	// Reject mislabeled markup before giving the publisher's bytes to a decoder.
 	if (
@@ -233,7 +237,9 @@ export async function fetchPublisherThumbnail(
 			.webp()
 			.timeout({ seconds: 3 })
 			.toBuffer();
-		return { bytes, contentType: "image/webp" };
+		return options.signal?.aborted
+			? null
+			: { bytes, contentType: "image/webp" };
 	} catch {
 		return null;
 	}

@@ -1190,7 +1190,48 @@ function buildSettledToolActivityItem(
 	}
 
 	if (iconType === "image-search") {
-		const query = firstStringInput(segment.input).slice(0, 200);
+		if (
+			segment.input.action === "inspect" ||
+			segment.metadata?.action === "inspect"
+		) {
+			const label = translate(
+				status === "running"
+					? "toolRows.image_search.preparing"
+					: "toolRows.image_search.previews",
+			);
+			const queued = segment.metadata?.queuedCount;
+			const requested = segment.metadata?.requestedCount;
+			return {
+				...base,
+				verb: label,
+				object: "",
+				meta: "",
+				summaryLabel: label,
+				title: label,
+				body:
+					typeof queued === "number" &&
+					queued > 0 &&
+					typeof requested === "number"
+						? {
+								kind: "reason",
+								text: translate(
+									segment.metadata?.partialReason === "budget"
+										? "toolRows.image_search.partialBudget"
+										: segment.metadata?.partialReason === "unavailable"
+											? "toolRows.image_search.partialUnavailable"
+											: "toolRows.image_search.ready",
+									{
+										count: queued,
+										total: requested,
+									},
+								),
+							}
+						: null,
+			};
+		}
+		const query = String(
+			segment.input.query ?? firstStringInput(segment.input),
+		).slice(0, 200);
 		const imageVerb = verb(
 			translate,
 			"searchingImages",

@@ -161,6 +161,23 @@ const toolRowsDict = {
 		"toolRows.fetch_url.fallback": "The page couldn't be read.",
 
 		// image_search
+		"toolRows.image_search.preparing": "Preparing picture previews",
+		"toolRows.image_search.previews": "Picture previews",
+		"toolRows.image_search.partialBudget":
+			"Prepared {count} of {total} previews. The reply reached its picture limit.",
+		"toolRows.image_search.partialUnavailable":
+			"Prepared {count} of {total} previews. The other picture could not be opened.",
+		"toolRows.image_search.ready":
+			"Prepared {count} of {total} for a closer look.",
+		"toolRows.image_search.inspection_unknown_result":
+			"A selected picture wasn't among the images found for this reply.",
+		"toolRows.image_search.inspection_text_only":
+			"The model answering this turn can't view pictures.",
+		"toolRows.image_search.inspection_budget":
+			"This reply has reached its limit for picture previews.",
+		"toolRows.image_search.inspection_unavailable":
+			"Alfy couldn't prepare a preview of the selected picture.",
+
 		"toolRows.image_search.search_unavailable":
 			"The picture search isn't available right now.",
 		"toolRows.image_search.search_timeout":
@@ -615,6 +632,23 @@ const toolRowsDict = {
 		"toolRows.fetch_url.fallback": "Az oldalt nem sikerült elolvasni.",
 
 		// image_search
+		"toolRows.image_search.preparing": "Képelőnézetek előkészítése",
+		"toolRows.image_search.previews": "Képelőnézetek",
+		"toolRows.image_search.partialBudget":
+			"{total} képből {count} előnézete készült el. Ehhez a válaszhoz több kép már nem fér bele.",
+		"toolRows.image_search.partialUnavailable":
+			"{total} képből {count} előnézete készült el. A másik képet nem sikerült megnyitni.",
+		"toolRows.image_search.ready":
+			"{total} képből {count} előnézete készült el.",
+		"toolRows.image_search.inspection_unknown_result":
+			"Az egyik kiválasztott kép nem szerepelt az ehhez a válaszhoz talált képek között.",
+		"toolRows.image_search.inspection_text_only":
+			"A most válaszoló modell nem tud képeket megtekinteni.",
+		"toolRows.image_search.inspection_budget":
+			"Ehhez a válaszhoz már nem készíthető több képelőnézet.",
+		"toolRows.image_search.inspection_unavailable":
+			"Alfy nem tudott előnézetet készíteni a kiválasztott képről.",
+
 		"toolRows.image_search.search_unavailable":
 			"A képkeresés most nem érhető el.",
 		"toolRows.image_search.search_timeout":

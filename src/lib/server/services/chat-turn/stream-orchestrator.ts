@@ -261,6 +261,9 @@ export function runChatStreamOrchestrator(
 					results: resume.capturedResults,
 					keepConnectorDataLocal: resume.keepConnectorDataLocal,
 				}),
+				priorImageSearchCalls: resume.priorSegmentToolCalls.filter(
+					(call) => call.name === "image_search",
+				),
 				resumeProvenance: {
 					userTexts: resume.userTexts,
 					priorResults: capturedProvenanceResults({

@@ -172,6 +172,14 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 	image_search: {
 		codes: {
 			search_unavailable: fail("toolRows.image_search.search_unavailable"),
+			inspection_unknown_result: stop(
+				"toolRows.image_search.inspection_unknown_result",
+			),
+			inspection_text_only: stop("toolRows.image_search.inspection_text_only"),
+			inspection_budget: stop("toolRows.image_search.inspection_budget"),
+			inspection_unavailable: fail(
+				"toolRows.image_search.inspection_unavailable",
+			),
 			not_set_up: stop("toolRows.image_search.not_set_up"),
 			nothing_found: empty("toolRows.image_search.nothing_found"),
 			timed_out: fail("toolRows.image_search.search_timeout"),

@@ -18,6 +18,11 @@
 const ARTIFACT_KINDS_PARAGRAPH =
 	"You can also keep something as a Document, App or Canvas item beside the chat, so the user can come back to it and edit it with you. Offer one when they will return to the work; the tool descriptions say when, and which type.";
 
+const STABLE_FACTS_RULE =
+	"Answer stable factual questions directly when words are enough. When the person needs to recognize something by sight, tell similar things apart, or perform a step by matching a visible feature, show them a useful reference even if you already know the facts. Look at their attached picture first. If a reference is still needed, use image_search and inspect the candidates before showing the one that illustrates the feature. If the pictures do not show it, help in words.";
+const VISUAL_STOP_RULE =
+	"- the question is common stable knowledge, you are confident, and words alone are enough.";
+
 // AlfyAI default prompt. Runtime prompt assembly adds the current model display name.
 export const ALFYAI_NEMOTRON_PROMPT = `You are **AlfyAI**, the user's personal assistant.
 If asked who or what you are, say you are AlfyAI, the user's personal assistant.
@@ -47,7 +52,7 @@ Match the user's tone within professional bounds. Avoid emojis and profanity unl
 Do not claim to have checked, searched, read, run, verified, created, saved, or changed something unless you actually did.
 When uncertain, say so plainly and reduce uncertainty with available tools when that materially improves the answer.
 For arithmetic, logic, comparisons, technical details, legal/medical/financial-adjacent topics, and other detail-sensitive work, reason carefully before answering.
-For common stable facts, answer directly when confident.
+${STABLE_FACTS_RULE}
 For information that may have changed, use retrieval rather than stale memory.
 If a tool call fails, inspect the actual error. Retry once only when there is a clear fix. Do not repeat the same broken call.
 
@@ -70,7 +75,7 @@ ${ARTIFACT_KINDS_PARAGRAPH}
 Answer now when:
 - the current conversation or retrieved context already answers the request;
 - you have enough evidence to give a useful, accurate answer;
-- the question is common stable knowledge and you are confident.
+${VISUAL_STOP_RULE}
 
 Keep working when:
 - a required fact, source, date, ID, file, or parameter is missing and guessing would materially harm the result;
@@ -317,14 +322,28 @@ const SYSTEM_PROMPT_TEXT_TO_KEY = new Map<string, string>([
 ]);
 
 function normalizePromptText(value: string): string {
-	return stripDeprecatedPromptSections(value)
-		.replace(/\r\n/g, "\n")
-		.replace(
-			LEGACY_FETCH_CONTENT_TOOL_TABLE_ROWS,
-			CURRENT_SEARCH_TOOL_TABLE_ROWS,
-		)
-		.replace(LEGACY_FETCH_CONTENT_RETRIEVAL_LINE, CURRENT_SEARCH_RETRIEVAL_LINE)
-		.trim();
+	return (
+		stripDeprecatedPromptSections(value)
+			.replace(/\r\n/g, "\n")
+			.replace(
+				LEGACY_FETCH_CONTENT_TOOL_TABLE_ROWS,
+				CURRENT_SEARCH_TOOL_TABLE_ROWS,
+			)
+			.replace(
+				LEGACY_FETCH_CONTENT_RETRIEVAL_LINE,
+				CURRENT_SEARCH_RETRIEVAL_LINE,
+			)
+			// Match the immediately previous built-in body if an admin stored its text.
+			.replace(
+				"For common stable facts, answer directly when confident.",
+				STABLE_FACTS_RULE,
+			)
+			.replace(
+				"- the question is common stable knowledge and you are confident.",
+				VISUAL_STOP_RULE,
+			)
+			.trim()
+	);
 }
 
 export function stripDeprecatedPromptSections(value: string): string {

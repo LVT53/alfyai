@@ -60,6 +60,21 @@ describe("prompts", () => {
 		);
 	});
 
+	it("updates an admin-stored pre-visual built-in but preserves a customized copy", () => {
+		const previous = ALFYAI_NEMOTRON_PROMPT.replace(
+			/^Answer stable factual questions directly.*$/m,
+			"For common stable facts, answer directly when confident.",
+		).replace(
+			"- the question is common stable knowledge, you are confident, and words alone are enough.",
+			"- the question is common stable knowledge and you are confident.",
+		);
+		expect(previous).not.toBe(ALFYAI_NEMOTRON_PROMPT);
+		expect(getSystemPrompt(previous)).toBe(ALFYAI_NEMOTRON_PROMPT);
+		expect(getSystemPrompt(`${previous} Custom instruction.`)).toBe(
+			`${previous} Custom instruction.`,
+		);
+	});
+
 	it("normalizes the old fetch_content prompt body (built on the previous tool-table prompt) back to the current key", () => {
 		const legacyPrompt = LEGACY_ALFYAI_NEMOTRON_PROMPT_TOOL_TABLE.replace(
 			"| research_web | Search the web for current sources with citation-ready evidence | Current facts, prices, availability, specs, policies, comparisons, multi-source research |\n| fetch_url | Fetch and read specific web page(s) by URL | The user gives a link, or you need full details/specs from a specific page beyond search snippets |\n| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",

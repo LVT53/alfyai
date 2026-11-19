@@ -40,6 +40,7 @@ import {
 	PROVENANCE_RESULT_TOOLS,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
+import { queueWebImagePreviews } from "$lib/server/services/vision/web-image-look";
 import { IMAGE_SEARCH_TOOL } from "$lib/shared/url-provenance";
 import { createNormalChatTools } from "./index";
 import { bindReadResultGrant } from "./model-payload-budget";
@@ -65,6 +66,18 @@ vi.mock("$lib/server/services/file-production", async () => {
 		),
 	};
 });
+vi.mock("$lib/server/services/vision/web-image-look", () => ({
+	queueWebImagePreviews: vi.fn(),
+}));
+vi.mock(
+	"$lib/server/services/chat-turn/ask-questions",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("$lib/server/services/chat-turn/ask-questions")
+		>()),
+		recordAskQuestion: vi.fn(async () => ({ id: "question-1" })),
+	}),
+);
 vi.mock("$lib/server/services/analytics", () => ({
 	recordParallelUsage: vi.fn(),
 }));
@@ -395,6 +408,159 @@ describe("the tool recorder feeds the user's source ledger", () => {
 		expect(hasSourceHost("user-1", "pics.example")).toBe(true);
 	});
 
+	it("refuses to inspect an address the provider echoed from the model's query", async () => {
+		searchImagesMock.mockResolvedValue([
+			{
+				provider: "parallel",
+				url: EXFIL,
+				thumbnail: EXFIL,
+				title: "A reference",
+				source: "example.com",
+				sourcePageUrl: "https://example.com/page",
+			},
+		]);
+		const set = tools({ requestText: "Find an example photo" });
+		const imageTool = requireTool(set.tools.image_search);
+		await imageTool.execute(
+			{ query: EXFIL },
+			{ toolCallId: "search", messages: [] },
+		);
+		const id = set.getToolCalls()[0]?.candidates?.[0]?.id;
+		if (!id) throw new Error("missing result");
+		expect(hasSourceThumbnail("user-1", EXFIL)).toBe(false);
+		const checked = await imageTool.execute(
+			{ action: "inspect", resultIds: [id] },
+			{ toolCallId: "inspect", messages: [] },
+		);
+		expect(checked).toMatchObject({ success: false });
+		expect(set.getToolCalls()[1]?.metadata?.reasonCode).toBe(
+			"inspection_unknown_result",
+		);
+	});
+	it("gives the model exact embed and citation URLs only for the preview that actually queued", async () => {
+		const found = ["first", "second"].map((tag) => {
+			const url = `https://pics.example/${tag}.jpg?signature=abc%2Fdef`;
+			return {
+				provider: "parallel" as const,
+				url,
+				thumbnail: url,
+				title: tag,
+				source: "publisher.example",
+				sourcePageUrl: `https://publisher.example/${tag}`,
+			};
+		});
+		searchImagesMock.mockResolvedValue(found);
+		const imageTool = requireTool(tools().tools.image_search);
+		const first = (await imageTool.execute(
+			{ query: "Two birds side by side" },
+			{ toolCallId: "search", messages: [] },
+		)) as { results: { id: string }[] };
+		const [a, b] = first.results;
+		vi.mocked(queueWebImagePreviews)
+			.mockReset()
+			.mockResolvedValueOnce({ queuedIds: [b.id], reason: "unavailable" });
+		const checked = await imageTool.execute(
+			{ action: "inspect", resultIds: [a.id, b.id] },
+			{ toolCallId: "inspect", messages: [] },
+		);
+		expect(checked).toMatchObject({
+			queuedIds: [b.id],
+			queuedImages: [
+				{ id: b.id, url: found[1].url, sourcePageUrl: found[1].sourcePageUrl },
+			],
+			unavailableIds: [a.id],
+			message: expect.stringContaining("copy its exact"),
+		});
+		expect(JSON.stringify(checked)).not.toContain(found[0].url);
+		expect(JSON.stringify(checked)).not.toContain(found[0].sourcePageUrl);
+		vi.mocked(queueWebImagePreviews).mockResolvedValueOnce({
+			queuedIds: [],
+			reason: "unavailable",
+		});
+		const failed = await imageTool.execute(
+			{ action: "inspect", resultIds: [a.id] },
+			{ toolCallId: "retry", messages: [] },
+		);
+		expect(failed).toMatchObject({ success: false, unavailableIds: [a.id] });
+		expect(JSON.stringify(failed)).not.toMatch(/https?:/);
+	});
+	it("restores only this reply's search results and remaining inspection slot after asking the user", async () => {
+		const found = ["first", "second", "third"].map((name) => {
+			const url = `https://pics.example/${name}.jpg`;
+			return {
+				provider: "parallel" as const,
+				url,
+				thumbnail: url,
+				title: name,
+				source: "pics.example",
+				sourcePageUrl: "https://pics.example",
+			};
+		});
+		searchImagesMock.mockResolvedValue(found);
+		const previews = vi.mocked(queueWebImagePreviews);
+		previews.mockReset().mockImplementation(async ({ candidates }) => ({
+			queuedIds: candidates.map((c) => c.id),
+		}));
+		const before = tools({ canPause: true });
+		const imageTool = requireTool(before.tools.image_search);
+		const options = (toolCallId: string) => ({ toolCallId, messages: [] });
+		await imageTool.execute({ query: "plugs" }, options("search"));
+		const ids = before.getToolCalls()[0].candidates?.map((c) => c.id) ?? [];
+		const inspect = (
+			set: ReturnType<typeof tools>,
+			resultIds: string[],
+			callId: string,
+		) =>
+			requireTool(set.tools.image_search).execute(
+				{ action: "inspect", resultIds },
+				options(callId),
+			);
+		expect(await inspect(before, [ids[0]], "first")).toMatchObject({
+			queuedIds: [ids[0]],
+		});
+		expect(
+			await requireTool(before.tools.ask_user).execute(
+				{
+					questions: [
+						{
+							question: "Which angle?",
+							options: [
+								{ label: "Front", recommended: true },
+								{ label: "Side" },
+							],
+						},
+					],
+				},
+				options("question"),
+			),
+		).toMatchObject({ status: "waiting_for_user" });
+		resetUrlProvenanceForTests();
+		const resumed = tools({
+			turnId: "resumed",
+			priorImageSearchCalls: before
+				.getToolCalls()
+				.filter((c) => c.name === "image_search"),
+		});
+		expect(await inspect(resumed, [ids[1], ids[2]], "second")).toMatchObject({
+			queuedIds: [ids[1]],
+		});
+		expect(await inspect(resumed, [ids[2]], "third")).toMatchObject({
+			success: false,
+		});
+		expect(resumed.getToolCalls().at(-1)?.metadata?.reasonCode).toBe(
+			"inspection_budget",
+		);
+		for (const userId of ["user-1", "user-2"]) {
+			const fresh = tools({ userId, turnId: "new-turn" });
+			expect(await inspect(fresh, [ids[1]], "other")).toMatchObject({
+				success: false,
+			});
+			expect(fresh.getToolCalls()[0].metadata?.reasonCode).toBe(
+				"inspection_unknown_result",
+			);
+		}
+		expect(previews).toHaveBeenCalledTimes(2);
+	});
 	it("notes the ledger before the call reaches the recorder the stream reads from", async () => {
 		researchWebViaParallelMock.mockResolvedValue(
 			groundedResult({ urls: ["https://first.example/a"] }),

@@ -55,9 +55,9 @@ const guideDict = {
 			"Pick a model and a style; switch Thinking on for harder questions.",
 		"guide.entry.webAndLinks.name": "Web and links",
 		"guide.entry.webAndLinks.line":
-			"Fresh facts from the web, with the sources it used.",
+			"Alfy can find current information, cite its sources and show photos that help you tell things apart.",
 		"guide.entry.webAndLinks.example":
-			"What will the weather be like at Lake Balaton this weekend?",
+			"How can I tell a USB-C plug from a Micro-USB plug at a glance?",
 		"guide.entry.pictureOrFile.name": "Show it a picture or a file",
 		"guide.entry.pictureOrFile.line":
 			"Drop in a photo, a PDF or a screenshot and ask about it.",
@@ -227,9 +227,9 @@ const guideDict = {
 			"Válassz modellt és stílust; nehezebb kérdéshez kapcsold be a Gondolkodást.",
 		"guide.entry.webAndLinks.name": "Web és linkek",
 		"guide.entry.webAndLinks.line":
-			"Friss információk a webről, a felhasznált forrásokkal.",
+			"Alfy friss információkat keres a weben, megadja a forrásait, és fotókon is megmutathatja a különbségeket.",
 		"guide.entry.webAndLinks.example":
-			"Milyen idő lesz a Balatonnál ezen a hétvégén?",
+			"Honnan ismerem fel ránézésre, hogy egy csatlakozó USB-C vagy Micro-USB?",
 		"guide.entry.pictureOrFile.name": "Mutass képet vagy fájlt",
 		"guide.entry.pictureOrFile.line":
 			"Csatolj egy fotót, PDF-et vagy képernyőképet, és kérdezz róla.",
