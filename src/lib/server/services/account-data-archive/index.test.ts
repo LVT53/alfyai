@@ -306,13 +306,11 @@ describe("createAccountDataArchive", () => {
 	it("omits private pending Memory previews and grant metadata from the archive", async () => {
 		await seedArchiveUser();
 		const now = new Date();
-		await db
-			.insert(schema.memoryAccounts)
-			.values({
-				userId: "user-1",
-				tenantId: "archive-test",
-				authority: "preparing",
-			});
+		await db.insert(schema.memoryAccounts).values({
+			userId: "user-1",
+			tenantId: "archive-test",
+			authority: "preparing",
+		});
 		await db.insert(schema.memoryMigrationManifests).values({
 			id: "manifest",
 			userId: "user-1",
