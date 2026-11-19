@@ -313,6 +313,31 @@ export class HindsightClient {
 			};
 		});
 	}
+	async matchesArchivedFact(expected: {
+		id: string;
+		text: string;
+		sourceId: string;
+	}): Promise<boolean> {
+		try {
+			const fact = await this.request(
+				`/memories/${encodeURIComponent(expected.id)}`,
+			);
+			return (
+				fact.id === expected.id &&
+				fact.state === "invalidated" &&
+				(fact.type === "world" || fact.type === "experience") &&
+				fact.document_id === expected.sourceId &&
+				fact.text === expected.text
+			);
+		} catch (error) {
+			if (
+				error instanceof NativeMemoryError &&
+				error.code === "native_not_found"
+			)
+				return false;
+			throw error;
+		}
+	}
 	async editFact(
 		id: string,
 		patch: {
@@ -321,8 +346,14 @@ export class HindsightClient {
 			mentioned_at?: string;
 			reason?: string;
 		},
+		beforeDispatch?: () => void,
 	): Promise<void> {
-		await this.request(`/memories/${encodeURIComponent(id)}`, "PATCH", patch);
+		await this.request(
+			`/memories/${encodeURIComponent(id)}`,
+			"PATCH",
+			patch,
+			beforeDispatch,
+		);
 	}
 	async deleteDocument(id: string): Promise<void> {
 		await this.request(`/documents/${encodeURIComponent(id)}`, "DELETE");

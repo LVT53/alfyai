@@ -2392,12 +2392,37 @@ it.each([
 	"older exhausted job",
 	"restore interruption",
 	"ambiguous native failure",
+	"archive provenance mismatch",
+	"archive revoked before dispatch",
 ])(
 	"a dirty Edit reaches a safe outcome after a failure (%s)",
 	async (scenario) => {
 		const f = await setup();
 		const fixture = await nativeFixture(f, []);
-		const readbackMismatch = scenario === "readback mismatch";
+		const wrongArchive = scenario === "archive provenance mismatch";
+		const revokedArchive = scenario === "archive revoked before dispatch";
+		const readbackMismatch =
+			wrongArchive || revokedArchive || scenario === "readback mismatch";
+		if (revokedArchive) {
+			const { HindsightClient } = await import("./hindsight-client");
+			const editFact = HindsightClient.prototype.editFact;
+			vi.spyOn(HindsightClient.prototype, "editFact").mockImplementation(
+				function (this: InstanceType<typeof HindsightClient>, ...args) {
+					if (args[1].state === "valid")
+						f.db
+							.insert(f.s.memoryRevocations)
+							.values({
+								id: randomUUID(),
+								userId: h.userId,
+								bankId: f.bank.id,
+								epoch: 0,
+								nativeFactId: "kayak",
+							})
+							.run();
+					return editFact.apply(this, args);
+				},
+			);
+		}
 		let rejectRestoration = scenario === "restore interruption";
 		fixture.model
 			.mockResolvedValueOnce(ckPlan)
@@ -2424,13 +2449,30 @@ it.each([
 			}
 			if (path.endsWith("/memories/kayak") && init?.method === "PATCH") {
 				const patch = JSON.parse(String(init.body));
+				if (invalidated && patch.text !== undefined)
+					return new Response("Cannot edit an invalidated memory", {
+						status: 400,
+					});
 				invalidated = patch.state === "invalidated";
-				if (patch.state === "valid")
+				if (patch.state === "valid") {
 					fixture.setFacts([
 						{ id: "kayak", text: "green kayak" },
 						{ id: "sister", text: "sister bicycle" },
 					]);
+					fixture.patches.push("kayak");
+					return new Response("{}");
+				}
 			}
+			if (path.endsWith("/memories/kayak") && init?.method === "GET")
+				return new Response(
+					JSON.stringify({
+						id: "kayak",
+						text: "green kayak",
+						type: "world",
+						state: "invalidated",
+						document_id: wrongArchive ? "different-source" : f.source.id,
+					}),
+				);
 			if (
 				scenario === "ambiguous native failure" &&
 				invalidated &&
@@ -2502,6 +2544,19 @@ it.each([
 				.where(editJob)
 				.run();
 		await drain();
+		if (wrongArchive || revokedArchive) {
+			expect(operation()).toMatchObject({
+				status: "queued",
+				errorCode: wrongArchive
+					? "memory_edit_restore_unavailable"
+					: "memory_edit_restore_source_changed",
+				cleanupPending: true,
+			});
+			expect(fixture.patches).toEqual(["kayak"]);
+			expect(deltaDeleted).toBe(false);
+			expect(texts()).toEqual(wrongArchive ? ["kayak", "sister"] : ["sister"]);
+			return;
+		}
 		if (!readbackMismatch) {
 			for (const attemptCount of [1, 2]) {
 				expect(

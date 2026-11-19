@@ -397,25 +397,27 @@ async function fence(ctx: Context) {
 	)
 		throw new NativeMemoryError("memory_cancelled", false);
 }
+function assertActionAttemptCurrent(tx: Tx, ctx: Context) {
+	const claim = tx
+		.select()
+		.from(memoryDeliveryJobs)
+		.where(eq(memoryDeliveryJobs.id, ctx.row.id))
+		.get();
+	if (
+		ctx.signal.aborted ||
+		claim?.status !== "running" ||
+		claim.currentAttemptId !== ctx.attempt.id
+	)
+		throw new NativeMemoryError("memory_cancelled", false);
+}
 function guardedModel(
 	ctx: Context,
 	override?: CurationModel,
 	check?: (tx: Tx) => void,
 ): CurationModel {
 	const beforeDispatch = () => {
-		if (ctx.signal.aborted)
-			throw new NativeMemoryError("memory_cancelled", false);
 		db.transaction((tx) => {
-			const claim = tx
-				.select()
-				.from(memoryDeliveryJobs)
-				.where(eq(memoryDeliveryJobs.id, ctx.row.id))
-				.get();
-			if (
-				claim?.status !== "running" ||
-				claim.currentAttemptId !== ctx.attempt.id
-			)
-				throw new NativeMemoryError("memory_cancelled", false);
+			assertActionAttemptCurrent(tx, ctx);
 			actionFence(tx, ctx);
 			check?.(tx);
 		});
@@ -839,14 +841,30 @@ async function restoreCancelledEdit(
 	const live = new Map(
 		(await client.list())
 			.filter((m) => m.fact_type !== "observation")
-			.map((m) => [m.id, m.text]),
+			.map((m) => [m.id, m]),
 	);
 	for (const old of inventory.facts) {
-		if (live.get(old.id) === old.text) continue;
+		const current = live.get(old.id);
+		if (
+			current
+				? current.document_id !== old.sourceId
+				: !(await client.matchesArchivedFact(old))
+		)
+			throw new NativeMemoryError("memory_edit_restore_unavailable", true);
+		if (current?.text === old.text) continue;
 		await fence(ctx);
-		db.transaction(restoreFence);
 		try {
-			await client.editFact(old.id, { state: "valid", text: old.text });
+			// Hindsight only edits live facts. Restore the archived fact by
+			// state alone after verifying the archived text and source exactly.
+			await client.editFact(
+				old.id,
+				current ? { text: old.text } : { state: "valid" },
+				() =>
+					db.transaction((tx) => {
+						assertActionAttemptCurrent(tx, ctx);
+						restoreFence(tx);
+					}),
+			);
 		} catch (error) {
 			if (
 				error instanceof NativeMemoryError &&
