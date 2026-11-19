@@ -31,8 +31,10 @@ const ROW_TITLE = `Kérés pontosítása: ${AI_SMOKE_ITEM_TURN_TITLE}`;
 async function expectQuietRow(row: Locator) {
 	// It says what was tried and on what, in the reader's language.
 	await expect(row.getByTestId("tool-activity-verb")).toHaveText(VERB);
+	// A pattern is matched against the row's raw text, which the markup's own
+	// whitespace surrounds (Playwright trims only a string expectation).
 	await expect(row).toHaveText(
-		new RegExp(`^${VERB}\\s*${AI_SMOKE_ITEM_TURN_TITLE}$`),
+		new RegExp(`^\\s*${VERB}\\s*${AI_SMOKE_ITEM_TURN_TITLE}\\s*$`),
 	);
 	await expect(row).toHaveAttribute("title", ROW_TITLE);
 	// No breakage word, no raw tool name, no disclosure, and nothing in English.
