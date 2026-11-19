@@ -2,6 +2,42 @@
 
 const knowledgeDict = {
 	en: {
+		"memoryReview.approvals": "Kept suggestions",
+		"memoryReview.afterSwitch":
+			"Approved memories become available in chat after the Memory switch.",
+		"memoryReview.keepQueued": "Waiting to be added to Memory.",
+		"memoryReview.keepFailed": "Could not add this memory.",
+		"memoryReview.keepPrepared": "Ready for the Memory switch.",
+		"memoryReview.keepReady": "Added to Memory.",
+		"memoryReview.retryKeep": "Retry adding memory",
+		"memoryReview.title": "Review earlier chats",
+		"memoryReview.intro":
+			"Alfy can look through eligible earlier chats for possible memories. Suggestions enter Memory only after you choose to keep them.",
+		"memoryReview.start": "Start reviewing",
+		"memoryReview.hide": "Close review",
+		"memoryReview.working": "Preparing suggestions from earlier chats…",
+		"memoryReview.pendingHelp":
+			"Keep adds this as a current memory. The source date shows when you originally said it.",
+		"memoryReview.held":
+			"Review is paused. Suggestions already available can still be opened.",
+		"memoryReview.complete": "Review complete",
+		"memoryReview.empty": "There are no suggestions waiting for a decision.",
+		"memoryReview.keep": "Keep",
+		"memoryReview.edit": "Edit and keep",
+		"memoryReview.saveEdit": "Keep edited memory",
+		"memoryReview.discard": "Discard",
+		"memoryReview.source": "Open original message",
+		"memoryReview.error":
+			"The review change could not be confirmed. Try again to check the same decision.",
+		"memoryReview.loadError": "Could not load the review.",
+		"memoryReview.retry": "Try again",
+		"memoryReview.kept":
+			"Choice saved. Alfy will add the memory after it is processed.",
+		"memoryReview.discarded": "Suggestion discarded.",
+		"memoryReview.off": "Turn on Memory to review suggestions.",
+		"memoryReview.stale":
+			"This suggestion is no longer available. Refresh the review to see the latest suggestions.",
+		"memoryReview.unknownProject": "Project",
 		"memoryNew.sourceUnavailable":
 			"This message is no longer available. You can still read the rest of the conversation.",
 		"memoryNew.statusUnknown":
@@ -644,6 +680,42 @@ const knowledgeDict = {
 		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 	hu: {
+		"memoryReview.approvals": "Megtartott javaslatok",
+		"memoryReview.afterSwitch":
+			"A jóváhagyott emlékek a Memória átállítása után lesznek elérhetők a beszélgetésekben.",
+		"memoryReview.keepQueued": "Arra vár, hogy a Memóriába kerüljön.",
+		"memoryReview.keepFailed": "Ezt az emléket nem sikerült hozzáadni.",
+		"memoryReview.keepPrepared": "Készen áll a Memória átállítására.",
+		"memoryReview.keepReady": "Hozzáadva a Memóriához.",
+		"memoryReview.retryKeep": "Emlék hozzáadásának újrapróbálása",
+		"memoryReview.title": "Korábbi beszélgetések áttekintése",
+		"memoryReview.intro":
+			"Alfy a felhasználható korábbi beszélgetésekből emlékeket javasolhat. Csak azok a javaslatok kerülnek a Memóriába, amelyeket megtartasz.",
+		"memoryReview.start": "Áttekintés indítása",
+		"memoryReview.hide": "Áttekintés bezárása",
+		"memoryReview.working": "Javaslatok előkészítése korábbi beszélgetésekből…",
+		"memoryReview.pendingHelp":
+			"A megtartott javaslat aktuális emlékként kerül a Memóriába. A forrás dátuma az eredeti üzenet idejét mutatja.",
+		"memoryReview.held":
+			"Az áttekintés szünetel. A már elérhető javaslatokat továbbra is megnyithatod.",
+		"memoryReview.complete": "Az áttekintés befejeződött",
+		"memoryReview.empty": "Nincs döntésre váró javaslat.",
+		"memoryReview.keep": "Megtartás",
+		"memoryReview.edit": "Szerkesztés és megtartás",
+		"memoryReview.saveEdit": "Szerkesztett emlék megtartása",
+		"memoryReview.discard": "Elvetés",
+		"memoryReview.source": "Eredeti üzenet megnyitása",
+		"memoryReview.error":
+			"A módosítás megerősítése nem sikerült. Próbáld újra ugyanezt a döntést.",
+		"memoryReview.loadError": "Az áttekintés betöltése nem sikerült.",
+		"memoryReview.retry": "Újrapróbálás",
+		"memoryReview.kept":
+			"A döntés mentve. Az emlék a feldolgozás után kerül a Memóriába.",
+		"memoryReview.discarded": "Javaslat elvetve.",
+		"memoryReview.off": "Kapcsold be a Memóriát a javaslatok áttekintéséhez.",
+		"memoryReview.stale":
+			"Ez a javaslat már nem elérhető. Frissítsd az áttekintést az aktuális javaslatok megjelenítéséhez.",
+		"memoryReview.unknownProject": "Projekt",
 		"memoryNew.sourceUnavailable":
 			"Ez az üzenet már nem érhető el. A beszélgetés többi részét továbbra is olvashatod.",
 		"memoryNew.statusUnknown":

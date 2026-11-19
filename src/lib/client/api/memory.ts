@@ -3,6 +3,8 @@ import type {
 	MemoryDetail,
 	MemoryOperation,
 	MemoryPage,
+	MemoryQuarantine,
+	MemoryQuarantineRequest,
 	MemoryRef,
 	MemoryScope,
 } from "$lib/memory-types";
@@ -221,6 +223,75 @@ export async function fetchMemoryOperationByRequest(
 			`/api/knowledge/memory/operations?${new URLSearchParams({ requestId })}`,
 			undefined,
 			"Unable to check memory update",
+		),
+	);
+}
+
+const quarantinePath = "/api/knowledge/memory/quarantine";
+function quarantine(value: unknown): MemoryQuarantine {
+	return validate<MemoryQuarantine>(
+		value,
+		(v) =>
+			[
+				"unavailable",
+				"idle",
+				"working",
+				"pending",
+				"complete",
+				"held",
+			].includes(String(v.status)) &&
+			(v.approvals === undefined ||
+				(Array.isArray(v.approvals) &&
+					v.approvals.every(
+						(approval) =>
+							record(approval) &&
+							typeof approval.id === "string" &&
+							typeof approval.text === "string" &&
+							["queued", "failed", "succeeded"].includes(
+								String(approval.status),
+							) &&
+							typeof approval.retryable === "boolean",
+					))) &&
+			Array.isArray(v.candidates) &&
+			v.candidates.every((candidate) => {
+				if (!record(candidate) || !record(candidate.source)) return false;
+				return (
+					typeof candidate.id === "string" &&
+					typeof candidate.text === "string" &&
+					validScope(candidate.scope) &&
+					typeof candidate.source.conversationId === "string" &&
+					typeof candidate.source.messageId === "string" &&
+					typeof candidate.source.assertedAt === "string" &&
+					Number.isFinite(Date.parse(candidate.source.assertedAt))
+				);
+			}),
+	);
+}
+
+export async function fetchMemoryQuarantine(
+	signal?: AbortSignal,
+): Promise<MemoryQuarantine> {
+	return quarantine(
+		await requestJson<unknown>(
+			quarantinePath,
+			{ signal },
+			"Unable to load Memory review",
+		),
+	);
+}
+
+export async function saveMemoryQuarantine(
+	request: MemoryQuarantineRequest,
+): Promise<MemoryQuarantine> {
+	return quarantine(
+		await requestJson<unknown>(
+			quarantinePath,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(request),
+			},
+			"Unable to save Memory review",
 		),
 	);
 }

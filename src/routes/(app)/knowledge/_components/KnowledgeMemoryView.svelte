@@ -30,6 +30,7 @@ import {
 } from "$lib/utils/motion";
 import type { MemoryVisit } from "./memory-visit";
 import MemoryList from "./MemoryList.svelte";
+import MemoryQuarantineReview from "./MemoryQuarantineReview.svelte";
 import MemoryDetail from "./MemoryDetail.svelte";
 import MemoryEditor from "./MemoryEditor.svelte";
 import MemoryRemoveDialog from "./MemoryRemoveDialog.svelte";
@@ -744,6 +745,7 @@ onMount(() => {
  {#if view==='list'}
   <header class="memory-heading"><h2 tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2><p class="memory-description">{$t('memoryNew.intro')}</p></header>
   {#if page?.status==='queued'||page?.status==='working'}<p class="memory-status" role="status">{$t('memoryNew.updating')} {$t('memoryNew.updatingHelp')}</p>{:else if page?.status==='failed'&&backgroundErrorDismissed!==`${scopeValue}:${page.generation}`}<ErrorMessage error={$t('memoryNew.backgroundFailed')} canRetry={false} onRetry={()=>{}} onClose={()=>backgroundErrorDismissed=`${scopeValue}:${page?.generation}`}/>{/if}
+  <MemoryQuarantineReview projects={$projects} {memoryOff} preparing={page?.authority === "preparing"} onKeep={() => void load("refresh")}/>
   <MemoryList {page} bind:query {scopeValue} projects={$projects} {loading} {disabled} busy={false} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")}/>
   {#if notice}<p class="memory-status"><Check size={15} strokeWidth={1.8} aria-hidden="true"/>{notice}</p>{/if}
  {:else}

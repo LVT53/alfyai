@@ -11,6 +11,8 @@ import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
 
 const api = vi.hoisted(() => ({
 	fetchMemoryPage: vi.fn(),
+	fetchMemoryQuarantine: vi.fn(),
+	saveMemoryQuarantine: vi.fn(),
 	fetchMemoryDetail: vi.fn(),
 	submitMemoryAction: vi.fn(),
 	fetchMemoryOperation: vi.fn(),
@@ -73,6 +75,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	uiLanguage.set("en");
 	api.fetchMemoryPage.mockReset().mockResolvedValue(page);
+	api.fetchMemoryQuarantine
+		.mockReset()
+		.mockResolvedValue({ status: "unavailable", candidates: [] });
 	api.fetchMemoryDetail.mockResolvedValue(detail);
 	api.submitMemoryAction.mockResolvedValue(failed);
 });
@@ -673,4 +678,25 @@ it("does not reopen an editor cancelled while its request is running", async () 
 	await fireEvent.focus(window);
 	await waitFor(() => expect(api.fetchMemoryOperation).toHaveBeenCalled());
 	expect(screen.getByTestId("memory-list")).toBeVisible();
+});
+
+it("offers private review in preparing authority while leaving ordinary Add unavailable", async () => {
+	api.fetchMemoryPage.mockResolvedValue({
+		...page,
+		authority: "preparing",
+		rows: [],
+		total: 0,
+	});
+	api.fetchMemoryQuarantine.mockResolvedValue({
+		status: "idle",
+		candidates: [],
+	});
+	render(KnowledgeMemoryView, { memoryEnabled: true });
+	expect(
+		await screen.findByRole("button", { name: "Review earlier chats" }),
+	).toBeEnabled();
+	expect(
+		await screen.findByRole("button", { name: "Add memory" }),
+	).toBeDisabled();
+	expect(api.saveMemoryQuarantine).not.toHaveBeenCalled();
 });

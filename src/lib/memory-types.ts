@@ -83,3 +83,39 @@ export interface AdmittedMemoryEvidence {
 	text: string;
 	sources: MemorySource[];
 }
+
+export interface MemoryQuarantineCandidate {
+	id: string;
+	text: string;
+	scope: MemoryScope;
+	source: {
+		conversationId: string;
+		messageId: string;
+		assertedAt: string;
+	};
+}
+
+export interface MemoryQuarantineApproval {
+	id: string;
+	text: string;
+	status: "queued" | "failed" | "succeeded";
+	retryable: boolean;
+}
+
+export interface MemoryQuarantine {
+	status: "unavailable" | "idle" | "working" | "pending" | "complete" | "held";
+	candidates: MemoryQuarantineCandidate[];
+	approvals?: MemoryQuarantineApproval[];
+}
+
+export type MemoryQuarantineRequest =
+	| { action: "start"; requestId: string }
+	| { action: "retry"; id: string }
+	| {
+			action: "resolve";
+			id: string;
+			requestId: string;
+			decision: "keep";
+			text?: string;
+	  }
+	| { action: "resolve"; id: string; requestId: string; decision: "discard" };
