@@ -1454,7 +1454,13 @@ async function executeMemoryAction(
 			sourceIds = [...sourceIds, current.id];
 		}
 		if (!intent.proposal) {
-			const current = await client.list();
+			// The retained replacement can enqueue native consolidation after its
+			// retain receipt settles. Let that same-bank work finish before the
+			// proposal competes with it for the shared inference budget.
+			const current =
+				action.kind === "edit" && intent.addedSourceId
+					? await native.capture(client, ctx.signal)
+					: await client.list();
 			verifyEarlierFacts(current);
 			const sourceDates = new Map(
 				sourcesFor(bank.id, sourceIds).map((source) => [

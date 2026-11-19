@@ -1802,6 +1802,76 @@ it("lifecycle regression: Remove withholds a stale displayed observation despite
 	expect(fixture.model).toHaveBeenCalledTimes(4);
 });
 
+it("settles the retained Edit’s native consolidation before requesting a proposal", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, []);
+	let deltaId: string | undefined;
+	let consolidationPending = false;
+	const settlement = vi.fn();
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST") {
+			deltaId = JSON.parse(String(init.body)).items[0].document_id;
+			consolidationPending = true;
+		}
+		if (path.includes("/operations?status=pending") && consolidationPending)
+			return Response.json({
+				operations: [{ id: "native-retain-consolidation", status: "pending" }],
+			});
+		if (path.endsWith("/operations/native-retain-consolidation")) {
+			settlement();
+			consolidationPending = false;
+			return Response.json({ status: "completed" });
+		}
+		const response = await original(url, init);
+		if (!deltaId || !path.includes("/memories/list")) return response;
+		const body = await response.json();
+		body.items.push(
+			{
+				id: "edited-purple",
+				text: "purple kayak",
+				document_id: deltaId,
+				fact_type: "world",
+				consolidated_at: "2026-11-01",
+			},
+			{
+				id: "observation-purple",
+				text: "purple kayak",
+				fact_type: "observation",
+				source_memory_ids: ["edited-purple"],
+			},
+		);
+		body.total = body.items.length;
+		return Response.json(body);
+	});
+	fixture.model
+		.mockResolvedValueOnce(ckPlan)
+		.mockImplementationOnce(async () => {
+			if (consolidationPending) throw Error("Memory inference budget busy");
+			return ckProposal("kayak", "", "sister");
+		})
+		.mockResolvedValue(ckOkay);
+	const actions = await import("./curation-actions");
+	const { memoryDeliveryJob } = await import("./delivery-job");
+	const operation = await actions.submitMemoryAction(h.userId, {
+		kind: "edit",
+		ref: ckRef,
+		text: "purple kayak",
+		requestId: randomUUID(),
+	});
+	await h.engine.drain(memoryDeliveryJob);
+	expect(
+		actions.getMemoryOperation(h.userId, { id: operation.id }),
+	).toMatchObject({
+		status: "applied",
+		cleanupPending: false,
+	});
+	expect(settlement).toHaveBeenCalledOnce();
+	expect(fixture.model).toHaveBeenCalledTimes(4);
+});
+
 it("lifecycle regression: Edit withholds a candidate missing its requested visible change", async () => {
 	const f = await setup();
 	const fixture = await nativeFixture(f, []);
