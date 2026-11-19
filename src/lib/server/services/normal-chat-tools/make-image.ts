@@ -27,7 +27,6 @@ import { PictureUnreadableError } from "$lib/server/services/images/inputs";
 import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
 import { findExplicitRequestTerm } from "$lib/server/services/images/picture-check/request-terms";
 import {
-	type MakeImageRefusal,
 	resolveMakeImageRequest,
 	type TakePlan,
 } from "$lib/server/services/images/requests";
@@ -44,6 +43,10 @@ import {
 	waitForTake,
 } from "$lib/server/services/images/wait";
 import type { StepImageQueue } from "$lib/server/services/vision/step-images";
+import type {
+	ImageErrorCode,
+	ImageRefusalCode,
+} from "$lib/shared/tool-reasons";
 
 export const makeImageInputSchema = z.object({
 	prompt: z
@@ -140,11 +143,13 @@ export type MakeImagePayload =
 			message: string;
 	  };
 
-type RefusalCode =
-	| MakeImageRefusal
-	| "not_configured"
-	| "image_error"
-	| "explicit_request";
+/**
+ * A refusal's code is one of the shared list's (`$lib/shared/tool-reasons`), so
+ * the row's words can be checked against it; a code `images/requests.ts` adds to
+ * `MakeImageRefusal` without joining that list fails to compile where it is
+ * passed on. `image_error` is the thrown path's (`index.ts`).
+ */
+type RefusalCode = ImageRefusalCode | Extract<ImageErrorCode, "image_error">;
 
 /** How long a call waits for its take. A print-size change (about 70 s, 140 s with a retry) may outlive it and then lands on its card. */
 export const IMAGE_TOOL_WAIT_MS = 100_000;
@@ -182,6 +187,8 @@ function animateHint(imageId: string | null): string {
 	return ` To animate this picture, call make_video with picture "${imageId}", or with no picture at all.`;
 }
 
+// What the model is told for a take's failure code; every key is a code of the
+// shared list (`satisfies` below), which is what the rows' words are held to.
 const FAILURE_MESSAGES: Record<string, string> = {
 	image_server_unreachable: "The picture server could not be reached.",
 	image_graph_rejected: "The picture server refused this request.",
@@ -195,7 +202,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
 		"The finished picture was blocked by the explicit-picture filter: it was not shown to the user and not kept. Tell the user plainly that it was blocked. Do not call make_image again for this request.",
 	image_unchecked:
 		"The finished picture could not be checked by the explicit-picture filter, so it was not shown to the user and not kept. Tell the user it could not be checked right now. Do not call make_image again for it now.",
-};
+} satisfies Partial<Record<ImageErrorCode, string>>;
 /** A take the filter stopped is never the model's to repeat, whatever the card offers. */
 const NOT_FOR_THE_MODEL_TO_RETRY = new Set([
 	"image_blocked",

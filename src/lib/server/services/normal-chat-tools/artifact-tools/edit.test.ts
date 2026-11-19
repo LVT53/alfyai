@@ -173,6 +173,10 @@ describe("runEditArtifactTool — structural validation", () => {
 
 		expect(result.modelPayload.success).toBe(false);
 		expect(getArtifactMock).not.toHaveBeenCalled();
+		expect(result.metadata).toEqual({
+			ok: false,
+			reasonCode: "request_adjusted",
+		});
 	});
 
 	it("refuses when both patches and ops are present", async () => {
@@ -188,6 +192,15 @@ describe("runEditArtifactTool — structural validation", () => {
 
 		expect(result.modelPayload.success).toBe(false);
 		expect(getArtifactMock).not.toHaveBeenCalled();
+		// The words the model reads are the words it always read.
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error: "Send patches or ops, never both in the same call.",
+		});
+		expect(result.metadata).toEqual({
+			ok: false,
+			reasonCode: "request_adjusted",
+		});
 	});
 });
 
@@ -218,6 +231,11 @@ describe("runEditArtifactTool — id resolution", () => {
 				{ artifactId: "a1", title: "Other plan" },
 			]);
 		}
+		expect(result.metadata).toEqual({
+			ok: false,
+			found: false,
+			reasonCode: "item_not_found",
+		});
 	});
 
 	it("never edits another user's artifact (delegates ownership to getArtifact)", async () => {
@@ -259,6 +277,11 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 			]);
 			expect(result.modelPayload.error.length).toBeGreaterThan(0);
 		}
+		// No handler for the kind: the row says the kind cannot be edited.
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "kind_not_editable",
+		});
 	});
 
 	it("refuses a picture edit and points at make_image", async () => {
@@ -285,6 +308,7 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 			]);
 		}
 		expect(result.metadata.ok).toBe(false);
+		expect(result.metadata.reasonCode).toBe("not_editable_as_text");
 	});
 
 	it("points an instruction edit of a picture at make_image, not at patches", async () => {
@@ -336,6 +360,7 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 		expect(result.metadata).toMatchObject({
 			ok: false,
 			artifactKind: "video",
+			reasonCode: "not_editable_as_text",
 		});
 	});
 
@@ -354,6 +379,154 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 		});
 
 		expect(result.modelPayload.success).toBe(false);
+		expect(result.metadata.reasonCode).toBe("not_editable_as_text");
+	});
+});
+
+// A call that did not work names why from edit_artifact's closed list of
+// reasons, on the entry's metadata: a code a handler gave, or the one a call in
+// which every op was turned back as stale earns. The model reads what it read.
+describe("runEditArtifactTool — the reason a call did not work", () => {
+	const run = (
+		overrides: Partial<Parameters<typeof runEditArtifactTool>[0]> = {},
+	) =>
+		runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "artifact-1",
+			patches: [{ op: "a" }],
+			abortSignal: new AbortController().signal,
+			...overrides,
+		});
+
+	it("names a refusal with the code its handler gave, beside a payload that does not say so", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: false,
+			error: "Documents use patches, not ops.",
+			code: "request_adjusted",
+		});
+
+		const result = await run();
+
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error: "Documents use patches, not ops.",
+		});
+		expect(JSON.stringify(result.modelPayload)).not.toContain(
+			"request_adjusted",
+		);
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "request_adjusted",
+		});
+	});
+
+	it("names nothing for a refusal its handler gave no code for", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: false,
+			error: "This document could not be found.",
+		});
+
+		const result = await run();
+
+		expect(result.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names a call that changed nothing because every op was stale changed_since_read, op by op as before", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: false,
+			error: "Nothing was changed: every op was refused.",
+			refused: [
+				{ target: "b1", reason: "stale" as const, opIndex: 0 },
+				{ target: "b2", reason: "stale" as const, opIndex: 1 },
+			],
+		});
+
+		const result = await run();
+
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "changed_since_read",
+		});
+		// refusedBlocksJson is as it was.
+		expect(JSON.parse(String(result.metadata.refusedBlocksJson))).toEqual([
+			{ blockId: "b1", reason: "stale", opIndex: 0 },
+			{ blockId: "b2", reason: "stale", opIndex: 1 },
+		]);
+	});
+
+	it("names nothing when one of the refused ops was refused for another reason", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: false,
+			error: "Nothing was changed: every op was refused.",
+			refused: [
+				{ target: "b1", reason: "stale" as const, opIndex: 0 },
+				{ target: "b2", reason: "unknown_id" as const, opIndex: 1 },
+			],
+		});
+
+		const result = await run();
+
+		expect(result.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names a Document edit that applied nothing because every op was changed since the read changed_since_read, and it stays a success", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: true,
+			value: {
+				versionId: "version-1",
+				applied: 0,
+				refused: [
+					{ target: "b1", reason: "block_changed" as const, opIndex: 0 },
+				],
+			},
+		});
+
+		const result = await run();
+
+		expect(result.modelPayload).toMatchObject({ success: true, applied: 0 });
+		expect(result.metadata).toMatchObject({
+			ok: true,
+			appliedCount: 0,
+			reasonCode: "changed_since_read",
+		});
+		expect(JSON.parse(String(result.metadata.refusedBlocksJson))).toEqual([
+			{ blockId: "b1", reason: "block_changed", opIndex: 0 },
+		]);
+	});
+
+	it("names nothing for an edit that applied something, or one that applied nothing for another reason", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		const stale = {
+			target: "b1",
+			reason: "block_changed" as const,
+			opIndex: 0,
+		};
+
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: true,
+			value: { versionId: "version-1", applied: 1, refused: [stale] },
+		});
+		expect(await run()).toMatchObject({ metadata: { ok: true } });
+		expect((await run()).metadata).not.toHaveProperty("reasonCode");
+
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: true,
+			value: {
+				versionId: "version-1",
+				applied: 0,
+				refused: [
+					{ target: "b1", reason: "block_missing" as const, opIndex: 0 },
+				],
+			},
+		});
+		expect((await run()).metadata).not.toHaveProperty("reasonCode");
 	});
 });
 
@@ -579,6 +752,7 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 					"new app",
 				);
 			}
+			expect(result.metadata.reasonCode).toBe("request_adjusted");
 		}
 		expect(regenerateAppMock).not.toHaveBeenCalled();
 	});
@@ -589,6 +763,7 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 		expect(result.modelPayload.success).toBe(false);
 		expect(getArtifactMock).not.toHaveBeenCalled();
 		expect(regenerateAppMock).not.toHaveBeenCalled();
+		expect(result.metadata.reasonCode).toBe("request_adjusted");
 	});
 
 	it("refuses an instruction for a Document or a board, naming what those take", async () => {
@@ -603,6 +778,7 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 				expect(result.modelPayload.error).toContain(field);
 				expect(result.modelPayload.error).toMatch(/App/);
 			}
+			expect(result.metadata.reasonCode).toBe("request_adjusted");
 		}
 		expect(regenerateAppMock).not.toHaveBeenCalled();
 	});
@@ -631,6 +807,8 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			artifactKind: "app",
 			artifactTitle: "Tip calculator",
 		});
+		// A rebuild that failed is no request to correct: the row has no code for it.
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("reports an App that changed while it was rebuilt, with the version it is at now", async () => {
@@ -648,6 +826,25 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			expect(result.modelPayload.error).toContain("version 3");
 			expect(result.modelPayload.error).toContain("Nothing was written");
 		}
+		// They saved while it was being built: their words were left as they were.
+		expect(result.metadata.reasonCode).toBe("changed_since_read");
+	});
+
+	it("names a rebuild that was cancelled while it ran a stop", async () => {
+		getArtifactMock.mockResolvedValue(appDetail());
+		regenerateAppMock.mockResolvedValue({
+			ok: false,
+			reason: "aborted",
+			detail: "the call was aborted",
+		});
+
+		const result = await run();
+
+		expect(result.modelPayload).toMatchObject({
+			success: false,
+			error: "The request was cancelled.",
+		});
+		expect(result.metadata.reasonCode).toBe("stopped");
 	});
 
 	it("writes nothing for a call that was cancelled (ruling 53)", async () => {
@@ -659,6 +856,7 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 
 		expect(result.modelPayload.success).toBe(false);
 		expect(regenerateAppMock).not.toHaveBeenCalled();
+		expect(result.metadata.reasonCode).toBe("stopped");
 	});
 
 	it("rebuilds at most MAX_APP_REBUILDS_PER_TURN times in one turn: a rebuild costs a model call", async () => {
@@ -679,6 +877,11 @@ describe("edit_artifact on an App (F2, ruling 77)", () => {
 			expect(refused.error).toMatch(/limit/i);
 			expect(refused.error).toMatch(/tell the user/i);
 		}
+		// Only the call past the limit is named; the two that ran have no code.
+		expect(results[MAX_APP_REBUILDS_PER_TURN].metadata.reasonCode).toBe(
+			"rebuild_limit_reached",
+		);
+		expect(results[0].metadata).not.toHaveProperty("reasonCode");
 	});
 });
 

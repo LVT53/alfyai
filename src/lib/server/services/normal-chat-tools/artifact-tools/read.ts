@@ -18,7 +18,7 @@ import { parseImageVersionBody } from "$lib/shared/artifacts/image-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { parseVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
-import { truncateText } from "../shared";
+import { reasonMetadata, truncateText } from "../shared";
 import { canvasReadBlocks, type KnownBoards } from "./canvas-model";
 import type { CreatableArtifactKind } from "./create";
 
@@ -282,7 +282,11 @@ async function buildNotFoundResult(params: {
 			})),
 		},
 		outputSummary: "Not found",
-		metadata: { ok: false, found: false },
+		metadata: {
+			ok: false,
+			found: false,
+			...reasonMetadata("read_artifact", "item_not_found"),
+		},
 	};
 }
 

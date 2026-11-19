@@ -16,9 +16,14 @@ import {
 } from "$lib/server/services/file-production";
 import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { searchImages } from "$lib/server/services/image-search";
+import {
+	ImageSearchApiError,
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import {
@@ -52,7 +57,9 @@ import {
 	createGroundedWebMetadata,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import { DISPLAY_OUTPUT_KEY, REASON_PLACE_KEY } from "$lib/shared/tool-reasons";
 import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
@@ -209,7 +216,9 @@ import {
 } from "./routing";
 import {
 	buildRunPythonModelPayload,
+	displayOutputOf,
 	runPythonInputSchema,
+	runPythonReasonOf,
 	sanitizeRunPythonInput,
 	summarizeRunPythonResult,
 } from "./run-python";
@@ -220,6 +229,9 @@ import {
 	executeToolWithEnvelope,
 	isToolTimeoutError,
 	modelSafeToolError,
+	reasonMetadata,
+	reasonMetadataOf,
+	recordSchemaFailure,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
@@ -976,6 +988,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													...(refusedCount > 0
 														? { refusedUrlCount: refusedCount }
 														: {}),
+													// Why no page could be read, when the Extract API said
+													// (a read that brought back a page names nothing).
+													...(result.readFailure
+														? reasonMetadata("fetch_url", result.readFailure)
+														: {}),
 												},
 											},
 										};
@@ -1006,6 +1023,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													...(error instanceof FetchUrlRefusedError
 														? { refusedUrlCount: error.refusedCount }
 														: {}),
+													// A link from neither the person nor a tool, or a page
+													// reader that answered with an error. A timeout, a Stop
+													// and a spent reading budget are the envelope's.
+													...(error instanceof FetchUrlRefusedError
+														? reasonMetadata(
+																"fetch_url",
+																"link_not_from_a_source",
+															)
+														: error instanceof ParallelApiError
+															? reasonMetadata("fetch_url", "read_unavailable")
+															: {}),
 												},
 											},
 										};
@@ -1088,6 +1116,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										// A chat the lookup may not look into (turned down before
+										// anything of it was read, on purpose), else memory could
+										// not be read. A tool's own time limit is left to the
+										// envelope's `timed_out`, whose sentence says what
+										// happened; a Stop and the deadline override either.
+										...(error instanceof ToolCallRefusedError
+											? reasonMetadata("memory_context", "chat_out_of_reach")
+											: isToolTimeoutError(error)
+												? {}
+												: reasonMetadata(
+														"memory_context",
+														"memory_unavailable",
+													)),
 									},
 								},
 							};
@@ -1136,6 +1177,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: true,
 										evidenceReady: true,
 										resultCount: compactResults.length,
+										// No picture came up: still a success, and the row says so.
+										...(compactResults.length === 0
+											? reasonMetadata("image_search", "nothing_found")
+											: {}),
 									},
 								},
 							};
@@ -1163,6 +1208,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										// A search that was never set up, or one the provider refused
+										// (its plan ran out answers 402). A timeout and a Stop are the
+										// envelope's; any other failure names nothing.
+										...(error instanceof ImageSearchNotConfiguredError
+											? reasonMetadata("image_search", "not_set_up")
+											: error instanceof ImageSearchApiError
+												? reasonMetadata("image_search", "search_unavailable")
+												: {}),
 									},
 								},
 							};
@@ -1665,6 +1718,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								{ collectFiles: false },
 							);
 							const modelPayload = buildRunPythonModelPayload(execution);
+							const displayOutput = displayOutputOf(execution.stdout ?? "");
+							const reason = runPythonReasonOf(execution, modelPayload);
 							return {
 								modelPayload,
 								entry: {
@@ -1681,6 +1736,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										exitCode: modelPayload.exitCode,
 										timedOut: modelPayload.timedOut,
 										truncated: modelPayload.truncated,
+										// A short copy of what the program printed, for the row:
+										// beside the payload, never in it, so what the model reads
+										// is as it was.
+										...(displayOutput === null
+											? {}
+											: { [DISPLAY_OUTPUT_KEY]: displayOutput }),
+										// A program that did not work is still a tool that did
+										// (`ok` stays true): the code says which way it went wrong.
+										...(reason ? reasonMetadata("run_python", reason) : {}),
 									},
 								},
 							};
@@ -1708,6 +1772,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: message,
+										// The sandbox could not run the program at all. A tool's own
+										// time limit is the envelope's `timed_out`, and a Stop and
+										// the deadline override either.
+										...(isToolTimeoutError(error)
+											? {}
+											: reasonMetadata("run_python", "sandbox_unavailable")),
 									},
 								},
 							};
@@ -1732,10 +1802,18 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						return {
-							found: false,
-							error,
-						};
+						// The model is answered as before; the row learns the call was
+						// changed to fit (an entry with nothing the digest would read),
+						// and the engine knows nothing ran, so the model reads the message
+						// and the turn goes on (`recordSchemaFailure`).
+						return recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "read_generated_file",
+							payload: {
+								found: false,
+								error,
+							},
+						});
 					}
 					const safeInput = sanitizeReadGeneratedFileInput(parsedInput.data);
 					return executeToolWithEnvelope({
@@ -1779,6 +1857,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// "project files read" count at finalize. Never
 										// in the model payload.
 										...toolReadArtifactIdsMetadata([readArtifactId]),
+										// Why the read found nothing: no file by that name, or
+										// several that match.
+										...(result.notFound
+											? reasonMetadata("read_generated_file", "file_not_found")
+											: result.ambiguous
+												? reasonMetadata("read_generated_file", "ambiguous")
+												: {}),
 									},
 								},
 							};
@@ -1838,10 +1923,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						return {
-							success: false,
-							error,
-						} satisfies CreateArtifactModelPayload;
+						return recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "create_artifact",
+							payload: {
+								success: false,
+								error,
+							} satisfies CreateArtifactModelPayload,
+						});
 					}
 					const safeInput = parsedInput.data;
 					// Counted and refused exactly the way
@@ -1862,7 +1951,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							status: "done",
 							outputSummary: message,
 							sourceType: "tool",
-							metadata: { ok: false, error: message },
+							metadata: {
+								ok: false,
+								error: message,
+								// The refusal's card names what it was for, as every refusal of a
+								// handler does: in the metadata, never in the payload.
+								artifactKind: safeInput.artifactType,
+								artifactTitle: safeInput.title,
+								...reasonMetadata("create_artifact", "reply_limit_reached"),
+							},
 						});
 						return payload;
 					}
@@ -2004,7 +2101,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						return { success: false, error } satisfies EditArtifactModelPayload;
+						return recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "edit_artifact",
+							payload: {
+								success: false,
+								error,
+							} satisfies EditArtifactModelPayload,
+						});
 					}
 					const safeInput = parsedInput.data;
 					return executeToolWithEnvelope<EditArtifactModelPayload>({
@@ -2108,6 +2212,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2192,6 +2297,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													eventCount: modelPayload.events.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2274,6 +2380,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													messageCount: modelPayload.messages.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2564,6 +2671,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													// How many photos the model was shown (the activity row
 													// reads "Looked at 6 photos"). Only when it asked to look.
 													...(viewedCount !== undefined ? { viewedCount } : {}),
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2644,6 +2752,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2725,6 +2834,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2805,6 +2915,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													contactCount: modelPayload.contacts.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2885,6 +2996,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													repoCount: modelPayload.repos.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2970,6 +3082,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													taskCount: modelPayload.tasks.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -3085,8 +3198,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													},
 													providerDeps,
 												);
-										const { modelPayload, candidates, map } =
-											await runRoutingTool(safeInput, { provider });
+										const {
+											modelPayload,
+											candidates,
+											map,
+											reason,
+											reasonPlace,
+										} = await runRoutingTool(safeInput, { provider });
 										return {
 											modelPayload,
 											entry: {
@@ -3103,6 +3221,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													attribution: modelPayload.attribution,
+													// Why a call did not work, and the place words that did not
+													// resolve: beside the payload, never in it.
+													...(reason
+														? reasonMetadata("map_route", reason)
+														: {}),
+													...(reasonPlace !== undefined
+														? { [REASON_PLACE_KEY]: reasonPlace }
+														: {}),
 												},
 												...(map ? { map } : {}),
 											},
@@ -3135,6 +3261,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													ok: false,
 													evidenceReady: false,
 													error: message,
+													// An error thrown on the way carries no cause the app can name, so it
+													// names no code and the row says the route's own fallback. Only the
+													// provider saying so (`provider_error`, routing.ts) is "the route service
+													// did not answer"; a Stop, the working deadline and the tool's own time
+													// limit are the envelope's codes.
 												},
 											},
 										};
@@ -3192,6 +3323,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											skillId: null,
 											skillOwnership: null,
 											skillDisplayName: null,
+											// No such skill, or one the person turned off.
+											...reasonMetadata(
+												"use_skill",
+												result.reason === "disabled"
+													? "skill_turned_off"
+													: "skill_not_found",
+											),
 										},
 									},
 								};
@@ -3303,6 +3441,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								evidenceReady: false,
 								offered: false,
 								reason,
+								// The same word the model was told, as the row's code.
+								...reasonMetadata("suggest_instruction", reason),
 							},
 							instructionSuggestion: null,
 						});

@@ -50,6 +50,8 @@ let { iconType, size = 14 }: { iconType: ToolCallIconType; size?: number } =
 	<MapPin class="tool-activity-icon" data-tool-icon="map-route" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'use-skill'}
 	<Sparkles class="tool-activity-icon" data-tool-icon="use-skill" {size} strokeWidth={2} aria-hidden="true" />
+{:else if iconType === 'suggest-instruction'}
+	<Sparkles class="tool-activity-icon" data-tool-icon="suggest-instruction" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'artifact'}
 	<LayoutGrid class="tool-activity-icon" data-tool-icon="artifact" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'calendar'}

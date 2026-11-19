@@ -57,6 +57,7 @@ import {
 	buildVideoContinuationPrompt,
 	buildVideoPrompt,
 } from "$lib/server/services/video-caption";
+import type { VideoErrorCode } from "$lib/shared/tool-reasons";
 
 export const makeVideoInputSchema = z.object({
 	prompt: z
@@ -131,12 +132,20 @@ export type MakeVideoPayload =
 			message: string;
 	  };
 
+/**
+ * A refusal's code: one of the shared list's (`$lib/shared/tool-reasons`), plus
+ * the Stop's own payload code. A Stop reaches the row as `videoStopped` in the
+ * metadata, never as a `videoError`, so `video_stopped` is not a reason code.
+ */
 type RefusalCode =
-	| "not_configured"
-	| "not_asked_for"
-	| "explicit_request"
-	| "unknown_picture"
-	| "video_error"
+	| Extract<
+			VideoErrorCode,
+			| "not_configured"
+			| "not_asked_for"
+			| "explicit_request"
+			| "unknown_picture"
+			| "video_error"
+	  >
 	| "video_stopped";
 
 /** A take as the tool reads it: what the job row says at the end of the wait. */
@@ -161,6 +170,8 @@ export type WaitForVideoTake = (
  */
 export type MakeVideoCallState = { takeId: string | null };
 
+// What the model is told for a take's failure code; every key is a code of the
+// shared list (`satisfies` below), which is what the rows' words are held to.
 const FAILURE_MESSAGES: Record<string, string> = {
 	video_server_unreachable: "The video server could not be reached.",
 	video_graph_rejected: "The video server refused this request.",
@@ -179,7 +190,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
 	video_unchecked:
 		"The finished clip could not be checked by the explicit-picture filter, so it was not shown to the user and not kept. Tell the user it could not be checked right now. Do not call make_video again for it now.",
 	video_take_missing: "The video take is gone.",
-};
+} satisfies Partial<Record<VideoErrorCode, string>>;
 /** A take the filter stopped is never the model's to repeat, whatever the card offers. */
 const NOT_FOR_THE_MODEL_TO_RETRY = new Set([
 	"video_blocked",

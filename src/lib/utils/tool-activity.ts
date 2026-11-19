@@ -24,9 +24,20 @@ import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	imageThumbnailRouteUrl,
+	isBraveThumbnailUrl,
+} from "$lib/shared/url-provenance";
+import {
+	connectorCountOf,
+	connectorNotConnectedKey,
+	connectorPhraseKey,
+	connectorThingsIcon,
+	connectorUnitKey,
+	localizedThingTitle,
+} from "$lib/utils/connector-row-words";
 import { formatByteSize } from "$lib/utils/format";
 import {
-	formatConnectionToolAction,
 	getConnectionToolLabelKey,
 	getHumanReadableToolNameKey,
 	getToolCallIconType,
@@ -37,6 +48,7 @@ import {
 	dedupeSourcesByUrl,
 	extractHostname,
 	type FetchedSource,
+	formatEventTime,
 	formatToolCall,
 	getFetchUrlSources,
 	isCitedSource,
@@ -45,6 +57,12 @@ import {
 	type ToolCallSegment,
 	type Translate,
 } from "$lib/utils/tool-evidence-presentation";
+import {
+	type ReasonKind,
+	readReasonCode,
+	resolveToolReason,
+	UNFINISHED_CODE,
+} from "$lib/utils/tool-reason-words";
 
 /**
  * `skipped`: it ended with nothing done and nothing wrong, as a declined write does.
@@ -79,24 +97,55 @@ const ARTIFACT_KINDS: readonly ArtifactKind[] = [
  */
 export type ToolWebSource = FetchedSource & { fromInput?: true };
 
+/** The little glyph before each thing a `things` body names: a tool's own, or a chat's. */
+export type ToolThingIcon = ToolCallIconType | "chat";
+
 /** The opened panel under a row. One variant per tool shape in the mockup. */
 export type ToolActivityBody =
 	| { kind: "sources"; sources: ToolWebSource[]; citedCount: number }
 	| { kind: "page"; sources: ToolWebSource[]; excerpt: string | null }
-	| { kind: "python"; program: string; output: string | null }
+	// What a calculation printed, as plain text: never its program, and never the
+	// note the tool wrote for the model about it.
+	| { kind: "result"; text: string }
 	| { kind: "map"; map: ToolCallMapData; summary: string }
-	| { kind: "text"; text: string }
 	| { kind: "bullets"; items: string[] }
+	// The pictures a picture search found, small, each with its site. `src` is the
+	// app's own thumbnail route for an address on Brave's image proxy, never the
+	// address itself.
+	| {
+			kind: "thumbs";
+			items: { src: string; host: string; title: string }[];
+	  }
+	// The things a tool found or touched, by their own names: at most five, then
+	// `more` says how many were left out.
+	| {
+			kind: "things";
+			icon: ToolThingIcon;
+			items: { title: string; sub?: string }[];
+			more: number;
+	  }
+	// One run of an account's calls: each call in plain words with the glyph of how
+	// it went, what it found beside it, the things it found by their own names, or
+	// one sentence about why it did not work.
 	| {
 			kind: "actions";
-			actions: { key: string; label: string; status: ToolActivityStatus }[];
+			/** The glyph before each thing a call names (the account's own). */
+			icon: ToolThingIcon;
+			actions: {
+				key: string;
+				label: string;
+				status: ToolActivityStatus;
+				/** What the call found, on its right ("3 found"). */
+				sub?: string;
+				things?: { items: { title: string; sub?: string }[]; more: number };
+				/** Why it did not work, or one line of information: a sentence, never a code. */
+				reason?: string;
+			}[];
 	  }
-	| { kind: "error"; reason: string }
-	| {
-			kind: "generic";
-			args: { key: string; value: string }[];
-			result: string | null;
-	  }
+	// One sentence, in the person's language, from a reason code's words (never
+	// from `outputSummary`, `metadata.error` or anything else written for the model
+	// or the log): what happened, once.
+	| { kind: "reason"; text: string }
 	// The file-production body is rendered by FileProductionCard.svelte (the
 	// reduced, body-only component); the job itself is threaded through the
 	// component prop rather than flattened here.
@@ -334,10 +383,7 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.summaryFailedCount",
 	"toolActivity.summaryMemories",
 	"toolActivity.sourcesEyebrow",
-	"toolActivity.program",
-	"toolActivity.output",
 	"toolActivity.expandActivity",
-	"toolActivity.failureDetails",
 	"toolActivity.retriedOnce",
 	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
 	// they ride the same resolution test rather than a second one of their own.
@@ -367,9 +413,31 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolCalls.citedCount",
 	"toolCalls.readPagesCount",
 	"toolCalls.actionsCount",
-	"toolCalls.detailArguments",
-	"toolCalls.detailResult",
 	...ATLAS_ACTIVITY_I18N_KEYS,
+];
+
+/**
+ * The words a row says on its own line besides a reason's sentence (the sentences
+ * are the registry's, `tool-reason-words.ts`): what a search that found nothing says
+ * on its right, the verbs a stop on purpose puts in front of its object, counts and
+ * units. They live in `i18n/tool-rows.ts`; one test asserts each resolves in both
+ * languages, so a row cannot print a raw key.
+ */
+export const TOOL_ROW_I18N_KEYS: readonly I18nKey[] = [
+	"toolRows.meta.nothingFound",
+	"toolRows.meta.pictures",
+	"toolRows.meta.pastChats",
+	"toolRows.more",
+	"toolRows.verb.didntOpen",
+	"toolRows.verb.lookedThrough",
+	"toolRows.verb.noSkillCalled",
+	"toolRows.verb.suggestedInstruction",
+	"toolRows.verb.leftAsItWas",
+	"toolRows.verb.adjustingRequest",
+	"toolRows.verb.videoNotMade",
+	"toolRows.verb.adjustingVideo",
+	"toolRows.suffix.page",
+	"toolRows.suffix.part",
 ];
 
 function verb(
@@ -379,22 +447,6 @@ function verb(
 	status: ToolActivityStatus,
 ): string {
 	return translate(VERB_KEYS[status === "running" ? running : settled]);
-}
-
-/**
- * A tool call's elapsed time, when the segment honestly carries one. No
- * server-side timing rides on a tool-call segment today, so this is silent
- * (returns null) unless a future `metadata.durationMs` shows up — never a
- * fabricated number.
- */
-export function toolElapsedLabel(
-	metadata: Record<string, string | number | boolean | null> | undefined,
-): string | null {
-	const raw = metadata?.durationMs;
-	if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
-	if (raw < 1000) return `${Math.round(raw)} ms`;
-	const seconds = raw / 1000;
-	return seconds < 10 ? `${seconds.toFixed(1)} s` : `${Math.round(seconds)} s`;
 }
 
 /**
@@ -438,68 +490,6 @@ function citedCount(sources: FetchedSource[]): number {
 
 function firstStringInput(input: Record<string, unknown>): string {
 	return String(Object.values(input ?? {})[0] ?? "").trim();
-}
-
-const IMAGE_REASON_KEYS: Record<string, I18nKey> = {
-	image_server_unreachable: "toolActivity.pictureReason.unreachable",
-	image_graph_rejected: "toolActivity.pictureReason.rejected",
-	image_render_failed: "toolActivity.pictureReason.renderFailed",
-	image_render_timeout: "toolActivity.pictureReason.renderTimeout",
-	image_result_missing: "toolActivity.pictureReason.resultMissing",
-	image_input_missing: "toolActivity.pictureReason.inputMissing",
-	image_server_not_configured: "toolActivity.pictureReason.notConfigured",
-	not_configured: "toolActivity.pictureReason.notConfigured",
-	image_request_invalid: "toolActivity.pictureReason.requestInvalid",
-	image_blocked: "toolActivity.pictureReason.blocked",
-	image_unchecked: "toolActivity.pictureReason.unchecked",
-};
-
-/** The explicit-picture filter's codes: the row says the picture was blocked, not that making it failed. */
-const IMAGE_FILTER_ERRORS = new Set(["image_blocked", "image_unchecked"]);
-
-/**
- * The localized reason for a make_image row that did not make its picture; null
- * when the person has nothing to act on. A refusal (too many takes, a repeated
- * retry, an unknown picture name...) is mostly a correction for the model, which
- * recovers by itself; only the refusals the person must act on — no server, an
- * explicit request, H3's missing transparency — get words here.
- */
-function imageReasonKey(
-	metadata: Record<string, string | number | boolean | null> | undefined,
-): I18nKey | null {
-	const code = metadata?.imageError;
-	if (typeof code === "string" && IMAGE_REASON_KEYS[code]) {
-		return IMAGE_REASON_KEYS[code];
-	}
-	const refusal = metadata?.imageRefusal;
-	if (typeof refusal === "string") {
-		if (refusal === "not_configured") {
-			return "toolActivity.pictureReason.notConfigured";
-		}
-		if (refusal === "explicit_request") {
-			return "toolActivity.pictureReason.explicitRequest";
-		}
-		if (refusal === "transparent_unavailable") {
-			return "toolActivity.pictureReason.transparentUnavailable";
-		}
-		return metadata?.imageUnreadable === true
-			? "toolActivity.pictureReason.unreadable"
-			: null;
-	}
-	return "toolActivity.pictureReason.generic";
-}
-
-/** The failure reason a failed row's body carries — never invented. */
-export function toolFailureReason(segment: {
-	outputSummary?: string | null;
-	metadata?: Record<string, string | number | boolean | null>;
-}): string | null {
-	const fromMetadata = segment.metadata?.error;
-	if (typeof fromMetadata === "string" && fromMetadata.trim()) {
-		return fromMetadata.trim();
-	}
-	const summary = segment.outputSummary?.trim();
-	return summary ? summary : null;
 }
 
 /**
@@ -599,40 +589,154 @@ function journeyMeta(map: ToolCallMapData, translate: Translate): string {
 		.join(" · ");
 }
 
-function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
+/** The title of every candidate a memory lookup returned, as plain text: a memory's statement, or a past chat's title. */
+function memoryTitles(candidates: ToolEvidenceCandidate[]): string[] {
 	return candidates
 		.map((candidate) => stripToPlainText(candidate.title ?? ""))
-		.filter((title) => title.length > 0)
-		.slice(0, 8);
+		.filter((title) => title.length > 0);
 }
 
-/** What a call's argument reads as: a list or an object is its JSON, never "[object Object]". */
-function argumentText(value: unknown): string {
-	if (value === null || value === undefined) return "";
-	if (typeof value === "object") {
-		try {
-			return JSON.stringify(value) ?? "";
-		} catch {
-			return "";
-		}
+/**
+ * What the reply a row belongs to ended as, when it is over: `turnEnded` (it is no
+ * longer streaming) and `turnStopped` (the person pressed Stop: the message's own
+ * `wasStopped`). A reply can end without a Stop, an update or a crash cut it, and
+ * then no step of it was stopped by the person.
+ */
+type TurnEnd = { turnEnded?: boolean; turnStopped?: boolean };
+
+/**
+ * A call still marked running in a reply that is over was cut off before the call's
+ * closing event came. It reads as a quiet stop, never as a spinner that cannot end.
+ * The row is built as the settled call it would have been. When the person pressed
+ * Stop it carries the server's `stopped` code (and the flags a picture's and a
+ * clip's own rows read their Stop from): "You stopped this before it finished."
+ * When the reply ended some other way it carries the browser's own `unfinished`:
+ * "This step didn't finish before the reply ended.", because nobody pressed Stop.
+ */
+function cutOffCall(
+	segment: ToolCallSegment,
+	stoppedByPerson: boolean,
+): ToolCallSegment {
+	const metadata: Record<string, string | number | boolean | null> = {
+		...segment.metadata,
+		reasonCode: stoppedByPerson ? "stopped" : UNFINISHED_CODE,
+	};
+	if (stoppedByPerson) {
+		if (segment.name === "make_image") metadata.imageStopped = true;
+		if (segment.name === "make_video") metadata.videoStopped = true;
 	}
-	return String(value).trim();
+	return { ...segment, status: "done", metadata };
 }
 
-function genericArguments(
-	input: Record<string, unknown>,
-): { key: string; value: string }[] {
-	return Object.entries(input ?? {})
-		.map(([key, value]) => [key, argumentText(value)] as const)
-		.filter(([, value]) => value.length > 0)
-		.map(([key, value]) => ({ key, value: value.slice(0, 500) }));
+/** What a call's outcome says: its kind, and its one sentence (none when the row's own words say it all). */
+type RowReason = { code: string | null; kind: ReasonKind; text: string | null };
+
+/**
+ * The outcome a call carries, from its reason code, or from the fact that it failed
+ * with no code at all (a call saved before codes, or a code a newer server wrote
+ * that this one does not know): then its tool's own fallback sentence. A call that
+ * simply worked has none. Nothing here reads `outputSummary`, `metadata.error` or
+ * any input: those are the model's and the log's, never a person's.
+ */
+function describeReason(
+	segment: ToolCallSegment,
+	translate: Translate,
+): RowReason | null {
+	const metadata = segment.metadata;
+	const code = readReasonCode(segment.name, metadata);
+	const failed = segment.status === "failed" || metadata?.ok === false;
+	if (code === null && !failed) return null;
+	// The person's own word for a place a route could not find; a sentence about a
+	// place that names none would print its placeholder, so it reads as the
+	// route's fallback instead.
+	const place =
+		typeof metadata?.reasonPlace === "string"
+			? metadata.reasonPlace.trim()
+			: "";
+	const artifactKind =
+		typeof metadata?.artifactKind === "string" ? metadata.artifactKind : null;
+	let words = resolveToolReason(segment.name, code, { artifactKind });
+	if (words.code === "place_not_found" && !place) {
+		words = resolveToolReason(segment.name, null);
+	}
+	return {
+		code: words.code,
+		kind: words.kind,
+		text: words.key
+			? translate(words.key, place ? { place } : undefined)
+			: null,
+	};
 }
 
-function genericBody(segment: ToolCallSegment): ToolActivityBody | null {
-	const args = genericArguments(segment.input);
-	const result = segment.outputSummary?.trim() || null;
-	if (args.length === 0 && !result) return null;
-	return { kind: "generic", args, result };
+/**
+ * Draws a row's outcome on top of the grammar its tool gave it. The glyph and the
+ * colour come from the code's kind, never from the stored `status` (which stays
+ * what the server wrote, because the history the model reads is derived from it):
+ * something broke is the red cross; a stop the app made on purpose, or a setting
+ * the person can change, is the quiet dash; information and "nothing found" stay
+ * done. The tool's own label stays (a failed read is still "Read <host>"); only the
+ * glyph, the right-hand word and the body change.
+ */
+function withReason(
+	item: ToolActivityItem,
+	reason: RowReason,
+	translate: Translate,
+): ToolActivityItem {
+	const sentence: ToolActivityBody | null = reason.text
+		? { kind: "reason", text: reason.text }
+		: null;
+	// A failed create or edit already says so in its own verb ("Couldn't edit").
+	const saysItself = Boolean(item.artifact?.failed);
+	switch (reason.kind) {
+		case "fail": {
+			const failedMeta = translate("toolCalls.failed");
+			return {
+				...item,
+				status: "failed",
+				meta: saysItself ? item.meta : failedMeta,
+				summaryLabel: saysItself
+					? item.summaryLabel
+					: `${verbBeforeTitle(item.verb, false)} ${failedMeta}`,
+				// A call that failed contributed nothing to count up.
+				summaryCount: 0,
+				// Nothing failed is a deliverable, and nothing failed pins itself open.
+				pinned: false,
+				alwaysOpen: false,
+				body: sentence,
+			};
+		}
+		case "stop":
+			return {
+				...item,
+				status: "skipped",
+				meta: "",
+				summaryLabel: saysItself
+					? item.summaryLabel
+					: stripLabelOf(item.verb, item.object),
+				summaryCount: 0,
+				pinned: false,
+				alwaysOpen: false,
+				body: sentence,
+			};
+		case "empty":
+			return {
+				...item,
+				status: "done",
+				meta: translate("toolRows.meta.nothingFound"),
+				summaryLabel: item.verb,
+				summaryCount: 0,
+				pinned: false,
+				alwaysOpen: false,
+				body: null,
+			};
+		case "info":
+			return {
+				...item,
+				status: "done",
+				// A line of information never takes the place of what the call found.
+				body: item.body ?? sentence,
+			};
+	}
 }
 
 /**
@@ -640,36 +744,38 @@ function genericBody(segment: ToolCallSegment): ToolActivityBody | null {
  *
  * A failed call keeps the SAME label a successful one would have had ("Read
  * weather.metoffice.gov.uk", not a neutral tool name): per the approved
- * mockup, only the status glyph and the right-hand word go red, and the body
- * becomes the reason. So the grammar is built first, and failure is applied
+ * mockup, only the status glyph and the right-hand word change, and the body
+ * becomes the reason. So the grammar is built first, and the outcome is applied
  * on top of it.
+ *
+ * `options.turnEnded`: the reply this call belongs to is over, so a call still
+ * marked running was cut off and reads as a quiet stop. `options.turnStopped`: the
+ * person pressed Stop on it, so the stop is theirs; without it the call "did not
+ * finish before the reply ended" (an update or a crash cut the reply).
  */
 export function buildToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
 	translate: Translate,
+	options?: TurnEnd,
 ): ToolActivityItem {
-	const item = buildSettledToolActivityItem(segment, key, translate);
-	// A failed create/edit names what it tried and keeps the model's words behind
-	// "Details" (its own item below); nothing else is added to it.
-	if (segment.status !== "failed" || item.artifact?.failed) return item;
-	// make_image and make_video word their own failure from a code, in the
-	// person's language.
-	if (segment.name === "make_image" || segment.name === "make_video")
+	const call =
+		options?.turnEnded === true && segment.status === "running"
+			? cutOffCall(segment, options.turnStopped === true)
+			: segment;
+	const item = buildSettledToolActivityItem(call, key, translate);
+	// A picture's and a clip's rows word their own outcome from their codes, and a
+	// card (an item made, being made, or refused) is its own account.
+	if (call.name === "make_image" || call.name === "make_video") return item;
+	if (
+		item.body?.kind === "artifact" ||
+		item.body?.kind === "artifact-creating" ||
+		item.body?.kind === "artifact-failed"
+	) {
 		return item;
-	const failedMeta = translate("toolCalls.failed");
-	const reason = toolFailureReason(segment);
-	return {
-		...item,
-		meta: failedMeta,
-		summaryLabel: `${item.verb} ${failedMeta}`,
-		// A call that failed contributed nothing to count up.
-		summaryCount: 0,
-		// Nothing failed is a deliverable, and nothing failed pins itself open.
-		pinned: false,
-		alwaysOpen: false,
-		body: reason ? { kind: "error", reason } : null,
-	};
+	}
+	const reason = describeReason(call, translate);
+	return reason ? withReason(item, reason, translate) : item;
 }
 
 type RowBase = Pick<
@@ -677,7 +783,38 @@ type RowBase = Pick<
 	"key" | "status" | "iconType" | "pinned" | "alwaysOpen"
 >;
 
-/** A make_image call's row: its verb, title and failure words. */
+/**
+ * How a picture's or a clip's call ended, from the registry: its code, and the
+ * code's kind and sentence. A call that simply worked has none. The code comes from
+ * the fields the tool already writes (`imageRefusal`, `imageError`, a Stop's flag,
+ * `videoError`) and the envelope's shared one; a call that failed with no code at
+ * all, or one this version does not know, reads as the tool's own fallback sentence.
+ */
+function takeOutcome(
+	toolName: "make_image" | "make_video",
+	segment: ToolCallSegment,
+): { code: string | null; kind: ReasonKind; key: I18nKey | null } | null {
+	const code = readReasonCode(toolName, segment.metadata);
+	const failed = segment.status === "failed" || segment.metadata?.ok === false;
+	if (code === null && !failed) return null;
+	const words = resolveToolReason(toolName, code);
+	return { code, kind: words.kind, key: words.key };
+}
+
+/** The glyph an outcome's kind draws: broke is the red cross, a stop on purpose the quiet dash, information a tick. */
+function takeStatus(kind: ReasonKind): ToolActivityStatus {
+	return kind === "fail" ? "failed" : kind === "stop" ? "skipped" : "done";
+}
+
+/**
+ * A make_image call's row: its verb, title and failure words. The glyph follows the
+ * code's kind like every row's: a Stop, a refusal the model corrects by itself, the
+ * explicit-picture refusal, the transparency refusal and the filter's block are the
+ * quiet dash; a breakage is the red cross, and so is "the picture could not be
+ * checked" (the check failed, and later it may not); the envelope giving up while the
+ * take still renders is a tick, as before. The words are the code's sentence, never
+ * what the model was told.
+ */
 function makeImageRow(
 	segment: ToolCallSegment,
 	base: RowBase,
@@ -705,81 +842,36 @@ function makeImageRow(
 			body: null,
 		};
 	}
-	// A Stop is not a failure: the person asked for it.
-	if (metadata?.imageStopped === true) {
-		const stoppedVerb = translate(VERB_KEYS.pictureStopped);
+	const outcome = takeOutcome("make_image", segment);
+	if (outcome) {
+		// The verb says what happened to the picture; a sentence follows when there is
+		// more to say (a Stop, a still-rendering take and a model's correction say it
+		// all in their verb).
+		const verbKey =
+			outcome.code === "stopped"
+				? VERB_KEYS.pictureStopped
+				: outcome.code === "image_tool_timeout"
+					? VERB_KEYS.pictureStillMaking
+					: outcome.kind === "stop" && outcome.key === null
+						? VERB_KEYS.pictureRequestAdjusted
+						: outcome.code === "image_blocked" ||
+								outcome.code === "image_unchecked"
+							? VERB_KEYS.pictureBlocked
+							: outcome.kind === "stop"
+								? VERB_KEYS.pictureNotMade
+								: VERB_KEYS.pictureFailed;
+		const outcomeVerb = translate(verbKey);
 		return {
 			...base,
-			status: "done",
-			verb: stoppedVerb,
+			status: takeStatus(outcome.kind),
+			verb: outcomeVerb,
 			object: title,
 			meta: "",
-			summaryLabel: stoppedVerb,
-			title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
-			body: null,
-		};
-	}
-	// The tool's envelope gave up waiting, but the take is still rendering and
-	// lands on its card: that is not a failure.
-	if (metadata?.imageError === "image_tool_timeout") {
-		const stillVerb = translate(VERB_KEYS.pictureStillMaking);
-		return {
-			...base,
-			status: "done",
-			verb: stillVerb,
-			object: title,
-			meta: "",
-			summaryLabel: stillVerb,
-			title: title ? `${stillVerb}: ${title}` : stillVerb,
-			body: null,
-		};
-	}
-	// A refusal meant only for the model (too many takes, a repeated retry, an
-	// unknown picture name): the model corrects itself, so the person sees a
-	// neutral row, not a failure. An explicit request and H3's transparent
-	// refusal are the person's to act on, so they fall through to the failed
-	// branch and get their own reason below.
-	if (
-		typeof metadata?.imageRefusal === "string" &&
-		metadata.imageRefusal !== "not_configured" &&
-		metadata.imageRefusal !== "explicit_request" &&
-		metadata.imageRefusal !== "transparent_unavailable" &&
-		metadata.imageUnreadable !== true
-	) {
-		const adjustedVerb = translate(VERB_KEYS.pictureRequestAdjusted);
-		return {
-			...base,
-			status: "done",
-			verb: adjustedVerb,
-			object: title,
-			meta: "",
-			summaryLabel: adjustedVerb,
-			title: title ? `${adjustedVerb}: ${title}` : adjustedVerb,
-			body: null,
-		};
-	}
-	if (status === "failed" || metadata?.ok === false) {
-		const failedVerb = translate(
-			metadata?.imageRefusal === "explicit_request" ||
-				metadata?.imageRefusal === "transparent_unavailable"
-				? VERB_KEYS.pictureNotMade
-				: typeof metadata?.imageError === "string" &&
-						IMAGE_FILTER_ERRORS.has(metadata.imageError)
-					? VERB_KEYS.pictureBlocked
-					: VERB_KEYS.pictureFailed,
-		);
-		// Words for the person come from the code, never from what the model was told.
-		const reasonKey = imageReasonKey(metadata);
-		const reason = reasonKey ? translate(reasonKey) : "";
-		return {
-			...base,
-			status: "failed",
-			verb: failedVerb,
-			object: title,
-			meta: reason ? translate("toolActivity.failureDetails") : "",
-			summaryLabel: failedVerb,
-			title: title ? `${failedVerb}: ${title}` : failedVerb,
-			body: reason ? { kind: "error", reason } : null,
+			summaryLabel: outcomeVerb,
+			title: title ? `${outcomeVerb}: ${title}` : outcomeVerb,
+			body: outcome.key
+				? { kind: "reason", text: translate(outcome.key) }
+				: null,
 		};
 	}
 	const doneVerb = translate(
@@ -829,27 +921,16 @@ function withImageCard(
 	};
 }
 
-type VideoErrorMetadata = Record<string, unknown> | undefined;
-
-/** The person's words for a video take's failure code; null when there is no code. */
-function videoReasonKey(metadata: VideoErrorMetadata): I18nKey | null {
-	const code =
-		typeof metadata?.videoError === "string" ? metadata.videoError : null;
-	if (!code) return null;
-	if (code === "video_blocked") return "artifacts.video.card.blockedDetail";
-	if (code === "video_unchecked") return "artifacts.video.card.uncheckedDetail";
-	if (
-		code === "video_server_unreachable" ||
-		code === "video_server_not_configured" ||
-		// The tool's own refusal code for the same fact (no LTX address set).
-		code === "not_configured"
-	) {
-		return "artifacts.video.card.unavailable";
-	}
-	return "artifacts.take.failed";
-}
-
-/** A make_video call's row: its verb, title and failure words, in the video's own language. */
+/**
+ * A make_video call's row, in the picture row's grammar and the video's own
+ * language. The stops on purpose (the explicit-request refusal, a request that did
+ * not clearly ask for a video, the filter's block, a Stop) are the quiet dash, with
+ * "Video not made" and a sentence, "The video was blocked", or "Stopped the video";
+ * a request the model corrects by itself is "Adjusting the video request" with no
+ * body; every breakage code is the red cross with its own sentence, in the row's
+ * body when there is no card and on the clip's card when there is; "the clip could
+ * not be checked" stays a failure (the check failed, and later it may not).
+ */
 function makeVideoRow(
 	segment: ToolCallSegment,
 	base: RowBase,
@@ -877,54 +958,36 @@ function makeVideoRow(
 			body: null,
 		};
 	}
-	// A Stop is not a failure: the person asked for it.
-	if (metadata?.videoStopped === true) {
-		const stoppedVerb = translate("artifacts.video.row.stopped");
+	const outcome = takeOutcome("make_video", segment);
+	if (outcome) {
+		// The tool's envelope giving up while the take still renders, a Stop and a
+		// correction for the model say it all in their verb; a stop on purpose and a
+		// breakage add their sentence.
+		const verbKey: I18nKey =
+			outcome.code === "stopped"
+				? "artifacts.video.row.stopped"
+				: outcome.code === "video_tool_timeout"
+					? "artifacts.video.row.stillMaking"
+					: outcome.kind === "stop" && outcome.key === null
+						? "toolRows.verb.adjustingVideo"
+						: outcome.code === "video_blocked" ||
+								outcome.code === "video_unchecked"
+							? "artifacts.video.row.blocked"
+							: outcome.kind === "stop"
+								? "toolRows.verb.videoNotMade"
+								: "artifacts.video.row.failed";
+		const outcomeVerb = translate(verbKey);
 		return {
 			...base,
-			status: "done",
-			verb: stoppedVerb,
+			status: takeStatus(outcome.kind),
+			verb: outcomeVerb,
 			object: title,
 			meta: "",
-			summaryLabel: stoppedVerb,
-			title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
-			body: null,
-		};
-	}
-	// The tool's envelope gave up waiting, but the take is still rendering and
-	// lands on its card: that is not a failure.
-	if (metadata?.videoError === "video_tool_timeout") {
-		const stillVerb = translate("artifacts.video.row.stillMaking");
-		return {
-			...base,
-			status: "done",
-			verb: stillVerb,
-			object: title,
-			meta: "",
-			summaryLabel: stillVerb,
-			title: title ? `${stillVerb}: ${title}` : stillVerb,
-			body: null,
-		};
-	}
-	if (status === "failed" || metadata?.ok === false) {
-		const blocked =
-			typeof metadata?.videoError === "string" &&
-			(metadata.videoError === "video_blocked" ||
-				metadata.videoError === "video_unchecked");
-		const failedVerb = translate(
-			blocked ? "artifacts.video.row.blocked" : "artifacts.video.row.failed",
-		);
-		const reasonKey = videoReasonKey(metadata);
-		const reason = reasonKey ? translate(reasonKey) : "";
-		return {
-			...base,
-			status: "failed",
-			verb: failedVerb,
-			object: title,
-			meta: reason ? translate("toolActivity.failureDetails") : "",
-			summaryLabel: failedVerb,
-			title: title ? `${failedVerb}: ${title}` : failedVerb,
-			body: reason ? { kind: "error", reason } : null,
+			summaryLabel: outcomeVerb,
+			title: title ? `${outcomeVerb}: ${title}` : outcomeVerb,
+			body: outcome.key
+				? { kind: "reason", text: translate(outcome.key) }
+				: null,
 		};
 	}
 	const doneVerb = translate("artifacts.video.row.made");
@@ -969,6 +1032,110 @@ function withVideoCard(
 	};
 }
 
+/** How many named things a list in a body shows before it says "and N more". */
+const THINGS_SHOWN = 5;
+
+/**
+ * The pictures a picture search found: how many, and the small copies a row can
+ * show. A thumbnail is shown only when it is an address on Brave's image proxy (the
+ * one the app's own thumbnail route will ask for), through that route and never by
+ * its own address; a picture whose thumbnail is anything else is counted, not shown
+ * (ADR-0068: an address the app requests without a click comes from a tool's result,
+ * never from the model's words). Each carries the site the search said it came from.
+ */
+function foundPictures(candidates: ToolEvidenceCandidate[] | undefined): {
+	count: number;
+	thumbs: { src: string; host: string; title: string }[];
+} {
+	const found = (candidates ?? []).filter(
+		(candidate) => typeof candidate.url === "string" && candidate.url.trim(),
+	);
+	const thumbs: { src: string; host: string; title: string }[] = [];
+	for (const candidate of found) {
+		const thumbnail = candidate.metadata?.thumbnail;
+		if (typeof thumbnail !== "string" || !isBraveThumbnailUrl(thumbnail)) {
+			continue;
+		}
+		const source =
+			typeof candidate.metadata?.source === "string"
+				? candidate.metadata.source
+				: (candidate.snippet ?? "");
+		const host =
+			stripToPlainText(source).trim() || extractHostname(candidate.url ?? "");
+		// A picture a search finds twice (two pages, one thumbnail) is drawn once,
+		// where it first came: the row keys its pictures by their address.
+		const src = imageThumbnailRouteUrl(thumbnail.trim());
+		if (thumbs.some((thumb) => thumb.src === src)) continue;
+		thumbs.push({
+			src,
+			host,
+			title: stripToPlainText(candidate.title || host),
+		});
+	}
+	return { count: found.length, thumbs: thumbs.slice(0, 8) };
+}
+
+/** A whole, positive number the model named ("page": 3, "part": "2"); anything else is none. */
+function wholeNumber(value: unknown): number | null {
+	const number =
+		typeof value === "number"
+			? value
+			: typeof value === "string" && /^\d{1,6}$/.test(value.trim())
+				? Number(value.trim())
+				: Number.NaN;
+	return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+/** A place a route call named: a name, or the coordinates it gave instead. */
+function placeText(value: unknown): string {
+	if (typeof value === "string") return value.trim();
+	if (value && typeof value === "object") {
+		const { lat, lng } = value as Record<string, unknown>;
+		if (typeof lat === "number" && typeof lng === "number") {
+			return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+		}
+	}
+	return "";
+}
+
+/**
+ * What a route call is about when it drew no map (a refusal, a failure, a call
+ * still running): the two ends of the trip, or the one place looked up. Never the
+ * first word of the request ("drive"), which the row used to print.
+ */
+function routeInputLabel(input: Record<string, unknown>): string {
+	const origin = placeText(input.origin);
+	const destination = placeText(input.destination);
+	if (origin && destination) return `${origin} → ${destination}`;
+	return (origin || destination || placeText(input.query)).slice(0, 200);
+}
+
+/** A verb that ends in a colon to introduce a free-form title, with the colon only when a title follows. */
+function verbBeforeTitle(verbText: string, named: boolean): string {
+	const bare = verbText.replace(/:\s*$/, "");
+	return named ? `${bare}:` : bare;
+}
+
+/** The most of an object a label in the strip carries: the strip is one line of short words. */
+const STRIP_OBJECT_MAX_CHARS = 40;
+
+/**
+ * A label for the collapsed strip from a row's verb and its object. A verb that ends
+ * in a colon introduces its object ("Nem nyitotta meg: example.com"), so the label
+ * keeps the object (cut to what a strip holds); with nothing to introduce the colon
+ * would dangle, so it goes. A verb without a colon stands alone, as it always did.
+ */
+function stripLabelOf(verbText: string, object: string): string {
+	if (!/:\s*$/.test(verbText)) return verbText;
+	const named = object.trim();
+	if (!named) return verbBeforeTitle(verbText, false);
+	const shown =
+		named.length > STRIP_OBJECT_MAX_CHARS
+			? `${named.slice(0, STRIP_OBJECT_MAX_CHARS - 1).trimEnd()}…`
+			: named;
+	return `${verbText.trimEnd()} ${shown}`;
+}
+
 function buildSettledToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
@@ -976,7 +1143,7 @@ function buildSettledToolActivityItem(
 ): ToolActivityItem {
 	const status = segment.status;
 	const iconType = getToolCallIconType(segment.name);
-	const elapsed = toolElapsedLabel(segment.metadata);
+	const code = readReasonCode(segment.name, segment.metadata);
 	const base = {
 		key,
 		status,
@@ -994,7 +1161,7 @@ function buildSettledToolActivityItem(
 		const sourcesMeta =
 			sources.length > 0
 				? translate("toolCalls.sourcesCount", { count: sources.length })
-				: (elapsed ?? "");
+				: "";
 		return {
 			...base,
 			verb: searchVerb,
@@ -1019,14 +1186,23 @@ function buildSettledToolActivityItem(
 			"searchedImages",
 			status,
 		);
+		// How many pictures it found is the row's own fact ("8 pictures"); opened, it
+		// shows the pictures themselves, small, each with its site.
+		const pictures = foundPictures(segment.candidates);
 		return {
 			...base,
 			verb: imageVerb,
 			object: query,
-			meta: elapsed ?? "",
+			meta:
+				pictures.count > 0
+					? translate("toolRows.meta.pictures", { count: pictures.count })
+					: "",
 			summaryLabel: imageVerb,
 			title: query,
-			body: genericBody(segment),
+			body:
+				pictures.thumbs.length > 0
+					? { kind: "thumbs", items: pictures.thumbs }
+					: null,
 		};
 	}
 
@@ -1050,15 +1226,23 @@ function buildSettledToolActivityItem(
 			primary?.title && primary.title !== host
 				? `${host} · ${primary.title}`
 				: host;
+		// A link the app turned down on purpose (it came from neither the person nor
+		// a search) was not opened: the row says so, and names only the host.
+		const refused = code === "link_not_from_a_source";
+		const fetchVerb = refused
+			? translate("toolRows.verb.didntOpen")
+			: verb(translate, "reading", "read", status);
 		return {
 			...base,
-			verb: verb(translate, "reading", "read", status),
-			object,
-			meta: elapsed ?? "",
-			summaryLabel: translate("toolCalls.readPagesCount", { count: 1 }),
+			verb: fetchVerb,
+			object: refused ? host : object,
+			meta: "",
+			summaryLabel: refused
+				? stripLabelOf(fetchVerb, host)
+				: translate("toolCalls.readPagesCount", { count: 1 }),
 			summaryUnit: "pages",
 			summaryCount: 1,
-			title: object,
+			title: refused ? host : object,
 			body: hasRevealableBody
 				? {
 						kind: "page",
@@ -1071,29 +1255,28 @@ function buildSettledToolActivityItem(
 
 	if (iconType === "run-python") {
 		const object = runPythonObject(segment.input, translate);
-		const program =
-			typeof segment.input.code === "string" ? segment.input.code : "";
 		const pythonVerb = verb(translate, "runningPython", "ranPython", status);
+		// What the program printed, from the short copy the server keeps for the row
+		// (`displayOutput`, never sent to the model): plain text, no program, and no
+		// body at all when it printed nothing or the call is older than the copy.
+		const printed =
+			typeof segment.metadata?.displayOutput === "string"
+				? segment.metadata.displayOutput.replace(/^\s*\n/, "").trimEnd()
+				: "";
 		return {
 			...base,
 			verb: pythonVerb,
 			object,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: pythonVerb,
 			title: object,
-			body: program
-				? {
-						kind: "python",
-						program,
-						output: segment.outputSummary?.trim() || null,
-					}
-				: genericBody(segment),
+			body: printed ? { kind: "result", text: printed } : null,
 		};
 	}
 
 	if (iconType === "map-route") {
 		const map = segment.map ?? null;
-		const object = map ? mapRouteLabel(map) : firstStringInput(segment.input);
+		const object = map ? mapRouteLabel(map) : routeInputLabel(segment.input);
 		// The two public-transport actions get their own verbs and their own
 		// right-hand fact — "Route A → B · 27 km" would be nonsense for a bus
 		// journey, and outright wrong for a list of departures.
@@ -1114,7 +1297,7 @@ function buildSettledToolActivityItem(
 				: isTransit
 					? transitMeta(map, translate)
 					: mapMeta(map)
-			: (elapsed ?? "");
+			: "";
 		return {
 			...base,
 			verb: routeVerb,
@@ -1131,7 +1314,7 @@ function buildSettledToolActivityItem(
 						map,
 						summary: [object, meta].filter(Boolean).join(" · "),
 					}
-				: genericBody(segment),
+				: null,
 		};
 	}
 
@@ -1141,16 +1324,21 @@ function buildSettledToolActivityItem(
 			segment.metadata.skillDisplayName.trim()
 				? segment.metadata.skillDisplayName.trim()
 				: firstStringInput(segment.input);
-		const description = segment.outputSummary?.trim() || null;
-		const skillVerb = verb(translate, "usingSkill", "usedSkill", status);
+		// A skill that was loaded does not open: its name says it, and the note the
+		// tool wrote for the model ("Loaded skill …") is the model's. A name that no
+		// skill has says so in its verb, and has nothing more to say.
+		const skillVerb =
+			code === "skill_not_found"
+				? translate("toolRows.verb.noSkillCalled")
+				: verb(translate, "usingSkill", "usedSkill", status);
 		return {
 			...base,
 			verb: skillVerb,
 			object: displayName,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: `${skillVerb} ${displayName}`.trim(),
 			title: displayName,
-			body: description ? { kind: "text", text: description } : null,
+			body: null,
 		};
 	}
 
@@ -1182,8 +1370,22 @@ function buildSettledToolActivityItem(
 			typeof metadata?.artifactTitle === "string"
 				? metadata.artifactTitle
 				: undefined;
+		// A call that came back ok can still carry a code that says it left things as
+		// they were: a Document edit whose every op was stale is a success to the
+		// server (the version is written, no op was refused as a whole) and names
+		// `changed_since_read` beside `ok: true`. That is no "Edited <title>" with a
+		// tick and a card: a code of a stop or a failure takes the row down the
+		// quiet-row path below, with "Left as it was" and its sentence.
+		const codeKind =
+			code === null
+				? null
+				: resolveToolReason(segment.name, code, {
+						artifactKind: artifactKind ?? null,
+					}).kind;
 		const hasCard =
 			metadata?.ok === true &&
+			codeKind !== "stop" &&
+			codeKind !== "fail" &&
 			artifactId !== undefined &&
 			artifactKind !== undefined &&
 			artifactTitle !== undefined;
@@ -1270,26 +1472,29 @@ function buildSettledToolActivityItem(
 				body: creatingBody,
 			};
 		}
-		// Wave 2.5 Step 12/13: a SETTLED, business-level refusal of create_artifact
-		// (never edit_artifact — see the "artifact-failed" body's own doc comment
-		// above) gets a standalone card saying so, with the model-facing reason.
-		// The row's own verb/title stay the SAME settled form a success would
-		// have had (this file's established philosophy for every OTHER failure:
-		// only the glyph and the body communicate it — see
-		// `buildToolActivityItem`'s own top comment) — `status` is overridden to
-		// "failed" so the glyph actually turns red for what is, from the user's
-		// side, a real failure (nothing was made), unlike a hard transport
-		// failure the segment itself never reports here (status stays "done").
+		// A SETTLED, business-level refusal of create_artifact (never edit_artifact:
+		// its refusals are rows, below) that has something to say gets a standalone
+		// card saying so, in the reason's own sentence (the per-turn cap, a kind that
+		// cannot be made, the create fallback), never in the words the tool wrote for
+		// the model. The glyph follows the code's kind like any row: a stop on
+		// purpose (the cap) is the quiet dash, a breakage the red cross. A refusal
+		// the model corrects by itself (`request_adjusted`) has no sentence and
+		// draws no card: it is the quiet "Adjusting the request" row below.
+		const reason = resolveToolReason(segment.name, code, {
+			artifactKind: artifactKind ?? null,
+		});
+		const reasonText = reason.key ? translate(reason.key) : null;
 		if (
 			!isEdit &&
 			status === "done" &&
 			metadata?.ok === false &&
 			artifactKind &&
-			object
+			object &&
+			reasonText !== null
 		) {
 			return {
 				...base,
-				status: "failed",
+				status: reason.kind === "stop" ? "skipped" : "failed",
 				verb: actionVerb,
 				object,
 				meta: "",
@@ -1301,19 +1506,29 @@ function buildSettledToolActivityItem(
 					kind: "artifact-failed",
 					artifactKind,
 					title: object,
-					reason: segment.outputSummary ?? null,
+					reason: reasonText,
 				},
 			};
 		}
-		// A call that failed (a thrown error) or was refused (`ok: false`) and made
-		// no card (RC-A #2): the row says what was tried and on what, in the
-		// reader's language, red like any failed row, folded, with the model's own
-		// words (English, written for the model) behind "Details" and never the
-		// call's parameters. It used to fall through to the generic identity below:
-		// "Tool <id>", opened on `patches: [object Object]`.
-		if (status === "failed" || metadata?.ok === false) {
-			const failedVerb = translate(
-				VERB_KEYS[isEdit ? "editFailed" : "createFailed"],
+		// A call that failed (a thrown error), was refused (`ok: false`) or carries a
+		// code, and made no card (RC-A #2): the row says what was tried and on what,
+		// in the reader's language, and never shows the model's own words (English,
+		// written for the model) or the call's parameters. Its glyph and its sentence
+		// come from the code (`withReason`). Two codes say it in the verb: the edit
+		// that left the person's own changes alone ("Left as it was"), and a request
+		// the model had to correct ("Adjusting the request"), both quiet. It used to
+		// fall through to the generic identity below: "Tool <id>", opened on
+		// `patches: [object Object]`.
+		if (status === "failed" || metadata?.ok === false || code !== null) {
+			const failedVerb = verbBeforeTitle(
+				translate(
+					code === "changed_since_read"
+						? "toolRows.verb.leftAsItWas"
+						: code === "request_adjusted"
+							? "toolRows.verb.adjustingRequest"
+							: VERB_KEYS[isEdit ? "editFailed" : "createFailed"],
+				),
+				false,
 			);
 			// The item by its title (the record carries it for a refusal since this
 			// row learned to), else the call's own title, else its kind.
@@ -1323,18 +1538,17 @@ function buildSettledToolActivityItem(
 				(artifactKind
 					? translate(`artifacts.type.${artifactKind}` as I18nKey)
 					: "");
-			const reason = toolFailureReason(segment);
 			return {
 				...base,
 				status: "failed",
 				verb: named ? `${failedVerb}:` : failedVerb,
 				object: named,
-				meta: reason ? translate("toolActivity.failureDetails") : "",
+				meta: "",
 				summaryLabel: failedVerb,
 				title: named ? `${failedVerb}: ${named}` : failedVerb,
 				pinned: false,
 				alwaysOpen: false,
-				body: reason ? { kind: "error", reason } : null,
+				body: null,
 				artifact: { id: artifactId ?? inputArtifactId ?? null, failed: true },
 			};
 		}
@@ -1344,47 +1558,113 @@ function buildSettledToolActivityItem(
 	}
 
 	if (iconType === "memory") {
-		const bullets = memoryBullets(segment.candidates ?? []);
+		// Every title the call returned: a memory's statement, or a past chat's title.
+		const titles = memoryTitles(segment.candidates ?? []);
+		const memoryVerb = verb(translate, "recalling", "recalled", status);
+		// A look into past chats (`history`) or the project's chats (`project`) is not
+		// "Recalled N memories": the things it found are chats, and the row says so,
+		// and lists their titles. A look into one chat alone has nothing worth
+		// listing. Persona keeps the memories as they were, as bullets.
+		const mode =
+			typeof segment.metadata?.mode === "string" ? segment.metadata.mode : null;
+		if ((mode === "history" || mode === "project") && titles.length > 0) {
+			const inOneChat = [
+				"historyConversationId",
+				"siblingConversationId",
+				"selectedConversationId",
+			].some((name) => Boolean(segment.input?.[name]));
+			const chatsVerb = translate("toolRows.verb.lookedThrough");
+			const chats = translate("toolRows.meta.pastChats", {
+				count: inOneChat ? 1 : titles.length,
+			});
+			return {
+				...base,
+				verb: chatsVerb,
+				object: chats,
+				meta: "",
+				summaryLabel: `${chatsVerb} ${chats}`,
+				title: chats,
+				body: inOneChat
+					? null
+					: {
+							kind: "things",
+							icon: "chat",
+							items: titles.slice(0, THINGS_SHOWN).map((title) => ({ title })),
+							more: Math.max(0, titles.length - THINGS_SHOWN),
+						},
+			};
+		}
+		const bullets = titles.slice(0, 8);
 		// A recall that returned nothing (or has not returned yet) must not
-		// claim "0 memories" — it names what it was looking FOR instead, and
-		// says nothing at all when it has neither.
+		// claim "0 memories" — it names what it was looking FOR (the query, never
+		// the mode it was asked in) instead, and says nothing at all when it has
+		// neither.
 		const object =
 			bullets.length > 0
 				? translate("toolActivity.memoriesCount", { count: bullets.length })
-				: firstStringInput(segment.input);
-		const memoryVerb = verb(translate, "recalling", "recalled", status);
+				: typeof segment.input?.query === "string"
+					? segment.input.query.trim().slice(0, 200)
+					: "";
 		return {
 			...base,
 			verb: memoryVerb,
 			object,
-			meta: elapsed ?? "",
+			meta: "",
 			summaryLabel: `${memoryVerb} ${object}`.trim(),
 			summaryUnit: "memories",
 			summaryCount: bullets.length,
 			title: object,
-			body:
-				bullets.length > 0
-					? { kind: "bullets", items: bullets }
-					: genericBody(segment),
+			body: bullets.length > 0 ? { kind: "bullets", items: bullets } : null,
 		};
 	}
 
 	// A read names the item it read (F22): its title, never its id. The generic row
-	// below would say "Tool <id>", and in a Hungarian turn "Eszköz e4d471c7-...".
+	// below would say "Tool <id>", and in a Hungarian turn "Eszköz e4d471c7-...". The
+	// name is enough, so the row does not open; the part of a file it read (a page,
+	// a part) shows after the name.
 	if (
 		segment.name === "read_artifact" ||
 		segment.name === "read_generated_file"
 	) {
 		const readVerb = verb(translate, "reading", "read", status);
 		const object = readItemName(segment);
+		const page = wholeNumber(segment.input?.page);
+		const part = wholeNumber(segment.input?.part);
+		const objectSuffix =
+			page !== null
+				? translate("toolRows.suffix.page", { number: page })
+				: part !== null
+					? translate("toolRows.suffix.part", { number: part })
+					: undefined;
 		return {
 			...base,
 			verb: readVerb,
 			object,
-			meta: elapsed ?? "",
+			...(objectSuffix ? { objectSuffix } : {}),
+			meta: "",
 			summaryLabel: readVerb,
 			title: object ? `${readVerb}: ${object}` : readVerb,
-			body: genericBody(segment),
+			body: null,
+		};
+	}
+
+	// The offer of an instruction the person may keep: the row names it, and the
+	// offer itself has its own card (`message.instructionSuggestions`), so it does
+	// not open.
+	if (segment.name === "suggest_instruction") {
+		const offered =
+			typeof segment.input?.text === "string"
+				? segment.input.text.trim().slice(0, 200)
+				: "";
+		const suggestVerb = translate("toolRows.verb.suggestedInstruction");
+		return {
+			...base,
+			verb: suggestVerb,
+			object: offered,
+			meta: "",
+			summaryLabel: stripLabelOf(suggestVerb, offered),
+			title: offered ? `${suggestVerb} ${offered}` : suggestVerb,
+			body: null,
 		};
 	}
 
@@ -1393,10 +1673,10 @@ function buildSettledToolActivityItem(
 		...base,
 		verb: identity.verb,
 		object: identity.object,
-		meta: elapsed ?? "",
+		meta: "",
 		summaryLabel: identity.verb,
 		title: identity.title,
-		body: genericBody(segment),
+		body: null,
 	};
 }
 
@@ -1450,24 +1730,148 @@ function photosViewedIn(tools: ToolCallSegment[]): number {
 	}, 0);
 }
 
-/** Builds the view-model for a collapsed run of connector calls. */
+type ConnectorCallView = {
+	key: string;
+	label: string;
+	status: ToolActivityStatus;
+	code: string | null;
+	count: number | null;
+	sub?: string;
+	things?: { items: { title: string; sub?: string }[]; more: number };
+	reason?: string;
+};
+
+/**
+ * One call of an account tool in plain words: what it did (the phrase for its
+ * action), how it went (the glyph of its code's kind), what it found (a count and
+ * the things by their own names) or why it did not work (one sentence). A call
+ * still marked running in a reply that is over was cut off and reads as stopped.
+ */
+function describeConnectorCall(
+	tool: ToolCallSegment,
+	index: number,
+	translate: Translate,
+	options: TurnEnd & { locale?: string; timeZone?: string; now?: number },
+): ConnectorCallView {
+	const call =
+		options.turnEnded === true && tool.status === "running"
+			? cutOffCall(tool, options.turnStopped === true)
+			: tool;
+	const key = tool.callId ?? `${tool.name}-${index}`;
+	const phraseKey = connectorPhraseKey(call.name, call.input?.action);
+	const label = phraseKey
+		? translate(phraseKey)
+		: translate(getHumanReadableToolNameKey(call.name));
+	if (call.status === "running") {
+		return { key, label, status: "running", code: null, count: null };
+	}
+	const reason = describeReason(call, translate);
+	if (reason && (reason.kind === "fail" || reason.kind === "stop")) {
+		return {
+			key,
+			label,
+			status: reason.kind === "fail" ? "failed" : "skipped",
+			code: reason.code,
+			count: null,
+			...(reason.text ? { reason: reason.text } : {}),
+		};
+	}
+	// It worked (or worked, and says one thing about it): what it found.
+	const count = connectorCountOf(call.name, call.metadata);
+	const thingsIcon = connectorThingsIcon(call.name);
+	const formatTime = (iso: string) =>
+		formatEventTime(iso, options.locale, {
+			withDay: true,
+			...(options.timeZone ? { timeZone: options.timeZone } : {}),
+			...(options.now !== undefined ? { now: options.now } : {}),
+		});
+	const named = thingsIcon
+		? (call.candidates ?? [])
+				.map((candidate) => {
+					const title = localizedThingTitle(
+						stripToPlainText(candidate.title ?? ""),
+						translate,
+						formatTime,
+					);
+					const start =
+						call.name === "calendar" &&
+						typeof candidate.metadata?.start === "string"
+							? formatTime(candidate.metadata.start)
+							: undefined;
+					return { title, ...(start ? { sub: start } : {}) };
+				})
+				.filter((thing) => thing.title.length > 0)
+		: [];
+	const shown = named.slice(0, THINGS_SHOWN);
+	return {
+		key,
+		label,
+		status: "done",
+		code: reason?.code ?? null,
+		count,
+		...(count !== null
+			? { sub: translate("toolRows.unit.found", { count }) }
+			: {}),
+		...(shown.length > 0
+			? {
+					things: {
+						items: shown,
+						more: Math.max(
+							0,
+							Math.max(count ?? 0, named.length) - shown.length,
+						),
+					},
+				}
+			: {}),
+		...(reason?.text ? { reason: reason.text } : {}),
+	};
+}
+
+/**
+ * Builds the view-model for a collapsed run of an account's calls: the row says
+ * what came back across the run in the account's own unit ("Calendar · 3 events"),
+ * its glyph is the worst of how its calls went (a failure over a stop over a
+ * success), and opened it lists each call in plain words with what it found.
+ *
+ * `options.turnEnded`: the reply is over, so a call still marked running was cut
+ * off and reads as a quiet stop; `options.turnStopped` says the person pressed
+ * Stop, as for any row (`buildToolActivityItem`). `options.locale` is the
+ * reader's own (`eventLocale`), for the times it names; `options.now` is the
+ * moment those times are said against (a time more than six days away gets its
+ * date, not its weekday).
+ */
 export function buildConnectorActivityItem(
 	tools: ToolCallSegment[],
 	key: string,
 	translate: Translate,
+	options: TurnEnd & { locale?: string; timeZone?: string; now?: number } = {},
 ): ToolActivityItem {
-	const anyRunning = tools.some((tool) => tool.status === "running");
-	const anyFailed =
-		!anyRunning && tools.some((tool) => tool.status === "failed");
+	const calls = tools.map((tool, index) =>
+		describeConnectorCall(tool, index, translate, options),
+	);
+	const anyRunning = calls.some((call) => call.status === "running");
 	const status: ToolActivityStatus = anyRunning
 		? "running"
-		: anyFailed
+		: calls.some((call) => call.status === "failed")
 			? "failed"
-			: "done";
+			: calls.some((call) => call.status === "skipped")
+				? "skipped"
+				: "done";
 	const labelKey =
 		getConnectionToolLabelKey(tools[0].name) ?? "toolCalls.generic";
 	const label = translate(labelKey);
-	const object = translate("toolCalls.actionsCount", { count: tools.length });
+	// What came back across the run, in the account's own unit; "N actions" only
+	// when nothing the run did was countable. An account that is not connected says
+	// so, since that is the whole of what the run has to tell.
+	const counted = calls.filter((call) => call.count !== null);
+	const notConnected = calls.every((call) => call.code === "not_connected");
+	const object = notConnected
+		? translate(connectorNotConnectedKey(tools[0].name))
+		: counted.length > 0
+			? translate(connectorUnitKey(tools[0].name), {
+					count: counted.reduce((sum, call) => sum + (call.count ?? 0), 0),
+				})
+			: translate("toolCalls.actionsCount", { count: tools.length });
 	const viewed = photosViewedIn(tools);
 	// The model was shown photos, and the row says so instead of counting
 	// actions: "Looked at 6 photos". Those words are the whole row (no object
@@ -1476,14 +1880,21 @@ export function buildConnectorActivityItem(
 	// action.
 	const looked =
 		viewed > 0 ? translate(VERB_KEYS.photosViewed, { count: viewed }) : null;
+	const failedMeta = translate("toolCalls.failed");
+	const summaryLabel =
+		status === "failed"
+			? `${looked ?? label} ${failedMeta}`
+			: status === "skipped"
+				? (looked ?? label)
+				: (looked ?? `${label} ${object}`);
 	return {
 		key,
 		status,
 		iconType: getToolCallIconType(tools[0].name),
 		verb: looked ?? label,
 		object: looked === null ? object : "",
-		meta: anyFailed ? translate("toolCalls.failed") : "",
-		summaryLabel: looked ?? `${label} ${object}`,
+		meta: status === "failed" ? failedMeta : "",
+		summaryLabel,
 		...(looked === null
 			? { summaryUnit: "actions" as const, summaryCount: tools.length }
 			: {}),
@@ -1492,13 +1903,14 @@ export function buildConnectorActivityItem(
 		title: `${label} · ${looked ?? object}`,
 		body: {
 			kind: "actions",
-			actions: tools.map((tool, index) => ({
-				key: tool.callId ?? `${tool.name}-${index}`,
-				label:
-					(typeof tool.input.action === "string"
-						? formatConnectionToolAction(tool.input.action)
-						: "") || formatToolCall(tool.name, tool.input, translate),
-				status: tool.status,
+			icon: getToolCallIconType(tools[0].name),
+			actions: calls.map((call) => ({
+				key: call.key,
+				label: call.label,
+				status: call.status,
+				...(call.sub ? { sub: call.sub } : {}),
+				...(call.things ? { things: call.things } : {}),
+				...(call.reason ? { reason: call.reason } : {}),
 			})),
 		},
 	};
@@ -1508,7 +1920,8 @@ type ToolActivitySummaryGroup = {
 	key: string;
 	iconType: ToolCallIconType;
 	verb: string;
-	failed: boolean;
+	/** What the group's rows ended as, by the glyph they show: a stop is never a failure. */
+	outcome: "failed" | "skipped" | "ok";
 	/** The first row of the group — its label is what a lone occurrence shows. */
 	first: ToolActivityItem;
 	/** How many rows folded in. */
@@ -1522,12 +1935,24 @@ function summaryGroupLabel(
 	group: ToolActivitySummaryGroup,
 	translate: Translate,
 ): string {
-	// One call of a tool reads exactly as it did before aggregation.
-	if (group.occurrences === 1) return group.first.summaryLabel;
+	// One call of a tool reads exactly as it did before aggregation, but never with
+	// a colon at its end: a verb that introduces an object has nothing left to
+	// introduce in the strip when the row had no object to name.
+	if (group.occurrences === 1) {
+		return group.first.summaryLabel.replace(/:\s*$/, "");
+	}
 	// A row that says in its own words what failed ("Couldn't edit") is not "… 2
 	// failed": it repeats like any other.
-	if (group.failed && !group.first.artifact?.failed) {
+	if (group.outcome === "failed" && !group.first.artifact?.failed) {
 		return translate("toolActivity.summaryFailedCount", {
+			verb: group.verb,
+			count: group.occurrences,
+		});
+	}
+	// A stop on purpose is not a failure and found nothing to add up either: it
+	// repeats like any step with nothing countable behind it.
+	if (group.outcome === "skipped") {
+		return translate("toolActivity.summaryRepeat", {
 			verb: group.verb,
 			count: group.occurrences,
 		});
@@ -1583,8 +2008,15 @@ export function buildToolActivitySummary(
 	const groups = new Map<string, ToolActivitySummaryGroup>();
 	const order: string[] = [];
 	for (const item of items) {
-		const failed = item.status === "failed";
-		const groupKey = `${item.iconType} ${item.verb} ${failed}`;
+		// Rows group by the glyph they show, so a stop on purpose never merges with a
+		// success, and is never counted as a failure.
+		const outcome: ToolActivitySummaryGroup["outcome"] =
+			item.status === "failed"
+				? "failed"
+				: item.status === "skipped"
+					? "skipped"
+					: "ok";
+		const groupKey = `${item.iconType}\u0000${item.verb}\u0000${outcome}`;
 		const existing = groups.get(groupKey);
 		if (existing) {
 			existing.occurrences += 1;
@@ -1598,7 +2030,7 @@ export function buildToolActivitySummary(
 			// Hungarian way to attach one without a case ending); the strip says
 			// the verb alone.
 			verb: item.verb.replace(/:$/, ""),
-			failed,
+			outcome,
 			first: item,
 			occurrences: 1,
 			total: item.summaryCount ?? 0,
@@ -1630,11 +2062,23 @@ export function buildFileProductionActivityItem(
 ): ToolActivityItem {
 	const isActive = job.status === "queued" || job.status === "running";
 	const isError = job.status === "failed" || job.status === "cancelled";
+	// How a job that ended reads comes from its code's kind, like every tool row:
+	// the person's own Cancel and a stop on purpose (a limit, a kind of file it will
+	// not make) are the quiet dash and say nothing broke; a breakage, a code it has
+	// no words for and a failure with no code are the red cross.
+	const endedKind: ReasonKind | null = isError
+		? resolveToolReason(
+				"produce_file",
+				job.status === "cancelled" ? "stopped" : (job.error?.code ?? null),
+			).kind
+		: null;
 	const status: ToolActivityStatus = isActive
 		? "running"
-		: isError
-			? "failed"
-			: "done";
+		: endedKind === "stop"
+			? "skipped"
+			: isError
+				? "failed"
+				: "done";
 	const primaryFile = job.files[0];
 	const object = primaryFile?.filename ?? job.title ?? "";
 	const totalBytes = job.files.reduce(
@@ -1649,7 +2093,9 @@ export function buildFileProductionActivityItem(
 		verb: createdVerb,
 		object,
 		meta: isError
-			? translate("toolCalls.failed")
+			? endedKind === "stop"
+				? ""
+				: translate("toolCalls.failed")
 			: totalBytes > 0
 				? formatByteSize(totalBytes, { trimWholeUnits: true })
 				: "",
@@ -2015,8 +2461,20 @@ export function buildAtlasActivityItem(
 	nowMs: number,
 ): ToolActivityItem {
 	const isActive = job.status === "queued" || job.status === "running";
+	// A failed report reads by its code's kind: the app stopping on purpose (nothing
+	// it could rely on) is the quiet dash with no "Failed"; a breakage, a code it has
+	// no words for and a failure with no code are the red cross.
+	const stoppedOnPurpose =
+		job.status === "failed" &&
+		resolveToolReason("atlas", job.error?.code ?? null).kind === "stop";
 	const status: ToolActivityStatus =
-		job.status === "failed" ? "failed" : isActive ? "running" : "done";
+		job.status === "failed"
+			? stoppedOnPurpose
+				? "skipped"
+				: "failed"
+			: isActive
+				? "running"
+				: "done";
 	const reportTitle = atlasReportTitle(job, details, translate);
 	const { done, total } = atlasPlanProgress(details.plan);
 	const startedAt = job.startedAt ?? job.createdAt;
@@ -2036,7 +2494,7 @@ export function buildAtlasActivityItem(
 
 	let meta = "";
 	if (job.status === "failed") {
-		meta = translate("atlas.stage.failed");
+		meta = stoppedOnPurpose ? "" : translate("atlas.stage.failed");
 	} else if (job.status === "cancelled") {
 		meta = translate("atlasActivity.stopped");
 	} else if (isActive) {

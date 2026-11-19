@@ -23,6 +23,7 @@ import {
 	runMediaTool,
 	sanitizeMediaToolInput,
 } from "./media";
+import { reasonCodeOf } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -192,6 +193,25 @@ describe("runMediaTool", () => {
 		expect(outcome.modelPayload.results).toEqual([]);
 		expect(outcome.modelPayload.citations).toEqual([]);
 		expect(plexWatchHistoryMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "media",
+				sourceType: "tool",
+				action: "watch_history",
+				message:
+					"You don't have a Media connection set up yet. Connect your Plex server in Settings to check your watch history.",
+				results: [],
+				libraries: [],
+				onDeck: [],
+				librarySearch: [],
+				libraryMatchCount: 0,
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity but still executes against the first (sorted) connection", async () => {
@@ -254,6 +274,7 @@ describe("runMediaTool", () => {
 		expect(outcome.modelPayload.message).toContain("Alice Plex");
 		expect(outcome.modelPayload.message).toContain("Bob Plex");
 		expect(plexWatchHistoryMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("watch_history: returns results, citations, and Sources-tab candidates", async () => {
@@ -459,6 +480,7 @@ describe("runMediaTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	// -------------------------------------------------------------------------
@@ -592,6 +614,7 @@ describe("runMediaTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("maps generic adapter failures to a graceful note without throwing", async () => {
@@ -607,6 +630,30 @@ describe("runMediaTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("couldn't reach your media");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
+	});
+
+	it("names a Plex connection that is gone, and one that did not answer", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		plexWatchHistoryMock.mockRejectedValueOnce(
+			new PlexError("gone", "connection_not_found"),
+		);
+		const gone = await runMediaTool(
+			"user-1",
+			{ action: "watch_history" },
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(gone.modelPayload)).toBe("not_connected");
+
+		plexWatchHistoryMock.mockRejectedValueOnce(
+			new PlexError("down", "request_failed"),
+		);
+		const down = await runMediaTool(
+			"user-1",
+			{ action: "watch_history" },
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(down.modelPayload)).toBe("account_unreachable");
 	});
 });
 
@@ -724,6 +771,11 @@ describe("runMediaTool — locality Option A distillation gate", () => {
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "Celebrity Rehab — Intervention" }),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(JSON.stringify(outcome.modelPayload)).not.toContain(
+			"details_withheld",
+		);
 	});
 
 	it("libraries action never triggers distillation (no raw personal watch data involved)", async () => {
@@ -826,5 +878,10 @@ describe("runMediaTool — locality Option A distillation gate", () => {
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "Celebrity Rehab — Intervention" }),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(JSON.stringify(outcome.modelPayload)).not.toContain(
+			"details_withheld",
+		);
 	});
 });

@@ -22,7 +22,7 @@ import {
 import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { looksLikeHtml } from "$lib/shared/artifacts/app-brief";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
-import { truncateText } from "../shared";
+import { reasonMetadata, truncateText } from "../shared";
 import { parseCanvasCreateBody } from "./canvas-model";
 import { artifactKindEnumPhrase, createArtifactBodyFormat } from "./kind-prose";
 import {
@@ -144,7 +144,7 @@ function firstVersionSummary(params: { artifactId?: string }): string {
 
 CREATE_ARTIFACT_HANDLERS.document = async (params) => {
 	if (params.abortSignal.aborted) {
-		return { ok: false, reason: "The request was cancelled." };
+		return { ok: false, reason: "The request was cancelled.", code: "stopped" };
 	}
 	try {
 		const artifact = await createDocumentArtifact({
@@ -197,6 +197,7 @@ CREATE_ARTIFACT_HANDLERS.app = async (params) => {
 			ok: false,
 			reason:
 				"An App's body is a brief, not HTML: say in a few sentences what the app is for and what it does, in the user's words; the app is built from the brief for you. Nothing was created. Call create_artifact again with a brief.",
+			code: "request_adjusted",
 		};
 	}
 	const result = await createAppFromBrief({
@@ -231,20 +232,30 @@ CREATE_ARTIFACT_HANDLERS.app = async (params) => {
  */
 CREATE_ARTIFACT_HANDLERS.canvas = async (params) => {
 	if (params.abortSignal.aborted) {
-		return { ok: false, reason: "The request was cancelled." };
+		return { ok: false, reason: "The request was cancelled.", code: "stopped" };
 	}
 	const parsed = parseCanvasCreateBody(params.body);
-	if (!parsed.ok) return { ok: false, reason: parsed.error };
+	// A body the board's own vocabulary cannot read is a request the model sent
+	// wrongly and can send again, as are the two that follow.
+	if (!parsed.ok) {
+		return { ok: false, reason: parsed.error, code: "request_adjusted" };
+	}
 
 	const prepared = prepareCanvasBoard(JSON.stringify(parsed.body));
 	if (!prepared.ok) {
-		return {
-			ok: false,
-			reason:
-				prepared.reason === "invalid_body"
-					? "The board could not be read. Send it as a JSON object with nodes and edges."
-					: "The board is larger than a board may be. Make it smaller: fewer or shorter blocks.",
-		};
+		return prepared.reason === "invalid_body"
+			? {
+					ok: false,
+					reason:
+						"The board could not be read. Send it as a JSON object with nodes and edges.",
+					code: "request_adjusted",
+				}
+			: {
+					ok: false,
+					reason:
+						"The board is larger than a board may be. Make it smaller: fewer or shorter blocks.",
+					code: "too_large",
+				};
 	}
 	// The board was judged block by block above, so nothing should be left out
 	// here — but a board that lost a block on its way in would be the silent kind
@@ -258,10 +269,11 @@ CREATE_ARTIFACT_HANDLERS.canvas = async (params) => {
 		return {
 			ok: false,
 			reason: `Nothing was created: the board would have left out ${dropped.slice(0, 6).join(", ")}. Check those ids and call create_artifact again.`,
+			code: "request_adjusted",
 		};
 	}
 	if (params.abortSignal.aborted) {
-		return { ok: false, reason: "The request was cancelled." };
+		return { ok: false, reason: "The request was cancelled.", code: "stopped" };
 	}
 
 	const created = await createArtifact({
@@ -281,6 +293,10 @@ CREATE_ARTIFACT_HANDLERS.canvas = async (params) => {
 				created.reason === "invalid_title"
 					? "The board needs a title."
 					: "Could not create the board.",
+			// A title the model left empty is the request's; any other failure is not.
+			...(created.reason === "invalid_title"
+				? { code: "request_adjusted" as const }
+				: {}),
 		};
 	}
 	return {
@@ -310,7 +326,10 @@ export async function runCreateArtifactTool(
 		return {
 			modelPayload: { success: false, error },
 			outputSummary: truncateText(error, 200),
-			metadata: { ok: false },
+			metadata: {
+				ok: false,
+				...reasonMetadata("create_artifact", "kind_not_creatable"),
+			},
 		};
 	}
 
@@ -329,7 +348,11 @@ export async function runCreateArtifactTool(
 		return {
 			modelPayload: { success: false, error: result.reason },
 			outputSummary: truncateText(result.reason, 200),
-			metadata: { ok: false, artifactKind: params.artifactType },
+			metadata: {
+				ok: false,
+				artifactKind: params.artifactType,
+				...(result.code ? reasonMetadata("create_artifact", result.code) : {}),
+			},
 		};
 	}
 

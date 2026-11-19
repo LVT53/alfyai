@@ -1,32 +1,56 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import { AI_SMOKE_ITEM_TURN_TITLE } from "../fixtures/ai/chat-turn-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import { runItemTurn, setLanguage } from "./chat-item-turn-helpers";
 
-// FX-1 item 2 (RC-A new #2): the model the audit walked fails an edit or two a
-// Document turn. A failed call printed its raw parameters and an English error,
-// expanded, in a row named "Eszköz <uuid>" (with a green tick: the call had
-// "finished"). It names what it tried now, in the reader's language, red, folded,
-// and opens on the reason itself; a raw copy waits behind a quiet "Részletek",
-// and the parameters never appear.
+// The tool-row rule (`src/lib/components/chat/AGENTS.md`, "Tool Rows"): a row says
+// what happened in plain words in the reader's language, a stop the app or the
+// model makes on purpose is the quiet dash and not the red cross, and a row with
+// nothing more to say has no body and no chevron.
+//
+// The model the audit walked sends an edit the tool refuses as malformed ("patch ops
+// were malformed", English, written for the model) and gives up. That is a refusal
+// the model corrects by itself, not a breakage: the server tags it
+// `request_adjusted`, and the row says what was tried, on what, in Hungarian, as a
+// stop. It used to be a red, folded "Nem sikerült szerkeszteni" with a "Részletek"
+// disclosure that held the model's English, and before that a raw "Eszköz <uuid>"
+// with a green tick.
 //
 // The model is scripted to make a Document, read it, and fail one edit and stop.
-// Driven the way a reader does it (type, press Send, press the row), in Hungarian.
+// Driven the way a reader does it (type, press Send), in Hungarian.
 
 const RAW_PARAMETERS = [/artifactId/, /patches/, /\[object Object\]/];
-// What the opened account may show: the model's own sentence, which names
-// `patches`, but never the call's parameters.
-const RAW_PARAMETER_LINES = [
-	/paraméterek/i,
-	/artifactId/,
-	/summary:/,
-	/\[object Object\]/,
-];
 const ENGLISH_REFUSAL = /patch ops were malformed/i;
+// A refusal the model corrects by itself is a stop on purpose: the quiet dash.
+const STOPPED_ROW = '[data-testid="tool-activity-row"][data-status="skipped"]';
 const FAILED_ROW = '[data-testid="tool-activity-row"][data-status="failed"]';
-const ROW_NAME = `Nem sikerült szerkeszteni: ${AI_SMOKE_ITEM_TURN_TITLE}`;
+const VERB = "Kérés pontosítása:";
+const ROW_TITLE = `Kérés pontosítása: ${AI_SMOKE_ITEM_TURN_TITLE}`;
 
-test.describe("a failed edit in a turn that makes a Document", () => {
+/** What the quiet row says and does not do: nothing to open, nothing in English. */
+async function expectQuietRow(row: Locator) {
+	// It says what was tried and on what, in the reader's language.
+	await expect(row.getByTestId("tool-activity-verb")).toHaveText(VERB);
+	// A pattern is matched against the row's raw text, which the markup's own
+	// whitespace surrounds (Playwright trims only a string expectation).
+	await expect(row).toHaveText(
+		new RegExp(`^\\s*${VERB}\\s*${AI_SMOKE_ITEM_TURN_TITLE}\\s*$`),
+	);
+	await expect(row).toHaveAttribute("title", ROW_TITLE);
+	// No breakage word, no raw tool name, no disclosure, and nothing in English.
+	await expect(row).not.toContainText(
+		/Eszköz|Tool|Hiba|Nem sikerült|Részletek|Details|patch|malformed/i,
+	);
+	// Nothing more to say, so no body and no chevron: a plain line, not a button.
+	await expect(row).toHaveJSProperty("tagName", "DIV");
+	await expect(row).not.toHaveAttribute("aria-expanded", /.*/);
+	await expect(row.locator(".act-chevron")).toHaveCount(0);
+	await expect(
+		row.locator("xpath=..").getByTestId("tool-activity-body"),
+	).toHaveCount(0);
+}
+
+test.describe("a refused edit in a turn that makes a Document", () => {
 	const fakeProvider = createOpenAICompatibleProviderHarness();
 
 	test.beforeAll(async () => {
@@ -43,63 +67,56 @@ test.describe("a failed edit in a turn that makes a Document", () => {
 		await setLanguage("en");
 	});
 
-	test("is a folded row that names what it tried, with the details behind a press", async ({
+	test("is a quiet stop that says what it tried, with nothing behind it", async ({
 		page,
 	}) => {
 		test.setTimeout(150_000);
 		const turn = await runItemTurn(page, fakeProvider.baseURL, "giveup");
 		try {
-			// One Document, one card; the refusal is a row of its own under it.
+			// One Document, one card; the refusal is a row of its own under it, and it
+			// is a stop (the quiet dash), never the red cross of a breakage.
 			await expect(turn.deliverables.getByTestId("artifact-card")).toHaveCount(
 				1,
 			);
-			const failed = turn.deliverables.locator(FAILED_ROW);
-			await expect(failed).toHaveCount(1);
 			await expect(
-				failed,
-				"the row names the item and says what failed, in the reader's language",
-			).toHaveAccessibleName(ROW_NAME);
-			await expect(failed).not.toContainText(/Eszköz|Tool/);
+				turn.deliverables.locator(FAILED_ROW),
+				"a refusal the model corrects by itself is no breakage",
+			).toHaveCount(0);
+			const stopped = turn.deliverables.locator(STOPPED_ROW);
+			await expect(stopped).toHaveCount(1);
+			await expectQuietRow(stopped);
 
-			// Folded: nothing technical on the page, neither the English of the model's
-			// own words nor the call's parameters.
-			await expect(failed).toHaveAttribute("aria-expanded", "false");
-			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
+			// Nothing technical anywhere in the reply: neither the English of the
+			// model's own words nor the call's parameters.
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is rendered text, as a person sees it.
 			const text = (await turn.reply.innerText()) ?? "";
 			for (const raw of RAW_PARAMETERS) expect(text).not.toMatch(raw);
 			expect(text).not.toMatch(ENGLISH_REFUSAL);
-
-			// The account itself says why, without a second press; the raw copy
-			// still waits in Details, and the parameters never appear.
-			await expect(failed).toContainText("Részletek");
-			await failed.click();
-			await expect(failed).toHaveAttribute("aria-expanded", "true");
-			const summary = turn.deliverables.getByTestId(
-				"tool-activity-summary-text",
-			);
-			await expect(summary).toContainText(
-				`Nem sikerült szerkeszteni: „${AI_SMOKE_ITEM_TURN_TITLE}”`,
-			);
-			await expect(summary).toContainText("Nem sikerült befejezni.");
-			await expect(
-				turn.deliverables.getByTestId("tool-activity-summary-reason"),
-			).toContainText(ENGLISH_REFUSAL);
-			const details = turn.deliverables.getByTestId("tool-activity-details");
-			await expect(details).not.toHaveAttribute("open", "");
-			await expect(details).toContainText(ENGLISH_REFUSAL);
-			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
-			const opened = (await turn.reply.innerText()) ?? "";
-			for (const raw of RAW_PARAMETER_LINES) expect(opened).not.toMatch(raw);
-			await failed.click();
-			await expect(failed).toHaveAttribute("aria-expanded", "false");
 
 			// The same after a reload.
 			await page.reload({ waitUntil: "networkidle" });
 			const again = page
 				.getByTestId("message-deliverables")
-				.locator(FAILED_ROW);
-			await expect(again).toHaveAccessibleName(ROW_NAME);
-			await expect(again).toHaveAttribute("aria-expanded", "false");
+				.locator(STOPPED_ROW);
+			await expect(again).toHaveCount(1);
+			await expectQuietRow(again);
+		} finally {
+			await turn.restore();
+		}
+	});
+
+	test("keeps its verb whole at a phone's width", async ({ page }) => {
+		test.setTimeout(150_000);
+		const turn = await runItemTurn(page, fakeProvider.baseURL, "giveup");
+		try {
+			await page.setViewportSize({ width: 390, height: 844 });
+			const row = page.getByTestId("message-deliverables").locator(STOPPED_ROW);
+			await expect(row).toHaveCount(1);
+			// The verb never shrinks for the title: the title is what gets the ellipsis.
+			const verb = row.getByTestId("tool-activity-verb");
+			await verb.scrollIntoViewIfNeeded();
+			await expect(verb).toHaveText(VERB);
+			await expect(verb).toBeInViewport({ ratio: 1 });
 		} finally {
 			await turn.restore();
 		}

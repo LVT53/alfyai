@@ -19,8 +19,10 @@ import {
 } from "$lib/server/services/connections/providers/github";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
+import { connectorReasonForAdapterError, withReasonCode } from "./shared";
 
 // Read-only by construction: this schema's `action` enum only ever lists
 // read actions. GitHub NEVER gets a write path in this connector — there is
@@ -106,24 +108,29 @@ function buildPayload(params: {
 	codeResults?: GitHubCodeSearchItem[];
 	file?: GitHubContentResult;
 	citations?: ReposCitation[];
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): ReposToolOutcome {
 	const citations = params.citations ?? [];
+	const modelPayload: ReposToolModelPayload = {
+		success: params.success,
+		name: "repos",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		repos: params.repos ?? [],
+		issues: params.issues ?? [],
+		prs: params.prs ?? [],
+		commits: params.commits ?? [],
+		ciRuns: params.ciRuns ?? [],
+		codeResults: params.codeResults ?? [],
+		...(params.file ? { file: params.file } : {}),
+		citations,
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "repos",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			repos: params.repos ?? [],
-			issues: params.issues ?? [],
-			prs: params.prs ?? [],
-			commits: params.commits ?? [],
-			ciRuns: params.ciRuns ?? [],
-			codeResults: params.codeResults ?? [],
-			...(params.file ? { file: params.file } : {}),
-			citations,
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: citations.map(toCandidate),
 	};
 }
@@ -145,27 +152,56 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof GitHubError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your GitHub connection needs to be reconnected before I can access your repositories. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your GitHub connection needs to be reconnected before I can access your repositories. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your GitHub connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your GitHub connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			case "not_found":
-				return "That repository, path, or resource couldn't be found.";
+				return {
+					message: "That repository, path, or resource couldn't be found.",
+					code,
+				};
 			default:
-				return "I couldn't reach GitHub right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach GitHub right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach GitHub right now. Please try again in a moment.";
+	return {
+		message: "I couldn't reach GitHub right now. Please try again in a moment.",
+		code,
+	};
 }
 
+// The model asked the wrong way (a parameter the action needs is missing) and
+// reads what to fix; the row says Alfy adjusted its request.
 function missingParamOutcome(
 	action: ReposToolInput["action"],
 	message: string,
 ): ReposToolOutcome {
-	return buildPayload({ success: false, action, message });
+	return buildPayload({
+		success: false,
+		action,
+		message,
+		reason: "request_adjusted",
+	});
 }
 
 function reposOutcome(
@@ -755,10 +791,12 @@ export async function runReposTool(
 					connections,
 				);
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -769,6 +807,7 @@ export async function runReposTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	// no-match is unreachable (repos has no account selector), but map it to the
@@ -778,6 +817,7 @@ export async function runReposTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

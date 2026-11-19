@@ -2674,6 +2674,86 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// A tool row says why a call failed from a code. `errorCode` is the stream's
+	// bucket (it files any message containing "abort" under "timeout"), so the
+	// code comes from the message instead: the envelope's own timeout, and the
+	// completion engine's `user_stop` and `deadline`.
+	describe("the reason code of a failed tool event", () => {
+		async function failedToolMetadata(
+			error: string,
+		): Promise<Record<string, unknown>> {
+			const { runStreamingNormalChatSendModel } = await import(
+				"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+			);
+			(
+				runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+			).mockResolvedValue(
+				createNeutralStreamingResult([
+					{
+						type: "tool_call",
+						callId: "call-failed",
+						toolName: "fetch_url",
+						input: { url: "https://example.com/page" },
+					},
+					{
+						type: "tool_error",
+						callId: "call-failed",
+						toolName: "fetch_url",
+						error,
+					},
+					{ type: "text_delta", text: "Answer" },
+					finishEvent,
+				]),
+			);
+			const chunks = await readSseResponse(runStream());
+			const failed = uiDataParts<Record<string, unknown>>(
+				parseUiStreamParts(chunks),
+				"data-tool-call",
+			).find((payload) => payload.status === "failed");
+			return (failed?.metadata ?? {}) as Record<string, unknown>;
+		}
+
+		it("carries timed_out for a tool's own time limit", async () => {
+			const metadata = await failedToolMetadata(
+				"fetch_url timed out after 45000ms",
+			);
+			expect(metadata.reasonCode).toBe("timed_out");
+			expect(metadata.ok).toBe(false);
+		});
+
+		it("carries stopped for the engine's user_stop, as the SDK words it or as the message alone", async () => {
+			expect((await failedToolMetadata("Error: user_stop")).reasonCode).toBe(
+				"stopped",
+			);
+			expect((await failedToolMetadata("user_stop")).reasonCode).toBe(
+				"stopped",
+			);
+		});
+
+		it("carries out_of_time for the engine's deadline", async () => {
+			expect((await failedToolMetadata("Error: deadline")).reasonCode).toBe(
+				"out_of_time",
+			);
+			expect((await failedToolMetadata("deadline")).reasonCode).toBe(
+				"out_of_time",
+			);
+		});
+
+		it("carries no code for an abort the stream buckets as a timeout", async () => {
+			const metadata = await failedToolMetadata(
+				"fetch_url aborted: The user stopped the turn",
+			);
+			// The stream's bucket still says timeout; the row reads no timed_out.
+			expect(metadata.errorCode).toBe("timeout");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it("carries no code for any other failure", async () => {
+			const metadata = await failedToolMetadata("uncertain_execution");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+	});
+
 	// produce_file RETURNS its failure instead of throwing it: the file
 	// production ledger said the job failed, which is a normal tool_result as
 	// far as the AI SDK is concerned. The activity row must still read as

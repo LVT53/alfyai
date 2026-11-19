@@ -6,6 +6,7 @@ import {
 	dedupeSourcesByUrl,
 	extractHostname,
 	type FetchedSource,
+	formatEventTime,
 	formatToolCall,
 	getAgendaCandidates,
 	getFaviconUrl,
@@ -302,6 +303,43 @@ describe("isCalendarToolName / isPhotosToolName", () => {
 		expect(isCalendarToolName("Calendar")).toBe(true);
 		expect(isCalendarToolName("photos")).toBe(false);
 		expect(isPhotosToolName("PHOTOS")).toBe(true);
+	});
+});
+
+describe("formatEventTime", () => {
+	const NOW = Date.UTC(2026, 10, 18, 12, 0, 0);
+	const format = (iso: string, locale = "en-GB", now = NOW) =>
+		formatEventTime(iso, locale, { withDay: true, timeZone: "UTC", now });
+
+	it("says the weekday before the time for an event within a week of now", () => {
+		expect(format("2026-11-18T18:42:00Z")).toBe("Wed 18:42");
+		expect(format("2026-11-19T10:00:00Z")).toBe("Thu 10:00");
+		// The sixth day out is still one a weekday names.
+		expect(format("2026-11-24T09:00:00Z")).toBe("Tue 09:00");
+		// So is a day just past: "Mon 9:00" last Monday is no mistake for next Monday.
+		expect(format("2026-11-13T09:00:00Z")).toBe("Fri 09:00");
+	});
+
+	it("says the date with the time for an event more than six days away, ahead or behind", () => {
+		// A weekday alone, a week or more out, would name the wrong day.
+		expect(format("2026-11-26T10:00:00Z")).toBe("26 Nov, 10:00");
+		expect(format("2026-12-25T18:30:00Z")).toBe("25 Dec, 18:30");
+		expect(format("2026-11-10T08:15:00Z")).toBe("10 Nov, 08:15");
+		expect(format("2026-12-25T18:30:00Z", "hu-HU")).toBe("dec. 25. 18:30");
+		expect(
+			format("2026-12-25T18:30:00Z", "en-GB", Date.UTC(2026, 11, 20, 12)),
+		).toBe("Fri 18:30");
+	});
+
+	it("never says the date for a time without its day, and leaves an all-day event's day as it was", () => {
+		expect(
+			formatEventTime("2026-12-25T18:30:00Z", "en-GB", {
+				timeZone: "UTC",
+				now: NOW,
+			}),
+		).toBe("18:30");
+		expect(format("2026-12-25")).toBe("Fri 25 Dec");
+		expect(format("not a date")).toBe("not a date");
 	});
 });
 

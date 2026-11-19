@@ -4,6 +4,8 @@ import { t } from "$lib/i18n";
 import artifactsDict from "$lib/i18n/artifacts";
 import chatDict from "$lib/i18n/chat";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import { CONNECTOR_TOOL_NAMES } from "$lib/shared/tool-reasons";
+import { imageThumbnailRouteUrl } from "$lib/shared/url-provenance";
 import {
 	type AtlasActivityJob,
 	atlasPlanProgress,
@@ -15,9 +17,9 @@ import {
 	getToolWebSources,
 	parseAtlasActivityDetails,
 	runPythonObject,
-	toolElapsedLabel,
-	toolFailureReason,
+	type ToolActivityItem,
 } from "./tool-activity";
+import { catalogueToolNames } from "./tool-catalogue.test-helpers";
 import type { ToolCallSegment } from "./tool-evidence-presentation";
 
 // The real English dictionary, so these assert the copy a user actually sees
@@ -113,12 +115,13 @@ describe("tool activity row grammar", () => {
 		expect(item.object).toBe("example.com");
 	});
 
-	it("reads a Python run as 'Ran Python <first comment>' and puts the program in the body", () => {
+	it("reads a Python run as 'Ran Python <first comment>', and its body is what the program printed", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "run_python",
 				input: { code: "# day count and distance check\nprint(1)" },
-				outputSummary: "7\n34",
+				outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+				metadata: { displayOutput: "7\n34" },
 			}),
 			"k4",
 			translate,
@@ -127,7 +130,7 @@ describe("tool activity row grammar", () => {
 		expect(item.verb).toBe("Ran Python");
 		expect(item.object).toBe("day count and distance check");
 		expect(item.iconType).toBe("run-python");
-		expect(item.body).toMatchObject({ kind: "python", output: "7\n34" });
+		expect(item.body).toEqual({ kind: "result", text: "7\n34" });
 	});
 
 	it("falls back to a neutral 'scratch program' when the code carries no leading comment", () => {
@@ -313,7 +316,8 @@ describe("tool activity row grammar", () => {
 		expect(item.verb).toBe("Used skill");
 		expect(item.object).toBe("Purchase Helper");
 		expect(item.iconType).toBe("use-skill");
-		expect(item.body).toMatchObject({ kind: "text" });
+		// The skill's name says it: the model's "Loaded skill" note is not shown.
+		expect(item.body).toBeNull();
 	});
 
 	it("reads a memory lookup as 'Recalled N memories' with the memories as bullets", () => {
@@ -354,7 +358,7 @@ describe("tool activity row grammar", () => {
 		expect(item.object).toBe("1 memory");
 	});
 
-	it("reads a connector run as '<Capability> <N actions>' with one body row per action", () => {
+	it("reads a connector run as '<Capability> <N actions>' when nothing was counted, with one body row per call in plain words", () => {
 		const tools = [
 			toolCall({ name: "calendar", input: { action: "list_events" } }),
 			toolCall({ name: "calendar", input: { action: "find_free_slots" } }),
@@ -367,10 +371,13 @@ describe("tool activity row grammar", () => {
 		expect(item.body).toMatchObject({
 			kind: "actions",
 			actions: [
-				{ label: "list events", status: "done" },
-				{ label: "find free slots", status: "done" },
+				{ label: "Looked at your events", status: "done" },
+				// An action no phrase is written for reads as the account's general one,
+				// never as the action's own name.
+				{ label: "Used your calendar", status: "done" },
 			],
 		});
+		expect(JSON.stringify(item)).not.toMatch(/list_events|find_free_slots/);
 	});
 
 	describe("a photos run that looked at photos", () => {
@@ -420,28 +427,34 @@ describe("tool activity row grammar", () => {
 			);
 
 			expect(item.verb).toBe("Looked at 8 photos");
-			// Every action is still in the opened panel.
+			// Every call is still in the opened panel, in plain words.
 			expect(item.body).toMatchObject({
 				kind: "actions",
 				actions: [
-					{ label: "search" },
-					{ label: "search" },
-					{ label: "search" },
+					{ label: "Searched your photos" },
+					{ label: "Searched your photos" },
+					{ label: "Searched your photos" },
 				],
 			});
 		});
 
 		it("keeps the plain connector row when nothing was looked at", () => {
-			for (const viewedCount of [undefined, 0]) {
-				const item = buildConnectorActivityItem(
-					[photosCall(viewedCount), photosCall(viewedCount)],
-					"group-photos",
-					translate,
-				);
-
-				expect(item.verb).toBe("Photos");
-				expect(item.object).toBe("2 actions");
-			}
+			// A call that carries no count says only how many actions it took...
+			const bare = buildConnectorActivityItem(
+				[photosCall(undefined), photosCall(undefined)],
+				"group-photos",
+				translate,
+			);
+			expect(bare.verb).toBe("Photos");
+			expect(bare.object).toBe("2 actions");
+			// ...and a call that counted what it found says that, as for any account.
+			const counted = buildConnectorActivityItem(
+				[photosCall(0), photosCall(0)],
+				"group-photos",
+				translate,
+			);
+			expect(counted.verb).toBe("Photos");
+			expect(counted.object).toBe("20 found");
 		});
 
 		it("does not read a count that is not a number of photos", () => {
@@ -498,7 +511,7 @@ describe("tool activity row grammar", () => {
 			expect(item.verb).toBe("Looked at 6 photos");
 		});
 
-		it("is Hungarian in a Hungarian turn: '6 fotót megnézett'", async () => {
+		it("is Hungarian in a Hungarian turn, in Settings' noun: '6 fényképet megnézett'", async () => {
 			const { uiLanguage } = await import("$lib/stores/settings");
 			uiLanguage.set("hu");
 			try {
@@ -508,7 +521,7 @@ describe("tool activity row grammar", () => {
 					get(t),
 				);
 
-				expect(item.verb).toBe("6 fotót megnézett");
+				expect(item.verb).toBe("6 fényképet megnézett");
 			} finally {
 				uiLanguage.set("en");
 			}
@@ -546,7 +559,10 @@ describe("tool activity row grammar", () => {
 		expect(item.meta).toBe("Failed");
 	});
 
-	it("keeps the normal label on a failed row — only the right-hand word says Failed, and the body carries the reason", () => {
+	// The raw failure text (`metadata.error`, `outputSummary`) is for the server's log
+	// and for the model: no row shows it. A failure with no code says its tool's own
+	// fallback sentence, once.
+	it("keeps the normal label on a failed row — only the glyph and the right-hand word change, and the body says the tool's fallback, never the raw text", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "fetch_url",
@@ -558,26 +574,18 @@ describe("tool activity row grammar", () => {
 			translate,
 		);
 
+		expect(item.verb).toBe("Read");
+		expect(item.status).toBe("failed");
 		expect(item.meta).toBe("Failed");
 		expect(item.object).toContain("weather.metoffice.gov.uk");
 		expect(item.body).toEqual({
-			kind: "error",
-			reason: "request timed out after 20 s",
+			kind: "reason",
+			text: "The page couldn't be read.",
 		});
+		expect(JSON.stringify(item)).not.toContain("timed out after 20 s");
 	});
 
-	it("prefers a structured error over the output summary, and stays silent when neither exists", () => {
-		expect(
-			toolFailureReason({
-				outputSummary: "fallback",
-				metadata: { error: "real" },
-			}),
-		).toBe("real");
-		expect(toolFailureReason({ outputSummary: "fallback" })).toBe("fallback");
-		expect(toolFailureReason({})).toBeNull();
-	});
-
-	it("falls back to the tool's own label and an arguments/result panel for an unknown tool", () => {
+	it("an unknown tool's row has no body", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "some_new_tool",
@@ -591,11 +599,8 @@ describe("tool activity row grammar", () => {
 		expect(item.verb).toBe("Tool");
 		expect(item.object).toBe("value");
 		expect(item.iconType).toBe("generic");
-		expect(item.body).toMatchObject({
-			kind: "generic",
-			args: [{ key: "thing", value: "value" }],
-			result: "it worked",
-		});
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toContain("it worked");
 	});
 
 	it("gives a row with nothing to reveal no body at all (never falsely clickable)", () => {
@@ -607,12 +612,42 @@ describe("tool activity row grammar", () => {
 		expect(item.body).toBeNull();
 	});
 
-	it("omits an elapsed time unless the segment honestly carries one", () => {
-		expect(toolElapsedLabel(undefined)).toBeNull();
-		expect(toolElapsedLabel({ ok: true })).toBeNull();
-		expect(toolElapsedLabel({ durationMs: 1800 })).toBe("1.8 s");
-		expect(toolElapsedLabel({ durationMs: 420 })).toBe("420 ms");
-		expect(toolElapsedLabel({ durationMs: 21_400 })).toBe("21 s");
+	// A raw timing reads like a log line (artifacts redesign 9.2): a row's meta is a
+	// fact a person reads ("6 sources", "27 km"), or nothing. The envelope writes
+	// `metadata.durationMs` on every call; no row builder shows it.
+	it("no row carries an elapsed time", () => {
+		const timed = { durationMs: 1400 } as ToolCallSegment["metadata"];
+		const segments: Partial<ToolCallSegment>[] = [
+			{ name: "research_web", input: { query: "cork weather" } },
+			{ name: "image_search", input: { query: "harbour at dawn" } },
+			{ name: "fetch_url", input: { url: "https://example.com/a" } },
+			{ name: "run_python", input: { code: "# sum\nprint(1)" } },
+			{ name: "map_route", input: { action: "route" } },
+			{ name: "use_skill", input: { name: "Trip planner" } },
+			{ name: "memory_context", input: { query: "dentist" } },
+			{ name: "read_artifact", input: { artifactId: "a-1" } },
+			{ name: "read_generated_file", input: { filename: "report.pdf" } },
+			{ name: "some_new_tool", input: { thing: "value" } },
+			{ name: "make_image", input: { title: "Logo" } },
+			{ name: "make_video", input: { title: "Harbour" } },
+			{ name: "create_artifact", input: { title: "Plan" } },
+			{ name: "edit_artifact", input: { artifactId: "a-1" } },
+		];
+		for (const segment of segments) {
+			for (const status of ["running", "done", "failed"] as const) {
+				const item = buildToolActivityItem(
+					toolCall({ ...segment, status, metadata: timed }),
+					`k-${segment.name}-${status}`,
+					translate,
+				);
+				expect(item.meta, `${segment.name} ${status}`).not.toMatch(
+					/\d(\.\d)? ?(ms|s)$/,
+				);
+				expect(item.summaryLabel, `${segment.name} ${status}`).not.toMatch(
+					/\d(\.\d)? ?(ms|s)$/,
+				);
+			}
+		}
 	});
 });
 
@@ -694,6 +729,88 @@ describe("file production activity rows", () => {
 		expect(item.status).toBe("failed");
 		expect(item.meta).toBe("Failed");
 		expect(item.alwaysOpen).toBe(false);
+	});
+
+	// The glyph follows the code's kind, like every tool row's: the person's own
+	// stop, a limit on purpose and a kind of file that cannot be made here are the
+	// quiet dash (and say nothing is wrong); a breakage is the red cross.
+	const failedWith = (code: string | null) =>
+		buildFileProductionActivityItem(
+			job({
+				status: "failed",
+				files: [],
+				error: code
+					? { code, message: "RAW-SENTINEL-7f3a", retryable: false }
+					: null,
+			}),
+			translate,
+		);
+
+	it("reads a cancelled job as the quiet dash, with no Failed", () => {
+		const item = buildFileProductionActivityItem(
+			job({ status: "cancelled", files: [] }),
+			translate,
+		);
+		expect(item.status).toBe("skipped");
+		expect(item.meta).toBe("");
+		expect(item.summaryLabel).not.toContain("Failed");
+		expect(item.alwaysOpen).toBe(false);
+	});
+
+	it("reads a job that ended on a stop on purpose as the quiet dash, whatever its status says", () => {
+		for (const code of [
+			"render_cancelled",
+			"too_many_outputs",
+			"source_too_large",
+			"projection_too_large",
+			"page_limit_exceeded",
+			"table_limit_exceeded",
+			"chart_limit_exceeded",
+			"image_limit_exceeded",
+			"output_file_too_large",
+			"job_outputs_too_large",
+			"unsupported_output_type",
+			"unsupported_chart_type",
+			"unsupported_document_block",
+			"produce_file_turn_limit",
+		]) {
+			const item = failedWith(code);
+			expect(item.status, code).toBe("skipped");
+			expect(item.meta, code).toBe("");
+			expect(JSON.stringify(item), code).not.toContain("RAW-SENTINEL");
+			expect(JSON.stringify(item), code).not.toContain("Failed");
+		}
+	});
+
+	it("keeps the red cross for a breakage, a code it has no words for and a failure with no code", () => {
+		for (const code of [
+			"renderer_timeout",
+			"sandbox_timeout",
+			"worker_heartbeat_timeout",
+			"worker_state_lost",
+			"document_render_failed",
+			"program_execution_failed",
+			"pdf_font_missing",
+			"tool_failed",
+			"a_code_from_a_newer_server",
+			null,
+		]) {
+			const item = failedWith(code);
+			expect(item.status, String(code)).toBe("failed");
+			expect(item.meta, String(code)).toBe("Failed");
+		}
+	});
+
+	it("keeps a produced file's size and a running job's row as they were", () => {
+		expect(buildFileProductionActivityItem(job(), translate).meta).toBe(
+			"12 KB",
+		);
+		expect(
+			buildFileProductionActivityItem(
+				job({ status: "queued", files: [] }),
+				translate,
+			).status,
+		).toBe("running");
 	});
 });
 
@@ -1014,6 +1131,57 @@ describe("Atlas report row grammar", () => {
 		expect(item.object).toBe(
 			"Ireland's grid decarbonisation and the 2030 targets",
 		);
+	});
+
+	it("reads a failed report whose cause is a stop on purpose as the quiet dash, with no Failed", () => {
+		// The question had nothing to rely on: the app stopped there, nothing broke.
+		const item = buildAtlasActivityItem(
+			atlasJob({
+				status: "failed",
+				completedAt: START + 60_000,
+				error: {
+					code: "atlas_v3_no_evidence",
+					message: "RAW-SENTINEL-7f3a",
+					retryable: false,
+				},
+			}),
+			parseAtlasActivityDetails({ plan }),
+			translate,
+			START + 60_000,
+		);
+
+		expect(item.status).toBe("skipped");
+		expect(item.meta).toBe("");
+		expect(item.object).toBe(
+			"Ireland's grid decarbonisation and the 2030 targets",
+		);
+		expect(JSON.stringify(item)).not.toContain("RAW-SENTINEL");
+		expect(JSON.stringify(item)).not.toContain("Failed");
+	});
+
+	it("keeps the red cross for a report that broke, and for a failure with no code or one it has no words for", () => {
+		for (const code of [
+			"atlas_pipeline_failed",
+			"atlas_worker_heartbeat_timeout",
+			"atlas_v3_no_verdict",
+			"job_failed",
+			"research_failed",
+			"a_code_from_a_newer_server",
+			null,
+		]) {
+			const item = buildAtlasActivityItem(
+				atlasJob({
+					status: "failed",
+					completedAt: START + 60_000,
+					error: code ? { code, message: "x", retryable: false } : null,
+				}),
+				parseAtlasActivityDetails({ plan }),
+				translate,
+				START + 60_000,
+			);
+			expect(item.status, String(code)).toBe("failed");
+			expect(item.meta, String(code)).toBe("Failed");
+		}
 	});
 
 	it("reads a cancelled job as a done row that says how far it got", () => {
@@ -1447,7 +1615,7 @@ describe("buildToolActivityItem — journey row", () => {
 		// Wave 2.5 Step 12/13: a SOFT refusal (ok: false) of create_artifact —
 		// distinct from a hard transport failure — now gets its own standalone
 		// "could not be made" card, with the tool's own English reason.
-		it("shows a standalone failed card for a refused create_artifact, with the model-facing reason, and turns the row's glyph red", () => {
+		it("shows a standalone failed card for a refused create_artifact, with the create fallback and never the model's words, and turns the row's glyph red", () => {
 			const item = buildToolActivityItem(
 				toolCall({
 					name: "create_artifact",
@@ -1469,8 +1637,9 @@ describe("buildToolActivityItem — journey row", () => {
 				kind: "artifact-failed",
 				artifactKind: "app",
 				title: "Trip budget splitter",
-				reason: "Could not create the app: the brief was empty.",
+				reason: "This couldn't be made.",
 			});
+			expect(JSON.stringify(item)).not.toContain("the brief was empty");
 		});
 
 		it("never renders a card for a refused edit_artifact — the row shows the refusal, not a deliverable", () => {
@@ -1520,8 +1689,8 @@ describe("buildToolActivityItem — journey row", () => {
 
 // RC-A #2: the model the audit walked fails two or three edits a Document turn. A
 // failed call printed "Tool <id>", opened on `patches: [object Object]` and the
-// English refusal the model was written; it names what it tried now, folded, with
-// the model's words behind "Details".
+// English refusal the model was written; it names what it tried now. The model's
+// words never reach the row: it says its tool's sentence (Task B4 words each code).
 describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 	const failedEdit = (overrides: Partial<ToolCallSegment> = {}) =>
 		toolCall({
@@ -1543,7 +1712,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			...overrides,
 		});
 
-	it("names what it tried and on what, as a failed row folded behind Details", () => {
+	it("names what it tried and on what, as a failed row with the tool's sentence", () => {
 		const item = buildToolActivityItem(
 			failedEdit(),
 			"k-failed-edit",
@@ -1554,7 +1723,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		expect(item.verb).toBe("Couldn't edit:");
 		expect(item.object).toBe("Bécsi hétvége");
 		expect(item.title).toBe("Couldn't edit: Bécsi hétvége");
-		expect(item.meta).toBe("Details");
+		expect(item.meta).toBe("");
 		expect(item.pinned).toBe(false);
 		expect(item.alwaysOpen).toBe(false);
 		expect(item.artifact).toEqual({
@@ -1563,17 +1732,19 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		});
 	});
 
-	it("keeps the model's words in the body and the parameters out of everything", () => {
+	it("keeps the model's words and the parameters out of everything", () => {
 		const item = buildToolActivityItem(
 			failedEdit(),
 			"k-failed-edit",
 			translate,
 		);
 
+		// The model's own words stay out: the row says the tool's fallback sentence.
 		expect(item.body).toEqual({
-			kind: "error",
-			reason: expect.stringContaining("patch ops were malformed"),
+			kind: "reason",
+			text: "The change couldn't be made.",
 		});
+		expect(JSON.stringify(item)).not.toContain("patch ops were malformed");
 		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|Tool /);
 		expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
 			/0d394ede/,
@@ -1594,7 +1765,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			expect(item.verb).toBe("Nem sikerült szerkeszteni:");
 			expect(item.object).toBe("Bécsi hétvége");
 			expect(item.title).toBe("Nem sikerült szerkeszteni: Bécsi hétvége");
-			expect(item.meta).toBe("Részletek");
+			expect(item.meta).toBe("");
 			expect(JSON.stringify([item.verb, item.object, item.title])).not.toMatch(
 				/Eszköz|0d394ede/,
 			);
@@ -1648,25 +1819,29 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		expect(item.status).toBe("failed");
 		expect(item.verb).toBe("Couldn't edit");
 		expect(item.object).toBe("");
-		expect(item.meta).toBe("Details");
+		expect(item.meta).toBe("");
 		expect(item.body).toEqual({
-			kind: "error",
-			reason: "The request timed out.",
+			kind: "reason",
+			text: "The change couldn't be made.",
 		});
+		expect(JSON.stringify(item)).not.toContain("The request timed out.");
 		expect(item.artifact).toEqual({
 			id: "0d394ede-c37a-4238-9059-77d01300da4e",
 			failed: true,
 		});
 	});
 
-	it("has no Details to open when the call left no words", () => {
+	it("says the same sentence whether or not the call left words of its own", () => {
 		const item = buildToolActivityItem(
 			failedEdit({ outputSummary: undefined }),
 			"k-failed-silent",
 			translate,
 		);
 
-		expect(item.body).toBeNull();
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The change couldn't be made.",
+		});
 		expect(item.meta).toBe("");
 	});
 
@@ -1717,7 +1892,7 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 		]);
 	});
 
-	it("never prints '[object Object]' for a list or an object argument of another tool", () => {
+	it("never shows a list or an object argument of another tool, as '[object Object]' or as JSON", () => {
 		const item = buildToolActivityItem(
 			toolCall({
 				name: "some_other_tool",
@@ -1728,15 +1903,2137 @@ describe("a failed create_artifact / edit_artifact row (RC-A #2)", () => {
 			translate,
 		);
 
-		expect(item.body).toEqual({
-			kind: "generic",
-			args: [
-				{ key: "filters", value: '{"year":2026}' },
-				{ key: "ids", value: '["a","b"]' },
-				{ key: "note", value: "plain" },
-			],
-			result: null,
+		expect(item.body).toBeNull();
+		expect(JSON.stringify(item)).not.toMatch(/\[object Object\]|year|"a","b"/);
+	});
+});
+
+// Task B3: a call's failure, refusal or notable outcome carries a code
+// (`metadata.reasonCode`, from its tool's closed list in shared/tool-reasons.ts).
+// The row's glyph, its meta and its one sentence come from that code's kind and
+// words (utils/tool-reason-words.ts), never from the raw text a tool wrote for the
+// model or the log, and the stored `status` is never written.
+describe("rows read their reason", () => {
+	const SENTINEL = "RAW-SENTINEL-7f3a";
+	const row = (
+		overrides: Partial<ToolCallSegment>,
+		translator = translate,
+		options?: { turnEnded?: boolean; turnStopped?: boolean },
+	) => buildToolActivityItem(toolCall(overrides), "k", translator, options);
+
+	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			return work(get(t));
+		} finally {
+			uiLanguage.set("en");
+		}
+	}
+
+	it("a failure with a code is the red row with that code's sentence, and the meta Failed", () => {
+		const item = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			outputSummary:
+				"No usable web evidence was committed. Narrow the topic or URL for a new read.",
+			metadata: {
+				error: "Parallel search failed: 503",
+				reasonCode: "search_unavailable",
+			},
 		});
+
+		expect(item.status).toBe("failed");
+		expect(item.verb).toBe("Searched");
+		expect(item.object).toBe("cork weather");
+		expect(item.meta).toBe("Failed");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The search service didn't answer, so nothing came back this time.",
+		});
+		expect(item.pinned).toBe(false);
+		expect(item.summaryCount).toBe(0);
+		expect(item.summaryLabel).toBe("Searched Failed");
+		expect(JSON.stringify(item)).not.toMatch(/503|No usable web evidence/);
+	});
+
+	it("a stop on purpose is the quiet dash with its sentence, and not Failed", () => {
+		// The stored status stays whatever the server wrote ("failed" for a refused
+		// link at the tip): the row's glyph comes from the code's kind.
+		const item = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			metadata: { reasonCode: "reading_budget_used" },
+		});
+
+		expect(item.status).toBe("skipped");
+		expect(item.verb).toBe("Searched");
+		expect(item.meta).toBe("");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "Alfy had already searched enough for this reply.",
+		});
+		expect(item.summaryLabel).toBe("Searched");
+	});
+
+	it("a refusal stored as a success (status done, ok false) reads by its code too", () => {
+		const item = row({
+			name: "use_skill",
+			input: { name: "Trip planner" },
+			status: "done",
+			outputSummary:
+				'Only call use_skill with a name from "## Skills available".',
+			metadata: { ok: false, reasonCode: "skill_turned_off" },
+		});
+
+		expect(item.status).toBe("skipped");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "This skill is turned off. You can turn it on in Settings.",
+		});
+		expect(JSON.stringify(item)).not.toContain("Skills available");
+	});
+
+	it("nothing found stays done, says so in its meta, and has no body", () => {
+		const item = row({
+			name: "image_search",
+			input: { query: "harbour at dawn" },
+			status: "done",
+			metadata: { reasonCode: "nothing_found" },
+		});
+
+		expect(item.status).toBe("done");
+		expect(item.meta).toBe("nothing found");
+		expect(item.body).toBeNull();
+		expect(item.summaryCount).toBe(0);
+
+		// A search stored as failed today (the server's empty result) reads the same.
+		const search = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			metadata: { reasonCode: "nothing_found" },
+		});
+		expect(search.status).toBe("done");
+		expect(search.meta).toBe("nothing found");
+		expect(search.body).toBeNull();
+	});
+
+	it("an information code is done and says its line", () => {
+		const item = row({
+			name: "calendar",
+			input: { action: "list_events" },
+			status: "done",
+			metadata: { localDistilled: true },
+		});
+
+		expect(item.status).toBe("done");
+		expect(item.meta).toBe("");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The cloud model got a summary only, so the details stayed on your server.",
+		});
+	});
+
+	it("a call that failed with no code gets its own tool's fallback sentence", () => {
+		const threw = row({
+			name: "run_python",
+			input: { code: "# total\nprint(1)" },
+			status: "failed",
+			metadata: { error: "sandbox exploded" },
+		});
+		expect(threw.status).toBe("failed");
+		expect(threw.meta).toBe("Failed");
+		expect(threw.body).toEqual({
+			kind: "reason",
+			text: "Calculations aren't available right now.",
+		});
+
+		const inBand = row({
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Sylt" },
+			status: "done",
+			outputSummary: "out_of_coverage: do NOT estimate a route.",
+			metadata: { ok: false },
+		});
+		expect(inBand.status).toBe("failed");
+		expect(inBand.body).toEqual({
+			kind: "reason",
+			text: "The route couldn't be planned.",
+		});
+		expect(JSON.stringify(inBand)).not.toContain("do NOT estimate");
+	});
+
+	it("a code the registry does not know reads as the tool's fallback, never as the code", () => {
+		const item = row({
+			name: "fetch_url",
+			input: { url: "https://example.com/a" },
+			status: "failed",
+			metadata: { reasonCode: "some_code_from_a_newer_server" },
+		});
+
+		expect(item.status).toBe("failed");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "The page couldn't be read.",
+		});
+		expect(JSON.stringify(item)).not.toContain("some_code_from_a_newer_server");
+	});
+
+	it("never writes the stored status, or anything else on the segment", () => {
+		const segment = toolCall({
+			name: "fetch_url",
+			input: { url: "https://example.com/a" },
+			status: "failed",
+			outputSummary: "refused",
+			metadata: { reasonCode: "link_not_from_a_source", ok: false },
+		});
+		const before = JSON.parse(JSON.stringify(segment));
+
+		const item = buildToolActivityItem(segment, "k", translate);
+
+		expect(item.status).toBe("skipped");
+		expect(segment).toEqual(before);
+		expect(segment.status).toBe("failed");
+	});
+
+	it("says it in Hungarian in a Hungarian turn: the meta, the sentence, no English", async () => {
+		await inHungarian((hu) => {
+			const failed = row(
+				{
+					name: "research_web",
+					input: { query: "cork időjárás" },
+					status: "failed",
+					metadata: { reasonCode: "search_unavailable" },
+				},
+				hu,
+			);
+			expect(failed.meta).toBe("Sikertelen");
+			expect(failed.body).toEqual({
+				kind: "reason",
+				text: "A keresőszolgáltatás nem válaszolt, ezért most nem jött eredmény.",
+			});
+
+			const empty = row(
+				{
+					name: "memory_context",
+					input: { query: "fogorvos" },
+					metadata: { reasonCode: "nothing_found" },
+				},
+				hu,
+			);
+			expect(empty.meta).toBe("nincs találat");
+			expect(empty.body).toBeNull();
+		});
+	});
+
+	it("names the place a route could not find, from the person's own words, and falls back without it", async () => {
+		const withPlace = row({
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Fő utca 99" },
+			status: "done",
+			metadata: {
+				ok: false,
+				reasonCode: "place_not_found",
+				reasonPlace: "Fő utca 99",
+			},
+		});
+		expect(withPlace.status).toBe("failed");
+		expect(withPlace.body).toEqual({
+			kind: "reason",
+			text: "Alfy couldn't find “Fő utca 99” on the map.",
+		});
+
+		// A sentence about a place that names none would print its placeholder.
+		const without = row({
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Fő utca 99" },
+			status: "done",
+			metadata: { ok: false, reasonCode: "place_not_found" },
+		});
+		expect(without.body).toEqual({
+			kind: "reason",
+			text: "The route couldn't be planned.",
+		});
+		expect(JSON.stringify(without)).not.toContain("{place}");
+
+		await inHungarian((hu) => {
+			const item = row(
+				{
+					name: "map_route",
+					input: { origin: "Budapest", destination: "Fő utca 99" },
+					status: "done",
+					metadata: {
+						ok: false,
+						reasonCode: "place_not_found",
+						reasonPlace: "Fő utca 99",
+					},
+				},
+				hu,
+			);
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Alfy nem találta meg a térképen: „Fő utca 99”.",
+			});
+		});
+	});
+
+	it("says a trip across map areas, in the app's words, in both languages", async () => {
+		const trip = {
+			name: "map_route",
+			input: { origin: "Budapest", destination: "Cork" },
+			status: "done" as const,
+			metadata: { ok: false, reasonCode: "multi_region" },
+		};
+		expect(row(trip).body).toEqual({
+			kind: "reason",
+			text: "This trip crosses map areas, which isn't possible yet.",
+		});
+		await inHungarian((hu) => {
+			expect(row(trip, hu).body).toEqual({
+				kind: "reason",
+				text: "Ez az út több térképterületen halad át, ami még nem lehetséges.",
+			});
+		});
+	});
+
+	it("a stop the person pressed reads as the quiet dash, not as a failure, for any tool", () => {
+		const item = row({
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "failed",
+			metadata: { reasonCode: "stopped", error: "Aborted" },
+		});
+
+		expect(item.status).toBe("skipped");
+		expect(item.body).toEqual({
+			kind: "reason",
+			text: "You stopped this before it finished.",
+		});
+		expect(JSON.stringify(item)).not.toContain("Aborted");
+	});
+
+	describe("a turn that ended", () => {
+		const running = {
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "running" as const,
+		};
+		const STOPPED = "You stopped this before it finished.";
+		const UNFINISHED = "This step didn't finish before the reply ended.";
+
+		it("reads a call still running in a reply the person stopped as the quiet stop", () => {
+			const item = row(running, translate, {
+				turnEnded: true,
+				turnStopped: true,
+			});
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Searched");
+			expect(item.object).toBe("cork weather");
+			expect(item.meta).toBe("");
+			expect(item.body).toEqual({ kind: "reason", text: STOPPED });
+		});
+
+		it("does not say the person stopped a reply an update or a crash cut off", async () => {
+			// The same saved row, but the reply was not stopped by the person: it ended
+			// some other way (a deploy, a dropped connection), so the call "did not
+			// finish", and nothing is said about a Stop nobody pressed.
+			const item = row(running, translate, { turnEnded: true });
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Searched");
+			expect(item.body).toEqual({ kind: "reason", text: UNFINISHED });
+			expect(JSON.stringify(item)).not.toContain("stopped");
+			expect(JSON.stringify(item)).not.toContain("unfinished");
+
+			await inHungarian((hu) => {
+				const huCut = row(running, hu, { turnEnded: true });
+				expect(huCut.status).toBe("skipped");
+				expect(huCut.body).toEqual({
+					kind: "reason",
+					text: "Ez a lépés nem fejeződött be, mielőtt a válasz véget ért.",
+				});
+				expect(
+					row(running, hu, { turnEnded: true, turnStopped: true }).body,
+				).toEqual({
+					kind: "reason",
+					text: "Ezt leállítottad, mielőtt befejeződött.",
+				});
+			});
+		});
+
+		it("keeps the call running while the reply streams", () => {
+			for (const options of [
+				undefined,
+				{ turnEnded: false },
+				{ turnEnded: false, turnStopped: true },
+			]) {
+				const item = row(running, translate, options);
+				expect(item.status).toBe("running");
+				expect(item.verb).toBe("Searching");
+				expect(item.body).toBeNull();
+			}
+		});
+
+		it("leaves a call that finished alone", () => {
+			for (const turnStopped of [false, true]) {
+				const item = row(
+					{ ...running, status: "done", candidates: [] },
+					translate,
+					{ turnEnded: true, turnStopped },
+				);
+				expect(item.status).toBe("done");
+				expect(item.body).toBeNull();
+			}
+		});
+
+		it("reads a picture or a clip still running in a stopped reply as stopped, in its own words", () => {
+			const picture = row(
+				{ name: "make_image", input: { title: "Logo" }, status: "running" },
+				translate,
+				{ turnEnded: true, turnStopped: true },
+			);
+			expect(picture.verb).toBe("Picture stopped");
+			expect(picture.status).toBe("skipped");
+			const clip = row(
+				{ name: "make_video", input: { title: "Harbour" }, status: "running" },
+				translate,
+				{ turnEnded: true, turnStopped: true },
+			);
+			expect(clip.verb).toBe("Stopped the video");
+			expect(clip.status).toBe("skipped");
+		});
+
+		it("reads a picture or a clip still running in a reply that ended without a Stop as not made, with the sentence", () => {
+			const picture = row(
+				{ name: "make_image", input: { title: "Logo" }, status: "running" },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(picture.status).toBe("skipped");
+			expect(picture.verb).toBe("Picture not made");
+			expect(picture.body).toEqual({ kind: "reason", text: UNFINISHED });
+			expect(picture.verb).not.toBe("Picture stopped");
+			const clip = row(
+				{ name: "make_video", input: { title: "Harbour" }, status: "running" },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(clip.status).toBe("skipped");
+			expect(clip.verb).toBe("Video not made");
+			expect(clip.body).toEqual({ kind: "reason", text: UNFINISHED });
+		});
+
+		it("reads a create or an edit still running in a finished reply as a stop, not as a tool", () => {
+			for (const name of ["create_artifact", "edit_artifact"]) {
+				for (const [turnStopped, text] of [
+					[true, STOPPED],
+					[false, UNFINISHED],
+				] as const) {
+					const item = row(
+						{
+							name,
+							input: { artifactType: "document", title: "Trip plan" },
+							status: "running",
+						},
+						translate,
+						{ turnEnded: true, turnStopped },
+					);
+					expect(item.status, name).toBe("skipped");
+					expect(item.verb, name).not.toBe("Tool");
+					expect(item.iconType, name).toBe("artifact");
+					expect(item.body, name).toEqual({ kind: "reason", text });
+				}
+			}
+		});
+
+		it("is a quiet stop for a tool outside the registry too", () => {
+			const item = row(
+				{ name: "a_tool_from_the_future", input: {}, status: "running" },
+				translate,
+				{ turnEnded: true },
+			);
+			expect(item.status).toBe("skipped");
+			expect(item.body).toEqual({ kind: "reason", text: UNFINISHED });
+		});
+	});
+
+	// Review focus 1: rows saved before this change carry no reason codes. They
+	// read as their tool's fallback sentence, never as raw text, and never throw.
+	// Three shapes were stored: a thrown failure (status failed with the error in
+	// its metadata), a refusal stored as a success (ok false with the model's note
+	// as its summary), and a tool_error (the stream's own bucket as `errorCode`).
+	it("draws every tool's pre-change failure shapes with its fallback and no raw text", async () => {
+		const tools = catalogueToolNames();
+		expect(tools.length).toBeGreaterThanOrEqual(25);
+		const poisoned = (
+			status: "failed" | "done",
+			metadata: ToolCallSegment["metadata"],
+		) =>
+			({
+				status,
+				// A row may show a call's own leading words (a query, a title, a place),
+				// so the poisoned argument is the last one, never the first.
+				input: {
+					query: "innocuous words",
+					[`argument_${SENTINEL}`]: SENTINEL,
+				},
+				outputSummary: `${SENTINEL} (the note written for the model)`,
+				resultDigest: `${SENTINEL} (the digest the model replays)`,
+				metadata,
+			}) satisfies Partial<ToolCallSegment>;
+		const failureShapes: Partial<ToolCallSegment>[] = [
+			poisoned("failed", { error: SENTINEL }),
+			poisoned("done", { ok: false, error: SENTINEL }),
+			poisoned("failed", { ok: false, error: SENTINEL, errorCode: "timeout" }),
+		];
+		const { uiLanguage } = await import("$lib/stores/settings");
+		// make_image, make_video and the two artifact tools put their words on cards
+		// and on their own verbs, which later tasks draw from the registry too.
+		const ownWords = new Set(["make_image", "make_video"]);
+		try {
+			for (const language of ["en", "hu"] as const) {
+				uiLanguage.set(language);
+				const translator = get(t);
+				for (const name of tools) {
+					for (const [index, shape] of failureShapes.entries()) {
+						const label = `${language} ${name} shape ${index + 1}`;
+						let item: ToolActivityItem | undefined;
+						expect(() => {
+							item = buildToolActivityItem(
+								toolCall({ ...shape, name }),
+								`k-${name}-${index}`,
+								translator,
+							);
+						}, label).not.toThrow();
+						expect(JSON.stringify(item), label).not.toContain(SENTINEL);
+						if (ownWords.has(name)) continue;
+						// Whatever the tool, the row is red or quiet, never a green tick
+						// over a failure, and its body is one sentence of ours.
+						expect(item?.status, label).toBe("failed");
+						expect(item?.body?.kind, label).toBe("reason");
+					}
+				}
+				// The nine account tools are not drawn through that builder: a run of
+				// their calls goes through the connector one (3 shapes x 9 tools), whose
+				// own words are the phrase of the action and the sentence of the code.
+				// The action itself is the model's text and carries the marker too.
+				for (const name of CONNECTOR_TOOL_NAMES) {
+					for (const [index, shape] of failureShapes.entries()) {
+						const label = `${language} ${name} (connector) shape ${index + 1}`;
+						const segment = toolCall({
+							...shape,
+							name,
+							input: {
+								...(shape.input as Record<string, unknown>),
+								action: `list_${SENTINEL}`,
+							},
+						});
+						let item: ToolActivityItem | undefined;
+						expect(() => {
+							item = buildConnectorActivityItem(
+								[segment],
+								`c-${name}-${index}`,
+								translator,
+								{ locale: language === "hu" ? "hu-HU" : "en-GB" },
+							);
+						}, label).not.toThrow();
+						expect(JSON.stringify(item), label).not.toContain(SENTINEL);
+						expect(item?.status, label).toBe("failed");
+						expect(item?.body, label).toMatchObject({
+							kind: "actions",
+							actions: [{ status: "failed", reason: expect.any(String) }],
+						});
+					}
+				}
+			}
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	// A verb that ends in a colon introduces its object ("Nem nyitotta meg: example.com"),
+	// which reads well in a row and badly alone in the strip: there the colon goes when
+	// no object follows, and the object stays where one does.
+	it("keeps a colon out of the end of a strip label, and keeps the object a colon verb introduced", async () => {
+		const strip = (items: ToolActivityItem[], translator = translate) =>
+			buildToolActivitySummary(items, translator).map((entry) => entry.label);
+		const refused = (url: string, translator = translate) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "fetch_url",
+					input: { url },
+					status: "done",
+					metadata: { ok: false, reasonCode: "link_not_from_a_source" },
+				}),
+				`refused-${url}`,
+				translator,
+			);
+		const leftAlone = (title: string) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "edit_artifact",
+					input: { artifactId: "0d394ede-c37a-4238-9059-77d01300da4e" },
+					status: "done",
+					metadata: {
+						ok: false,
+						reasonCode: "changed_since_read",
+						artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+						artifactKind: "document",
+						artifactTitle: title,
+					},
+				}),
+				`left-${title}`,
+				translate,
+			);
+		const noSkill = (name: string, translator = translate) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "use_skill",
+					input: { name },
+					status: "done",
+					metadata: { ok: false, reasonCode: "skill_not_found" },
+				}),
+				`skill-${name}`,
+				translator,
+			);
+		const suggested = (text: string, translator = translate) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "suggest_instruction",
+					input: { text },
+					status: "done",
+					metadata: { ok: true },
+				}),
+				`suggested-${text}`,
+				translator,
+			);
+
+		// English: only "Left as it was:" ends in a colon.
+		expect(strip([leftAlone("Trip plan")])).toEqual(["Left as it was"]);
+		expect(strip([leftAlone("Trip plan"), leftAlone("Packing list")])).toEqual([
+			"Left as it was ×2",
+		]);
+		expect(strip([refused("https://example.com/a")])).toEqual(["Didn't open"]);
+
+		await inHungarian((hu) => {
+			// Alone, a colon verb says what it introduced.
+			expect(strip([refused("https://example.com/a", hu)], hu)).toEqual([
+				"Nem nyitotta meg: example.com",
+			]);
+			expect(strip([noSkill("Plan Critic", hu)], hu)).toEqual([
+				"Nincs ilyen készség: Plan Critic",
+			]);
+			// Several fold into one entry, with no object and no colon.
+			expect(
+				strip(
+					[
+						refused("https://example.com/a", hu),
+						refused("https://example.org/b", hu),
+					],
+					hu,
+				),
+			).toEqual(["Nem nyitotta meg ×2"]);
+			// A long offer is cut to what a strip can hold.
+			const long = "Always answer in Hungarian, whatever language I write in.";
+			const [label] = strip([suggested(long, hu)], hu);
+			expect(label.startsWith("Utasítást javasolt: Always answer")).toBe(true);
+			expect(
+				label.slice("Utasítást javasolt: ".length).length,
+			).toBeLessThanOrEqual(40);
+			expect(label.endsWith("…")).toBe(true);
+			// None ends in a colon.
+			for (const entry of [
+				...strip([refused("https://example.com/a", hu)], hu),
+				...strip([noSkill("x", hu)], hu),
+				...strip([suggested("Short", hu)], hu),
+			]) {
+				expect(entry.endsWith(":"), entry).toBe(false);
+			}
+			// The offer with nothing to say reads as the bare verb.
+			expect(strip([suggested("", hu)], hu)).toEqual(["Utasítást javasolt"]);
+			// A picture made with no title is "Elkészült:" with nothing after it: the
+			// strip says "Elkészült", never the colon.
+			const untitled = buildToolActivityItem(
+				toolCall({
+					name: "make_image",
+					input: {},
+					status: "done",
+					metadata: { ok: true },
+				}),
+				"untitled-picture",
+				hu,
+			);
+			expect(strip([untitled], hu)).toEqual(["Elkészült"]);
+		});
+	});
+
+	it("the strip groups by the shown status, so a stop is never counted as failed", () => {
+		const search = (
+			n: number,
+			status: "failed" | "done",
+			metadata?: ToolCallSegment["metadata"],
+		) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "research_web",
+					input: { query: `q${n}` },
+					status,
+					metadata,
+					candidates:
+						status === "done" && !metadata
+							? ([
+									{
+										id: `c${n}`,
+										title: "A page",
+										url: `https://example${n}.test/a`,
+										sourceType: "web",
+									},
+								] as ToolCallSegment["candidates"])
+							: undefined,
+				}),
+				`k${n}`,
+				translate,
+			);
+		const items = [
+			search(1, "done"),
+			search(2, "failed", { reasonCode: "reading_budget_used" }),
+			search(3, "failed", { reasonCode: "reading_budget_used" }),
+			search(4, "failed", { reasonCode: "search_unavailable" }),
+		];
+
+		expect(
+			buildToolActivitySummary(items, translate).map((entry) => entry.label),
+		).toEqual(["Searched 1 source", "Searched ×2", "Searched Failed"]);
+		expect(items[1].status).toBe("skipped");
+		expect(items[3].status).toBe("failed");
+	});
+});
+
+// Task B4: what each tool's row says once opened, in plain words: the things it
+// found or touched, by their own names, and never the call's own parts.
+describe("each tool's row shows what it found", () => {
+	const row = (
+		overrides: Partial<ToolCallSegment>,
+		translator = translate,
+		options?: { turnEnded?: boolean; turnStopped?: boolean },
+	) => buildToolActivityItem(toolCall(overrides), "k", translator, options);
+
+	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			return work(get(t));
+		} finally {
+			uiLanguage.set("en");
+		}
+	}
+
+	describe("image_search", () => {
+		const found = (count: number, withThumbnails = count) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: `img${index}`,
+				title: `Harbour at dawn ${index + 1}`,
+				url: `https://images.example${index}.test/harbour.jpg`,
+				snippet: `site${index}.com`,
+				sourceType: "web",
+				metadata: {
+					source: `site${index}.com`,
+					...(index < withThumbnails
+						? { thumbnail: `https://imgs.search.brave.com/thumb${index}` }
+						: {}),
+				},
+			})) as ToolCallSegment["candidates"];
+
+		it("says how many pictures it found on the right, and shows them small with their sites", () => {
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour at dawn" },
+				candidates: found(8),
+				outputSummary: "Found 8 images.",
+			});
+
+			expect(item.verb).toBe("Searched images");
+			expect(item.object).toBe("harbour at dawn");
+			expect(item.meta).toBe("8 pictures");
+			expect(item.body).toEqual({
+				kind: "thumbs",
+				items: Array.from({ length: 8 }, (_, index) => ({
+					src: imageThumbnailRouteUrl(
+						`https://imgs.search.brave.com/thumb${index}`,
+					),
+					host: `site${index}.com`,
+					title: `Harbour at dawn ${index + 1}`,
+				})),
+			});
+			expect(JSON.stringify(item)).not.toContain("Found 8 images");
+		});
+
+		it("counts one picture in the singular, and shows only a picture it holds a thumbnail for", () => {
+			const one = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: found(1),
+			});
+			expect(one.meta).toBe("1 picture");
+
+			// Six found, only two with a thumbnail Brave's own proxy served: the row
+			// counts them all and shows what it can.
+			const some = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: found(6, 2),
+			});
+			expect(some.meta).toBe("6 pictures");
+			expect(some.body).toMatchObject({ kind: "thumbs" });
+			expect((some.body as { items: unknown[] }).items).toHaveLength(2);
+
+			// A thumbnail that is not on Brave's proxy is never loaded.
+			const stranger = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: [
+					{
+						id: "x",
+						title: "Elsewhere",
+						url: "https://pictures.example.test/a.jpg",
+						snippet: "example.test",
+						sourceType: "web",
+						metadata: { thumbnail: "https://attacker.example/pixel.gif" },
+					},
+				] as ToolCallSegment["candidates"],
+			});
+			expect(stranger.meta).toBe("1 picture");
+			expect(stranger.body).toBeNull();
+			expect(JSON.stringify(stranger)).not.toContain("attacker.example");
+		});
+
+		it("shows a picture once when the search found it twice, so the row's pictures have one key each", () => {
+			const twice = [
+				{
+					id: "a",
+					title: "Harbour",
+					url: "https://one.example.test/harbour.jpg",
+					snippet: "one.example.test",
+					sourceType: "web",
+					metadata: { thumbnail: "https://imgs.search.brave.com/same" },
+				},
+				{
+					id: "b",
+					title: "Harbour (again)",
+					url: "https://two.example.test/harbour.jpg",
+					snippet: "two.example.test",
+					sourceType: "web",
+					metadata: { thumbnail: "https://imgs.search.brave.com/same" },
+				},
+				{
+					id: "c",
+					title: "Another",
+					url: "https://three.example.test/dawn.jpg",
+					snippet: "three.example.test",
+					sourceType: "web",
+					metadata: { thumbnail: "https://imgs.search.brave.com/other" },
+				},
+			] as ToolCallSegment["candidates"];
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: twice,
+			});
+
+			// Counted as found, drawn once: the first of the two keeps its place.
+			expect(item.meta).toBe("3 pictures");
+			const items = (item.body as { items: { src: string; host: string }[] })
+				.items;
+			expect(items.map((thumb) => thumb.host)).toEqual([
+				"one.example.test",
+				"three.example.test",
+			]);
+			expect(new Set(items.map((thumb) => thumb.src)).size).toBe(items.length);
+		});
+
+		it("names the host of a picture whose source the search did not say", () => {
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				candidates: [
+					{
+						id: "n",
+						title: "No source named",
+						url: "https://www.pictures.example.test/a.jpg",
+						sourceType: "web",
+						metadata: { thumbnail: "https://imgs.search.brave.com/n" },
+					},
+				] as ToolCallSegment["candidates"],
+			});
+			expect(item.body).toMatchObject({
+				kind: "thumbs",
+				items: [{ host: "pictures.example.test" }],
+			});
+		});
+
+		it("has no count and nothing to open before the search has found anything", () => {
+			const item = row({
+				name: "image_search",
+				input: { query: "harbour" },
+				status: "running",
+			});
+			expect(item.meta).toBe("");
+			expect(item.body).toBeNull();
+		});
+
+		it("says kép in Hungarian, with no plural", async () => {
+			await inHungarian((hu) => {
+				const many = row(
+					{
+						name: "image_search",
+						input: { query: "kikötő" },
+						candidates: found(5),
+					},
+					hu,
+				);
+				expect(many.meta).toBe("5 kép");
+				const single = row(
+					{
+						name: "image_search",
+						input: { query: "kikötő" },
+						candidates: found(1),
+					},
+					hu,
+				);
+				expect(single.meta).toBe("1 kép");
+			});
+		});
+	});
+
+	describe("fetch_url", () => {
+		it("says a link it turned down on purpose as 'Didn't open <host>', quietly, with its one sentence", async () => {
+			const refused = {
+				name: "fetch_url",
+				input: { url: "https://www.example-deals.shop/offer?x=1" },
+				status: "failed" as const,
+				metadata: { reasonCode: "link_not_from_a_source" },
+			};
+			const item = row(refused);
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Didn't open");
+			expect(item.object).toBe("example-deals.shop");
+			expect(item.summaryLabel).toBe("Didn't open");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Alfy opens only links you gave it or a search found, and this one was neither.",
+			});
+			await inHungarian((hu) => {
+				const huItem = row(refused, hu);
+				expect(huItem.verb).toBe("Nem nyitotta meg:");
+				expect(huItem.body).toEqual({
+					kind: "reason",
+					text: "Alfy csak a tőled kapott vagy keresésben talált linkeket nyitja meg, ez pedig egyik sem volt.",
+				});
+			});
+		});
+
+		it("keeps 'Read <host>' for every other failure", () => {
+			const item = row({
+				name: "fetch_url",
+				input: { url: "https://example.com/a" },
+				status: "failed",
+				metadata: { reasonCode: "page_not_found" },
+			});
+			expect(item.verb).toBe("Read");
+			expect(item.status).toBe("failed");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "That page doesn't exist any more.",
+			});
+		});
+	});
+
+	describe("memory_context", () => {
+		const chats = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: `chat${index}`,
+				title: `Chat about trip ${index + 1}`,
+				sourceType: "memory",
+			})) as ToolCallSegment["candidates"];
+
+		it("says it looked through past chats, with their titles, when it looked into history", async () => {
+			const history = {
+				name: "memory_context",
+				input: { mode: "history", query: "Vienna" },
+				metadata: { mode: "history", ok: true },
+				candidates: chats(3),
+			};
+			const item = row(history);
+
+			expect(item.verb).toBe("Looked through");
+			expect(item.object).toBe("3 past chats");
+			expect(item.iconType).toBe("memory");
+			expect(item.body).toEqual({
+				kind: "things",
+				icon: "chat",
+				items: [
+					{ title: "Chat about trip 1" },
+					{ title: "Chat about trip 2" },
+					{ title: "Chat about trip 3" },
+				],
+				more: 0,
+			});
+
+			await inHungarian((hu) => {
+				const huItem = row(history, hu);
+				expect(huItem.verb).toBe("Átnézve:");
+				expect(huItem.object).toBe("3 korábbi beszélgetés");
+			});
+		});
+
+		it("counts one past chat in the singular, and the project's chats the same way", () => {
+			const one = row({
+				name: "memory_context",
+				input: { mode: "project", query: "Vienna folder" },
+				metadata: { mode: "project", ok: true },
+				candidates: chats(1),
+			});
+			expect(one.verb).toBe("Looked through");
+			expect(one.object).toBe("1 past chat");
+		});
+
+		it("names five chats and says how many more", () => {
+			const item = row({
+				name: "memory_context",
+				input: { mode: "history", query: "trips" },
+				metadata: { mode: "history", ok: true },
+				candidates: chats(8),
+			});
+			expect(item.object).toBe("8 past chats");
+			expect(item.body).toMatchObject({ kind: "things", more: 3 });
+			expect((item.body as { items: unknown[] }).items).toHaveLength(5);
+		});
+
+		it("keeps the memories as they were for the persona, and says nothing of a status note", () => {
+			const memories = row({
+				name: "memory_context",
+				input: { query: "packing" },
+				metadata: { mode: "persona", ok: true },
+				outputSummary: "Persona memory status: available",
+				candidates: [
+					{ id: "m1", title: "Prefers Celsius", sourceType: "memory" },
+				] as ToolCallSegment["candidates"],
+			});
+			expect(memories.verb).toBe("Recalled");
+			expect(memories.object).toBe("1 memory");
+			expect(memories.body).toEqual({
+				kind: "bullets",
+				items: ["Prefers Celsius"],
+			});
+
+			const bare = row({
+				name: "memory_context",
+				input: { query: "packing" },
+				metadata: { mode: "persona", ok: true },
+				outputSummary: "Persona memory status: available",
+			});
+			expect(bare.body).toBeNull();
+			expect(JSON.stringify(bare)).not.toContain("status: available");
+		});
+
+		it("names what it looked for when a chat lookup found nothing, and does not claim chats", () => {
+			const item = row({
+				name: "memory_context",
+				input: { mode: "history", query: "Vienna" },
+				metadata: { mode: "history", ok: true, reasonCode: "nothing_found" },
+			});
+			expect(item.verb).toBe("Recalled");
+			expect(item.object).toBe("Vienna");
+			expect(item.meta).toBe("nothing found");
+			expect(item.body).toBeNull();
+		});
+	});
+
+	describe("run_python", () => {
+		const python = {
+			name: "run_python",
+			input: {
+				code: "# Work out the monthly payment\nprincipal = 42_000_000\nprint(principal)",
+			},
+			outputSummary: "run_python finished: exit code 0, 41 stdout chars.",
+		};
+
+		it("shows only what the program printed, as plain text, and never the program", () => {
+			const item = row({
+				...python,
+				metadata: {
+					displayOutput: "monthly: 312,893 Ft\ntotal interest: 33,094,440 Ft",
+				},
+			});
+
+			expect(item.verb).toBe("Ran Python");
+			expect(item.object).toBe("Work out the monthly payment");
+			expect(item.body).toEqual({
+				kind: "result",
+				text: "monthly: 312,893 Ft\ntotal interest: 33,094,440 Ft",
+			});
+			const text = JSON.stringify(item);
+			expect(text).not.toContain("principal");
+			expect(text).not.toContain("stdout chars");
+		});
+
+		it("does not open when the program printed nothing, or the call is older than the display copy", () => {
+			for (const metadata of [undefined, { displayOutput: "   " }]) {
+				const item = row({ ...python, metadata });
+				expect(item.body).toBeNull();
+			}
+			expect(row({ ...python, status: "running" }).body).toBeNull();
+		});
+
+		it("says the calculation ran out of time, or stopped with an error, as the failure it was", () => {
+			const timedOut = row({
+				...python,
+				status: "failed",
+				metadata: { reasonCode: "timed_out" },
+			});
+			expect(timedOut.status).toBe("failed");
+			expect(timedOut.body).toEqual({
+				kind: "reason",
+				text: "The calculation ran out of time.",
+			});
+			const errored = row({
+				...python,
+				status: "done",
+				metadata: { ok: false, reasonCode: "program_error" },
+			});
+			expect(errored.status).toBe("failed");
+			expect(errored.body).toEqual({
+				kind: "reason",
+				text: "The calculation stopped with an error.",
+			});
+		});
+	});
+
+	describe("read_artifact and read_generated_file", () => {
+		it("does not open, and says which part of a file it read on the row", async () => {
+			const paged = {
+				name: "read_generated_file",
+				input: { filename: "report.pdf", page: 3 },
+				outputSummary: "Read file report.pdf",
+				metadata: { ok: true },
+			};
+			const item = row(paged);
+
+			expect(item.verb).toBe("Read");
+			expect(item.object).toBe("report.pdf");
+			expect(item.objectSuffix).toBe("· page 3");
+			expect(item.body).toBeNull();
+
+			const part = row({
+				name: "read_generated_file",
+				input: { filename: "notes.txt", part: "2" },
+			});
+			expect(part.objectSuffix).toBe("· part 2");
+
+			await inHungarian((hu) => {
+				expect(row(paged, hu).objectSuffix).toBe("· 3. oldal");
+				expect(
+					row(
+						{
+							name: "read_generated_file",
+							input: { filename: "notes.txt", part: 2 },
+						},
+						hu,
+					).objectSuffix,
+				).toBe("· 2. rész");
+			});
+		});
+
+		it("has no suffix when it read the whole item, and takes none from anything but a whole number", () => {
+			expect(
+				row({
+					name: "read_artifact",
+					input: { artifactId: "0d394ede" },
+					metadata: { artifactTitle: "Trip plan", ok: true },
+				}).objectSuffix,
+			).toBeUndefined();
+			for (const page of ["third", -1, 0, 2.5, null, { n: 1 }]) {
+				expect(
+					row({
+						name: "read_generated_file",
+						input: { filename: "report.pdf", page },
+					}).objectSuffix,
+					String(page),
+				).toBeUndefined();
+			}
+		});
+
+		it("names the item, never its id, and says it is gone when it is", () => {
+			const gone = row({
+				name: "read_artifact",
+				input: { artifactId: "0d394ede-c37a-4238-9059-77d01300da4e" },
+				status: "done",
+				outputSummary: "Not found.",
+				metadata: { ok: false, reasonCode: "item_not_found" },
+			});
+			expect(gone.status).toBe("failed");
+			expect(gone.body).toEqual({
+				kind: "reason",
+				text: "That item isn't there any more.",
+			});
+			expect(JSON.stringify(gone)).not.toContain("0d394ede");
+		});
+	});
+
+	describe("use_skill", () => {
+		it("does not open when the skill loaded: its name says it", () => {
+			const item = row({
+				name: "use_skill",
+				input: { name: "trip-planner" },
+				metadata: { skillDisplayName: "Trip planner", ok: true },
+				outputSummary: 'Loaded skill "Trip planner"',
+			});
+			expect(item.verb).toBe("Used skill");
+			expect(item.object).toBe("Trip planner");
+			expect(item.body).toBeNull();
+			expect(JSON.stringify(item)).not.toContain("Loaded skill");
+		});
+
+		it("says there is no skill by that name, quietly, and does not open", async () => {
+			const missing = {
+				name: "use_skill",
+				input: { name: "Trip planer" },
+				status: "done" as const,
+				outputSummary:
+					'No skill named "Trip planer" was found. Only call use_skill with a name from "## Skills available".',
+				metadata: { ok: false, reasonCode: "skill_not_found" },
+			};
+			const item = row(missing);
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("No skill called");
+			expect(item.object).toBe("Trip planer");
+			expect(item.body).toBeNull();
+			expect(JSON.stringify(item)).not.toContain("Skills available");
+
+			await inHungarian((hu) => {
+				const huItem = row(missing, hu);
+				expect(huItem.verb).toBe("Nincs ilyen készség:");
+				expect(huItem.object).toBe("Trip planer");
+			});
+		});
+
+		it("says a skill that is turned off in a sentence, and keeps its name", () => {
+			const item = row({
+				name: "use_skill",
+				input: { name: "trip-planner" },
+				metadata: {
+					skillDisplayName: "Trip planner",
+					ok: false,
+					reasonCode: "skill_turned_off",
+				},
+			});
+			expect(item.status).toBe("skipped");
+			expect(item.object).toBe("Trip planner");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "This skill is turned off. You can turn it on in Settings.",
+			});
+		});
+	});
+
+	describe("suggest_instruction", () => {
+		const suggestion = {
+			name: "suggest_instruction",
+			input: { text: "Always give distances in kilometres", scope: "personal" },
+			outputSummary: "Instruction suggestion offered for personal instructions",
+		};
+
+		it("names the offer on the row and does not open: the offer has its own card", async () => {
+			const item = row(suggestion);
+
+			expect(item.status).toBe("done");
+			expect(item.verb).toBe("Suggested an instruction");
+			expect(item.object).toBe("Always give distances in kilometres");
+			expect(item.iconType).toBe("suggest-instruction");
+			expect(item.body).toBeNull();
+			expect(JSON.stringify(item)).not.toMatch(/personal|offered/);
+
+			await inHungarian((hu) => {
+				expect(row(suggestion, hu).verb).toBe("Utasítást javasolt:");
+			});
+		});
+
+		it("says why a suggestion was not offered, quietly", () => {
+			const item = row({
+				...suggestion,
+				metadata: { ok: false, reason: "already_offered" },
+			});
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Suggested an instruction");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Alfy had already suggested this one.",
+			});
+		});
+	});
+
+	describe("map_route", () => {
+		it("names the two places when it drew no map, never the first word of the request", () => {
+			const item = row({
+				name: "map_route",
+				input: { action: "route", origin: "Budapest", destination: "Sylt" },
+				status: "done",
+				metadata: { ok: false, reasonCode: "out_of_coverage" },
+			});
+
+			expect(item.object).toBe("Budapest → Sylt");
+			expect(item.status).toBe("skipped");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "Routes can only be planned where Alfy has maps.",
+			});
+			expect(JSON.stringify(item)).not.toContain('"drive"');
+		});
+
+		it("names a place looked up, a lone end of a trip, and coordinates", () => {
+			expect(
+				row({
+					name: "map_route",
+					input: { action: "geocode", query: "Fő utca 99" },
+				}).object,
+			).toBe("Fő utca 99");
+			expect(
+				row({
+					name: "map_route",
+					input: { action: "isochrone", origin: "Graz" },
+				}).object,
+			).toBe("Graz");
+			expect(
+				row({
+					name: "map_route",
+					input: {
+						action: "route",
+						origin: { lat: 47.4979, lng: 19.0402 },
+						destination: "Vienna",
+					},
+				}).object,
+			).toBe("47.4979, 19.0402 → Vienna");
+			expect(
+				row({ name: "map_route", input: { action: "route" } }).object,
+			).toBe("");
+		});
+	});
+
+	describe("create_artifact and edit_artifact", () => {
+		const refusedCreate = (code: string | undefined, extra = {}) => ({
+			name: "create_artifact",
+			input: { artifactType: "app", title: "Packing list" },
+			status: "done" as const,
+			outputSummary:
+				"Per-turn limit reached: 3 new artifacts already created in this turn.",
+			metadata: {
+				ok: false,
+				artifactKind: "app",
+				...(code ? { reasonCode: code } : {}),
+				...extra,
+			},
+		});
+
+		it("says a refused create on its card as the reason's sentence, never the model's words", () => {
+			const item = row(refusedCreate("reply_limit_reached"));
+
+			expect(item.body).toEqual({
+				kind: "artifact-failed",
+				artifactKind: "app",
+				title: "Packing list",
+				reason: "Alfy has already made as many new items as one reply allows.",
+			});
+			// A stop on purpose is the quiet dash, though it is a "couldn't make this" card.
+			expect(item.status).toBe("skipped");
+			expect(JSON.stringify(item)).not.toMatch(/Per-turn|artifacts/);
+		});
+
+		it("says an unknown or missing code on the card as the create fallback, in a red row", async () => {
+			for (const code of [undefined, "a_code_from_a_newer_server"]) {
+				const item = row(refusedCreate(code));
+				expect(item.status).toBe("failed");
+				expect(item.body).toMatchObject({
+					kind: "artifact-failed",
+					reason: "This couldn't be made.",
+				});
+				expect(JSON.stringify(item)).not.toContain("Per-turn");
+			}
+			await inHungarian((hu) => {
+				expect(row(refusedCreate("kind_not_creatable"), hu).body).toMatchObject(
+					{ reason: "Ilyen elemet itt nem lehet készíteni." },
+				);
+			});
+		});
+
+		it("says a refused create the model corrects as a quiet 'Adjusting the request' row, with no card", () => {
+			const item = row(refusedCreate("request_adjusted"));
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Adjusting the request:");
+			expect(item.object).toBe("Packing list");
+			expect(item.body).toBeNull();
+			expect(item.artifact).toEqual({ id: null, failed: true });
+		});
+
+		const edit = (code: string | undefined, metadata = {}) => ({
+			name: "edit_artifact",
+			input: {
+				artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+				patches: [],
+			},
+			status: "done" as const,
+			outputSummary: "Block b7 changed since your last read_artifact.",
+			metadata: {
+				ok: false,
+				artifactId: "0d394ede-c37a-4238-9059-77d01300da4e",
+				artifactKind: "document",
+				artifactTitle: "Trip plan",
+				...(code ? { reasonCode: code } : {}),
+				...metadata,
+			},
+		});
+
+		it("says an edit that left the person's changes alone as 'Left as it was', quiet, by the kind of item", async () => {
+			const item = row(edit("changed_since_read"));
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Left as it was:");
+			expect(item.object).toBe("Trip plan");
+			expect(item.title).toBe("Left as it was: Trip plan");
+			expect(item.meta).toBe("");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "The document changed since Alfy read it, so Alfy left it as it was.",
+			});
+			expect(item.artifact).toEqual({
+				id: "0d394ede-c37a-4238-9059-77d01300da4e",
+				failed: true,
+			});
+			expect(JSON.stringify(item)).not.toContain("read_artifact");
+
+			expect(
+				row(edit("changed_since_read", { artifactKind: "canvas" })).body,
+			).toEqual({
+				kind: "reason",
+				text: "The canvas changed since Alfy read it, so Alfy left it as it was.",
+			});
+
+			await inHungarian((hu) => {
+				const huItem = row(edit("changed_since_read"), hu);
+				expect(huItem.verb).toBe("Változatlan maradt:");
+				expect(huItem.body).toEqual({
+					kind: "reason",
+					text: "A dokumentum megváltozott, mióta Alfy elolvasta, ezért Alfy nem nyúlt hozzá.",
+				});
+			});
+		});
+
+		it("says a Document edit whose every op was stale as 'Left as it was' though the call came back ok, with no card", async () => {
+			// The server records such an edit as a success (no op was refused as a whole,
+			// and the version is written), and names it beside `ok: true`; the card would
+			// say "Edited" with a tick over a document nothing changed.
+			const stale = edit("changed_since_read", { ok: true, appliedCount: 0 });
+			const item = row(stale);
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Left as it was:");
+			expect(item.object).toBe("Trip plan");
+			expect(item.title).toBe("Left as it was: Trip plan");
+			expect(item.meta).toBe("");
+			expect(item.body).toEqual({
+				kind: "reason",
+				text: "The document changed since Alfy read it, so Alfy left it as it was.",
+			});
+			expect(item.pinned).toBe(false);
+			expect(item.alwaysOpen).toBe(false);
+			// Still the failed attempt a later call that made it good folds.
+			expect(item.artifact).toEqual({
+				id: "0d394ede-c37a-4238-9059-77d01300da4e",
+				failed: true,
+			});
+
+			await inHungarian((hu) => {
+				const huItem = row(stale, hu);
+				expect(huItem.verb).toBe("Változatlan maradt:");
+				expect(huItem.body).toEqual({
+					kind: "reason",
+					text: "A dokumentum megváltozott, mióta Alfy elolvasta, ezért Alfy nem nyúlt hozzá.",
+				});
+			});
+
+			// An edit that applied something names no code, and keeps its card.
+			const applied = row(edit(undefined, { ok: true, appliedCount: 2 }));
+			expect(applied.status).toBe("done");
+			expect(applied.verb).toBe("Edited");
+			expect(applied.body).toMatchObject({ kind: "artifact" });
+			expect(applied.artifact).toEqual({
+				id: "0d394ede-c37a-4238-9059-77d01300da4e",
+				failed: false,
+			});
+		});
+
+		it("drops the colon of 'Left as it was' when nothing says which item", () => {
+			const item = row(
+				edit("changed_since_read", {
+					artifactTitle: undefined,
+					artifactKind: undefined,
+				}),
+			);
+			expect(item.verb).toBe("Left as it was");
+			expect(item.object).toBe("");
+		});
+
+		it("says an edit the model asked for the wrong way as 'Adjusting the request', quiet, with no body", async () => {
+			const item = row(edit("request_adjusted"));
+
+			expect(item.status).toBe("skipped");
+			expect(item.verb).toBe("Adjusting the request:");
+			expect(item.object).toBe("Trip plan");
+			expect(item.body).toBeNull();
+			expect(item.artifact).toMatchObject({ failed: true });
+
+			await inHungarian((hu) => {
+				expect(row(edit("request_adjusted"), hu).verb).toBe(
+					"Kérés pontosítása:",
+				);
+			});
+		});
+
+		it("keeps \"Couldn't edit\" and the code's sentence for every other guard, and the fallback for none", () => {
+			const files = row(edit("not_editable_as_text"));
+			expect(files.status).toBe("skipped");
+			expect(files.verb).toBe("Couldn't edit:");
+			expect(files.body).toEqual({
+				kind: "reason",
+				text: "Files, pictures and videos can't be changed as text.",
+			});
+			const rebuilt = row(
+				edit("rebuild_limit_reached", { artifactKind: "app" }),
+			);
+			expect(rebuilt.body).toEqual({
+				kind: "reason",
+				text: "An app can be rebuilt twice in one reply.",
+			});
+			const other = row(edit(undefined));
+			expect(other.status).toBe("failed");
+			expect(other.body).toEqual({
+				kind: "reason",
+				text: "The change couldn't be made.",
+			});
+		});
+
+		it("still marks every one of these rows as a failed attempt, so a later call that made it good folds them", () => {
+			for (const code of [
+				"changed_since_read",
+				"request_adjusted",
+				"not_editable_as_text",
+				undefined,
+			]) {
+				expect(row(edit(code)).artifact, String(code)).toEqual({
+					id: "0d394ede-c37a-4238-9059-77d01300da4e",
+					failed: true,
+				});
+			}
+		});
+	});
+});
+
+// Task B5: an account row says what Alfy looked at and what came back, in plain
+// words, in the person's language and clock.
+describe("your accounts", () => {
+	// A fixed now, so the day a time is said with never depends on the clock.
+	const NOW = Date.UTC(2026, 10, 18, 12, 0, 0);
+	const options = { locale: "en-GB", timeZone: "UTC", now: NOW };
+	const call = (
+		name: string,
+		action: string,
+		overrides: Partial<ToolCallSegment> = {},
+	) => toolCall({ name, input: { action }, ...overrides });
+	const group = (
+		tools: ToolCallSegment[],
+		translator = translate,
+		opts: {
+			turnEnded?: boolean;
+			turnStopped?: boolean;
+			locale?: string;
+			timeZone?: string;
+			now?: number;
+		} = options,
+	) => buildConnectorActivityItem(tools, "group", translator, opts);
+
+	async function inHungarian<T>(work: (hu: typeof translate) => T): Promise<T> {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			return work(get(t));
+		} finally {
+			uiLanguage.set("en");
+		}
+	}
+
+	const event = (n: number, start: string, title = `Event ${n}`) => ({
+		id: `calendar:${n}`,
+		title,
+		sourceType: "tool",
+		metadata: { start, end: start },
+	});
+
+	it("counts what came back across the run in the account's own unit", () => {
+		const events = (count: number) =>
+			Array.from({ length: count }, (_, index) =>
+				event(index, "2026-11-19T10:00:00Z"),
+			);
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 3 },
+				candidates: events(3) as ToolCallSegment["candidates"],
+			}),
+			call("calendar", "check_availability", { metadata: { ok: true } }),
+		]);
+
+		expect(item.verb).toBe("Calendar");
+		expect(item.object).toBe("3 events");
+		expect(item.summaryLabel).toBe("Calendar 3 events");
+		expect(item.status).toBe("done");
+		expect(item.body).toMatchObject({
+			kind: "actions",
+			icon: "calendar",
+			actions: [
+				{ label: "Looked at your events", status: "done", sub: "3 found" },
+				{ label: "Checked when you're free", status: "done" },
+			],
+		});
+	});
+
+	it("adds up two calls of two and one events, and says 'N actions' only when nothing was countable", () => {
+		const two = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 2 },
+			}),
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+			}),
+		]);
+		expect(two.object).toBe("3 events");
+
+		const none = group([
+			call("calendar", "list_calendars", { metadata: { ok: true } }),
+			call("calendar", "check_availability", { metadata: { ok: true } }),
+		]);
+		expect(none.object).toBe("2 actions");
+
+		// Each account counts in its own unit.
+		expect(
+			group([
+				call("email", "recent", { metadata: { ok: true, messageCount: 5 } }),
+			]).object,
+		).toBe("5 messages");
+		expect(
+			group([
+				call("tasks", "list_tasks", { metadata: { ok: true, taskCount: 2 } }),
+			]).object,
+		).toBe("2 found");
+		expect(
+			group([
+				call("repos", "list_prs", { metadata: { ok: true, repoCount: 4 } }),
+			]).object,
+		).toBe("4 found");
+	});
+
+	it("says one in the singular, many in the plural, and no plural at all in Hungarian", async () => {
+		const one = [
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+			}),
+		];
+		const many = [
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 3 },
+			}),
+		];
+		expect(group(one).object).toBe("1 event");
+		expect(group(many).object).toBe("3 events");
+		expect(
+			group([
+				call("email", "recent", { metadata: { ok: true, messageCount: 1 } }),
+			]).object,
+		).toBe("1 message");
+		await inHungarian((hu) => {
+			const huOptions = { locale: "hu-HU", timeZone: "UTC", now: NOW };
+			expect(group(one, hu, huOptions).object).toBe("1 esemény");
+			expect(group(many, hu, huOptions).object).toBe("3 esemény");
+			expect(
+				group(
+					[
+						call("email", "recent", {
+							metadata: { ok: true, messageCount: 5 },
+						}),
+					],
+					hu,
+					huOptions,
+				).object,
+			).toBe("5 levél");
+			expect(
+				group(
+					[
+						call("tasks", "list_tasks", {
+							metadata: { ok: true, taskCount: 2 },
+						}),
+					],
+					hu,
+					huOptions,
+				).object,
+			).toBe("2 találat");
+		});
+	});
+
+	it("says an account that is not connected is not connected, quietly, with what to do", async () => {
+		const notConnected = [
+			call("calendar", "list_events", {
+				status: "done",
+				metadata: { ok: false, reasonCode: "not_connected" },
+				outputSummary: "Calendar is not connected. Ask the user to connect it.",
+			}),
+		];
+		const item = group(notConnected);
+
+		expect(item.status).toBe("skipped");
+		expect(item.object).toBe("not connected");
+		expect(item.meta).toBe("");
+		expect(item.summaryLabel).toBe("Calendar");
+		expect(item.body).toMatchObject({
+			actions: [
+				{
+					label: "Looked at your events",
+					status: "skipped",
+					reason:
+						"Calendar isn't connected yet. You can connect it in Settings › Connections.",
+				},
+			],
+		});
+		expect(JSON.stringify(item)).not.toContain("Ask the user");
+		await inHungarian((hu) => {
+			const huItem = group(notConnected, hu, { locale: "hu-HU" });
+			expect(huItem.object).toBe("nincs csatlakoztatva");
+			expect(huItem.body).toMatchObject({
+				actions: [
+					{
+						reason:
+							"A naptár még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
+					},
+				],
+			});
+		});
+	});
+
+	it("agrees 'not connected' with the account's number in Hungarian: Névjegyek nincsenek, Naptár nincs", async () => {
+		const notConnected = (tool: string) => [
+			call(tool, "list", {
+				status: "done",
+				metadata: { ok: false, reasonCode: "not_connected" },
+			}),
+		];
+		await inHungarian((hu) => {
+			const expected: Record<string, [string, string]> = {
+				calendar: ["Naptár", "nincs csatlakoztatva"],
+				contacts: ["Névjegyek", "nincsenek csatlakoztatva"],
+				email: ["E-mail", "nincs csatlakoztatva"],
+				files: ["Fájlok", "nincsenek csatlakoztatva"],
+				location: ["Helymeghatározás", "nincs csatlakoztatva"],
+				media: ["Média", "nincs csatlakoztatva"],
+				photos: ["Fényképek", "nincsenek csatlakoztatva"],
+				repos: ["Tárolók", "nincsenek csatlakoztatva"],
+				tasks: ["Feladatok", "nincsenek csatlakoztatva"],
+			};
+			for (const [tool, [label, object]] of Object.entries(expected)) {
+				const item = group(notConnected(tool), hu, { locale: "hu-HU" });
+				expect(item.verb, tool).toBe(label);
+				expect(item.object, tool).toBe(object);
+			}
+		});
+		// English has no number to agree: the same words for every account.
+		for (const tool of ["calendar", "contacts", "files", "tasks"]) {
+			expect(group(notConnected(tool)).object, tool).toBe("not connected");
+		}
+	});
+
+	// Review focus 3: one run with mixed outcomes.
+	it("takes the worst kind among a run's calls, and keeps each call's own line", () => {
+		const worked = call("calendar", "list_events", {
+			metadata: { ok: true, eventCount: 2 },
+		});
+		const broke = call("calendar", "check_availability", {
+			status: "failed",
+			metadata: { reasonCode: "account_unreachable" },
+		});
+		const stopped = call("calendar", "create_event", {
+			status: "done",
+			metadata: { ok: false, reasonCode: "writes_turned_off" },
+		});
+
+		const failed = group([worked, broke]);
+		expect(failed.status).toBe("failed");
+		expect(failed.meta).toBe("Failed");
+		expect(failed.object).toBe("2 events");
+		expect(failed.body).toMatchObject({
+			actions: [
+				{ status: "done", sub: "2 found" },
+				{
+					status: "failed",
+					reason: "Your calendar didn't answer, so Alfy couldn't look.",
+				},
+			],
+		});
+
+		const quiet = group([worked, stopped]);
+		expect(quiet.status).toBe("skipped");
+		expect(quiet.meta).toBe("");
+		expect(quiet.body).toMatchObject({
+			actions: [
+				{ status: "done" },
+				{
+					status: "skipped",
+					reason:
+						"Changing your calendar is turned off. You can turn it on in Settings › Connections.",
+				},
+			],
+		});
+
+		// A failure wins over a stop, and a call still running over both.
+		expect(group([stopped, broke]).status).toBe("failed");
+		expect(
+			group([worked, broke, { ...worked, status: "running" }]).status,
+		).toBe("running");
+
+		// The strip counts a stop as a stop, never as a failure.
+		expect(
+			buildToolActivitySummary(
+				[group([worked, stopped]), group([worked, broke])],
+				translate,
+			).map((entry) => entry.label),
+		).toEqual(["Calendar", "Calendar Failed"]);
+	});
+
+	it("lists at most five things by name, then says how many more", () => {
+		const events = Array.from({ length: 8 }, (_, index) =>
+			event(index, `2026-11-19T${String(8 + index).padStart(2, "0")}:00:00Z`),
+		);
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 8 },
+				candidates: events as ToolCallSegment["candidates"],
+			}),
+		]);
+
+		const body = item.body as Extract<
+			NonNullable<ToolActivityItem["body"]>,
+			{ kind: "actions" }
+		>;
+		expect(body.actions[0].things?.items).toEqual([
+			{ title: "Event 0", sub: "Thu 08:00" },
+			{ title: "Event 1", sub: "Thu 09:00" },
+			{ title: "Event 2", sub: "Thu 10:00" },
+			{ title: "Event 3", sub: "Thu 11:00" },
+			{ title: "Event 4", sub: "Thu 12:00" },
+		]);
+		expect(body.actions[0].things?.more).toBe(3);
+	});
+
+	it("names the things each account found, and leaves files and photos to their strips", () => {
+		const labelled = (title: string) => ({
+			id: title,
+			title,
+			sourceType: "tool",
+		});
+		const names = (tool: string, action: string, titles: string[]) => {
+			const body = group([
+				call(tool, action, {
+					metadata: { ok: true, resultCount: titles.length },
+					candidates: titles.map(labelled) as ToolCallSegment["candidates"],
+				}),
+			]).body as { actions: { things?: { items: { title: string }[] } }[] };
+			return body.actions[0].things?.items.map((thing) => thing.title);
+		};
+
+		expect(names("email", "recent", ["Your November invoice"])).toEqual([
+			"Your November invoice",
+		]);
+		expect(names("contacts", "lookup", ["Anna Kovács"])).toEqual([
+			"Anna Kovács",
+		]);
+		expect(names("tasks", "list_tasks", ["Buy a present"])).toEqual([
+			"Buy a present",
+		]);
+		expect(names("media", "watch_history", ["Severance — S2E4"])).toEqual([
+			"Severance — S2E4",
+		]);
+		expect(names("repos", "list_prs", ["#12 Fix the login redirect"])).toEqual([
+			"#12 Fix the login redirect",
+		]);
+		expect(names("files", "search", ["report.pdf"])).toBeUndefined();
+		expect(names("photos", "search", ["IMG_0001.jpg"])).toBeUndefined();
+	});
+
+	it("localizes the server's placeholder titles, and a place known only by its time, in the person's own clock", async () => {
+		const things = (item: ToolActivityItem) =>
+			(
+				item.body as {
+					actions: { things?: { items: { title: string; sub?: string }[] } }[];
+				}
+			).actions.flatMap((entry) => entry.things?.items ?? []);
+		// One run is one account: build each account's row on its own.
+		const english = [
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+				candidates: [
+					event(1, "2026-11-19T10:00:00Z", "(untitled event)"),
+				] as ToolCallSegment["candidates"],
+			}),
+		];
+		expect(things(group(english))).toEqual([
+			{ title: "Untitled event", sub: "Thu 10:00" },
+		]);
+		expect(
+			things(
+				group([
+					call("email", "recent", {
+						metadata: { ok: true, messageCount: 1 },
+						candidates: [
+							{ id: "m1", title: "(no subject)", sourceType: "tool" },
+						] as ToolCallSegment["candidates"],
+					}),
+				]),
+			),
+		).toEqual([{ title: "No subject" }]);
+		expect(
+			things(
+				group([
+					call("location", "last", {
+						metadata: { ok: true, resultCount: 1 },
+						candidates: [
+							{
+								id: "l1",
+								title: "Location at 2026-11-18T18:42:00Z",
+								sourceType: "tool",
+							},
+						] as ToolCallSegment["candidates"],
+					}),
+				]),
+			),
+		).toEqual([{ title: "Unnamed place, Wed 18:42" }]);
+
+		await inHungarian((hu) => {
+			const huOptions = { locale: "hu-HU", timeZone: "UTC", now: NOW };
+			expect(
+				things(
+					group(
+						[
+							call("calendar", "list_events", {
+								metadata: { ok: true, eventCount: 1 },
+								candidates: [
+									event(1, "2026-11-19T10:00:00Z", "(untitled event)"),
+								] as ToolCallSegment["candidates"],
+							}),
+						],
+						hu,
+						huOptions,
+					),
+				),
+			).toEqual([{ title: "Névtelen esemény", sub: "Cs 10:00" }]);
+			expect(
+				things(
+					group(
+						[
+							call("email", "recent", {
+								metadata: { ok: true, messageCount: 1 },
+								candidates: [
+									{ id: "m1", title: "(no subject)", sourceType: "tool" },
+								] as ToolCallSegment["candidates"],
+							}),
+						],
+						hu,
+						huOptions,
+					),
+				),
+			).toEqual([{ title: "Nincs tárgy" }]);
+			expect(
+				things(
+					group(
+						[
+							call("location", "last", {
+								metadata: { ok: true, resultCount: 1 },
+								candidates: [
+									{
+										id: "l1",
+										title: "Location at 2026-11-18T18:42:00Z",
+										sourceType: "tool",
+									},
+								] as ToolCallSegment["candidates"],
+							}),
+						],
+						hu,
+						huOptions,
+					),
+				),
+			).toEqual([{ title: "Névtelen hely, Sze 18:42" }]);
+		});
+	});
+
+	it("says the date with the time for an event more than six days away, and the weekday for one within a week", async () => {
+		const sub = (start: string, opts = options, translator = translate) => {
+			const body = group(
+				[
+					call("calendar", "list_events", {
+						metadata: { ok: true, eventCount: 1 },
+						candidates: [event(1, start)] as ToolCallSegment["candidates"],
+					}),
+				],
+				translator,
+				opts,
+			).body as { actions: { things?: { items: { sub?: string }[] } }[] };
+			return body.actions[0].things?.items[0].sub;
+		};
+		expect(sub("2026-11-19T10:00:00Z")).toBe("Thu 10:00");
+		expect(sub("2026-11-24T09:00:00Z")).toBe("Tue 09:00");
+		// A weekday alone, a week or more out, would name the wrong day.
+		expect(sub("2026-11-26T10:00:00Z")).toBe("26 Nov, 10:00");
+		expect(sub("2026-12-25T18:30:00Z")).toBe("25 Dec, 18:30");
+		await inHungarian((hu) => {
+			const huOptions = { locale: "hu-HU", timeZone: "UTC", now: NOW };
+			expect(sub("2026-11-19T10:00:00Z", huOptions, hu)).toBe("Cs 10:00");
+			expect(sub("2026-12-25T18:30:00Z", huOptions, hu)).toBe("dec. 25. 18:30");
+		});
+	});
+
+	it("says the day alone for an all-day event, which has no clock", () => {
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 1 },
+				candidates: [
+					event(1, "2026-11-20", "Bank holiday"),
+				] as ToolCallSegment["candidates"],
+			}),
+		]);
+		const body = item.body as {
+			actions: { things?: { items: { sub?: string }[] } }[];
+		};
+		expect(body.actions[0].things?.items[0].sub).toBe("Fri 20 Nov");
+	});
+
+	it("an account call still running in a reply the person stopped reads as stopped", () => {
+		const running = call("calendar", "list_events", { status: "running" });
+		const live = group([running], translate, { ...options, turnEnded: false });
+		expect(live.status).toBe("running");
+
+		const over = group([running], translate, {
+			...options,
+			turnEnded: true,
+			turnStopped: true,
+		});
+		expect(over.status).toBe("skipped");
+		expect(over.body).toMatchObject({
+			actions: [
+				{
+					label: "Looked at your events",
+					status: "skipped",
+					reason: "You stopped this before it finished.",
+				},
+			],
+		});
+		// A call that finished beside it keeps its own outcome.
+		const mixed = group(
+			[
+				call("calendar", "list_events", {
+					metadata: { ok: true, eventCount: 2 },
+				}),
+				running,
+			],
+			translate,
+			{ ...options, turnEnded: true, turnStopped: true },
+		);
+		expect(mixed.status).toBe("skipped");
+		expect(mixed.object).toBe("2 events");
+	});
+
+	it("an account call still running in a reply that ended without a Stop did not finish, and says no Stop", async () => {
+		const running = call("calendar", "list_events", { status: "running" });
+
+		const over = group([running], translate, { ...options, turnEnded: true });
+		expect(over.status).toBe("skipped");
+		expect(over.body).toMatchObject({
+			actions: [
+				{
+					label: "Looked at your events",
+					status: "skipped",
+					reason: "This step didn't finish before the reply ended.",
+				},
+			],
+		});
+		expect(JSON.stringify(over)).not.toContain("stopped");
+
+		await inHungarian((hu) => {
+			const huOver = group([running], hu, { ...options, turnEnded: true });
+			expect(huOver.body).toMatchObject({
+				actions: [
+					{
+						status: "skipped",
+						reason: "Ez a lépés nem fejeződött be, mielőtt a válasz véget ért.",
+					},
+				],
+			});
+		});
+	});
+
+	it("says what a cloud model was and was not given, as information, beside the call", () => {
+		const item = group([
+			call("calendar", "list_events", {
+				metadata: { ok: true, eventCount: 2, localDistilled: true },
+			}),
+			call("email", "recent", {
+				metadata: { ok: true, reasonCode: "details_withheld" },
+			}),
+		]);
+		expect(item.status).toBe("done");
+		expect(item.body).toMatchObject({
+			actions: [
+				{
+					status: "done",
+					reason:
+						"The cloud model got a summary only, so the details stayed on your server.",
+				},
+				{
+					status: "done",
+					reason:
+						"To keep them private, the cloud model wasn't given these details.",
+				},
+			],
+		});
+	});
+
+	it("never shows an action's own name, an id or the model's note, for any account", () => {
+		const item = group([
+			call("tasks", "search_tasks", {
+				status: "failed",
+				outputSummary: "RAW-SENTINEL-7f3a",
+				metadata: { error: "RAW-SENTINEL-7f3a" },
+			}),
+		]);
+		expect(item.status).toBe("failed");
+		expect(item.body).toMatchObject({
+			actions: [
+				{
+					label: "Searched your tasks",
+					reason: "Alfy couldn't use your tasks this time.",
+				},
+			],
+		});
+		expect(JSON.stringify(item)).not.toMatch(/RAW-SENTINEL|search_tasks/);
 	});
 });
 
@@ -1881,8 +4178,8 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(refusal.body).toEqual({
-			kind: "error",
-			reason: "No picture server is set up.",
+			kind: "reason",
+			text: "No picture server is set up.",
 		});
 	});
 
@@ -2031,8 +4328,8 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(noServer.body).toEqual({
-			kind: "error",
-			reason: "No picture server is set up.",
+			kind: "reason",
+			text: "No picture server is set up.",
 		});
 		const unreachable = buildToolActivityItem(
 			makeImageCall({
@@ -2047,8 +4344,8 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(unreachable.body).toEqual({
-			kind: "error",
-			reason: "The picture server could not be reached.",
+			kind: "reason",
+			text: "The picture server could not be reached.",
 		});
 		// Even when the call itself is marked failed, the model's text stays out.
 		const failedStatus = buildToolActivityItem(
@@ -2069,7 +4366,7 @@ describe("make_image rows", () => {
 		});
 	});
 
-	it("shows a model-only refusal as a neutral row, and an unreadable upload of the person as a failure", () => {
+	it("shows a model-only refusal as the quiet dash, and an unreadable upload of the person as a failure", () => {
 		const neutral = buildToolActivityItem(
 			makeImageCall({
 				metadata: { ok: false, imageRefusal: "too_many_takes" },
@@ -2078,7 +4375,7 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(neutral).toMatchObject({
-			status: "done",
+			status: "skipped",
 			verb: "Adjusting the picture request",
 			body: null,
 		});
@@ -2095,7 +4392,7 @@ describe("make_image rows", () => {
 		);
 		expect(unreadable).toMatchObject({
 			status: "failed",
-			body: { kind: "error", reason: "This picture could not be read." },
+			body: { kind: "reason", text: "This picture could not be read." },
 		});
 	});
 
@@ -2114,23 +4411,28 @@ describe("make_image rows", () => {
 			translate,
 		);
 
+		// A stop on purpose, not a breakage: the quiet dash, and a sentence that
+		// says what happened to everyone, with no Admin setting named.
 		expect(item).toMatchObject({
-			status: "failed",
+			status: "skipped",
 			verb: "Picture not made",
 			body: {
-				kind: "error",
-				reason:
-					"H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
+				kind: "reason",
+				text: "The current picture model can't make transparent pictures.",
 			},
 		});
 		// The model's English instruction never becomes the person's row.
 		expect(JSON.stringify(item)).not.toContain(modelText);
+		expect(JSON.stringify(item)).not.toMatch(/Admin|H3|Qwen/);
 		expect(
 			chatDict.en["toolActivity.pictureReason.transparentUnavailable"],
-		).toBeTruthy();
+		).toBe("The current picture model can't make transparent pictures.");
 		expect(
 			chatDict.hu["toolActivity.pictureReason.transparentUnavailable"],
-		).toBeTruthy();
+		).toBe("A mostani képmodell nem tud átlátszó képet készíteni.");
+		expect(
+			chatDict.hu["toolActivity.pictureReason.transparentUnavailable"],
+		).not.toMatch(/Admin|H3|Qwen/);
 	});
 
 	it("says a picture the filter stopped plainly, from the code, never the model's words", () => {
@@ -2147,11 +4449,13 @@ describe("make_image rows", () => {
 			"blocked",
 			translate,
 		);
+		// The filter turned it down on purpose: the quiet dash.
 		expect(blocked).toMatchObject({
+			status: "skipped",
 			verb: "Picture blocked",
 			body: {
-				kind: "error",
-				reason: "It looked explicit, so it was not shown or kept.",
+				kind: "reason",
+				text: "It looked explicit, so it was not shown or kept.",
 			},
 		});
 		expect(JSON.stringify(blocked)).not.toContain(modelText);
@@ -2167,11 +4471,13 @@ describe("make_image rows", () => {
 			"unchecked",
 			translate,
 		);
+		// The check could not run, and later it may: that one stays a failure.
 		expect(unchecked).toMatchObject({
+			status: "failed",
 			verb: "Picture blocked",
 			body: {
-				kind: "error",
-				reason: "The picture could not be checked, so it was not shown.",
+				kind: "reason",
+				text: "The picture could not be checked, so it was not shown.",
 			},
 		});
 
@@ -2184,8 +4490,9 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(request).toMatchObject({
+			status: "skipped",
 			verb: "Picture not made",
-			body: { kind: "error", reason: "Explicit pictures are not made here." },
+			body: { kind: "reason", text: "Explicit pictures are not made here." },
 		});
 		expect(chatDict.hu["toolActivity.pictureBlocked"]).toBeTruthy();
 		expect(chatDict.hu["toolActivity.pictureNotMade"]).toBeTruthy();
@@ -2207,7 +4514,7 @@ describe("make_image rows", () => {
 		);
 		expect(item).toMatchObject({
 			status: "failed",
-			body: { kind: "error", reason: "The picture could not be made." },
+			body: { kind: "reason", text: "The picture could not be made." },
 		});
 		expect(JSON.stringify(item)).not.toContain("appear on its card");
 	});
@@ -2227,12 +4534,93 @@ describe("make_image rows", () => {
 			"k10",
 			translate,
 		);
+		// The person asked for it: the quiet dash, with the row's own verb.
 		expect(item).toMatchObject({
-			status: "done",
+			status: "skipped",
 			verb: "Picture stopped",
 			object: "Red door",
 			body: null,
 		});
+	});
+
+	it("says the turn's time running out, and a timeout of the envelope, in the shared words", () => {
+		const outOfTime = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				outputSummary: "The working deadline passed.",
+				metadata: { ok: false, reasonCode: "out_of_time" },
+			}),
+			"out-of-time",
+			translate,
+		);
+		expect(outOfTime).toMatchObject({
+			status: "skipped",
+			verb: "Picture not made",
+			body: {
+				kind: "reason",
+				text: "The time for this reply ran out, so Alfy stopped here.",
+			},
+		});
+		const timedOut = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				metadata: { ok: false, reasonCode: "timed_out" },
+			}),
+			"timed-out",
+			translate,
+		);
+		expect(timedOut).toMatchObject({
+			status: "failed",
+			verb: "Could not make the picture",
+			body: {
+				kind: "reason",
+				text: "This took too long, so Alfy stopped waiting.",
+			},
+		});
+		// The tool's own timeout code beats the envelope's.
+		expect(
+			buildToolActivityItem(
+				makeImageCall({
+					status: "failed",
+					metadata: {
+						ok: false,
+						reasonCode: "timed_out",
+						imageError: "image_tool_timeout",
+					},
+				}),
+				"own-timeout",
+				translate,
+			).verb,
+		).toBe("Still being made, it will appear on its card");
+	});
+
+	it("reads every breakage code of a take as a failure with its own sentence", () => {
+		const sentences: Record<string, string> = {
+			image_server_unreachable: "The picture server could not be reached.",
+			image_graph_rejected: "The picture server refused this request.",
+			image_render_failed: "The picture server could not render the picture.",
+			image_render_timeout: "The picture took too long to render.",
+			image_result_missing: "The picture server lost the result.",
+			image_input_missing: "A picture this one is made from is gone.",
+			image_server_not_configured: "No picture server is set up.",
+			image_request_invalid: "The picture request could not be read.",
+			image_worker_lost: "The picture could not be made.",
+			image_take_missing: "The picture could not be made.",
+			image_graph_missing: "The picture could not be made.",
+			image_error: "The picture could not be made.",
+		};
+		for (const [code, text] of Object.entries(sentences)) {
+			const item = buildToolActivityItem(
+				makeImageCall({ metadata: { ok: false, imageError: code } }),
+				`take-${code}`,
+				translate,
+			);
+			expect(item, code).toMatchObject({
+				status: "failed",
+				verb: "Could not make the picture",
+				body: { kind: "reason", text },
+			});
+		}
 	});
 
 	it("has every reason in Hungarian too", () => {
@@ -2326,8 +4714,8 @@ describe("make_video rows", () => {
 			translate,
 		);
 		expect(refusal.body).toEqual({
-			kind: "error",
-			reason: "Videos can't be made right now.",
+			kind: "reason",
+			text: "Videos can't be made right now.",
 		});
 	});
 
@@ -2416,8 +4804,8 @@ describe("make_video rows", () => {
 			translate,
 		);
 		expect(unreachable.body).toEqual({
-			kind: "error",
-			reason: "Videos can't be made right now.",
+			kind: "reason",
+			text: "Videos can't be made right now.",
 		});
 		expect(JSON.stringify(unreachable)).not.toContain(modelText);
 
@@ -2430,26 +4818,106 @@ describe("make_video rows", () => {
 			translate,
 		);
 		expect(notConfigured.body).toEqual({
-			kind: "error",
-			reason: "Videos can't be made right now.",
+			kind: "reason",
+			text: "Videos can't be made right now.",
 		});
 
 		// A refusal (an explicit request, an unknown picture, or the envelope
-		// failing before a take) keeps the model's words out of the person's row.
-		for (const code of ["explicit_request", "unknown_picture", "video_error"]) {
-			const refused = buildToolActivityItem(
-				makeVideoCall({
-					outputSummary: modelText,
-					metadata: { ok: false, videoError: code },
-				}),
-				`video-refusal-${code}`,
+		// failing before a take) keeps the model's words out of the person's row, and
+		// says each case in its own words: the two stops on purpose are the quiet
+		// dash ("Video not made" with a sentence, or "Adjusting the video request"
+		// with none), and the envelope failing is the fallback in red.
+		const explicit = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "explicit_request" },
+			}),
+			"video-refusal-explicit",
+			translate,
+		);
+		expect(explicit).toMatchObject({
+			status: "skipped",
+			verb: "Video not made",
+			object: "Harbour at dawn",
+			body: { kind: "reason", text: "Explicit videos are not made here." },
+		});
+		const notAsked = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "not_asked_for" },
+			}),
+			"video-refusal-not-asked",
+			translate,
+		);
+		expect(notAsked).toMatchObject({
+			status: "skipped",
+			verb: "Video not made",
+			body: {
+				kind: "reason",
+				text: "Alfy wasn't sure you wanted a video, so it didn't make one yet.",
+			},
+		});
+		const unknown = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "unknown_picture" },
+			}),
+			"video-refusal-unknown",
+			translate,
+		);
+		expect(unknown).toMatchObject({
+			status: "skipped",
+			verb: "Adjusting the video request",
+			body: null,
+		});
+		const envelope = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "video_error" },
+			}),
+			"video-refusal-envelope",
+			translate,
+		);
+		expect(envelope).toMatchObject({
+			status: "failed",
+			verb: "Couldn't make the video",
+			body: { kind: "reason", text: "The video couldn't be made." },
+		});
+		for (const item of [explicit, notAsked, unknown, envelope]) {
+			expect(JSON.stringify(item)).not.toContain(modelText);
+		}
+	});
+
+	it("words every breakage code of a clip in its own sentence, as a failure", () => {
+		const sentences: Record<string, string> = {
+			video_graph_rejected: "The video server refused this request.",
+			video_render_failed: "The video server couldn't make the clip.",
+			video_render_timeout: "The clip took too long to make.",
+			video_result_missing: "The video server lost the clip.",
+			video_input_missing: "A picture the clip starts from is gone.",
+			video_request_invalid: "The video request couldn't be read.",
+			video_item_deleted: "The clip was deleted while it was being made.",
+			video_media_unavailable: "The finished clip couldn't be saved.",
+			video_media_failed: "The finished clip couldn't be saved.",
+			video_artifact_failed: "The clip was made but couldn't be kept.",
+			video_take_missing: "The clip's record went missing.",
+			video_worker_lost: "The video couldn't be made.",
+			video_error: "The video couldn't be made.",
+			video_server_unreachable: "Videos can't be made right now.",
+			video_server_not_configured: "Videos can't be made right now.",
+			not_configured: "Videos can't be made right now.",
+		};
+		for (const [code, text] of Object.entries(sentences)) {
+			const item = buildToolActivityItem(
+				makeVideoCall({ metadata: { ok: false, videoError: code } }),
+				`video-take-${code}`,
 				translate,
 			);
-			expect(refused).toMatchObject({
+			expect(item, code).toMatchObject({
 				status: "failed",
-				body: { kind: "error", reason: "Couldn't make this one." },
+				verb: "Couldn't make the video",
+				body: { kind: "reason", text },
 			});
-			expect(JSON.stringify(refused)).not.toContain(modelText);
 		}
 	});
 
@@ -2467,12 +4935,14 @@ describe("make_video rows", () => {
 			"video-blocked",
 			translate,
 		);
+		// The filter turned it down on purpose: the quiet dash.
 		expect(blocked).toMatchObject({
+			status: "skipped",
 			verb: "The video was blocked",
-			meta: "Details",
+			meta: "",
 			body: {
-				kind: "error",
-				reason: "It looked explicit, so it isn't shown and wasn't kept.",
+				kind: "reason",
+				text: "It looked explicit, so it isn't shown and wasn't kept.",
 			},
 		});
 		expect(JSON.stringify(blocked)).not.toContain(modelText);
@@ -2488,11 +4958,13 @@ describe("make_video rows", () => {
 			"video-unchecked",
 			translate,
 		);
+		// The check could not run, and later it may: that one stays a failure.
 		expect(unchecked).toMatchObject({
+			status: "failed",
 			verb: "The video was blocked",
 			body: {
-				kind: "error",
-				reason: "Videos are checked before they appear, so it wasn't kept.",
+				kind: "reason",
+				text: "Videos are checked before they appear, so it wasn't kept.",
 			},
 		});
 		expect(artifactsDict.hu["artifacts.video.row.blocked"]).toBeTruthy();
@@ -2513,7 +4985,7 @@ describe("make_video rows", () => {
 		);
 		expect(item).toMatchObject({
 			status: "failed",
-			body: { kind: "error", reason: "Couldn't make this one." },
+			body: { kind: "reason", text: "The video couldn't be made." },
 		});
 		expect(JSON.stringify(item)).not.toContain("still being made");
 	});
@@ -2557,11 +5029,61 @@ describe("make_video rows", () => {
 			translate,
 		);
 
+		// The person asked for it: the quiet dash, with the row's own verb.
 		expect(item).toMatchObject({
-			status: "done",
+			status: "skipped",
 			verb: "Stopped the video",
 			object: "Harbour at dawn",
 			body: null,
+		});
+	});
+
+	it("says it in Hungarian: the verbs the stops and the adjusting row use, and every sentence", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			const hu = get(t);
+			const row = (metadata: ToolCallSegment["metadata"]) =>
+				buildToolActivityItem(makeVideoCall({ metadata }), "video-hu", hu);
+			expect(row({ ok: false, videoError: "not_asked_for" })).toMatchObject({
+				status: "skipped",
+				verb: "A videó nem készült el",
+				body: {
+					text: "Alfy nem volt biztos benne, hogy videót szeretnél, ezért még nem készített.",
+				},
+			});
+			expect(row({ ok: false, videoError: "unknown_picture" })).toMatchObject({
+				status: "skipped",
+				verb: "Videókérés pontosítása",
+				body: null,
+			});
+			expect(
+				row({ ok: false, videoError: "video_render_timeout" }),
+			).toMatchObject({
+				status: "failed",
+				body: { text: "A klip túl sokáig készült." },
+			});
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("an out-of-time call is the quiet dash with the shared sentence", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				status: "failed",
+				metadata: { ok: false, reasonCode: "out_of_time" },
+			}),
+			"video-out-of-time",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "skipped",
+			verb: "Video not made",
+			body: {
+				kind: "reason",
+				text: "The time for this reply ran out, so Alfy stopped here.",
+			},
 		});
 	});
 });

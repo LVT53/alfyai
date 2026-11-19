@@ -1161,3 +1161,327 @@ describe("runRoutingTool — journey", () => {
 		expect(outcome.modelPayload.message).toContain("legs");
 	});
 });
+
+// Why a call did not work: a code from map_route's closed list on the outcome
+// (`reason`, and for a place the words that did not resolve), beside the payload
+// and never in it. What the model reads is what it always read.
+describe("runRoutingTool — the reason a call did not work", () => {
+	const A = { lat: 1, lng: 2 };
+	const B = { lat: 3, lng: 4 };
+	const noCode = (outcome: Awaited<ReturnType<typeof runRoutingTool>>) => {
+		expect(outcome.reason).toBeUndefined();
+		expect(outcome.reasonPlace).toBeUndefined();
+	};
+
+	it("names nothing for a call that worked", async () => {
+		const { provider } = makeProvider();
+		const outcome = await runRoutingTool(
+			{ action: "route", origin: A, destination: B },
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		noCode(outcome);
+	});
+
+	it("names a server with no routing engine not_set_up, and the payload does not say so", async () => {
+		const { provider } = makeProvider({ routingConfigured: false });
+		const outcome = await runRoutingTool(
+			{ action: "route", origin: A, destination: B },
+			{ provider },
+		);
+		expect(outcome.reason).toBe("not_set_up");
+		expect(outcome.reasonPlace).toBeUndefined();
+		expect(outcome.modelPayload.message).toBe(
+			"Routing is unavailable — the mapping service is not configured on this server. Say routing is unavailable rather than estimating a route.",
+		);
+		expect(JSON.stringify(outcome.modelPayload)).not.toContain("not_set_up");
+	});
+
+	it("names a place name with no geocoder to look it up not_set_up", async () => {
+		const { provider } = makeProvider({ geocoderConfigured: false });
+		const routed = await runRoutingTool(
+			{ action: "route", origin: "Berlin", destination: B },
+			{ provider },
+		);
+		expect(routed.reason).toBe("not_set_up");
+		expect(routed.reasonPlace).toBeUndefined();
+
+		const geocoded = await runRoutingTool(
+			{ action: "geocode", query: "Berlin" },
+			{ provider },
+		);
+		expect(geocoded.reason).toBe("not_set_up");
+	});
+
+	it("names a geocoder that says it is not configured not_set_up", async () => {
+		const { provider } = makeProvider({
+			geocode: { ok: false, reason: "geocoder_unconfigured", message: "off" },
+		});
+		const outcome = await runRoutingTool(
+			{ action: "route", origin: "Berlin", destination: B },
+			{ provider },
+		);
+		expect(outcome.reason).toBe("not_set_up");
+	});
+
+	it.each([
+		["out_of_coverage", "out_of_coverage"],
+		["no_route", "no_route"],
+		["region_preparing", "region_preparing"],
+		["multi_region", "multi_region"],
+		["region_unavailable", "region_unavailable"],
+		["transit_unavailable", "transit_unavailable"],
+		["provider_error", "route_service_unavailable"],
+		["unconfigured", "not_set_up"],
+	] as const)(
+		"reads the routing engine's %s as %s",
+		async (engineReason, code) => {
+			const { provider } = makeProvider({
+				route: { ok: false, reason: engineReason, message: "x" },
+			});
+			const outcome = await runRoutingTool(
+				{ action: "route", origin: A, destination: B },
+				{ provider },
+			);
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.reason).toBe(code);
+			expect(outcome.reasonPlace).toBeUndefined();
+			expect(JSON.stringify(outcome.modelPayload)).not.toContain(code);
+		},
+	);
+
+	it("reads the engine's reason the same way for a matrix, an isochrone, a transit plan and a timetable", async () => {
+		const failed = (reason: "no_route" | "provider_error") =>
+			({ ok: false, reason, message: "x" }) as const;
+
+		const matrix = await runRoutingTool(
+			{ action: "matrix", origins: [A], destinations: [B] },
+			{ provider: makeProvider({ matrix: failed("no_route") }).provider },
+		);
+		expect(matrix.reason).toBe("no_route");
+
+		const isochrone = await runRoutingTool(
+			{ action: "isochrone", origin: A, ranges_s: [300] },
+			{
+				provider: makeProvider({ isochrone: failed("provider_error") })
+					.provider,
+			},
+		);
+		expect(isochrone.reason).toBe("route_service_unavailable");
+
+		const transit = await runRoutingTool(
+			{ action: "transit", origin: A, destination: B },
+			{ provider: transitProvider({ transit: failed("no_route") }).provider },
+		);
+		expect(transit.reason).toBe("no_route");
+
+		const timetable = await runRoutingTool(
+			{ action: "timetable", origin: A, destination: B },
+			{
+				provider: transitProvider({
+					transitSchedule: failed("provider_error"),
+				}).provider,
+			},
+		);
+		expect(timetable.reason).toBe("route_service_unavailable");
+	});
+
+	it("names a place the geocoder found nothing for place_not_found, with the words that did not resolve", async () => {
+		const { provider } = makeProvider({
+			geocode: { ok: false, reason: "not_found", message: "none" },
+		});
+
+		const origin = await runRoutingTool(
+			{ action: "route", origin: "Atlantis", destination: B },
+			{ provider },
+		);
+		expect(origin.reason).toBe("place_not_found");
+		expect(origin.reasonPlace).toBe("Atlantis");
+		expect(origin.modelPayload.message).toBe(
+			'I couldn\'t find a place matching "Atlantis".',
+		);
+		expect(JSON.stringify(origin.modelPayload)).not.toContain(
+			"place_not_found",
+		);
+
+		// The destination is its own place, not the origin's.
+		const destination = await runRoutingTool(
+			{ action: "route", origin: A, destination: "  El Dorado  " },
+			{ provider },
+		);
+		expect(destination.reason).toBe("place_not_found");
+		expect(destination.reasonPlace).toBe("El Dorado");
+
+		const geocoded = await runRoutingTool(
+			{ action: "geocode", query: "Atlantis" },
+			{ provider },
+		);
+		expect(geocoded.reason).toBe("place_not_found");
+		expect(geocoded.reasonPlace).toBe("Atlantis");
+		expect(geocoded.modelPayload.message).toBe('No place matched "Atlantis".');
+	});
+
+	it("names a geocoder that answered with no results at all place_not_found too", async () => {
+		const { provider } = makeProvider({
+			geocode: { ok: true, data: { results: [] } },
+		});
+		const outcome = await runRoutingTool(
+			{ action: "isochrone", origin: "Nowhere", ranges_s: [300] },
+			{ provider },
+		);
+		expect(outcome.reason).toBe("place_not_found");
+		expect(outcome.reasonPlace).toBe("Nowhere");
+	});
+
+	it("names a geocoder that did not answer geocoder_unavailable, with no place", async () => {
+		const { provider } = makeProvider({
+			geocode: { ok: false, reason: "provider_error", message: "boom" },
+		});
+
+		const routed = await runRoutingTool(
+			{ action: "route", origin: "Berlin", destination: B },
+			{ provider },
+		);
+		expect(routed.reason).toBe("geocoder_unavailable");
+		expect(routed.reasonPlace).toBeUndefined();
+		expect(routed.modelPayload.message).toBe(
+			'I couldn\'t reach the geocoding service to resolve "Berlin" right now.',
+		);
+
+		const geocoded = await runRoutingTool(
+			{ action: "geocode", query: "Berlin" },
+			{ provider },
+		);
+		expect(geocoded.reason).toBe("geocoder_unavailable");
+		expect(geocoded.reasonPlace).toBeUndefined();
+		expect(geocoded.modelPayload.message).toBe(
+			'Geocoding failed for "Berlin". Please try again in a moment.',
+		);
+	});
+
+	it("names a call the model left something out of request_adjusted", async () => {
+		const { provider } = makeProvider();
+		const calls = [
+			{ action: "route", origin: A },
+			{ action: "geocode" },
+			{ action: "matrix", origins: [], destinations: [B] },
+			{ action: "isochrone", origin: A },
+			{ action: "isochrone", ranges_s: [300] },
+			{ action: "journey", origin: A, destination: B },
+			{
+				action: "journey",
+				origin: A,
+				destination: B,
+				legs: [{ mode: "bike" }, { mode: "walk" }],
+			},
+			{ action: "transit", origin: A },
+			// A place with nothing in it is a place the model left out.
+			{ action: "route", origin: "   ", destination: B },
+		];
+		for (const input of calls) {
+			const outcome = await runRoutingTool(
+				input as unknown as Parameters<typeof runRoutingTool>[0],
+				{ provider },
+			);
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.reason, JSON.stringify(input)).toBe("request_adjusted");
+			expect(outcome.reasonPlace).toBeUndefined();
+		}
+	});
+
+	it("names a departure or arrival time it could not read request_adjusted", async () => {
+		const { provider } = transitProvider();
+		for (const time of [{ departure: "soon" }, { arrive_by: "whenever" }]) {
+			const outcome = await runRoutingTool(
+				{
+					action: "journey",
+					origin: A,
+					destination: B,
+					legs: [{ mode: "transit" }],
+					...time,
+				},
+				{ provider },
+			);
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.reason).toBe("request_adjusted");
+		}
+	});
+
+	it("names a server with no timetables transit_unavailable, for a plan, a timetable and a journey leg", async () => {
+		const { provider } = transitProvider({ omitTransit: true });
+		for (const action of ["transit", "timetable"] as const) {
+			const outcome = await runRoutingTool(
+				{ action, origin: A, destination: B },
+				{ provider },
+			);
+			expect(outcome.reason).toBe("transit_unavailable");
+		}
+		const journey = await runRoutingTool(
+			{
+				action: "journey",
+				origin: A,
+				destination: B,
+				legs: [{ mode: "transit" }],
+			},
+			{ provider },
+		);
+		expect(journey.reason).toBe("transit_unavailable");
+	});
+
+	it("carries the reason a journey's own leg failed for", async () => {
+		const { provider: base } = transitProvider();
+		const journey = (provider: RoutingProvider, mode: "bike" | "transit") =>
+			runRoutingTool(
+				{
+					action: "journey",
+					origin: A,
+					destination: B,
+					legs: [{ mode }],
+				},
+				{ provider },
+			);
+
+		const roadFailed = await journey(
+			{
+				...base,
+				route: vi.fn().mockResolvedValue({
+					ok: false,
+					reason: "out_of_coverage",
+					message: "x",
+				}),
+			},
+			"bike",
+		);
+		expect(roadFailed.reason).toBe("out_of_coverage");
+
+		const transitFailed = await journey(
+			{
+				...base,
+				transit: vi.fn().mockResolvedValue({
+					ok: false,
+					reason: "provider_error",
+					message: "x",
+				}),
+			},
+			"transit",
+		);
+		expect(transitFailed.reason).toBe("route_service_unavailable");
+
+		const noItinerary = await journey(
+			{
+				...base,
+				transit: vi.fn().mockResolvedValue({
+					ok: true,
+					data: {
+						itineraries: [],
+						coords: { origin: A, destination: B },
+						timezone: "Europe/Berlin",
+						query: {},
+					},
+				}),
+			},
+			"transit",
+		);
+		expect(noItinerary.reason).toBe("no_route");
+	});
+});

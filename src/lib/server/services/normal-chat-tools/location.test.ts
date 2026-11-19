@@ -21,6 +21,7 @@ import {
 	runLocationTool,
 	sanitizeLocationToolInput,
 } from "./location";
+import { reasonCodeOf } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -210,6 +211,21 @@ describe("runLocationTool", () => {
 		expect(outcome.modelPayload.results).toEqual([]);
 		expect(outcome.modelPayload.citations).toEqual([]);
 		expect(owntracksLastLocationMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "location",
+				sourceType: "tool",
+				action: "last",
+				message:
+					"You don't have a Location connection set up yet. Connect your OwnTracks device in Settings to check your location.",
+				results: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity but still executes against the first (sorted) connection", async () => {
@@ -264,6 +280,7 @@ describe("runLocationTool", () => {
 		expect(outcome.modelPayload.message).toContain("Alice OwnTracks");
 		expect(outcome.modelPayload.message).toContain("Bob OwnTracks");
 		expect(owntracksLastLocationMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("passes ONLY (userId, connectionId) to owntracksLastLocation/History — never an otUser/otDevice argument", async () => {
@@ -516,6 +533,8 @@ describe("runLocationTool", () => {
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(outcome.modelPayload.distance).toBeUndefined();
 		expect(outcome.modelPayload.message).toContain("home location");
+		// A device with no home set is something the person can fix, not a failure.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_set_up");
 	});
 
 	it("distance: with from/to (no lat/lon), computes distance between the first and last fix of the range", async () => {
@@ -580,6 +599,7 @@ describe("runLocationTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("isn't configured");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_set_up");
 	});
 
 	it("maps generic adapter failures to a graceful note without throwing", async () => {
@@ -597,6 +617,25 @@ describe("runLocationTool", () => {
 		expect(outcome.modelPayload.message).toContain(
 			"couldn't reach your location",
 		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
+	});
+
+	it("names a recorder that did not answer", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		owntracksLastLocationMock.mockRejectedValue(
+			new OwnTracksError("down", "request_failed"),
+		);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "last" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.message).toContain(
+			"couldn't reach your OwnTracks recorder",
+		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
 	});
 });
 
@@ -712,6 +751,9 @@ describe("runLocationTool — locality Option A distillation gate", () => {
 				metadata: { lat: 47.497913, lon: 19.040236 },
 			}),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serializedPayload).not.toContain("details_withheld");
 	});
 
 	it("places: Option A on + cloud model redacts place labels, replacing them with the distilled summary", async () => {

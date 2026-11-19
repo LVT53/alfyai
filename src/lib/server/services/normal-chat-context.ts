@@ -771,7 +771,9 @@ async function maybePrefetchWebSearch(params: {
 			createGroundedWebMetadata,
 			summarizeGroundedWebResult,
 		} = await import("./web-grounding");
-		const { compactModelPayload } = await import("./normal-chat-tools/shared");
+		const { compactModelPayload, reasonMetadata } = await import(
+			"./normal-chat-tools/shared"
+		);
 		const { fetchUrlViaParallel } = await import("./parallel-search/fetch-url");
 		// Size the fetched-page brief to the selected model's context window the
 		// same way the fetch_url tool does, instead of the flat 60k default.
@@ -813,6 +815,11 @@ async function maybePrefetchWebSearch(params: {
 			...createGroundedWebMetadata(result),
 			serverPrefetched: true,
 			prefetchReason: "pasted_url" as const,
+			// Why no page could be read, when the Extract API said: the call's
+			// row says it in words, the same as for the model's own fetch_url.
+			...(result.readFailure
+				? reasonMetadata("fetch_url", result.readFailure)
+				: {}),
 		};
 		const toolCallId = `server-prefetch:fetch_url:${Date.now().toString(36)}`;
 		const toolCallEntry: ToolCallEntry = {

@@ -16,7 +16,7 @@
 // not say it only reads.
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import type { Tool } from "ai";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import type { NormalChatCompletionDependencies } from "../normal-chat-model/completion";
@@ -135,6 +135,8 @@ const usage = {
 async function runTurnWithTool(params: {
 	toolName: string;
 	toolInput: Record<string, unknown>;
+	/** The call's input as the model wrote it, when that is not JSON (`toolInput` is then ignored). */
+	rawToolInput?: string;
 	answer: string;
 	makeTool: (kit: Kit) => Tool;
 	/** Runs beside the turn once it is under way: a test stops the turn or moves the clock from here. */
@@ -179,7 +181,7 @@ async function runTurnWithTool(params: {
 		type: "tool-call" as const,
 		toolCallId: `${params.toolName}-0`,
 		toolName: params.toolName,
-		input: JSON.stringify(params.toolInput),
+		input: params.rawToolInput ?? JSON.stringify(params.toolInput),
 	};
 	const streamOf = (parts: LanguageModelV3StreamPart[]) =>
 		new ReadableStream<LanguageModelV3StreamPart>({
@@ -834,5 +836,254 @@ it.each(transports)(
 		expect(fallback.mock.calls[0]?.[0]).toBeInstanceOf(TurnDeadlineReason);
 		expect(backup.doGenerateCalls).toHaveLength(0);
 		expect(backup.doStreamCalls).toHaveLength(0);
+	},
+);
+
+// A call whose input fails its tool's own schema check (read_generated_file,
+// create_artifact, edit_artifact) is answered with the schema's message before the
+// tool does any work, so it is a refusal like the ones above: nothing ran, the call
+// is `definitely_not_executed`, the model reads the message in its next step and the
+// turn goes on. Until 2026-11-19 it was `uncertain` (first because the call recorded
+// no row at all, then because the row it records for the tool row's sake said "done"
+// and nothing else), and the engine ended the turn at it: an empty reply and "The
+// model stopped before writing its answer" for a malformed call the model could have
+// corrected. (Owner, 2026-11-19: "Yes, fix it here".)
+//
+// What reaches that branch through the AI SDK is narrow, because the SDK checks the
+// model's input against each tool's own `inputSchema` first and never calls `execute`
+// for input it refuses (the next block holds that path). read_generated_file's and
+// edit_artifact's schemas are the same object or the same check as the one `execute`
+// runs again, so for them the branch is only reachable by a direct call; the one
+// input the SDK lets through and `execute` refuses is a create_artifact title over the
+// server's 200 characters, which the model's trimmed schema does not bound. So the
+// first block runs each real tool with the SDK's own input check off, to pin the
+// classification of the branch for all three, and the second block runs the real
+// create_artifact with nothing overridden.
+const SCHEMA_FAILURES = [
+	[
+		"read_generated_file",
+		// The schema's own bound: an empty query.
+		{ query: "" },
+	],
+	[
+		"edit_artifact",
+		// More operations than one call may carry.
+		{
+			artifactId: "unseeded-id",
+			ops: Array.from({ length: 41 }, () => ({})),
+		},
+	],
+	[
+		"create_artifact",
+		// A title longer than the server's bound, which the advertised schema lacks.
+		{ artifactType: "document", title: "x".repeat(201), body: "b" },
+	],
+] as const;
+
+/** Builds the real tools of the model's set on a turn's recorder, as the real turn builds them. */
+async function realToolsOf() {
+	const { createNormalChatTools } = await import("../normal-chat-tools");
+	return (recorder: ToolCallRecorder) =>
+		createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			recorder,
+		}).tools;
+}
+
+/**
+ * What the model is handed back as the call's result in its second step: the
+ * tool-result parts of the prompt it was sent the second time.
+ */
+function resultsOf(turn: { secondPromptMessages: () => unknown[] }) {
+	return (
+		turn.secondPromptMessages() as Array<{
+			role: string;
+			content: unknown;
+		}>
+	).flatMap((message) =>
+		message.role === "tool" && Array.isArray(message.content)
+			? (message.content as Array<Record<string, unknown>>)
+			: [],
+	);
+}
+
+describe.each(transports)(
+	"a call whose input fails its tool's schema check (%s)",
+	(_transport, streaming) => {
+		it.each(SCHEMA_FAILURES)(
+			"lets the model read the schema's message of a call to %s, and answer",
+			async (toolName, toolInput) => {
+				const answer = "I will send that again, corrected.";
+				const input = toolInput as unknown as Record<string, unknown>;
+				const tools = await realToolsOf();
+				// What the tool answers such a call with, asked once on a recorder of its own.
+				const { createToolCallRecorder } = await import(
+					"../normal-chat-tools/shared"
+				);
+				const expected = await (
+					tools(createToolCallRecorder())[toolName].execute as unknown as (
+						input: unknown,
+						options: { toolCallId: string; messages: never[] },
+					) => Promise<{ error: string }>
+				)(input, { toolCallId: "probe", messages: [] });
+				expect(expected.error).toEqual(expect.any(String));
+
+				const turn = await runTurnWithTool({
+					toolName,
+					toolInput: input,
+					answer,
+					streaming,
+					makeTool: ({ recorder, tool, z }) =>
+						({
+							...tools(recorder)[toolName],
+							// The SDK's own check is off here: with it on, a call this malformed
+							// never reaches `execute` (the block below).
+							inputSchema: tool({ inputSchema: z.object({}).passthrough() })
+								.inputSchema,
+						}) as unknown as Tool,
+				});
+
+				// Nothing ran: the input was refused before the tool did any work.
+				expect(turn.states).toEqual(["definitely_not_executed"]);
+				// So the model had its second step, and the turn ended as any answered turn.
+				expect(turn.generations()).toBe(2);
+				expect(turn.completion).toMatchObject({
+					outcome: expect.stringMatching(/^(answered|delivered)$/),
+				});
+				expect(turn.answer).toBe(answer);
+				// It read the schema's message as that call's result, as the tool wrote it.
+				expect(resultsOf(turn)).toEqual([
+					expect.objectContaining({
+						toolCallId: `${toolName}-0`,
+						output: expect.objectContaining({
+							type: "json",
+							value: expect.objectContaining({ error: expected.error }),
+						}),
+					}),
+				]);
+			},
+		);
+
+		it("lets the model read the schema's message of a create_artifact whose title is too long for the server, and answer, with nothing overridden", async () => {
+			const answer = "I will shorten the title and send it again.";
+			const input = {
+				artifactType: "document",
+				title: "x".repeat(201),
+				body: "b",
+			};
+			const tools = await realToolsOf();
+			const turn = await runTurnWithTool({
+				toolName: "create_artifact",
+				toolInput: input,
+				answer,
+				streaming,
+				// The real tool with its own advertised schema: the model's trimmed copy has
+				// no bound on the title, so the SDK lets the call through to `execute`.
+				makeTool: ({ recorder }) =>
+					tools(recorder).create_artifact as unknown as Tool,
+			});
+
+			expect(turn.states).toEqual(["definitely_not_executed"]);
+			expect(turn.generations()).toBe(2);
+			expect(turn.completion).toMatchObject({
+				outcome: expect.stringMatching(/^(answered|delivered)$/),
+			});
+			expect(turn.answer).toBe(answer);
+			expect(resultsOf(turn)).toEqual([
+				expect.objectContaining({
+					toolCallId: "create_artifact-0",
+					output: expect.objectContaining({
+						type: "json",
+						value: { success: false, error: expect.stringContaining("200") },
+					}),
+				}),
+			]);
+		});
+	},
+);
+
+// The other path to a malformed call: the AI SDK checks the model's input against
+// each tool's own `inputSchema` before `execute`, and input it refuses is never
+// executed. The SDK marks the call `invalid` and hands the model its error as that
+// call's result; the engine records such a call `definitely_not_executed`
+// (`normal-chat-model/completion.ts`, where it reads `call.invalid` and
+// `part.invalid`), so the turn goes on. These run the real tools with their own
+// schemas: for read_generated_file and edit_artifact, whose schema the SDK checks
+// is the one `execute` would check again, this is where their malformed calls
+// really end up.
+describe.each(transports)(
+	"a call the AI SDK refuses before the tool runs (%s)",
+	(_transport, streaming) => {
+		it.each([
+			["read_generated_file", { query: "" }],
+			[
+				"edit_artifact",
+				{
+					artifactId: "unseeded-id",
+					ops: Array.from({ length: 41 }, () => ({})),
+				},
+			],
+		] as const)(
+			"lets the model read the SDK's message of a call to %s, and answer",
+			async (toolName, toolInput) => {
+				const answer = "I will send that again, corrected.";
+				const tools = await realToolsOf();
+				let recorded: ToolCallRecorder | undefined;
+
+				const turn = await runTurnWithTool({
+					toolName,
+					toolInput: toolInput as unknown as Record<string, unknown>,
+					answer,
+					streaming,
+					makeTool: ({ recorder }) => {
+						recorded = recorder;
+						return tools(recorder)[toolName] as unknown as Tool;
+					},
+				});
+
+				// Refused before `execute`: the engine knows nothing ran.
+				expect(turn.states).toEqual(["definitely_not_executed"]);
+				expect(turn.generations()).toBe(2);
+				expect(turn.completion).toMatchObject({
+					outcome: expect.stringMatching(/^(answered|delivered)$/),
+				});
+				expect(turn.answer).toBe(answer);
+				// The tool never ran, so it recorded nothing; the model read the SDK's own
+				// message as the call's result.
+				expect(recorded?.getEntries()).toEqual([]);
+				expect(JSON.stringify(resultsOf(turn))).toContain(
+					`Invalid input for tool ${toolName}`,
+				);
+			},
+		);
+
+		it("lets the model read the SDK's message of a call whose input is not JSON at all, and answer", async () => {
+			const answer = "I will send that again, as JSON.";
+			const tools = await realToolsOf();
+
+			const turn = await runTurnWithTool({
+				toolName: "edit_artifact",
+				toolInput: {},
+				// Not a slip the engine's own JSON repair mends (a brace short, a trailing
+				// full stop): the SDK cannot read it, and refuses the call.
+				rawToolInput: "{{ the document is ready",
+				answer,
+				streaming,
+				makeTool: ({ recorder }) =>
+					tools(recorder).edit_artifact as unknown as Tool,
+			});
+
+			expect(turn.states).toEqual(["definitely_not_executed"]);
+			expect(turn.generations()).toBe(2);
+			expect(turn.completion).toMatchObject({
+				outcome: expect.stringMatching(/^(answered|delivered)$/),
+			});
+			expect(turn.answer).toBe(answer);
+			expect(JSON.stringify(resultsOf(turn))).toContain(
+				"Invalid input for tool edit_artifact",
+			);
+		});
 	},
 );

@@ -28,8 +28,9 @@ import {
 	defaultNodeWidth,
 	estimatedNodeSize,
 } from "$lib/shared/artifacts/canvas-blocks";
-import { boardJson } from "$lib/shared/artifacts/canvas-body";
+import { boardJson, MAX_BODY_BYTES } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
+import { TEXT_MAX_CHARS } from "$lib/shared/artifacts/canvas-limits";
 import { plannedNodeSize } from "$lib/shared/artifacts/node-size";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { createKnownBoards, parseCanvasCreateBody } from "./canvas-model";
@@ -246,6 +247,11 @@ describe("create_artifact.canvas", () => {
 			abortSignal: abortSignal(true),
 		});
 		expect(result?.ok).toBe(false);
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "The request was cancelled.",
+			code: "stopped",
+		});
 		expect(
 			db.select().from(artifacts).where(eq(artifacts.userId, userId)).all(),
 		).toHaveLength(0);
@@ -277,6 +283,8 @@ describe("create_artifact.canvas", () => {
 			expect(result.reason).toContain(kind);
 		}
 		expect(result.reason).toContain('nodes[0] "m1"');
+		// A board the vocabulary cannot take is a request the model sent wrongly.
+		expect(result.code).toBe("request_adjusted");
 		expect(
 			db.select().from(artifacts).where(eq(artifacts.userId, userId)).all(),
 		).toHaveLength(0);
@@ -288,6 +296,37 @@ describe("create_artifact.canvas", () => {
 		if (result.ok) return;
 		expect(result.reason).toMatch(/not valid JSON/);
 		expect(result.reason).toContain("edit_artifact");
+		expect(result.code).toBe("request_adjusted");
+	});
+
+	it("refuses a board larger than a board may be, in the board's own words, as a request to adjust, and makes nothing", async () => {
+		// Each note is within its own limit; together they are past the board's.
+		const notes = Math.ceil(MAX_BODY_BYTES / TEXT_MAX_CHARS) + 2;
+		const board = {
+			nodes: Array.from({ length: notes }, (_, index) => ({
+				id: `n${index}`,
+				type: "sticky",
+				position: { x: index * 400, y: 0 },
+				data: {
+					kind: "sticky",
+					text: "t".repeat(TEXT_MAX_CHARS),
+					tone: "plain",
+				},
+			})),
+		};
+
+		const result = await createBoard(JSON.stringify(board));
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		// The vocabulary's own check meets the size first: it names the fix, and the
+		// row says the request was adjusted. (The store's size limit is held in
+		// create-canvas-refusals.test.ts.)
+		expect(result.reason).toContain("larger than it may be");
+		expect(result.code).toBe("request_adjusted");
+		expect(
+			db.select().from(artifacts).where(eq(artifacts.userId, userId)).all(),
+		).toHaveLength(0);
 	});
 
 	it("does not make a board in a conversation the user does not have", async () => {
@@ -574,6 +613,8 @@ describe("edit_artifact.canvas", () => {
 			{ blockId: "nope", reason: "unknown_id", opIndex: 0 },
 			{ blockId: "x", reason: "unknown_kind", opIndex: 1 },
 		]);
+		// Every op was refused, but not for staleness: nothing is named.
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("names the valid ops and the blocks it may add when the ops cannot be read (the Document's dev incident, for the board)", async () => {
@@ -589,6 +630,7 @@ describe("edit_artifact.canvas", () => {
 		}
 		expect(result.modelPayload.error).toContain("sticky: kind, text, tone");
 		expect(result.modelPayload.error).toMatch(/Nothing was applied/);
+		expect(result.metadata.reasonCode).toBe("request_adjusted");
 		expect(await versionCount(artifactId)).toBe(before);
 	});
 
@@ -603,6 +645,7 @@ describe("edit_artifact.canvas", () => {
 		for (const name of BOARD_OP_NAMES) {
 			expect(result.modelPayload.error).toContain(name);
 		}
+		expect(result.metadata.reasonCode).toBe("request_adjusted");
 	});
 
 	it("writes nothing when the signal is already aborted (ruling 53)", async () => {
@@ -615,6 +658,7 @@ describe("edit_artifact.canvas", () => {
 		);
 		expect(result.modelPayload.success).toBe(false);
 		expect(await versionCount(artifactId)).toBe(before);
+		expect(result.metadata.reasonCode).toBe("stopped");
 	});
 
 	it("a highlight changes nothing on the board and writes no version, but is a success", async () => {
@@ -1237,6 +1281,12 @@ describe("edit_artifact.canvas — the reader's newer words (ruling 67)", () => 
 			opIndex: 0,
 		});
 		expect(result.modelPayload.refused?.[0].detail).toMatch(/read_artifact/);
+		// The one op the call carried was turned back for the reader's newer words:
+		// the row says Alfy left it as it was, beside the refusal the model reads.
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "changed_since_read",
+		});
 		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
 		expect(await versionCount(id)).toBe(before);
 	});
@@ -1268,6 +1318,8 @@ describe("edit_artifact.canvas — the reader's newer words (ruling 67)", () => 
 			applied: 1,
 			refused: [{ target: "note-museum", reason: "stale", opIndex: 0 }],
 		});
+		// One op applied: the call is not named, its "parts left alone" pill stays.
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
 		expect(
 			(await storedBoard(id)).nodes.find((n) => n.id === "note-1")?.position,

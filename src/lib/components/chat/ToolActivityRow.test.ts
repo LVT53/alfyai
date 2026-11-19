@@ -78,8 +78,8 @@ describe("ToolActivityRow", () => {
 		expect(row.querySelector(".act-status.running")).not.toBeNull();
 	});
 
-	it("shows a failed row with the danger word and the reason in its body, keeping the normal label", () => {
-		const { getByTestId } = render(ToolActivityRow, {
+	it("shows a failed row with the danger word and the tool's own sentence, keeping the normal label, and never the raw failure text", () => {
+		const { getByTestId, container } = render(ToolActivityRow, {
 			item: item({
 				name: "fetch_url",
 				input: { url: "https://weather.metoffice.gov.uk" },
@@ -99,11 +99,71 @@ describe("ToolActivityRow", () => {
 		expect(row.querySelector(".act-object")?.textContent).toBe(
 			"weather.metoffice.gov.uk",
 		);
-		expect(getByTestId("tool-activity-error")).toHaveTextContent(
-			"request timed out after 20 s",
+		// What happened, once, in words: a sentence of ours, not the tool's error
+		// text, which is the log's and the model's.
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"The page couldn't be read.",
 		);
-		expect(getByTestId("tool-activity-summary-reason")).toHaveTextContent(
-			"request timed out after 20 s",
+		expect(container).not.toHaveTextContent("request timed out after 20 s");
+	});
+
+	it("draws a stop on purpose as the quiet dash with its sentence, and no Failed", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "research_web",
+				input: { query: "cork weather" },
+				status: "failed",
+				metadata: { reasonCode: "reading_budget_used" },
+			}),
+			open: true,
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.status).toBe("skipped");
+		expect(row.classList.contains("is-failed")).toBe(false);
+		expect(row.querySelector(".act-status.skipped")).not.toBeNull();
+		expect(row.querySelector(".act-status.failed")).toBeNull();
+		expect(row.querySelector(".act-meta")).toBeNull();
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"Alfy had already searched enough for this reply.",
+		);
+	});
+
+	it("says nothing found on the row itself, and then has nothing to open", () => {
+		const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "memory_context",
+				input: { query: "dentist appointment" },
+				status: "done",
+				metadata: { reasonCode: "nothing_found" },
+			}),
+			open: true,
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.dataset.status).toBe("done");
+		expect(row.tagName.toLowerCase()).toBe("div");
+		expect(row.querySelector(".act-chevron")).toBeNull();
+		expect(row.querySelector(".act-meta")?.textContent).toBe("nothing found");
+		expect(queryByTestId("tool-activity-body")).toBeNull();
+	});
+
+	it("says it in Hungarian in a Hungarian turn", () => {
+		uiLanguage.set("hu");
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "fetch_url",
+				input: { url: "https://weather.metoffice.gov.uk" },
+				status: "failed",
+				metadata: { reasonCode: "site_timeout" },
+			}),
+			open: true,
+		});
+
+		const row = getByTestId("tool-activity-row");
+		expect(row.querySelector(".act-meta")?.textContent).toBe("Sikertelen");
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"Az oldal nem válaszolt időben.",
 		);
 	});
 
@@ -278,27 +338,6 @@ describe("ToolActivityRow", () => {
 		);
 	});
 
-	it("renders a Python body as PROGRAM and OUTPUT code blocks", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item({
-				name: "run_python",
-				input: { code: "# check\nprint(1)" },
-				outputSummary: "1",
-			}),
-			open: true,
-		});
-
-		const body = getByTestId("tool-activity-body");
-		const eyebrows = [...body.querySelectorAll(".act-eyebrow")].map(
-			(node) => node.textContent,
-		);
-		expect(eyebrows).toEqual(["Program", "Output"]);
-		const code = [...body.querySelectorAll("pre.act-code")].map(
-			(node) => node.textContent,
-		);
-		expect(code).toEqual(["# check\nprint(1)", "1"]);
-	});
-
 	it("renders a connector group body as one row per action", () => {
 		const tools = [
 			toolCall({ name: "calendar", input: { action: "list_events" } }),
@@ -315,8 +354,66 @@ describe("ToolActivityRow", () => {
 
 		const actions = getAllByTestId("tool-activity-action");
 		expect(actions).toHaveLength(2);
-		expect(actions[0].textContent).toContain("list events");
+		expect(actions[0].textContent).toContain("Looked at your events");
 		expect(actions[1].querySelector(".act-status.failed")).not.toBeNull();
+	});
+
+	it("draws an account run as each call in plain words with what it found, the things by name, and the reason a call did not work", () => {
+		const { getAllByTestId, getByTestId, container } = render(ToolActivityRow, {
+			item: buildConnectorActivityItem(
+				[
+					toolCall({
+						name: "calendar",
+						input: { action: "list_events" },
+						metadata: { ok: true, eventCount: 6 },
+						candidates: Array.from({ length: 6 }, (_, index) => ({
+							id: `calendar:${index}`,
+							title: `Event ${index + 1}`,
+							sourceType: "tool",
+							metadata: { start: "2026-11-19T10:00:00Z" },
+						})) as ToolCallSegment["candidates"],
+					}),
+					toolCall({
+						name: "calendar",
+						input: { action: "create_event" },
+						metadata: { ok: false, reasonCode: "writes_turned_off" },
+					}),
+				],
+				"group-2",
+				get(t),
+				{ locale: "en-GB", timeZone: "UTC" },
+			),
+			open: true,
+		});
+
+		const calls = getAllByTestId("tool-activity-action");
+		expect(calls).toHaveLength(2);
+		expect(calls[0].textContent).toContain("Looked at your events");
+		expect(calls[0].querySelector(".act-action-sub")?.textContent).toBe(
+			"6 found",
+		);
+		expect(calls[1].querySelector(".act-status.skipped")).not.toBeNull();
+		expect(
+			getAllByTestId("tool-activity-thing").map((thing) =>
+				thing.textContent?.replace(/\s+/g, " ").trim(),
+			),
+		).toEqual([
+			"Event 1 Thu 10:00",
+			"Event 2 Thu 10:00",
+			"Event 3 Thu 10:00",
+			"Event 4 Thu 10:00",
+			"Event 5 Thu 10:00",
+		]);
+		expect(getByTestId("tool-activity-more")).toHaveTextContent("and 1 more");
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"Changing your calendar is turned off. You can turn it on in Settings › Connections.",
+		);
+		// The calendar's own glyph stands before each thing it found.
+		expect(
+			container.querySelectorAll(
+				'[data-testid="tool-activity-thing"] [data-tool-icon="calendar"]',
+			),
+		).toHaveLength(5);
 	});
 
 	it("renders a memory body as bullets", () => {
@@ -335,113 +432,77 @@ describe("ToolActivityRow", () => {
 		).toHaveLength(1);
 	});
 
-	it("renders a generic tool body as its arguments and result", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item({
-				name: "some_new_tool",
-				input: { thing: "value" },
-				outputSummary: "it worked",
-			}),
-			open: true,
-		});
-
-		const body = getByTestId("tool-activity-body");
-		expect(body.querySelector(".act-kv-key")?.textContent).toBe("thing");
-		expect(body.querySelector(".act-kv-value")?.textContent).toBe("value");
-		expect(body.textContent).toContain("it worked");
-	});
-
-	// W3: opening a row reads as an account for the person, not as the call's
-	// data. What happened and on what lead, what came back follows as its own
-	// line, and the raw material waits behind a closed Details disclosure.
-	function searchWithResults(
-		count: number,
-		overrides: Partial<ToolCallSegment> = {},
-	): Partial<ToolCallSegment> {
-		return {
-			name: "research_web",
-			input: { query: "cork weather" },
-			candidates: Array.from({ length: count }, (_, index) => ({
-				id: `c${index}`,
-				title: `Result ${index + 1}`,
-				url: `https://example${index}.test/page`,
-				sourceType: "web",
-				status: "selected",
-			})) as ToolCallSegment["candidates"],
-			...overrides,
-		};
-	}
-
-	function summaryLines(body: HTMLElement) {
-		return {
-			action: body.querySelector(".act-summary-action")?.textContent ?? "",
-			outcome: body.querySelector(".act-summary-outcome")?.textContent ?? "",
-		};
-	}
-
-	it("opens a search body with what happened, on what, and what came back", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item(searchWithResults(12)),
-			open: true,
-		});
-
-		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
-		expect(lines.action).toBe("Searched “cork weather”.");
-		expect(lines.outcome).toBe("Found 12 results.");
-	});
-
-	it("says a failed call could not reach the page, with the reason visible and a raw copy in Details", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item({
+	// The two sentences that used to open every body ("Searched “…”." / "Found 6
+	// results.") repeated the row, and the Details box held the call's raw argument
+	// names, its model-facing result and a second copy of a failure's reason. A
+	// body is now only what the tool found, or one sentence about what happened.
+	it("an opened row shows no summary sentences and no Details", () => {
+		const segments: Partial<ToolCallSegment>[] = [
+			{
+				name: "research_web",
+				input: { query: "cork weather" },
+				candidates: [
+					{
+						id: "c1",
+						title: "Cork city forecast",
+						url: "https://met.ie/cork",
+						sourceType: "web",
+					},
+				] as ToolCallSegment["candidates"],
+			},
+			{
 				name: "fetch_url",
 				input: { url: "https://weather.metoffice.gov.uk" },
 				status: "failed",
 				metadata: { error: "request timed out after 20 s" },
-			}),
-			open: true,
-		});
-
-		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
-		expect(lines.action).toBe("Read “weather.metoffice.gov.uk”.");
-		expect(lines.outcome).toBe("Could not reach it.");
-		// Why is the one thing a person opens a failed row for: it is in the
-		// account itself, not a press away.
-		expect(getByTestId("tool-activity-summary-reason")).toHaveTextContent(
-			"request timed out after 20 s",
-		);
-
-		const details = getByTestId("tool-activity-details");
-		expect(details.tagName.toLowerCase()).toBe("details");
-		expect((details as HTMLDetailsElement).open).toBe(false);
-		expect(
-			within(details).getByTestId("tool-activity-error"),
-		).toHaveTextContent("request timed out after 20 s");
+				outputSummary: "request timed out after 20 s",
+			},
+			{
+				name: "some_new_tool",
+				input: { thing: "value" },
+				outputSummary: "it worked",
+			},
+			{
+				name: "memory_context",
+				input: { query: "dentist" },
+				candidates: [
+					{ id: "m1", title: "Prefers Celsius", sourceType: "memory" },
+				] as ToolCallSegment["candidates"],
+			},
+			{
+				name: "run_python",
+				input: { code: "# total\nprint(1)" },
+				outputSummary: "run_python finished: exit code 0, 1 stdout chars.",
+			},
+		];
+		for (const segment of segments) {
+			const { container, unmount } = render(ToolActivityRow, {
+				item: item(segment),
+				open: true,
+			});
+			for (const testId of [
+				"tool-activity-summary-text",
+				"tool-activity-summary-reason",
+				"tool-activity-details",
+				"tool-activity-error",
+			]) {
+				expect(
+					container.querySelector(`[data-testid="${testId}"]`),
+					`${segment.name} ${testId}`,
+				).toBeNull();
+			}
+			expect(
+				container.querySelector(
+					".act-summary, .act-details, .act-kv, details, summary",
+				),
+				`${segment.name} markup`,
+			).toBeNull();
+			unmount();
+		}
 	});
 
-	it("says a call that is still running is still working", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item(searchWithResults(1, { status: "running" })),
-			open: true,
-		});
-
-		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
-		expect(lines.action).toBe("Searching “cork weather”.");
-		expect(lines.outcome).toBe("Still working.");
-	});
-
-	it("leaves the clause out when the call names no readable target", () => {
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item(searchWithResults(1, { input: {} })),
-			open: true,
-		});
-
-		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
-		expect(lines.action).toBe("Searched.");
-		expect(lines.outcome).toBe("Found 1 result.");
-	});
-
-	it("reads sensibly for a tool the map does not know, with its raw data behind Details", () => {
-		const { getByTestId } = render(ToolActivityRow, {
+	it("draws an unknown tool's row with no body, so it is no button and has no chevron", () => {
+		const { getByTestId, queryByTestId } = render(ToolActivityRow, {
 			item: item({
 				name: "some_new_tool",
 				input: { thing: "value" },
@@ -450,62 +511,199 @@ describe("ToolActivityRow", () => {
 			open: true,
 		});
 
-		const lines = summaryLines(getByTestId("tool-activity-summary-text"));
-		expect(lines.action).toBe("Alfy used a tool.");
-		expect(lines.outcome).toBe("Finished.");
-
-		const details = getByTestId("tool-activity-details");
-		expect((details as HTMLDetailsElement).open).toBe(false);
-		expect(within(details).getByText("thing")).toBeInTheDocument();
-		expect(within(details).getByText("it worked")).toBeInTheDocument();
+		expect(queryByTestId("tool-activity-body")).toBeNull();
+		const row = getByTestId("tool-activity-row");
+		expect(row.tagName.toLowerCase()).toBe("div");
+		expect(row.querySelector(".act-chevron")).toBeNull();
+		expect(row).not.toHaveTextContent("it worked");
 	});
 
-	it("clips a very long target at a word boundary instead of widening the row", () => {
-		const longQuery = Array.from(
-			{ length: 40 },
-			(_, index) => `term${index}`,
-		).join(" ");
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item(searchWithResults(1, { input: { query: longQuery } })),
-			open: true,
-		});
-
-		const action = summaryLines(
-			getByTestId("tool-activity-summary-text"),
-		).action;
-		expect(action).toMatch(/…”.$/);
-		const target = action.slice(
-			action.indexOf("“") + 1,
-			action.lastIndexOf("”"),
-		);
-		expect(target.length).toBeLessThanOrEqual(120);
-		expect(target.endsWith("…")).toBe(true);
-		expect(target).not.toContain(longQuery);
-	});
-
-	it("does not double the colon a failed create/edit label ends with", () => {
-		// The Hungarian frame supplies the colon itself, and the failed row's
-		// label already ends with one.
-		uiLanguage.set("hu");
-		const { getByTestId } = render(ToolActivityRow, {
-			item: item({
-				name: "edit_artifact",
-				input: { artifactId: "a1", patches: [] },
-				status: "failed",
+	describe("the bodies that say what a tool found", () => {
+		const foundPictures = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				id: `img${index}`,
+				title: `Harbour ${index + 1}`,
+				url: `https://images.example${index}.test/h.jpg`,
+				snippet: `site${index}.com`,
+				sourceType: "web",
 				metadata: {
-					artifactKind: "document",
-					artifactTitle: "Trip plan",
-					error: "patch ops were malformed",
+					source: `site${index}.com`,
+					thumbnail: `https://imgs.search.brave.com/thumb${index}`,
 				},
-			}),
+			})) as ToolCallSegment["candidates"];
+
+		it("draws the pictures a picture search found as small thumbnails with their sites, through the app's own route", () => {
+			const { getByTestId, getAllByTestId, container } = render(
+				ToolActivityRow,
+				{
+					item: item({
+						name: "image_search",
+						input: { query: "harbour at dawn" },
+						candidates: foundPictures(3),
+					}),
+					open: true,
+				},
+			);
+
+			expect(
+				getByTestId("tool-activity-row").querySelector(".act-meta")
+					?.textContent,
+			).toBe("3 pictures");
+			const thumbs = getAllByTestId("tool-activity-thumb");
+			expect(thumbs).toHaveLength(3);
+			const image = thumbs[0].querySelector("img") as HTMLImageElement;
+			expect(image.getAttribute("src")).toBe(
+				`/api/image-search/thumbnail?url=${encodeURIComponent("https://imgs.search.brave.com/thumb0")}`,
+			);
+			expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+			expect(image.getAttribute("alt")).toBe("Harbour 1");
+			expect(thumbs[0].querySelector("figcaption")?.textContent).toBe(
+				"site0.com",
+			);
+			// No address of the search's own is ever requested.
+			expect(container.innerHTML).not.toContain(
+				'imgs.search.brave.com/thumb0"',
+			);
+			expect(container.innerHTML).not.toContain("images.example0.test");
+		});
+
+		it("hides a thumbnail that fails to load, and keeps the others", async () => {
+			const { getAllByTestId, queryAllByTestId } = render(ToolActivityRow, {
+				item: item({
+					name: "image_search",
+					input: { query: "harbour at dawn" },
+					candidates: foundPictures(3),
+				}),
+				open: true,
+			});
+
+			const second = getAllByTestId("tool-activity-thumb")[1];
+			await fireEvent.error(second.querySelector("img") as HTMLImageElement);
+
+			expect(queryAllByTestId("tool-activity-thumb")).toHaveLength(2);
+			expect(second.isConnected).toBe(false);
+		});
+
+		it("lists the past chats a memory lookup looked through by their titles, and says how many more", () => {
+			const { getAllByTestId, getByTestId, queryByTestId } = render(
+				ToolActivityRow,
+				{
+					item: item({
+						name: "memory_context",
+						input: { mode: "history", query: "trips" },
+						metadata: { mode: "history", ok: true },
+						candidates: Array.from({ length: 8 }, (_, index) => ({
+							id: `c${index}`,
+							title: `Trip chat ${index + 1}`,
+							sourceType: "memory",
+						})) as ToolCallSegment["candidates"],
+					}),
+					open: true,
+				},
+			);
+
+			const row = getByTestId("tool-activity-row");
+			expect(row.querySelector(".act-verb")?.textContent).toBe(
+				"Looked through",
+			);
+			expect(row.querySelector(".act-object")?.textContent).toBe(
+				"8 past chats",
+			);
+			const things = getAllByTestId("tool-activity-thing");
+			expect(things.map((thing) => thing.textContent?.trim())).toEqual([
+				"Trip chat 1",
+				"Trip chat 2",
+				"Trip chat 3",
+				"Trip chat 4",
+				"Trip chat 5",
+			]);
+			expect(getByTestId("tool-activity-more")).toHaveTextContent("and 3 more");
+			expect(queryByTestId("tool-activity-thumbs")).toBeNull();
+		});
+
+		it("says 'and 3 more' in Hungarian as 'és még 3'", () => {
+			uiLanguage.set("hu");
+			const { getByTestId } = render(ToolActivityRow, {
+				item: item({
+					name: "memory_context",
+					input: { mode: "history", query: "utak" },
+					metadata: { mode: "history", ok: true },
+					candidates: Array.from({ length: 8 }, (_, index) => ({
+						id: `c${index}`,
+						title: `Utazás ${index + 1}`,
+						sourceType: "memory",
+					})) as ToolCallSegment["candidates"],
+				}),
+				open: true,
+			});
+			expect(getByTestId("tool-activity-more")).toHaveTextContent("és még 3");
+		});
+
+		it("draws what a calculation printed as plain text, with no program and no heading", () => {
+			const { getByTestId, container } = render(ToolActivityRow, {
+				item: item({
+					name: "run_python",
+					input: { code: "# total\nprint('monthly: 312,893 Ft')" },
+					outputSummary: "run_python finished: exit code 0, 41 stdout chars.",
+					metadata: {
+						displayOutput: "monthly: 312,893 Ft\ntotal: 33,094,440 Ft",
+					},
+				}),
+				open: true,
+			});
+
+			const result = getByTestId("tool-activity-result");
+			expect(result.textContent).toBe(
+				"monthly: 312,893 Ft\ntotal: 33,094,440 Ft",
+			);
+			// Plain text in the body's own face, not a code box: lines kept, long
+			// ones wrapped (jsdom does not apply the component's scoped style).
+			const source = readFileSync(
+				`${process.cwd()}/src/lib/components/chat/ToolActivityRow.svelte`,
+				"utf-8",
+			);
+			const rule =
+				source.match(/\n\t\.act-result \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+			expect(rule).toContain("white-space: pre-wrap");
+			expect(rule).toContain("font-family: var(--font-sans)");
+			expect(rule).not.toContain("mono");
+			expect(container.querySelector(".act-code, .act-eyebrow")).toBeNull();
+			expect(container).not.toHaveTextContent("print(");
+			expect(container).not.toHaveTextContent("stdout chars");
+		});
+
+		it("does not open a calculation that printed nothing", () => {
+			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+				item: item({
+					name: "run_python",
+					input: { code: "# total\nx = 1" },
+					outputSummary: "run_python finished: exit code 0, 0 stdout chars.",
+				}),
+				open: true,
+			});
+			expect(getByTestId("tool-activity-row").tagName.toLowerCase()).toBe(
+				"div",
+			);
+			expect(queryByTestId("tool-activity-body")).toBeNull();
+		});
+	});
+
+	it("draws a reason body as one sentence, no heading, no box", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: {
+				...item({ name: "make_image", input: { title: "Logo" } }),
+				status: "failed",
+				body: { kind: "reason", text: "The picture could not be made." },
+			},
 			open: true,
 		});
 
-		const action = summaryLines(
-			getByTestId("tool-activity-summary-text"),
-		).action;
-		expect(action).toBe("Nem sikerült szerkeszteni: „Trip plan”.");
-		expect(action).not.toContain("::");
+		const body = getByTestId("tool-activity-body");
+		expect(body.querySelectorAll("p")).toHaveLength(1);
+		expect(getByTestId("tool-activity-reason")).toHaveTextContent(
+			"The picture could not be made.",
+		);
+		expect(body.querySelector("details, pre, .act-eyebrow")).toBeNull();
 	});
 
 	it("lists the transit itinerary legs above the map", () => {
@@ -986,26 +1184,51 @@ describe("ToolActivityRow", () => {
 			expect(queryByTestId("tool-activity-body")).not.toBeInTheDocument();
 		});
 
-		it("shows a failed standalone card with the reason for a refused create_artifact", () => {
-			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
-				item: buildToolActivityItem(
-					toolCall({
-						name: "create_artifact",
-						input: { artifactType: "app", title: "Trip budget splitter" },
-						status: "done",
-						outputSummary: "Could not create the app: the brief was empty.",
-						metadata: { ok: false, artifactKind: "app" },
-					}),
-					"row-failed",
-					get(t),
-				),
-			});
+		it("a refused create's card shows its code's sentence, not the model's words", () => {
+			const refused = (metadata: Record<string, string | boolean>) =>
+				render(ToolActivityRow, {
+					item: buildToolActivityItem(
+						toolCall({
+							name: "create_artifact",
+							input: { artifactType: "app", title: "Trip budget splitter" },
+							status: "done",
+							outputSummary:
+								"Per-turn limit reached: 3 new artifacts already created in this turn.",
+							metadata: { ok: false, artifactKind: "app", ...metadata },
+						}),
+						"row-failed",
+						get(t),
+					),
+				});
 
-			const card = getByTestId("tool-activity-standalone-card");
-			expect(card).toHaveTextContent(
-				"Could not create the app: the brief was empty.",
+			// The per-turn cap: a stop on purpose, in its own sentence.
+			const capped = refused({ reasonCode: "reply_limit_reached" });
+			expect(
+				capped.getByTestId("tool-activity-standalone-card"),
+			).toHaveTextContent(
+				"Alfy has already made as many new items as one reply allows.",
 			);
-			expect(queryByTestId("tool-activity-body")).not.toBeInTheDocument();
+			expect(capped.container).not.toHaveTextContent("Per-turn limit");
+			expect(
+				capped.queryByTestId("tool-activity-body"),
+			).not.toBeInTheDocument();
+			capped.unmount();
+
+			// No code, or one this version does not know: the create fallback.
+			const unnamed: Record<string, string | boolean>[] = [
+				{},
+				{ reasonCode: "a_newer_servers_code" },
+			];
+			for (const metadata of unnamed) {
+				const fallback = refused(metadata);
+				const card = fallback.getByTestId("tool-activity-standalone-card");
+				expect(card).toHaveTextContent("This couldn't be made.");
+				expect(card).not.toHaveTextContent("Per-turn limit");
+				expect(fallback.container).not.toHaveTextContent(
+					"a_newer_servers_code",
+				);
+				fallback.unmount();
+			}
 		});
 
 		it("a reload's persisted segment renders the exact same card — no live-only state involved", () => {

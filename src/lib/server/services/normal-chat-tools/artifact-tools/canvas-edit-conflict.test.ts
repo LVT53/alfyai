@@ -119,6 +119,7 @@ describe("edit_artifact.canvas — a save landing between the read and the write
 		const versions = await listVersions({ userId, artifactId, conversationId });
 		expect(versions[0]).toMatchObject({ author: "alfy" });
 		expect(versions).toHaveLength(3);
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("says to read the board again — and writes nothing — when the conflict stands after the second try", async () => {
@@ -129,6 +130,11 @@ describe("edit_artifact.canvas — a save landing between the read and the write
 		if (result.modelPayload.success) return;
 		expect(result.modelPayload.error).toMatch(/read_artifact/);
 		expect(result.modelPayload.error).toMatch(/Nothing was applied/);
+		// The board changed under the edit and again under its retry: Alfy left it as it was.
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "changed_since_read",
+		});
 		expect(
 			await listVersions({ userId, artifactId, conversationId }),
 		).toHaveLength(2);

@@ -33,7 +33,7 @@ const AUDITED_PREFIXES = [
 	"composerMenu.",
 	"composerSheet.",
 	// The file-production card's server-error-code -> localized-line map
-	// (`FileProductionCard.svelte`'s `ERROR_MESSAGE_KEYS`). `chat.` as a whole
+	// (`file-production-helpers.ts`'s `FILE_PRODUCTION_ERROR_KEYS`). `chat.` as a whole
 	// is NOT audited (pre-existing drift), so this narrow prefix is what
 	// would have caught the three worker-reclaim codes landing in EN only.
 	"fileProduction.error.",
@@ -95,6 +95,10 @@ const AUDITED_PREFIXES = [
 	"skills.",
 	"sourceManager.",
 	"toolCalls.",
+	// What a tool row says in plain words: every outcome a tool tells apart has
+	// its own sentence, and a sentence that reached EN and not HU would show a
+	// Hungarian reader the raw key in the one place the row names what happened.
+	"toolRows.",
 	"sidebar.failedReorderSidebar",
 	"sidebar.failedUpdateConversationPin",
 	"sidebar.forkIndicatorTooltip",

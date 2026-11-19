@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
+import type { AtlasErrorCode } from "$lib/shared/tool-reasons";
 import type { AtlasAction, AtlasProfile } from "./types";
 
 export const ATLAS_IDEMPOTENCY_VERSION = "atlas:v1";
@@ -25,8 +26,13 @@ export const ATLAS_STALE_AFTER_MS = 120_000;
  * would have been retried at every restart.
  */
 export const ATLAS_MAX_LOST_ATTEMPTS = 3;
-/** The code the engine records on an attempt it took back, and on the job while it waits to run again. */
-export const ATLAS_LOST_ATTEMPT_CODE = "atlas_worker_heartbeat_timeout";
+/**
+ * The code the engine records on an attempt it took back, and on the job while it
+ * waits to run again. It is one of Atlas's closed list of codes
+ * (`$lib/shared/tool-reasons`), which the row's words are held to.
+ */
+export const ATLAS_LOST_ATTEMPT_CODE =
+	"atlas_worker_heartbeat_timeout" satisfies AtlasErrorCode;
 export const ATLAS_LOST_ATTEMPT_MESSAGE =
 	"Atlas worker heartbeat timed out before completion.";
 

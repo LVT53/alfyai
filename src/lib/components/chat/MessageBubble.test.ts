@@ -1987,6 +1987,120 @@ describe("MessageBubble", () => {
 		).not.toBeInTheDocument();
 	});
 
+	// A reply that ended with a step still marked running (the server never closed
+	// it) reads that step as a quiet stop. Whose stop it was comes from the message
+	// itself: `wasStopped` is the person's Stop, and a reply an update or a crash cut
+	// off has no such mark, so nothing is said about a Stop nobody pressed.
+	describe("a step the finished reply left running", () => {
+		afterEach(() => {
+			uiLanguage.set("en");
+		});
+
+		function savedWithRunningStep(
+			over: Partial<ChatMessage>,
+			segment: NonNullable<ChatMessage["thinkingSegments"]>[number],
+		): ChatMessage {
+			return {
+				id: "assistant-left-running",
+				renderKey: "assistant-left-running",
+				role: "assistant",
+				content: "Here is what I had so far.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				thinkingSegments: [segment],
+				...over,
+			};
+		}
+		const search = {
+			type: "tool_call" as const,
+			callId: "call-left-running",
+			name: "research_web",
+			input: { query: "cork weather" },
+			status: "running" as const,
+		};
+
+		it.each([
+			["en", true, "You stopped this before it finished."],
+			["en", false, "This step didn't finish before the reply ended."],
+			["hu", true, "Ezt leállítottad, mielőtt befejeződött."],
+			[
+				"hu",
+				false,
+				"Ez a lépés nem fejeződött be, mielőtt a válasz véget ért.",
+			],
+		] as const)(
+			"in %s, with wasStopped %s, says its own sentence",
+			async (language, wasStopped, sentence) => {
+				uiLanguage.set(language);
+				const { container } = render(MessageBubble, {
+					message: savedWithRunningStep(
+						wasStopped ? { wasStopped: true } : {},
+						search,
+					),
+				});
+
+				await fireEvent.click(
+					screen.getByRole("button", {
+						name: language === "hu" ? /gondolkodott/i : /Thought/,
+					}),
+				);
+				const row = container.querySelector(
+					'.interleaved-rail [data-testid="tool-activity-row"]',
+				);
+				expect(row?.getAttribute("data-status")).toBe("skipped");
+				await fireEvent.click(row as HTMLElement);
+				expect(
+					container.querySelector('[data-testid="tool-activity-reason"]'),
+				).toHaveTextContent(sentence);
+			},
+		);
+
+		it("says the same under the prose, for a step that made or changed an item", async () => {
+			for (const [wasStopped, sentence] of [
+				[true, "You stopped this before it finished."],
+				[false, "This step didn't finish before the reply ended."],
+			] as const) {
+				const { container, unmount } = render(MessageBubble, {
+					message: savedWithRunningStep(
+						wasStopped ? { wasStopped: true } : {},
+						{
+							type: "tool_call",
+							callId: "call-left-running-edit",
+							name: "edit_artifact",
+							input: { artifactId: "0d394ede-c37a-4238-9059-77d01300da4e" },
+							status: "running",
+						},
+					),
+				});
+
+				const made = container.querySelector(
+					'[data-testid="message-deliverables"]',
+				);
+				expect(made).not.toBeNull();
+				const row = made?.querySelector('[data-testid="tool-activity-row"]');
+				expect(row?.getAttribute("data-status")).toBe("skipped");
+				await fireEvent.click(row as HTMLElement);
+				expect(
+					made?.querySelector('[data-testid="tool-activity-reason"]'),
+				).toHaveTextContent(sentence);
+				unmount();
+			}
+		});
+
+		it("keeps the step running while the reply still streams, whatever wasStopped says", () => {
+			const { container } = render(MessageBubble, {
+				message: savedWithRunningStep(
+					{ isStreaming: true, wasStopped: true },
+					search,
+				),
+			});
+
+			const row = container.querySelector('[data-testid="tool-activity-row"]');
+			expect(row?.getAttribute("data-status")).toBe("running");
+		});
+	});
+
 	it("does not show a thinking surface for Off turns unless thinking or tool segments actually arrived", () => {
 		const message: ChatMessage = {
 			id: "assistant-off-no-thinking",

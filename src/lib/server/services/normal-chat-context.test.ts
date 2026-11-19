@@ -3796,6 +3796,49 @@ describe("prepareOutboundChatContext", () => {
 		});
 	}
 
+	it("names, on the prefetched fetch_url call, why a pasted page could not be read", async () => {
+		const url = "https://example.com/source";
+		const page = (await mocks.fetchUrlViaParallel({})) as Record<
+			string,
+			unknown
+		>;
+		const prepare = () =>
+			prepareOutboundChatContext({
+				message: `What does this page say? ${url}`,
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				contextLimits: {
+					maxModelContext: 262_144,
+					compactionUiThreshold: 209_715,
+					targetConstructedContext: 157_286,
+				},
+				logLabel: "provider request",
+			});
+
+		const read = await prepare();
+		expect(read.prefetchedToolCalls?.[0]?.metadata).not.toHaveProperty(
+			"reasonCode",
+		);
+
+		mocks.fetchUrlViaParallel.mockResolvedValueOnce({
+			...page,
+			sources: [],
+			evidence: [],
+			readFailure: "site_refused",
+		});
+		const refused = await prepare();
+		expect(refused.prefetchedToolCalls).toEqual([
+			expect.objectContaining({
+				name: "fetch_url",
+				metadata: expect.objectContaining({
+					serverPrefetched: true,
+					reasonCode: "site_refused",
+				}),
+			}),
+		]);
+	});
+
 	it("prefetches pasted URLs before the model run as a native fetch_url tool-call/result exchange", async () => {
 		const url = "https://example.com/source";
 

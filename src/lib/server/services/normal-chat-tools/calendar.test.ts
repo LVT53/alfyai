@@ -30,6 +30,7 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runCalendarTool, sanitizeCalendarToolInput } from "./calendar";
+import { reasonCodeOf } from "./shared";
 
 // selectConnection/pickDefaultConnection are kept as their REAL (pure)
 // implementations — only resolveConnectionsForCapability/needsDisambiguation
@@ -190,6 +191,23 @@ describe("runCalendarTool", () => {
 		expect(outcome.modelPayload.events).toEqual([]);
 		expect(outcome.modelPayload.citations).toEqual([]);
 		expect(googleListEventsMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "calendar",
+				sourceType: "tool",
+				action: "list_events",
+				message:
+					"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.",
+				events: [],
+				busy: [],
+				calendars: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity but still executes against the first (sorted) connection", async () => {
@@ -273,6 +291,7 @@ describe("runCalendarTool", () => {
 		expect(outcome.modelPayload.message).toContain('"microsoft"');
 		expect(googleListEventsMock).not.toHaveBeenCalled();
 		expect(appleListEventsMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("the ambiguity note mentions the account param so the model can target a different connection", async () => {
@@ -508,6 +527,7 @@ describe("runCalendarTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("maps generic adapter failures to a graceful note without throwing", async () => {
@@ -525,6 +545,7 @@ describe("runCalendarTool", () => {
 		expect(outcome.modelPayload.message).toContain(
 			"couldn't reach your calendar",
 		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
 	});
 });
 
@@ -652,6 +673,9 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 				title: "Therapy session — anxiety follow-up",
 			}),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serializedPayload).not.toContain("details_withheld");
 	});
 });
 
@@ -745,6 +769,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		expect(outcome.modelPayload.message).toContain("CalDAV Calendar");
 		expect(outcome.modelPayload.message).not.toContain("Apple");
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("check_availability with only a caldav connection returns a graceful note instead of calling any adapter", async () => {
@@ -769,6 +794,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		);
 		expect(googleFreeBusyMock).not.toHaveBeenCalled();
 		expect(caldavListEventsMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 	});
 
 	it("list_events dispatches to appleListEvents for an apple connection, never touching googleListEvents", async () => {
@@ -875,6 +901,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		);
 		expect(googleFreeBusyMock).not.toHaveBeenCalled();
 		expect(appleListEventsMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 	});
 
 	it("check_availability with BOTH google and apple connections still uses google, ignoring apple", async () => {
@@ -930,6 +957,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("Apple iCloud Calendar");
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 });
 
@@ -1129,6 +1157,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			"only supported for Google and Apple",
 		);
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 	});
 
 	// The exact bug this task fixes: a user with both an Apple (writes off)
@@ -1249,6 +1278,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.message).toContain("turned off");
 			expect(outcome.modelPayload.message).toContain("settings");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 		});
 
 		it("missing calendar.events write scope: returns a note asking to reconnect and grant write access, creates NO pending row", async () => {
@@ -1270,6 +1300,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.message).toContain("reconnect Google");
 			expect(outcome.modelPayload.message).toContain("write access");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("read_only_account");
 		});
 
 		it("an apple calendar connection missing its calendarUrls config is refused with a note, no pending row (6.2 now supports Apple writes, but only once discovery has actually populated the connection's config)", async () => {
@@ -1290,6 +1321,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("Apple");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 		});
 
 		it("an unsupported provider (neither google nor apple) is refused, no pending row", async () => {
@@ -1310,6 +1342,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("Google and Apple iCloud");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 		});
 
 		it("requires title, start, and end — missing any of them returns a note with no pending row", async () => {
@@ -1325,6 +1358,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("required");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 	});
 
@@ -1359,6 +1393,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.message).toContain("required");
 			expect(googleGetEventMock).not.toHaveBeenCalled();
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it("non-recurring event: update_event creates a pending row with the changed fields only", async () => {
@@ -1443,6 +1478,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				"couldn't find that event",
 			);
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("item_not_found");
 		});
 
 		it("a needs_reauth error fetching the target event maps to a graceful note, no pending row", async () => {
@@ -1461,6 +1497,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("reconnected");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 		});
 
 		it("recurring instance WITHOUT recurringScope: asks the user to choose, creates NO pending row", async () => {
@@ -1480,6 +1517,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.message.toLowerCase()).toContain("recurring");
 			expect(outcome.modelPayload.message.toLowerCase()).toContain("series");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it("recurring master WITHOUT recurringScope (detected via `recurrence`): also asks the user to choose, no pending row", async () => {
@@ -1498,6 +1536,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message.toLowerCase()).toContain("recurring");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it('recurring MASTER with recurringScope "this_event": asks the user to pick an occurrence (or the whole series) instead, creates NO pending row — "this event only" can\'t apply to the series definition itself', async () => {
@@ -1527,6 +1566,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			);
 			expect(outcome.modelPayload.message.toLowerCase()).toContain("series");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it('recurring MASTER with recurringScope "this_event" on delete_event: same guard applies, creates NO pending row', async () => {
@@ -1554,6 +1594,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				"occurrence",
 			);
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it('recurring MASTER with recurringScope "series": still proceeds and creates a pending row (series-scoped writes on the master remain allowed)', async () => {
@@ -1652,6 +1693,31 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			// redacted. This is never sent back through the model.
 			const call = createPendingWriteMock.mock.calls[0]?.[1];
 			expect(call?.preview.title).toContain("Therapy session");
+			// A summary a local model wrote is not a withheld one: no code for it (the
+			// envelope's localDistilled mark says it).
+			expect(reasonCodeOf(outcome.modelPayload)).toBeUndefined();
+		});
+
+		it("Option A on + cloud model + no summary: the update preview's details are withheld, and the row says so beside the payload", async () => {
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(existingEvent());
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", eventId: "evt-1", location: "New Room" },
+				"whichever-cloud-model",
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.message).toContain("were withheld");
+			const serializedPayload = JSON.stringify(outcome.modelPayload);
+			expect(serializedPayload).not.toContain("Therapy session");
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+			expect(serializedPayload).not.toContain("details_withheld");
 		});
 
 		it("Option A off: the update preview/message keep the real event title (no distill call)", async () => {
@@ -1806,6 +1872,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				expect(outcome.modelPayload.success).toBe(false);
 				expect(outcome.modelPayload.message).toContain("turned off");
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 			});
 
 			it("missing calendarUrls in config: returns a note and creates NO pending row", async () => {
@@ -1826,6 +1893,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				expect(outcome.modelPayload.success).toBe(false);
 				expect(outcome.modelPayload.message).toContain("Apple");
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 			});
 		});
 
@@ -1843,6 +1911,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				expect(outcome.modelPayload.success).toBe(false);
 				expect(appleGetEventByUidMock).not.toHaveBeenCalled();
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 			});
 
 			it("non-recurring event: update_event fetches by uid and creates a pending row carrying resourceHref/etag/uid and the FULL merged event (CalDAV PUT replaces the whole resource)", async () => {
@@ -1925,6 +1994,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 					"recurring",
 				);
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 			});
 
 			it("recurring event: delete_event IS allowed, and the preview clearly states it deletes the whole series", async () => {
@@ -1972,6 +2042,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 					"couldn't find that event",
 				);
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("item_not_found");
 			});
 
 			it("a needs_reauth error fetching the target event maps to a graceful note, no pending row", async () => {
@@ -1994,6 +2065,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				expect(outcome.modelPayload.success).toBe(false);
 				expect(outcome.modelPayload.message).toContain("reconnected");
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 			});
 
 			it("an event missing an etag is refused rather than proposing an unconditional write, no pending row", async () => {
@@ -2011,6 +2083,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 
 				expect(outcome.modelPayload.success).toBe(false);
 				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 			});
 
 			it("Option A on + cloud model: the update preview reads an existing event, but its raw summary/location are absent from the WHOLE model-facing payload", async () => {
@@ -2043,6 +2116,33 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 
 				const call = createPendingWriteMock.mock.calls[0]?.[1];
 				expect(call?.preview.title).toContain("Therapy session");
+				expect(reasonCodeOf(outcome.modelPayload)).toBeUndefined();
+			});
+
+			it("Option A on + cloud model + no summary: the update preview's details are withheld, and the row says so beside the payload", async () => {
+				hasLocalDistillEnabledMock.mockResolvedValue(true);
+				isCloudModelMock.mockResolvedValue(true);
+				distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(existingAppleEvent());
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "update_event",
+						eventId: "evt-apple-1@icloud.com",
+						location: "New Room",
+					},
+					"whichever-cloud-model",
+				);
+
+				expect(outcome.modelPayload.success).toBe(true);
+				expect(outcome.modelPayload.message).toContain("were withheld");
+				const serializedPayload = JSON.stringify(outcome.modelPayload);
+				expect(serializedPayload).not.toContain("Therapy session");
+				expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+				expect(serializedPayload).not.toContain("details_withheld");
 			});
 
 			it("Option A off: the update preview/message keep the real event title (no distill call)", async () => {
@@ -2218,6 +2318,74 @@ describe("runCalendarTool — multi-calendar reads (Gap A5 + Trap C1)", () => {
 		const call = appleListEventsMock.mock.calls[0]?.[2];
 		expect(call).not.toHaveProperty("calendarId");
 		expect(outcome.modelPayload.message.toLowerCase()).toContain("default");
+	});
+
+	it("list_calendars on an Apple connection with no calendar collections in its config asks to reconnect", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({
+				id: "conn-apple",
+				provider: "apple",
+				label: "Apple iCloud",
+				accountIdentifier: "alice@icloud.com",
+				config: {},
+			}),
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("couldn't enumerate");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
+	});
+
+	it("list_calendars on a connection that cannot enumerate calendars says it is not supported", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-imap", provider: "imap", label: "Mail" }),
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"needs a Google Calendar connection",
+		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
+	});
+
+	it("check_availability with an account that matches none of the Google connections names no such account", async () => {
+		const google = makeConn({
+			id: "conn-google",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "alice@example.com",
+		});
+		const apple = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([apple, google]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability", account: "apple" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain('"apple"');
+		expect(googleFreeBusyMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("list_calendars on an Apple-only connection surfaces the CalDAV calendar collections and notes reads can't be scoped", async () => {
