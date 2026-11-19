@@ -1,0 +1,1394 @@
+[
+  {
+    "id": "compound_price",
+    "stage": "actual model output",
+    "items": {
+      "items": [
+        {
+          "id": "c38b2d53-ccbc-4e22-b072-40dc0e9db0d4",
+          "text": "The user rides the bicycle daily.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:18.647747+00:00",
+          "source_memory_ids": [
+            "240e7279-6453-4a80-928e-bf6026493e55"
+          ]
+        },
+        {
+          "id": "240e7279-6453-4a80-928e-bf6026493e55",
+          "text": "User: The user rides the bicycle daily.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-2",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-compound~5Fprice_claim-2_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:18.650841+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:17.628514+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "c0ccbaa6-33ae-4509-bf9c-7133fa5f9c91",
+          "text": "The user owns a red bicycle.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:16.571528+00:00",
+          "source_memory_ids": [
+            "41709624-3ae3-494c-b53a-217f213c771c"
+          ]
+        },
+        {
+          "id": "41709624-3ae3-494c-b53a-217f213c771c",
+          "text": "User: The user owns a red bicycle.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-1",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-compound~5Fprice_claim-1_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:16.575048+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:15.683136+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "32dd8ba2-b77e-4d84-a3cf-858670e709f0",
+          "text": "The user's red bicycle cost 250 euros.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:15.129840+00:00",
+          "source_memory_ids": [
+            "62e6bc19-73dd-472a-be8f-a957244ebd9e"
+          ]
+        },
+        {
+          "id": "62e6bc19-73dd-472a-be8f-a957244ebd9e",
+          "text": "User: The user's red bicycle cost 250 euros.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-0",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-compound~5Fprice_claim-0_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:15.132858+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:14.249497+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "## Your Bicycle\n\n- **Colour**: Red\n- **Ownership**: Yes, you own the bicycle.\n- **Cost**: 250 euros\n- **Riding Frequency**: Daily\n\nAll details are consistent across the retrieved records (retained on 2026-11-01), so there is no conflict to resolve.",
+      "based_on": {
+        "memories": [
+          {
+            "id": "62e6bc19-73dd-472a-be8f-a957244ebd9e",
+            "text": "User: The user's red bicycle cost 250 euros.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-0",
+            "chunk_id": "claims-compound~5Fprice_claim-0_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "41709624-3ae3-494c-b53a-217f213c771c",
+            "text": "User: The user owns a red bicycle.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-1",
+            "chunk_id": "claims-compound~5Fprice_claim-1_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "240e7279-6453-4a80-928e-bf6026493e55",
+            "text": "User: The user rides the bicycle daily.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-2",
+            "chunk_id": "claims-compound~5Fprice_claim-2_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "32dd8ba2-b77e-4d84-a3cf-858670e709f0",
+            "text": "The user's red bicycle cost 250 euros.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "c0ccbaa6-33ae-4509-bf9c-7133fa5f9c91",
+            "text": "The user owns a red bicycle.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "c38b2d53-ccbc-4e22-b072-40dc0e9db0d4",
+            "text": "The user rides the bicycle daily.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 18153,
+        "output_tokens": 254,
+        "total_tokens": 18407,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "bicycle bike colour cost ownership riding",
+              "max_tokens": 6000,
+              "reason": "Finding all information about the user's bicycle including colour, ownership, cost, and frequency of use"
+            },
+            "output": {
+              "query": "bicycle bike colour cost ownership riding",
+              "count": 3,
+              "observations": [
+                {
+                  "id": "32dd8ba2-b77e-4d84-a3cf-858670e709f0",
+                  "text": "The user's red bicycle cost 250 euros.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "c0ccbaa6-33ae-4509-bf9c-7133fa5f9c91",
+                  "text": "The user owns a red bicycle.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "c38b2d53-ccbc-4e22-b072-40dc0e9db0d4",
+                  "text": "The user rides the bicycle daily.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 32,
+            "iteration": 1,
+            "started_at_ms": 1794999799872
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle bike colour cost ownership riding frequency",
+              "max_tokens": 4000,
+              "max_chunk_tokens": 1000,
+              "reason": "Verifying bicycle details with raw memories to confirm colour, cost, ownership, and riding frequency"
+            },
+            "output": {
+              "query": "bicycle bike colour cost ownership riding frequency",
+              "memories": [
+                {
+                  "id": "62e6bc19-73dd-472a-be8f-a957244ebd9e",
+                  "text": "User: The user's red bicycle cost 250 euros.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "41709624-3ae3-494c-b53a-217f213c771c",
+                  "text": "User: The user owns a red bicycle.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "240e7279-6453-4a80-928e-bf6026493e55",
+                  "text": "User: The user rides the bicycle daily.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-compound~5Fprice_claim-0_0": {
+                  "chunk_text": "User: The user's red bicycle cost 250 euros.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-compound~5Fprice_claim-1_0": {
+                  "chunk_text": "User: The user owns a red bicycle.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-compound~5Fprice_claim-2_0": {
+                  "chunk_text": "User: The user rides the bicycle daily.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 37,
+            "iteration": 2,
+            "started_at_ms": 1794999800569
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 629,
+            "started_at_ms": 1794999799243
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 664,
+            "started_at_ms": 1794999799905
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 448,
+            "started_at_ms": 1794999800607
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 1086,
+            "started_at_ms": 1794999801056
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "shared_place_hu",
+    "stage": "actual model output",
+    "items": {
+      "items": [
+        {
+          "id": "9369182a-6014-494c-83dd-31ec4d91fc9b",
+          "text": "The user swims.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:26.320049+00:00",
+          "source_memory_ids": [
+            "b8d1538e-9669-45b3-a329-ba114dd28a36"
+          ]
+        },
+        {
+          "id": "b8d1538e-9669-45b3-a329-ba114dd28a36",
+          "text": "User: The user swims.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-2",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-shared~5Fplace~5Fhu_claim-2_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:26.322862+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:25.340270+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "d37d7193-7f94-4d41-9e71-f37697d03df1",
+          "text": "The user's sibling runs.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:24.289013+00:00",
+          "source_memory_ids": [
+            "035ca346-9bfe-4b56-94e4-bd3bdb9d8841"
+          ]
+        },
+        {
+          "id": "035ca346-9bfe-4b56-94e4-bd3bdb9d8841",
+          "text": "User: The sibling runs.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-1",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-shared~5Fplace~5Fhu_claim-1_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:24.292508+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:23.480643+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "809878a2-5835-43d7-a74d-c2f7a3ed7afb",
+          "text": "The user's sibling lives in Debrecen.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:22.927255+00:00",
+          "source_memory_ids": [
+            "51ddfe2a-bccb-4759-b00a-e8fa7ebaabe7"
+          ]
+        },
+        {
+          "id": "51ddfe2a-bccb-4759-b00a-e8fa7ebaabe7",
+          "text": "User: The sibling lives in Debrecen.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-0",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-shared~5Fplace~5Fhu_claim-0_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:22.930479+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:22.227988+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "Here is what is recorded in memory, broken down by person and question:\n\n## Where You Live\n**Unknown.** The memory bank records your activity but does not state where you live. No city, address, or residence for you appears in any retrieved fact.\n\n## Where Your Sister Lives\n**Debrecen.** Your sibling is recorded as living in Debrecen.\n\n## Activities\n\n| Person | Activity |\n|--------|----------|\n| You | Swims |\n| Your sister (sibling) | Runs |\n\n## Summary\n\n- **You:** Location **unknown**; activity is **swimming**.\n- **Your sister:** Lives in **Debrecen**; activity is **running**.\n\n### Notes on the data\n- All three facts (your swimming, your sibling's running, and your sibling's residence in Debrecen) were retained on the same date (2026-11-01) and there are no later or conflicting entries, so each stands as recorded.\n- The records refer to your sibling generically. The assumption that \"your sister\" corresponds to \"your sibling\" is an inference from your question; the stored facts themselves use the word *sibling* rather than *sister*.\n- Your own residence is genuinely absent from the records (not merely stale or superseded), so it is reported as **unknown** rather than guessed.",
+      "based_on": {
+        "memories": [
+          {
+            "id": "035ca346-9bfe-4b56-94e4-bd3bdb9d8841",
+            "text": "User: The sibling runs.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-1",
+            "chunk_id": "claims-shared~5Fplace~5Fhu_claim-1_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "b8d1538e-9669-45b3-a329-ba114dd28a36",
+            "text": "User: The user swims.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-2",
+            "chunk_id": "claims-shared~5Fplace~5Fhu_claim-2_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "51ddfe2a-bccb-4759-b00a-e8fa7ebaabe7",
+            "text": "User: The sibling lives in Debrecen.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-0",
+            "chunk_id": "claims-shared~5Fplace~5Fhu_claim-0_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "9369182a-6014-494c-83dd-31ec4d91fc9b",
+            "text": "The user swims.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "d37d7193-7f94-4d41-9e71-f37697d03df1",
+            "text": "The user's sibling runs.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "809878a2-5835-43d7-a74d-c2f7a3ed7afb",
+            "text": "The user's sibling lives in Debrecen.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 23581,
+        "output_tokens": 563,
+        "total_tokens": 24144,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "where I live sister lives activities hobbies",
+              "max_tokens": 5000,
+              "reason": "Finding living locations for user and sister plus their activities"
+            },
+            "output": {
+              "query": "where I live sister lives activities hobbies",
+              "count": 3,
+              "observations": [
+                {
+                  "id": "9369182a-6014-494c-83dd-31ec4d91fc9b",
+                  "text": "The user swims.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "d37d7193-7f94-4d41-9e71-f37697d03df1",
+                  "text": "The user's sibling runs.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "809878a2-5835-43d7-a74d-c2f7a3ed7afb",
+                  "text": "The user's sibling lives in Debrecen.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 33,
+            "iteration": 1,
+            "started_at_ms": 1794999807858
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "where I live my home city address",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Finding user's own living location not captured in observations"
+            },
+            "output": {
+              "query": "where I live my home city address",
+              "memories": [
+                {
+                  "id": "035ca346-9bfe-4b56-94e4-bd3bdb9d8841",
+                  "text": "User: The sibling runs.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "b8d1538e-9669-45b3-a329-ba114dd28a36",
+                  "text": "User: The user swims.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "51ddfe2a-bccb-4759-b00a-e8fa7ebaabe7",
+                  "text": "User: The sibling lives in Debrecen.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-shared~5Fplace~5Fhu_claim-1_0": {
+                  "chunk_text": "User: The sibling runs.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-shared~5Fplace~5Fhu_claim-2_0": {
+                  "chunk_text": "User: The user swims.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-shared~5Fplace~5Fhu_claim-0_0": {
+                  "chunk_text": "User: The sibling lives in Debrecen.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 34,
+            "iteration": 2,
+            "started_at_ms": 1794999808522
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "Debrecen city country residence location home",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Searching for user's own residence and any location details"
+            },
+            "output": {
+              "query": "Debrecen city country residence location home",
+              "memories": [
+                {
+                  "id": "51ddfe2a-bccb-4759-b00a-e8fa7ebaabe7",
+                  "text": "User: The sibling lives in Debrecen.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "b8d1538e-9669-45b3-a329-ba114dd28a36",
+                  "text": "User: The user swims.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "035ca346-9bfe-4b56-94e4-bd3bdb9d8841",
+                  "text": "User: The sibling runs.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-shared~5Fplace~5Fhu_claim-0_0": {
+                  "chunk_text": "User: The sibling lives in Debrecen.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-shared~5Fplace~5Fhu_claim-2_0": {
+                  "chunk_text": "User: The user swims.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-shared~5Fplace~5Fhu_claim-1_0": {
+                  "chunk_text": "User: The sibling runs.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 34,
+            "iteration": 3,
+            "started_at_ms": 1794999809277
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "I live in my apartment house town where am I located",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Confirming whether user's own living location is ever recorded"
+            },
+            "output": {
+              "query": "I live in my apartment house town where am I located",
+              "memories": [
+                {
+                  "id": "b8d1538e-9669-45b3-a329-ba114dd28a36",
+                  "text": "User: The user swims.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "51ddfe2a-bccb-4759-b00a-e8fa7ebaabe7",
+                  "text": "User: The sibling lives in Debrecen.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "035ca346-9bfe-4b56-94e4-bd3bdb9d8841",
+                  "text": "User: The sibling runs.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-shared~5Fplace~5Fhu_claim-2_0": {
+                  "chunk_text": "User: The user swims.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-shared~5Fplace~5Fhu_claim-0_0": {
+                  "chunk_text": "User: The sibling lives in Debrecen.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-shared~5Fplace~5Fhu_claim-1_0": {
+                  "chunk_text": "User: The sibling runs.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 36,
+            "iteration": 4,
+            "started_at_ms": 1794999810067
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 592,
+            "started_at_ms": 1794999807266
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 629,
+            "started_at_ms": 1794999807893
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 720,
+            "started_at_ms": 1794999808557
+          },
+          {
+            "scope": "agent_4",
+            "duration_ms": 756,
+            "started_at_ms": 1794999809311
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 2618,
+            "started_at_ms": 1794999810104
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "hand_authored_control",
+    "stage": "after selective deletion and peer reprocess",
+    "facts": [
+      "The user owns a bicycle.",
+      "The user bicycle is red.",
+      "The user bicycle cost 250 euros.",
+      "The user rides the bicycle daily."
+    ],
+    "items": {
+      "items": [
+        {
+          "id": "e9f26c19-ea20-411d-9e2d-0fa8b2ef5941",
+          "text": "The user owns a bicycle.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:43.193017+00:00",
+          "source_memory_ids": [
+            "a2d291a4-5ab4-42c5-990f-9c8d7722ac50"
+          ]
+        },
+        {
+          "id": "a2d291a4-5ab4-42c5-990f-9c8d7722ac50",
+          "text": "User: The user owns a bicycle.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-0",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-hand-authored-control_claim-0_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:43.195827+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:42.197765+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "183e5056-bc93-4ccc-8258-5cc77ba4ae41",
+          "text": "The user rides the bicycle daily.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:39.070122+00:00",
+          "source_memory_ids": [
+            "ef0bcf32-95ca-46f3-8e94-dd59982ec496"
+          ]
+        },
+        {
+          "id": "ef0bcf32-95ca-46f3-8e94-dd59982ec496",
+          "text": "User: The user rides the bicycle daily.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-3",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-hand-authored-control_claim-3_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:39.073075+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:38.043417+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "73f50efe-f2a8-42a3-81f5-006cee9e3dc0",
+          "text": "The user's bicycle cost 250 euros.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:37.494409+00:00",
+          "source_memory_ids": [
+            "35b8a0ab-0b44-4d34-a92b-5b8ac4c20dd5"
+          ]
+        },
+        {
+          "id": "35b8a0ab-0b44-4d34-a92b-5b8ac4c20dd5",
+          "text": "User: The user bicycle cost 250 euros.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "claim-2",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": "claims-hand-authored-control_claim-2_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T11:03:37.497451+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T11:03:36.262335+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "Here is the information recorded about your bicycle:\n\n| Attribute | Recorded value |\n|-----------|----------------|\n| **Colour** | Unknown |\n| **Ownership** | Yes, you own the bicycle |\n| **Cost** | 250 euros |\n| **Riding frequency** | Daily |\n\n### Details\n\n- **Colour** — Not recorded in any retrieved memory. I searched directly for colour terms (red, blue, green, black, silver, white, frame, paint) and for general bicycle-related context, but no colour description appears. So the colour is **unknown**.\n- **Ownership** — The record states plainly that **you own a bicycle**, so ownership is confirmed.\n- **Cost** — The bicycle **cost 250 euros**.\n- **Riding frequency** — You **ride the bicycle daily**.\n\nAll four facts above are consistent across the consolidated observations and the underlying raw memories (all retained on 2026-11-01), and none of them conflict. The only gap is the colour, which simply was never noted.",
+      "based_on": {
+        "memories": [
+          {
+            "id": "35b8a0ab-0b44-4d34-a92b-5b8ac4c20dd5",
+            "text": "User: The user bicycle cost 250 euros.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-2",
+            "chunk_id": "claims-hand-authored-control_claim-2_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "a2d291a4-5ab4-42c5-990f-9c8d7722ac50",
+            "text": "User: The user owns a bicycle.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-0",
+            "chunk_id": "claims-hand-authored-control_claim-0_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "ef0bcf32-95ca-46f3-8e94-dd59982ec496",
+            "text": "User: The user rides the bicycle daily.",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "claim-3",
+            "chunk_id": "claims-hand-authored-control_claim-3_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "73f50efe-f2a8-42a3-81f5-006cee9e3dc0",
+            "text": "The user's bicycle cost 250 euros.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "e9f26c19-ea20-411d-9e2d-0fa8b2ef5941",
+            "text": "The user owns a bicycle.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "183e5056-bc93-4ccc-8258-5cc77ba4ae41",
+            "text": "The user rides the bicycle daily.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 23660,
+        "output_tokens": 507,
+        "total_tokens": 24167,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "bicycle colour ownership cost riding frequency",
+              "max_tokens": 5000,
+              "reason": "Initial search for consolidated observations about the user's bicycle details"
+            },
+            "output": {
+              "query": "bicycle colour ownership cost riding frequency",
+              "count": 3,
+              "observations": [
+                {
+                  "id": "73f50efe-f2a8-42a3-81f5-006cee9e3dc0",
+                  "text": "The user's bicycle cost 250 euros.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "e9f26c19-ea20-411d-9e2d-0fa8b2ef5941",
+                  "text": "The user owns a bicycle.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "183e5056-bc93-4ccc-8258-5cc77ba4ae41",
+                  "text": "The user rides the bicycle daily.",
+                  "fact_type": "observation",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 33,
+            "iteration": 1,
+            "started_at_ms": 1794999824642
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle colour",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Search raw memories for bicycle colour since observations don't state the colour"
+            },
+            "output": {
+              "query": "bicycle colour",
+              "memories": [
+                {
+                  "id": "35b8a0ab-0b44-4d34-a92b-5b8ac4c20dd5",
+                  "text": "User: The user bicycle cost 250 euros.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "a2d291a4-5ab4-42c5-990f-9c8d7722ac50",
+                  "text": "User: The user owns a bicycle.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "ef0bcf32-95ca-46f3-8e94-dd59982ec496",
+                  "text": "User: The user rides the bicycle daily.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-hand-authored-control_claim-2_0": {
+                  "chunk_text": "User: The user bicycle cost 250 euros.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-hand-authored-control_claim-0_0": {
+                  "chunk_text": "User: The user owns a bicycle.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-hand-authored-control_claim-3_0": {
+                  "chunk_text": "User: The user rides the bicycle daily.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 31,
+            "iteration": 2,
+            "started_at_ms": 1794999825305
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bike red blue green black silver white frame paint",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Alternative search for bicycle colour descriptors"
+            },
+            "output": {
+              "query": "bike red blue green black silver white frame paint",
+              "memories": [
+                {
+                  "id": "a2d291a4-5ab4-42c5-990f-9c8d7722ac50",
+                  "text": "User: The user owns a bicycle.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "35b8a0ab-0b44-4d34-a92b-5b8ac4c20dd5",
+                  "text": "User: The user bicycle cost 250 euros.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "ef0bcf32-95ca-46f3-8e94-dd59982ec496",
+                  "text": "User: The user rides the bicycle daily.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-hand-authored-control_claim-0_0": {
+                  "chunk_text": "User: The user owns a bicycle.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-hand-authored-control_claim-2_0": {
+                  "chunk_text": "User: The user bicycle cost 250 euros.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-hand-authored-control_claim-3_0": {
+                  "chunk_text": "User: The user rides the bicycle daily.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 35,
+            "iteration": 3,
+            "started_at_ms": 1794999826030
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle purchase bike bought new used",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1500,
+              "reason": "Broader search for bicycle-related memories that might include colour details in surrounding context"
+            },
+            "output": {
+              "query": "bicycle purchase bike bought new used",
+              "memories": [
+                {
+                  "id": "35b8a0ab-0b44-4d34-a92b-5b8ac4c20dd5",
+                  "text": "User: The user bicycle cost 250 euros.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "a2d291a4-5ab4-42c5-990f-9c8d7722ac50",
+                  "text": "User: The user owns a bicycle.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "ef0bcf32-95ca-46f3-8e94-dd59982ec496",
+                  "text": "User: The user rides the bicycle daily.",
+                  "fact_type": "world",
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "claims-hand-authored-control_claim-2_0": {
+                  "chunk_text": "User: The user bicycle cost 250 euros.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-hand-authored-control_claim-0_0": {
+                  "chunk_text": "User: The user owns a bicycle.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                "claims-hand-authored-control_claim-3_0": {
+                  "chunk_text": "User: The user rides the bicycle daily.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 35,
+            "iteration": 4,
+            "started_at_ms": 1794999826848
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 731,
+            "started_at_ms": 1794999823911
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 628,
+            "started_at_ms": 1794999824677
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 693,
+            "started_at_ms": 1794999825337
+          },
+          {
+            "scope": "agent_4",
+            "duration_ms": 782,
+            "started_at_ms": 1794999826066
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 2135,
+            "started_at_ms": 1794999826885
+          }
+        ]
+      }
+    }
+  }
+]

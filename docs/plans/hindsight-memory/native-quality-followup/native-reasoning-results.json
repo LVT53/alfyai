@@ -1,0 +1,237 @@
+[
+  {
+    "id": "default_hu_quote",
+    "status": 200,
+    "ms": 8700,
+    "response": {
+      "id": "chatcmpl-944645666ee1ef90",
+      "object": "chat.completion",
+      "created": 1795013848,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"facts\": [\n    {\n      \"what\": \"A felhasználó rövid válaszokat kér.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\"\n      ]\n    }\n  ]\n}",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "We need answer user's request: \"Return valid json only.\" Need extract facts from chunk. Need produce JSON only. Need analyze in same language as user's request? User request is English mostly with Hungarian content. \"Same language as user's request\" likely English? The request is English: Return valid json only. But content is Hungarian. Need write facts in language Content above is written in: Hungarian. Need extract significant facts. Content: User: \"Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\" Egyébként rövid válaszokat kérek.\" Translation: Translate: \"I have two children and work as a nurse.\" By the way, I ask for short answers.\n\nNeed extract facts: User asks translation of quoted sentence. Quotation is not necessarily assertion about user? It says \"Két gyermekem van, és ápolóként dolgozom.\" inside quotes to translate. Focus says Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Here quoted sentence is not assertion about user, just text to translate. So do not extract user has two children/nurse unless maybe user says \"Fordítsd le\" only. But maybe the quoted sentence could be user's statement? It is in quotes as translation target. Need preserve speaker identity? The quoted sentence first person, but it's a quotation. So not assert user. Extract preference: user requests short answers. Also maybe user asks to translate Hungarian sentence. Is that a plan/event? Could be conversation fact: user asked to translate a sentence. But is it useful? Maybe preference short answers is important. Also maybe user wants translation of specific sentence. Could extract as event/conversation? The chunk is a request. Need significant facts. \"User requests short answers\" is preference. \"User asked to translate: ...\" maybe not long-term useful? It is a task request, maybe not personal fact. But could be project decision? Probably not. Need maybe extract only preference. But maybe the quoted sentence contains personal info if it's user's own statement? The instruction: \"Questions, quotations, fictional characters and hypothetical examples are not assertions about the user.\" So no.\n\nNeed output JSON with facts array. Language Hungarian. Fact: \"A felhasználó rövid válaszokat kér.\" fact_type world, fact_kind conversation, entities [\"user\"]? Entities in Hungarian? \"user\" maybe plain string? Use \"user\" as entity? The examples use user. Could use \"user\". who: \"user\". when N/A, where N/A, why N/A.\n\nCould also extract \"A felhasználó egy magyar mondat lefordítását kérte: „Két gyermekem van, és ápolóként dolgozom.”\" But is that significant? It's a request, maybe not long-term. The focus says remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Translation request not personal. But maybe \"asks for short answers\" is preference. Also maybe \"user can communicate in Hungarian\"? Not stated explicitly, but request in Hungarian. Could infer? Better not infer.\n\nNeed ensure valid JSON only. No markdown. Need maybe include from_attachments null? Not required. Could include only required fields? Schema requires what, when, where, who, why, fact_type. fact_kind default but can include. entities default. Need valid.\n\nPotential fact:\n{\n \"what\": \"A felhasználó rövid válaszokat kér.\",\n \"when\": \"N/A\",\n \"where\": \"N/A\",\n \"who\": \"user\",\n \"why\": \"N/A\",\n \"fact_kind\": \"conversation\",\n \"fact_type\": \"world\",\n \"entities\": [\"user\"]\n}\n\nShould we include quoted sentence as fact? Maybe \"A felhasználó lefordíttatni szeretné a „Két gyermekem van, és ápolóként dolgozom.” mondatot.\" This is a plan/request. But not personal? Could be useful? It is a task. The guidelines: significant events: milestones, decisions, achievements, changes. A translation request is minor. Selectivity says skip process chatter. So only preference.\n\nNeed consider \"Egyébként rövid válaszokat kérek.\" means \"By the way, I ask for short answers.\" This is explicit preference. Good.\n\nNeed maybe preserve language register? \"rövid válaszokat\" preference. Good.\n\nFinal JSON only. Ensure Hungarian text. Could use \"user\" entity. who maybe \"user\". If fact about user, include user. Good.\n"
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.31.0-6612147e",
+      "usage": {
+        "prompt_tokens": 3560,
+        "total_tokens": 4613,
+        "completion_tokens": 1053,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 952
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  {
+    "id": "default_en_quote",
+    "status": 200,
+    "ms": 10369,
+    "response": {
+      "id": "chatcmpl-9a30c4d04b033fc5",
+      "object": "chat.completion",
+      "created": 1795013856,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"facts\": [\n    {\n      \"what\": \"User prefers short paragraphs for their own replies.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\",\n        \"short paragraphs\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    },\n    {\n      \"what\": \"User has a sister and is considering a saddle for her, but has not purchased it.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user, sister\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\",\n        \"sister\",\n        \"saddle\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    }\n  ]\n}",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "We need answer user's request: Return valid json only. Need extract facts from chunk. Need analyze in English? User request English. Need produce JSON only. Need ensure facts in language of content: English. Need focus: user-stated personal facts, preferences, constraints, plans, project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates, project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.\n\nContent:\nUser: Please translate \"I own three horses and live in Cork.\" For my own replies, use short paragraphs. I am considering a saddle for my sister; I have not purchased it.\n\nNeed extract facts. Important: quoted sentence \"I own three horses and live in Cork.\" is a quotation to translate, not assertion about user? The focus says quotations are not assertions about user. So do not extract user owns horses/lives in Cork from quote. But maybe translation request? Could extract user requested translation of quoted sentence? Is that significant? Maybe not personal fact? It's a request. Could be project decision? But likely not worth long-term? Need extract useful user-stated personal facts/preferences/plans. \"For my own replies, use short paragraphs.\" Preference: user wants short paragraphs in their own replies? Or for assistant's replies? Wording: \"For my own replies, use short paragraphs.\" Could mean when user writes replies? Maybe preference for language register: use short paragraphs in user's own replies. Need preserve. Could be instruction to assistant? \"For my own replies\" maybe user wants assistant to use short paragraphs when replying to user? Ambiguous. But explicit preference: use short paragraphs for user's own replies. Extract as preference.\n\n\"I am considering a saddle for my sister; I have not purchased it.\" Plan/consideration: user considering saddle for sister, not purchased. Personal fact: user has sister? Yes, \"my sister\" implies user has a sister. Should extract? Useful personal relationship. Also considering saddle for sister, not purchased. Could consolidate: User has a sister and is considering a saddle for her, but has not purchased it. Preserve negation. Entities: user, sister, saddle.\n\nTranslation request: \"Please translate ...\" Could be task, not long-term. Maybe not extract. But maybe user wants translation? Not personal. Skip.\n\nNeed JSON schema: facts array. Each fact: what, when, where, who, why, fact_kind, occurred_start, occurred_end, fact_type, entities, causal_relations, from_attachments. Need include all required. For conversation facts no occurred dates. fact_type world for user preferences/plans. Entities array strings.\n\nPotential facts:\n1. User prefers short paragraphs for their own replies. when N/A, where N/A, who user, why N/A, fact_kind conversation, fact_type world, entities [\"user\", \"short paragraphs\"] maybe \"replies\".\n2. User has a sister and is considering a saddle for her, but has not purchased it. when N/A, where N/A, who user, sister, why N/A, fact_kind conversation, fact_type world, entities [\"user\", \"sister\", \"saddle\"].\n\nShould we extract \"user requested translation of 'I own three horses and live in Cork.'\"? It is a request, maybe not personal fact. Focus says questions, quotations, fictional characters and hypothetical examples are not assertions about user. Translation request is not assertion. Could be useful? Probably not. If extract, fact_type world? It's an event? But no date? Event Date given. But not necessary. Selectivity says only significant. Skip.\n\nNeed ensure not extract quoted ownership/location as user facts. Good.\n\nCould there be preference \"use short paragraphs\" for assistant replies? The phrase \"For my own replies\" maybe means user's replies, not assistant. But if user says \"For my own replies, use short paragraphs\" maybe they instruct assistant to format user's replies? Hmm. Could be language register preference: short paragraphs. We can phrase: \"User prefers short paragraphs in their own replies.\" Preserve.\n\nNeed output valid JSON only. Ensure no markdown. Use null for occurred_start/end? Schema anyOf string/null. Could include null. causal_relations null. from_attachments null. Need maybe include fact_kind default? Include.\n\nDouble-check language: English.\n\nPotential JSON:\n{\n \"facts\": [\n  {\"what\":\"User prefers short paragraphs for their own replies.\",\"when\":\"N/A\",\"where\":\"N/A\",\"who\":\"user\",\"why\":\"N/A\",\"fact_kind\":\"conversation\",\"occurred_start\":null,\"occurred_end\":null,\"fact_type\":\"world\",\"entities\":[\"user\",\"short paragraphs\"],\"causal_relations\":null,\"from_attachments\":null},\n  {\"what\":\"User has a sister and is considering a saddle for her, but has not purchased it.\",\"when\":\"N/A\",\"where\":\"N/A\",\"who\":\"user, sister\",\"why\":\"N/A\",\"fact_kind\":\"conversation\",\"occurred_start\":null,\"occurred_end\":null,\"fact_type\":\"world\",\"entities\":[\"user\",\"sister\",\"saddle\"],\"causal_relations\":null,\"from_attachments\":null}\n ]\n}\n\nNeed consider \"I am considering a saddle for my sister\" could be plan/decision. Good.\n\nNeed maybe separate sister existence and saddle consideration? Consolidate related statements. Good.\n\nNeed maybe \"user has not purchased saddle\" is negation. Good.\n\nNo attachments.\n\nFinal JSON only.\n"
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.31.0-6612147e",
+      "usage": {
+        "prompt_tokens": 3565,
+        "total_tokens": 5010,
+        "completion_tokens": 1445,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1158
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  {
+    "id": "configured_hu_quote",
+    "status": 200,
+    "ms": 4430,
+    "response": {
+      "id": "chatcmpl-a764a8529b741fca",
+      "object": "chat.completion",
+      "created": 1795013867,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"facts\": [\n    {\n      \"what\": \"A felhasználó rövid válaszokat kér.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\",\n        \"rövid válaszok\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    }\n  ]\n}",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "We need answer user's request: valid JSON only. Need extract facts from content. Content: User: Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\" Egyébként rövid válaszokat kérek.\nHungarian. Need write facts in Hungarian. Need distinguish supplied text for translation vs user's own assertions. The quoted sentence is supplied for translation: \"Két gyermekem van, és ápolóként dolgozom.\" Do not extract biography/possessions of speaker inside supplied text as facts about user. But user says \"Egyébként rövid válaszokat kérek.\" That's a personal preference: user requests short answers. Also maybe translation request? Is that a fact? User asked to translate a sentence. Could be conversation fact? Need extract significant facts. The instruction: Remember explicit user facts, preferences, constraints, plans. Questions about products etc. Here user asks translate and requests short answers. The quoted sentence is not user's own assertion? It is text supplied for translation. So do not extract \"user has two children and works as nurse\" unless maybe inside quote? It says do not extract biography or possessions of speaker inside supplied text as facts about user. So only preference: user wants short answers. Also maybe user requested translation of Hungarian sentence? Is that a useful fact? It's a request, not long-term? Could be conversation fact: user asked to translate a sentence. But focus says useful user-stated personal facts, preferences, constraints, plans and project decisions. Translation request maybe not long-term. But \"Egyébként rövid válaszokat kérek\" is preference. Need output JSON with facts array. Language Hungarian. Fact: \"A felhasználó rövid válaszokat kér.\" when N/A, where N/A, who \"user\", why N/A, fact_kind conversation, fact_type world, entities [\"user\"]. Maybe include \"Fordítsd le\"? Could extract \"A felhasználó egy magyar mondat lefordítását kérte.\" But not personal? It is a request. Could be useful? The instructions: Extract only what extraction instructions ask for. Focus: useful user-stated personal facts, preferences, constraints, plans and project decisions. Translation request is not personal fact? It is a task request. Maybe not. But \"Egyébként rövid válaszokat kérek\" definitely preference. Need valid JSON only. Ensure Hungarian. Could include entities [\"user\", \"rövid válaszok\"]. Need no causal. fact_type world because user preference. fact_kind conversation. occurred dates null.\nNeed final only JSON.\n"
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.31.0-6612147e",
+      "usage": {
+        "prompt_tokens": 2992,
+        "total_tokens": 3668,
+        "completion_tokens": 676,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 532
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  {
+    "id": "configured_en_quote",
+    "status": 200,
+    "ms": 16536,
+    "response": {
+      "id": "chatcmpl-a159a005964708c0",
+      "object": "chat.completion",
+      "created": 1795013871,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"facts\": [\n    {\n      \"what\": \"User prefers their own replies to use short paragraphs.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    },\n    {\n      \"what\": \"User has a sister.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user, user's sister\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\",\n        \"sister\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    },\n    {\n      \"what\": \"User is considering a saddle for their sister and has not purchased it.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user, user's sister\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\",\n        \"sister\",\n        \"saddle\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    }\n  ]\n}",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "We need answer user's request: valid JSON only. Need extract facts from chunk. Need analyze in English? User request English. Need produce JSON object with facts. Need distinguish user's own assertions from translation task. Content: User: Please translate \"I own three horses and live in Cork.\" For my own replies, use short paragraphs. I am considering a saddle for my sister; I have not purchased it.\n\nNeed extract significant facts. Translation quoted text: \"I own three horses and live in Cork.\" Is that supplied for translation, not user's own assertion? The instruction says distinguish user's own assertions from text supplied for translation, rewriting, examples, fiction, or quotations. Do not extract biography or possessions of speaker inside supplied text as facts about user. So do not extract user owns three horses/lives in Cork from quoted translation. But maybe the quoted text is a sentence to translate, not assertion. So no.\n\nUser says: For my own replies, use short paragraphs. This is user's reply preference. Extract: user prefers assistant replies to use short paragraphs? \"For my own replies\" could mean user's own replies? Wait: \"For my own replies, use short paragraphs.\" In context user instructing assistant? It says \"For my own replies, use short paragraphs.\" Could mean when the user writes replies? But likely preference for assistant's replies? Need preserve exact scope: \"For my own replies, use short paragraphs.\" Could be user wants short paragraphs for their own replies? Hmm. The instruction says preserve reply preference. It might be a preference for the user's own replies? But likely they are instructing assistant: \"For my own replies, use short paragraphs.\" Actually \"my own replies\" could refer to user's replies in conversation? But in assistant context, user says \"For my own replies, use short paragraphs.\" Could mean when the assistant replies to the user? The phrase \"my own replies\" is ambiguous. Need not infer too much. Could extract: User prefers replies (for their own replies?) to use short paragraphs. Maybe \"User prefers short paragraphs in replies.\" But preserve exact scope? \"For my own replies, use short paragraphs.\" If it's user's own replies, it's a preference about how user writes? But likely instruction to assistant: use short paragraphs for replies to user. The focus says preserve each independently useful preference, including language register. So extract preference: User prefers replies to use short paragraphs. Maybe \"User prefers short paragraphs in their own replies\"? Let's parse: \"Please translate ... For my own replies, use short paragraphs.\" The user is asking assistant to translate. Then says for my own replies, use short paragraphs. Could mean when the user replies (maybe in future), they want short paragraphs? But \"use\" imperative addressed to assistant. It could be: For my own replies [to you?], use short paragraphs. Hmm.\n\nNext: \"I am considering a saddle for my sister; I have not purchased it.\" This is user's own assertion. Extract: User is considering a saddle for their sister; user has not purchased the saddle. Preserve negation exact scope: not purchased it (the saddle). Could be one fact or two? It says considering and not purchased. Could combine: User is considering a saddle for their sister and has not purchased it. But independently useful? Maybe separate: considering saddle; not purchased saddle. But not purchased is explicit negative with exact scope. Could be one fact: User is considering a saddle for their sister and has not purchased it. Entities: user, sister, saddle. fact_type world, conversation. No dates.\n\nTranslation request itself? Is it a fact? User requested translation of sentence. Could be event? Not significant long-term? Maybe not. But could extract: User asked to translate \"I own three horses and live in Cork.\" But focus says remember useful user-stated personal facts, preferences, constraints, plans. Translation request is transient. Probably not. But maybe the quoted sentence not user's fact. Do not extract.\n\nNeed output JSON only. Need include facts array. Need language same as input: English. Entities plain strings.\n\nPotential facts:\n1. \"User prefers replies to use short paragraphs.\" when N/A, where N/A, who user, why N/A, fact_kind conversation, fact_type world, entities [\"user\"].\nBut exact scope: \"For my own replies\" maybe \"User prefers their own replies to use short paragraphs.\" Let's decide. The phrase \"For my own replies, use short paragraphs.\" If user says \"my own replies\" they might mean replies they send? But \"use\" is imperative to assistant. Could be \"User prefers short paragraphs in replies to them.\" The instruction says preserve reply preference. I'd phrase: \"User prefers replies to use short paragraphs.\" This is useful. But if exact scope is \"my own replies\", maybe \"User prefers their own replies to use short paragraphs.\" Hmm.\n\n2. \"User is considering a saddle for their sister and has not purchased it.\" fact_kind conversation, fact_type world, entities [\"user\", \"sister\", \"saddle\"].\n\nCould split:\n- User is considering a saddle for their sister.\n- User has not purchased the saddle they are considering for their sister.\nBut second depends on first. Causal? Not causal. Could keep one fact to preserve negation scope. But \"Keep unrelated properties independently editable where possible\". Considering and not purchased are related but independent? The negative is about the saddle. Could be one fact.\n\nNeed maybe extract \"User has a sister.\" Since \"my sister\" implies user has a sister. Is that significant? Yes, family relation. But it's embedded in considering saddle. Could include entities sister. Fact could mention sister. Do we need separate fact: User has a sister. It is independently useful. But if we extract considering saddle for sister, it implies sister. But maybe separate fact: User has a sister. However focus says keep each independently useful detail. User has a sister is useful. But could be redundant. We can include separate fact? Need not overextract. But \"sister\" is a person relation. I'd include: User has a sister. But is it explicit? \"my sister\" explicit. Yes.\n\nBut if we include both, entities. Fact 0: User has a sister. Fact 1: User is considering a saddle for their sister and has not purchased it. Causal? no.\n\nNeed consider translation quoted sentence: \"I own three horses and live in Cork.\" Could the user be asserting they own horses and live in Cork? The instruction says supplied for translation not user's own assertions. The sentence is in quotes after Please translate. So no. But maybe \"I\" in quoted text could be user? It says do not extract biography or possessions of speaker inside supplied text as facts about user. So no.\n\nNeed maybe extract \"User requested translation of the sentence 'I own three horses and live in Cork.'\" Is that a user action? It is a request, not personal fact. Could be conversation event. But focus says only what extraction instructions ask: useful personal facts, preferences, constraints, plans. Translation request not useful long-term. Skip.\n\nNeed ensure JSON valid. No markdown. Could include occurred_start/end null? Not required but can include. For conversation facts no occurred dates. We can omit or null. Schema required only some. But include fact_kind, entities. Need causal_relations maybe null.\n\nLet's craft:\n{\n \"facts\": [\n  {\n   \"what\": \"User prefers replies to use short paragraphs.\",\n   \"when\": \"N/A\",\n   \"where\": \"N/A\",\n   \"who\": \"user\",\n   \"why\": \"N/A\",\n   \"fact_kind\": \"conversation\",\n   \"fact_type\": \"world\",\n   \"entities\": [\"user\"],\n   \"causal_relations\": null\n  },\n  {\n   \"what\": \"User has a sister.\",\n   \"when\": \"N/A\",\n   \"where\": \"N/A\",\n   \"who\": \"user, user's sister\",\n   \"why\": \"N/A\",\n   \"fact_kind\": \"conversation\",\n   \"fact_type\": \"world\",\n   \"entities\": [\"user\", \"sister\"],\n   \"causal_relations\": null\n  },\n  {\n   \"what\": \"User is considering a saddle for their sister and has not purchased it.\",\n   \"when\": \"N/A\",\n   \"where\": \"N/A\",\n   \"who\": \"user, user's sister\",\n   \"why\": \"N/A\",\n   \"fact_kind\": \"conversation\",\n   \"fact_type\": \"world\",\n   \"entities\": [\"user\", \"sister\", \"saddle\"],\n   \"causal_relations\": null\n  }\n ]\n}\n\nNeed maybe \"User prefers their own replies to use short paragraphs.\" Let's think. If we say replies generally, could be assistant replies. The phrase \"For my own replies\" maybe user wants their own replies short. But in assistant context, \"my own replies\" could mean replies from the user? The instruction says \"For my own replies, use short paragraphs.\" It might be a preference for the user's own replies (when they write), not assistant. But \"use\" imperative to assistant? Could be \"For my own replies [in this conversation], use short paragraphs\" meaning when assistant generates replies on behalf of user? Hmm.\n\nThe focus: \"Preserve each independently useful preference, including language register.\" It likely expects extracting \"User prefers short paragraphs for their own replies.\" The exact phrase: \"For my own replies, use short paragraphs.\" If we extract \"User prefers replies to use short paragraphs\" we may broaden scope. Better preserve exact scope: \"User prefers their own replies to use short paragraphs.\" But if it's instruction to assistant, \"their own\" could refer to user? Let's phrase: \"User prefers short paragraphs in their own replies.\" This preserves. But is it useful? Yes.\n\nCould also extract \"User asked that replies use short paragraphs.\" But \"my own replies\" exact. Let's use: \"User prefers their own replies to use short paragraphs.\" Entities user.\n\nNeed maybe \"User is considering purchasing a saddle for their sister\"? Text: considering a saddle, not purchased. Could be considering buying? It says considering a saddle, likely considering purchasing. But don't infer purchase? \"considering a saddle\" could mean considering buying. But exact: considering a saddle. Keep exact.\n\nNeed maybe \"User has not purchased the saddle.\" If combined, okay.\n\nNeed ensure no translation facts. Good.\n\nFinal JSON only.\n"
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.31.0-6612147e",
+      "usage": {
+        "prompt_tokens": 2997,
+        "total_tokens": 5628,
+        "completion_tokens": 2631,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 2223
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  {
+    "id": "curation_ownership",
+    "status": 200,
+    "ms": 1817,
+    "response": {
+      "id": "chatcmpl-9f83f5caa1b29d81",
+      "object": "chat.completion",
+      "created": 1795013888,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"facts\": [\n    {\n      \"what\": \"The user prefers decaf coffee.\",\n      \"when\": \"N/A\",\n      \"where\": \"N/A\",\n      \"who\": \"user\",\n      \"why\": \"N/A\",\n      \"fact_kind\": \"conversation\",\n      \"occurred_start\": null,\n      \"occurred_end\": null,\n      \"fact_type\": \"world\",\n      \"entities\": [\n        \"user\",\n        \"decaf coffee\"\n      ],\n      \"causal_relations\": null,\n      \"from_attachments\": null\n    }\n  ]\n}",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "We need answer user's request: valid JSON only. Need extract facts from chunk. Need apply memory curation: Original evidence: My bicycle is red. I prefer decaf coffee. User action: Forget the colour of my bicycle. Keep my other information. So we should not extract bicycle color fact. Extract preference decaf coffee. Language same as input: English. Need JSON schema. Facts array. For decaf coffee: what: User prefers decaf coffee. when N/A, where N/A, who user, why N/A, fact_kind conversation, fact_type world, entities [\"user\", \"decaf coffee\"] maybe coffee. causal null, from_attachments null. Ensure no bicycle color. Need only JSON.\n"
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.31.0-6612147e",
+      "usage": {
+        "prompt_tokens": 3110,
+        "total_tokens": 3397,
+        "completion_tokens": 287,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 146
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  }
+]

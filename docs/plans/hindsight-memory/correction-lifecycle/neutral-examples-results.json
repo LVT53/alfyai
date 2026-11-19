@@ -1,0 +1,170 @@
+[
+  {
+    "id": "conflict_kayaks",
+    "input": {
+      "examples": [
+        {
+          "before": "User owns an orange touring kayak and a white racing kayak. | Involving: user",
+          "approved": "User owns an purple touring kayak and a white racing kayak. | Involving: user"
+        }
+      ],
+      "currentFacts": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a green touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    "result": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"User owns a green touring kayak and a white racing kayak.\",\n          \"replace\": \"User owns a white racing kayak.\"\n        }\n      ]\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-9c0770311010a180",
+        "object": "chat.completion",
+        "created": 1795017502,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"User owns a green touring kayak and a white racing kayak.\",\n          \"replace\": \"User owns a white racing kayak.\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 433,
+          "total_tokens": 670,
+          "completion_tokens": 237,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      {
+        "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+        "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+      },
+      {
+        "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+        "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+      },
+      {
+        "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+        "text": "User owns a white racing kayak. | Involving: user"
+      }
+    ]
+  },
+  {
+    "id": "conflict_projects",
+    "input": {
+      "examples": [
+        {
+          "before": "The user's Juniper project uses Ruby and ships on Mondays. | Involving: user",
+          "approved": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ],
+      "currentFacts": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Scala and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    "result": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"User's Juniper project uses Scala and ships on Mondays. | Involving: user\",\n          \"replace\": \"User's Juniper project ships on Mondays. | Involving: user\"\n        }\n      ]\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-b6a804afefeb0a4c",
+        "object": "chat.completion",
+        "created": 1795017503,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"User's Juniper project uses Scala and ships on Mondays. | Involving: user\",\n          \"replace\": \"User's Juniper project ships on Mondays. | Involving: user\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 406,
+          "total_tokens": 651,
+          "completion_tokens": 245,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      {
+        "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+        "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+      },
+      {
+        "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+        "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+      },
+      {
+        "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+        "text": "User's Juniper project ships on Mondays. | Involving: user"
+      }
+    ]
+  }
+]

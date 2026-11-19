@@ -1,0 +1,212 @@
+[
+  {
+    "id": "question_only",
+    "source": "How long does the Panasonic Lumix S5 II battery last when recording video?",
+    "query": "What camera do I own?",
+    "want": "ownership unknown",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "I don't know what camera you own.",
+      "usage": {
+        "prompt_tokens": 201,
+        "total_tokens": 211,
+        "completion_tokens": 10,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 181,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "shopping",
+    "source": "We are comparing dishwashers. Is the Bosch Series 4 quiet enough for an open-plan kitchen?",
+    "query": "Which dishwasher is installed in my kitchen?",
+    "want": "installed dishwasher unknown; shopping does not establish purchase",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "I don't know which dishwasher is currently installed in your kitchen. The available evidence only indicates that you are considering the Bosch Series 4 for an open-plan kitchen and are concerned about noise levels, but it does not confirm any installation.",
+      "usage": {
+        "prompt_tokens": 1438,
+        "total_tokens": 1486,
+        "completion_tokens": 48,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 623,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "neighbor_device",
+    "source": "My neighbor left his Dell XPS 13 here for me to fix. Which charger does it need?",
+    "query": "What laptop do I own?",
+    "want": "user laptop unknown; Dell belongs to neighbor",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "The evidence provided does not state which laptop you own. It only mentions that your neighbor left a Dell XPS 13 with you for repair on October 1, 2026.",
+      "usage": {
+        "prompt_tokens": 1081,
+        "total_tokens": 1122,
+        "completion_tokens": 41,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 350,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "translation",
+    "source": "Translate this sentence into Hungarian: I have two children and work as a nurse.",
+    "query": "How many children do I have, and what is my profession?",
+    "want": "both unknown; translated text is not biography",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "I don't know how many children you have or what your profession is, as there is no evidence provided about these personal facts.",
+      "usage": {
+        "prompt_tokens": 208,
+        "total_tokens": 235,
+        "completion_tokens": 27,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 557,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "actual_self_assertion",
+    "source": "My Asus Zenbook 14 stopped charging this morning. What should I check first?",
+    "query": "Which laptop do I have?",
+    "want": "Asus Zenbook 14",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "You have an Asus Zenbook 14.",
+      "usage": {
+        "prompt_tokens": 1083,
+        "total_tokens": 1094,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 235,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "not_yet_sold",
+    "source": "I'm thinking of selling my Ford Focus, but I haven't listed it yet.",
+    "query": "Have I sold my car, and which model is it?",
+    "want": "not sold according to statement; Ford Focus",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "You have not sold your car yet. As of October 1, 2026, you were thinking of selling your Ford Focus but had not listed it.",
+      "usage": {
+        "prompt_tokens": 883,
+        "total_tokens": 918,
+        "completion_tokens": 35,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 407,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "question_only_hu",
+    "source": "Mennyire hangos a Dyson V15 porszívó?",
+    "query": "Milyen porszívóm van?",
+    "want": "ownership unknown",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "Nincs tárolt információm a porszívódról.",
+      "usage": {
+        "prompt_tokens": 203,
+        "total_tokens": 220,
+        "completion_tokens": 17,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 229,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "source": "Az ügyfelem gluténérzékeny, neki keresek éttermet Budapesten.",
+    "query": "Tudsz rólam valamilyen ételérzékenységet?",
+    "want": "user food sensitivity unknown; client is gluten-sensitive",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "Igen, a rendelkezésre álló információk alapján gluténérzékeny vagy.",
+      "usage": {
+        "prompt_tokens": 1192,
+        "total_tokens": 1212,
+        "completion_tokens": 20,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 301,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "applicant_hu",
+    "source": "Írj motivációs levelet egy jelentkezőnek, aki biológus és kutatói állásra pályázik.",
+    "query": "Mi a foglalkozásom?",
+    "want": "user profession unknown; applicant is biologist",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "A megadott információk alapján nem ismert a foglalkozása. Az adatok csak arra utalnak, hogy 2026. október 1-jén motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázott. Ez a tevékenység nem határozza meg egyértelműen a saját szakmáját.",
+      "usage": {
+        "prompt_tokens": 953,
+        "total_tokens": 1041,
+        "completion_tokens": 88,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 867,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "self_assertion_hu",
+    "source": "A saját Kobo Libra Colour olvasómon túl kicsik a betűk. Hogyan nagyítsam őket?",
+    "query": "Milyen e-könyv-olvasóm van?",
+    "want": "Kobo Libra Colour",
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "A Kobo Libra Colour e-könyv-olvasód van.",
+      "usage": {
+        "prompt_tokens": 1186,
+        "total_tokens": 1202,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 491,
+      "finish": "stop"
+    }
+  }
+]

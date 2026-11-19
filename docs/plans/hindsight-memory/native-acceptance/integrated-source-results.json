@@ -1,0 +1,198 @@
+{
+  "states": [
+    {
+      "cleanupSettled": false,
+      "nativeOperationIdsJson": "[]",
+      "nativeBaseUrl": null,
+      "nativeCredentialHash": null,
+      "controlRevision": 0,
+      "id": "fc60c291-95bb-491a-af49-d2dc5adac706",
+      "userId": "user-1",
+      "status": "succeeded",
+      "phase": "prepare",
+      "priority": 0,
+      "runAfter": null,
+      "attemptCount": 1,
+      "currentAttemptId": "71acb5d7-1e36-4f5d-82d0-6daca5b88a21",
+      "retryable": false,
+      "errorCode": null,
+      "errorMessage": null,
+      "checkpoint": null,
+      "retryState": null,
+      "cancelRequestedAt": null,
+      "startedAt": "2026-11-18T22:15:17.000Z",
+      "completedAt": "2026-11-18T22:15:22.000Z",
+      "createdAt": "2026-11-18T22:15:17.000Z",
+      "updatedAt": "2026-11-18T22:15:22.000Z",
+      "bankId": "a517d71e-bfdf-4533-981e-96a4951c1ca9",
+      "tenantId": null,
+      "epoch": 0,
+      "kind": "source",
+      "sourceId": "49ce3001-aa61-4053-bbbf-3ceefb1f018d",
+      "actionId": null,
+      "requestId": "request-0"
+    },
+    {
+      "cleanupSettled": false,
+      "nativeOperationIdsJson": "[]",
+      "nativeBaseUrl": null,
+      "nativeCredentialHash": null,
+      "controlRevision": 0,
+      "id": "ac2ebada-afa9-4e2b-93e4-8f9cb732b47b",
+      "userId": "user-1",
+      "status": "succeeded",
+      "phase": "prepare",
+      "priority": 0,
+      "runAfter": null,
+      "attemptCount": 1,
+      "currentAttemptId": "b57fd9b3-4b79-465a-b8e1-c6264f054f1b",
+      "retryable": false,
+      "errorCode": null,
+      "errorMessage": null,
+      "checkpoint": null,
+      "retryState": null,
+      "cancelRequestedAt": null,
+      "startedAt": "2026-11-18T22:15:22.000Z",
+      "completedAt": "2026-11-18T22:15:25.000Z",
+      "createdAt": "2026-11-18T22:15:22.000Z",
+      "updatedAt": "2026-11-18T22:15:25.000Z",
+      "bankId": "a517d71e-bfdf-4533-981e-96a4951c1ca9",
+      "tenantId": null,
+      "epoch": 0,
+      "kind": "source",
+      "sourceId": "a3cb709f-7d30-46a6-835f-42bb66ed41f0",
+      "actionId": null,
+      "requestId": "request-1"
+    }
+  ],
+  "published": {
+    "authority": "hindsight",
+    "scope": {
+      "kind": "personal"
+    },
+    "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+    "rows": [
+      {
+        "ref": {
+          "scope": {
+            "kind": "personal"
+          },
+          "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+          "rowId": "603601cd-5b3e-49c0-894d-5f835f3a7f47"
+        },
+        "text": "The user owns a purple kayak.",
+        "updatedAt": "2026-11-18T12:00:00.000Z",
+        "sourceCount": 1
+      },
+      {
+        "ref": {
+          "scope": {
+            "kind": "personal"
+          },
+          "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+          "rowId": "a1bb7618-b177-41bf-a8a1-4d1ae66f87c3"
+        },
+        "text": "A felhasználónak van egy Mák nevű fekete macskája.",
+        "updatedAt": "2026-11-18T12:00:00.000Z",
+        "sourceCount": 1
+      },
+      {
+        "ref": {
+          "scope": {
+            "kind": "personal"
+          },
+          "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+          "rowId": "cefbf60e-5eda-47fb-b814-d4383ff2e7f7"
+        },
+        "text": "The user keeps the purple kayak in the garage.",
+        "updatedAt": "2026-11-18T12:00:00.000Z",
+        "sourceCount": 1
+      }
+    ],
+    "nextCursor": null,
+    "status": "ready",
+    "total": 3
+  },
+  "recalled": [
+    {
+      "id": "cefbf60e-5eda-47fb-b814-d4383ff2e7f7",
+      "text": "The user keeps the purple kayak in the garage.",
+      "fact_type": "observation"
+    },
+    {
+      "id": "603601cd-5b3e-49c0-894d-5f835f3a7f47",
+      "text": "The user owns a purple kayak.",
+      "fact_type": "observation"
+    },
+    {
+      "id": "a1bb7618-b177-41bf-a8a1-4d1ae66f87c3",
+      "text": "A felhasználónak van egy Mák nevű fekete macskája.",
+      "fact_type": "observation"
+    }
+  ],
+  "admitted": [
+    {
+      "ref": {
+        "scope": {
+          "kind": "personal"
+        },
+        "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+        "rowId": "cefbf60e-5eda-47fb-b814-d4383ff2e7f7"
+      },
+      "text": "The user keeps the purple kayak in the garage.",
+      "sources": [
+        {
+          "id": "49ce3001-aa61-4053-bbbf-3ceefb1f018d",
+          "conversationId": null,
+          "messageId": null,
+          "title": "Memory",
+          "quote": "",
+          "assertedAt": "2026-11-18T12:00:00.000Z",
+          "available": true
+        }
+      ]
+    },
+    {
+      "ref": {
+        "scope": {
+          "kind": "personal"
+        },
+        "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+        "rowId": "603601cd-5b3e-49c0-894d-5f835f3a7f47"
+      },
+      "text": "The user owns a purple kayak.",
+      "sources": [
+        {
+          "id": "49ce3001-aa61-4053-bbbf-3ceefb1f018d",
+          "conversationId": null,
+          "messageId": null,
+          "title": "Memory",
+          "quote": "",
+          "assertedAt": "2026-11-18T12:00:00.000Z",
+          "available": true
+        }
+      ]
+    },
+    {
+      "ref": {
+        "scope": {
+          "kind": "personal"
+        },
+        "generation": "da154ebf-2c29-4e93-9c56-13dd1a669f54",
+        "rowId": "a1bb7618-b177-41bf-a8a1-4d1ae66f87c3"
+      },
+      "text": "A felhasználónak van egy Mák nevű fekete macskája.",
+      "sources": [
+        {
+          "id": "a3cb709f-7d30-46a6-835f-42bb66ed41f0",
+          "conversationId": null,
+          "messageId": null,
+          "title": "Memory",
+          "quote": "",
+          "assertedAt": "2026-11-18T12:00:00.000Z",
+          "available": true
+        }
+      ]
+    }
+  ]
+}

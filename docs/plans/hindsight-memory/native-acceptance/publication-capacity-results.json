@@ -1,0 +1,73 @@
+{
+  "baseline": {
+    "samples": 81,
+    "p50Ms": 0.029,
+    "p95Ms": 0.065,
+    "maxMs": 0.094
+  },
+  "series": [
+    {
+      "published": 128,
+      "preparation": {
+        "samples": 7,
+        "p50Ms": 0.125,
+        "p95Ms": 0.283,
+        "maxMs": 0.294
+      },
+      "writeTransaction": {
+        "samples": 7,
+        "p50Ms": 6.801,
+        "p95Ms": 11.51,
+        "maxMs": 12.258
+      },
+      "independentWriter": {
+        "samples": 85,
+        "p50Ms": 0.028,
+        "p95Ms": 4.604,
+        "maxMs": 12.149
+      }
+    },
+    {
+      "published": 512,
+      "preparation": {
+        "samples": 7,
+        "p50Ms": 0.469,
+        "p95Ms": 0.623,
+        "maxMs": 0.809
+      },
+      "writeTransaction": {
+        "samples": 7,
+        "p50Ms": 27.491,
+        "p95Ms": 30.844,
+        "maxMs": 31.74
+      },
+      "independentWriter": {
+        "samples": 54,
+        "p50Ms": 0.029,
+        "p95Ms": 40.269,
+        "maxMs": 49.056
+      }
+    },
+    {
+      "published": 2048,
+      "preparation": {
+        "samples": 7,
+        "p50Ms": 1.158,
+        "p95Ms": 1.255,
+        "maxMs": 1.402
+      },
+      "writeTransaction": {
+        "samples": 7,
+        "p50Ms": 64.845,
+        "p95Ms": 66.342,
+        "maxMs": 66.524
+      },
+      "independentWriter": {
+        "samples": 58,
+        "p50Ms": 0.031,
+        "p95Ms": 70.71,
+        "maxMs": 75.151
+      }
+    }
+  ]
+}

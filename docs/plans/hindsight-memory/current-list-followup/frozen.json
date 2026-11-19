@@ -1,0 +1,26 @@
+{
+  "mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+  "fixtures": [
+    {
+      "id": "en",
+      "old": "User: I own an amber hiking backpack and a white canoe. I prefer decaf coffee. My sister prefers green tea.",
+      "newer": "User: My hiking backpack is teal. I now prefer espresso.",
+      "correction": "User: Correction: my hiking backpack is green. The earlier teal description was wrong; it has not changed colour.",
+      "pending": "User: My hiking backpack is orange.",
+      "before": "I own a green hiking backpack and a white canoe.",
+      "after": "I own a hiking backpack and a blue canoe.",
+      "q": "What boating equipment does the user own?"
+    },
+    {
+      "id": "hu",
+      "old": "User: Van egy piros kerékpárom és egy fehér kajakom. Rövid válaszokat kérek. A húgom Győrben él.",
+      "newer": "User: A kerékpárom kék. Most részletes válaszokat kérek.",
+      "correction": "User: Javítás: a kerékpárom zöld. A korábbi kék leírás téves volt; nem változott meg a színe.",
+      "pending": "User: A kerékpárom narancssárga.",
+      "before": "Van egy zöld kerékpárom és egy fehér kajakom.",
+      "after": "Van egy kerékpárom és egy sárga kajakom.",
+      "q": "Milyen vízi sporteszköze van a felhasználónak?"
+    }
+  ],
+  "note": "Only observations mission differs. Retain remains native and unchanged. Candidate filter uses source ID/text membership, not semantic rewriting."
+}

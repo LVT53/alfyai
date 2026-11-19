@@ -1,0 +1,2082 @@
+{
+  "scope": "native transport/config/isolation only; no app acceptance claim",
+  "tenants": [
+    "b5414c17-4e19-4aff-af35-26b91288f3c5",
+    "dc2a597f-9a8b-402b-9b54-56b9b9ca4444"
+  ],
+  "bank": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+  "checks": [
+    "two dynamic tenants attest distinct schema bindings",
+    "same bank ID inaccessible to another valid tenant before provisioning",
+    "same bank ID holds independent EN/HU retained facts",
+    "cross-tenant native fact PATCH refused",
+    "other tenant delete does not delete same-ID original bank",
+    "forged credential refused"
+  ],
+  "responses": [
+    {
+      "tenant": 0,
+      "path": "/ext/alfyai/capabilities",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "engine_commit": "9fb28dbd724dc1ce4da7cb4c49008e601db76c5f",
+        "extension": "alfyai-identity-v1",
+        "tenant_extension": "AlfyTenant",
+        "tenant_binding": "05d606db5ab888fbe243043131fa0743c4bf9595e0e9da25f249bb404875f394"
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/ext/alfyai/capabilities",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "engine_commit": "9fb28dbd724dc1ce4da7cb4c49008e601db76c5f",
+        "extension": "alfyai-identity-v1",
+        "tenant_extension": "AlfyTenant",
+        "tenant_binding": "9a62d3c194b09ca589e2d86865fc28cb6fc25012272614c52026a44b925591e3"
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+      "method": "PUT",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "name": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "disposition": {
+          "skepticism": 3,
+          "literalism": 3,
+          "empathy": 3
+        },
+        "mission": "",
+        "background": ""
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/config",
+      "method": "PATCH",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "config": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "mental_model_refresh_use_decision_model": true,
+          "reflect_default_options": null,
+          "retain_custom_instructions": null,
+          "recall_chunks_max_tokens": 1000,
+          "retain_chunk_size": 3000,
+          "reflect_source_facts_max_tokens": -1,
+          "consolidation_use_decision_model": true,
+          "disposition_skepticism": null,
+          "mcp_enabled_tools": null,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_budget_min": 20,
+          "recall_decision_model_prune": false,
+          "consolidation_strategies": null,
+          "enable_reranking": true,
+          "reflect_kb_search_apply_tags": true,
+          "default_observation_scopes": "shared",
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "mental_model_delta_use_decision_model": true,
+          "llm_gemini_safety_settings": null,
+          "retain_structured_chunk_size": null,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "recall_budget_adaptive_high": 0.25,
+          "recall_budget_fixed_high": 1000,
+          "enable_text_search": true,
+          "entities_allow_free_form": true,
+          "entity_labels": null,
+          "enable_temporal_retrieval": true,
+          "recall_budget_max": 2000,
+          "recall_max_tokens": 2048,
+          "consolidation_llm_parallelism": 4,
+          "recall_budget_fixed_mid": 300,
+          "max_observations_per_scope": -1,
+          "disposition_empathy": null,
+          "recall_budget_adaptive_low": 0.025,
+          "recall_decision_model_dedup": false,
+          "recall_budget_fixed_low": 100,
+          "retain_max_attachments_per_chunk": 8,
+          "recall_budget_adaptive_mid": 0.075,
+          "enable_graph_retrieval": true,
+          "default_timezone": "UTC",
+          "enable_auto_consolidation": true,
+          "retain_chunk_batch_size": 100,
+          "reflect_mission": null,
+          "recall_include_chunks": true,
+          "enable_observations": true,
+          "store_document_text": true,
+          "audit_log_enabled": false,
+          "memory_defense": null,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_function": "fixed",
+          "retain_strategies": null,
+          "retain_extraction_mode": "concise",
+          "reflect_kb_search_media_types": null,
+          "disposition_literalism": null,
+          "reflect_use_decision_model": true,
+          "page_default_trigger": null,
+          "observation_scope_limits": null,
+          "recall_prefer_observations": false,
+          "consolidation_llm_batch_size": 1,
+          "retain_default_strategy": null,
+          "consolidation_source_facts_max_tokens": 4096,
+          "knowledge_banks": null,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/config",
+      "method": "GET",
+      "status": 404,
+      "data": {
+        "detail": "Bank 'synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a' not found"
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+      "method": "PUT",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "name": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "disposition": {
+          "skepticism": 3,
+          "literalism": 3,
+          "empathy": 3
+        },
+        "mission": "",
+        "background": ""
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/config",
+      "method": "PATCH",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "config": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "mental_model_refresh_use_decision_model": true,
+          "reflect_default_options": null,
+          "retain_custom_instructions": null,
+          "recall_chunks_max_tokens": 1000,
+          "retain_chunk_size": 3000,
+          "reflect_source_facts_max_tokens": -1,
+          "consolidation_use_decision_model": true,
+          "disposition_skepticism": null,
+          "mcp_enabled_tools": null,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_budget_min": 20,
+          "recall_decision_model_prune": false,
+          "consolidation_strategies": null,
+          "enable_reranking": true,
+          "reflect_kb_search_apply_tags": true,
+          "default_observation_scopes": "shared",
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "mental_model_delta_use_decision_model": true,
+          "llm_gemini_safety_settings": null,
+          "retain_structured_chunk_size": null,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "recall_budget_adaptive_high": 0.25,
+          "recall_budget_fixed_high": 1000,
+          "enable_text_search": true,
+          "entities_allow_free_form": true,
+          "entity_labels": null,
+          "enable_temporal_retrieval": true,
+          "recall_budget_max": 2000,
+          "recall_max_tokens": 2048,
+          "consolidation_llm_parallelism": 4,
+          "recall_budget_fixed_mid": 300,
+          "max_observations_per_scope": -1,
+          "disposition_empathy": null,
+          "recall_budget_adaptive_low": 0.025,
+          "recall_decision_model_dedup": false,
+          "recall_budget_fixed_low": 100,
+          "retain_max_attachments_per_chunk": 8,
+          "recall_budget_adaptive_mid": 0.075,
+          "enable_graph_retrieval": true,
+          "default_timezone": "UTC",
+          "enable_auto_consolidation": true,
+          "retain_chunk_batch_size": 100,
+          "reflect_mission": null,
+          "recall_include_chunks": true,
+          "enable_observations": true,
+          "store_document_text": true,
+          "audit_log_enabled": false,
+          "memory_defense": null,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_function": "fixed",
+          "retain_strategies": null,
+          "retain_extraction_mode": "concise",
+          "reflect_kb_search_media_types": null,
+          "disposition_literalism": null,
+          "reflect_use_decision_model": true,
+          "page_default_trigger": null,
+          "observation_scope_limits": null,
+          "recall_prefer_observations": false,
+          "consolidation_llm_batch_size": 1,
+          "retain_default_strategy": null,
+          "consolidation_source_facts_max_tokens": 4096,
+          "knowledge_banks": null,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/memories",
+      "method": "POST",
+      "status": 200,
+      "data": {
+        "success": true,
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "items_count": 1,
+        "async": true,
+        "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+        "operation_ids": null,
+        "usage": null
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.398037+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.398037+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.398037+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.398037+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.398037+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.007785+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:10.398037+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "task_type": "consolidation",
+            "operation_id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:13.335830+00:00",
+            "updated_at": "2026-11-18T20:55:13.369473+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "consolidating",
+              "at": "2026-11-18T20:55:13.369219+00:00",
+              "processed": 0,
+              "total": 2,
+              "detail": null
+            }
+          },
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:13.327703+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "task_type": "consolidation",
+            "operation_id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:13.335830+00:00",
+            "updated_at": "2026-11-18T20:55:13.369473+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "consolidating",
+              "at": "2026-11-18T20:55:13.369219+00:00",
+              "processed": 0,
+              "total": 2,
+              "detail": null
+            }
+          },
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:13.327703+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "task_type": "consolidation",
+            "operation_id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:13.335830+00:00",
+            "updated_at": "2026-11-18T20:55:14.096200+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "consolidating",
+              "at": "2026-11-18T20:55:14.095762+00:00",
+              "processed": 1,
+              "total": 2,
+              "detail": {
+                "memories_failed": 0,
+                "observations_merged": 0,
+                "observations_created": 1,
+                "observations_deleted": 0,
+                "observations_updated": 0
+              }
+            }
+          },
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:13.327703+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "task_type": "consolidation",
+            "operation_id": "e4551942-52b2-4945-b674-640e7a9e5def",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:13.335830+00:00",
+            "updated_at": "2026-11-18T20:55:14.770505+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "refreshing_mental_models",
+              "at": "2026-11-18T20:55:14.765613+00:00",
+              "processed": 2,
+              "total": 2,
+              "detail": null
+            }
+          },
+          {
+            "id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "task_type": "batch_retain",
+            "operation_id": "1a9cb422-7d34-4d9b-bc09-f248d94cb798",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "task_type": "retain",
+            "operation_id": "e5e2a5e7-0264-4773-9550-8e50a9920233",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-0",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:10.007785+00:00",
+            "updated_at": "2026-11-18T20:55:13.338916+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:13.327703+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/memories/list?state=valid&limit=100&offset=0",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "items": [
+          {
+            "id": "cbf84aca-49da-4e34-bb10-31d8b7dee568",
+            "text": "The user's favourite drink is mint tea.",
+            "context": "",
+            "date": "2026-11-18T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:14.756689+00:00",
+            "source_memory_ids": [
+              "026542a8-f012-415c-af9a-49a28b609f72"
+            ]
+          },
+          {
+            "id": "026542a8-f012-415c-af9a-49a28b609f72",
+            "text": "The user's favourite drink is mint tea. | Involving: user",
+            "context": "User-authored synthetic fixture",
+            "date": "2026-11-18T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "synthetic-source-0",
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "mint tea, user",
+            "chunk_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a_synthetic-source-0_0",
+            "proof_count": 1,
+            "tags": [
+              "synthetic"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T20:55:14.759199+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:13.301066+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "0c2ebb4e-1075-4d4b-9998-85a1ccb74211",
+            "text": "The user owns a silver telescope.",
+            "context": "",
+            "date": "2026-11-18T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:14.089560+00:00",
+            "source_memory_ids": [
+              "55c69988-163e-42a3-9952-8560f60434e7"
+            ]
+          },
+          {
+            "id": "55c69988-163e-42a3-9952-8560f60434e7",
+            "text": "The user owns a silver telescope. | Involving: user",
+            "context": "User-authored synthetic fixture",
+            "date": "2026-11-18T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "synthetic-source-0",
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "silver telescope, user",
+            "chunk_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a_synthetic-source-0_0",
+            "proof_count": 1,
+            "tags": [
+              "synthetic"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T20:55:14.092760+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:13.301066+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 4,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/memories",
+      "method": "POST",
+      "status": 200,
+      "data": {
+        "success": true,
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "items_count": 1,
+        "async": true,
+        "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+        "operation_ids": null,
+        "usage": null
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.300167+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.300167+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.300167+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.300167+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 2,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.110035+00:00",
+            "status": "pending",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:15.300167+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "task_type": "consolidation",
+            "operation_id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:17.985263+00:00",
+            "updated_at": "2026-11-18T20:55:17.998562+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "consolidating",
+              "at": "2026-11-18T20:55:17.998278+00:00",
+              "processed": 0,
+              "total": 2,
+              "detail": null
+            }
+          },
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:17.976717+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "task_type": "consolidation",
+            "operation_id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:17.985263+00:00",
+            "updated_at": "2026-11-18T20:55:18.525250+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "consolidating",
+              "at": "2026-11-18T20:55:18.524839+00:00",
+              "processed": 1,
+              "total": 2,
+              "detail": {
+                "memories_failed": 0,
+                "observations_merged": 0,
+                "observations_created": 1,
+                "observations_deleted": 0,
+                "observations_updated": 0
+              }
+            }
+          },
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:17.976717+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "task_type": "consolidation",
+            "operation_id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:17.985263+00:00",
+            "updated_at": "2026-11-18T20:55:18.525250+00:00",
+            "status": "processing",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "consolidating",
+              "at": "2026-11-18T20:55:18.524839+00:00",
+              "processed": 1,
+              "total": 2,
+              "detail": {
+                "memories_failed": 0,
+                "observations_merged": 0,
+                "observations_created": 1,
+                "observations_deleted": 0,
+                "observations_updated": 0
+              }
+            }
+          },
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:17.976717+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/operations?limit=100",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "total": 3,
+        "limit": 100,
+        "offset": 0,
+        "operations": [
+          {
+            "id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "task_type": "consolidation",
+            "operation_id": "da126f9c-b7e9-4fca-be14-43d5bf25ed0d",
+            "operation_type": "consolidation",
+            "items_count": 0,
+            "document_id": null,
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:17.985263+00:00",
+            "updated_at": "2026-11-18T20:55:19.180478+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "refreshing_mental_models",
+              "at": "2026-11-18T20:55:19.176940+00:00",
+              "processed": 2,
+              "total": 2,
+              "detail": null
+            }
+          },
+          {
+            "id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "task_type": "batch_retain",
+            "operation_id": "44a59113-5841-42f5-a87c-855cad38e58a",
+            "operation_type": "batch_retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": null
+          },
+          {
+            "id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "task_type": "retain",
+            "operation_id": "aa548ead-9587-48ae-854a-3e5da0e5bdba",
+            "operation_type": "retain",
+            "items_count": 1,
+            "document_id": "synthetic-source-1",
+            "filename": null,
+            "mental_model_id": null,
+            "details": null,
+            "created_at": "2026-11-18T20:55:15.110035+00:00",
+            "updated_at": "2026-11-18T20:55:17.987744+00:00",
+            "status": "completed",
+            "error_message": null,
+            "retry_count": 0,
+            "next_retry_at": null,
+            "progress": {
+              "stage": "storing",
+              "at": "2026-11-18T20:55:17.976717+00:00",
+              "processed": 1,
+              "total": 1,
+              "detail": {
+                "facts_committed": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/memories/list?state=valid&limit=100&offset=0",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "items": [
+          {
+            "id": "aaadbfcf-4539-4efe-96e7-bef406230c1f",
+            "text": "A felhasználó kedvenc itala a kamillatea.",
+            "context": "",
+            "date": "2026-11-18T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:19.170722+00:00",
+            "source_memory_ids": [
+              "fd5f9102-ab5f-4cf6-9dca-c76987f8dcfa"
+            ]
+          },
+          {
+            "id": "fd5f9102-ab5f-4cf6-9dca-c76987f8dcfa",
+            "text": "A felhasználó kedvenc itala a kamillatea. | Involving: user",
+            "context": "User-authored synthetic fixture",
+            "date": "2026-11-18T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "synthetic-source-1",
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "kamillatea, user",
+            "chunk_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a_synthetic-source-1_0",
+            "proof_count": 1,
+            "tags": [
+              "synthetic"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T20:55:19.172384+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:17.965366+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "6f779956-d357-4c34-9c5b-b6381bbfe28c",
+            "text": "A felhasználónak van egy zöld kajakja.",
+            "context": "",
+            "date": "2026-11-18T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:18.519147+00:00",
+            "source_memory_ids": [
+              "66e88719-0104-42c2-8a8c-b433e87e3a71"
+            ]
+          },
+          {
+            "id": "66e88719-0104-42c2-8a8c-b433e87e3a71",
+            "text": "A felhasználónak van egy zöld kajakja. | Involving: user",
+            "context": "User-authored synthetic fixture",
+            "date": "2026-11-18T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "synthetic-source-1",
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "user, zöld kajak",
+            "chunk_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a_synthetic-source-1_0",
+            "proof_count": 1,
+            "tags": [
+              "synthetic"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T20:55:18.521712+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:17.965366+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 4,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/memories/list?state=valid&limit=100&offset=0",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "items": [
+          {
+            "id": "cbf84aca-49da-4e34-bb10-31d8b7dee568",
+            "text": "The user's favourite drink is mint tea.",
+            "context": "",
+            "date": "2026-11-18T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:14.756689+00:00",
+            "source_memory_ids": [
+              "026542a8-f012-415c-af9a-49a28b609f72"
+            ]
+          },
+          {
+            "id": "026542a8-f012-415c-af9a-49a28b609f72",
+            "text": "The user's favourite drink is mint tea. | Involving: user",
+            "context": "User-authored synthetic fixture",
+            "date": "2026-11-18T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "synthetic-source-0",
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "mint tea, user",
+            "chunk_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a_synthetic-source-0_0",
+            "proof_count": 1,
+            "tags": [
+              "synthetic"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T20:55:14.759199+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:13.301066+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "0c2ebb4e-1075-4d4b-9998-85a1ccb74211",
+            "text": "The user owns a silver telescope.",
+            "context": "",
+            "date": "2026-11-18T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:14.089560+00:00",
+            "source_memory_ids": [
+              "55c69988-163e-42a3-9952-8560f60434e7"
+            ]
+          },
+          {
+            "id": "55c69988-163e-42a3-9952-8560f60434e7",
+            "text": "The user owns a silver telescope. | Involving: user",
+            "context": "User-authored synthetic fixture",
+            "date": "2026-11-18T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "synthetic-source-0",
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "silver telescope, user",
+            "chunk_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a_synthetic-source-0_0",
+            "proof_count": 1,
+            "tags": [
+              "synthetic"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T20:55:14.092760+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T20:55:13.301066+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 4,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/memories/026542a8-f012-415c-af9a-49a28b609f72",
+      "method": "PATCH",
+      "status": 404,
+      "data": {
+        "detail": "Memory unit '026542a8-f012-415c-af9a-49a28b609f72' not found"
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+      "method": "DELETE",
+      "status": 200,
+      "data": {
+        "success": true,
+        "message": "Bank 'synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a' and all associated data deleted successfully",
+        "deleted_count": 8
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a/config",
+      "method": "GET",
+      "status": 200,
+      "data": {
+        "bank_id": "synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+        "config": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "mental_model_refresh_use_decision_model": true,
+          "reflect_default_options": null,
+          "retain_custom_instructions": null,
+          "recall_chunks_max_tokens": 1000,
+          "retain_chunk_size": 3000,
+          "reflect_source_facts_max_tokens": -1,
+          "consolidation_use_decision_model": true,
+          "disposition_skepticism": null,
+          "mcp_enabled_tools": null,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_budget_min": 20,
+          "recall_decision_model_prune": false,
+          "consolidation_strategies": null,
+          "enable_reranking": true,
+          "reflect_kb_search_apply_tags": true,
+          "default_observation_scopes": "shared",
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "mental_model_delta_use_decision_model": true,
+          "llm_gemini_safety_settings": null,
+          "retain_structured_chunk_size": null,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "recall_budget_adaptive_high": 0.25,
+          "recall_budget_fixed_high": 1000,
+          "enable_text_search": true,
+          "entities_allow_free_form": true,
+          "entity_labels": null,
+          "enable_temporal_retrieval": true,
+          "recall_budget_max": 2000,
+          "recall_max_tokens": 2048,
+          "consolidation_llm_parallelism": 4,
+          "recall_budget_fixed_mid": 300,
+          "max_observations_per_scope": -1,
+          "disposition_empathy": null,
+          "recall_budget_adaptive_low": 0.025,
+          "recall_decision_model_dedup": false,
+          "recall_budget_fixed_low": 100,
+          "retain_max_attachments_per_chunk": 8,
+          "recall_budget_adaptive_mid": 0.075,
+          "enable_graph_retrieval": true,
+          "default_timezone": "UTC",
+          "enable_auto_consolidation": true,
+          "retain_chunk_batch_size": 100,
+          "reflect_mission": null,
+          "recall_include_chunks": true,
+          "enable_observations": true,
+          "store_document_text": true,
+          "audit_log_enabled": false,
+          "memory_defense": null,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_function": "fixed",
+          "retain_strategies": null,
+          "retain_extraction_mode": "concise",
+          "reflect_kb_search_media_types": null,
+          "disposition_literalism": null,
+          "reflect_use_decision_model": true,
+          "page_default_trigger": null,
+          "observation_scope_limits": null,
+          "recall_prefer_observations": false,
+          "consolidation_llm_batch_size": 1,
+          "retain_default_strategy": null,
+          "consolidation_source_facts_max_tokens": 4096,
+          "knowledge_banks": null,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      }
+    },
+    {
+      "tenant": 0,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+      "method": "DELETE",
+      "status": 200,
+      "data": {
+        "success": true,
+        "message": "Bank 'synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a' and all associated data deleted successfully",
+        "deleted_count": 8
+      }
+    },
+    {
+      "tenant": 1,
+      "path": "/v1/default/banks/synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a",
+      "method": "DELETE",
+      "status": 200,
+      "data": {
+        "success": true,
+        "message": "Bank 'synthetic-native-0917803d-3b45-4c42-bfb1-91da74d0160a' and all associated data deleted successfully",
+        "deleted_count": 0
+      }
+    }
+  ],
+  "passed": true
+}

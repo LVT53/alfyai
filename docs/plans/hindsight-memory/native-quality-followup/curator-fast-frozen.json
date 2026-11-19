@@ -1,0 +1,128 @@
+{
+  "prompt": "Apply one explicitly authorized memory edit to facts extracted by a separate memory system from the latest revision of its source. The old source and user edit specify the targeted information. Keep unrelated facts unchanged. Do not extract new facts, invent a property taxonomy, or decide that a question establishes ownership. Default is keep; return only required operations on the supplied fact IDs.\nUse surgical text replacements: each 'before' must be an exact nonempty substring occurring ONCE in that native fact; 'after' replaces it. Remove only the targeted subclaim, preserving ownership, other people, price, activities and all unrelated information. Replacements may correct grammar but must not add unsupported facts. To remove a whole fact, use its entire exact text as 'before' and an empty 'after', only if it contains nothing except the targeted claim. Do not put removed details into explanations or residual text.\nAn earlier correction applies to the old statement, not genuinely new later events. A changed source with a conflicting target value but no explicit later event must be flagged conflict=true and have only the disputed subclaim removed from usable memory. Preserve useful remainder. A genuine move/repaint/reassignment must survive with correct time and owner. Forgetting an old personal phone attribution does not forbid the same number attributed to a company. Even historical personal attribution must be removed when requested. If a native fact is not targeted, do not change it. Return JSON edits, each with id, patches, conflict and unresolved booleans. There is no action enum: the exact patches are the action. IDs not listed remain exactly unchanged. Mark unresolved instead of guessing if an edit cannot be safely represented.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "edits": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "conflict": {
+              "type": "boolean"
+            },
+            "unresolved": {
+              "type": "boolean"
+            },
+            "patches": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "type": "string"
+                  },
+                  "after": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "before",
+                  "after"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "conflict",
+            "unresolved",
+            "patches"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "edits"
+    ],
+    "additionalProperties": false
+  },
+  "cases": [
+    {
+      "id": "forget_keep_new_details",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+      "action": "Forget the colour of my bicycle. Keep my other information.",
+      "want": "no bicycle colour; espresso and pottery preserved",
+      "heldOut": false
+    },
+    {
+      "id": "shared_subject_hu",
+      "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+      "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+      "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+      "want": "partner gluten sensitivity remains; user sensitivity absent; Szeged and user pottery preserved",
+      "heldOut": false
+    },
+    {
+      "id": "new_explicit_life_event",
+      "previous": "I live in Rome. I work remotely.",
+      "latest": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+      "action": "Earlier correction: the old claim that I lived in Rome was wrong; I lived in Berlin. This corrects the old statement, not future moves.",
+      "want": "current Prague and office; historical Berlin; no forced current Berlin",
+      "heldOut": false
+    },
+    {
+      "id": "conflicting_target_edit",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is green. I prefer espresso.",
+      "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+      "want": "flag unresolved blue versus green conflict; preserve espresso; no silent chosen colour",
+      "heldOut": false
+    },
+    {
+      "id": "compound_price",
+      "previous": "My red bicycle cost 250 euros.",
+      "latest": "My red bicycle cost 250 euros and I ride it daily.",
+      "action": "Forget only the colour of my bicycle.",
+      "want": "ownership/price/daily preserved, no red",
+      "fresh": true
+    },
+    {
+      "id": "different_projects",
+      "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+      "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+      "action": "Correct only Atlas to use TypeScript.",
+      "want": "AtlasTypeScript; BeaconRust/mobile",
+      "fresh": true
+    },
+    {
+      "id": "two_bikes",
+      "previous": "My road bicycle is red. My mountain bicycle is blue.",
+      "latest": "My road bicycle is red. My mountain bicycle is blue. I ride the mountain bicycle on Sundays.",
+      "action": "Correct only my road bicycle colour to yellow.",
+      "want": "road yellow; mountainblue/Sundays; both ownership"
+    },
+    {
+      "id": "sibling_hu",
+      "previous": "Én és a nővérem Győrben élünk.",
+      "latest": "Én és a nővérem Győrben élünk. Én teniszezem, ő fut.",
+      "action": "Forget only my city.",
+      "want": "sisterGyor/running; usertennis; no usercity"
+    },
+    {
+      "id": "phone_reassignment",
+      "previous": "My personal number is 07700 901111.",
+      "latest": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+      "action": "Forget my former personal phone number, preserving the company number and my new personal number.",
+      "want": "company901111/newpersonal902222; no formerpersonal901111"
+    }
+  ],
+  "thinking": false,
+  "maxOutput": 3500
+}

@@ -1,0 +1,1199 @@
+{
+  "stage": "revision-2",
+  "facts": [
+    {
+      "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+      "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+    },
+    {
+      "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+      "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+    },
+    {
+      "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+      "text": "The user's Juniper project uses Ruby and ships on Mondays. | Involving: user"
+    }
+  ],
+  "decision": {
+    "text": "{\n  \"facts\": [\n    {\n      \"id\": \"e575ae93-8dd2-460e-afeb-b302efd02223\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"0278deb7-f610-4173-bc1c-710188d105c8\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"6afb8347-de9a-47a6-aa4c-b6917a5fbc1f\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Ruby\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+    "response": {
+      "id": "chatcmpl-83e9c96a5de95564",
+      "object": "chat.completion",
+      "created": 1795018512,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"facts\": [\n    {\n      \"id\": \"e575ae93-8dd2-460e-afeb-b302efd02223\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"0278deb7-f610-4173-bc1c-710188d105c8\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"6afb8347-de9a-47a6-aa4c-b6917a5fbc1f\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Ruby\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "We need answer user's request. Need produce final JSON only? User says Return no commentary. Need apply explicit correction/removal to native memory facts. Need return entry for EVERY fact ID, with list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace whole fact with empty text only if ALL info targeted.\n\nAction: Correct Juniper's programming language to Go. Keep Harbor and release schedule unchanged.\nOriginal source: My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.\nCurrent source: My Juniper project uses Ruby and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.\nFacts:\ne575... Harbor uses Kotlin dark theme.\n0278... Juniper new CLI offline mode.\n6afb... Juniper uses Ruby and ships Mondays.\n\nNeed correct Juniper programming language to Go. So fact 6afb should change Ruby to Go, keep ships on Mondays. Minimal exact substring replacement: find \"Ruby\" replace \"Go\". It occurs once. Other facts unchanged. Need ensure action durable intent about original statement survives reprocessing. Since current source still says Ruby? But action says correct to Go. We edit fact. No conflict? The current source includes Ruby and new CLI. The correction changes original claim. Not new event. So replace Ruby with Go.\n\nNeed output entries for every fact ID. Format likely JSON array? Need infer. \"Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged.\" Could be JSON object mapping id to edits? Need likely:\n[\n {\"id\":\"...\",\"edits\":[{\"find\":\"Ruby\",\"replace\":\"Go\"}]},\n {\"id\":\"...\",\"edits\":[]},\n ...\n]\nNeed no commentary. Ensure valid JSON.\n\nDouble-check: \"Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts.\" So only edits.\n\nPotential issue: fact text: \"The user's Juniper project uses Ruby and ships on Mondays. | Involving: user\" find \"Ruby\" replace \"Go\". Good.\n\nHarbor unchanged. CLI unchanged.\n\nNeed maybe include all facts in same order? Yes.\n\nFinal JSON only.\n"
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.31.0-6612147e",
+      "usage": {
+        "prompt_tokens": 556,
+        "total_tokens": 1284,
+        "completion_tokens": 728,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 515
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  "attempts": [
+    {
+      "decision": {
+        "text": "{\n  \"facts\": [\n    {\n      \"id\": \"e575ae93-8dd2-460e-afeb-b302efd02223\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"0278deb7-f610-4173-bc1c-710188d105c8\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"6afb8347-de9a-47a6-aa4c-b6917a5fbc1f\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Ruby\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+        "response": {
+          "id": "chatcmpl-83e9c96a5de95564",
+          "object": "chat.completion",
+          "created": 1795018512,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"facts\": [\n    {\n      \"id\": \"e575ae93-8dd2-460e-afeb-b302efd02223\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"0278deb7-f610-4173-bc1c-710188d105c8\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"6afb8347-de9a-47a6-aa4c-b6917a5fbc1f\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Ruby\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": "We need answer user's request. Need produce final JSON only? User says Return no commentary. Need apply explicit correction/removal to native memory facts. Need return entry for EVERY fact ID, with list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace whole fact with empty text only if ALL info targeted.\n\nAction: Correct Juniper's programming language to Go. Keep Harbor and release schedule unchanged.\nOriginal source: My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.\nCurrent source: My Juniper project uses Ruby and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.\nFacts:\ne575... Harbor uses Kotlin dark theme.\n0278... Juniper new CLI offline mode.\n6afb... Juniper uses Ruby and ships Mondays.\n\nNeed correct Juniper programming language to Go. So fact 6afb should change Ruby to Go, keep ships on Mondays. Minimal exact substring replacement: find \"Ruby\" replace \"Go\". It occurs once. Other facts unchanged. Need ensure action durable intent about original statement survives reprocessing. Since current source still says Ruby? But action says correct to Go. We edit fact. No conflict? The current source includes Ruby and new CLI. The correction changes original claim. Not new event. So replace Ruby with Go.\n\nNeed output entries for every fact ID. Format likely JSON array? Need infer. \"Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged.\" Could be JSON object mapping id to edits? Need likely:\n[\n {\"id\":\"...\",\"edits\":[{\"find\":\"Ruby\",\"replace\":\"Go\"}]},\n {\"id\":\"...\",\"edits\":[]},\n ...\n]\nNeed no commentary. Ensure valid JSON.\n\nDouble-check: \"Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts.\" So only edits.\n\nPotential issue: fact text: \"The user's Juniper project uses Ruby and ships on Mondays. | Involving: user\" find \"Ruby\" replace \"Go\". Good.\n\nHarbor unchanged. CLI unchanged.\n\nNeed maybe include all facts in same order? Yes.\n\nFinal JSON only.\n"
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 556,
+            "total_tokens": 1284,
+            "completion_tokens": 728,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 515
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      },
+      "valid": true
+    }
+  ],
+  "projected": [
+    {
+      "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+      "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+    },
+    {
+      "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+      "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+    },
+    {
+      "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+      "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+    }
+  ],
+  "writes": [
+    {
+      "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+      "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+      "context": "",
+      "date": "2026-11-18T12:00:00+00:00",
+      "type": "world",
+      "mentioned_at": "2026-11-18T12:00:00+00:00",
+      "occurred_start": null,
+      "occurred_end": null,
+      "entities": [
+        "Juniper project",
+        "Ruby",
+        "user"
+      ],
+      "document_id": "source-r2",
+      "chunk_id": "recovery-publication-1_source-r2_0",
+      "tags": [
+        "published-revision:2"
+      ],
+      "metadata": {},
+      "observation_scopes": null,
+      "state": "valid",
+      "invalidation_reason": null,
+      "invalidated_at": null,
+      "edited_at": "2026-11-18T16:15:16.739283+00:00",
+      "consolidated_at": null,
+      "consolidation_failed_at": null
+    }
+  ],
+  "snapshot": {
+    "stage": "revision-2",
+    "list": {
+      "items": [
+        {
+          "id": "bdbd999b-d3f7-4c54-a626-7de85ac55518",
+          "text": "The user's Harbor project has a dark theme.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:11.329926+00:00",
+          "source_memory_ids": [
+            "e575ae93-8dd2-460e-afeb-b302efd02223"
+          ]
+        },
+        {
+          "id": "e024b172-2c9c-4099-b89e-cca021340c92",
+          "text": "The user's Harbor project uses Kotlin.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:11.329926+00:00",
+          "source_memory_ids": [
+            "e575ae93-8dd2-460e-afeb-b302efd02223"
+          ]
+        },
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source-r2",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Harbor project, Kotlin, dark theme, user",
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T16:15:11.338258+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:09.748871+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "e0679180-c529-4a10-964e-51f91483c458",
+          "text": "The user's Juniper project has a new CLI that supports offline mode.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:11.329926+00:00",
+          "source_memory_ids": [
+            "0278deb7-f610-4173-bc1c-710188d105c8"
+          ]
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source-r2",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "CLI, Juniper, offline mode, user",
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T16:15:11.338258+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:09.748871+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "38cb1627-8ed2-4676-b7c5-686f9858228e",
+          "text": "The user's Harbor project has a dark theme.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:1"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:14:58.361596+00:00",
+          "source_memory_ids": [
+            "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2"
+          ]
+        },
+        {
+          "id": "c60e61c1-d225-42c0-9e09-8c44dc27201d",
+          "text": "The user's Harbor project uses Kotlin.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:1"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:14:58.361596+00:00",
+          "source_memory_ids": [
+            "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2"
+          ]
+        },
+        {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source-r1",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Harbor project, Kotlin, dark theme, user",
+          "chunk_id": "recovery-publication-1_source-r1_0",
+          "proof_count": 1,
+          "tags": [
+            "published-revision:1"
+          ],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T16:14:58.369043+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:14:57.077774+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "22fc6a5a-8d94-4eed-b326-87142230be14",
+          "text": "The user's Juniper project uses Go.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:18.228949+00:00",
+          "source_memory_ids": [
+            "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f"
+          ]
+        },
+        {
+          "id": "fc90ffff-f543-4fb6-a21c-152dbd4eb393",
+          "text": "The user's Juniper project ships on Mondays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:18.228949+00:00",
+          "source_memory_ids": [
+            "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f"
+          ]
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source-r2",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Juniper project, Ruby, user",
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "published-revision:2"
+          ],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T16:15:18.234880+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T16:15:16.739283+00:00",
+          "updated_at": "2026-11-18T16:15:16.739283+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "8706da44-1d0f-405c-98fe-471df58a6ce0",
+          "text": "The user's Juniper project ships on Mondays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:1"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:04.103948+00:00",
+          "source_memory_ids": [
+            "f0d88123-264b-4b35-8912-a6d6a9fa2431"
+          ]
+        },
+        {
+          "id": "f5ec20c1-a589-4d68-9ab9-8d1387f24f86",
+          "text": "The user's Juniper project uses Go.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [
+            "published-revision:1"
+          ],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T16:15:04.103948+00:00",
+          "source_memory_ids": [
+            "f0d88123-264b-4b35-8912-a6d6a9fa2431"
+          ]
+        },
+        {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source-r1",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Juniper project, Mondays, Ruby, user",
+          "chunk_id": "recovery-publication-1_source-r1_0",
+          "proof_count": 1,
+          "tags": [
+            "published-revision:1"
+          ],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T16:15:04.109576+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T16:15:02.525696+00:00",
+          "updated_at": "2026-11-18T16:15:02.525696+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 14,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "type": "world",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.001394929565766441,
+            "reranker": 0.001268229796551168,
+            "semantic": 0.8031209707260132,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "type": "world",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source-r1",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r1_0",
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.00139492956568601,
+            "reranker": 0.001268229796551168,
+            "semantic": 0.8041887879371643,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Mondays",
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source-r1",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r1_0",
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.000883872333450803,
+            "reranker": 0.0008035912760533392,
+            "semantic": 0.8182940699703668,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.000883872333450803,
+            "reranker": 0.0008035912760533392,
+            "semantic": 0.8181209564208984,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "22fc6a5a-8d94-4eed-b326-87142230be14",
+          "text": "The user's Juniper project uses Go.",
+          "type": "observation",
+          "entities": [
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": [
+            "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f"
+          ],
+          "scores": {
+            "final": 0.0003733240183109347,
+            "reranker": 0.0003394154482521117,
+            "semantic": 0.7959054708480835,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "f5ec20c1-a589-4d68-9ab9-8d1387f24f86",
+          "text": "The user's Juniper project uses Go.",
+          "type": "observation",
+          "entities": [
+            "Mondays",
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": [
+            "f0d88123-264b-4b35-8912-a6d6a9fa2431"
+          ],
+          "scores": {
+            "final": 0.0003733240183109347,
+            "reranker": 0.0003394154482521117,
+            "semantic": 0.7959054708480835,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "bdbd999b-d3f7-4c54-a626-7de85ac55518",
+          "text": "The user's Harbor project has a dark theme.",
+          "type": "observation",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": [
+            "e575ae93-8dd2-460e-afeb-b302efd02223"
+          ],
+          "scores": {
+            "final": 0.0003706271871272329,
+            "reranker": 0.0003369635669514537,
+            "semantic": 0.7596691846847534,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "38cb1627-8ed2-4676-b7c5-686f9858228e",
+          "text": "The user's Harbor project has a dark theme.",
+          "type": "observation",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": [
+            "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2"
+          ],
+          "scores": {
+            "final": 0.0003706271871058628,
+            "reranker": 0.0003369635669514537,
+            "semantic": 0.7596691846847534,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "e024b172-2c9c-4099-b89e-cca021340c92",
+          "text": "The user's Harbor project uses Kotlin.",
+          "type": "observation",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": [
+            "e575ae93-8dd2-460e-afeb-b302efd02223"
+          ],
+          "scores": {
+            "final": 0.00035669179849611164,
+            "reranker": 0.00032429391285404563,
+            "semantic": 0.7901232367680542,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "c60e61c1-d225-42c0-9e09-8c44dc27201d",
+          "text": "The user's Harbor project uses Kotlin.",
+          "type": "observation",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": [
+            "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2"
+          ],
+          "scores": {
+            "final": 0.00035669179847554503,
+            "reranker": 0.00032429391285404563,
+            "semantic": 0.7901232367680542,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "8706da44-1d0f-405c-98fe-471df58a6ce0",
+          "text": "The user's Juniper project ships on Mondays.",
+          "type": "observation",
+          "entities": [
+            "Mondays",
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": [
+            "f0d88123-264b-4b35-8912-a6d6a9fa2431"
+          ],
+          "scores": {
+            "final": 0.0002888418411415917,
+            "reranker": 0.0002626066852826625,
+            "semantic": 0.781425952911377,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "fc90ffff-f543-4fb6-a21c-152dbd4eb393",
+          "text": "The user's Juniper project ships on Mondays.",
+          "type": "observation",
+          "entities": [
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": [
+            "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f"
+          ],
+          "scores": {
+            "final": 0.0002888418411415917,
+            "reranker": 0.0002626066852826625,
+            "semantic": 0.781425952911377,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Juniper",
+            "offline mode",
+            "CLI",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.00022028600076783142,
+            "reranker": 0.00020027768914587796,
+            "semantic": 0.7950388315296884,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "e0679180-c529-4a10-964e-51f91483c458",
+          "text": "The user's Juniper project has a new CLI that supports offline mode.",
+          "type": "observation",
+          "entities": [
+            "Juniper",
+            "offline mode",
+            "CLI",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": [
+            "0278deb7-f610-4173-bc1c-710188d105c8"
+          ],
+          "scores": {
+            "final": 0.0002063961003170473,
+            "reranker": 0.00018764939159154892,
+            "semantic": 0.7853120565414429,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "dark theme": {
+          "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+          "canonical_name": "dark theme",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Harbor project": {
+          "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+          "canonical_name": "Harbor project",
+          "observations": []
+        },
+        "Kotlin": {
+          "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+          "canonical_name": "Kotlin",
+          "observations": []
+        },
+        "Mondays": {
+          "entity_id": "0462ab13-88f9-48ad-95c9-5a834b6f1811",
+          "canonical_name": "Mondays",
+          "observations": []
+        },
+        "Ruby": {
+          "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+          "canonical_name": "Ruby",
+          "observations": []
+        },
+        "Juniper project": {
+          "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+          "canonical_name": "Juniper project",
+          "observations": []
+        },
+        "Juniper": {
+          "entity_id": "44fd60ed-334b-4136-a201-5195b03e0bb9",
+          "canonical_name": "Juniper",
+          "observations": []
+        },
+        "offline mode": {
+          "entity_id": "72ddd560-677c-421b-bcec-0c26913aa5fd",
+          "canonical_name": "offline mode",
+          "observations": []
+        },
+        "CLI": {
+          "entity_id": "d93f4eca-b9e7-4fea-aba7-3b15bd9d0759",
+          "canonical_name": "CLI",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "recovery-publication-1_source-r2_0": {
+          "id": "recovery-publication-1_source-r2_0",
+          "text": "User: My Juniper project uses Ruby and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        },
+        "recovery-publication-1_source-r1_0": {
+          "id": "recovery-publication-1_source-r1_0",
+          "text": "User: My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f": {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "f0d88123-264b-4b35-8912-a6d6a9fa2431": {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source-r1",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r1_0",
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "e575ae93-8dd2-460e-afeb-b302efd02223": {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2": {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source-r1",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r1_0",
+          "tags": [
+            "published-revision:1"
+          ],
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "0278deb7-f610-4173-bc1c-710188d105c8": {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "admitted": [
+      {
+        "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+        "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+      },
+      {
+        "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+        "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+      },
+      {
+        "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+        "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+      }
+    ],
+    "answer": {
+      "text": "Your Harbor project uses Kotlin and features a dark theme. Your Juniper project uses Go, ships on Mondays, and includes a new CLI that supports offline mode.",
+      "response": {
+        "id": "chatcmpl-833e6205d3964223",
+        "object": "chat.completion",
+        "created": 1795018518,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Your Harbor project uses Kotlin and features a dark theme. Your Juniper project uses Go, ships on Mondays, and includes a new CLI that supports offline mode.",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 249,
+          "total_tokens": 282,
+          "completion_tokens": 33,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    }
+  }
+}

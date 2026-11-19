@@ -1,0 +1,184 @@
+{
+  "ledger": {
+    "epoch": 1,
+    "desired": 2,
+    "active": {
+      "epoch": 1,
+      "revision": 2,
+      "tag": "published-revision:2",
+      "ack": [
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ]
+    }
+  },
+  "snapshot": {
+    "label": "late-old-native-write",
+    "activeRevision": 2,
+    "raw": {
+      "results": [
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "type": "world",
+          "entities": [
+            "dark theme",
+            "user",
+            "Harbor project",
+            "Kotlin"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0012854301123278195,
+            "reranker": 0.0011686761863529682,
+            "semantic": 0.8031209707260132,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Ruby",
+            "Juniper project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0009701853496307181,
+            "reranker": 0.0008820646908134222,
+            "semantic": 0.8181209564208984,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Juniper",
+            "offline mode",
+            "CLI",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source-r2",
+          "metadata": {},
+          "chunk_id": "recovery-publication-1_source-r2_0",
+          "tags": [
+            "published-revision:2"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0001905135162786818,
+            "reranker": 0.0001732094242470339,
+            "semantic": 0.7950388315296884,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "dark theme": {
+          "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+          "canonical_name": "dark theme",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Harbor project": {
+          "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+          "canonical_name": "Harbor project",
+          "observations": []
+        },
+        "Kotlin": {
+          "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+          "canonical_name": "Kotlin",
+          "observations": []
+        },
+        "Ruby": {
+          "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+          "canonical_name": "Ruby",
+          "observations": []
+        },
+        "Juniper project": {
+          "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+          "canonical_name": "Juniper project",
+          "observations": []
+        },
+        "Juniper": {
+          "entity_id": "44fd60ed-334b-4136-a201-5195b03e0bb9",
+          "canonical_name": "Juniper",
+          "observations": []
+        },
+        "offline mode": {
+          "entity_id": "72ddd560-677c-421b-bcec-0c26913aa5fd",
+          "canonical_name": "offline mode",
+          "observations": []
+        },
+        "CLI": {
+          "entity_id": "d93f4eca-b9e7-4fea-aba7-3b15bd9d0759",
+          "canonical_name": "CLI",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    },
+    "admitted": [
+      {
+        "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+        "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+      },
+      {
+        "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+        "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+      },
+      {
+        "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+        "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+      }
+    ]
+  }
+}

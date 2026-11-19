@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "id": "gear",
+      "source": "I own an orange touring kayak. I prefer decaf coffee. My racing kayak is white and is stored at the club.",
+      "other": "My touring kayak is blue. I now prefer espresso. I paddle on Saturdays.",
+      "manual": "Correction: my touring kayak is purple, not orange or blue.",
+      "edited": "I own a green touring kayak. I prefer decaf coffee. My racing kayak is white and is stored at the club.",
+      "newStatement": "My touring kayak is green.",
+      "question": "What colour is my touring kayak, what coffee do I currently prefer, and what do you remember about my racing kayak and paddling routine?",
+      "expect": "green touring, espresso (untouched old decaf must not become new), white racing at club, Saturdays"
+    },
+    {
+      "id": "city_hu",
+      "source": "Sopronban élek. Az öcsém Győrben él. Rövid válaszokat szeretek.",
+      "other": "Én Egerben élek. Mostantól részletes válaszokat szeretnék. Szerdánként úszom.",
+      "manual": "Pontosítás: én Kecskeméten élek, nem Sopronban vagy Egerben.",
+      "edited": "Pécsen élek. Az öcsém Győrben él. Rövid válaszokat szeretek.",
+      "newStatement": "Pécsen élek.",
+      "question": "Hol élünk az öcsémmel, milyen válaszokat szeretek, és mi a hobbim?",
+      "expect": "user Pécs, brother Győr, detailed answers, Wednesday swimming"
+    },
+    {
+      "id": "projects",
+      "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin.",
+      "other": "Juniper uses Python. Juniper now ships on Fridays. Harbor has a dark theme.",
+      "manual": "Correction: Juniper uses Go, not Ruby or Python.",
+      "edited": "My Juniper project uses Scala and ships on Mondays. My Harbor project uses Kotlin.",
+      "newStatement": "My Juniper project uses Scala.",
+      "question": "Which languages, release schedules and features apply to Juniper and Harbor now?",
+      "expect": "Juniper Scala and Fridays (unchanged Monday must not become new), Harbor Kotlin dark theme"
+    }
+  ],
+  "mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+  "answerPrompt": "Answer from these native memory facts only. For the SAME person, object, project and property, the latest explicit assertion supersedes conflicting older assertions, even across chats. asserted_at is when the person actually said/edited the assertion, not when it was reprocessed. Preserve unrelated facts, other people/objects/projects, historical events, negation and uncertainty. Future plans do not become current state. A question or interest is not ownership. Say unknown if evidence is absent. Answer in the question language, at most 120 words.",
+  "note": "Gold expectations are never passed to either extractor or answer model. All conflict resolution here is native extraction plus ordinary answer grounding with verified event dates; no custom fact rewrite."
+}

@@ -1,0 +1,22 @@
+it("fresh lifecycle judge: prepareCheckpoint leaks a transaction builder after the attempt settles", async () => {
+	const { jobId, drained } = await startRun(async (ctx) => {
+		let resume!: () => void;
+		const barrier = new Promise<void>((resolve) => { resume = resolve; });
+		let escaped: Promise<unknown> | undefined;
+		await expect(ctx.progress({
+			prepareCheckpoint: (tx) => {
+				const query = tx.update(testJobs)
+					.set({ label: "outside-the-fence" })
+					.where(eq(testJobs.id, ctx.row.id));
+				escaped = barrier.then(() => query.run());
+				return escaped;
+			},
+		})).rejects.toThrow("returned a promise");
+		await ctx.succeed();
+		expect(job(ctx.row.id)).toMatchObject({ status: "succeeded", checkpoint: null });
+		resume();
+		await escaped;
+	});
+	await drained;
+	expect(job(jobId)).toMatchObject({ status: "succeeded", label: "outside-the-fence", checkpoint: null });
+});

@@ -1,0 +1,108 @@
+async function allowMigrationReviewFixtureHistory() {
+  const policy = await import('./migration-policy');
+  await policy.recordHistoryImportChoice(h.userId, { choice: 'include', requestId: 'include' });
+}
+
+it('migration judge: a later explicit removal prevents replay of a legacy review edit', async () => {
+  const { db, s } = await legacyItem('review_needed');
+  const { eq } = await import('drizzle-orm');
+  const projection = await import('./projection-store');
+  db.insert(s.memoryReviewItems).values({
+    id: 'review', userId: h.userId, subjectKey: 'bicycle', subjectLabel: 'Bicycle',
+    question: 'Which colour?', reason: 'manual review', affectedItemIdsJson: '["item"]',
+  }).run();
+  const corrected = await projection.applyReviewItemProjectionMutation({
+    userId: h.userId, resetGeneration: 0, projectionStateId: 'projection',
+    expectedProjectionRevision: 0, now: new Date('2022-01-01'),
+    upsert: {
+      itemKey: 'corrected', category: 'about_you', scope: { type: 'global' },
+      statement: 'My bicycle is green', replaceItemIds: ['item'], retiredReason: 'review_edited',
+      metadataPatch: { origin: 'user_authored', reviewResolution: 'edited' },
+    },
+    suppressItemIds: [],
+    resolveRows: [{ reviewItemId: 'review', resolutionType: 'edit_fact', editedStatement: 'My bicycle is green' }],
+  });
+  if (corrected.status !== 'updated' || !corrected.itemId) throw Error('fixture correction failed');
+  await projection.updateMemoryProfileItemWithRevision({
+    userId: h.userId, itemId: corrected.itemId,
+    expectedProjectionRevision: corrected.projectionRevision,
+    patch: { status: 'deleted' },
+  });
+  expect(db.select().from(s.memoryProfileItems).where(eq(s.memoryProfileItems.id, corrected.itemId)).get()?.status).toBe('deleted');
+  await allowMigrationReviewFixtureHistory();
+  const f = await nativeFixture();
+  const migration = await import('./migration');
+  const prepared = await migration.prepareMemoryMigration(h.userId);
+  const { memoryDeliveryJob } = await import('./delivery-job');
+  await h.engine.drain(memoryDeliveryJob);
+  const published = db.select().from(s.memoryPublishedRows).all().map(row => row.text);
+  expect.soft(f.fetcher.mock.calls.filter(([url, options]) => String(url).endsWith('/memories') && options?.method === 'POST').flatMap(([, options]) => JSON.parse(String(options?.body)).items.map((item: { content: string }) => item.content))).not.toContain('My bicycle is green');
+  expect.soft(published.join(' ')).not.toContain('My bicycle is green');
+  expect(published.join(' ')).toContain('My dog is Rex');
+  expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(true);
+});
+
+it('migration judge: a known-off assistant reply is never included in historical retain context', async () => {
+  const { db, s } = await seed();
+  const { eq } = await import('drizzle-orm');
+  db.update(s.messages).set({ messageSequence: 1 }).where(eq(s.messages.id, 'm')).run();
+  db.insert(s.messages).values([
+    { id: 'assistant-off', conversationId: 'chat', role: 'assistant', content: 'Private text from a disabled period.', createdAt: new Date('2020-01-03'), messageSequence: 2 },
+    { id: 'new-user', conversationId: 'chat', role: 'user', content: 'My plant is healthy.', createdAt: new Date('2020-01-05'), messageSequence: 3 },
+  ]).run();
+  db.insert(s.memoryControlIntervals).values({
+    id: 'off', userId: h.userId, enabled: false, startedAt: new Date('2020-01-02'), endedAt: new Date('2020-01-04'), epoch: 0,
+  }).run();
+  await allowMigrationReviewFixtureHistory();
+  const f = await nativeFixture();
+  const migration = await import('./migration');
+  await migration.prepareMemoryMigration(h.userId);
+  const { memoryDeliveryJob } = await import('./delivery-job');
+  await h.engine.drain(memoryDeliveryJob);
+  const payloads = f.fetcher.mock.calls.filter(([url, options]) => String(url).endsWith('/memories') && options?.method === 'POST').map(([, options]) => String(options?.body));
+  expect(payloads).toHaveLength(2);
+  expect(payloads.join(' ')).not.toContain('Private text from a disabled period.');
+});
+
+it('migration judge: catch-up moves prepared messages to their new project scope', async () => {
+  const { db, s } = await seed();
+  const { eq } = await import('drizzle-orm');
+  db.insert(s.projects).values({ id: 'project', userId: h.userId, name: 'Project' }).run();
+  await allowMigrationReviewFixtureHistory();
+  await nativeFixture();
+  const migration = await import('./migration');
+  const { memoryDeliveryJob } = await import('./delivery-job');
+  const first = await migration.prepareMemoryMigration(h.userId);
+  await h.engine.drain(memoryDeliveryJob);
+  const { moveConversationToProject } = await import('../conversations');
+  expect((await moveConversationToProject(h.userId, 'chat', 'project'))?.projectId).toBe('project');
+  expect(migration.verifyMemoryMigration(h.userId, first.id).changed).toBe(true);
+  const second = await migration.prepareMemoryMigration(h.userId);
+  await h.engine.drain(memoryDeliveryJob);
+  const sources = db.select({ scope: s.memoryBanks.scopeKey, state: s.memorySourceRevisions.state }).from(s.memorySourceRevisions).innerJoin(s.memoryBanks, eq(s.memoryBanks.id, s.memorySourceRevisions.bankId)).orderBy(s.memoryBanks.scopeKey).all();
+  expect(sources).toEqual([{ scope: 'personal', state: 'revoked' }, { scope: 'project:project', state: 'accepted' }]);
+  expect(migration.verifyMemoryMigration(h.userId, second.id).ready).toBe(true);
+});
+
+it('migration judge: a superseded terminal job does not block cutover of the new checkpoint', async () => {
+  const { db, s } = await seed();
+  const { eq } = await import('drizzle-orm');
+  const client = await import('./hindsight-client');
+  await allowMigrationReviewFixtureHistory();
+  await nativeFixture();
+  const native = vi.mocked(client.nativeMemoryClient).getMockImplementation();
+  vi.mocked(client.nativeMemoryClient).mockImplementation(() => { throw new Error('synthetic terminal submission error'); });
+  const migration = await import('./migration');
+  const { memoryDeliveryJob } = await import('./delivery-job');
+  const first = await migration.prepareMemoryMigration(h.userId);
+  await h.engine.drain(memoryDeliveryJob);
+  expect(db.select().from(s.memoryDeliveryJobs).get()?.status).toBe('failed');
+  if (!native) throw Error('fixture native mock missing');
+  vi.mocked(client.nativeMemoryClient).mockImplementation(native);
+  db.delete(s.messages).where(eq(s.messages.id, 'm')).run();
+  const second = await migration.prepareMemoryMigration(h.userId);
+  expect(second.id).toBe(first.id);
+  await h.engine.drain(memoryDeliveryJob);
+  expect(db.select().from(s.memorySourceRevisions).get()?.state).toBe('revoked');
+  expect(migration.verifyMemoryMigration(h.userId, second.id)).toMatchObject({ ready: true, changed: false, pending: 0 });
+});

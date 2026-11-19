@@ -1,0 +1,1506 @@
+[
+  {
+    "id": "conflict_kayaks",
+    "bank": "cl1-conflict_kayaks",
+    "result": {
+      "stage": "third-value-conflict",
+      "facts": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a green touring kayak and a white racing kayak. | Involving: user"
+        }
+      ],
+      "decision": {
+        "text": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"green\",\n          \"replace\": \"purple\"\n        }\n      ]\n    }\n  ]\n}",
+        "response": {
+          "id": "chatcmpl-88182b6ff4bad41f",
+          "object": "chat.completion",
+          "created": 1795017021,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"green\",\n          \"replace\": \"purple\"\n        }\n      ]\n    }\n  ]\n}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 558,
+            "total_tokens": 780,
+            "completion_tokens": 222,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      },
+      "attempts": [
+        {
+          "decision": {
+            "text": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"green\",\n          \"replace\": \"purple\"\n        }\n      ]\n    }\n  ]\n}",
+            "response": {
+              "id": "chatcmpl-88182b6ff4bad41f",
+              "object": "chat.completion",
+              "created": 1795017021,
+              "model": "qwen3-6-27b",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"green\",\n          \"replace\": \"purple\"\n        }\n      ]\n    }\n  ]\n}",
+                    "refusal": null,
+                    "annotations": null,
+                    "audio": null,
+                    "function_call": null,
+                    "reasoning": null
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop",
+                  "stop_reason": null,
+                  "token_ids": null,
+                  "routed_experts": null
+                }
+              ],
+              "service_tier": null,
+              "system_fingerprint": "vllm-0.31.0-6612147e",
+              "usage": {
+                "prompt_tokens": 558,
+                "total_tokens": 780,
+                "completion_tokens": 222,
+                "prompt_tokens_details": null,
+                "completion_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "prompt_logprobs": null,
+              "prompt_token_ids": null,
+              "prompt_text": null,
+              "kv_transfer_params": null,
+              "ec_transfer_params": null,
+              "metrics": null
+            }
+          },
+          "valid": true
+        }
+      ],
+      "projected": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+        }
+      ],
+      "writes": [
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "type": "world",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": [
+            "touring kayak",
+            "user",
+            "white racing kayak"
+          ],
+          "document_id": "source",
+          "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+          "tags": [],
+          "metadata": {},
+          "observation_scopes": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:50:22.740749+00:00",
+          "consolidated_at": null,
+          "consolidation_failed_at": null
+        }
+      ],
+      "snapshot": {
+        "stage": "third-value-conflict",
+        "list": {
+          "items": [
+            {
+              "id": "f6bf9a49-efb6-40c1-8ab7-bcc30cfcbfd5",
+              "text": "The white racing kayak is stored at the club.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:20.614414+00:00",
+              "source_memory_ids": [
+                "ca515f40-5da7-4280-9788-bb8ba6a68399"
+              ]
+            },
+            {
+              "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+              "text": "The white racing kayak is stored at the club. | Where: club | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "club, user, white racing kayak",
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:50:20.624451+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:19.055931+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "2f1c1db0-1132-4b1f-9316-11ff2fa2e1b1",
+              "text": "User paddles the touring kayak on Saturdays.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:20.614414+00:00",
+              "source_memory_ids": [
+                "dcf0f879-01c6-428e-90b4-731060f9320a"
+              ]
+            },
+            {
+              "id": "bbca0321-5fbb-4470-894e-5c3479783a69",
+              "text": "The touring kayak has a deck compass as of November 18, 2026.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:20.614414+00:00",
+              "source_memory_ids": [
+                "dcf0f879-01c6-428e-90b4-731060f9320a"
+              ]
+            },
+            {
+              "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+              "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "deck compass, touring kayak, user",
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:50:20.624451+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:19.055931+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "2aa234fa-c9a2-4035-a9b8-d731ed883285",
+              "text": "User owns a white racing kayak.",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:24.809625+00:00",
+              "source_memory_ids": [
+                "39e04e23-8193-4f0b-9669-b217ce9ab830"
+              ]
+            },
+            {
+              "id": "d4ffed6b-9aa0-40b7-9ed9-ec933501fc48",
+              "text": "User owns a purple touring kayak.",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:24.809625+00:00",
+              "source_memory_ids": [
+                "39e04e23-8193-4f0b-9669-b217ce9ab830"
+              ]
+            },
+            {
+              "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+              "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "touring kayak, user, white racing kayak",
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:50:24.814406+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": "2026-11-18T15:50:22.740749+00:00",
+              "updated_at": "2026-11-18T15:50:22.740749+00:00",
+              "source_memory_ids": []
+            }
+          ],
+          "total": 8,
+          "limit": 100,
+          "offset": 0
+        },
+        "recall": {
+          "results": [
+            {
+              "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+              "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user",
+              "type": "world",
+              "entities": [
+                "touring kayak",
+                "user",
+                "deck compass"
+              ],
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.099071249193533,
+                "reranker": 0.9992353320121765,
+                "semantic": 0.83812083346732,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+              "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+              "type": "world",
+              "entities": [
+                "touring kayak",
+                "white racing kayak",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0914598778416373,
+                "reranker": 0.9923153519630432,
+                "semantic": 0.8609644944338052,
+                "keyword": 0.4000000059604645
+              },
+              "attachments": null
+            },
+            {
+              "id": "2f1c1db0-1132-4b1f-9316-11ff2fa2e1b1",
+              "text": "User paddles the touring kayak on Saturdays.",
+              "type": "observation",
+              "entities": [
+                "touring kayak",
+                "user",
+                "deck compass"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "dcf0f879-01c6-428e-90b4-731060f9320a"
+              ],
+              "scores": {
+                "final": 1.0887908695104114,
+                "reranker": 0.9898887872695923,
+                "semantic": 0.8237904801243845,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "bbca0321-5fbb-4470-894e-5c3479783a69",
+              "text": "The touring kayak has a deck compass as of November 18, 2026.",
+              "type": "observation",
+              "entities": [
+                "touring kayak",
+                "user",
+                "deck compass"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "dcf0f879-01c6-428e-90b4-731060f9320a"
+              ],
+              "scores": {
+                "final": 1.0876888734381605,
+                "reranker": 0.9888868927955627,
+                "semantic": 0.8169528136821292,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "2aa234fa-c9a2-4035-a9b8-d731ed883285",
+              "text": "User owns a white racing kayak.",
+              "type": "observation",
+              "entities": [
+                "touring kayak",
+                "white racing kayak",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "39e04e23-8193-4f0b-9669-b217ce9ab830"
+              ],
+              "scores": {
+                "final": 1.0718730105375198,
+                "reranker": 0.9745076894760132,
+                "semantic": 0.8444576766763748,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "d4ffed6b-9aa0-40b7-9ed9-ec933501fc48",
+              "text": "User owns a purple touring kayak.",
+              "type": "observation",
+              "entities": [
+                "touring kayak",
+                "white racing kayak",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "39e04e23-8193-4f0b-9669-b217ce9ab830"
+              ],
+              "scores": {
+                "final": 1.0305725133270025,
+                "reranker": 0.9369587898254395,
+                "semantic": 0.8452718073453673,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+              "text": "The white racing kayak is stored at the club. | Where: club | Involving: user",
+              "type": "world",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "club"
+              ],
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.8898374728974007,
+                "reranker": 0.8090076446533203,
+                "semantic": 0.8474526910455654,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "f6bf9a49-efb6-40c1-8ab7-bcc30cfcbfd5",
+              "text": "The white racing kayak is stored at the club.",
+              "type": "observation",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "club"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "ca515f40-5da7-4280-9788-bb8ba6a68399"
+              ],
+              "scores": {
+                "final": 0.7683415700362259,
+                "reranker": 0.6985480189323425,
+                "semantic": 0.8174030671955997,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "touring kayak": {
+              "entity_id": "01bb4163-8bbf-435b-94c9-9fca5ffff04a",
+              "canonical_name": "touring kayak",
+              "observations": []
+            },
+            "user": {
+              "entity_id": "9629b6ff-5e3b-4aec-a45c-485495f7c5fe",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "deck compass": {
+              "entity_id": "a7e1a6d0-92ac-4a92-8ba8-780493a31311",
+              "canonical_name": "deck compass",
+              "observations": []
+            },
+            "white racing kayak": {
+              "entity_id": "15635103-52ed-404d-807a-8d699687aa4c",
+              "canonical_name": "white racing kayak",
+              "observations": []
+            },
+            "club": {
+              "entity_id": "e103c110-1aee-4449-a29a-4405e21bcfa4",
+              "canonical_name": "club",
+              "observations": []
+            }
+          },
+          "chunks": {
+            "cl1-conflict~5Fkayaks_source_0": {
+              "id": "cl1-conflict~5Fkayaks_source_0",
+              "text": "User: I own a green touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+              "chunk_index": 0,
+              "truncated": false,
+              "attachments": null
+            }
+          },
+          "source_facts": {
+            "dcf0f879-01c6-428e-90b4-731060f9320a": {
+              "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+              "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "39e04e23-8193-4f0b-9669-b217ce9ab830": {
+              "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+              "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "ca515f40-5da7-4280-9788-bb8ba6a68399": {
+              "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+              "text": "The white racing kayak is stored at the club. | Where: club | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fkayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            }
+          },
+          "source_facts_truncated": false
+        },
+        "admitted": [
+          {
+            "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+            "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+          },
+          {
+            "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+            "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+          },
+          {
+            "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+            "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+          }
+        ],
+        "answer": {
+          "text": "You own two kayaks: a purple touring kayak and a white racing kayak. You paddle the touring kayak on Saturdays. As of November 18, 2026, the touring kayak has a deck compass. The white racing kayak is stored at the club. The provided facts do not specify when you paddle the racing kayak, nor do they mention any other equipment or storage details for the touring kayak.",
+          "response": {
+            "id": "chatcmpl-9b212abdc07913c7",
+            "object": "chat.completion",
+            "created": 1795017025,
+            "model": "qwen3-6-27b",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": "You own two kayaks: a purple touring kayak and a white racing kayak. You paddle the touring kayak on Saturdays. As of November 18, 2026, the touring kayak has a deck compass. The white racing kayak is stored at the club. The provided facts do not specify when you paddle the racing kayak, nor do they mention any other equipment or storage details for the touring kayak.",
+                  "refusal": null,
+                  "annotations": null,
+                  "audio": null,
+                  "function_call": null,
+                  "reasoning": null
+                },
+                "logprobs": null,
+                "finish_reason": "stop",
+                "stop_reason": null,
+                "token_ids": null,
+                "routed_experts": null
+              }
+            ],
+            "service_tier": null,
+            "system_fingerprint": "vllm-0.31.0-6612147e",
+            "usage": {
+              "prompt_tokens": 291,
+              "total_tokens": 375,
+              "completion_tokens": 84,
+              "prompt_tokens_details": null,
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "prompt_logprobs": null,
+            "prompt_token_ids": null,
+            "prompt_text": null,
+            "kv_transfer_params": null,
+            "ec_transfer_params": null,
+            "metrics": null
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "conflict_projects",
+    "bank": "cl1-conflict_projects",
+    "result": {
+      "stage": "third-value-conflict",
+      "facts": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Scala and ships on Mondays. | Involving: user"
+        }
+      ],
+      "decision": {
+        "text": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Scala\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+        "response": {
+          "id": "chatcmpl-92e1639f71de88c1",
+          "object": "chat.completion",
+          "created": 1795017033,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Scala\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 518,
+            "total_tokens": 732,
+            "completion_tokens": 214,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      },
+      "attempts": [
+        {
+          "decision": {
+            "text": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Scala\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+            "response": {
+              "id": "chatcmpl-92e1639f71de88c1",
+              "object": "chat.completion",
+              "created": 1795017033,
+              "model": "qwen3-6-27b",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Scala\",\n          \"replace\": \"Go\"\n        }\n      ]\n    }\n  ]\n}",
+                    "refusal": null,
+                    "annotations": null,
+                    "audio": null,
+                    "function_call": null,
+                    "reasoning": null
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop",
+                  "stop_reason": null,
+                  "token_ids": null,
+                  "routed_experts": null
+                }
+              ],
+              "service_tier": null,
+              "system_fingerprint": "vllm-0.31.0-6612147e",
+              "usage": {
+                "prompt_tokens": 518,
+                "total_tokens": 732,
+                "completion_tokens": 214,
+                "prompt_tokens_details": null,
+                "completion_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "prompt_logprobs": null,
+              "prompt_token_ids": null,
+              "prompt_text": null,
+              "kv_transfer_params": null,
+              "ec_transfer_params": null,
+              "metrics": null
+            }
+          },
+          "valid": true
+        }
+      ],
+      "projected": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ],
+      "writes": [
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Go and ships on Mondays. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "type": "world",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": [
+            "Juniper",
+            "Scala",
+            "user"
+          ],
+          "document_id": "source",
+          "chunk_id": "cl1-conflict~5Fprojects_source_0",
+          "tags": [],
+          "metadata": {},
+          "observation_scopes": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:50:34.826751+00:00",
+          "consolidated_at": null,
+          "consolidation_failed_at": null
+        }
+      ],
+      "snapshot": {
+        "stage": "third-value-conflict",
+        "list": {
+          "items": [
+            {
+              "id": "39ce26fd-b045-4899-adf1-108797366b58",
+              "text": "User's Harbor project has a dark theme.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:33.437547+00:00",
+              "source_memory_ids": [
+                "335388f4-1e4a-42fc-a0b7-8600fad72824"
+              ]
+            },
+            {
+              "id": "583b3eaf-70f6-455c-85ce-a365e26e546b",
+              "text": "User's Harbor project uses Kotlin.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:33.437547+00:00",
+              "source_memory_ids": [
+                "335388f4-1e4a-42fc-a0b7-8600fad72824"
+              ]
+            },
+            {
+              "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+              "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "Harbor, Kotlin, dark theme, user",
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:50:33.447110+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:31.862515+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "f048795c-1d47-4156-828a-31e5c058ddde",
+              "text": "The new CLI for User's Juniper project supports offline mode.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:33.437547+00:00",
+              "source_memory_ids": [
+                "fa2cbda3-69d1-4c00-bbf7-a514f05e9570"
+              ]
+            },
+            {
+              "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+              "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "CLI, Juniper, offline mode, user",
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:50:33.447110+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:31.862515+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "be8f2343-34c9-4d45-b463-020fde948f3d",
+              "text": "User's Juniper project ships on Mondays.",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:36.425052+00:00",
+              "source_memory_ids": [
+                "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1"
+              ]
+            },
+            {
+              "id": "bfb0203a-3bd4-44f6-9644-6b310299a426",
+              "text": "User's Juniper project uses Go.",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:50:36.425052+00:00",
+              "source_memory_ids": [
+                "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1"
+              ]
+            },
+            {
+              "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+              "text": "User's Juniper project uses Go and ships on Mondays. | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "Juniper, Scala, user",
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:50:36.430822+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": "2026-11-18T15:50:34.826751+00:00",
+              "updated_at": "2026-11-18T15:50:34.826751+00:00",
+              "source_memory_ids": []
+            }
+          ],
+          "total": 8,
+          "limit": 100,
+          "offset": 0
+        },
+        "recall": {
+          "results": [
+            {
+              "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+              "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "dark theme",
+                "Kotlin",
+                "Harbor"
+              ],
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.0010080130348267783,
+                "reranker": 0.0009164485963992774,
+                "semantic": 0.7985310554504395,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+              "text": "User's Juniper project uses Go and ships on Mondays. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "Juniper",
+                "Scala"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.000830040244012397,
+                "reranker": 0.0007546422421000898,
+                "semantic": 0.8174565543260258,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "583b3eaf-70f6-455c-85ce-a365e26e546b",
+              "text": "User's Harbor project uses Kotlin.",
+              "type": "observation",
+              "entities": [
+                "user",
+                "dark theme",
+                "Kotlin",
+                "Harbor"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "335388f4-1e4a-42fc-a0b7-8600fad72824"
+              ],
+              "scores": {
+                "final": 0.0004549246404070682,
+                "reranker": 0.0004136008501518518,
+                "semantic": 0.7945048449785965,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "39ce26fd-b045-4899-adf1-108797366b58",
+              "text": "User's Harbor project has a dark theme.",
+              "type": "observation",
+              "entities": [
+                "user",
+                "dark theme",
+                "Kotlin",
+                "Harbor"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "335388f4-1e4a-42fc-a0b7-8600fad72824"
+              ],
+              "scores": {
+                "final": 0.0004522185027552786,
+                "reranker": 0.00041114052874036133,
+                "semantic": 0.760527281698318,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "f048795c-1d47-4156-828a-31e5c058ddde",
+              "text": "The new CLI for User's Juniper project supports offline mode.",
+              "type": "observation",
+              "entities": [
+                "offline mode",
+                "user",
+                "Juniper",
+                "CLI"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "fa2cbda3-69d1-4c00-bbf7-a514f05e9570"
+              ],
+              "scores": {
+                "final": 0.00038864020972227166,
+                "reranker": 0.00035333746927790344,
+                "semantic": 0.7826407188964107,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+              "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user",
+              "type": "world",
+              "entities": [
+                "offline mode",
+                "user",
+                "Juniper",
+                "CLI"
+              ],
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.0002943388865214924,
+                "reranker": 0.00026760215405374765,
+                "semantic": 0.7894827127456665,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "be8f2343-34c9-4d45-b463-020fde948f3d",
+              "text": "User's Juniper project ships on Mondays.",
+              "type": "observation",
+              "entities": [
+                "user",
+                "Juniper",
+                "Scala"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1"
+              ],
+              "scores": {
+                "final": 0.00022523968663162627,
+                "reranker": 0.00020477968791965395,
+                "semantic": 0.7903245687484741,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "bfb0203a-3bd4-44f6-9644-6b310299a426",
+              "text": "User's Juniper project uses Go.",
+              "type": "observation",
+              "entities": [
+                "user",
+                "Juniper",
+                "Scala"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1"
+              ],
+              "scores": {
+                "final": 0.00022167893370521864,
+                "reranker": 0.0002015423815464601,
+                "semantic": 0.8033393621444702,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "user": {
+              "entity_id": "3855c23a-2514-4dde-ac92-0674be86d5f9",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "dark theme": {
+              "entity_id": "76b677f2-b592-45ab-aa20-d426175bda2e",
+              "canonical_name": "dark theme",
+              "observations": []
+            },
+            "Kotlin": {
+              "entity_id": "d236e5e6-fed9-47f6-bc04-ae6e5d149e99",
+              "canonical_name": "Kotlin",
+              "observations": []
+            },
+            "Harbor": {
+              "entity_id": "eab20ebe-d61c-41bc-a347-1af85ed68d08",
+              "canonical_name": "Harbor",
+              "observations": []
+            },
+            "Juniper": {
+              "entity_id": "479467e4-1124-4a46-ba74-a5b487198f35",
+              "canonical_name": "Juniper",
+              "observations": []
+            },
+            "Scala": {
+              "entity_id": "7ae2317c-b943-4437-bd0d-2ce09679cbc0",
+              "canonical_name": "Scala",
+              "observations": []
+            },
+            "offline mode": {
+              "entity_id": "195f6b07-9dc3-4cfb-983d-0c81efcbe16c",
+              "canonical_name": "offline mode",
+              "observations": []
+            },
+            "CLI": {
+              "entity_id": "b5277446-6e8d-429a-8035-763254647c9c",
+              "canonical_name": "CLI",
+              "observations": []
+            }
+          },
+          "chunks": {
+            "cl1-conflict~5Fprojects_source_0": {
+              "id": "cl1-conflict~5Fprojects_source_0",
+              "text": "User: My Juniper project uses Scala and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+              "chunk_index": 0,
+              "truncated": false,
+              "attachments": null
+            }
+          },
+          "source_facts": {
+            "335388f4-1e4a-42fc-a0b7-8600fad72824": {
+              "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+              "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "fa2cbda3-69d1-4c00-bbf7-a514f05e9570": {
+              "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+              "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1": {
+              "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+              "text": "User's Juniper project uses Go and ships on Mondays. | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-conflict~5Fprojects_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            }
+          },
+          "source_facts_truncated": false
+        },
+        "admitted": [
+          {
+            "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+            "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+          },
+          {
+            "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+            "text": "User's Juniper project uses Go and ships on Mondays. | Involving: user"
+          },
+          {
+            "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+            "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+          }
+        ],
+        "answer": {
+          "text": "Your Harbor project uses Kotlin and features a dark theme. Your Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode.",
+          "response": {
+            "id": "chatcmpl-970683ef903c287a",
+            "object": "chat.completion",
+            "created": 1795017036,
+            "model": "qwen3-6-27b",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": "Your Harbor project uses Kotlin and features a dark theme. Your Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode.",
+                  "refusal": null,
+                  "annotations": null,
+                  "audio": null,
+                  "function_call": null,
+                  "reasoning": null
+                },
+                "logprobs": null,
+                "finish_reason": "stop",
+                "stop_reason": null,
+                "token_ids": null,
+                "routed_experts": null
+              }
+            ],
+            "service_tier": null,
+            "system_fingerprint": "vllm-0.31.0-6612147e",
+            "usage": {
+              "prompt_tokens": 247,
+              "total_tokens": 278,
+              "completion_tokens": 31,
+              "prompt_tokens_details": null,
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "prompt_logprobs": null,
+            "prompt_token_ids": null,
+            "prompt_text": null,
+            "kv_transfer_params": null,
+            "ec_transfer_params": null,
+            "metrics": null
+          }
+        }
+      }
+    }
+  }
+]

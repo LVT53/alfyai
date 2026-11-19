@@ -1,0 +1,4285 @@
+[
+  {
+    "id": "new_explicit_life_event",
+    "source": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+    "bank": "nq-new-explicit-life-event",
+    "config": {
+      "bank_id": "nq-new-explicit-life-event",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "bdd0f30b-b2e1-4cb5-a194-0bf2f44e5d55",
+          "text": "User currently works in an office.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:52.398086+00:00",
+          "source_memory_ids": [
+            "9b21146b-f0dd-4457-a29e-fe59bbea4b66"
+          ]
+        },
+        {
+          "id": "9b21146b-f0dd-4457-a29e-fe59bbea4b66",
+          "text": "User currently works in an office. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user",
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:52.406734+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:51.117470+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "d0272a0e-753c-4aab-a33b-2ee19b697d0f",
+          "text": "User moved to Prague on November 17, 2026.",
+          "context": "",
+          "date": "2026-11-17T00:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T23:59:59.010000+00:00",
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:52.398086+00:00",
+          "source_memory_ids": [
+            "a50b7c0f-94b5-4d46-8dfa-f19940b531e8"
+          ]
+        },
+        {
+          "id": "a50b7c0f-94b5-4d46-8dfa-f19940b531e8",
+          "text": "User moved to Prague on November 17, 2026. | When: November 17, 2026 | Where: Prague | Involving: user",
+          "context": "",
+          "date": "2026-11-17T00:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T23:59:59.010000+00:00",
+          "entities": "Prague, user",
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:52.406734+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:51.117470+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "f15ef9f1-33dc-4dfc-a70a-90329b92514d",
+          "text": "User previously lived in Berlin.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:52.398086+00:00",
+          "source_memory_ids": [
+            "5c93442d-c53e-4d38-b31c-4c10c41a6a5c"
+          ]
+        },
+        {
+          "id": "5c93442d-c53e-4d38-b31c-4c10c41a6a5c",
+          "text": "User previously lived in Berlin. | Where: Berlin | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Berlin, user",
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:52.406734+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:51.117470+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "9b21146b-f0dd-4457-a29e-fe59bbea4b66",
+          "text": "User currently works in an office. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.067349108692414,
+            "reranker": 0.9703760743141174,
+            "semantic": 0.8155864477157593,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "5c93442d-c53e-4d38-b31c-4c10c41a6a5c",
+          "text": "User previously lived in Berlin. | Where: Berlin | Involving: user",
+          "type": "world",
+          "entities": [
+            "Berlin",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.054827717010573,
+            "reranker": 0.9589923024177551,
+            "semantic": 0.805495023727417,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "a50b7c0f-94b5-4d46-8dfa-f19940b531e8",
+          "text": "User moved to Prague on November 17, 2026. | When: November 17, 2026 | Where: Prague | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "Prague"
+          ],
+          "context": "",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T23:59:59.010000+00:00",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0463317373972267,
+            "reranker": 0.9519795775413513,
+            "semantic": 0.7963060019198671,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "d0272a0e-753c-4aab-a33b-2ee19b697d0f",
+          "text": "User moved to Prague on November 17, 2026.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "Prague"
+          ],
+          "context": null,
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T23:59:59.010000+00:00",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "a50b7c0f-94b5-4d46-8dfa-f19940b531e8"
+          ],
+          "scores": {
+            "final": 1.0240127951404376,
+            "reranker": 0.9316732287406921,
+            "semantic": 0.7674015989125255,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "f15ef9f1-33dc-4dfc-a70a-90329b92514d",
+          "text": "User previously lived in Berlin.",
+          "type": "observation",
+          "entities": [
+            "Berlin",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "5c93442d-c53e-4d38-b31c-4c10c41a6a5c"
+          ],
+          "scores": {
+            "final": 0.9853508692976387,
+            "reranker": 0.8958277106285095,
+            "semantic": 0.7765609622001648,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "bdd0f30b-b2e1-4cb5-a194-0bf2f44e5d55",
+          "text": "User currently works in an office.",
+          "type": "observation",
+          "entities": [
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "9b21146b-f0dd-4457-a29e-fe59bbea4b66"
+          ],
+          "scores": {
+            "final": 0.8042993806960778,
+            "reranker": 0.7312254905700684,
+            "semantic": 0.7999898076051373,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "2ca6859e-6352-42d5-b6d0-cdc30a7231ee",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Berlin": {
+          "entity_id": "1cb58f1d-bb0d-4ca8-8d3e-fd4090973434",
+          "canonical_name": "Berlin",
+          "observations": []
+        },
+        "Prague": {
+          "entity_id": "a90b1fab-e7cf-4449-a1e9-cb4b31c267d9",
+          "canonical_name": "Prague",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "a50b7c0f-94b5-4d46-8dfa-f19940b531e8": {
+          "id": "a50b7c0f-94b5-4d46-8dfa-f19940b531e8",
+          "text": "User moved to Prague on November 17, 2026. | When: November 17, 2026 | Where: Prague | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T23:59:59.010000+00:00",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "5c93442d-c53e-4d38-b31c-4c10c41a6a5c": {
+          "id": "5c93442d-c53e-4d38-b31c-4c10c41a6a5c",
+          "text": "User previously lived in Berlin. | Where: Berlin | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "9b21146b-f0dd-4457-a29e-fe59bbea4b66": {
+          "id": "9b21146b-f0dd-4457-a29e-fe59bbea4b66",
+          "text": "User currently works in an office. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-new-explicit-life-event_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "compound_price",
+    "source": "My red bicycle cost 250 euros and I ride it daily.",
+    "bank": "nq-compound-price",
+    "config": {
+      "bank_id": "nq-compound-price",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "741e88e9-f942-40c4-86ca-526df3ad9b08",
+          "text": "The user owns a red bicycle.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:54.795335+00:00",
+          "source_memory_ids": [
+            "1b9267a5-6f97-4d02-8173-270406d660e8"
+          ]
+        },
+        {
+          "id": "cf51e1b4-9dcd-4168-850b-eefd98aa75c7",
+          "text": "The user's red bicycle cost 250 euros.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:54.795335+00:00",
+          "source_memory_ids": [
+            "1b9267a5-6f97-4d02-8173-270406d660e8"
+          ]
+        },
+        {
+          "id": "e8000276-6755-4258-9d64-5222a7e3fb26",
+          "text": "The user rides their red bicycle daily.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:54.795335+00:00",
+          "source_memory_ids": [
+            "1b9267a5-6f97-4d02-8173-270406d660e8"
+          ]
+        },
+        {
+          "id": "1b9267a5-6f97-4d02-8173-270406d660e8",
+          "text": "User owns a red bicycle that cost 250 euros and rides it daily. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "red bicycle, user",
+          "chunk_id": "nq-compound-price_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:54.800797+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:53.939692+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "1b9267a5-6f97-4d02-8173-270406d660e8",
+          "text": "User owns a red bicycle that cost 250 euros and rides it daily. | Involving: user",
+          "type": "world",
+          "entities": [
+            "red bicycle",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-compound-price_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.074249530613715,
+            "reranker": 0.9766495823860168,
+            "semantic": 0.8156692385673523,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "cf51e1b4-9dcd-4168-850b-eefd98aa75c7",
+          "text": "The user's red bicycle cost 250 euros.",
+          "type": "observation",
+          "entities": [
+            "red bicycle",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "1b9267a5-6f97-4d02-8173-270406d660e8"
+          ],
+          "scores": {
+            "final": 1.0599063262748474,
+            "reranker": 0.963609516620636,
+            "semantic": 0.7389130812559453,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "741e88e9-f942-40c4-86ca-526df3ad9b08",
+          "text": "The user owns a red bicycle.",
+          "type": "observation",
+          "entities": [
+            "red bicycle",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "1b9267a5-6f97-4d02-8173-270406d660e8"
+          ],
+          "scores": {
+            "final": 1.0585107918123966,
+            "reranker": 0.962340772151947,
+            "semantic": 0.750676155090332,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "e8000276-6755-4258-9d64-5222a7e3fb26",
+          "text": "The user rides their red bicycle daily.",
+          "type": "observation",
+          "entities": [
+            "red bicycle",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "1b9267a5-6f97-4d02-8173-270406d660e8"
+          ],
+          "scores": {
+            "final": 0.958977046567988,
+            "reranker": 0.8718500733375549,
+            "semantic": 0.7413166761398315,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "red bicycle": {
+          "entity_id": "31862465-4485-457d-a843-279cfdcf36a8",
+          "canonical_name": "red bicycle",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "abefd908-fca8-438b-994a-f43adfef89be",
+          "canonical_name": "user",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "1b9267a5-6f97-4d02-8173-270406d660e8": {
+          "id": "1b9267a5-6f97-4d02-8173-270406d660e8",
+          "text": "User owns a red bicycle that cost 250 euros and rides it daily. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-compound-price_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "different_projects",
+    "source": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+    "bank": "nq-different-projects",
+    "config": {
+      "bank_id": "nq-different-projects",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "c2749efd-152b-4ed6-838e-88d7247b60b4",
+          "text": "User's Beacon project has a mobile app.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:59.511661+00:00",
+          "source_memory_ids": [
+            "c7288855-5c0b-43a5-9639-7dcba8437268"
+          ]
+        },
+        {
+          "id": "c7288855-5c0b-43a5-9639-7dcba8437268",
+          "text": "User's Beacon project now has a mobile app. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Beacon, mobile app, user",
+          "chunk_id": "nq-different-projects_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:59.516795+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:58.284413+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "8c2de217-70da-4242-8dec-83f0f6ddff16",
+          "text": "User's Beacon project uses Rust.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:59.511661+00:00",
+          "source_memory_ids": [
+            "070deb19-e7d0-4af3-9488-d671a3e688f2"
+          ]
+        },
+        {
+          "id": "070deb19-e7d0-4af3-9488-d671a3e688f2",
+          "text": "User's Beacon project uses Rust. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Beacon, Rust, user",
+          "chunk_id": "nq-different-projects_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:59.516795+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:58.284413+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "207b5bad-8262-4983-870f-1ec5d990c400",
+          "text": "User's Atlas project uses Python.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:59.511661+00:00",
+          "source_memory_ids": [
+            "ddff4832-e780-4868-a1a4-8cf6e5f0fdf7"
+          ]
+        },
+        {
+          "id": "ddff4832-e780-4868-a1a4-8cf6e5f0fdf7",
+          "text": "User's Atlas project uses Python. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Atlas, Python, user",
+          "chunk_id": "nq-different-projects_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:54:59.516795+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:54:58.284413+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "ddff4832-e780-4868-a1a4-8cf6e5f0fdf7",
+          "text": "User's Atlas project uses Python. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Python",
+            "user",
+            "Atlas"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-different-projects_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0768512987449985,
+            "reranker": 0.9790149927139282,
+            "semantic": 0.8195730447769165,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "207b5bad-8262-4983-870f-1ec5d990c400",
+          "text": "User's Atlas project uses Python.",
+          "type": "observation",
+          "entities": [
+            "Python",
+            "user",
+            "Atlas"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "ddff4832-e780-4868-a1a4-8cf6e5f0fdf7"
+          ],
+          "scores": {
+            "final": 1.0564904343793398,
+            "reranker": 0.9605039954185486,
+            "semantic": 0.8138192892074585,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "c7288855-5c0b-43a5-9639-7dcba8437268",
+          "text": "User's Beacon project now has a mobile app. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Beacon",
+            "user",
+            "mobile app"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-different-projects_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0229022167413175,
+            "reranker": 0.9299674034118652,
+            "semantic": 0.7978091239929199,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "070deb19-e7d0-4af3-9488-d671a3e688f2",
+          "text": "User's Beacon project uses Rust. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Beacon",
+            "user",
+            "Rust"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-different-projects_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.9930947787543027,
+            "reranker": 0.9028680920600891,
+            "semantic": 0.8047322034835815,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "8c2de217-70da-4242-8dec-83f0f6ddff16",
+          "text": "User's Beacon project uses Rust.",
+          "type": "observation",
+          "entities": [
+            "Beacon",
+            "user",
+            "Rust"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "070deb19-e7d0-4af3-9488-d671a3e688f2"
+          ],
+          "scores": {
+            "final": 0.986870338547802,
+            "reranker": 0.8972091674804688,
+            "semantic": 0.7931253550388029,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "c2749efd-152b-4ed6-838e-88d7247b60b4",
+          "text": "User's Beacon project has a mobile app.",
+          "type": "observation",
+          "entities": [
+            "Beacon",
+            "user",
+            "mobile app"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "c7288855-5c0b-43a5-9639-7dcba8437268"
+          ],
+          "scores": {
+            "final": 0.8724520534000555,
+            "reranker": 0.7931862473487854,
+            "semantic": 0.7978966236114502,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Python": {
+          "entity_id": "27db19e5-1a70-47f5-8f78-3875ba652808",
+          "canonical_name": "Python",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "85373cb6-e7fe-4e6e-b8a7-8f368fa4dd17",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Atlas": {
+          "entity_id": "eefff8ec-ddf6-4d46-b90c-0bc55a831fde",
+          "canonical_name": "Atlas",
+          "observations": []
+        },
+        "Beacon": {
+          "entity_id": "3801d028-6f10-490b-90e3-e6cfe9ed6f60",
+          "canonical_name": "Beacon",
+          "observations": []
+        },
+        "mobile app": {
+          "entity_id": "bdc55425-612c-4c17-85fe-c66a3f688a34",
+          "canonical_name": "mobile app",
+          "observations": []
+        },
+        "Rust": {
+          "entity_id": "fbc9d2f4-948f-43b0-8915-aee9e6338913",
+          "canonical_name": "Rust",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "ddff4832-e780-4868-a1a4-8cf6e5f0fdf7": {
+          "id": "ddff4832-e780-4868-a1a4-8cf6e5f0fdf7",
+          "text": "User's Atlas project uses Python. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-different-projects_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "070deb19-e7d0-4af3-9488-d671a3e688f2": {
+          "id": "070deb19-e7d0-4af3-9488-d671a3e688f2",
+          "text": "User's Beacon project uses Rust. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-different-projects_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "c7288855-5c0b-43a5-9639-7dcba8437268": {
+          "id": "c7288855-5c0b-43a5-9639-7dcba8437268",
+          "text": "User's Beacon project now has a mobile app. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-different-projects_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "negative_health_hu",
+    "source": "A párom laktózérzékeny, én nem. Mindketten szeretjük a rizst.",
+    "bank": "nq-negative-health-hu",
+    "config": {
+      "bank_id": "nq-negative-health-hu",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "b91f79f4-4259-4561-9cf6-699ce7e91931",
+          "text": "A felhasználó és a párja egyaránt szeretik a rizst.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:03.449542+00:00",
+          "source_memory_ids": [
+            "05a1828e-c01d-4409-b19c-bc13424ecb41"
+          ]
+        },
+        {
+          "id": "05a1828e-c01d-4409-b19c-bc13424ecb41",
+          "text": "A felhasználó és a párja egyaránt szeretik a rizst. | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "rizs, user, user's partner",
+          "chunk_id": "nq-negative-health-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:03.454990+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:02.298723+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "b6b1eade-3b3f-4159-a1e9-976cafa76855",
+          "text": "A felhasználó párja laktózérzékeny.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:03.449542+00:00",
+          "source_memory_ids": [
+            "7c64ba08-36f3-4ab3-87a2-701360bb3506"
+          ]
+        },
+        {
+          "id": "cac7d3fe-a429-44d6-b6e9-878f9c3f2c2f",
+          "text": "A felhasználó nem laktózérzékeny.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:03.449542+00:00",
+          "source_memory_ids": [
+            "7c64ba08-36f3-4ab3-87a2-701360bb3506"
+          ]
+        },
+        {
+          "id": "7c64ba08-36f3-4ab3-87a2-701360bb3506",
+          "text": "A felhasználó párja laktózérzékeny, míg a felhasználó nem az. | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, user's partner",
+          "chunk_id": "nq-negative-health-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:03.454990+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:02.298723+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 5,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "7c64ba08-36f3-4ab3-87a2-701360bb3506",
+          "text": "A felhasználó párja laktózérzékeny, míg a felhasználó nem az. | Involving: user, user's partner",
+          "type": "world",
+          "entities": [
+            "user's partner",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-negative-health-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0945487156046827,
+            "reranker": 0.9951045513153076,
+            "semantic": 0.7876927491334903,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "05a1828e-c01d-4409-b19c-bc13424ecb41",
+          "text": "A felhasználó és a párja egyaránt szeretik a rizst. | Involving: user, user's partner",
+          "type": "world",
+          "entities": [
+            "user's partner",
+            "rizs",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-negative-health-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0864685020216724,
+            "reranker": 0.987758457660675,
+            "semantic": 0.803428053855896,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "cac7d3fe-a429-44d6-b6e9-878f9c3f2c2f",
+          "text": "A felhasználó nem laktózérzékeny.",
+          "type": "observation",
+          "entities": [
+            "user's partner",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "7c64ba08-36f3-4ab3-87a2-701360bb3506"
+          ],
+          "scores": {
+            "final": 0.0009774597223171507,
+            "reranker": 0.0008886535651981831,
+            "semantic": 0.7630010843276978,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "b91f79f4-4259-4561-9cf6-699ce7e91931",
+          "text": "A felhasználó és a párja egyaránt szeretik a rizst.",
+          "type": "observation",
+          "entities": [
+            "user's partner",
+            "rizs",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "05a1828e-c01d-4409-b19c-bc13424ecb41"
+          ],
+          "scores": {
+            "final": 0.0009658514313234326,
+            "reranker": 0.0008780999341979623,
+            "semantic": 0.7635269165039062,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "b6b1eade-3b3f-4159-a1e9-976cafa76855",
+          "text": "A felhasználó párja laktózérzékeny.",
+          "type": "observation",
+          "entities": [
+            "user's partner",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "7c64ba08-36f3-4ab3-87a2-701360bb3506"
+          ],
+          "scores": {
+            "final": 0.0008064219801020098,
+            "reranker": 0.0007331552915275097,
+            "semantic": 0.7768342361947452,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user's partner": {
+          "entity_id": "0cbbc0c8-b778-49d3-b923-21d38934436d",
+          "canonical_name": "user's partner",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "99469402-2ec3-4bb8-be40-836e01d484af",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "rizs": {
+          "entity_id": "8382ed36-eda4-4824-900b-48e4753a5644",
+          "canonical_name": "rizs",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "7c64ba08-36f3-4ab3-87a2-701360bb3506": {
+          "id": "7c64ba08-36f3-4ab3-87a2-701360bb3506",
+          "text": "A felhasználó párja laktózérzékeny, míg a felhasználó nem az. | Involving: user, user's partner",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-negative-health-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "05a1828e-c01d-4409-b19c-bc13424ecb41": {
+          "id": "05a1828e-c01d-4409-b19c-bc13424ecb41",
+          "text": "A felhasználó és a párja egyaránt szeretik a rizst. | Involving: user, user's partner",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-negative-health-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "quote_hu",
+    "source": "Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\" Egyébként rövid válaszokat kérek.",
+    "bank": "nq-quote-hu",
+    "config": {
+      "bank_id": "nq-quote-hu",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "57591392-665d-47c3-81a5-bad573639fff",
+          "text": "A felhasználó rövid válaszokat kér.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:06.949843+00:00",
+          "source_memory_ids": [
+            "33f7c63d-ca33-456d-be96-99b502f49b17"
+          ]
+        },
+        {
+          "id": "33f7c63d-ca33-456d-be96-99b502f49b17",
+          "text": "A felhasználó rövid válaszokat kér. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user",
+          "chunk_id": "nq-quote-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:06.955353+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:05.937346+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "4d657629-bf7e-4f28-969a-963bdb56b196",
+          "text": "A felhasználó két gyermekes szülő.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:06.949843+00:00",
+          "source_memory_ids": [
+            "3854caf5-f010-41ce-a321-8db5eab6d46a"
+          ]
+        },
+        {
+          "id": "7bc4a2be-eb97-4f52-85ce-d8ddf68716ee",
+          "text": "A felhasználó ápolóként dolgozik.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:06.949843+00:00",
+          "source_memory_ids": [
+            "3854caf5-f010-41ce-a321-8db5eab6d46a"
+          ]
+        },
+        {
+          "id": "3854caf5-f010-41ce-a321-8db5eab6d46a",
+          "text": "A felhasználó két gyermekes szülő és ápolóként dolgozik. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, ápoló",
+          "chunk_id": "nq-quote-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:06.955353+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:05.937346+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 5,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "33f7c63d-ca33-456d-be96-99b502f49b17",
+          "text": "A felhasználó rövid válaszokat kér. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-quote-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.080505500290477,
+            "reranker": 0.982337236404419,
+            "semantic": 0.8049455401333859,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "3854caf5-f010-41ce-a321-8db5eab6d46a",
+          "text": "A felhasználó két gyermekes szülő és ápolóként dolgozik. | Involving: user",
+          "type": "world",
+          "entities": [
+            "ápoló",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-quote-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0628471323613535,
+            "reranker": 0.9662832021713257,
+            "semantic": 0.7882815725635559,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "4d657629-bf7e-4f28-969a-963bdb56b196",
+          "text": "A felhasználó két gyermekes szülő.",
+          "type": "observation",
+          "entities": [
+            "ápoló",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "3854caf5-f010-41ce-a321-8db5eab6d46a"
+          ],
+          "scores": {
+            "final": 0.0021326888175435808,
+            "reranker": 0.0019389254739508033,
+            "semantic": 0.7601609456587123,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "7bc4a2be-eb97-4f52-85ce-d8ddf68716ee",
+          "text": "A felhasználó ápolóként dolgozik.",
+          "type": "observation",
+          "entities": [
+            "ápoló",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "3854caf5-f010-41ce-a321-8db5eab6d46a"
+          ],
+          "scores": {
+            "final": 0.001416411239067109,
+            "reranker": 0.0012877245899289846,
+            "semantic": 0.7562804818153381,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "57591392-665d-47c3-81a5-bad573639fff",
+          "text": "A felhasználó rövid válaszokat kér.",
+          "type": "observation",
+          "entities": [
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "33f7c63d-ca33-456d-be96-99b502f49b17"
+          ],
+          "scores": {
+            "final": 0.0013823300757791585,
+            "reranker": 0.0012567398371174932,
+            "semantic": 0.7843591570854187,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "db2f95dc-c71f-47ef-b228-296a3dce58cf",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "ápoló": {
+          "entity_id": "c3ba04f3-0b6d-4ca6-af7b-14dfeff68678",
+          "canonical_name": "ápoló",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "3854caf5-f010-41ce-a321-8db5eab6d46a": {
+          "id": "3854caf5-f010-41ce-a321-8db5eab6d46a",
+          "text": "A felhasználó két gyermekes szülő és ápolóként dolgozik. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-quote-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "33f7c63d-ca33-456d-be96-99b502f49b17": {
+          "id": "33f7c63d-ca33-456d-be96-99b502f49b17",
+          "text": "A felhasználó rövid válaszokat kér. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-quote-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "phone_reassignment",
+    "source": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+    "bank": "nq-phone-reassignment",
+    "config": {
+      "bank_id": "nq-phone-reassignment",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "a62cc00e-6cff-4041-ae47-0f88c8e2884a",
+          "text": "The user's new personal number is 07700 902222.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:10.250632+00:00",
+          "source_memory_ids": [
+            "cbfb5e39-2727-4406-8cbd-a321a9bec824"
+          ]
+        },
+        {
+          "id": "cbfb5e39-2727-4406-8cbd-a321a9bec824",
+          "text": "User's new personal number is 07700 902222. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "07700 902222, user",
+          "chunk_id": "nq-phone-reassignment_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:10.254601+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:09.041812+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "8339533e-8152-4bec-9074-543178e47f9b",
+          "text": "The user's old personal number 07700 901111 is now their company reception number.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:10.250632+00:00",
+          "source_memory_ids": [
+            "4425c790-cecc-46df-93b4-ea073c884cbe"
+          ]
+        },
+        {
+          "id": "4425c790-cecc-46df-93b4-ea073c884cbe",
+          "text": "User's old personal number 07700 901111 is now their company reception number. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "07700 901111, user",
+          "chunk_id": "nq-phone-reassignment_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:10.254601+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:09.041812+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "a62cc00e-6cff-4041-ae47-0f88c8e2884a",
+          "text": "The user's new personal number is 07700 902222.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "07700 902222"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "cbfb5e39-2727-4406-8cbd-a321a9bec824"
+          ],
+          "scores": {
+            "final": 1.0868342285504886,
+            "reranker": 0.988090991973877,
+            "semantic": 0.8040174485450227,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "cbfb5e39-2727-4406-8cbd-a321a9bec824",
+          "text": "User's new personal number is 07700 902222. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "07700 902222"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-phone-reassignment_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0844351498927927,
+            "reranker": 0.9859098792076111,
+            "semantic": 0.7842204570770264,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "8339533e-8152-4bec-9074-543178e47f9b",
+          "text": "The user's old personal number 07700 901111 is now their company reception number.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "07700 901111"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "4425c790-cecc-46df-93b4-ea073c884cbe"
+          ],
+          "scores": {
+            "final": 1.0721988193668839,
+            "reranker": 0.9747852683067322,
+            "semantic": 0.7697957158088684,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "4425c790-cecc-46df-93b4-ea073c884cbe",
+          "text": "User's old personal number 07700 901111 is now their company reception number. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "07700 901111"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-phone-reassignment_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0460742800520164,
+            "reranker": 0.9510342478752136,
+            "semantic": 0.7751596435999671,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "24dcf0e1-2f69-4c5b-a8ac-a9e56751f642",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "07700 902222": {
+          "entity_id": "3a937174-88b4-415f-9737-46fe6a15a192",
+          "canonical_name": "07700 902222",
+          "observations": []
+        },
+        "07700 901111": {
+          "entity_id": "814e402a-a4cc-48ca-9249-57ec70ae6381",
+          "canonical_name": "07700 901111",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "cbfb5e39-2727-4406-8cbd-a321a9bec824": {
+          "id": "cbfb5e39-2727-4406-8cbd-a321a9bec824",
+          "text": "User's new personal number is 07700 902222. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-phone-reassignment_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "4425c790-cecc-46df-93b4-ea073c884cbe": {
+          "id": "4425c790-cecc-46df-93b4-ea073c884cbe",
+          "text": "User's old personal number 07700 901111 is now their company reception number. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-phone-reassignment_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "shopping",
+    "source": "I am comparing Bosch dishwashers. I have not bought one.",
+    "bank": "nq-shopping",
+    "config": {
+      "bank_id": "nq-shopping",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "0cb4ae85-054e-4792-acfe-f4c9e55780ec",
+          "text": "User has not bought a dishwasher yet.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:13.135891+00:00",
+          "source_memory_ids": [
+            "9e7d4c41-c082-4c64-a9c5-642368aadf58"
+          ]
+        },
+        {
+          "id": "9e7d4c41-c082-4c64-a9c5-642368aadf58",
+          "text": "User has not bought a dishwasher yet. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "dishwasher, user",
+          "chunk_id": "nq-shopping_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:13.140415+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:12.191170+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "fdbecd62-24a1-4fa6-9747-27e8b63e731f",
+          "text": "User is comparing Bosch dishwashers.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:13.135891+00:00",
+          "source_memory_ids": [
+            "09ba0bcf-459f-41a0-9d88-6d641cedfd2d"
+          ]
+        },
+        {
+          "id": "09ba0bcf-459f-41a0-9d88-6d641cedfd2d",
+          "text": "User is comparing Bosch dishwashers. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bosch, dishwasher, user",
+          "chunk_id": "nq-shopping_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:13.140415+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:12.191170+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "0cb4ae85-054e-4792-acfe-f4c9e55780ec",
+          "text": "User has not bought a dishwasher yet.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "dishwasher"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "9e7d4c41-c082-4c64-a9c5-642368aadf58"
+          ],
+          "scores": {
+            "final": 1.0902323738479625,
+            "reranker": 0.991180419921875,
+            "semantic": 0.7592938089791663,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "9e7d4c41-c082-4c64-a9c5-642368aadf58",
+          "text": "User has not bought a dishwasher yet. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "dishwasher"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-shopping_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0893791612364687,
+            "reranker": 0.9904047250747681,
+            "semantic": 0.8022716045379639,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "09ba0bcf-459f-41a0-9d88-6d641cedfd2d",
+          "text": "User is comparing Bosch dishwashers. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "dishwasher",
+            "Bosch"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-shopping_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0589682353173313,
+            "reranker": 0.9627567529678345,
+            "semantic": 0.7953318357467651,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "fdbecd62-24a1-4fa6-9747-27e8b63e731f",
+          "text": "User is comparing Bosch dishwashers.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "dishwasher",
+            "Bosch"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "09ba0bcf-459f-41a0-9d88-6d641cedfd2d"
+          ],
+          "scores": {
+            "final": 0.7015700994578119,
+            "reranker": 0.6378296613693237,
+            "semantic": 0.7762161030640554,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "64e29680-bfb1-43ab-a223-d6c8e1738fd5",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "dishwasher": {
+          "entity_id": "b72fc8af-92c5-442e-9aeb-01799c80d435",
+          "canonical_name": "dishwasher",
+          "observations": []
+        },
+        "Bosch": {
+          "entity_id": "b9a0ded5-5adb-4e8e-b8e5-35953e176806",
+          "canonical_name": "Bosch",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "9e7d4c41-c082-4c64-a9c5-642368aadf58": {
+          "id": "9e7d4c41-c082-4c64-a9c5-642368aadf58",
+          "text": "User has not bought a dishwasher yet. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-shopping_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "09ba0bcf-459f-41a0-9d88-6d641cedfd2d": {
+          "id": "09ba0bcf-459f-41a0-9d88-6d641cedfd2d",
+          "text": "User is comparing Bosch dishwashers. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-shopping_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "explicit_quote_boundary",
+    "source": "Please translate \"I own a silver camera.\" I personally own a black laptop. I prefer tea.",
+    "bank": "nq-explicit-quote-boundary",
+    "config": {
+      "bank_id": "nq-explicit-quote-boundary",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "3c41834d-a66d-4e1d-89f0-e0c0d8a9c73f",
+          "text": "The user prefers tea.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:15.906917+00:00",
+          "source_memory_ids": [
+            "3803b008-79eb-40cd-aee4-06e5a3a068cb"
+          ]
+        },
+        {
+          "id": "3803b008-79eb-40cd-aee4-06e5a3a068cb",
+          "text": "User prefers tea. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "tea, user",
+          "chunk_id": "nq-explicit-quote-boundary_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:15.911671+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:15.004032+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "2cdad531-56a1-4ddf-92c6-2d869ebf0df3",
+          "text": "The user personally owns a black laptop.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:15.906917+00:00",
+          "source_memory_ids": [
+            "db402cfe-bef8-41b2-b47f-00a3215c5854"
+          ]
+        },
+        {
+          "id": "db402cfe-bef8-41b2-b47f-00a3215c5854",
+          "text": "User personally owns a black laptop. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "black laptop, user",
+          "chunk_id": "nq-explicit-quote-boundary_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:15.911671+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:15.004032+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "db402cfe-bef8-41b2-b47f-00a3215c5854",
+          "text": "User personally owns a black laptop. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "black laptop"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-explicit-quote-boundary_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.095120461179578,
+            "reranker": 0.9956244230270386,
+            "semantic": 0.8142966870753974,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "2cdad531-56a1-4ddf-92c6-2d869ebf0df3",
+          "text": "The user personally owns a black laptop.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "black laptop"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "db402cfe-bef8-41b2-b47f-00a3215c5854"
+          ],
+          "scores": {
+            "final": 1.08761626823654,
+            "reranker": 0.9888020157814026,
+            "semantic": 0.7707722783088684,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "3803b008-79eb-40cd-aee4-06e5a3a068cb",
+          "text": "User prefers tea. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "tea"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-explicit-quote-boundary_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0663646267564881,
+            "reranker": 0.9694811701774597,
+            "semantic": 0.8170051574707031,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "3c41834d-a66d-4e1d-89f0-e0c0d8a9c73f",
+          "text": "The user prefers tea.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "tea"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "3803b008-79eb-40cd-aee4-06e5a3a068cb"
+          ],
+          "scores": {
+            "final": 0.7932554968703627,
+            "reranker": 0.7211850881576538,
+            "semantic": 0.7769545912742615,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "3f6195f4-19c4-496c-a2c0-73a591f3f75d",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "black laptop": {
+          "entity_id": "6722f8d2-385c-4f0f-a163-0d8141f934f9",
+          "canonical_name": "black laptop",
+          "observations": []
+        },
+        "tea": {
+          "entity_id": "9ff8a621-b0fd-4d54-845d-ef248ffacb95",
+          "canonical_name": "tea",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "db402cfe-bef8-41b2-b47f-00a3215c5854": {
+          "id": "db402cfe-bef8-41b2-b47f-00a3215c5854",
+          "text": "User personally owns a black laptop. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-explicit-quote-boundary_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "3803b008-79eb-40cd-aee4-06e5a3a068cb": {
+          "id": "3803b008-79eb-40cd-aee4-06e5a3a068cb",
+          "text": "User prefers tea. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-explicit-quote-boundary_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "fresh_quote_en",
+    "source": "Please translate \"I own three horses and live in Cork.\" For my own replies, use short paragraphs. I am considering a saddle for my sister; I have not purchased it.",
+    "bank": "nq-fresh-quote-en",
+    "config": {
+      "bank_id": "nq-fresh-quote-en",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "8c82d5ef-8690-4a7c-a6fd-d2921699688e",
+          "text": "The user is considering purchasing a saddle for their sister but has not bought it yet.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:20.402487+00:00",
+          "source_memory_ids": [
+            "a933b7fa-db57-40d9-955e-328b60b171bb"
+          ]
+        },
+        {
+          "id": "a933b7fa-db57-40d9-955e-328b60b171bb",
+          "text": "User is considering purchasing a saddle for their sister but has not bought it yet. | Involving: user, user's sister",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "saddle, user, user's sister",
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:20.411034+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:19.130108+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "b4c81fe3-d540-434d-9a3f-01e8f5577f8a",
+          "text": "The user prefers short paragraphs for their own replies.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:20.402487+00:00",
+          "source_memory_ids": [
+            "1cdd5ab7-93fb-4f00-bd32-683585d2c474"
+          ]
+        },
+        {
+          "id": "1cdd5ab7-93fb-4f00-bd32-683585d2c474",
+          "text": "User prefers short paragraphs for their own replies. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user",
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:20.411034+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:19.130108+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "0bdb1643-ac16-4c6d-85b8-767f31cb7bba",
+          "text": "The user owns three horses.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:20.402487+00:00",
+          "source_memory_ids": [
+            "043d61b6-e8c4-4396-b5b7-ce9ba82e5724"
+          ]
+        },
+        {
+          "id": "61a7bef5-df63-4961-aaeb-f0d8a43669c6",
+          "text": "The user lives in Cork.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:20.402487+00:00",
+          "source_memory_ids": [
+            "043d61b6-e8c4-4396-b5b7-ce9ba82e5724"
+          ]
+        },
+        {
+          "id": "043d61b6-e8c4-4396-b5b7-ce9ba82e5724",
+          "text": "User owns three horses and lives in Cork. | Where: Cork | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Cork, horses, user",
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:20.411034+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:19.130108+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 7,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "043d61b6-e8c4-4396-b5b7-ce9ba82e5724",
+          "text": "User owns three horses and lives in Cork. | Where: Cork | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "Cork",
+            "horses"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0943437978131676,
+            "reranker": 0.9949183464050293,
+            "semantic": 0.8184036016464233,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "a933b7fa-db57-40d9-955e-328b60b171bb",
+          "text": "User is considering purchasing a saddle for their sister but has not bought it yet. | Involving: user, user's sister",
+          "type": "world",
+          "entities": [
+            "user",
+            "saddle",
+            "user's sister"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0939408592202342,
+            "reranker": 0.9945520162582397,
+            "semantic": 0.8108426332473755,
+            "keyword": 0.5
+          },
+          "attachments": null
+        },
+        {
+          "id": "8c82d5ef-8690-4a7c-a6fd-d2921699688e",
+          "text": "The user is considering purchasing a saddle for their sister but has not bought it yet.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "saddle",
+            "user's sister"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "a933b7fa-db57-40d9-955e-328b60b171bb"
+          ],
+          "scores": {
+            "final": 1.0938212757149155,
+            "reranker": 0.9944432973861694,
+            "semantic": 0.7660241355307146,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "61a7bef5-df63-4961-aaeb-f0d8a43669c6",
+          "text": "The user lives in Cork.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "Cork",
+            "horses"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "043d61b6-e8c4-4396-b5b7-ce9ba82e5724"
+          ],
+          "scores": {
+            "final": 1.039948578643207,
+            "reranker": 0.9454651474952698,
+            "semantic": 0.7750030986965629,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "b4c81fe3-d540-434d-9a3f-01e8f5577f8a",
+          "text": "The user prefers short paragraphs for their own replies.",
+          "type": "observation",
+          "entities": [
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "1cdd5ab7-93fb-4f00-bd32-683585d2c474"
+          ],
+          "scores": {
+            "final": 0.9122066460880631,
+            "reranker": 0.8293290734291077,
+            "semantic": 0.8052783012390137,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "0bdb1643-ac16-4c6d-85b8-767f31cb7bba",
+          "text": "The user owns three horses.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "Cork",
+            "horses"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "043d61b6-e8c4-4396-b5b7-ce9ba82e5724"
+          ],
+          "scores": {
+            "final": 0.7857956699744365,
+            "reranker": 0.7144030332565308,
+            "semantic": 0.7518938183784485,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "1cdd5ab7-93fb-4f00-bd32-683585d2c474",
+          "text": "User prefers short paragraphs for their own replies. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.7526033143986787,
+            "reranker": 0.6842263340950012,
+            "semantic": 0.8300897377782919,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "66d5aa21-055a-40b6-b66c-f0a2dc896e5d",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Cork": {
+          "entity_id": "854cacb7-0a17-49ad-a726-c2b0bfc7e688",
+          "canonical_name": "Cork",
+          "observations": []
+        },
+        "horses": {
+          "entity_id": "bc8beb6c-c119-476d-ace2-7d7c215b378e",
+          "canonical_name": "horses",
+          "observations": []
+        },
+        "saddle": {
+          "entity_id": "a409a38e-e839-401d-8721-15f7875173e2",
+          "canonical_name": "saddle",
+          "observations": []
+        },
+        "user's sister": {
+          "entity_id": "bd9fb65b-ce13-4a0c-81dc-226937f1d2b5",
+          "canonical_name": "user's sister",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "a933b7fa-db57-40d9-955e-328b60b171bb": {
+          "id": "a933b7fa-db57-40d9-955e-328b60b171bb",
+          "text": "User is considering purchasing a saddle for their sister but has not bought it yet. | Involving: user, user's sister",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "043d61b6-e8c4-4396-b5b7-ce9ba82e5724": {
+          "id": "043d61b6-e8c4-4396-b5b7-ce9ba82e5724",
+          "text": "User owns three horses and lives in Cork. | Where: Cork | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "1cdd5ab7-93fb-4f00-bd32-683585d2c474": {
+          "id": "1cdd5ab7-93fb-4f00-bd32-683585d2c474",
+          "text": "User prefers short paragraphs for their own replies. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-quote-en_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "fresh_shared_hu",
+    "source": "A húgom és én szeretjük a teát. A húgom Pécsen él, én Szegeden. A régi telefonszámom a cégünk ügyfélszolgálatáé lett; az új személyes számom 07700 903333.",
+    "bank": "nq-fresh-shared-hu",
+    "config": {
+      "bank_id": "nq-fresh-shared-hu",
+      "config": {
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope.",
+        "retain_default_strategy": null,
+        "mental_model_min_refresh_interval_seconds": 0,
+        "consolidation_use_decision_model": true,
+        "recall_budget_adaptive_low": 0.025,
+        "memory_defense": null,
+        "reflect_source_facts_max_tokens": -1,
+        "consolidation_source_facts_max_tokens": 4096,
+        "default_timezone": "UTC",
+        "recall_budget_function": "fixed",
+        "retain_max_attachments_per_chunk": 8,
+        "recall_budget_adaptive_high": 0.25,
+        "disposition_literalism": null,
+        "mental_model_refresh_use_decision_model": true,
+        "consolidation_llm_batch_size": 8,
+        "recall_chunks_max_tokens": 1000,
+        "enable_text_search": true,
+        "reflect_kb_search_media_types": null,
+        "retain_chunk_size": 3000,
+        "knowledge_banks": null,
+        "max_observations_per_scope": -1,
+        "retain_structured_chunk_size": null,
+        "default_observation_scopes": null,
+        "reflect_default_options": null,
+        "recall_budget_fixed_high": 1000,
+        "observation_scope_limits": null,
+        "reflect_mission": null,
+        "recall_budget_max": 2000,
+        "recall_budget_fixed_mid": 300,
+        "recall_max_tokens": 2048,
+        "llm_gemini_safety_settings": null,
+        "recall_budget_adaptive_mid": 0.075,
+        "retain_strategies": null,
+        "consolidation_llm_parallelism": 4,
+        "consolidation_max_memories_per_round": 100,
+        "consolidation_source_facts_max_tokens_per_observation": 256,
+        "recall_prefer_observations": false,
+        "page_default_trigger": null,
+        "reflect_kb_search_apply_tags": true,
+        "mcp_enabled_tools": null,
+        "consolidation_strategies": null,
+        "recall_decision_model_dedup": false,
+        "recall_budget_min": 20,
+        "enable_auto_consolidation": true,
+        "disposition_empathy": null,
+        "mental_model_delta_use_decision_model": true,
+        "entities_allow_free_form": true,
+        "recall_decision_model_prune": false,
+        "audit_log_enabled": false,
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "retain_extraction_mode": "concise",
+        "enable_graph_retrieval": true,
+        "enable_observations": true,
+        "disposition_skepticism": null,
+        "reflect_use_decision_model": true,
+        "enable_temporal_retrieval": true,
+        "enable_reranking": true,
+        "recall_include_chunks": true,
+        "store_document_text": true,
+        "entity_labels": null,
+        "recall_budget_fixed_low": 100,
+        "retain_chunk_batch_size": 100,
+        "retain_custom_instructions": null,
+        "knowledge_page_default_trigger": null
+      },
+      "overrides": {
+        "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+        "enable_observations": true,
+        "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "53cc8daf-446d-4ffd-8936-1222fd7e1996",
+          "text": "A felhasználó új személyes telefonszáma 07700 903333.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:24.827783+00:00",
+          "source_memory_ids": [
+            "37426030-82a9-4447-9e1c-a225e5f6ec21"
+          ]
+        },
+        {
+          "id": "6660374f-dce1-4fc1-852b-f4d74e573964",
+          "text": "A felhasználó régi telefonszáma a cége ügyfélszolgálatáé lett.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:24.827783+00:00",
+          "source_memory_ids": [
+            "37426030-82a9-4447-9e1c-a225e5f6ec21"
+          ]
+        },
+        {
+          "id": "37426030-82a9-4447-9e1c-a225e5f6ec21",
+          "text": "A felhasználó régi telefonszáma a cége ügyfélszolgálatáé lett, az új személyes száma pedig 07700 903333. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "07700 903333, user, user's company",
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:24.838428+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:23.306103+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "2cc94322-520c-4feb-a4bd-32a55c48174d",
+          "text": "A felhasználó Szegeden él.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:24.827783+00:00",
+          "source_memory_ids": [
+            "116115cf-9135-447d-949a-e3e3a2f1c4a2"
+          ]
+        },
+        {
+          "id": "733f0aa2-70aa-4622-aad4-29ae864d8e70",
+          "text": "A felhasználó húga Pécsen él.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:24.827783+00:00",
+          "source_memory_ids": [
+            "116115cf-9135-447d-949a-e3e3a2f1c4a2"
+          ]
+        },
+        {
+          "id": "116115cf-9135-447d-949a-e3e3a2f1c4a2",
+          "text": "A felhasználó húga Pécsen él, a felhasználó pedig Szegeden. | Where: Pécs, Szeged | Involving: user, user's sister",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Pécs, Szeged, user, user's sister",
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:24.838428+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:23.306103+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "2347834e-5cdf-4dad-9810-a3cc37c86903",
+          "text": "A felhasználó és a húga szeretik a teát.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:24.827783+00:00",
+          "source_memory_ids": [
+            "7ee34b79-c1a7-4c7c-a0db-f16b712ead0d"
+          ]
+        },
+        {
+          "id": "7ee34b79-c1a7-4c7c-a0db-f16b712ead0d",
+          "text": "A felhasználó és a húga szeretik a teát. | Involving: user, user's sister",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "tea, user, user's sister",
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T14:55:24.838428+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:55:23.306103+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "7ee34b79-c1a7-4c7c-a0db-f16b712ead0d",
+          "text": "A felhasználó és a húga szeretik a teát. | Involving: user, user's sister",
+          "type": "world",
+          "entities": [
+            "tea",
+            "user",
+            "user's sister"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0956370241136175,
+            "reranker": 0.9960941076278687,
+            "semantic": 0.796872079372406,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "116115cf-9135-447d-949a-e3e3a2f1c4a2",
+          "text": "A felhasználó húga Pécsen él, a felhasználó pedig Szegeden. | Where: Pécs, Szeged | Involving: user, user's sister",
+          "type": "world",
+          "entities": [
+            "Szeged",
+            "Pécs",
+            "user",
+            "user's sister"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.091365519851242,
+            "reranker": 0.9922106862068176,
+            "semantic": 0.7798022031784058,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "37426030-82a9-4447-9e1c-a225e5f6ec21",
+          "text": "A felhasználó régi telefonszáma a cége ügyfélszolgálatáé lett, az új személyes száma pedig 07700 903333. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user's company",
+            "07700 903333",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.9811887946969324,
+            "reranker": 0.892043948173523,
+            "semantic": 0.757797122001648,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "733f0aa2-70aa-4622-aad4-29ae864d8e70",
+          "text": "A felhasználó húga Pécsen él.",
+          "type": "observation",
+          "entities": [
+            "Szeged",
+            "Pécs",
+            "user",
+            "user's sister"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "116115cf-9135-447d-949a-e3e3a2f1c4a2"
+          ],
+          "scores": {
+            "final": 0.2606854941016418,
+            "reranker": 0.2370011955499649,
+            "semantic": 0.7450398650789194,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "6660374f-dce1-4fc1-852b-f4d74e573964",
+          "text": "A felhasználó régi telefonszáma a cége ügyfélszolgálatáé lett.",
+          "type": "observation",
+          "entities": [
+            "user's company",
+            "07700 903333",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "37426030-82a9-4447-9e1c-a225e5f6ec21"
+          ],
+          "scores": {
+            "final": 0.003523498182250614,
+            "reranker": 0.0032033745665103197,
+            "semantic": 0.7674360503982324,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "53cc8daf-446d-4ffd-8936-1222fd7e1996",
+          "text": "A felhasználó új személyes telefonszáma 07700 903333.",
+          "type": "observation",
+          "entities": [
+            "user's company",
+            "07700 903333",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "37426030-82a9-4447-9e1c-a225e5f6ec21"
+          ],
+          "scores": {
+            "final": 0.0025255993879184967,
+            "reranker": 0.0022961387876421213,
+            "semantic": 0.775271700338824,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "2cc94322-520c-4feb-a4bd-32a55c48174d",
+          "text": "A felhasználó Szegeden él.",
+          "type": "observation",
+          "entities": [
+            "Szeged",
+            "Pécs",
+            "user",
+            "user's sister"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "116115cf-9135-447d-949a-e3e3a2f1c4a2"
+          ],
+          "scores": {
+            "final": 0.0023439466541563246,
+            "reranker": 0.0021309899166226387,
+            "semantic": 0.7517873644828796,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "2347834e-5cdf-4dad-9810-a3cc37c86903",
+          "text": "A felhasználó és a húga szeretik a teát.",
+          "type": "observation",
+          "entities": [
+            "tea",
+            "user",
+            "user's sister"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "7ee34b79-c1a7-4c7c-a0db-f16b712ead0d"
+          ],
+          "scores": {
+            "final": 0.001858660222086157,
+            "reranker": 0.0016897936584427953,
+            "semantic": 0.764764680578431,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "tea": {
+          "entity_id": "2f47d024-0c12-44ed-8687-4393f8f30c1b",
+          "canonical_name": "tea",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "b79f417c-b601-4e9c-b727-33b8dc95b103",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "user's sister": {
+          "entity_id": "db154e3d-4bd0-44a6-bf86-77a93cd65f17",
+          "canonical_name": "user's sister",
+          "observations": []
+        },
+        "Szeged": {
+          "entity_id": "5707dd76-c67f-46e8-b792-a8db31f6f0e5",
+          "canonical_name": "Szeged",
+          "observations": []
+        },
+        "Pécs": {
+          "entity_id": "b21d6973-919b-46b2-a7ba-b9811f3dd586",
+          "canonical_name": "Pécs",
+          "observations": []
+        },
+        "user's company": {
+          "entity_id": "783bf7f1-3238-4046-944a-83dc44d5f98e",
+          "canonical_name": "user's company",
+          "observations": []
+        },
+        "07700 903333": {
+          "entity_id": "862a4515-1079-477d-8fa6-8f0fb66fff42",
+          "canonical_name": "07700 903333",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "116115cf-9135-447d-949a-e3e3a2f1c4a2": {
+          "id": "116115cf-9135-447d-949a-e3e3a2f1c4a2",
+          "text": "A felhasználó húga Pécsen él, a felhasználó pedig Szegeden. | Where: Pécs, Szeged | Involving: user, user's sister",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "37426030-82a9-4447-9e1c-a225e5f6ec21": {
+          "id": "37426030-82a9-4447-9e1c-a225e5f6ec21",
+          "text": "A felhasználó régi telefonszáma a cége ügyfélszolgálatáé lett, az új személyes száma pedig 07700 903333. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "7ee34b79-c1a7-4c7c-a0db-f16b712ead0d": {
+          "id": "7ee34b79-c1a7-4c7c-a0db-f16b712ead0d",
+          "text": "A felhasználó és a húga szeretik a teát. | Involving: user, user's sister",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nq-fresh-shared-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  }
+]

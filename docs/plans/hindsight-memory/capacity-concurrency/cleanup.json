@@ -1,0 +1,101 @@
+{
+  "at": "2026-11-18T19:28:41.923Z",
+  "deleted": [
+    {
+      "bank": "conc-1118-1-0",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-1-0' and all associated data deleted successfully",
+        "deleted_count": 56
+      }
+    },
+    {
+      "bank": "conc-1118-1-1",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-1-1' and all associated data deleted successfully",
+        "deleted_count": 57
+      }
+    },
+    {
+      "bank": "conc-1118-1-2",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-1-2' and all associated data deleted successfully",
+        "deleted_count": 57
+      }
+    },
+    {
+      "bank": "conc-1118-3-0",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-3-0' and all associated data deleted successfully",
+        "deleted_count": 53
+      }
+    },
+    {
+      "bank": "conc-1118-3-1",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-3-1' and all associated data deleted successfully",
+        "deleted_count": 53
+      }
+    },
+    {
+      "bank": "conc-1118-3-2",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-3-2' and all associated data deleted successfully",
+        "deleted_count": 52
+      }
+    },
+    {
+      "bank": "conc-1118-6-0",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-6-0' and all associated data deleted successfully",
+        "deleted_count": 57
+      }
+    },
+    {
+      "bank": "conc-1118-6-1",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-6-1' and all associated data deleted successfully",
+        "deleted_count": 54
+      }
+    },
+    {
+      "bank": "conc-1118-6-2",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-6-2' and all associated data deleted successfully",
+        "deleted_count": 55
+      }
+    },
+    {
+      "bank": "conc-1118-8-0",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-8-0' and all associated data deleted successfully",
+        "deleted_count": 53
+      }
+    },
+    {
+      "bank": "conc-1118-8-1",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-8-1' and all associated data deleted successfully",
+        "deleted_count": 55
+      }
+    },
+    {
+      "bank": "conc-1118-8-2",
+      "result": {
+        "success": true,
+        "message": "Bank 'conc-1118-8-2' and all associated data deleted successfully",
+        "deleted_count": 53
+      }
+    }
+  ]
+}

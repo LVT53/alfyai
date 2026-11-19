@@ -1,0 +1,1212 @@
+[
+  {
+    "id": "en",
+    "stages": [
+      {
+        "stage": "original",
+        "rows": [
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers decaf coffee.",
+            "nativeNotes": [],
+            "original": "User prefers decaf coffee.",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a white canoe.",
+            "nativeNotes": [],
+            "original": "User owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36"
+            ]
+          },
+          {
+            "id": "5235351b-dbc5-44d9-a053-83c1823ab202",
+            "current": "User owns an amber hiking backpack.",
+            "nativeNotes": [],
+            "original": "User owns an amber hiking backpack.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "newer",
+        "rows": [
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [],
+            "original": "User prefers espresso.",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb"
+            ]
+          },
+          {
+            "id": "5235351b-dbc5-44d9-a053-83c1823ab202",
+            "current": "User owns a teal hiking backpack.",
+            "nativeNotes": [],
+            "original": "User owns a teal hiking backpack.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a white canoe.",
+            "nativeNotes": [],
+            "original": "User owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "correction",
+        "rows": [
+          {
+            "id": "5235351b-dbc5-44d9-a053-83c1823ab202",
+            "current": "User owns a green hiking backpack.",
+            "nativeNotes": [],
+            "original": "User owns a green hiking backpack.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [],
+            "original": "User prefers espresso.",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a white canoe.",
+            "nativeNotes": [],
+            "original": "User owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "old-replay",
+        "rows": [
+          {
+            "id": "5235351b-dbc5-44d9-a053-83c1823ab202",
+            "current": "User owns a green hiking backpack.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+              "cb53ac55-5997-4c00-84f5-ee222c637229"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a white canoe.",
+            "nativeNotes": [],
+            "original": "User owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "pending",
+        "rows": [
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a white canoe.",
+            "nativeNotes": [],
+            "original": "User owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "pending-removed",
+        "rows": [
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a green hiking backpack and a white canoe.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "single-added",
+        "rows": [
+          {
+            "id": "e16e7ffa-7306-4f7c-a77e-404c4e2cf816",
+            "current": "The user's preferred notebook brand is Leuchtturm.",
+            "nativeNotes": [],
+            "original": "The user's preferred notebook brand is Leuchtturm.",
+            "sourceIds": [
+              "a726e5d4-6c29-4091-b97c-101cc6ad6aa9"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a green hiking backpack and a white canoe.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "single-edited",
+        "rows": [
+          {
+            "id": "fdc3b476-9a91-4540-8c30-6bdb092b3e83",
+            "current": "The user prefers Rhodia notebooks.",
+            "nativeNotes": [],
+            "original": "The user prefers Rhodia notebooks.",
+            "sourceIds": [
+              "a726e5d4-6c29-4091-b97c-101cc6ad6aa9"
+            ]
+          },
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a green hiking backpack and a white canoe.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "single-removed",
+        "rows": [
+          {
+            "id": "3dd98485-921a-4592-a64a-7befd7a87175",
+            "current": "User owns a green hiking backpack and a white canoe.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a"
+            ]
+          },
+          {
+            "id": "fa757515-f5ac-48b0-9c81-be88d4601b75",
+            "current": "User prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "9d69e82e-323a-49f8-a7e1-5c14a85613dd",
+            "current": "User's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "User's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "full-native-rebuild",
+        "rows": [
+          {
+            "id": "9118c3a0-a9e8-4c58-8c85-474a05ff0bff",
+            "current": "The user owns a green hiking backpack.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+              "cb53ac55-5997-4c00-84f5-ee222c637229"
+            ]
+          },
+          {
+            "id": "272d20af-8de5-4aac-bc1f-06582e13df17",
+            "current": "The user prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "f7e4ca17-62b3-4427-9ec2-d91093beef05",
+            "current": "The user's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "The user's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          },
+          {
+            "id": "457c8e6e-caf5-44a1-bc64-66e2534499f7",
+            "current": "The user owns a white canoe.",
+            "nativeNotes": [],
+            "original": "The user owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "insert",
+        "rows": [
+          {
+            "id": "40d60d6d-e6b2-49c7-b102-57b69c317cc6",
+            "current": "The user owns a copper kettle.",
+            "nativeNotes": [],
+            "original": "The user owns a copper kettle.",
+            "sourceIds": [
+              "695e7d8b-ee98-453a-bc7b-104804e77cff"
+            ]
+          },
+          {
+            "id": "9118c3a0-a9e8-4c58-8c85-474a05ff0bff",
+            "current": "The user owns a green hiking backpack.",
+            "nativeNotes": [
+              {
+                "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+                "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+              }
+            ],
+            "original": "The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+              "cb53ac55-5997-4c00-84f5-ee222c637229"
+            ]
+          },
+          {
+            "id": "272d20af-8de5-4aac-bc1f-06582e13df17",
+            "current": "The user prefers espresso.",
+            "nativeNotes": [
+              {
+                "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+                "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+              }
+            ],
+            "original": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "sourceIds": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "f7e4ca17-62b3-4427-9ec2-d91093beef05",
+            "current": "The user's sister prefers green tea.",
+            "nativeNotes": [],
+            "original": "The user's sister prefers green tea.",
+            "sourceIds": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          },
+          {
+            "id": "457c8e6e-caf5-44a1-bc64-66e2534499f7",
+            "current": "The user owns a white canoe.",
+            "nativeNotes": [],
+            "original": "The user owns a white canoe.",
+            "sourceIds": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2"
+            ]
+          }
+        ]
+      }
+    ],
+    "search": {
+      "oldWord": [],
+      "boat": [
+        {
+          "id": "457c8e6e-caf5-44a1-bc64-66e2534499f7",
+          "current": "The user owns a white canoe.",
+          "nativeNotes": [],
+          "original": "The user owns a white canoe.",
+          "sourceIds": [
+            "9944ddce-6417-4c79-82c1-409340d5eb36",
+            "628a1007-a373-4b27-9273-f226f5a4d3e2"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "hu",
+    "stages": [
+      {
+        "stage": "original",
+        "rows": [
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó rövid válaszokat kér.",
+            "nativeNotes": [],
+            "original": "A felhasználó rövid válaszokat kér.",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682"
+            ]
+          },
+          {
+            "id": "fc9c52e1-c504-422c-ad5e-9fd10917ef6e",
+            "current": "A felhasználónak van egy piros kerékpárja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy piros kerékpárja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "newer",
+        "rows": [
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [],
+            "original": "A felhasználó részletes válaszokat kér.",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb"
+            ]
+          },
+          {
+            "id": "fc9c52e1-c504-422c-ad5e-9fd10917ef6e",
+            "current": "A felhasználónak van egy kék kerékpárja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy kék kerékpárja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "correction",
+        "rows": [
+          {
+            "id": "fc9c52e1-c504-422c-ad5e-9fd10917ef6e",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy zöld kerékpárja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [],
+            "original": "A felhasználó részletes válaszokat kér.",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "old-replay",
+        "rows": [
+          {
+            "id": "fc9c52e1-c504-422c-ad5e-9fd10917ef6e",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "pending",
+        "rows": [
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "pending-removed",
+        "rows": [
+          {
+            "id": "eef8249a-ecca-42e0-ba6b-2b5ba465b81d",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "single-added",
+        "rows": [
+          {
+            "id": "111d58e6-1979-47c1-a832-fbc8ce36e327",
+            "current": "A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+            "nativeNotes": [],
+            "original": "A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+            "sourceIds": [
+              "ad398a23-f43f-4a06-8559-b10d037ccf7a"
+            ]
+          },
+          {
+            "id": "eef8249a-ecca-42e0-ba6b-2b5ba465b81d",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "single-edited",
+        "rows": [
+          {
+            "id": "674f5758-a328-4dbc-a6f8-4f74fcd87d6d",
+            "current": "A felhasználó a Rhodia füzeteket kedveli.",
+            "nativeNotes": [],
+            "original": "A felhasználó a Rhodia füzeteket kedveli.",
+            "sourceIds": [
+              "ad398a23-f43f-4a06-8559-b10d037ccf7a"
+            ]
+          },
+          {
+            "id": "eef8249a-ecca-42e0-ba6b-2b5ba465b81d",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "single-removed",
+        "rows": [
+          {
+            "id": "eef8249a-ecca-42e0-ba6b-2b5ba465b81d",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "2e56774f-b213-4d5d-b142-3ee49dcd40f4",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "d5aea734-64ac-4aad-b63d-d2a45c6e1c84",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "ddd19f93-c208-4f01-a383-783bc8bf3c46",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "full-native-rebuild",
+        "rows": [
+          {
+            "id": "507deac9-ca81-49ac-9cef-21cfd8fa8b5f",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "26df9091-da77-4178-bcd3-3e4449d450fe",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "86ce91b3-f28a-45d2-88f9-9c53f21a1e1f",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "034e39b5-6629-4783-b411-398183d7757b",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "insert",
+        "rows": [
+          {
+            "id": "8d8041c1-23a7-4ee8-a36c-3118de2eb0ed",
+            "current": "A felhasználónak van egy réz vízforralója.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy réz vízforralója.",
+            "sourceIds": [
+              "48b80e25-da2d-462d-a1a3-52badc1ea03b"
+            ]
+          },
+          {
+            "id": "507deac9-ca81-49ac-9cef-21cfd8fa8b5f",
+            "current": "A felhasználónak van egy zöld kerékpárja.",
+            "nativeNotes": [
+              {
+                "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+                "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+              }
+            ],
+            "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "26df9091-da77-4178-bcd3-3e4449d450fe",
+            "current": "A felhasználó részletes válaszokat kér.",
+            "nativeNotes": [
+              {
+                "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+                "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+              }
+            ],
+            "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "sourceIds": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "86ce91b3-f28a-45d2-88f9-9c53f21a1e1f",
+            "current": "A felhasználó húga Győrben él.",
+            "nativeNotes": [],
+            "original": "A felhasználó húga Győrben él.",
+            "sourceIds": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "034e39b5-6629-4783-b411-398183d7757b",
+            "current": "A felhasználónak van egy fehér kajakja.",
+            "nativeNotes": [],
+            "original": "A felhasználónak van egy fehér kajakja.",
+            "sourceIds": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          }
+        ]
+      }
+    ],
+    "search": {
+      "oldWord": [],
+      "boat": [
+        {
+          "id": "034e39b5-6629-4783-b411-398183d7757b",
+          "current": "A felhasználónak van egy fehér kajakja.",
+          "nativeNotes": [],
+          "original": "A felhasználónak van egy fehér kajakja.",
+          "sourceIds": [
+            "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+            "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+          ]
+        }
+      ]
+    }
+  }
+]

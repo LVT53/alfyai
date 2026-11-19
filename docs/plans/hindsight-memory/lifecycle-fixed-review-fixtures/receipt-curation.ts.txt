@@ -1,0 +1,76 @@
+it.each([0, 1, 2])("receipt lifecycle judge: unchanged resend follows accepted-empty receipt age %s", async (generationAge) => {
+	const f = await setup();
+	f.db.delete(f.s.memoryPublishedRows).run();
+	f.db.delete(f.s.memorySourceRevisions).run();
+	f.db.update(f.s.memoryBanks).set({ generation: null }).run();
+	const fixture = await nativeFixture(f, []);
+	fixture.setFacts([]);
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	const assertion = "I prefer decaf in the afternoon.";
+	let retains = 0;
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		if (String(url).endsWith("/memories") && init?.method === "POST") {
+			retains++;
+			const item = JSON.parse(String(init.body)).items[0];
+			expect(item.content).toBe(assertion);
+			fixture.setFacts([]);
+		}
+		return original(url, init);
+	});
+	const { eq } = await import("drizzle-orm");
+	const chat = await import("./chat-delivery");
+	const job = await import("./delivery-job");
+	const chatId = randomUUID();
+	f.db.insert(f.s.conversations)
+		.values({ id: chatId, title: "Synthetic chat", userId: h.userId }).run();
+	const persist = async (prefix: string, previous?: string) => {
+		const memoryAcceptance = chat.captureMemoryTurnAcceptance(h.userId, chatId);
+		f.db.insert(f.s.messages).values([
+			{ id: prefix, conversationId: chatId, role: "user", content: assertion, messageSequence: previous ? 3 : 1 },
+			{ id: prefix + "-assistant", conversationId: chatId, role: "assistant", content: "Understood.", messageSequence: previous ? 4 : 2 },
+		]).run();
+		await chat.deliverCompletedMemoryTurn({
+			memoryAcceptance, userId: h.userId, conversationId: chatId,
+			userMessageId: prefix, assistantMessageId: prefix + "-assistant",
+			...(previous ? { turnOrigin: "edit_resend", editSourceMessageId: previous } : {}),
+		});
+		const source = f.db.select().from(f.s.memorySourceRevisions)
+			.where(eq(f.s.memorySourceRevisions.messageId, prefix)).get();
+		if (!source) throw Error("missing recorded source");
+		return source;
+	};
+	const previous = await persist("before");
+	expect(previous).toMatchObject({ state: "pending", nativeSubmitted: false, acknowledgedFactsJson: "[]" });
+	await h.engine.drain(job.memoryDeliveryJob);
+	expect(retains).toBe(1);
+	const retiredGeneration = f.db.select().from(f.s.memoryBanks).get()?.generation;
+	expect(retiredGeneration).toBeTruthy();
+	expect(f.db.select().from(f.s.memorySourceRevisions).where(eq(f.s.memorySourceRevisions.id, previous.id)).get())
+		.toMatchObject({ state: "accepted", acceptedGeneration: retiredGeneration });
+	f.db.delete(f.s.memoryDeliveryJobs).where(eq(f.s.memoryDeliveryJobs.sourceId, previous.id)).run();
+	await chat.revokeDeletedMemoryMessages(["before"], { editSourceMessageId: "before" });
+	f.db.delete(f.s.messages).where(eq(f.s.messages.id, "before")).run();
+	const { publishNativeSnapshot } = await import("./publication");
+	for (let i = 0; i < generationAge; i++) {
+		f.db.transaction((tx) => {
+			const bank = tx.select().from(f.s.memoryBanks).get()!;
+			publishNativeSnapshot(tx, { userId: h.userId, bankId: bank.id, epoch: bank.epoch, expectedRevision: bank.revision, memories: [] });
+		});
+	}
+	const later = f.db.select().from(f.s.memoryBanks).get();
+	if (generationAge === 0) expect(later?.generation).toBe(retiredGeneration);
+	if (generationAge === 1) expect(later?.previousGeneration).toBe(retiredGeneration);
+	if (generationAge === 2) expect([later?.generation, later?.previousGeneration]).not.toContain(retiredGeneration);
+	const next = await persist("after", "before");
+	expect(next.predecessorSourceId).toBe(previous.id);
+	await h.engine.drain(job.memoryDeliveryJob);
+	const delivery = f.db.select().from(f.s.memoryDeliveryJobs)
+		.where(eq(f.s.memoryDeliveryJobs.sourceId, next.id)).get();
+	if (generationAge === 2)
+		expect(delivery).toMatchObject({ status: "queued", errorCode: "memory_unchanged_source_unverified" });
+	else
+		expect(delivery?.status).toBe("succeeded");
+	expect(retains).toBe(1);
+	expect((await import("./native-read")).listMemory(h.userId, { scope: { kind: "personal" } }).rows).toEqual([]);
+});

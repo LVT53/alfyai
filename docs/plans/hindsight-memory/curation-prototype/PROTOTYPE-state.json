@@ -1,0 +1,45 @@
+{
+  "alice": {
+    "revision": 4,
+    "sources": {
+      "s1": {
+        "version": 2,
+        "text": "My bicycle is red. I prefer espresso. I started pottery."
+      },
+      "s2": {
+        "version": 1,
+        "text": "I keep my red bike in the shed. I live in Berlin."
+      }
+    },
+    "edits": [
+      {
+        "id": "forget-1",
+        "action": "Forget only the colour of my bicycle. Preserve ownership, location and all unrelated information.",
+        "scope": {
+          "s1": {
+            "version": 1,
+            "text": "My bicycle is red. I prefer decaf coffee."
+          },
+          "s2": {
+            "version": 1,
+            "text": "I keep my red bike in the shed. I live in Berlin."
+          }
+        }
+      }
+    ],
+    "bank": "curation-prototype-alice-3",
+    "publishedRevision": 4
+  },
+  "bob": {
+    "revision": 1,
+    "sources": {
+      "s1": {
+        "version": 1,
+        "text": "My bicycle is green. I prefer tea."
+      }
+    },
+    "edits": [],
+    "bank": "curation-prototype-bob-4",
+    "publishedRevision": 1
+  }
+}

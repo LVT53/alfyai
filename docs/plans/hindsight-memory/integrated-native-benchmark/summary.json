@@ -1,0 +1,164 @@
+{
+  "profiles": 6,
+  "sessions": 102,
+  "checks": 72,
+  "answers": 72,
+  "strictPassed": 50,
+  "answersWithUnsupportedClaims": 19,
+  "unsupportedClaims": 20,
+  "sufficientRecall": 59,
+  "sourceJobs": {
+    "succeeded": 102
+  },
+  "sourceStates": {
+    "accepted": 102
+  },
+  "sourceAttempts": {
+    "succeeded": 102
+  },
+  "jobErrorCodes": {},
+  "acknowledgedRawFacts": 144,
+  "zeroFactSessions": 3,
+  "finalPublishedRowsByScope": {
+    "personal": 93,
+    "project": 48
+  },
+  "recallCandidates": 1020,
+  "scopeOrOwnerViolations": 0,
+  "emptyRecall": 0,
+  "memoryActions": 0,
+  "interruptions": [],
+  "finishReasons": {
+    "stop": 72
+  },
+  "averageAnswerPromptTokens": 539.9,
+  "medianDeliveryMs": 11736.0,
+  "medianRecallMs": 169.5,
+  "medianAnswerMs": 637.0,
+  "byCategory": {
+    "future_plan": {
+      "checks": 6,
+      "pass": 4,
+      "unsupportedClaims": 2,
+      "retrievalSufficient": 6
+    },
+    "current_plan": {
+      "checks": 6,
+      "pass": 1,
+      "unsupportedClaims": 5,
+      "retrievalSufficient": 6
+    },
+    "past_plan": {
+      "checks": 6,
+      "pass": 4,
+      "unsupportedClaims": 2,
+      "retrievalSufficient": 6
+    },
+    "ownership": {
+      "checks": 6,
+      "pass": 5,
+      "unsupportedClaims": 1,
+      "retrievalSufficient": 5
+    },
+    "fiction_attribution": {
+      "checks": 6,
+      "pass": 5,
+      "unsupportedClaims": 1,
+      "retrievalSufficient": 6
+    },
+    "conditional_change": {
+      "checks": 6,
+      "pass": 6,
+      "unsupportedClaims": 0,
+      "retrievalSufficient": 6
+    },
+    "project_preference": {
+      "checks": 6,
+      "pass": 5,
+      "unsupportedClaims": 1,
+      "retrievalSufficient": 6
+    },
+    "project_continuity": {
+      "checks": 6,
+      "pass": 5,
+      "unsupportedClaims": 0,
+      "retrievalSufficient": 6
+    },
+    "preference_correction": {
+      "checks": 6,
+      "pass": 6,
+      "unsupportedClaims": 0,
+      "retrievalSufficient": 6
+    },
+    "personalization": {
+      "checks": 6,
+      "pass": 3,
+      "unsupportedClaims": 3,
+      "retrievalSufficient": 0
+    },
+    "cross_project_personal_fact": {
+      "checks": 6,
+      "pass": 0,
+      "unsupportedClaims": 5,
+      "retrievalSufficient": 0
+    },
+    "identity_continuity": {
+      "checks": 6,
+      "pass": 6,
+      "unsupportedClaims": 0,
+      "retrievalSufficient": 6
+    }
+  },
+  "byLanguage": {
+    "en": {
+      "checks": 36,
+      "pass": 26,
+      "unsupportedClaims": 10,
+      "retrievalSufficient": 29
+    },
+    "hu": {
+      "checks": 36,
+      "pass": 24,
+      "unsupportedClaims": 10,
+      "retrievalSufficient": 30
+    }
+  },
+  "byProfile": {
+    "p01": {
+      "checks": 12,
+      "pass": 9,
+      "unsupportedClaims": 3,
+      "retrievalSufficient": 10
+    },
+    "p02": {
+      "checks": 12,
+      "pass": 10,
+      "unsupportedClaims": 2,
+      "retrievalSufficient": 10
+    },
+    "p03": {
+      "checks": 12,
+      "pass": 7,
+      "unsupportedClaims": 5,
+      "retrievalSufficient": 9
+    },
+    "p04": {
+      "checks": 12,
+      "pass": 8,
+      "unsupportedClaims": 3,
+      "retrievalSufficient": 10
+    },
+    "p05": {
+      "checks": 12,
+      "pass": 9,
+      "unsupportedClaims": 2,
+      "retrievalSufficient": 10
+    },
+    "p06": {
+      "checks": 12,
+      "pass": 7,
+      "unsupportedClaims": 5,
+      "retrievalSufficient": 10
+    }
+  }
+}

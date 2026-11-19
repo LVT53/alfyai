@@ -1,0 +1,1001 @@
+{
+  "bank": "recovery-publication-1",
+  "checks": [
+    {
+      "name": "publish initial read-back-verified revision",
+      "pass": true
+    },
+    {
+      "name": "all initial accepted facts recalled",
+      "pass": true
+    },
+    {
+      "name": "failed candidate does not remove accepted facts",
+      "pass": true
+    },
+    {
+      "name": "pending candidate has no admitted facts",
+      "pass": true
+    },
+    {
+      "name": "correction completion alone does not change publication",
+      "pass": true
+    },
+    {
+      "name": "stale revision acknowledgement rejected",
+      "pass": true
+    },
+    {
+      "name": "stale acknowledgement preserves old revision",
+      "pass": true
+    },
+    {
+      "name": "publish corrected candidate",
+      "pass": true
+    },
+    {
+      "name": "all new accepted facts recalled",
+      "pass": true
+    },
+    {
+      "name": "no old revision IDs admitted",
+      "pass": true
+    },
+    {
+      "name": "old document cleanup preserves new revision",
+      "pass": true
+    },
+    {
+      "name": "late old native write cannot alter admitted memory",
+      "pass": true
+    }
+  ],
+  "snapshots": [
+    {
+      "label": "initial",
+      "activeRevision": 1,
+      "raw": {
+        "results": [
+          {
+            "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.001072958682059784,
+              "reranker": 0.000975503062363714,
+              "semantic": 0.8041887879371643,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Mondays",
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.000697353630568395,
+              "reranker": 0.0006340137915685773,
+              "semantic": 0.8182940699703668,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Mondays": {
+            "entity_id": "0462ab13-88f9-48ad-95c9-5a834b6f1811",
+            "canonical_name": "Mondays",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    {
+      "label": "candidate-failed",
+      "activeRevision": 1,
+      "raw": {
+        "results": [
+          {
+            "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0010729586380049077,
+              "reranker": 0.000975503062363714,
+              "semantic": 0.8041887879371643,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Mondays",
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0006973536019355795,
+              "reranker": 0.0006340137915685773,
+              "semantic": 0.8182940699703668,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Mondays": {
+            "entity_id": "0462ab13-88f9-48ad-95c9-5a834b6f1811",
+            "canonical_name": "Mondays",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    {
+      "label": "corrected-but-not-published",
+      "activeRevision": 1,
+      "raw": {
+        "results": [
+          {
+            "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.001072958594416142,
+              "reranker": 0.000975503062363714,
+              "semantic": 0.8041887879371643,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Mondays",
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0006973535736057059,
+              "reranker": 0.0006340137915685773,
+              "semantic": 0.8182940699703668,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Mondays": {
+            "entity_id": "0462ab13-88f9-48ad-95c9-5a834b6f1811",
+            "canonical_name": "Mondays",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    {
+      "label": "stale-ack-rejected",
+      "activeRevision": 1,
+      "raw": {
+        "results": [
+          {
+            "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.00107295859419971,
+              "reranker": 0.000975503062363714,
+              "semantic": 0.8041887879371643,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Mondays",
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r1",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r1_0",
+            "tags": [
+              "published-revision:1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.000697353573465039,
+              "reranker": 0.0006340137915685773,
+              "semantic": 0.8182940699703668,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Mondays": {
+            "entity_id": "0462ab13-88f9-48ad-95c9-5a834b6f1811",
+            "canonical_name": "Mondays",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "0f7ca4df-43da-4ed2-8be9-f97a37f0c3e2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "f0d88123-264b-4b35-8912-a6d6a9fa2431",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    {
+      "label": "published",
+      "activeRevision": 2,
+      "raw": {
+        "results": [
+          {
+            "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.001285430262788608,
+              "reranker": 0.0011686761863529682,
+              "semantic": 0.8031209707260132,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0009701854631918145,
+              "reranker": 0.0008820646908134222,
+              "semantic": 0.8181209564208984,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+            "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Juniper",
+              "offline mode",
+              "CLI",
+              "user"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.00019051353857846583,
+              "reranker": 0.0001732094242470339,
+              "semantic": 0.7950388315296884,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          },
+          "Juniper": {
+            "entity_id": "44fd60ed-334b-4136-a201-5195b03e0bb9",
+            "canonical_name": "Juniper",
+            "observations": []
+          },
+          "offline mode": {
+            "entity_id": "72ddd560-677c-421b-bcec-0c26913aa5fd",
+            "canonical_name": "offline mode",
+            "observations": []
+          },
+          "CLI": {
+            "entity_id": "d93f4eca-b9e7-4fea-aba7-3b15bd9d0759",
+            "canonical_name": "CLI",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+        }
+      ]
+    },
+    {
+      "label": "old-native-document-deleted",
+      "activeRevision": 2,
+      "raw": {
+        "results": [
+          {
+            "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0012854302548037362,
+              "reranker": 0.0011686761863529682,
+              "semantic": 0.8031209707260132,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0009701854571651891,
+              "reranker": 0.0008820646908134222,
+              "semantic": 0.8181209564208984,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+            "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Juniper",
+              "offline mode",
+              "CLI",
+              "user"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.00019051353739502847,
+              "reranker": 0.0001732094242470339,
+              "semantic": 0.7950388315296884,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          },
+          "Juniper": {
+            "entity_id": "44fd60ed-334b-4136-a201-5195b03e0bb9",
+            "canonical_name": "Juniper",
+            "observations": []
+          },
+          "offline mode": {
+            "entity_id": "72ddd560-677c-421b-bcec-0c26913aa5fd",
+            "canonical_name": "offline mode",
+            "observations": []
+          },
+          "CLI": {
+            "entity_id": "d93f4eca-b9e7-4fea-aba7-3b15bd9d0759",
+            "canonical_name": "CLI",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+        }
+      ]
+    },
+    {
+      "label": "late-old-native-write",
+      "activeRevision": 2,
+      "raw": {
+        "results": [
+          {
+            "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+            "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+            "type": "world",
+            "entities": [
+              "dark theme",
+              "user",
+              "Harbor project",
+              "Kotlin"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0012854301123278195,
+              "reranker": 0.0011686761863529682,
+              "semantic": 0.8031209707260132,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+            "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Ruby",
+              "Juniper project",
+              "user"
+            ],
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0009701853496307181,
+              "reranker": 0.0008820646908134222,
+              "semantic": 0.8181209564208984,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+            "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user",
+            "type": "world",
+            "entities": [
+              "Juniper",
+              "offline mode",
+              "CLI",
+              "user"
+            ],
+            "context": "",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+            "document_id": "source-r2",
+            "metadata": {},
+            "chunk_id": "recovery-publication-1_source-r2_0",
+            "tags": [
+              "published-revision:2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0001905135162786818,
+              "reranker": 0.0001732094242470339,
+              "semantic": 0.7950388315296884,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "dark theme": {
+            "entity_id": "a3ca676a-66d1-4f56-afaa-f18f28885da2",
+            "canonical_name": "dark theme",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "dcd52ea1-8068-4323-82f2-df57a9969cb5",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "Harbor project": {
+            "entity_id": "de1bb531-e05e-4d61-8647-91c1bcac3d64",
+            "canonical_name": "Harbor project",
+            "observations": []
+          },
+          "Kotlin": {
+            "entity_id": "fe5c0edd-662b-4e02-9d73-d081da77d9cd",
+            "canonical_name": "Kotlin",
+            "observations": []
+          },
+          "Ruby": {
+            "entity_id": "26c97317-2375-4698-a60c-9b3a68bf3d1e",
+            "canonical_name": "Ruby",
+            "observations": []
+          },
+          "Juniper project": {
+            "entity_id": "521718e9-6188-4ee4-94ca-840e5342ade7",
+            "canonical_name": "Juniper project",
+            "observations": []
+          },
+          "Juniper": {
+            "entity_id": "44fd60ed-334b-4136-a201-5195b03e0bb9",
+            "canonical_name": "Juniper",
+            "observations": []
+          },
+          "offline mode": {
+            "entity_id": "72ddd560-677c-421b-bcec-0c26913aa5fd",
+            "canonical_name": "offline mode",
+            "observations": []
+          },
+          "CLI": {
+            "entity_id": "d93f4eca-b9e7-4fea-aba7-3b15bd9d0759",
+            "canonical_name": "CLI",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "admitted": [
+        {
+          "id": "e575ae93-8dd2-460e-afeb-b302efd02223",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "6afb8347-de9a-47a6-aa4c-b6917a5fbc1f",
+          "text": "The user's Juniper project uses Go and ships on Mondays. | Involving: user"
+        },
+        {
+          "id": "0278deb7-f610-4173-bc1c-710188d105c8",
+          "text": "The user's Juniper project has a new CLI that supports offline mode. | Involving: user"
+        }
+      ]
+    }
+  ],
+  "injectedFailure": "After native candidate retain, before correction; no provider request is made for this simulated failure."
+}

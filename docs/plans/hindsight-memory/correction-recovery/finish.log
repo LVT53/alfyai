@@ -1,0 +1,13 @@
+phone You coordinate the community choir on Thursdays. Your personal telephone number is 07700 905555. The community choir reception's telephone number is 07700 904444.
+siblings_hu Az öcséd Kecskeméten él. A te hobbid, hogy festeni tanulsz (2026. november 18-i adat), és szerdánként úszol. Az öcséd péntekenként sakkozik.
+projects Your Harbor project uses Kotlin and features a dark theme. Your Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode.
+shared_food You prefer spicy meals, while your partner prefers mild meals. Your partner has a dietary restriction and cannot eat sesame. As of November 18, 2026, you and your partner have a rice cooker and a countertop steamer.
+new_event You previously lived in Galway and worked remotely. You moved to Waterford on 17 November 2026, which is your current residence. As of 18 November 2026, you commute by train. Your sister lives in Limerick as of 18 November 2026.
+dogs Your dog is a spaniel. You walk them before breakfast, and they attend agility classes on Sundays. Your neighbour's dog is named Jasper and is a collie. The provided facts do not mention any routines for Jasper.
+addresses_hu A műhelyed címe: Tölgy utca 18. A lakásod címe: Tölgy utca 41. A műhelyben kedden és csütörtökön dolgozol. A 2026. november 18-i adatok szerint a műhelynek külön raktárhelyisége van.
+repeat phone 0 valid
+repeat phone 1 valid
+repeat siblings_hu 0 valid
+repeat siblings_hu 1 valid
+repeat new_event 0 valid
+repeat new_event 1 valid

@@ -1,0 +1,16 @@
+{
+  "preResetContainsSyntheticMarker": true,
+  "cleanupTerminalStates": [
+    "succeeded",
+    "succeeded"
+  ],
+  "restoredHttpRows": [
+    0,
+    0
+  ],
+  "restoredNativeBankStatuses": [
+    404,
+    404
+  ],
+  "passed": true
+}

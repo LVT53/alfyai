@@ -1,0 +1,39 @@
+{
+  "ordinaryRecovery": {
+    "completed": 7,
+    "previouslyPassedKayak": 1,
+    "providerErrorsThisRun": 0
+  },
+  "semanticRepeats": {
+    "passed": 6,
+    "total": 6
+  },
+  "publicationIsolated": {
+    "mechanicalChecks": 12,
+    "restartAndResetChecks": 3
+  },
+  "nativeSupersession": {
+    "families": 3,
+    "isolatedScopeAnswerStates": 10,
+    "sharedScopeAnswerStates": 10,
+    "requiredCurrentClaimsPassed": 20,
+    "note": "Correlated manual development checks, not an independent accuracy rate. HU hobby wording was cautious but swimming remained available."
+  },
+  "temporalFollowup": {
+    "passed": 4,
+    "checks": [
+      "corrections do not prove physical repainting",
+      "later assertion about past does not override current state",
+      "new current chat supersedes earlier edit at 512-token recall",
+      "reprocessing old edit does not override new chat at 512-token recall"
+    ]
+  },
+  "composedLifecycle": {
+    "mechanicalChecks": 14,
+    "answerStates": 6,
+    "allMemoryContentChecksPassed": true,
+    "nativeBankDeleted": true
+  },
+  "ownerRule": "Latest explicit change supersedes older conflicting claims across chats; replay does not advance assertion time.",
+  "status": "The two focused blockers are resolved at prototype level. Product implementation and release acceptance are not certified."
+}

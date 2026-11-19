@@ -1,0 +1,1712 @@
+[
+  {
+    "id": "p01",
+    "lang": "en",
+    "home": "Bristol",
+    "trip": "York",
+    "device": "Fujifilm X-S20",
+    "owned": "Canon EOS R8",
+    "replacement": "Nikon Z5",
+    "relative": "sister",
+    "alias": "COPPER-HERON-631",
+    "food": "mushrooms",
+    "hobby": "swimming",
+    "day": "Wednesday",
+    "sessions": [
+      {
+        "day": "2026-09-01",
+        "text": "I live in Bristol. This Friday I travel to York for a weekend workshop; I return home on Monday. This is booked.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-01",
+        "text": "My project codename is COPPER-HERON-631. I go swimming every Wednesday.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "I am comparing a Fujifilm X-S20 with alternatives. How expensive are its accessories?",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "My sister owns the Fujifilm X-S20 we discussed. I am helping choose accessories for them, not for myself.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-04",
+        "text": "I own a Canon EOS R8. It is my everyday device.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "For project Cedar only, write short informal messages. This is not my general writing preference.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "For project Atlas only, use formal language and detailed explanations with sources. Do not apply this elsewhere.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-10",
+        "text": "I sold my Canon EOS R8 yesterday and replaced it with a Nikon Z5. My sister still has their Fujifilm X-S20.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-11",
+        "text": "Please rewrite this fictional character line: \"I am a dentist, I live in Rome, and I own three boats.\" These are the character’s words, not my biography.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-12",
+        "text": "I dislike mushrooms; keep weekday lunches vegetarian and under 20 minutes. Dairy and eggs are fine.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-13",
+        "text": "If my employer approves remote work, I might relocate next year. No approval or decision yet; my home has not changed.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-14",
+        "text": "I usually prefer numbered lists.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-15",
+        "text": "Changed my mind: from now on give me two short connected sentences, without lists, unless I request otherwise.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-16",
+        "text": "For the Cedar project, the landing page copy is approved and the pricing decision is postponed. Next is keyboard testing of the signup form. Do not rewrite the approved copy.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-17",
+        "text": "One personal detail while we work on Atlas: I have a severe peanut allergy. It matters for food suggestions in any conversation, not just this project.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-18",
+        "text": "Explain the difference between a comet and an asteroid; I am preparing a quiz for a friend.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-19",
+        "text": "Here is a quote from a customer review: \"I bought a red sports car and moved to Tokyo.\" Summarize the sentiment. The reviewer is a stranger.",
+        "project": null,
+        "kind": "chat"
+      }
+    ],
+    "checks": [
+      {
+        "day": "2026-09-03",
+        "category": "future_plan",
+        "query": "According to my booking, am I in York already today, and when do I leave?",
+        "want": [
+          "not yet",
+          "September 4"
+        ],
+        "forbid": [
+          "already at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-06",
+        "category": "current_plan",
+        "query": "According to my booked itinerary, where should I be today?",
+        "want": [
+          "York"
+        ],
+        "forbid": [
+          "Bristol as current planned location"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-09",
+        "category": "past_plan",
+        "query": "According to my itinerary, am I back home now? Which city is home?",
+        "want": [
+          "returned September 7",
+          "Bristol"
+        ],
+        "forbid": [
+          "still at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-01",
+        "category": "ownership",
+        "query": "Which device do I own now? Is the Fujifilm X-S20 mine?",
+        "want": [
+          "Nikon Z5",
+          "Fujifilm X-S20 belongs to relative, not user"
+        ],
+        "forbid": [
+          "Canon EOS R8 still owned",
+          "Fujifilm X-S20 owned by user"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-02",
+        "category": "fiction_attribution",
+        "query": "What do you actually know about my profession and whether I own boats or a sports car?",
+        "want": [
+          "profession unknown",
+          "boat/car ownership unknown; fictional/quoted claims insufficient"
+        ],
+        "forbid": [
+          "dentist as user profession",
+          "owns boats or sports car"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-03",
+        "category": "conditional_change",
+        "query": "Where do I live, and have I decided to relocate?",
+        "want": [
+          "Bristol",
+          "move undecided and conditional"
+        ],
+        "forbid": [
+          "Rome",
+          "Tokyo",
+          "move confirmed"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-04",
+        "category": "project_preference",
+        "query": "What tone and length should we use here?",
+        "want": [
+          "informal",
+          "short"
+        ],
+        "forbid": [
+          "formal detailed"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-05",
+        "category": "project_continuity",
+        "query": "What is done, what is postponed, and what should we do next?",
+        "want": [
+          "copy approved",
+          "pricing postponed",
+          "keyboard test signup"
+        ],
+        "forbid": [
+          "rewrite approved copy"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-06",
+        "category": "preference_correction",
+        "query": "Explain what a password manager does in my preferred format.",
+        "want": [
+          "two short connected sentences",
+          "no list"
+        ],
+        "forbid": [
+          "numbered list"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-07",
+        "category": "personalization",
+        "query": "Suggest two weekday lunches that fit my preferences and restrictions.",
+        "want": [
+          "two vegetarian meals",
+          "no mushrooms",
+          "under 20 minutes",
+          "peanut allergy respected"
+        ],
+        "forbid": [
+          "meat",
+          "peanuts",
+          "mushrooms as ingredient"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-08",
+        "category": "cross_project_personal_fact",
+        "query": "Do I have any food allergy you should consider?",
+        "want": [
+          "severe peanut allergy"
+        ],
+        "forbid": [
+          "unknown",
+          "no allergy"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-09",
+        "category": "identity_continuity",
+        "query": "What is my project codename, and what weekly hobby and day did I mention?",
+        "want": [
+          "COPPER-HERON-631",
+          "swimming",
+          "Wednesday"
+        ],
+        "forbid": [
+          "another user codename"
+        ],
+        "project": null
+      }
+    ]
+  },
+  {
+    "id": "p02",
+    "lang": "en",
+    "home": "Exeter",
+    "trip": "Oxford",
+    "device": "Steam Deck OLED",
+    "owned": "Nintendo Switch Lite",
+    "replacement": "ROG Ally X",
+    "relative": "brother",
+    "alias": "SILVER-OTTER-842",
+    "food": "olives",
+    "hobby": "cycling",
+    "day": "Tuesday",
+    "sessions": [
+      {
+        "day": "2026-09-01",
+        "text": "I live in Exeter. This Friday I travel to Oxford for a weekend workshop; I return home on Monday. This is booked.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-01",
+        "text": "My project codename is SILVER-OTTER-842. I go cycling every Tuesday.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "I am comparing a Steam Deck OLED with alternatives. How expensive are its accessories?",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "My brother owns the Steam Deck OLED we discussed. I am helping choose accessories for them, not for myself.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-04",
+        "text": "I own a Nintendo Switch Lite. It is my everyday device.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "For project Cedar only, write short informal messages. This is not my general writing preference.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "For project Atlas only, use formal language and detailed explanations with sources. Do not apply this elsewhere.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-10",
+        "text": "I sold my Nintendo Switch Lite yesterday and replaced it with a ROG Ally X. My brother still has their Steam Deck OLED.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-11",
+        "text": "Please rewrite this fictional character line: \"I am a dentist, I live in Rome, and I own three boats.\" These are the character’s words, not my biography.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-12",
+        "text": "I dislike olives; keep weekday lunches vegetarian and under 20 minutes. Dairy and eggs are fine.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-13",
+        "text": "If my employer approves remote work, I might relocate next year. No approval or decision yet; my home has not changed.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-14",
+        "text": "I usually prefer numbered lists.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-15",
+        "text": "Changed my mind: from now on give me two short connected sentences, without lists, unless I request otherwise.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-16",
+        "text": "For the Cedar project, the landing page copy is approved and the pricing decision is postponed. Next is keyboard testing of the signup form. Do not rewrite the approved copy.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-17",
+        "text": "One personal detail while we work on Atlas: I have a severe peanut allergy. It matters for food suggestions in any conversation, not just this project.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-18",
+        "text": "Explain the difference between a comet and an asteroid; I am preparing a quiz for a friend.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-19",
+        "text": "Here is a quote from a customer review: \"I bought a red sports car and moved to Tokyo.\" Summarize the sentiment. The reviewer is a stranger.",
+        "project": null,
+        "kind": "chat"
+      }
+    ],
+    "checks": [
+      {
+        "day": "2026-09-03",
+        "category": "future_plan",
+        "query": "According to my booking, am I in Oxford already today, and when do I leave?",
+        "want": [
+          "not yet",
+          "September 4"
+        ],
+        "forbid": [
+          "already at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-06",
+        "category": "current_plan",
+        "query": "According to my booked itinerary, where should I be today?",
+        "want": [
+          "Oxford"
+        ],
+        "forbid": [
+          "Exeter as current planned location"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-09",
+        "category": "past_plan",
+        "query": "According to my itinerary, am I back home now? Which city is home?",
+        "want": [
+          "returned September 7",
+          "Exeter"
+        ],
+        "forbid": [
+          "still at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-01",
+        "category": "ownership",
+        "query": "Which device do I own now? Is the Steam Deck OLED mine?",
+        "want": [
+          "ROG Ally X",
+          "Steam Deck OLED belongs to relative, not user"
+        ],
+        "forbid": [
+          "Nintendo Switch Lite still owned",
+          "Steam Deck OLED owned by user"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-02",
+        "category": "fiction_attribution",
+        "query": "What do you actually know about my profession and whether I own boats or a sports car?",
+        "want": [
+          "profession unknown",
+          "boat/car ownership unknown; fictional/quoted claims insufficient"
+        ],
+        "forbid": [
+          "dentist as user profession",
+          "owns boats or sports car"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-03",
+        "category": "conditional_change",
+        "query": "Where do I live, and have I decided to relocate?",
+        "want": [
+          "Exeter",
+          "move undecided and conditional"
+        ],
+        "forbid": [
+          "Rome",
+          "Tokyo",
+          "move confirmed"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-04",
+        "category": "project_preference",
+        "query": "What tone and length should we use here?",
+        "want": [
+          "informal",
+          "short"
+        ],
+        "forbid": [
+          "formal detailed"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-05",
+        "category": "project_continuity",
+        "query": "What is done, what is postponed, and what should we do next?",
+        "want": [
+          "copy approved",
+          "pricing postponed",
+          "keyboard test signup"
+        ],
+        "forbid": [
+          "rewrite approved copy"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-06",
+        "category": "preference_correction",
+        "query": "Explain what a password manager does in my preferred format.",
+        "want": [
+          "two short connected sentences",
+          "no list"
+        ],
+        "forbid": [
+          "numbered list"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-07",
+        "category": "personalization",
+        "query": "Suggest two weekday lunches that fit my preferences and restrictions.",
+        "want": [
+          "two vegetarian meals",
+          "no olives",
+          "under 20 minutes",
+          "peanut allergy respected"
+        ],
+        "forbid": [
+          "meat",
+          "peanuts",
+          "olives as ingredient"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-08",
+        "category": "cross_project_personal_fact",
+        "query": "Do I have any food allergy you should consider?",
+        "want": [
+          "severe peanut allergy"
+        ],
+        "forbid": [
+          "unknown",
+          "no allergy"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-09",
+        "category": "identity_continuity",
+        "query": "What is my project codename, and what weekly hobby and day did I mention?",
+        "want": [
+          "SILVER-OTTER-842",
+          "cycling",
+          "Tuesday"
+        ],
+        "forbid": [
+          "another user codename"
+        ],
+        "project": null
+      }
+    ]
+  },
+  {
+    "id": "p03",
+    "lang": "en",
+    "home": "Chester",
+    "trip": "Durham",
+    "device": "Bambu Lab A1",
+    "owned": "Prusa MK4",
+    "replacement": "Creality K1C",
+    "relative": "father",
+    "alias": "AMBER-KITE-259",
+    "food": "aubergine",
+    "hobby": "climbing",
+    "day": "Thursday",
+    "sessions": [
+      {
+        "day": "2026-09-01",
+        "text": "I live in Chester. This Friday I travel to Durham for a weekend workshop; I return home on Monday. This is booked.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-01",
+        "text": "My project codename is AMBER-KITE-259. I go climbing every Thursday.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "I am comparing a Bambu Lab A1 with alternatives. How expensive are its accessories?",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "My father owns the Bambu Lab A1 we discussed. I am helping choose accessories for them, not for myself.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-04",
+        "text": "I own a Prusa MK4. It is my everyday device.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "For project Cedar only, write short informal messages. This is not my general writing preference.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "For project Atlas only, use formal language and detailed explanations with sources. Do not apply this elsewhere.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-10",
+        "text": "I sold my Prusa MK4 yesterday and replaced it with a Creality K1C. My father still has their Bambu Lab A1.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-11",
+        "text": "Please rewrite this fictional character line: \"I am a dentist, I live in Rome, and I own three boats.\" These are the character’s words, not my biography.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-12",
+        "text": "I dislike aubergine; keep weekday lunches vegetarian and under 20 minutes. Dairy and eggs are fine.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-13",
+        "text": "If my employer approves remote work, I might relocate next year. No approval or decision yet; my home has not changed.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-14",
+        "text": "I usually prefer numbered lists.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-15",
+        "text": "Changed my mind: from now on give me two short connected sentences, without lists, unless I request otherwise.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-16",
+        "text": "For the Cedar project, the landing page copy is approved and the pricing decision is postponed. Next is keyboard testing of the signup form. Do not rewrite the approved copy.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-17",
+        "text": "One personal detail while we work on Atlas: I have a severe peanut allergy. It matters for food suggestions in any conversation, not just this project.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-18",
+        "text": "Explain the difference between a comet and an asteroid; I am preparing a quiz for a friend.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-19",
+        "text": "Here is a quote from a customer review: \"I bought a red sports car and moved to Tokyo.\" Summarize the sentiment. The reviewer is a stranger.",
+        "project": null,
+        "kind": "chat"
+      }
+    ],
+    "checks": [
+      {
+        "day": "2026-09-03",
+        "category": "future_plan",
+        "query": "According to my booking, am I in Durham already today, and when do I leave?",
+        "want": [
+          "not yet",
+          "September 4"
+        ],
+        "forbid": [
+          "already at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-06",
+        "category": "current_plan",
+        "query": "According to my booked itinerary, where should I be today?",
+        "want": [
+          "Durham"
+        ],
+        "forbid": [
+          "Chester as current planned location"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-09",
+        "category": "past_plan",
+        "query": "According to my itinerary, am I back home now? Which city is home?",
+        "want": [
+          "returned September 7",
+          "Chester"
+        ],
+        "forbid": [
+          "still at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-01",
+        "category": "ownership",
+        "query": "Which device do I own now? Is the Bambu Lab A1 mine?",
+        "want": [
+          "Creality K1C",
+          "Bambu Lab A1 belongs to relative, not user"
+        ],
+        "forbid": [
+          "Prusa MK4 still owned",
+          "Bambu Lab A1 owned by user"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-02",
+        "category": "fiction_attribution",
+        "query": "What do you actually know about my profession and whether I own boats or a sports car?",
+        "want": [
+          "profession unknown",
+          "boat/car ownership unknown; fictional/quoted claims insufficient"
+        ],
+        "forbid": [
+          "dentist as user profession",
+          "owns boats or sports car"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-03",
+        "category": "conditional_change",
+        "query": "Where do I live, and have I decided to relocate?",
+        "want": [
+          "Chester",
+          "move undecided and conditional"
+        ],
+        "forbid": [
+          "Rome",
+          "Tokyo",
+          "move confirmed"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-04",
+        "category": "project_preference",
+        "query": "What tone and length should we use here?",
+        "want": [
+          "informal",
+          "short"
+        ],
+        "forbid": [
+          "formal detailed"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-05",
+        "category": "project_continuity",
+        "query": "What is done, what is postponed, and what should we do next?",
+        "want": [
+          "copy approved",
+          "pricing postponed",
+          "keyboard test signup"
+        ],
+        "forbid": [
+          "rewrite approved copy"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-06",
+        "category": "preference_correction",
+        "query": "Explain what a password manager does in my preferred format.",
+        "want": [
+          "two short connected sentences",
+          "no list"
+        ],
+        "forbid": [
+          "numbered list"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-07",
+        "category": "personalization",
+        "query": "Suggest two weekday lunches that fit my preferences and restrictions.",
+        "want": [
+          "two vegetarian meals",
+          "no aubergine",
+          "under 20 minutes",
+          "peanut allergy respected"
+        ],
+        "forbid": [
+          "meat",
+          "peanuts",
+          "aubergine as ingredient"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-08",
+        "category": "cross_project_personal_fact",
+        "query": "Do I have any food allergy you should consider?",
+        "want": [
+          "severe peanut allergy"
+        ],
+        "forbid": [
+          "unknown",
+          "no allergy"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-09",
+        "category": "identity_continuity",
+        "query": "What is my project codename, and what weekly hobby and day did I mention?",
+        "want": [
+          "AMBER-KITE-259",
+          "climbing",
+          "Thursday"
+        ],
+        "forbid": [
+          "another user codename"
+        ],
+        "project": null
+      }
+    ]
+  },
+  {
+    "id": "p04",
+    "lang": "hu",
+    "home": "Szeged",
+    "trip": "Pécs",
+    "device": "Sony A6700",
+    "owned": "Canon EOS R10",
+    "replacement": "Nikon Z50 II",
+    "relative": "húgom",
+    "alias": "JADE-ROBIN-416",
+    "food": "gombát",
+    "hobby": "úszni",
+    "day": "szerdán",
+    "sessions": [
+      {
+        "day": "2026-09-01",
+        "text": "Szeged a lakóhelyem. Most pénteken Pécs városába utazom egy hétvégi tanfolyamra, hétfőn hazajövök. Már lefoglaltam.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-01",
+        "text": "A projektem fedőneve JADE-ROBIN-416. Minden szerdán szoktam úszni.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "A Sony A6700 készüléket hasonlítom össze más lehetőségekkel. Mennyibe kerülnek a tartozékai?",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "A korábban említett Sony A6700 a húgom tulajdona. Neki segítek tartozékot választani, nem magamnak.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-04",
+        "text": "Van egy saját Canon EOS R10 készülékem, ezt használom naponta.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "Kizárólag a Cédrus projektben tegeződő, rövid szöveget kérek. Ez nem általános írásbeli preferenciám.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "Csak az Atlasz projektben kérek magázódó, részletes fogalmazást forrásokkal. Máshol ezt ne alkalmazd.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-10",
+        "text": "Tegnap eladtam a saját Canon EOS R10 készülékemet, és helyette egy Nikon Z50 II készüléket vettem. A húgom továbbra is a saját Sony A6700 készülékét használja.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-11",
+        "text": "Kérlek, fogalmazd át ezt a kitalált szereplőhöz tartozó mondatot: „Fogorvos vagyok, Rómában élek, és három hajóm van.” Ez a szereplő szövege, nem az én életrajzom.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-12",
+        "text": "Nem szeretem a gombát. Hétköznap húsmentes ebédet kérek, legfeljebb húsz perc elkészítéssel. Tojást és tejterméket fogyasztok.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-13",
+        "text": "Ha a munkáltatóm engedélyezi a távmunkát, jövőre talán elköltözöm. Még nincs engedély és döntés sem; a lakóhelyem nem változott.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-14",
+        "text": "Általában számozott felsorolást szeretek kapni.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-15",
+        "text": "Megváltozott a preferenciám: mostantól két rövid, összefüggő mondatban válaszolj, felsorolás nélkül, hacsak mást nem kérek.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-16",
+        "text": "A Cédrus projektben a nyitóoldal szövege elfogadva, az árazási döntés elhalasztva. A következő lépés a regisztrációs űrlap billentyűzetes tesztelése. Az elfogadott szöveget ne írjuk újra.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-17",
+        "text": "Egy személyes adat az Atlasz munka közben: súlyos földimogyoró-allergiám van. Ezt minden beszélgetés ételjavaslatánál figyelembe kell venni, nem csak ebben a projektben.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-18",
+        "text": "Magyarázd el az üstökös és a kisbolygó közti különbséget; egy barátomnak készítek kvízt.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-19",
+        "text": "Egy vásárlói véleményből idézek: „Vettem egy piros sportautót és Tokióba költöztem.” Foglald össze az érzelmi hangvételét. A vélemény íróját nem ismerem.",
+        "project": null,
+        "kind": "chat"
+      }
+    ],
+    "checks": [
+      {
+        "day": "2026-09-03",
+        "category": "future_plan",
+        "query": "A foglalásom szerint ma már Pécs városában vagyok? Mikor indulok?",
+        "want": [
+          "not yet",
+          "September 4"
+        ],
+        "forbid": [
+          "already at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-06",
+        "category": "current_plan",
+        "query": "A lefoglalt utazásom szerint ma melyik városban kell lennem?",
+        "want": [
+          "Pécs"
+        ],
+        "forbid": [
+          "Szeged as current planned location"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-09",
+        "category": "past_plan",
+        "query": "Az útitervem szerint már otthon vagyok? Melyik város az otthonom?",
+        "want": [
+          "returned September 7",
+          "Szeged"
+        ],
+        "forbid": [
+          "still at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-01",
+        "category": "ownership",
+        "query": "Melyik készülék van most a tulajdonomban? A Sony A6700 az enyém?",
+        "want": [
+          "Nikon Z50 II",
+          "Sony A6700 belongs to relative, not user"
+        ],
+        "forbid": [
+          "Canon EOS R10 still owned",
+          "Sony A6700 owned by user"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-02",
+        "category": "fiction_attribution",
+        "query": "Mit tudsz valójában a foglalkozásomról, illetve van-e hajóm vagy sportautóm?",
+        "want": [
+          "profession unknown",
+          "boat/car ownership unknown; fictional/quoted claims insufficient"
+        ],
+        "forbid": [
+          "dentist as user profession",
+          "owns boats or sports car"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-03",
+        "category": "conditional_change",
+        "query": "Hol lakom, és eldöntöttem már, hogy elköltözöm?",
+        "want": [
+          "Szeged",
+          "move undecided and conditional"
+        ],
+        "forbid": [
+          "Rome",
+          "Tokyo",
+          "move confirmed"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-04",
+        "category": "project_preference",
+        "query": "Itt milyen hangnemben és milyen hosszan fogalmazzunk?",
+        "want": [
+          "informal",
+          "short"
+        ],
+        "forbid": [
+          "formal detailed"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-05",
+        "category": "project_continuity",
+        "query": "Mi van kész, mi lett elhalasztva, és mi a következő lépés?",
+        "want": [
+          "copy approved",
+          "pricing postponed",
+          "keyboard test signup"
+        ],
+        "forbid": [
+          "rewrite approved copy"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-06",
+        "category": "preference_correction",
+        "query": "Magyarázd el a jelszókezelő lényegét az általam kért formában.",
+        "want": [
+          "two short connected sentences",
+          "no list"
+        ],
+        "forbid": [
+          "numbered list"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-07",
+        "category": "personalization",
+        "query": "Javasolj két hétköznapi ebédet az ízlésemnek és korlátaimnak megfelelően.",
+        "want": [
+          "two vegetarian meals",
+          "no gombát",
+          "under 20 minutes",
+          "peanut allergy respected"
+        ],
+        "forbid": [
+          "meat",
+          "peanuts",
+          "gombát as ingredient"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-08",
+        "category": "cross_project_personal_fact",
+        "query": "Van olyan ételallergiám, amelyet figyelembe kell venned?",
+        "want": [
+          "severe peanut allergy"
+        ],
+        "forbid": [
+          "unknown",
+          "no allergy"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-09",
+        "category": "identity_continuity",
+        "query": "Mi a projektem fedőneve, és milyen heti hobbiról, melyik napról beszéltem?",
+        "want": [
+          "JADE-ROBIN-416",
+          "úszni",
+          "szerdán"
+        ],
+        "forbid": [
+          "another user codename"
+        ],
+        "project": null
+      }
+    ]
+  },
+  {
+    "id": "p05",
+    "lang": "hu",
+    "home": "Győr",
+    "trip": "Eger",
+    "device": "iPad Air M3",
+    "owned": "Samsung Galaxy Tab S10",
+    "replacement": "Lenovo Yoga Tab Plus",
+    "relative": "bátyám",
+    "alias": "CORAL-FOX-783",
+    "food": "olajbogyót",
+    "hobby": "kerékpározni",
+    "day": "kedden",
+    "sessions": [
+      {
+        "day": "2026-09-01",
+        "text": "Győr a lakóhelyem. Most pénteken Eger városába utazom egy hétvégi tanfolyamra, hétfőn hazajövök. Már lefoglaltam.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-01",
+        "text": "A projektem fedőneve CORAL-FOX-783. Minden kedden szoktam kerékpározni.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "A iPad Air M3 készüléket hasonlítom össze más lehetőségekkel. Mennyibe kerülnek a tartozékai?",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "A korábban említett iPad Air M3 a bátyám tulajdona. Neki segítek tartozékot választani, nem magamnak.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-04",
+        "text": "Van egy saját Samsung Galaxy Tab S10 készülékem, ezt használom naponta.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "Kizárólag a Cédrus projektben tegeződő, rövid szöveget kérek. Ez nem általános írásbeli preferenciám.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "Csak az Atlasz projektben kérek magázódó, részletes fogalmazást forrásokkal. Máshol ezt ne alkalmazd.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-10",
+        "text": "Tegnap eladtam a saját Samsung Galaxy Tab S10 készülékemet, és helyette egy Lenovo Yoga Tab Plus készüléket vettem. A bátyám továbbra is a saját iPad Air M3 készülékét használja.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-11",
+        "text": "Kérlek, fogalmazd át ezt a kitalált szereplőhöz tartozó mondatot: „Fogorvos vagyok, Rómában élek, és három hajóm van.” Ez a szereplő szövege, nem az én életrajzom.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-12",
+        "text": "Nem szeretem a olajbogyót. Hétköznap húsmentes ebédet kérek, legfeljebb húsz perc elkészítéssel. Tojást és tejterméket fogyasztok.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-13",
+        "text": "Ha a munkáltatóm engedélyezi a távmunkát, jövőre talán elköltözöm. Még nincs engedély és döntés sem; a lakóhelyem nem változott.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-14",
+        "text": "Általában számozott felsorolást szeretek kapni.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-15",
+        "text": "Megváltozott a preferenciám: mostantól két rövid, összefüggő mondatban válaszolj, felsorolás nélkül, hacsak mást nem kérek.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-16",
+        "text": "A Cédrus projektben a nyitóoldal szövege elfogadva, az árazási döntés elhalasztva. A következő lépés a regisztrációs űrlap billentyűzetes tesztelése. Az elfogadott szöveget ne írjuk újra.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-17",
+        "text": "Egy személyes adat az Atlasz munka közben: súlyos földimogyoró-allergiám van. Ezt minden beszélgetés ételjavaslatánál figyelembe kell venni, nem csak ebben a projektben.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-18",
+        "text": "Magyarázd el az üstökös és a kisbolygó közti különbséget; egy barátomnak készítek kvízt.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-19",
+        "text": "Egy vásárlói véleményből idézek: „Vettem egy piros sportautót és Tokióba költöztem.” Foglald össze az érzelmi hangvételét. A vélemény íróját nem ismerem.",
+        "project": null,
+        "kind": "chat"
+      }
+    ],
+    "checks": [
+      {
+        "day": "2026-09-03",
+        "category": "future_plan",
+        "query": "A foglalásom szerint ma már Eger városában vagyok? Mikor indulok?",
+        "want": [
+          "not yet",
+          "September 4"
+        ],
+        "forbid": [
+          "already at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-06",
+        "category": "current_plan",
+        "query": "A lefoglalt utazásom szerint ma melyik városban kell lennem?",
+        "want": [
+          "Eger"
+        ],
+        "forbid": [
+          "Győr as current planned location"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-09",
+        "category": "past_plan",
+        "query": "Az útitervem szerint már otthon vagyok? Melyik város az otthonom?",
+        "want": [
+          "returned September 7",
+          "Győr"
+        ],
+        "forbid": [
+          "still at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-01",
+        "category": "ownership",
+        "query": "Melyik készülék van most a tulajdonomban? A iPad Air M3 az enyém?",
+        "want": [
+          "Lenovo Yoga Tab Plus",
+          "iPad Air M3 belongs to relative, not user"
+        ],
+        "forbid": [
+          "Samsung Galaxy Tab S10 still owned",
+          "iPad Air M3 owned by user"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-02",
+        "category": "fiction_attribution",
+        "query": "Mit tudsz valójában a foglalkozásomról, illetve van-e hajóm vagy sportautóm?",
+        "want": [
+          "profession unknown",
+          "boat/car ownership unknown; fictional/quoted claims insufficient"
+        ],
+        "forbid": [
+          "dentist as user profession",
+          "owns boats or sports car"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-03",
+        "category": "conditional_change",
+        "query": "Hol lakom, és eldöntöttem már, hogy elköltözöm?",
+        "want": [
+          "Győr",
+          "move undecided and conditional"
+        ],
+        "forbid": [
+          "Rome",
+          "Tokyo",
+          "move confirmed"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-04",
+        "category": "project_preference",
+        "query": "Itt milyen hangnemben és milyen hosszan fogalmazzunk?",
+        "want": [
+          "informal",
+          "short"
+        ],
+        "forbid": [
+          "formal detailed"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-05",
+        "category": "project_continuity",
+        "query": "Mi van kész, mi lett elhalasztva, és mi a következő lépés?",
+        "want": [
+          "copy approved",
+          "pricing postponed",
+          "keyboard test signup"
+        ],
+        "forbid": [
+          "rewrite approved copy"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-06",
+        "category": "preference_correction",
+        "query": "Magyarázd el a jelszókezelő lényegét az általam kért formában.",
+        "want": [
+          "two short connected sentences",
+          "no list"
+        ],
+        "forbid": [
+          "numbered list"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-07",
+        "category": "personalization",
+        "query": "Javasolj két hétköznapi ebédet az ízlésemnek és korlátaimnak megfelelően.",
+        "want": [
+          "two vegetarian meals",
+          "no olajbogyót",
+          "under 20 minutes",
+          "peanut allergy respected"
+        ],
+        "forbid": [
+          "meat",
+          "peanuts",
+          "olajbogyót as ingredient"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-08",
+        "category": "cross_project_personal_fact",
+        "query": "Van olyan ételallergiám, amelyet figyelembe kell venned?",
+        "want": [
+          "severe peanut allergy"
+        ],
+        "forbid": [
+          "unknown",
+          "no allergy"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-09",
+        "category": "identity_continuity",
+        "query": "Mi a projektem fedőneve, és milyen heti hobbiról, melyik napról beszéltem?",
+        "want": [
+          "CORAL-FOX-783",
+          "kerékpározni",
+          "kedden"
+        ],
+        "forbid": [
+          "another user codename"
+        ],
+        "project": null
+      }
+    ]
+  },
+  {
+    "id": "p06",
+    "lang": "hu",
+    "home": "Debrecen",
+    "trip": "Sopron",
+    "device": "Kindle Paperwhite",
+    "owned": "Kobo Clara BW",
+    "replacement": "PocketBook Era",
+    "relative": "apám",
+    "alias": "INDIGO-WREN-925",
+    "food": "padlizsánt",
+    "hobby": "falat mászni",
+    "day": "csütörtökön",
+    "sessions": [
+      {
+        "day": "2026-09-01",
+        "text": "Debrecen a lakóhelyem. Most pénteken Sopron városába utazom egy hétvégi tanfolyamra, hétfőn hazajövök. Már lefoglaltam.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-01",
+        "text": "A projektem fedőneve INDIGO-WREN-925. Minden csütörtökön szoktam falat mászni.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "A Kindle Paperwhite készüléket hasonlítom össze más lehetőségekkel. Mennyibe kerülnek a tartozékai?",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-02",
+        "text": "A korábban említett Kindle Paperwhite a apám tulajdona. Neki segítek tartozékot választani, nem magamnak.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-04",
+        "text": "Van egy saját Kobo Clara BW készülékem, ezt használom naponta.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "Kizárólag a Cédrus projektben tegeződő, rövid szöveget kérek. Ez nem általános írásbeli preferenciám.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-08",
+        "text": "Csak az Atlasz projektben kérek magázódó, részletes fogalmazást forrásokkal. Máshol ezt ne alkalmazd.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-10",
+        "text": "Tegnap eladtam a saját Kobo Clara BW készülékemet, és helyette egy PocketBook Era készüléket vettem. A apám továbbra is a saját Kindle Paperwhite készülékét használja.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-11",
+        "text": "Kérlek, fogalmazd át ezt a kitalált szereplőhöz tartozó mondatot: „Fogorvos vagyok, Rómában élek, és három hajóm van.” Ez a szereplő szövege, nem az én életrajzom.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-12",
+        "text": "Nem szeretem a padlizsánt. Hétköznap húsmentes ebédet kérek, legfeljebb húsz perc elkészítéssel. Tojást és tejterméket fogyasztok.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-13",
+        "text": "Ha a munkáltatóm engedélyezi a távmunkát, jövőre talán elköltözöm. Még nincs engedély és döntés sem; a lakóhelyem nem változott.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-14",
+        "text": "Általában számozott felsorolást szeretek kapni.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-15",
+        "text": "Megváltozott a preferenciám: mostantól két rövid, összefüggő mondatban válaszolj, felsorolás nélkül, hacsak mást nem kérek.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-16",
+        "text": "A Cédrus projektben a nyitóoldal szövege elfogadva, az árazási döntés elhalasztva. A következő lépés a regisztrációs űrlap billentyűzetes tesztelése. Az elfogadott szöveget ne írjuk újra.",
+        "project": "cedar",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-17",
+        "text": "Egy személyes adat az Atlasz munka közben: súlyos földimogyoró-allergiám van. Ezt minden beszélgetés ételjavaslatánál figyelembe kell venni, nem csak ebben a projektben.",
+        "project": "atlas",
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-18",
+        "text": "Magyarázd el az üstökös és a kisbolygó közti különbséget; egy barátomnak készítek kvízt.",
+        "project": null,
+        "kind": "chat"
+      },
+      {
+        "day": "2026-09-19",
+        "text": "Egy vásárlói véleményből idézek: „Vettem egy piros sportautót és Tokióba költöztem.” Foglald össze az érzelmi hangvételét. A vélemény íróját nem ismerem.",
+        "project": null,
+        "kind": "chat"
+      }
+    ],
+    "checks": [
+      {
+        "day": "2026-09-03",
+        "category": "future_plan",
+        "query": "A foglalásom szerint ma már Sopron városában vagyok? Mikor indulok?",
+        "want": [
+          "not yet",
+          "September 4"
+        ],
+        "forbid": [
+          "already at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-06",
+        "category": "current_plan",
+        "query": "A lefoglalt utazásom szerint ma melyik városban kell lennem?",
+        "want": [
+          "Sopron"
+        ],
+        "forbid": [
+          "Debrecen as current planned location"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-09-09",
+        "category": "past_plan",
+        "query": "Az útitervem szerint már otthon vagyok? Melyik város az otthonom?",
+        "want": [
+          "returned September 7",
+          "Debrecen"
+        ],
+        "forbid": [
+          "still at destination"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-01",
+        "category": "ownership",
+        "query": "Melyik készülék van most a tulajdonomban? A Kindle Paperwhite az enyém?",
+        "want": [
+          "PocketBook Era",
+          "Kindle Paperwhite belongs to relative, not user"
+        ],
+        "forbid": [
+          "Kobo Clara BW still owned",
+          "Kindle Paperwhite owned by user"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-02",
+        "category": "fiction_attribution",
+        "query": "Mit tudsz valójában a foglalkozásomról, illetve van-e hajóm vagy sportautóm?",
+        "want": [
+          "profession unknown",
+          "boat/car ownership unknown; fictional/quoted claims insufficient"
+        ],
+        "forbid": [
+          "dentist as user profession",
+          "owns boats or sports car"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-03",
+        "category": "conditional_change",
+        "query": "Hol lakom, és eldöntöttem már, hogy elköltözöm?",
+        "want": [
+          "Debrecen",
+          "move undecided and conditional"
+        ],
+        "forbid": [
+          "Rome",
+          "Tokyo",
+          "move confirmed"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-04",
+        "category": "project_preference",
+        "query": "Itt milyen hangnemben és milyen hosszan fogalmazzunk?",
+        "want": [
+          "informal",
+          "short"
+        ],
+        "forbid": [
+          "formal detailed"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-05",
+        "category": "project_continuity",
+        "query": "Mi van kész, mi lett elhalasztva, és mi a következő lépés?",
+        "want": [
+          "copy approved",
+          "pricing postponed",
+          "keyboard test signup"
+        ],
+        "forbid": [
+          "rewrite approved copy"
+        ],
+        "project": "cedar"
+      },
+      {
+        "day": "2026-10-06",
+        "category": "preference_correction",
+        "query": "Magyarázd el a jelszókezelő lényegét az általam kért formában.",
+        "want": [
+          "two short connected sentences",
+          "no list"
+        ],
+        "forbid": [
+          "numbered list"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-07",
+        "category": "personalization",
+        "query": "Javasolj két hétköznapi ebédet az ízlésemnek és korlátaimnak megfelelően.",
+        "want": [
+          "two vegetarian meals",
+          "no padlizsánt",
+          "under 20 minutes",
+          "peanut allergy respected"
+        ],
+        "forbid": [
+          "meat",
+          "peanuts",
+          "padlizsánt as ingredient"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-08",
+        "category": "cross_project_personal_fact",
+        "query": "Van olyan ételallergiám, amelyet figyelembe kell venned?",
+        "want": [
+          "severe peanut allergy"
+        ],
+        "forbid": [
+          "unknown",
+          "no allergy"
+        ],
+        "project": null
+      },
+      {
+        "day": "2026-10-09",
+        "category": "identity_continuity",
+        "query": "Mi a projektem fedőneve, és milyen heti hobbiról, melyik napról beszéltem?",
+        "want": [
+          "INDIGO-WREN-925",
+          "falat mászni",
+          "csütörtökön"
+        ],
+        "forbid": [
+          "another user codename"
+        ],
+        "project": null
+      }
+    ]
+  }
+]

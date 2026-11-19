@@ -1,0 +1,1987 @@
+{
+  "checks": [
+    {
+      "name": "en metadata resolves each raw unit to its original source message",
+      "pass": true
+    },
+    {
+      "name": "hu metadata resolves each raw unit to its original source message",
+      "pass": true
+    },
+    {
+      "name": "en actual restart preserves raw IDs and accepted text",
+      "pass": true
+    },
+    {
+      "name": "hu actual restart preserves raw IDs and accepted text",
+      "pass": true
+    },
+    {
+      "name": "project edit/replay leaves personal bank unchanged",
+      "pass": true
+    },
+    {
+      "name": "project edit/replay leaves other project unchanged",
+      "pass": true
+    }
+  ],
+  "stages": [
+    {
+      "label": "en-after-restart",
+      "native": {
+        "items": [
+          {
+            "id": "f95f839a-bda1-4340-abd7-fe4c985b8174",
+            "text": "User's hiking backpack is silver as of November 22, 2026. | When: November 22, 2026 | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "later-explicit",
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "hiking backpack, user",
+            "chunk_id": "uiq-1118-edit-en_later-explicit_0",
+            "proof_count": 1,
+            "tags": [
+              "later-explicit"
+            ],
+            "metadata": {
+              "chat_id": "chat-later-explicit",
+              "message_id": "message-later-explicit"
+            },
+            "consolidated_at": "2026-11-18T18:15:00.462473+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:14:59.046739+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "7d5e3ba0-3e0a-4e95-a72d-feea50ba2841",
+            "text": "The user's hiking backpack is silver as of November 22, 2026. (2026-11-01 12:00: The user's hiking backpack is blue.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 5,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:15:00.454424+00:00",
+            "source_memory_ids": [
+              "cec9d9f7-9e0e-4574-9941-ea0331645596",
+              "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+              "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+              "731280a5-efd1-42cd-8d03-44a714f499a4",
+              "f95f839a-bda1-4340-abd7-fe4c985b8174"
+            ]
+          },
+          {
+            "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+            "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user",
+            "context": "",
+            "date": "2026-11-03T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "repeat-r2",
+            "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "canoe, garage, user",
+            "chunk_id": "uiq-1118-edit-en_repeat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat-r2"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat-r2",
+              "message_id": "message-repeat-r2"
+            },
+            "consolidated_at": "2026-11-18T18:14:34.039540+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:14:27.034816+00:00",
+            "updated_at": "2026-11-18T18:14:27.034816+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "7e15a2c9-a921-4ec2-83e7-ad4a8d58e19e",
+            "text": "The user's canoe is blue. (2026-11-01 12:00: User owns a hiking backpack and a blue canoe, and stores both in their garage.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-03T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:14:53.372976+00:00",
+            "source_memory_ids": [
+              "cec9d9f7-9e0e-4574-9941-ea0331645596",
+              "731280a5-efd1-42cd-8d03-44a714f499a4"
+            ]
+          },
+          {
+            "id": "8026f294-a26e-4cfe-8a16-33207047872b",
+            "text": "The user's hiking backpack and canoe are in the user's garage. (2026-11-01 12:00: User owns a hiking backpack and a blue canoe, and stores both in their garage.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-03T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:14:53.372976+00:00",
+            "source_memory_ids": [
+              "cec9d9f7-9e0e-4574-9941-ea0331645596",
+              "731280a5-efd1-42cd-8d03-44a714f499a4"
+            ]
+          },
+          {
+            "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+            "text": "The user's hiking backpack is is in the user's garage. | Where: the user's garage | Involving: user",
+            "context": "",
+            "date": "2026-11-03T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "repeat-r2",
+            "mentioned_at": "2026-11-03T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "amber hiking backpack, garage, user",
+            "chunk_id": "uiq-1118-edit-en_repeat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat-r2"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat-r2",
+              "message_id": "message-repeat-r2"
+            },
+            "consolidated_at": "2026-11-18T18:14:34.039540+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:14:27.067202+00:00",
+            "updated_at": "2026-11-18T18:14:27.067202+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "cec9d9f7-9e0e-4574-9941-ea0331645596",
+            "text": "User's hiking backpack is and their canoe is blue; both are in the user's garage. | Where: user's garage | Involving: user",
+            "context": "",
+            "date": "2026-11-03T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "repeat",
+            "mentioned_at": "2026-11-03T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "amber hiking backpack, canoe, garage, user",
+            "chunk_id": "uiq-1118-edit-en_repeat_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat",
+              "message_id": "message-repeat"
+            },
+            "consolidated_at": "2026-11-18T18:14:34.039540+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:14:08.447546+00:00",
+            "updated_at": "2026-11-18T18:14:08.447546+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "731280a5-efd1-42cd-8d03-44a714f499a4",
+            "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "original",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "amber hiking backpack, garage, user, white canoe",
+            "chunk_id": "uiq-1118-edit-en_original_0",
+            "proof_count": 1,
+            "tags": [
+              "original"
+            ],
+            "metadata": {
+              "chat_id": "chat-original",
+              "message_id": "message-original"
+            },
+            "consolidated_at": "2026-11-18T18:14:53.387104+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:14:52.021513+00:00",
+            "updated_at": "2026-11-18T18:14:52.021513+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 8,
+        "limit": 100,
+        "offset": 0
+      },
+      "recall": {
+        "raw": {
+          "results": [
+            {
+              "id": "f95f839a-bda1-4340-abd7-fe4c985b8174",
+              "text": "User's hiking backpack is silver as of November 22, 2026. | When: November 22, 2026 | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "hiking backpack"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-22T12:00:00+00:00",
+              "document_id": "later-explicit",
+              "metadata": {
+                "chat_id": "chat-later-explicit",
+                "message_id": "message-later-explicit"
+              },
+              "chunk_id": "uiq-1118-edit-en_later-explicit_0",
+              "tags": [
+                "later-explicit"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0960911393165589,
+                "reranker": 0.9964464902877808,
+                "semantic": 0.8234079585428278,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "731280a5-efd1-42cd-8d03-44a714f499a4",
+              "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user",
+              "type": "world",
+              "entities": [
+                "white canoe",
+                "garage",
+                "amber hiking backpack",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "uiq-1118-edit-en_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.089667765095256,
+                "reranker": 0.999200165271759,
+                "semantic": 0.8635577816831408,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+              "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user",
+              "type": "world",
+              "entities": [
+                "canoe",
+                "garage",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat-r2",
+                "message_id": "message-repeat-r2"
+              },
+              "chunk_id": "uiq-1118-edit-en_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.076918825103304,
+                "reranker": 0.9865183234214783,
+                "semantic": 0.8315359950065613,
+                "keyword": null
+              },
+              "attachments": null
+            },
+            {
+              "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+              "text": "The user's hiking backpack is is in the user's garage. | Where: the user's garage | Involving: user",
+              "type": "world",
+              "entities": [
+                "garage",
+                "amber hiking backpack",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat-r2",
+                "message_id": "message-repeat-r2"
+              },
+              "chunk_id": "uiq-1118-edit-en_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.0022954398232821064,
+                "reranker": 0.0021027522161602974,
+                "semantic": 0.8300161463012623,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "user": {
+              "entity_id": "6e0b5d5e-f7cc-4b24-926d-1234bd149fed",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "hiking backpack": {
+              "entity_id": "bcdfdeeb-4aaf-4cad-999a-cdad3a3be67d",
+              "canonical_name": "hiking backpack",
+              "observations": []
+            },
+            "white canoe": {
+              "entity_id": "5f529955-7b23-466a-84fd-c2793bd5111a",
+              "canonical_name": "white canoe",
+              "observations": []
+            },
+            "garage": {
+              "entity_id": "6616a090-2391-4b53-a2b2-dee2bc5ff132",
+              "canonical_name": "garage",
+              "observations": []
+            },
+            "amber hiking backpack": {
+              "entity_id": "6d4b41cb-136b-4f89-a7d7-6e840f4cd897",
+              "canonical_name": "amber hiking backpack",
+              "observations": []
+            },
+            "canoe": {
+              "entity_id": "3c749494-006e-404f-926b-51291286f419",
+              "canonical_name": "canoe",
+              "observations": []
+            }
+          },
+          "chunks": null,
+          "source_facts": null,
+          "source_facts_truncated": null
+        },
+        "evidence": [
+          {
+            "id": "f95f839a-bda1-4340-abd7-fe4c985b8174",
+            "text": "User's hiking backpack is silver as of November 22, 2026. | When: November 22, 2026 | Involving: user",
+            "asserted_at": "2026-11-22T12:00:00Z",
+            "source": "later-explicit"
+          },
+          {
+            "id": "731280a5-efd1-42cd-8d03-44a714f499a4",
+            "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+            "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+            "text": "The user's hiking backpack is is in the user's garage. | Where: the user's garage | Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          }
+        ]
+      },
+      "answer": {
+        "id": "chatcmpl-a1e50329ec264157",
+        "object": "chat.completion",
+        "created": 1795026050,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "You own a hiking backpack and a blue canoe. The backpack is silver, as of November 22, 2026. Both items are stored in your garage.",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 561,
+          "total_tokens": 598,
+          "completion_tokens": 37,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    {
+      "label": "hu-after-restart",
+      "native": {
+        "items": [
+          {
+            "id": "f9385455-bbbd-4417-83fa-3e414e5a0119",
+            "text": "Mák 2026. november 22-én barna bundájú. | When: 2026-11-22 | Involving: Mák",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "later-explicit",
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Mák, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_later-explicit_0",
+            "proof_count": 1,
+            "tags": [
+              "later-explicit"
+            ],
+            "metadata": {
+              "chat_id": "chat-later-explicit",
+              "message_id": "message-later-explicit"
+            },
+            "consolidated_at": "2026-11-18T18:19:59.462281+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:58.404907+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "9dd1866e-6dba-45bc-9a2a-ae8989f243a1",
+            "text": "Mák barna; earlier fekete.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:59.454833+00:00",
+            "source_memory_ids": [
+              "52b78269-bd34-4301-94ff-85a2bff3edd8",
+              "f9385455-bbbd-4417-83fa-3e414e5a0119"
+            ]
+          },
+          {
+            "id": "3f1e85d7-bf47-40b6-a207-e04cebf526ea",
+            "text": "Bodza szürke.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:51.559669+00:00",
+            "source_memory_ids": [
+              "f3dc931c-b542-4126-894d-d88ef6e08fc6",
+              "822bab29-7704-4875-a60c-2e33a1bfe74a",
+              "52b78269-bd34-4301-94ff-85a2bff3edd8"
+            ]
+          },
+          {
+            "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+            "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)",
+            "context": "",
+            "date": "2026-11-03T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "repeat-r2",
+            "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Bodza, Mák, macskák, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat-r2"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat",
+              "message_id": "message-repeat"
+            },
+            "consolidated_at": "2026-11-18T18:19:46.363680+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:19:33.978781+00:00",
+            "updated_at": "2026-11-18T18:19:33.978781+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "e8eb6abd-3e66-4b59-9f56-7ccda75f044d",
+            "text": "Luca gluténmentesen étkezik.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:51.559669+00:00",
+            "source_memory_ids": [
+              "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+              "24f683c5-98ce-4bd6-ac8d-972374c5f58d",
+              "ab304565-e6ae-4b59-9e3a-f65a7d702270"
+            ]
+          },
+          {
+            "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+            "text": "Luca is gluténmentes étrendet követ. | Involving: Luca",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-03T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "repeat-r2",
+            "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Luca, gluténmentes étrend",
+            "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat-r2"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat",
+              "message_id": "message-repeat"
+            },
+            "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:29.006667+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "f3dc931c-b542-4126-894d-d88ef6e08fc6",
+            "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (macska), Bodza (macska)",
+            "context": "",
+            "date": "2026-11-03T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "repeat",
+            "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Bodza, Mák, macskák, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_repeat_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat",
+              "message_id": "message-repeat"
+            },
+            "consolidated_at": "2026-11-18T18:19:46.363680+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:19:16.445197+00:00",
+            "updated_at": "2026-11-18T18:19:16.445197+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+            "text": "| Involving: user",
+            "context": "",
+            "date": "2026-11-03T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "repeat-r2",
+            "mentioned_at": "2026-11-03T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "gluténmentes étrend, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat-r2"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat",
+              "message_id": "message-repeat"
+            },
+            "consolidated_at": "2026-11-18T18:19:36.976302+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:19:34.016751+00:00",
+            "updated_at": "2026-11-18T18:19:34.016751+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "24f683c5-98ce-4bd6-ac8d-972374c5f58d",
+            "text": "Luca gluténmentes étrendet követ. | Involving: user, Luca",
+            "context": "",
+            "date": "2026-11-03T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "repeat",
+            "mentioned_at": "2026-11-03T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Luca, gluténmentes étrend, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_repeat_0",
+            "proof_count": 1,
+            "tags": [
+              "repeat"
+            ],
+            "metadata": {
+              "chat_id": "chat-repeat",
+              "message_id": "message-repeat"
+            },
+            "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:19:16.479071+00:00",
+            "updated_at": "2026-11-18T18:19:16.479071+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "75e06cbb-e510-4f6a-8d11-6dbb8954ccfa",
+            "text": "A felhasználónak két macskája van.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:51.559669+00:00",
+            "source_memory_ids": [
+              "52b78269-bd34-4301-94ff-85a2bff3edd8"
+            ]
+          },
+          {
+            "id": "52b78269-bd34-4301-94ff-85a2bff3edd8",
+            "text": "A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "original",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Bodza, Mák, macskák, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_original_0",
+            "proof_count": 1,
+            "tags": [
+              "original"
+            ],
+            "metadata": {
+              "chat_id": "chat-original",
+              "message_id": "message-original"
+            },
+            "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:19:48.863840+00:00",
+            "updated_at": "2026-11-18T18:19:48.863840+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "53019b47-8fec-428f-b6af-4f383e28a836",
+            "text": "Luca a felhasználó húga.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:19:51.559669+00:00",
+            "source_memory_ids": [
+              "1bec4902-eb82-4c4e-ba17-03ab3904d1eb"
+            ]
+          },
+          {
+            "id": "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+            "text": "Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "original",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Luca, gluténmentes étkezés, user",
+            "chunk_id": "uiq-1118-bounded-edit-hu_original_0",
+            "proof_count": 1,
+            "tags": [
+              "original"
+            ],
+            "metadata": {
+              "chat_id": "chat-original",
+              "message_id": "message-original"
+            },
+            "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": "2026-11-18T18:19:48.898661+00:00",
+            "updated_at": "2026-11-18T18:19:48.898661+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 13,
+        "limit": 100,
+        "offset": 0
+      },
+      "recall": {
+        "raw": {
+          "results": [
+            {
+              "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+              "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)",
+              "type": "world",
+              "entities": [
+                "Bodza",
+                "macskák",
+                "user",
+                "Mák"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0903553296779656,
+                "reranker": 0.9988269209861755,
+                "semantic": 0.8192463624926604,
+                "keyword": null
+              },
+              "attachments": null
+            },
+            {
+              "id": "52b78269-bd34-4301-94ff-85a2bff3edd8",
+              "text": "A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user",
+              "type": "world",
+              "entities": [
+                "Bodza",
+                "macskák",
+                "user",
+                "Mák"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "uiq-1118-bounded-edit-hu_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0894017774825733,
+                "reranker": 0.9989562630653381,
+                "semantic": 0.8253323681751603,
+                "keyword": null
+              },
+              "attachments": null
+            },
+            {
+              "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+              "text": "Luca is gluténmentes étrendet követ. | Involving: Luca",
+              "type": "world",
+              "entities": [
+                "Luca",
+                "gluténmentes étrend"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0891072226625735,
+                "reranker": 0.997683584690094,
+                "semantic": 0.8558995978802326,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+              "text": "Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)",
+              "type": "world",
+              "entities": [
+                "Luca",
+                "user",
+                "gluténmentes étkezés"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "uiq-1118-bounded-edit-hu_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0888040909239403,
+                "reranker": 0.9984081983566284,
+                "semantic": 0.821603536605835,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "f9385455-bbbd-4417-83fa-3e414e5a0119",
+              "text": "Mák 2026. november 22-én barna bundájú. | When: 2026-11-22 | Involving: Mák",
+              "type": "world",
+              "entities": [
+                "user",
+                "Mák"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-22T12:00:00+00:00",
+              "document_id": "later-explicit",
+              "metadata": {
+                "chat_id": "chat-later-explicit",
+                "message_id": "message-later-explicit"
+              },
+              "chunk_id": "uiq-1118-bounded-edit-hu_later-explicit_0",
+              "tags": [
+                "later-explicit"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.010407119058072567,
+                "reranker": 0.009461017325520515,
+                "semantic": 0.7693060636520386,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+              "text": "| Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "gluténmentes étrend"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.0024430468910043484,
+                "reranker": 0.002237968612462282,
+                "semantic": 0.80226919678083,
+                "keyword": null
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "Bodza": {
+              "entity_id": "223a010b-eb22-419f-bc72-adb162e350c6",
+              "canonical_name": "Bodza",
+              "observations": []
+            },
+            "macskák": {
+              "entity_id": "280cae30-f0db-4e4f-9c53-a500d65289fa",
+              "canonical_name": "macskák",
+              "observations": []
+            },
+            "user": {
+              "entity_id": "2d66423c-327b-476d-95cb-8f7add9e1c70",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "Mák": {
+              "entity_id": "7d6b0c49-5aec-4163-b08f-5e93a646715e",
+              "canonical_name": "Mák",
+              "observations": []
+            },
+            "Luca": {
+              "entity_id": "0326fe8f-7eb6-4161-a563-7a1f83b54579",
+              "canonical_name": "Luca",
+              "observations": []
+            },
+            "gluténmentes étrend": {
+              "entity_id": "a93612bb-4706-4df7-ba8c-6de5169abee2",
+              "canonical_name": "gluténmentes étrend",
+              "observations": []
+            },
+            "gluténmentes étkezés": {
+              "entity_id": "6f9cae57-35f2-42b4-a05b-f81c68f81c61",
+              "canonical_name": "gluténmentes étkezés",
+              "observations": []
+            }
+          },
+          "chunks": null,
+          "source_facts": null,
+          "source_facts_truncated": null
+        },
+        "evidence": [
+          {
+            "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+            "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "52b78269-bd34-4301-94ff-85a2bff3edd8",
+            "text": "A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+            "text": "Luca is gluténmentes étrendet követ. | Involving: Luca",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+            "text": "Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "f9385455-bbbd-4417-83fa-3e414e5a0119",
+            "text": "Mák 2026. november 22-én barna bundájú. | When: 2026-11-22 | Involving: Mák",
+            "asserted_at": "2026-11-22T12:00:00Z",
+            "source": "later-explicit"
+          },
+          {
+            "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+            "text": "| Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          }
+        ]
+      },
+      "answer": {
+        "id": "chatcmpl-86bbc4b2c3fab8f2",
+        "object": "chat.completion",
+        "created": 1795026050,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "A felhasználó és Luca gluténmentes étrendet követ. A felhasználónak két macskája van: Mák és Bodza. Bodza szürke színű. Mák színe változott: korábban fekete volt, de 2026. november 22-i legfrissebb adat szerint barna bundájú.",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 734,
+          "total_tokens": 810,
+          "completion_tokens": 76,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    {
+      "label": "project-new-assertion",
+      "evidence": [
+        {
+          "id": "a282347b-bae9-49f0-b303-9246ded15964",
+          "text": "User's private reference word is BIRCH. | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "personal"
+        },
+        {
+          "id": "6e2f29bd-6e42-4f78-86bb-8e4942677805",
+          "text": "User prefers bullet points. | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "personal"
+        },
+        {
+          "id": "c95a0e27-fcca-4569-a18e-36369070009d",
+          "text": "Juniper's access phrase is LAVENDER.",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "c5d862d9-9ec2-4bd7-88dd-ff9d76882b0a",
+          "text": "Juniper's release is on Tuesday, November 17, 2026. | When: Tuesday, November 17, 2026",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "af8d19a0-d602-456f-b03e-4072d2c26af5",
+          "text": "User wants diagrams to be used for Juniper. | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "ad3de687-b23b-4bbc-8ee6-8be2be556a08",
+          "text": "The user now prefers concise diagrams for Juniper. | Involving: user",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-project",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "76bbc5b2-94fa-43c9-8e56-6ae0e7633e5e",
+          "text": "Juniper releases on Sundays. | Involving: Juniper",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-project",
+          "memory_scope": "juniper"
+        }
+      ],
+      "answer": {
+        "id": "chatcmpl-9ac3ba73dc009882",
+        "object": "chat.completion",
+        "created": 1795026056,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "For Juniper, the explanation style is concise diagrams, as the later assertion supersedes the general preference for bullet points. The release day is Sunday, based on the most recent explicit assertion that supersedes the earlier specific date of Tuesday, November 17, 2026. The user's private reference word is BIRCH. Juniper's project access phrase is LAVENDER.",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 793,
+          "total_tokens": 875,
+          "completion_tokens": 82,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    {
+      "label": "project-old-source-replay",
+      "evidence": [
+        {
+          "id": "a282347b-bae9-49f0-b303-9246ded15964",
+          "text": "User's private reference word is BIRCH. | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "personal"
+        },
+        {
+          "id": "6e2f29bd-6e42-4f78-86bb-8e4942677805",
+          "text": "User prefers bullet points. | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "personal"
+        },
+        {
+          "id": "26b5eb74-bc57-4913-8707-c6b38bd96e75",
+          "text": "Juniper's release is Tuesday, November 17, 2026, and its access phrase is LAVENDER. | When: Tuesday, November 17, 2026 | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "c77c7308-f124-41fc-bd21-56a824958af1",
+          "text": "For Juniper, use diagrams. | Involving: user",
+          "asserted_at": "2026-11-12T12:00:00Z",
+          "source": "source",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "76bbc5b2-94fa-43c9-8e56-6ae0e7633e5e",
+          "text": "Juniper releases on Sundays. | Involving: Juniper",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-project",
+          "memory_scope": "juniper"
+        },
+        {
+          "id": "ad3de687-b23b-4bbc-8ee6-8be2be556a08",
+          "text": "The user now prefers concise diagrams for Juniper. | Involving: user",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-project",
+          "memory_scope": "juniper"
+        }
+      ],
+      "answer": {
+        "id": "chatcmpl-a76def86834517e0",
+        "object": "chat.completion",
+        "created": 1795026073,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "For Juniper, the explanation style is concise diagrams, and the release day is Sunday. The user's personal reference word is BIRCH, and Juniper's project access phrase is LAVENDER.",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 722,
+          "total_tokens": 763,
+          "completion_tokens": 41,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    }
+  ],
+  "before": {
+    "uiq-1118-edit-en": {
+      "items": [
+        {
+          "id": "f95f839a-bda1-4340-abd7-fe4c985b8174",
+          "text": "User's hiking backpack is silver as of November 22, 2026. | When: November 22, 2026 | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-22T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "later-explicit",
+          "mentioned_at": "2026-11-22T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "hiking backpack, user",
+          "chunk_id": "uiq-1118-edit-en_later-explicit_0",
+          "proof_count": 1,
+          "tags": [
+            "later-explicit"
+          ],
+          "metadata": {
+            "chat_id": "chat-later-explicit",
+            "message_id": "message-later-explicit"
+          },
+          "consolidated_at": "2026-11-18T18:15:00.462473+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:14:59.046739+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "7d5e3ba0-3e0a-4e95-a72d-feea50ba2841",
+          "text": "The user's hiking backpack is silver as of November 22, 2026. (2026-11-01 12:00: The user's hiking backpack is blue.)",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-22T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 5,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:15:00.454424+00:00",
+          "source_memory_ids": [
+            "cec9d9f7-9e0e-4574-9941-ea0331645596",
+            "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+            "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+            "731280a5-efd1-42cd-8d03-44a714f499a4",
+            "f95f839a-bda1-4340-abd7-fe4c985b8174"
+          ]
+        },
+        {
+          "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+          "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "canoe, garage, user",
+          "chunk_id": "uiq-1118-edit-en_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat-r2",
+            "message_id": "message-repeat-r2"
+          },
+          "consolidated_at": "2026-11-18T18:14:34.039540+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:14:27.034816+00:00",
+          "updated_at": "2026-11-18T18:14:27.034816+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "7e15a2c9-a921-4ec2-83e7-ad4a8d58e19e",
+          "text": "The user's canoe is blue. (2026-11-01 12:00: User owns a hiking backpack and a blue canoe, and stores both in their garage.)",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:14:53.372976+00:00",
+          "source_memory_ids": [
+            "cec9d9f7-9e0e-4574-9941-ea0331645596",
+            "731280a5-efd1-42cd-8d03-44a714f499a4"
+          ]
+        },
+        {
+          "id": "8026f294-a26e-4cfe-8a16-33207047872b",
+          "text": "The user's hiking backpack and canoe are in the user's garage. (2026-11-01 12:00: User owns a hiking backpack and a blue canoe, and stores both in their garage.)",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:14:53.372976+00:00",
+          "source_memory_ids": [
+            "cec9d9f7-9e0e-4574-9941-ea0331645596",
+            "731280a5-efd1-42cd-8d03-44a714f499a4"
+          ]
+        },
+        {
+          "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+          "text": "The user's hiking backpack is is in the user's garage. | Where: the user's garage | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "amber hiking backpack, garage, user",
+          "chunk_id": "uiq-1118-edit-en_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat-r2",
+            "message_id": "message-repeat-r2"
+          },
+          "consolidated_at": "2026-11-18T18:14:34.039540+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:14:27.067202+00:00",
+          "updated_at": "2026-11-18T18:14:27.067202+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "cec9d9f7-9e0e-4574-9941-ea0331645596",
+          "text": "User's hiking backpack is and their canoe is blue; both are in the user's garage. | Where: user's garage | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "amber hiking backpack, canoe, garage, user",
+          "chunk_id": "uiq-1118-edit-en_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:14:34.039540+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:14:08.447546+00:00",
+          "updated_at": "2026-11-18T18:14:08.447546+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "731280a5-efd1-42cd-8d03-44a714f499a4",
+          "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "amber hiking backpack, garage, user, white canoe",
+          "chunk_id": "uiq-1118-edit-en_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:14:53.387104+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:14:52.021513+00:00",
+          "updated_at": "2026-11-18T18:14:52.021513+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    },
+    "uiq-1118-bounded-edit-hu": {
+      "items": [
+        {
+          "id": "f9385455-bbbd-4417-83fa-3e414e5a0119",
+          "text": "Mák 2026. november 22-én barna bundájú. | When: 2026-11-22 | Involving: Mák",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-22T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "later-explicit",
+          "mentioned_at": "2026-11-22T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Mák, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_later-explicit_0",
+          "proof_count": 1,
+          "tags": [
+            "later-explicit"
+          ],
+          "metadata": {
+            "chat_id": "chat-later-explicit",
+            "message_id": "message-later-explicit"
+          },
+          "consolidated_at": "2026-11-18T18:19:59.462281+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:58.404907+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "9dd1866e-6dba-45bc-9a2a-ae8989f243a1",
+          "text": "Mák barna; earlier fekete.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-22T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:59.454833+00:00",
+          "source_memory_ids": [
+            "52b78269-bd34-4301-94ff-85a2bff3edd8",
+            "f9385455-bbbd-4417-83fa-3e414e5a0119"
+          ]
+        },
+        {
+          "id": "3f1e85d7-bf47-40b6-a207-e04cebf526ea",
+          "text": "Bodza szürke.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 3,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:51.559669+00:00",
+          "source_memory_ids": [
+            "f3dc931c-b542-4126-894d-d88ef6e08fc6",
+            "822bab29-7704-4875-a60c-2e33a1bfe74a",
+            "52b78269-bd34-4301-94ff-85a2bff3edd8"
+          ]
+        },
+        {
+          "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+          "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)",
+          "context": "",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bodza, Mák, macskák, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:19:46.363680+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:19:33.978781+00:00",
+          "updated_at": "2026-11-18T18:19:33.978781+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "e8eb6abd-3e66-4b59-9f56-7ccda75f044d",
+          "text": "Luca gluténmentesen étkezik.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 3,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:51.559669+00:00",
+          "source_memory_ids": [
+            "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+            "24f683c5-98ce-4bd6-ac8d-972374c5f58d",
+            "ab304565-e6ae-4b59-9e3a-f65a7d702270"
+          ]
+        },
+        {
+          "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+          "text": "Luca is gluténmentes étrendet követ. | Involving: Luca",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Luca, gluténmentes étrend",
+          "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:29.006667+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "f3dc931c-b542-4126-894d-d88ef6e08fc6",
+          "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (macska), Bodza (macska)",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bodza, Mák, macskák, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:19:46.363680+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:19:16.445197+00:00",
+          "updated_at": "2026-11-18T18:19:16.445197+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+          "text": "| Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "gluténmentes étrend, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:19:36.976302+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:19:34.016751+00:00",
+          "updated_at": "2026-11-18T18:19:34.016751+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "24f683c5-98ce-4bd6-ac8d-972374c5f58d",
+          "text": "Luca gluténmentes étrendet követ. | Involving: user, Luca",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Luca, gluténmentes étrend, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:19:16.479071+00:00",
+          "updated_at": "2026-11-18T18:19:16.479071+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "75e06cbb-e510-4f6a-8d11-6dbb8954ccfa",
+          "text": "A felhasználónak két macskája van.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:51.559669+00:00",
+          "source_memory_ids": [
+            "52b78269-bd34-4301-94ff-85a2bff3edd8"
+          ]
+        },
+        {
+          "id": "52b78269-bd34-4301-94ff-85a2bff3edd8",
+          "text": "A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bodza, Mák, macskák, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:19:48.863840+00:00",
+          "updated_at": "2026-11-18T18:19:48.863840+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "53019b47-8fec-428f-b6af-4f383e28a836",
+          "text": "Luca a felhasználó húga.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:19:51.559669+00:00",
+          "source_memory_ids": [
+            "1bec4902-eb82-4c4e-ba17-03ab3904d1eb"
+          ]
+        },
+        {
+          "id": "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+          "text": "Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Luca, gluténmentes étkezés, user",
+          "chunk_id": "uiq-1118-bounded-edit-hu_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:19:51.573771+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:19:48.898661+00:00",
+          "updated_at": "2026-11-18T18:19:48.898661+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 13,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  "beforeAt": "2026-11-18T18:20:16.068Z",
+  "finished": "2026-11-18T18:21:13.662Z"
+}

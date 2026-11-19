@@ -1,0 +1,157 @@
+{
+  "scope": "real transport/local model; synthetic activity input, not full chat acceptance",
+  "phases": [
+    {
+      "name": "daytime",
+      "signal": {
+        "idle": false,
+        "active": false
+      },
+      "calls": [
+        {
+          "status": 200,
+          "ms": 187
+        },
+        {
+          "status": 429,
+          "ms": 41
+        },
+        {
+          "status": 429,
+          "ms": 41
+        },
+        {
+          "status": 429,
+          "ms": 41
+        },
+        {
+          "status": 429,
+          "ms": 41
+        },
+        {
+          "status": 429,
+          "ms": 42
+        }
+      ],
+      "counts": {
+        "200": 1,
+        "429": 5
+      }
+    },
+    {
+      "name": "explicit idle",
+      "signal": {
+        "idle": true,
+        "active": false
+      },
+      "calls": [
+        {
+          "status": 200,
+          "ms": 171
+        },
+        {
+          "status": 200,
+          "ms": 210
+        },
+        {
+          "status": 200,
+          "ms": 210
+        },
+        {
+          "status": 200,
+          "ms": 210
+        },
+        {
+          "status": 200,
+          "ms": 190
+        },
+        {
+          "status": 200,
+          "ms": 191
+        }
+      ],
+      "counts": {
+        "200": 6
+      }
+    },
+    {
+      "name": "foreground",
+      "signal": {
+        "idle": true,
+        "active": true
+      },
+      "calls": [
+        {
+          "status": 200,
+          "ms": 150
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 31
+        }
+      ],
+      "counts": {
+        "200": 1,
+        "429": 5
+      }
+    },
+    {
+      "name": "activity service unavailable",
+      "signal": null,
+      "calls": [
+        {
+          "status": 200,
+          "ms": 167
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 31
+        },
+        {
+          "status": 429,
+          "ms": 32
+        },
+        {
+          "status": 429,
+          "ms": 32
+        }
+      ],
+      "counts": {
+        "200": 1,
+        "429": 5
+      }
+    }
+  ],
+  "metrics": {
+    "active": 0,
+    "peak": 6,
+    "rejected": 15,
+    "completed": 9,
+    "duration_ms": 1395
+  },
+  "passed": true
+}

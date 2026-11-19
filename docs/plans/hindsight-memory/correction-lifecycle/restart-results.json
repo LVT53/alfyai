@@ -1,0 +1,3744 @@
+[
+  {
+    "id": "kayaks",
+    "bank": "cl1-kayaks",
+    "ack": [
+      {
+        "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+        "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user"
+      },
+      {
+        "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+        "text": "User's purple touring kayak now has a deck compass. | Involving: user"
+      },
+      {
+        "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+        "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+      },
+      {
+        "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+        "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+      }
+    ],
+    "verifiedCount": 4,
+    "admitted": [
+      {
+        "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+        "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user"
+      },
+      {
+        "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+        "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+      },
+      {
+        "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+        "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+      },
+      {
+        "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+        "text": "User's purple touring kayak now has a deck compass. | Involving: user"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "e3353b2e-1c39-4295-aa62-a79ef04feb78",
+          "text": "User's white racing kayak is stored at the club.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "cd66e628-6bbf-459a-8347-b83a8cbcf4a3"
+          ]
+        },
+        {
+          "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+          "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "club, user, white racing kayak",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:03.741192+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "ad6d8a7f-e8e2-45bf-91fb-dc14bd4ac33e",
+          "text": "User's purple touring kayak has a deck compass.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:15.407676+00:00",
+          "source_memory_ids": [
+            "4b85749e-c315-48c9-af08-0dadd4cd07e5"
+          ]
+        },
+        {
+          "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+          "text": "User's purple touring kayak now has a deck compass. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "deck compass, orange touring kayak, user",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:15.416440+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:59:13.827923+00:00",
+          "updated_at": "2026-11-18T15:59:13.827923+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "278eadcc-33f6-4721-947e-b5d2ac9e95c1",
+          "text": "User paddles the touring kayak on Saturdays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "b851b183-79a4-4903-9fbc-c62951eda295"
+          ]
+        },
+        {
+          "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "touring kayak, user",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:03.741192+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "0812e6b5-8223-46d9-bc5b-bed3f4393447",
+          "text": "User owns a purple touring kayak.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:15.407676+00:00",
+          "source_memory_ids": [
+            "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+          ]
+        },
+        {
+          "id": "aece0ba2-36f1-42db-b3ca-605dcb324c1a",
+          "text": "User owns a white racing kayak.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:15.407676+00:00",
+          "source_memory_ids": [
+            "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+          ]
+        },
+        {
+          "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+          "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "orange touring kayak, user, white racing kayak",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:15.416440+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:59:13.861058+00:00",
+          "updated_at": "2026-11-18T15:59:13.861058+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 9,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+          "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user",
+          "type": "world",
+          "entities": [
+            "white racing kayak",
+            "user",
+            "club"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-kayaks_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.097272113948871,
+            "reranker": 0.9976032972335815,
+            "semantic": 0.8003341198067109,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+          "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+          "type": "world",
+          "entities": [
+            "white racing kayak",
+            "user",
+            "orange touring kayak"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-kayaks_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0959680013696185,
+            "reranker": 0.9964176416397095,
+            "semantic": 0.7896917697695428,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "e3353b2e-1c39-4295-aa62-a79ef04feb78",
+          "text": "User's white racing kayak is stored at the club.",
+          "type": "observation",
+          "entities": [
+            "white racing kayak",
+            "user",
+            "club"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0918517083453134,
+            "reranker": 0.992675244808197,
+            "semantic": 0.7478920444217937,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user",
+          "type": "world",
+          "entities": [
+            "touring kayak",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-kayaks_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0745185257117755,
+            "reranker": 0.976916491985321,
+            "semantic": 0.7814123863402723,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "278eadcc-33f6-4721-947e-b5d2ac9e95c1",
+          "text": "User paddles the touring kayak on Saturdays.",
+          "type": "observation",
+          "entities": [
+            "touring kayak",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.9535449905168918,
+            "reranker": 0.8669313788414001,
+            "semantic": 0.7319293836334168,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "0812e6b5-8223-46d9-bc5b-bed3f4393447",
+          "text": "User owns a purple touring kayak.",
+          "type": "observation",
+          "entities": [
+            "white racing kayak",
+            "user",
+            "orange touring kayak"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.8428110845663503,
+            "reranker": 0.766255795955658,
+            "semantic": 0.7550761474646316,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "aece0ba2-36f1-42db-b3ca-605dcb324c1a",
+          "text": "User owns a white racing kayak.",
+          "type": "observation",
+          "entities": [
+            "white racing kayak",
+            "user",
+            "orange touring kayak"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.6892789924002345,
+            "reranker": 0.6266695261001587,
+            "semantic": 0.7397255677066604,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+          "text": "User's purple touring kayak now has a deck compass. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "orange touring kayak",
+            "deck compass"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-kayaks_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.05861124557058402,
+            "reranker": 0.05328739434480667,
+            "semantic": 0.7759686210127436,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "ad6d8a7f-e8e2-45bf-91fb-dc14bd4ac33e",
+          "text": "User's purple touring kayak has a deck compass.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "orange touring kayak",
+            "deck compass"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.011131784358682714,
+            "reranker": 0.010120647959411144,
+            "semantic": 0.7526187524979938,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "white racing kayak": {
+          "entity_id": "411432eb-486a-47bd-b9f5-33cc74e9cdd2",
+          "canonical_name": "white racing kayak",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "9b7f8932-7265-4b9a-8599-1978de546a34",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "club": {
+          "entity_id": "bc16586b-88fd-497e-a46f-08e89543de31",
+          "canonical_name": "club",
+          "observations": []
+        },
+        "orange touring kayak": {
+          "entity_id": "ab7fae78-cdde-4c4f-b9b3-479b43f0e12c",
+          "canonical_name": "orange touring kayak",
+          "observations": []
+        },
+        "touring kayak": {
+          "entity_id": "932f34ef-e159-4077-941f-a5e3bb660f2d",
+          "canonical_name": "touring kayak",
+          "observations": []
+        },
+        "deck compass": {
+          "entity_id": "c40c0107-cae4-4a34-b2d1-bd7930ef9aca",
+          "canonical_name": "deck compass",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "phone",
+    "bank": "cl1-phone",
+    "ack": [
+      {
+        "id": "ffa1c90e-ad79-4bbd-8fa8-9f7f1704369a",
+        "text": "User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user"
+      },
+      {
+        "id": "673221cf-c7dc-48e2-9d33-4dcb1e6f7587",
+        "text": "User's new personal telephone number is 07700 905555. | Involving: user"
+      },
+      {
+        "id": "c7353803-bce5-4a6c-ad45-f83291af8bdf",
+        "text": "Telephone number 07700 904444 now belongs to the community choir reception. | Involving: user"
+      }
+    ],
+    "verifiedCount": 0,
+    "admitted": [],
+    "list": {
+      "items": [
+        {
+          "id": "bef4afd6-b6a9-4117-9b66-d37924793fbf",
+          "text": "The user coordinates the community choir on Thursdays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:24.784203+00:00",
+          "source_memory_ids": [
+            "e330d5bb-0878-4668-8993-0e8bbc1d3e6a"
+          ]
+        },
+        {
+          "id": "e330d5bb-0878-4668-8993-0e8bbc1d3e6a",
+          "text": "User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "community choir, user",
+          "chunk_id": "cl1-phone_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:24.793182+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:23.103064+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "41d05173-909a-4ae9-ab7c-ea595f18bc17",
+          "text": "The user's new personal telephone number is 07700 905555.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:24.784203+00:00",
+          "source_memory_ids": [
+            "d331400b-9a61-4852-afc1-fed1611390fe"
+          ]
+        },
+        {
+          "id": "d331400b-9a61-4852-afc1-fed1611390fe",
+          "text": "User's new personal telephone number is 07700 905555. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "07700 905555, user",
+          "chunk_id": "cl1-phone_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:24.793182+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:23.103064+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "d6b35163-d2bb-4e15-b857-8c1273c40cd7",
+          "text": "The user's former personal telephone number 07700 904444 now belongs to the community choir reception.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:24.784203+00:00",
+          "source_memory_ids": [
+            "f77dba91-e387-45d5-9243-4d38e19e2ef9"
+          ]
+        },
+        {
+          "id": "f77dba91-e387-45d5-9243-4d38e19e2ef9",
+          "text": "User's former personal telephone number 07700 904444 now belongs to the community choir reception. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "07700 904444, community choir, user",
+          "chunk_id": "cl1-phone_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:24.793182+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:23.103064+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "41d05173-909a-4ae9-ab7c-ea595f18bc17",
+          "text": "The user's new personal telephone number is 07700 905555.",
+          "type": "observation",
+          "entities": [
+            "07700 905555",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0911106870780138,
+            "reranker": 0.9920015335083008,
+            "semantic": 0.7366365570832354,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "d331400b-9a61-4852-afc1-fed1611390fe",
+          "text": "User's new personal telephone number is 07700 905555. | Involving: user",
+          "type": "world",
+          "entities": [
+            "07700 905555",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-phone_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0654026537335162,
+            "reranker": 0.9686286449432373,
+            "semantic": 0.7262482426688628,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "f77dba91-e387-45d5-9243-4d38e19e2ef9",
+          "text": "User's former personal telephone number 07700 904444 now belongs to the community choir reception. | Involving: user",
+          "type": "world",
+          "entities": [
+            "07700 904444",
+            "community choir",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-phone_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0647369610722346,
+            "reranker": 0.968023419380188,
+            "semantic": 0.757647820500835,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "d6b35163-d2bb-4e15-b857-8c1273c40cd7",
+          "text": "The user's former personal telephone number 07700 904444 now belongs to the community choir reception.",
+          "type": "observation",
+          "entities": [
+            "07700 904444",
+            "community choir",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.027796725469286,
+            "reranker": 0.9344385862350464,
+            "semantic": 0.7657302250185679,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "bef4afd6-b6a9-4117-9b66-d37924793fbf",
+          "text": "The user coordinates the community choir on Thursdays.",
+          "type": "observation",
+          "entities": [
+            "community choir",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.3514325894525123,
+            "reranker": 0.319510817527771,
+            "semantic": 0.7425604087877399,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "e330d5bb-0878-4668-8993-0e8bbc1d3e6a",
+          "text": "User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user",
+          "type": "world",
+          "entities": [
+            "community choir",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-phone_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0028587402045375174,
+            "reranker": 0.00259907147847116,
+            "semantic": 0.7920273778446731,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "07700 905555": {
+          "entity_id": "3a89d5bc-beff-4e40-8180-bf8101460795",
+          "canonical_name": "07700 905555",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "a9bd3e49-b092-40a8-ad66-0667a8f18826",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "07700 904444": {
+          "entity_id": "5694b977-776a-48e0-bd5d-d37f185d1b70",
+          "canonical_name": "07700 904444",
+          "observations": []
+        },
+        "community choir": {
+          "entity_id": "8d93fda2-aea4-481b-8525-8b30ebab39b5",
+          "canonical_name": "community choir",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "siblings_hu",
+    "bank": "cl1-siblings_hu",
+    "ack": [
+      {
+        "id": "e14e5f53-f7a8-4a77-a333-acf5a6469961",
+        "text": "A user öccse péntekenként sakkozik. | When: péntekenként | Involving: user öccse"
+      },
+      {
+        "id": "725ab18c-a49c-4adb-95db-56f0a8b509f4",
+        "text": "A user jelenleg (2026. november 18.) festeni tanul. | When: jelenleg (2026. november 18.) | Involving: user"
+      },
+      {
+        "id": "5a096df6-b3ae-4b9c-9f78-3ef2deb46005",
+        "text": "A user szerdánként úszik. | When: szerdánként | Involving: user"
+      },
+      {
+        "id": "66f6f0b1-82f7-404b-9d57-53027dddda8a",
+        "text": "A user öccse Kecskeméten él. | Where: Kecskemét | Involving: user, user öccse"
+      }
+    ],
+    "verifiedCount": 4,
+    "admitted": [
+      {
+        "id": "66f6f0b1-82f7-404b-9d57-53027dddda8a",
+        "text": "A user öccse Kecskeméten él. | Where: Kecskemét | Involving: user, user öccse"
+      },
+      {
+        "id": "725ab18c-a49c-4adb-95db-56f0a8b509f4",
+        "text": "A user jelenleg (2026. november 18.) festeni tanul. | When: jelenleg (2026. november 18.) | Involving: user"
+      },
+      {
+        "id": "5a096df6-b3ae-4b9c-9f78-3ef2deb46005",
+        "text": "A user szerdánként úszik. | When: szerdánként | Involving: user"
+      },
+      {
+        "id": "e14e5f53-f7a8-4a77-a333-acf5a6469961",
+        "text": "A user öccse péntekenként sakkozik. | When: péntekenként | Involving: user öccse"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "b8cf6987-d24b-4b32-8c1d-557b6a97595f",
+          "text": "A user öccse péntekenként sakkozik.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:46.693758+00:00",
+          "source_memory_ids": [
+            "e14e5f53-f7a8-4a77-a333-acf5a6469961"
+          ]
+        },
+        {
+          "id": "e14e5f53-f7a8-4a77-a333-acf5a6469961",
+          "text": "A user öccse péntekenként sakkozik. | When: péntekenként | Involving: user öccse",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "sakk, user",
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:47:46.702021+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:45.089456+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "077c7619-2f4a-4adf-aca3-f5256ba80984",
+          "text": "A user jelenleg (2026. november 18.) festeni tanul.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:46.693758+00:00",
+          "source_memory_ids": [
+            "725ab18c-a49c-4adb-95db-56f0a8b509f4"
+          ]
+        },
+        {
+          "id": "725ab18c-a49c-4adb-95db-56f0a8b509f4",
+          "text": "A user jelenleg (2026. november 18.) festeni tanul. | When: jelenleg (2026. november 18.) | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "festés, user",
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:47:46.702021+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:45.089456+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "ad0ae3de-83e4-420b-8d81-3f8d05b3eba3",
+          "text": "A user szerdánként úszik.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:46.693758+00:00",
+          "source_memory_ids": [
+            "5a096df6-b3ae-4b9c-9f78-3ef2deb46005"
+          ]
+        },
+        {
+          "id": "5a096df6-b3ae-4b9c-9f78-3ef2deb46005",
+          "text": "A user szerdánként úszik. | When: szerdánként | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, úszás",
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:47:46.702021+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:45.089456+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "98f1d324-9f24-4e76-aec8-5a715c2c223b",
+          "text": "A user öccse Kecskeméten él.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:47:50.649197+00:00",
+          "source_memory_ids": [
+            "66f6f0b1-82f7-404b-9d57-53027dddda8a"
+          ]
+        },
+        {
+          "id": "66f6f0b1-82f7-404b-9d57-53027dddda8a",
+          "text": "A user öccse Kecskeméten él. | Where: Kecskemét | Involving: user, user öccse",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Kecskemét, user, user öccse",
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:47:50.653289+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:47:48.794152+00:00",
+          "updated_at": "2026-11-18T15:47:48.794152+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "66f6f0b1-82f7-404b-9d57-53027dddda8a",
+          "text": "A user öccse Kecskeméten él. | Where: Kecskemét | Involving: user, user öccse",
+          "type": "world",
+          "entities": [
+            "user",
+            "Kecskemét",
+            "user öccse"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0814393282278492,
+            "reranker": 0.9832086563110352,
+            "semantic": 0.7727510563358982,
+            "keyword": 0.5
+          },
+          "attachments": null
+        },
+        {
+          "id": "98f1d324-9f24-4e76-aec8-5a715c2c223b",
+          "text": "A user öccse Kecskeméten él.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "Kecskemét",
+            "user öccse"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.7179288173392578,
+            "reranker": 0.6527169942855835,
+            "semantic": 0.7825910811844177,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "077c7619-2f4a-4adf-aca3-f5256ba80984",
+          "text": "A user jelenleg (2026. november 18.) festeni tanul.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "festés"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.5685328831587532,
+            "reranker": 0.5168911814689636,
+            "semantic": 0.7753508322045458,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "ad0ae3de-83e4-420b-8d81-3f8d05b3eba3",
+          "text": "A user szerdánként úszik.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "úszás"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.005197505890089056,
+            "reranker": 0.004725399427115917,
+            "semantic": 0.769575201558328,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "725ab18c-a49c-4adb-95db-56f0a8b509f4",
+          "text": "A user jelenleg (2026. november 18.) festeni tanul. | When: jelenleg (2026. november 18.) | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "festés"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0027004080350713318,
+            "reranker": 0.002455121139064431,
+            "semantic": 0.7949382303636743,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "5a096df6-b3ae-4b9c-9f78-3ef2deb46005",
+          "text": "A user szerdánként úszik. | When: szerdánként | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "úszás"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.002175806442184881,
+            "reranker": 0.0019781708251684904,
+            "semantic": 0.7909034726292933,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "e14e5f53-f7a8-4a77-a333-acf5a6469961",
+          "text": "A user öccse péntekenként sakkozik. | When: péntekenként | Involving: user öccse",
+          "type": "world",
+          "entities": [
+            "user",
+            "sakk"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-siblings~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0015407482498456934,
+            "reranker": 0.001400797045789659,
+            "semantic": 0.7710122789159167,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "b8cf6987-d24b-4b32-8c1d-557b6a97595f",
+          "text": "A user öccse péntekenként sakkozik.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "sakk"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.001457659599213991,
+            "reranker": 0.0013252556091174483,
+            "semantic": 0.7771162026261155,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "6e42197a-0efd-410c-a46e-bbd61a72f7dc",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Kecskemét": {
+          "entity_id": "7840b6f8-c0d6-4641-93d8-3275af60fa9c",
+          "canonical_name": "Kecskemét",
+          "observations": []
+        },
+        "user öccse": {
+          "entity_id": "c19f2410-e55f-4af7-ad74-c9f9a54ef7ad",
+          "canonical_name": "user öccse",
+          "observations": []
+        },
+        "festés": {
+          "entity_id": "943f4e31-b92d-49f6-bb52-6b8978d517be",
+          "canonical_name": "festés",
+          "observations": []
+        },
+        "úszás": {
+          "entity_id": "8a089017-82e5-4447-aeee-00548f329158",
+          "canonical_name": "úszás",
+          "observations": []
+        },
+        "sakk": {
+          "entity_id": "c97ca4cc-5f4b-4b4b-ab62-d4b017532b82",
+          "canonical_name": "sakk",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "projects",
+    "bank": "cl1-projects",
+    "ack": [
+      {
+        "id": "011d4468-3088-4167-bbb3-15f96fdd0396",
+        "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+      },
+      {
+        "id": "bdb70024-bc53-4789-914e-5a2cd9e031c9",
+        "text": "User's Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode. | Involving: user"
+      }
+    ],
+    "verifiedCount": 2,
+    "admitted": [
+      {
+        "id": "bdb70024-bc53-4789-914e-5a2cd9e031c9",
+        "text": "User's Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode. | Involving: user"
+      },
+      {
+        "id": "011d4468-3088-4167-bbb3-15f96fdd0396",
+        "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "69871c53-c50f-4554-802c-f2b0624b4de9",
+          "text": "The user's Harbor project has a dark theme.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:07.642970+00:00",
+          "source_memory_ids": [
+            "011d4468-3088-4167-bbb3-15f96fdd0396"
+          ]
+        },
+        {
+          "id": "77b3710d-679b-4c33-904c-39cc6b567a9f",
+          "text": "The user's Harbor project uses Kotlin.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:07.642970+00:00",
+          "source_memory_ids": [
+            "011d4468-3088-4167-bbb3-15f96fdd0396"
+          ]
+        },
+        {
+          "id": "011d4468-3088-4167-bbb3-15f96fdd0396",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Harbor project, Kotlin, dark theme, user",
+          "chunk_id": "cl1-projects_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:48:07.650516+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:06.479083+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "62b331d8-8830-4487-a5d6-767616d09a9d",
+          "text": "The user's Juniper project's new CLI supports offline mode.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:10.819902+00:00",
+          "source_memory_ids": [
+            "bdb70024-bc53-4789-914e-5a2cd9e031c9"
+          ]
+        },
+        {
+          "id": "b422ecc0-0057-4348-acb6-c937eb104fd6",
+          "text": "The user's Juniper project ships on Mondays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:10.819902+00:00",
+          "source_memory_ids": [
+            "bdb70024-bc53-4789-914e-5a2cd9e031c9"
+          ]
+        },
+        {
+          "id": "d3608128-e514-47f1-bda6-aa5b467f9314",
+          "text": "The user's Juniper project uses Go.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:10.819902+00:00",
+          "source_memory_ids": [
+            "bdb70024-bc53-4789-914e-5a2cd9e031c9"
+          ]
+        },
+        {
+          "id": "bdb70024-bc53-4789-914e-5a2cd9e031c9",
+          "text": "User's Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "CLI, Juniper project, Ruby, user",
+          "chunk_id": "cl1-projects_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:48:10.827088+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:48:09.234468+00:00",
+          "updated_at": "2026-11-18T15:48:09.234468+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 7,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "bdb70024-bc53-4789-914e-5a2cd9e031c9",
+          "text": "User's Juniper project uses Go, ships on Mondays, and its new CLI supports offline mode. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Juniper project",
+            "user",
+            "CLI",
+            "Ruby"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-projects_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0989897749711817,
+            "reranker": 0.9991649389266968,
+            "semantic": 0.7934981821029841,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "011d4468-3088-4167-bbb3-15f96fdd0396",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user",
+          "type": "world",
+          "entities": [
+            "dark theme",
+            "Kotlin",
+            "Harbor project",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-projects_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.096408823069658,
+            "reranker": 0.9968184232711792,
+            "semantic": 0.8149163259491023,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "77b3710d-679b-4c33-904c-39cc6b567a9f",
+          "text": "The user's Harbor project uses Kotlin.",
+          "type": "observation",
+          "entities": [
+            "dark theme",
+            "Kotlin",
+            "Harbor project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0784679682673828,
+            "reranker": 0.9805071949958801,
+            "semantic": 0.7883268359802148,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "62b331d8-8830-4487-a5d6-767616d09a9d",
+          "text": "The user's Juniper project's new CLI supports offline mode.",
+          "type": "observation",
+          "entities": [
+            "Juniper project",
+            "user",
+            "CLI",
+            "Ruby"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.9762069249521235,
+            "reranker": 0.8875348567962646,
+            "semantic": 0.7717586985754582,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "69871c53-c50f-4554-802c-f2b0624b4de9",
+          "text": "The user's Harbor project has a dark theme.",
+          "type": "observation",
+          "entities": [
+            "dark theme",
+            "Kotlin",
+            "Harbor project",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.8989049617293569,
+            "reranker": 0.8172544836997986,
+            "semantic": 0.7746039859832524,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "d3608128-e514-47f1-bda6-aa5b467f9314",
+          "text": "The user's Juniper project uses Go.",
+          "type": "observation",
+          "entities": [
+            "Juniper project",
+            "user",
+            "CLI",
+            "Ruby"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.7706045466741006,
+            "reranker": 0.7006080150604248,
+            "semantic": 0.7938629625398808,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "b422ecc0-0057-4348-acb6-c937eb104fd6",
+          "text": "The user's Juniper project ships on Mondays.",
+          "type": "observation",
+          "entities": [
+            "Juniper project",
+            "user",
+            "CLI",
+            "Ruby"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.00755089572749437,
+            "reranker": 0.006865023169666529,
+            "semantic": 0.7628259431473661,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Juniper project": {
+          "entity_id": "61ebf1e1-b6a5-401f-bc29-dfe3f25dbf6c",
+          "canonical_name": "Juniper project",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "cb9a0e4c-c452-4185-b107-43ec7bf5b92f",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "CLI": {
+          "entity_id": "d6380b5b-1c5b-40d8-b362-7dc995e891e7",
+          "canonical_name": "CLI",
+          "observations": []
+        },
+        "Ruby": {
+          "entity_id": "f2ecc052-f427-4efd-af7a-665eae7376cc",
+          "canonical_name": "Ruby",
+          "observations": []
+        },
+        "dark theme": {
+          "entity_id": "51975150-2287-4541-9f57-cac4deded7c6",
+          "canonical_name": "dark theme",
+          "observations": []
+        },
+        "Kotlin": {
+          "entity_id": "73403608-5199-42e2-a8ce-9e4a61ed07c9",
+          "canonical_name": "Kotlin",
+          "observations": []
+        },
+        "Harbor project": {
+          "entity_id": "8256db08-0904-4384-bb8f-554c225258be",
+          "canonical_name": "Harbor project",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "shared_food",
+    "bank": "cl1-shared_food",
+    "ack": [
+      {
+        "id": "09bbbf86-6ca0-46fb-94c1-1cb78567a871",
+        "text": "User and user's partner have a rice cooker and, as of November 18, 2026, also have a countertop steamer. | When: November 18, 2026 | Involving: user, user's partner"
+      },
+      {
+        "id": "dcb73f2e-5716-4641-8eec-7295988df103",
+        "text": "User prefers spicy meals, while user's partner prefers mild meals. | Involving: user, user's partner"
+      },
+      {
+        "id": "6efd2988-8a2a-43ab-bcee-11c91e4dd404",
+        "text": "User's partner cannot eat sesame. | Involving: user, user's partner"
+      }
+    ],
+    "verifiedCount": 3,
+    "admitted": [
+      {
+        "id": "09bbbf86-6ca0-46fb-94c1-1cb78567a871",
+        "text": "User and user's partner have a rice cooker and, as of November 18, 2026, also have a countertop steamer. | When: November 18, 2026 | Involving: user, user's partner"
+      },
+      {
+        "id": "6efd2988-8a2a-43ab-bcee-11c91e4dd404",
+        "text": "User's partner cannot eat sesame. | Involving: user, user's partner"
+      },
+      {
+        "id": "dcb73f2e-5716-4641-8eec-7295988df103",
+        "text": "User prefers spicy meals, while user's partner prefers mild meals. | Involving: user, user's partner"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "09a3e136-57a9-4fbd-beb6-d7953754f635",
+          "text": "User and user's partner have a countertop steamer as of November 18, 2026.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:43.932511+00:00",
+          "source_memory_ids": [
+            "09bbbf86-6ca0-46fb-94c1-1cb78567a871"
+          ]
+        },
+        {
+          "id": "39da6586-c215-4b3f-a3fd-813977465f0a",
+          "text": "User and user's partner have a rice cooker.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:43.932511+00:00",
+          "source_memory_ids": [
+            "09bbbf86-6ca0-46fb-94c1-1cb78567a871"
+          ]
+        },
+        {
+          "id": "09bbbf86-6ca0-46fb-94c1-1cb78567a871",
+          "text": "User and user's partner have a rice cooker and, as of November 18, 2026, also have a countertop steamer. | When: November 18, 2026 | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "countertop steamer, partner, rice cooker, user",
+          "chunk_id": "cl1-shared~5Ffood_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:48:43.943755+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:42.417785+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "c21e09ff-6939-4b68-8c14-3bcdfd670747",
+          "text": "User's partner prefers mild meals.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:43.932511+00:00",
+          "source_memory_ids": [
+            "dcb73f2e-5716-4641-8eec-7295988df103"
+          ]
+        },
+        {
+          "id": "dac4c664-19a9-4daa-9b6c-03bebbabaf43",
+          "text": "User prefers spicy meals.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:43.932511+00:00",
+          "source_memory_ids": [
+            "dcb73f2e-5716-4641-8eec-7295988df103"
+          ]
+        },
+        {
+          "id": "dcb73f2e-5716-4641-8eec-7295988df103",
+          "text": "User prefers spicy meals, while user's partner prefers mild meals. | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "mild meals, partner, spicy meals, user",
+          "chunk_id": "cl1-shared~5Ffood_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:48:43.943755+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:42.417785+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "853c6158-ec4e-4f35-ac28-1b17ed899b04",
+          "text": "User's partner cannot eat sesame.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:48:46.595616+00:00",
+          "source_memory_ids": [
+            "6efd2988-8a2a-43ab-bcee-11c91e4dd404"
+          ]
+        },
+        {
+          "id": "6efd2988-8a2a-43ab-bcee-11c91e4dd404",
+          "text": "User's partner cannot eat sesame. | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "partner, sesame, user",
+          "chunk_id": "cl1-shared~5Ffood_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:48:46.599640+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:48:45.284916+00:00",
+          "updated_at": "2026-11-18T15:48:45.284916+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "09bbbf86-6ca0-46fb-94c1-1cb78567a871",
+          "text": "User and user's partner have a rice cooker and, as of November 18, 2026, also have a countertop steamer. | When: November 18, 2026 | Involving: user, user's partner",
+          "type": "world",
+          "entities": [
+            "user",
+            "rice cooker",
+            "partner",
+            "countertop steamer"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-shared~5Ffood_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0990499583539064,
+            "reranker": 0.9992196559906006,
+            "semantic": 0.7869996663033866,
+            "keyword": 0.6000000238418579
+          },
+          "attachments": null
+        },
+        {
+          "id": "09a3e136-57a9-4fbd-beb6-d7953754f635",
+          "text": "User and user's partner have a countertop steamer as of November 18, 2026.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "rice cooker",
+            "partner",
+            "countertop steamer"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0984560535621781,
+            "reranker": 0.9986796975135803,
+            "semantic": 0.7931216842125428,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "39da6586-c215-4b3f-a3fd-813977465f0a",
+          "text": "User and user's partner have a rice cooker.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "rice cooker",
+            "partner",
+            "countertop steamer"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0924117824203972,
+            "reranker": 0.9931844472885132,
+            "semantic": 0.7640775214410598,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "6efd2988-8a2a-43ab-bcee-11c91e4dd404",
+          "text": "User's partner cannot eat sesame. | Involving: user, user's partner",
+          "type": "world",
+          "entities": [
+            "sesame",
+            "user",
+            "partner"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-shared~5Ffood_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0901539738034218,
+            "reranker": 0.9911317229270935,
+            "semantic": 0.775329791764313,
+            "keyword": 0.5
+          },
+          "attachments": null
+        },
+        {
+          "id": "dcb73f2e-5716-4641-8eec-7295988df103",
+          "text": "User prefers spicy meals, while user's partner prefers mild meals. | Involving: user, user's partner",
+          "type": "world",
+          "entities": [
+            "spicy meals",
+            "user",
+            "partner",
+            "mild meals"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-shared~5Ffood_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0795639283075282,
+            "reranker": 0.9815036058425903,
+            "semantic": 0.7862552042679553,
+            "keyword": 0.6000000238418579
+          },
+          "attachments": null
+        },
+        {
+          "id": "c21e09ff-6939-4b68-8c14-3bcdfd670747",
+          "text": "User's partner prefers mild meals.",
+          "type": "observation",
+          "entities": [
+            "spicy meals",
+            "user",
+            "partner",
+            "mild meals"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.005953317894830153,
+            "reranker": 0.005412558559328318,
+            "semantic": 0.757513128444944,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "853c6158-ec4e-4f35-ac28-1b17ed899b04",
+          "text": "User's partner cannot eat sesame.",
+          "type": "observation",
+          "entities": [
+            "sesame",
+            "user",
+            "partner"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0034538788452319787,
+            "reranker": 0.003140151733532548,
+            "semantic": 0.6973320661385098,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "dac4c664-19a9-4daa-9b6c-03bebbabaf43",
+          "text": "User prefers spicy meals.",
+          "type": "observation",
+          "entities": [
+            "spicy meals",
+            "user",
+            "partner",
+            "mild meals"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0018237611535489179,
+            "reranker": 0.0016581029631197453,
+            "semantic": 0.7489505633399062,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "3479f393-8c45-4127-b4f2-82098769019e",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "rice cooker": {
+          "entity_id": "80a3e04b-7f2e-436c-86ac-e45560339b02",
+          "canonical_name": "rice cooker",
+          "observations": []
+        },
+        "partner": {
+          "entity_id": "8c3c27ff-0001-479f-8a6f-17b3b05654d6",
+          "canonical_name": "partner",
+          "observations": []
+        },
+        "countertop steamer": {
+          "entity_id": "b59d5d66-6678-4284-bab7-ff491a9d4cba",
+          "canonical_name": "countertop steamer",
+          "observations": []
+        },
+        "sesame": {
+          "entity_id": "042ade20-5098-404d-90a5-aa28a3bb7fbd",
+          "canonical_name": "sesame",
+          "observations": []
+        },
+        "spicy meals": {
+          "entity_id": "07af243b-3ecd-4088-a55b-0b60f550accb",
+          "canonical_name": "spicy meals",
+          "observations": []
+        },
+        "mild meals": {
+          "entity_id": "ae3a3cfc-b877-4fb9-8e3f-2d5b8b694017",
+          "canonical_name": "mild meals",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "new_event",
+    "bank": "cl1-new_event",
+    "ack": [
+      {
+        "id": "3695ecac-6bc6-4474-ae4f-dac858208b06",
+        "text": "User now commutes by train. | When: As of 18 November 2026 | Involving: user"
+      },
+      {
+        "id": "c942311a-cbd1-46a1-86f2-66e774db660b",
+        "text": "User's sister still lives in Limerick. | When: As of 18 November 2026 | Where: Limerick | Involving: user's sister"
+      },
+      {
+        "id": "f93ee925-0088-40c1-a0c5-72011598fb5f",
+        "text": "User moved to Waterford on 17 November 2026. | When: 17 November 2026 | Where: Waterford | Involving: user"
+      },
+      {
+        "id": "4b475dd9-12bd-4c02-bcd4-0f44d061eebf",
+        "text": "User lived in Galway and worked remotely at the time of their old statement. | When: At the time of user's old statement | Where: Cork | Involving: user"
+      }
+    ],
+    "verifiedCount": 4,
+    "admitted": [
+      {
+        "id": "4b475dd9-12bd-4c02-bcd4-0f44d061eebf",
+        "text": "User lived in Galway and worked remotely at the time of their old statement. | When: At the time of user's old statement | Where: Cork | Involving: user"
+      },
+      {
+        "id": "f93ee925-0088-40c1-a0c5-72011598fb5f",
+        "text": "User moved to Waterford on 17 November 2026. | When: 17 November 2026 | Where: Waterford | Involving: user"
+      },
+      {
+        "id": "3695ecac-6bc6-4474-ae4f-dac858208b06",
+        "text": "User now commutes by train. | When: As of 18 November 2026 | Involving: user"
+      },
+      {
+        "id": "c942311a-cbd1-46a1-86f2-66e774db660b",
+        "text": "User's sister still lives in Limerick. | When: As of 18 November 2026 | Where: Limerick | Involving: user's sister"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "79ada3f3-7412-4998-99b9-ef9a5a1e4f9a",
+          "text": "User commutes by train as of 18 November 2026.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:50:05.562048+00:00",
+          "source_memory_ids": [
+            "3695ecac-6bc6-4474-ae4f-dac858208b06"
+          ]
+        },
+        {
+          "id": "3695ecac-6bc6-4474-ae4f-dac858208b06",
+          "text": "User now commutes by train. | When: As of 18 November 2026 | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "train, user",
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:50:05.569493+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:50:03.270282+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "ba1f42ca-d2a8-4bf1-84cf-4fc205f28b0f",
+          "text": "User's sister lives in Limerick as of 18 November 2026.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:50:05.562048+00:00",
+          "source_memory_ids": [
+            "c942311a-cbd1-46a1-86f2-66e774db660b"
+          ]
+        },
+        {
+          "id": "c942311a-cbd1-46a1-86f2-66e774db660b",
+          "text": "User's sister still lives in Limerick. | When: As of 18 November 2026 | Where: Limerick | Involving: user's sister",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Limerick, sister, user",
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:50:05.569493+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:50:03.270282+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "90eef90a-3ae1-4a85-b5dc-b7002ba69536",
+          "text": "User moved to Waterford on 17 November 2026. (2026-11-18 12:00: User lived in Galway and worked remotely at the time of their old statement.)",
+          "context": "",
+          "date": "2026-11-17T00:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T00:00:00.010000+00:00",
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:50:11.597626+00:00",
+          "source_memory_ids": [
+            "f93ee925-0088-40c1-a0c5-72011598fb5f",
+            "4b475dd9-12bd-4c02-bcd4-0f44d061eebf"
+          ]
+        },
+        {
+          "id": "f93ee925-0088-40c1-a0c5-72011598fb5f",
+          "text": "User moved to Waterford on 17 November 2026. | When: 17 November 2026 | Where: Waterford | Involving: user",
+          "context": "",
+          "date": "2026-11-17T00:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T00:00:00.010000+00:00",
+          "entities": "Waterford, user",
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:50:05.569493+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:50:03.270282+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "4b475dd9-12bd-4c02-bcd4-0f44d061eebf",
+          "text": "User lived in Galway and worked remotely at the time of their old statement. | When: At the time of user's old statement | Where: Cork | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Cork, old statement, user",
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:50:11.607483+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:50:09.999061+00:00",
+          "updated_at": "2026-11-18T15:50:09.999061+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 7,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "90eef90a-3ae1-4a85-b5dc-b7002ba69536",
+          "text": "User moved to Waterford on 17 November 2026. (2026-11-18 12:00: User lived in Galway and worked remotely at the time of their old statement.)",
+          "type": "observation",
+          "entities": [
+            "Waterford",
+            "old statement",
+            "Cork",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T00:00:00.010000+00:00",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.10402890526104,
+            "reranker": 0.9975822567939758,
+            "semantic": 0.7815718753551136,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "4b475dd9-12bd-4c02-bcd4-0f44d061eebf",
+          "text": "User lived in Galway and worked remotely at the time of their old statement. | When: At the time of user's old statement | Where: Cork | Involving: user",
+          "type": "world",
+          "entities": [
+            "old statement",
+            "Cork",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0986175919278007,
+            "reranker": 0.9988265633583069,
+            "semantic": 0.8133628610778711,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "f93ee925-0088-40c1-a0c5-72011598fb5f",
+          "text": "User moved to Waterford on 17 November 2026. | When: 17 November 2026 | Where: Waterford | Involving: user",
+          "type": "world",
+          "entities": [
+            "Waterford",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": "2026-11-17T00:00:00.010000+00:00",
+          "occurred_end": "2026-11-17T00:00:00.010000+00:00",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0806459501460155,
+            "reranker": 0.9832220673561096,
+            "semantic": 0.7715473404987857,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "ba1f42ca-d2a8-4bf1-84cf-4fc205f28b0f",
+          "text": "User's sister lives in Limerick as of 18 November 2026.",
+          "type": "observation",
+          "entities": [
+            "Limerick",
+            "sister",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.593782063828701,
+            "reranker": 0.5398468971252441,
+            "semantic": 0.7719836925253597,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "3695ecac-6bc6-4474-ae4f-dac858208b06",
+          "text": "User now commutes by train. | When: As of 18 November 2026 | Involving: user",
+          "type": "world",
+          "entities": [
+            "train",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.28626129001309913,
+            "reranker": 0.2602592408657074,
+            "semantic": 0.7933589333318714,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "c942311a-cbd1-46a1-86f2-66e774db660b",
+          "text": "User's sister still lives in Limerick. | When: As of 18 November 2026 | Where: Limerick | Involving: user's sister",
+          "type": "world",
+          "entities": [
+            "Limerick",
+            "sister",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl1-new~5Fevent_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.002313187180366985,
+            "reranker": 0.0021030728239566088,
+            "semantic": 0.7964807031441153,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "79ada3f3-7412-4998-99b9-ef9a5a1e4f9a",
+          "text": "User commutes by train as of 18 November 2026.",
+          "type": "observation",
+          "entities": [
+            "train",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.002228745850182645,
+            "reranker": 0.0020263015758246183,
+            "semantic": 0.756436728132866,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Waterford": {
+          "entity_id": "5a2e96a6-d8e0-4606-bae3-37c0d1a0db05",
+          "canonical_name": "Waterford",
+          "observations": []
+        },
+        "old statement": {
+          "entity_id": "653d204d-15b4-4911-a687-e8e47bd3ad6b",
+          "canonical_name": "old statement",
+          "observations": []
+        },
+        "Cork": {
+          "entity_id": "83123921-460d-45bd-9d7a-bfc2c7627a97",
+          "canonical_name": "Cork",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "eb7f45a0-0024-4857-a3de-eff1c4dd934b",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Limerick": {
+          "entity_id": "8b293aba-fb2b-4dcf-b5aa-9e1014753b5a",
+          "canonical_name": "Limerick",
+          "observations": []
+        },
+        "sister": {
+          "entity_id": "a1fbf8a3-922f-43bd-9fb7-4e43d47b4ff7",
+          "canonical_name": "sister",
+          "observations": []
+        },
+        "train": {
+          "entity_id": "b4f3ea9d-9712-432f-a5a7-1897ac3f0fe7",
+          "canonical_name": "train",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "dogs",
+    "bank": "cl2-dogs",
+    "ack": [
+      {
+        "id": "7bbb25df-71cf-4352-b674-fef88f0bd4e9",
+        "text": "User still walks their dog before breakfast. | When: before breakfast | Involving: user; user's dog"
+      },
+      {
+        "id": "52a92c03-ae6d-44af-8736-3dd382e08262",
+        "text": "User's neighbour's dog Jasper is a collie. | Involving: user's neighbour; neighbour's dog Jasper"
+      },
+      {
+        "id": "718fc6a4-93a0-4174-ac5f-362d60a08af4",
+        "text": "User's dog now attends agility classes on Sundays. | When: Sundays | Involving: user's dog"
+      },
+      {
+        "id": "5de9f397-6756-42ed-900e-63ade3935f32",
+        "text": "User's dog is a spaniel. | Involving: user; user's dog"
+      }
+    ],
+    "verifiedCount": 4,
+    "admitted": [
+      {
+        "id": "52a92c03-ae6d-44af-8736-3dd382e08262",
+        "text": "User's neighbour's dog Jasper is a collie. | Involving: user's neighbour; neighbour's dog Jasper"
+      },
+      {
+        "id": "718fc6a4-93a0-4174-ac5f-362d60a08af4",
+        "text": "User's dog now attends agility classes on Sundays. | When: Sundays | Involving: user's dog"
+      },
+      {
+        "id": "5de9f397-6756-42ed-900e-63ade3935f32",
+        "text": "User's dog is a spaniel. | Involving: user; user's dog"
+      },
+      {
+        "id": "7bbb25df-71cf-4352-b674-fef88f0bd4e9",
+        "text": "User still walks their dog before breakfast. | When: before breakfast | Involving: user; user's dog"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "30eff501-32b2-4008-a1ec-5a745754ace5",
+          "text": "User walks their dog before breakfast.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:09.135839+00:00",
+          "source_memory_ids": [
+            "7bbb25df-71cf-4352-b674-fef88f0bd4e9"
+          ]
+        },
+        {
+          "id": "7bbb25df-71cf-4352-b674-fef88f0bd4e9",
+          "text": "User still walks their dog before breakfast. | When: before breakfast | Involving: user; user's dog",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "dog, user",
+          "chunk_id": "cl2-dogs_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:54:09.143656+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:07.392394+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "739e1089-8c1b-4d74-b263-487abdd58b62",
+          "text": "User's neighbour's dog Jasper is a collie.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:09.135839+00:00",
+          "source_memory_ids": [
+            "52a92c03-ae6d-44af-8736-3dd382e08262"
+          ]
+        },
+        {
+          "id": "52a92c03-ae6d-44af-8736-3dd382e08262",
+          "text": "User's neighbour's dog Jasper is a collie. | Involving: user's neighbour; neighbour's dog Jasper",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Jasper, collie, neighbour, user",
+          "chunk_id": "cl2-dogs_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:54:09.143656+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:07.392394+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "9ca464c0-d232-4db3-a7b6-172ee3d3591d",
+          "text": "User's dog attends agility classes on Sundays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:24.295576+00:00",
+          "source_memory_ids": [
+            "718fc6a4-93a0-4174-ac5f-362d60a08af4"
+          ]
+        },
+        {
+          "id": "718fc6a4-93a0-4174-ac5f-362d60a08af4",
+          "text": "User's dog now attends agility classes on Sundays. | When: Sundays | Involving: user's dog",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Jasper, agility classes, user",
+          "chunk_id": "cl2-dogs_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:54:24.301057+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:54:22.668138+00:00",
+          "updated_at": "2026-11-18T15:54:22.668138+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "cf5c95c6-4dab-4215-b804-ed36521373d1",
+          "text": "User's dog is a spaniel.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:24.295576+00:00",
+          "source_memory_ids": [
+            "5de9f397-6756-42ed-900e-63ade3935f32"
+          ]
+        },
+        {
+          "id": "5de9f397-6756-42ed-900e-63ade3935f32",
+          "text": "User's dog is a spaniel. | Involving: user; user's dog",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Jasper, spaniel, user",
+          "chunk_id": "cl2-dogs_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:54:24.301057+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:54:22.702796+00:00",
+          "updated_at": "2026-11-18T15:54:22.702796+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "739e1089-8c1b-4d74-b263-487abdd58b62",
+          "text": "User's neighbour's dog Jasper is a collie.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "Jasper",
+            "neighbour",
+            "collie"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0307377290000457,
+            "reranker": 0.9371124505996704,
+            "semantic": 0.7417591435241447,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "cf5c95c6-4dab-4215-b804-ed36521373d1",
+          "text": "User's dog is a spaniel.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "spaniel",
+            "Jasper"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.9711338531296172,
+            "reranker": 0.8829225897789001,
+            "semantic": 0.7322303274938565,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "9ca464c0-d232-4db3-a7b6-172ee3d3591d",
+          "text": "User's dog attends agility classes on Sundays.",
+          "type": "observation",
+          "entities": [
+            "agility classes",
+            "user",
+            "Jasper"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.809921580528651,
+            "reranker": 0.7363537549972534,
+            "semantic": 0.7316437741624213,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "52a92c03-ae6d-44af-8736-3dd382e08262",
+          "text": "User's neighbour's dog Jasper is a collie. | Involving: user's neighbour; neighbour's dog Jasper",
+          "type": "world",
+          "entities": [
+            "user",
+            "Jasper",
+            "neighbour",
+            "collie"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-dogs_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.7390497070144396,
+            "reranker": 0.6719194054603577,
+            "semantic": 0.7512127980951312,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "718fc6a4-93a0-4174-ac5f-362d60a08af4",
+          "text": "User's dog now attends agility classes on Sundays. | When: Sundays | Involving: user's dog",
+          "type": "world",
+          "entities": [
+            "agility classes",
+            "user",
+            "Jasper"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-dogs_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.2169119242588421,
+            "reranker": 0.19720910489559174,
+            "semantic": 0.7689417233747761,
+            "keyword": 0.30000001192092896
+          },
+          "attachments": null
+        },
+        {
+          "id": "5de9f397-6756-42ed-900e-63ade3935f32",
+          "text": "User's dog is a spaniel. | Involving: user; user's dog",
+          "type": "world",
+          "entities": [
+            "user",
+            "spaniel",
+            "Jasper"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-dogs_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0019275516677528513,
+            "reranker": 0.0017524658469483256,
+            "semantic": 0.7836369042504787,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "30eff501-32b2-4008-a1ec-5a745754ace5",
+          "text": "User walks their dog before breakfast.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "dog"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0016366783926246178,
+            "reranker": 0.0014880135422572494,
+            "semantic": 0.7113441440863656,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "7bbb25df-71cf-4352-b674-fef88f0bd4e9",
+          "text": "User still walks their dog before breakfast. | When: before breakfast | Involving: user; user's dog",
+          "type": "world",
+          "entities": [
+            "user",
+            "dog"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-dogs_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.001527752969158807,
+            "reranker": 0.0013889821711927652,
+            "semantic": 0.7816501492753672,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "64d567a6-761d-4608-b458-979b1b1d01dd",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Jasper": {
+          "entity_id": "9ec8a81a-be8d-42ea-b926-1d64b1ecbf75",
+          "canonical_name": "Jasper",
+          "observations": []
+        },
+        "neighbour": {
+          "entity_id": "ccec4d72-efda-4374-8d21-f1ad7050bf65",
+          "canonical_name": "neighbour",
+          "observations": []
+        },
+        "collie": {
+          "entity_id": "ed6e5b02-1b00-4112-88bf-019e49f5c341",
+          "canonical_name": "collie",
+          "observations": []
+        },
+        "spaniel": {
+          "entity_id": "779cbf80-de72-4942-8e6b-1e2653737d10",
+          "canonical_name": "spaniel",
+          "observations": []
+        },
+        "agility classes": {
+          "entity_id": "2bf0e9f7-a624-4026-a489-34c78431e3fb",
+          "canonical_name": "agility classes",
+          "observations": []
+        },
+        "dog": {
+          "entity_id": "915b63e7-26a3-407c-a620-57d93c99ebc9",
+          "canonical_name": "dog",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  },
+  {
+    "id": "addresses_hu",
+    "bank": "cl2-addresses_hu",
+    "ack": [
+      {
+        "id": "d153a401-4280-4535-b75a-d4c3f0141650",
+        "text": "A felhasználó a műhelyben kedden és csütörtökön dolgozik. | When: kedden és csütörtökön | Where: műhely | Involving: user"
+      },
+      {
+        "id": "72a349f7-cf23-456b-b961-d4f9bbb55327",
+        "text": "A felhasználó lakása továbbra is a Tölgy utca 41. alatt van. | Where: Tölgy utca 41. | Involving: user"
+      },
+      {
+        "id": "8e786e51-8407-487c-a674-90acc3112689",
+        "text": "A felhasználó műhelye a Tölgy utca 18. alatt van, és jelenleg külön raktárhelyisége is van. | Where: Tölgy utca 18. | Involving: user"
+      }
+    ],
+    "verifiedCount": 3,
+    "admitted": [
+      {
+        "id": "72a349f7-cf23-456b-b961-d4f9bbb55327",
+        "text": "A felhasználó lakása továbbra is a Tölgy utca 41. alatt van. | Where: Tölgy utca 41. | Involving: user"
+      },
+      {
+        "id": "8e786e51-8407-487c-a674-90acc3112689",
+        "text": "A felhasználó műhelye a Tölgy utca 18. alatt van, és jelenleg külön raktárhelyisége is van. | Where: Tölgy utca 18. | Involving: user"
+      },
+      {
+        "id": "d153a401-4280-4535-b75a-d4c3f0141650",
+        "text": "A felhasználó a műhelyben kedden és csütörtökön dolgozik. | When: kedden és csütörtökön | Where: műhely | Involving: user"
+      }
+    ],
+    "list": {
+      "items": [
+        {
+          "id": "32ee2e99-7e49-42a1-8171-aec43ec46d1c",
+          "text": "A felhasználó a műhelyben kedden és csütörtökön dolgozik.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:57.414267+00:00",
+          "source_memory_ids": [
+            "d153a401-4280-4535-b75a-d4c3f0141650"
+          ]
+        },
+        {
+          "id": "d153a401-4280-4535-b75a-d4c3f0141650",
+          "text": "A felhasználó a műhelyben kedden és csütörtökön dolgozik. | When: kedden és csütörtökön | Where: műhely | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "csütörtök, kedd, műhely, user",
+          "chunk_id": "cl2-addresses~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:54:57.422712+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:55.809315+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "0121a129-4563-4b54-b95a-7aa29408aeea",
+          "text": "A felhasználó lakása a Tölgy utca 41. alatt van.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:57.414267+00:00",
+          "source_memory_ids": [
+            "72a349f7-cf23-456b-b961-d4f9bbb55327"
+          ]
+        },
+        {
+          "id": "72a349f7-cf23-456b-b961-d4f9bbb55327",
+          "text": "A felhasználó lakása továbbra is a Tölgy utca 41. alatt van. | Where: Tölgy utca 41. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Tölgy utca 41., lakás, user",
+          "chunk_id": "cl2-addresses~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:54:57.422712+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:54:55.809315+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "4181f8d3-5fba-4e47-b6ca-5267b856d70f",
+          "text": "A felhasználó műhelyének jelenleg külön raktárhelyisége van.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:55:11.213714+00:00",
+          "source_memory_ids": [
+            "8e786e51-8407-487c-a674-90acc3112689"
+          ]
+        },
+        {
+          "id": "6b4c0f2e-4e4b-4593-80f7-c11ec11d2524",
+          "text": "A felhasználó műhelye a Tölgy utca 18. alatt van.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:55:11.213714+00:00",
+          "source_memory_ids": [
+            "8e786e51-8407-487c-a674-90acc3112689"
+          ]
+        },
+        {
+          "id": "8e786e51-8407-487c-a674-90acc3112689",
+          "text": "A felhasználó műhelye a Tölgy utca 18. alatt van, és jelenleg külön raktárhelyisége is van. | Where: Tölgy utca 18. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Tölgy utca 14., műhely, raktárhelyiség, user",
+          "chunk_id": "cl2-addresses~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:55:11.219706+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:55:09.121269+00:00",
+          "updated_at": "2026-11-18T15:55:09.121269+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 7,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "72a349f7-cf23-456b-b961-d4f9bbb55327",
+          "text": "A felhasználó lakása továbbra is a Tölgy utca 41. alatt van. | Where: Tölgy utca 41. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Tölgy utca 41.",
+            "lakás",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-addresses~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.10312829880405706,
+            "reranker": 0.09376081824302673,
+            "semantic": 0.7762158611013769,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "8e786e51-8407-487c-a674-90acc3112689",
+          "text": "A felhasználó műhelye a Tölgy utca 18. alatt van, és jelenleg külön raktárhelyisége is van. | Where: Tölgy utca 18. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Tölgy utca 14.",
+            "műhely",
+            "raktárhelyiség",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-addresses~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0021451112086899376,
+            "reranker": 0.0019502637442201376,
+            "semantic": 0.7682123413149223,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "6b4c0f2e-4e4b-4593-80f7-c11ec11d2524",
+          "text": "A felhasználó műhelye a Tölgy utca 18. alatt van.",
+          "type": "observation",
+          "entities": [
+            "Tölgy utca 14.",
+            "műhely",
+            "raktárhelyiség",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.000638710132110518,
+            "reranker": 0.0005806940025649965,
+            "semantic": 0.7570984589188835,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "0121a129-4563-4b54-b95a-7aa29408aeea",
+          "text": "A felhasználó lakása a Tölgy utca 41. alatt van.",
+          "type": "observation",
+          "entities": [
+            "Tölgy utca 41.",
+            "lakás",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.000390243509031514,
+            "reranker": 0.00035479641519486904,
+            "semantic": 0.7517433390540883,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "d153a401-4280-4535-b75a-d4c3f0141650",
+          "text": "A felhasználó a műhelyben kedden és csütörtökön dolgozik. | When: kedden és csütörtökön | Where: műhely | Involving: user",
+          "type": "world",
+          "entities": [
+            "műhely",
+            "kedd",
+            "user",
+            "csütörtök"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "cl2-addresses~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0003542085945642404,
+            "reranker": 0.00032203466980718076,
+            "semantic": 0.783915328020771,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "32ee2e99-7e49-42a1-8171-aec43ec46d1c",
+          "text": "A felhasználó a műhelyben kedden és csütörtökön dolgozik.",
+          "type": "observation",
+          "entities": [
+            "műhely",
+            "kedd",
+            "user",
+            "csütörtök"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0002623103993109515,
+            "reranker": 0.0002384838880971074,
+            "semantic": 0.758997894555396,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "4181f8d3-5fba-4e47-b6ca-5267b856d70f",
+          "text": "A felhasználó műhelyének jelenleg külön raktárhelyisége van.",
+          "type": "observation",
+          "entities": [
+            "Tölgy utca 14.",
+            "műhely",
+            "raktárhelyiség",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.00021886801360023546,
+            "reranker": 0.00019898751634173095,
+            "semantic": 0.76895410736985,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Tölgy utca 41.": {
+          "entity_id": "267b0f29-0e48-4492-bdf4-473e4c93f0ec",
+          "canonical_name": "Tölgy utca 41.",
+          "observations": []
+        },
+        "lakás": {
+          "entity_id": "317c7782-ff82-46f2-ace7-f2101cb3e202",
+          "canonical_name": "lakás",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "63c7eaf2-cdb3-4b45-b740-f603bc541788",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Tölgy utca 14.": {
+          "entity_id": "0935b390-3316-4818-a0af-3399100d60f6",
+          "canonical_name": "Tölgy utca 14.",
+          "observations": []
+        },
+        "műhely": {
+          "entity_id": "14bcc069-0211-4a75-b102-4c0e86fea994",
+          "canonical_name": "műhely",
+          "observations": []
+        },
+        "raktárhelyiség": {
+          "entity_id": "469be666-2f36-430f-aab3-e12bcab68049",
+          "canonical_name": "raktárhelyiség",
+          "observations": []
+        },
+        "kedd": {
+          "entity_id": "5fbb58a1-0101-4dd9-a264-5600ba9bf474",
+          "canonical_name": "kedd",
+          "observations": []
+        },
+        "csütörtök": {
+          "entity_id": "935c5a82-ae31-458f-b686-b91f9d619c0b",
+          "canonical_name": "csütörtök",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    }
+  }
+]

@@ -1,0 +1,8 @@
+[
+{"id":"new_colleague_hu","lang":"hu","source":"A kollégámnak van egy Nikon Z6 fényképezőgépe. Segítek neki objektívet választani.","query":"Milyen fényképezőgépem van?","want":"user camera unknown; Nikon belongs to colleague"},
+{"id":"new_shopping","lang":"en","source":"I'm comparing electric cookers, especially the Beko model. My kitchen renovation hasn't started.","query":"Which cooker is installed in my kitchen?","want":"installed cooker unknown, not no cooker"},
+{"id":"new_sister_allergy","lang":"en","source":"My sister has a severe sesame allergy. I am booking lunch for her.","query":"What food allergy do I have?","want":"user allergy unknown; sister has sesame allergy"},
+{"id":"new_shared_hu","lang":"hu","source":"A párom laktózérzékeny. Én kifejezetten nem vagyok az, de mindketten szeretjük a rizst.","query":"Laktózérzékeny vagyok?","want":"user explicitly not lactose intolerant; partner is"},
+{"id":"new_quote","lang":"en","source":"Please proofread this fictional line: I am a pilot and have three children. It's dialogue for my novel.","query":"What is my profession and how many children do I have?","want":"both unknown; fiction not biography"},
+{"id":"new_positive_hu","lang":"hu","source":"Nekem egy Pixel 9 telefonom van, az apámnak iPhone 15. A saját Pixel telefonomon nézem a térképet.","query":"Milyen telefonom van?","want":"Pixel 9; not father's iPhone"}
+]

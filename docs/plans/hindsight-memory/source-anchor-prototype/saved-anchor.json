@@ -1,0 +1,8 @@
+{
+  "mode": "correct",
+  "subject": "bicycle",
+  "attribute": "colour",
+  "old_value": "red",
+  "replacement_value": "blue",
+  "previous_span": "My bicycle is red."
+}

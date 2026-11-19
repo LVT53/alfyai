@@ -1,0 +1,2216 @@
+{
+  "before": {
+    "erf-1118-final-hu-regression": {
+      "items": [
+        {
+          "id": "82d345e0-43fe-482a-80eb-8a5abbf6bc3f",
+          "text": "Mák barna bundájú 2026. november 23-án.",
+          "context": "",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:14.918460+00:00",
+          "source_memory_ids": [
+            "101913b1-8c1c-451e-8547-6f3c168693db"
+          ]
+        },
+        {
+          "id": "101913b1-8c1c-451e-8547-6f3c168693db",
+          "text": "A felhasználó szerint Mák 2026. november 23-án barna bundájú. | When: 2026. november 23. | Involving: Mák (a felhasználó által említett)",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "new-explicit",
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Mák, user",
+          "chunk_id": "erf-1118-final-hu-regression_new-explicit_0",
+          "proof_count": 1,
+          "tags": [
+            "new-explicit"
+          ],
+          "metadata": {
+            "chat_id": "chat-new-explicit",
+            "message_id": "message-new-explicit"
+          },
+          "consolidated_at": "2026-11-18T18:34:14.922472+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:13.990777+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "8e844ed5-7f3b-4e6e-971a-4cc27b3fb3f5",
+          "text": "Bodza szürke. (2026-11-01 12:00: A felhasználónak két macskája van: Mák, és Bodza, aki szürke.)",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:03.959987+00:00",
+          "source_memory_ids": [
+            "1739e943-5c23-4116-a350-e721ede95fc2",
+            "9f73da86-4a18-4599-a2f1-dd034ed03b97"
+          ]
+        },
+        {
+          "id": "1739e943-5c23-4116-a350-e721ede95fc2",
+          "text": "A felhasználónak macskái vannak: Mák, és Bodza, aki szürke. | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bodza, Mák, macskák, user",
+          "chunk_id": "erf-1118-final-hu-regression_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:33:58.316721+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:33:19.765203+00:00",
+          "updated_at": "2026-11-18T18:33:19.765203+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "fafac0c7-3e0f-476b-a1d5-2b9c53bd76ff",
+          "text": "Luca gluténmentes étrendet követ.",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:03.959987+00:00",
+          "source_memory_ids": [
+            "5ea489f2-b69b-4977-85d3-f7d873bbeb3d",
+            "40d92bec-fd40-4311-9c08-262f62360b21"
+          ]
+        },
+        {
+          "id": "40d92bec-fd40-4311-9c08-262f62360b21",
+          "text": "Luca gluténmentesen étkezik. | Involving: Luca",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Luca, gluténmentes étrend",
+          "chunk_id": "erf-1118-final-hu-regression_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:03.968756+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:34:01.868812+00:00",
+          "updated_at": "2026-11-18T18:34:01.868812+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "5ea489f2-b69b-4977-85d3-f7d873bbeb3d",
+          "text": "Luca gluténmentes étrendet követ. | Involving: Luca",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Luca, gluténmentes étrend",
+          "chunk_id": "erf-1118-final-hu-regression_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:03.968756+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:33:15.012944+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "9f73da86-4a18-4599-a2f1-dd034ed03b97",
+          "text": "A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bodza, Mák, macskák, user",
+          "chunk_id": "erf-1118-final-hu-regression_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:34:03.968756+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:34:01.904390+00:00",
+          "updated_at": "2026-11-18T18:34:01.904390+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    },
+    "erf-1118-final-en-fresh": {
+      "items": [
+        {
+          "id": "c1468738-37c3-453b-84a9-f212fab4afb2",
+          "text": "The user's folding bicycle is purple.",
+          "context": "",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:35:16.087384+00:00",
+          "source_memory_ids": [
+            "893e9751-e4d2-4597-95a4-cb0e8665126d"
+          ]
+        },
+        {
+          "id": "893e9751-e4d2-4597-95a4-cb0e8665126d",
+          "text": "The user's folding bicycle is now purple. | When: 2026-11-23 | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "new-explicit",
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "folding bicycle, user",
+          "chunk_id": "erf-1118-final-en-fresh_new-explicit_0",
+          "proof_count": 1,
+          "tags": [
+            "new-explicit"
+          ],
+          "metadata": {
+            "chat_id": "chat-new-explicit",
+            "message_id": "message-new-explicit"
+          },
+          "consolidated_at": "2026-11-18T18:35:16.092270+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:35:14.742529+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "32b21e05-9f83-42c7-b161-113b90158914",
+          "text": "The user's brother cycles to work. | Involving: user's brother",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, user's brother",
+          "chunk_id": "erf-1118-final-en-fresh_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:40.727342+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:37.348193+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "ffed9969-3192-4973-b1a7-41bbc322b9e8",
+          "text": "The user's brother cycles to work.",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:40.714865+00:00",
+          "source_memory_ids": [
+            "52c43ed9-a417-45e7-a285-28b239596e2a",
+            "32b21e05-9f83-42c7-b161-113b90158914"
+          ]
+        },
+        {
+          "id": "938a03de-5dd5-4c7d-820d-cdf1889a2904",
+          "text": "The user owns a yellow kayak.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 4,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:54.417346+00:00",
+          "source_memory_ids": [
+            "348366b9-fac8-4898-942e-4b862ededb8c",
+            "b67d4faa-cad7-4362-b90a-ec0c43e4b47b",
+            "01c8de3d-d513-4554-a089-2f0639f86a1d",
+            "50bb2385-a2b0-4ed9-9d8e-e0e1cd892e28"
+          ]
+        },
+        {
+          "id": "01c8de3d-d513-4554-a089-2f0639f86a1d",
+          "text": "The user keeps both their folding bike and kayak in their shed. | Where: user's shed | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "folding bike, kayak, shed, user",
+          "chunk_id": "erf-1118-final-en-fresh_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:51.045995+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:37.348193+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "b67d4faa-cad7-4362-b90a-ec0c43e4b47b",
+          "text": "The user's kayak is yellow. | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "kayak, user",
+          "chunk_id": "erf-1118-final-en-fresh_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:51.045995+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:34:42.786226+00:00",
+          "updated_at": "2026-11-18T18:34:42.786226+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "52c43ed9-a417-45e7-a285-28b239596e2a",
+          "text": "The user's brother cycles to work. | Involving: user's brother",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, user's brother, work",
+          "chunk_id": "erf-1118-final-en-fresh_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:26.730760+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:24.763308+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "971ece95-f59d-47e1-a8e6-3507ae4921c6",
+          "text": "The user keeps their folding bike and yellow kayak in their shed.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:34:54.417346+00:00",
+          "source_memory_ids": [
+            "348366b9-fac8-4898-942e-4b862ededb8c",
+            "50bb2385-a2b0-4ed9-9d8e-e0e1cd892e28"
+          ]
+        },
+        {
+          "id": "348366b9-fac8-4898-942e-4b862ededb8c",
+          "text": "The user owns a folding bike and a yellow kayak, and keeps both in their shed. | Where: shed | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "folding bike, kayak, shed, user",
+          "chunk_id": "erf-1118-final-en-fresh_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:34:51.045995+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:34:29.400228+00:00",
+          "updated_at": "2026-11-18T18:34:29.400228+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "50bb2385-a2b0-4ed9-9d8e-e0e1cd892e28",
+          "text": "User owns a folding bicycle and a yellow kayak, and both are stored in the user's shed. | Where: user's shed | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "green kayak, red folding bicycle, shed, user",
+          "chunk_id": "erf-1118-final-en-fresh_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:34:54.428078+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:34:52.962667+00:00",
+          "updated_at": "2026-11-18T18:34:52.962667+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 11,
+      "limit": 100,
+      "offset": 0
+    },
+    "erf-1118-final-hu-fresh": {
+      "items": [
+        {
+          "id": "41056dd6-cdf5-4acc-8e7d-4466d2fd6f78",
+          "text": "A felhasználó gitárja 2026. november 23-án fehér.",
+          "context": "",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:36.210993+00:00",
+          "source_memory_ids": [
+            "010ea10c-b807-4e20-a91e-e92d41d3c777"
+          ]
+        },
+        {
+          "id": "010ea10c-b807-4e20-a91e-e92d41d3c777",
+          "text": "A felhasználó gitárja 2026. november 23-án fehér. | When: 2026. november 23. | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "new-explicit",
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "gitár, user",
+          "chunk_id": "erf-1118-final-hu-fresh_new-explicit_0",
+          "proof_count": 1,
+          "tags": [
+            "new-explicit"
+          ],
+          "metadata": {
+            "chat_id": "chat-new-explicit",
+            "message_id": "message-new-explicit"
+          },
+          "consolidated_at": "2026-11-18T18:36:36.215105+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:35.020434+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "b667b625-578a-4369-a2a2-8b76e15350f6",
+          "text": "Márton Szegeden él. | Where: Szeged | Involving: Márton (a felhasználó bátyja)",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Márton, Szeged",
+          "chunk_id": "erf-1118-final-hu-fresh_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:35:57.744123+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:35:54.287080+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "68475edb-4a17-4307-9360-d4149707c893",
+          "text": "Márton Szegeden él.",
+          "context": "",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:35:57.729109+00:00",
+          "source_memory_ids": [
+            "2666be27-66db-401a-b90e-0f25ce40af5b",
+            "b667b625-578a-4369-a2a2-8b76e15350f6"
+          ]
+        },
+        {
+          "id": "79ca605e-5271-4c51-b5d2-1cb615170211",
+          "text": "The user's piano is brown.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 3,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:20.865738+00:00",
+          "source_memory_ids": [
+            "e3618c02-f893-4d9b-83c3-a629697f3cec",
+            "e8a8a76a-9d53-4fb3-9482-e7e8ef869b14",
+            "a34a71a7-a87d-41d3-9b15-3a3cb3e52b7b"
+          ]
+        },
+        {
+          "id": "e8a8a76a-9d53-4fb3-9482-e7e8ef869b14",
+          "text": "A felhasználó zongorája barna. | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, zongora",
+          "chunk_id": "erf-1118-final-hu-fresh_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:14.056030+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:36:00.529806+00:00",
+          "updated_at": "2026-11-18T18:36:00.529806+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "2666be27-66db-401a-b90e-0f25ce40af5b",
+          "text": "Márton Szegeden él. | Where: Szeged | Involving: Márton (a felhasználó bátyja)",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Márton, Szeged, user",
+          "chunk_id": "erf-1118-final-hu-fresh_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:35:37.744182+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:35:35.289733+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "e3618c02-f893-4d9b-83c3-a629697f3cec",
+          "text": "A felhasználó zongorája barna. | Involving: user",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "gitár, user, zongora",
+          "chunk_id": "erf-1118-final-hu-fresh_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:14.056030+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:35:43.386228+00:00",
+          "updated_at": "2026-11-18T18:35:43.386228+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "e8f49aca-fbd0-4dca-ad50-7be47461c51a",
+          "text": "Márton does not eat meat. (2026-11-01 12:00: Márton vegetáriánus.)",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 3,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:20.865738+00:00",
+          "source_memory_ids": [
+            "7fe05e2a-1b6b-42ab-ae9a-58b10e6e1e43",
+            "ed215ac9-e61f-4cdb-a210-9844544dbd4c",
+            "5ccfd216-9790-422a-b482-1501009b7810"
+          ]
+        },
+        {
+          "id": "cbe58929-db8a-4766-bca6-816717ad522a",
+          "text": "Márton a felhasználó bátyja.",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:03.953202+00:00",
+          "source_memory_ids": [
+            "ed215ac9-e61f-4cdb-a210-9844544dbd4c"
+          ]
+        },
+        {
+          "id": "ed215ac9-e61f-4cdb-a210-9844544dbd4c",
+          "text": "Márton nem eszik húst. | Involving: Márton (a felhasználó bátyja)",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Márton, user",
+          "chunk_id": "erf-1118-final-hu-fresh_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:14.056030+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:36:00.585824+00:00",
+          "updated_at": "2026-11-18T18:36:00.585824+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "7fe05e2a-1b6b-42ab-ae9a-58b10e6e1e43",
+          "text": "Márton nem eszik húst. | Involving: Márton",
+          "context": "",
+          "date": "2026-11-03T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Márton, hús, user",
+          "chunk_id": "erf-1118-final-hu-fresh_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:14.056030+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:35:43.417562+00:00",
+          "updated_at": "2026-11-18T18:35:43.417562+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "2a5afec2-46c1-48f8-bc8d-ae2e038d4af9",
+          "text": "The user has a guitar.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:20.865738+00:00",
+          "source_memory_ids": [
+            "a34a71a7-a87d-41d3-9b15-3a3cb3e52b7b"
+          ]
+        },
+        {
+          "id": "a34a71a7-a87d-41d3-9b15-3a3cb3e52b7b",
+          "text": "A felhasználónak van egy gitárja és egy barna zongorája. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "fekete zongora, kék gitár, user",
+          "chunk_id": "erf-1118-final-hu-fresh_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:36:20.877645+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:36:19.007470+00:00",
+          "updated_at": "2026-11-18T18:36:19.007470+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "5ccfd216-9790-422a-b482-1501009b7810",
+          "text": "Márton vegetáriánus. | Involving: Márton (a felhasználó bátyja)",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "original",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Márton, user",
+          "chunk_id": "erf-1118-final-hu-fresh_original_0",
+          "proof_count": 1,
+          "tags": [
+            "original"
+          ],
+          "metadata": {
+            "chat_id": "chat-original",
+            "message_id": "message-original"
+          },
+          "consolidated_at": "2026-11-18T18:36:20.877645+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T18:36:19.041670+00:00",
+          "updated_at": "2026-11-18T18:36:19.041670+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 15,
+      "limit": 100,
+      "offset": 0
+    },
+    "erf-1118-final-remove": {
+      "items": [
+        {
+          "id": "b20dd4a9-6ced-4073-911d-9f61c352d904",
+          "text": "The user bought a blue telescope on November 23, 2026.",
+          "context": "",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": "2026-11-23T12:00:00+00:00",
+          "occurred_end": "2026-11-23T12:00:00+00:00",
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:37:09.305239+00:00",
+          "source_memory_ids": [
+            "cffcdfcd-efe4-4e60-9adb-6c04d2754be4"
+          ]
+        },
+        {
+          "id": "cffcdfcd-efe4-4e60-9adb-6c04d2754be4",
+          "text": "The user just bought a blue telescope. | When: on November 23, 2026 | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-23T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "new-explicit",
+          "mentioned_at": "2026-11-23T12:00:00+00:00",
+          "occurred_start": "2026-11-23T12:00:00+00:00",
+          "occurred_end": "2026-11-23T12:00:00+00:00",
+          "entities": "blue telescope, user",
+          "chunk_id": "erf-1118-final-remove_new-explicit_0",
+          "proof_count": 1,
+          "tags": [
+            "new-explicit"
+          ],
+          "metadata": {
+            "chat_id": "chat-new-explicit",
+            "message_id": "message-new-explicit"
+          },
+          "consolidated_at": "2026-11-18T18:37:09.310015+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:37:08.446694+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "dc1c402a-ec9d-431c-a202-89923ba90bc8",
+          "text": "The user enjoys birdwatching. | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "birdwatching, user",
+          "chunk_id": "erf-1118-final-remove_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:55.912475+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:54.134127+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "de2e0e1c-64b2-4061-8aba-cb31edd3acf6",
+          "text": "The user enjoys birdwatching.",
+          "context": "",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:55.901141+00:00",
+          "source_memory_ids": [
+            "a4b9b701-0de9-4695-966a-aea2c12df2c4",
+            "dc1c402a-ec9d-431c-a202-89923ba90bc8"
+          ]
+        },
+        {
+          "id": "a4b9b701-0de9-4695-966a-aea2c12df2c4",
+          "text": "The user enjoys birdwatching. | Involving: user",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "birdwatching, user",
+          "chunk_id": "erf-1118-final-remove_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:47.176214+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:45.703599+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "da320506-8407-4c0e-836f-14ee4fda01bd",
+          "text": "The user's sister owns a black telescope. | Involving: user's sister",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat-r2",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "silver telescope, sister, user",
+          "chunk_id": "erf-1118-final-remove_repeat-r2_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat-r2"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:55.912475+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:54.134127+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "9b8b24a7-6b8e-4f0c-b62e-68a79b280f5b",
+          "text": "The user's sister owns a black telescope.",
+          "context": "",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 2,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:55.901141+00:00",
+          "source_memory_ids": [
+            "5f401828-838d-40c5-b248-9d1b870f1fbc",
+            "da320506-8407-4c0e-836f-14ee4fda01bd"
+          ]
+        },
+        {
+          "id": "5f401828-838d-40c5-b248-9d1b870f1fbc",
+          "text": "The user's sister owns a black telescope. | Involving: user's sister",
+          "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+          "date": "2026-11-03T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "repeat",
+          "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "silver telescope, sister, user",
+          "chunk_id": "erf-1118-final-remove_repeat_0",
+          "proof_count": 1,
+          "tags": [
+            "repeat"
+          ],
+          "metadata": {
+            "chat_id": "chat-repeat",
+            "message_id": "message-repeat"
+          },
+          "consolidated_at": "2026-11-18T18:36:47.176214+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T18:36:45.703599+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 8,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  "checks": [
+    {
+      "case": "hu-regression",
+      "stable": true,
+      "recall": {
+        "native": {
+          "results": [
+            {
+              "id": "101913b1-8c1c-451e-8547-6f3c168693db",
+              "text": "A felhasználó szerint Mák 2026. november 23-án barna bundájú. | When: 2026. november 23. | Involving: Mák (a felhasználó által említett)",
+              "type": "world",
+              "entities": [
+                "user",
+                "Mák"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-23T12:00:00+00:00",
+              "document_id": "new-explicit",
+              "metadata": {
+                "chat_id": "chat-new-explicit",
+                "message_id": "message-new-explicit"
+              },
+              "chunk_id": "erf-1118-final-hu-regression_new-explicit_0",
+              "tags": [
+                "new-explicit"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.09540913105011,
+                "reranker": 0.9958264827728271,
+                "semantic": 0.7890274650438165,
+                "keyword": null
+              },
+              "attachments": null
+            },
+            {
+              "id": "9f73da86-4a18-4599-a2f1-dd034ed03b97",
+              "text": "A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user",
+              "type": "world",
+              "entities": [
+                "Bodza",
+                "user",
+                "Mák",
+                "macskák"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "erf-1118-final-hu-regression_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0899910982951526,
+                "reranker": 0.9995025992393494,
+                "semantic": 0.8324584265028507,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "40d92bec-fd40-4311-9c08-262f62360b21",
+              "text": "Luca gluténmentesen étkezik. | Involving: Luca",
+              "type": "world",
+              "entities": [
+                "gluténmentes étrend",
+                "Luca"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-hu-regression_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0879026251007538,
+                "reranker": 0.9965860247612,
+                "semantic": 0.8332909444993186,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "user": {
+              "entity_id": "2d050325-cde4-4df0-b14d-fd5dd85f0cb4",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "Mák": {
+              "entity_id": "7531ab30-2d50-48b6-a02b-e39129e1330e",
+              "canonical_name": "Mák",
+              "observations": []
+            },
+            "Bodza": {
+              "entity_id": "15d9aa6d-bcde-4bbc-9b0d-2306af2878c4",
+              "canonical_name": "Bodza",
+              "observations": []
+            },
+            "macskák": {
+              "entity_id": "da07d827-c991-42a6-ae7d-7da264b1fbcf",
+              "canonical_name": "macskák",
+              "observations": []
+            },
+            "gluténmentes étrend": {
+              "entity_id": "8563e7d3-9fb0-42f7-8940-44cff65a6aa5",
+              "canonical_name": "gluténmentes étrend",
+              "observations": []
+            },
+            "Luca": {
+              "entity_id": "c58fce4c-a01c-4772-a03d-968329b358be",
+              "canonical_name": "Luca",
+              "observations": []
+            }
+          },
+          "chunks": null,
+          "source_facts": null,
+          "source_facts_truncated": null
+        },
+        "evidence": [
+          {
+            "id": "101913b1-8c1c-451e-8547-6f3c168693db",
+            "text": "A felhasználó szerint Mák 2026. november 23-án barna bundájú. | When: 2026. november 23. | Involving: Mák (a felhasználó által említett)",
+            "asserted_at": "2026-11-23T12:00:00Z",
+            "source": "new-explicit"
+          },
+          {
+            "id": "9f73da86-4a18-4599-a2f1-dd034ed03b97",
+            "text": "A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "40d92bec-fd40-4311-9c08-262f62360b21",
+            "text": "Luca gluténmentesen étkezik. | Involving: Luca",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          }
+        ]
+      },
+      "answer": {
+        "text": "A felhasználó étrendjéről nincs adat. Luca gluténmentesen étkezik. A felhasználónak két macskája van: Mák és Bodza. Bodza szürke színű. Mák 2026. november 23-án barna bundájú volt.",
+        "response": {
+          "id": "chatcmpl-acd79af1b46cee9e",
+          "object": "chat.completion",
+          "created": 1795027072,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "A felhasználó étrendjéről nincs adat. Luca gluténmentesen étkezik. A felhasználónak két macskája van: Mák és Bodza. Bodza szürke színű. Mák 2026. november 23-án barna bundájú volt.",
+                "refusal": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null,
+              "weight_versions": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.34.0-a3da6d34",
+          "usage": {
+            "prompt_tokens": 475,
+            "total_tokens": 540,
+            "completion_tokens": 65,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    },
+    {
+      "case": "en-fresh",
+      "stable": true,
+      "recall": {
+        "native": {
+          "results": [
+            {
+              "id": "01c8de3d-d513-4554-a089-2f0639f86a1d",
+              "text": "The user keeps both their folding bike and kayak in their shed. | Where: user's shed | Involving: user",
+              "type": "world",
+              "entities": [
+                "shed",
+                "kayak",
+                "folding bike",
+                "user"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-en-fresh_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0900627536164562,
+                "reranker": 0.9985648393630981,
+                "semantic": 0.8514905748974652,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "50bb2385-a2b0-4ed9-9d8e-e0e1cd892e28",
+              "text": "User owns a folding bicycle and a yellow kayak, and both are stored in the user's shed. | Where: user's shed | Involving: user",
+              "type": "world",
+              "entities": [
+                "shed",
+                "green kayak",
+                "red folding bicycle",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "erf-1118-final-en-fresh_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0896090193671322,
+                "reranker": 0.9991522431373596,
+                "semantic": 0.8818998336791992,
+                "keyword": 0.4000000059604645
+              },
+              "attachments": null
+            },
+            {
+              "id": "32b21e05-9f83-42c7-b161-113b90158914",
+              "text": "The user's brother cycles to work. | Involving: user's brother",
+              "type": "world",
+              "entities": [
+                "user",
+                "user's brother"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.030000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-en-fresh_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0743656670086346,
+                "reranker": 0.9841853380203247,
+                "semantic": 0.8363158702850342,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "893e9751-e4d2-4597-95a4-cb0e8665126d",
+              "text": "The user's folding bicycle is now purple. | When: 2026-11-23 | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "folding bicycle"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-23T12:00:00+00:00",
+              "document_id": "new-explicit",
+              "metadata": {
+                "chat_id": "chat-new-explicit",
+                "message_id": "message-new-explicit"
+              },
+              "chunk_id": "erf-1118-final-en-fresh_new-explicit_0",
+              "tags": [
+                "new-explicit"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0550522983074189,
+                "reranker": 0.9591384530067444,
+                "semantic": 0.8174668550491333,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "b67d4faa-cad7-4362-b90a-ec0c43e4b47b",
+              "text": "The user's kayak is yellow. | Involving: user",
+              "type": "world",
+              "entities": [
+                "kayak",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-en-fresh_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.3930498501105361,
+                "reranker": 0.3600579500198364,
+                "semantic": 0.8279005885124207,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "shed": {
+              "entity_id": "43730c2f-9c79-43ac-b046-f51fcab6337c",
+              "canonical_name": "shed",
+              "observations": []
+            },
+            "kayak": {
+              "entity_id": "5b35e99f-7c96-47c3-809f-7527b023019e",
+              "canonical_name": "kayak",
+              "observations": []
+            },
+            "folding bike": {
+              "entity_id": "6824576c-28f5-4863-a3a0-890dec38081d",
+              "canonical_name": "folding bike",
+              "observations": []
+            },
+            "user": {
+              "entity_id": "833920ed-27d6-4f68-859b-bfbe5aa2f7a5",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "green kayak": {
+              "entity_id": "4769a4af-18f4-425b-ad4c-e2f4f547d267",
+              "canonical_name": "green kayak",
+              "observations": []
+            },
+            "red folding bicycle": {
+              "entity_id": "77255e30-bac9-4a8c-93b7-9c5a7a7c5b8e",
+              "canonical_name": "red folding bicycle",
+              "observations": []
+            },
+            "user's brother": {
+              "entity_id": "aac473cc-58f5-4d20-b241-1eb795591d64",
+              "canonical_name": "user's brother",
+              "observations": []
+            },
+            "folding bicycle": {
+              "entity_id": "fed45e96-1876-40f8-80db-eebe46ecf02f",
+              "canonical_name": "folding bicycle",
+              "observations": []
+            }
+          },
+          "chunks": null,
+          "source_facts": null,
+          "source_facts_truncated": null
+        },
+        "evidence": [
+          {
+            "id": "01c8de3d-d513-4554-a089-2f0639f86a1d",
+            "text": "The user keeps both their folding bike and kayak in their shed. | Where: user's shed | Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "50bb2385-a2b0-4ed9-9d8e-e0e1cd892e28",
+            "text": "User owns a folding bicycle and a yellow kayak, and both are stored in the user's shed. | Where: user's shed | Involving: user",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "32b21e05-9f83-42c7-b161-113b90158914",
+            "text": "The user's brother cycles to work. | Involving: user's brother",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "893e9751-e4d2-4597-95a4-cb0e8665126d",
+            "text": "The user's folding bicycle is now purple. | When: 2026-11-23 | Involving: user",
+            "asserted_at": "2026-11-23T12:00:00Z",
+            "source": "new-explicit"
+          },
+          {
+            "id": "b67d4faa-cad7-4362-b90a-ec0c43e4b47b",
+            "text": "The user's kayak is yellow. | Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          }
+        ]
+      },
+      "answer": {
+        "text": "You own a folding bicycle and a kayak. Your folding bicycle is purple, and your kayak is yellow. Both are stored in your shed. Your brother cycles to work.",
+        "response": {
+          "id": "chatcmpl-8a30d18e7b481d3d",
+          "object": "chat.completion",
+          "created": 1795027073,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "You own a folding bicycle and a kayak. Your folding bicycle is purple, and your kayak is yellow. Both are stored in your shed. Your brother cycles to work.",
+                "refusal": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null,
+              "weight_versions": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.34.0-a3da6d34",
+          "usage": {
+            "prompt_tokens": 628,
+            "total_tokens": 663,
+            "completion_tokens": 35,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    },
+    {
+      "case": "hu-fresh",
+      "stable": true,
+      "recall": {
+        "native": {
+          "results": [
+            {
+              "id": "b667b625-578a-4369-a2a2-8b76e15350f6",
+              "text": "Márton Szegeden él. | Where: Szeged | Involving: Márton (a felhasználó bátyja)",
+              "type": "world",
+              "entities": [
+                "Márton",
+                "Szeged"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.030000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-hu-fresh_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0891519545653952,
+                "reranker": 0.9977304935455322,
+                "semantic": 0.8461352747203659,
+                "keyword": 0.4000000059604645
+              },
+              "attachments": null
+            },
+            {
+              "id": "ed215ac9-e61f-4cdb-a210-9844544dbd4c",
+              "text": "Márton nem eszik húst. | Involving: Márton (a felhasználó bátyja)",
+              "type": "world",
+              "entities": [
+                "user",
+                "Márton"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-hu-fresh_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0880354186672174,
+                "reranker": 0.9967076778411865,
+                "semantic": 0.8596565299919129,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "010ea10c-b807-4e20-a91e-e92d41d3c777",
+              "text": "A felhasználó gitárja 2026. november 23-án fehér. | When: 2026. november 23. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "gitár"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-23T12:00:00+00:00",
+              "document_id": "new-explicit",
+              "metadata": {
+                "chat_id": "chat-new-explicit",
+                "message_id": "message-new-explicit"
+              },
+              "chunk_id": "erf-1118-final-hu-fresh_new-explicit_0",
+              "tags": [
+                "new-explicit"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.9594135224819184,
+                "reranker": 0.8721941113471985,
+                "semantic": 0.8170568833981101,
+                "keyword": null
+              },
+              "attachments": null
+            },
+            {
+              "id": "5ccfd216-9790-422a-b482-1501009b7810",
+              "text": "Márton vegetáriánus. | Involving: Márton (a felhasználó bátyja)",
+              "type": "world",
+              "entities": [
+                "user",
+                "Márton"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "erf-1118-final-hu-fresh_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.8986384303037456,
+                "reranker": 0.8240355849266052,
+                "semantic": 0.8402278423309386,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "a34a71a7-a87d-41d3-9b15-3a3cb3e52b7b",
+              "text": "A felhasználónak van egy gitárja és egy barna zongorája. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "kék gitár",
+                "fekete zongora"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+              "document_id": "original",
+              "metadata": {
+                "chat_id": "chat-original",
+                "message_id": "message-original"
+              },
+              "chunk_id": "erf-1118-final-hu-fresh_original_0",
+              "tags": [
+                "original"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.3705603016336317,
+                "reranker": 0.3397972583770752,
+                "semantic": 0.8379220269871981,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "e8a8a76a-9d53-4fb3-9482-e7e8ef869b14",
+              "text": "A felhasználó zongorája barna. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "zongora"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-hu-fresh_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.004779717613614357,
+                "reranker": 0.0043785166926681995,
+                "semantic": 0.8289016979278161,
+                "keyword": null
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "Márton": {
+              "entity_id": "81306099-0156-4051-afcf-fd290bc42399",
+              "canonical_name": "Márton",
+              "observations": []
+            },
+            "Szeged": {
+              "entity_id": "ead1da80-36e4-44c3-9d0b-9337dbc3fc2b",
+              "canonical_name": "Szeged",
+              "observations": []
+            },
+            "user": {
+              "entity_id": "07fe7ca7-8c08-4866-add3-b5a34a253376",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "gitár": {
+              "entity_id": "4e876f50-28b5-4e05-ae45-88bc1b178a07",
+              "canonical_name": "gitár",
+              "observations": []
+            },
+            "kék gitár": {
+              "entity_id": "192c135a-9912-4a9f-b8eb-077e9719a791",
+              "canonical_name": "kék gitár",
+              "observations": []
+            },
+            "fekete zongora": {
+              "entity_id": "568ed350-ecfe-4a76-88e1-225e8ffbf91a",
+              "canonical_name": "fekete zongora",
+              "observations": []
+            },
+            "zongora": {
+              "entity_id": "69d1d81d-d188-4513-b5a2-21046f273206",
+              "canonical_name": "zongora",
+              "observations": []
+            }
+          },
+          "chunks": null,
+          "source_facts": null,
+          "source_facts_truncated": null
+        },
+        "evidence": [
+          {
+            "id": "b667b625-578a-4369-a2a2-8b76e15350f6",
+            "text": "Márton Szegeden él. | Where: Szeged | Involving: Márton (a felhasználó bátyja)",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "ed215ac9-e61f-4cdb-a210-9844544dbd4c",
+            "text": "Márton nem eszik húst. | Involving: Márton (a felhasználó bátyja)",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "010ea10c-b807-4e20-a91e-e92d41d3c777",
+            "text": "A felhasználó gitárja 2026. november 23-án fehér. | When: 2026. november 23. | Involving: user",
+            "asserted_at": "2026-11-23T12:00:00Z",
+            "source": "new-explicit"
+          },
+          {
+            "id": "5ccfd216-9790-422a-b482-1501009b7810",
+            "text": "Márton vegetáriánus. | Involving: Márton (a felhasználó bátyja)",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "a34a71a7-a87d-41d3-9b15-3a3cb3e52b7b",
+            "text": "A felhasználónak van egy gitárja és egy barna zongorája. | Involving: user",
+            "asserted_at": "2026-11-01T12:00:00Z",
+            "source": "original"
+          },
+          {
+            "id": "e8a8a76a-9d53-4fb3-9482-e7e8ef869b14",
+            "text": "A felhasználó zongorája barna. | Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          }
+        ]
+      },
+      "answer": {
+        "text": "Márton Szegeden él. Étrendjét tekintve vegetáriánus, és nem eszik húst. A te hangszereid egy gitár és egy zongora. A zongorád barna színű. A gitárad színe a legfrissebb, 2026. november 23-i adatok szerint fehér.",
+        "response": {
+          "id": "chatcmpl-934c2d01f10802a0",
+          "object": "chat.completion",
+          "created": 1795027073,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Márton Szegeden él. Étrendjét tekintve vegetáriánus, és nem eszik húst. A te hangszereid egy gitár és egy zongora. A zongorád barna színű. A gitárad színe a legfrissebb, 2026. november 23-i adatok szerint fehér.",
+                "refusal": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null,
+              "weight_versions": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.34.0-a3da6d34",
+          "usage": {
+            "prompt_tokens": 745,
+            "total_tokens": 825,
+            "completion_tokens": 80,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    },
+    {
+      "case": "remove",
+      "stable": true,
+      "recall": {
+        "native": {
+          "results": [
+            {
+              "id": "cffcdfcd-efe4-4e60-9adb-6c04d2754be4",
+              "text": "The user just bought a blue telescope. | When: on November 23, 2026 | Involving: user",
+              "type": "world",
+              "entities": [
+                "blue telescope",
+                "user"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": "2026-11-23T12:00:00+00:00",
+              "occurred_end": "2026-11-23T12:00:00+00:00",
+              "mentioned_at": "2026-11-23T12:00:00+00:00",
+              "document_id": "new-explicit",
+              "metadata": {
+                "chat_id": "chat-new-explicit",
+                "message_id": "message-new-explicit"
+              },
+              "chunk_id": "erf-1118-final-remove_new-explicit_0",
+              "tags": [
+                "new-explicit"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0896177649497987,
+                "reranker": 0.9905616044998169,
+                "semantic": 0.836655169131429,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "da320506-8407-4c0e-836f-14ee4fda01bd",
+              "text": "The user's sister owns a black telescope. | Involving: user's sister",
+              "type": "world",
+              "entities": [
+                "user",
+                "sister",
+                "silver telescope"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.010000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-remove_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.0883557346366226,
+                "reranker": 0.9970011115074158,
+                "semantic": 0.8813399884688891,
+                "keyword": 0.5
+              },
+              "attachments": null
+            },
+            {
+              "id": "dc1c402a-ec9d-431c-a202-89923ba90bc8",
+              "text": "The user enjoys birdwatching. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "birdwatching"
+              ],
+              "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-03T12:00:00.020000+00:00",
+              "document_id": "repeat-r2",
+              "metadata": {
+                "chat_id": "chat-repeat",
+                "message_id": "message-repeat"
+              },
+              "chunk_id": "erf-1118-final-remove_repeat-r2_0",
+              "tags": [
+                "repeat-r2"
+              ],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.03934582190249286,
+                "reranker": 0.0360432043671608,
+                "semantic": 0.8285157782724051,
+                "keyword": null
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "blue telescope": {
+              "entity_id": "1438e084-47a9-4605-a8a5-baed1497f705",
+              "canonical_name": "blue telescope",
+              "observations": []
+            },
+            "user": {
+              "entity_id": "30c57a64-6fbe-4920-b283-269cc0803653",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "sister": {
+              "entity_id": "bf274f62-2e5b-4eed-84f2-bf87fa3e8c7a",
+              "canonical_name": "sister",
+              "observations": []
+            },
+            "silver telescope": {
+              "entity_id": "ea58b9aa-e8d4-4a8e-9f33-13102b73d140",
+              "canonical_name": "silver telescope",
+              "observations": []
+            },
+            "birdwatching": {
+              "entity_id": "abfb2bd6-7849-4e7e-a8ee-ad59c2114c18",
+              "canonical_name": "birdwatching",
+              "observations": []
+            }
+          },
+          "chunks": null,
+          "source_facts": null,
+          "source_facts_truncated": null
+        },
+        "evidence": [
+          {
+            "id": "cffcdfcd-efe4-4e60-9adb-6c04d2754be4",
+            "text": "The user just bought a blue telescope. | When: on November 23, 2026 | Involving: user",
+            "asserted_at": "2026-11-23T12:00:00Z",
+            "source": "new-explicit"
+          },
+          {
+            "id": "da320506-8407-4c0e-836f-14ee4fda01bd",
+            "text": "The user's sister owns a black telescope. | Involving: user's sister",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          },
+          {
+            "id": "dc1c402a-ec9d-431c-a202-89923ba90bc8",
+            "text": "The user enjoys birdwatching. | Involving: user",
+            "asserted_at": "2026-11-03T12:00:00Z",
+            "source": "repeat-r2"
+          }
+        ]
+      },
+      "answer": {
+        "text": "You recently bought a blue telescope on November 23, 2026. Your sister owns a black telescope. Your hobby is birdwatching.",
+        "response": {
+          "id": "chatcmpl-9e47d90eafba620a",
+          "object": "chat.completion",
+          "created": 1795027074,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "You recently bought a blue telescope on November 23, 2026. Your sister owns a black telescope. Your hobby is birdwatching.",
+                "refusal": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null,
+              "weight_versions": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.34.0-a3da6d34",
+          "usage": {
+            "prompt_tokens": 421,
+            "total_tokens": 454,
+            "completion_tokens": 33,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    }
+  ]
+}

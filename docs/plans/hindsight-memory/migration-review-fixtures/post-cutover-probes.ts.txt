@@ -1,0 +1,427 @@
+type JudgeFact = {
+	id: string;
+	document_id: string;
+	text: string;
+	fact_type: "world";
+	consolidated_at: string;
+	mentioned_at: string;
+};
+type JudgeItem = {
+	content: string;
+	document_id: string;
+	timestamp: string;
+	metadata: { lineage?: string };
+};
+const oldBicycle = "My bicycle is blue.";
+const correctedBicycle = "My bicycle is green.";
+const independentDog = "My dog is Rex.";
+const projectOnlyFact = "My project uses cobalt.";
+
+async function lineageJudgeNative() {
+	const transport = await import("./hindsight-client");
+	const cfg = await import("$lib/server/config-store");
+	const { NATIVE_BANK_CONFIG } = await import("./contracts");
+	const curation = await import("./curation");
+	vi.spyOn(cfg, "getConfig").mockReturnValue({
+		...cfg.getConfig(), hindsightWorkerEnabled: true, hindsightConcurrency: 1,
+	});
+	let rejectCorrectionDate: ((fact: JudgeFact, time: string) => void) | undefined;
+	const banks = new Map<string, Map<string, JudgeFact>>();
+	const requests: Array<{bank: string; item: JudgeItem}> = [];
+	const applications: Array<{ before: unknown; after: unknown; facts: Array<{id: string; text: string}> }> = [];
+	const fetcher = async (url: RequestInfo | URL, options?: RequestInit) => {
+		const path = new URL(String(url));
+		const [, , , , bank, leaf, encodedId] = path.pathname.split("/");
+		const id = decodeURIComponent(encodedId ?? "");
+		expect(bank).toBeTruthy();
+		const facts = banks.get(bank) ?? new Map<string, JudgeFact>();
+		banks.set(bank, facts);
+		const body = options?.body ? JSON.parse(String(options.body)) : {};
+		let data: unknown = {};
+		if (leaf === "config") data = { config: NATIVE_BANK_CONFIG };
+		else if (leaf === "operations")
+			data = id ? { status: "completed" } : { operations: [] };
+		else if (leaf === "consolidate") data = { operation_id: "consolidate" };
+		else if (leaf === "memories" && options?.method === "POST") {
+			for (const item of body.items as JudgeItem[]) {
+				requests.push({ bank, item });
+				const sentences = (text: string) => text.match(/[^.]+\./g)?.map((s) => s.trim()) ?? [text];
+				const edit = item.content.startsWith("{") ? JSON.parse(item.content) : null;
+				const texts = edit
+					? sentences(edit.after).filter((text) => !sentences(edit.before).includes(text))
+					: sentences(item.content);
+				for (const [index, text] of texts.entries()) {
+					const factId = item.document_id + ":fact:" + index;
+					facts.set(factId, {
+						id: factId, document_id: item.document_id, text,
+						fact_type: "world", consolidated_at: "2026-11-18T00:00:00Z",
+						mentioned_at: item.timestamp,
+					});
+				}
+			}
+			data = { operation_id: body.operation_id };
+		} else if (leaf === "memories" && id === "list") {
+			const raw = [...facts.values()];
+			const items = [
+				...raw,
+				...raw.map((fact) => ({
+					id: "obs:" + fact.id, text: fact.text, fact_type: "observation",
+					source_memory_ids: [fact.id],
+				})),
+			];
+			data = { total: items.length, offset: 0, items };
+		} else if (leaf === "memories" && options?.method === "PATCH") {
+			const fact = facts.get(id);
+			if (fact && body.state === "invalidated") facts.delete(id);
+			else if (fact) {
+				if (typeof body.text === "string") fact.text = body.text;
+				if (typeof body.mentioned_at === "string") {
+					if (rejectCorrectionDate) rejectCorrectionDate(fact, body.mentioned_at);
+					else fact.mentioned_at = body.mentioned_at;
+				}
+			}
+		} else if (leaf === "documents" && options?.method === "DELETE") {
+			for (const [key, fact] of facts)
+				if (fact.document_id === id) facts.delete(key);
+		}
+		return new Response(JSON.stringify(data));
+	};
+	vi.spyOn(transport, "configuredNativeBinding").mockReturnValue({
+		baseUrl: "http://synthetic", credentialHash: "synthetic",
+	});
+	vi.spyOn(transport, "nativeMemoryClient").mockImplementation((bankId) =>
+		new transport.HindsightClient({
+			baseUrl: "http://synthetic", apiKey: "synthetic", bankId, fetcher,
+		}),
+	);
+	vi.spyOn(curation, "createCurationModel").mockReturnValue(async (_prompt, input, schema) => {
+		const properties = schema.properties as Record<string, unknown>;
+		const v = input as {
+			displayed_before: string;
+			user_saved_after: string;
+			facts: Array<{id: string; text: string}>;
+			new_facts?: Array<{id: string; text: string}>;
+		};
+		if (properties.forget) return { forget: [oldBicycle], replace: [], preserve: [independentDog] };
+		if (properties.valid) return { valid: true, issues: [] };
+		applications.push({ before: v.displayed_before, after: v.user_saved_after, facts: v.facts });
+		return {
+			facts: v.facts.map((fact) => ({
+				...fact,
+				text: fact.text === v.displayed_before
+					? v.new_facts?.some((f) => f.text === v.user_saved_after) ? "" : v.user_saved_after
+					: fact.text,
+			})),
+		};
+	});
+	return {
+		requests,
+		applications,
+		banks,
+		ignoreCorrectionDate(inspect: (fact: JudgeFact, time: string) => void) {
+			rejectCorrectionDate = inspect;
+		},
+	};
+}
+function lineageJudgeEvent(url: string, method: string, body: object, params = {}) {
+	return {
+		url: new URL(url, "http://synthetic"),
+		request: new Request("http://synthetic" + url, {
+			method, body: JSON.stringify(body), headers: {"content-type": "application/json"},
+		}),
+		locals: { user: { id: h.userId } },
+		params,
+	};
+}
+
+it.each([
+	["remove", "consent"],
+	["edit", "consent"],
+	["remove", "scope"],
+	["edit", "scope"],
+	["edit", "scope-time"],
+	["edit", "scope-date-readback"],
+] as const)("post-cutover lineage judge preserves native %s during %s replay", async (kind, replay) => {
+	const { db, s } = await seed();
+	const { randomUUID } = await import("node:crypto");
+	const history = await import("../../../../routes/api/knowledge/memory/history-import/+server");
+	const actions = await import("../../../../routes/api/knowledge/memory/actions/+server");
+	const operation = await import("../../../../routes/api/knowledge/memory/operations/[operationId]/+server");
+	const conversation = await import("../../../../routes/api/conversations/[id]/+server");
+	const { readPublishedMemory } = await import("./publication");
+	const { memoryDeliveryJob } = await import("./delivery-job");
+	const migration = await import("./migration");
+	const fixture = await lineageJudgeNative();
+
+	if (replay !== "consent") {
+		db.insert(s.projects).values({ id: "project", userId: h.userId, name: "Project" }).run();
+		db.insert(s.conversations).values({
+			id: "unmoved", userId: h.userId, title: "Independent project chat", projectId: "project",
+		}).run();
+		db.insert(s.messages).values({
+			id: "private-project-message", conversationId: "unmoved", role: "user",
+			content: projectOnlyFact, createdAt: new Date("2020-01-01"),
+		}).run();
+	}
+	const prepared = await migration.prepareMemoryMigration(h.userId);
+	async function consent(choice: "include" | "decline") {
+		const result = await history.POST(lineageJudgeEvent(
+			"/api/knowledge/memory/history-import", "POST", { choice, requestId: randomUUID() },
+		) as Parameters<typeof history.POST>[0]);
+		expect(result.status).toBe(200);
+		expect(await result.json()).toMatchObject({ choice });
+		await h.engine.drain(memoryDeliveryJob);
+	}
+	await consent("include");
+	expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(true);
+	const bank = (scope: string) => db.select().from(s.memoryBanks).all().find((row) => row.scopeKey === scope);
+	const published = (scope: string) => bank(scope)
+		? readPublishedMemory(h.userId, bank(scope)!.id)
+		: [];
+	const personal = bank("personal")!;
+	const row = published("personal").find((row) => row.text === oldBicycle)!;
+	expect(row).toBeDefined();
+	expect(published("personal").map((row) => row.text)).toContain(independentDog);
+	const accepted = await actions.POST(lineageJudgeEvent(
+		"/api/knowledge/memory/actions", "POST", {
+			kind, requestId: randomUUID(),
+			ref: { scope: { kind: "personal" }, generation: personal.generation, rowId: row.nativeId },
+			...(kind === "edit" ? { text: correctedBicycle } : {}),
+		},
+	) as Parameters<typeof actions.POST>[0]);
+	const action = await accepted.json();
+	expect({ status: accepted.status, error: action.error }).toEqual({ status: 200, error: undefined });
+	await h.engine.drain(memoryDeliveryJob);
+	const status = await operation.GET({
+		locals: { user: { id: h.userId } }, params: { operationId: action.id },
+	} as Parameters<typeof operation.GET>[0]);
+	expect(await status.json()).toMatchObject({ status: "applied" });
+	expect(published("personal").map((row) => row.text).sort()).toEqual(
+		[kind === "edit" ? correctedBicycle : null, independentDog].filter(Boolean).sort(),
+	);
+	const original = db.select().from(s.memorySourceRevisions).all().find((row) => row.messageId === "m")!;
+	const beforeReplayChecks = fixture.applications.length;
+	expect(beforeReplayChecks).toBeGreaterThan(0);
+	const assertReplay = (scope: string) => {
+		const active = db.select().from(s.memorySourceRevisions).all()
+			.find((row) => row.messageId === "m" && row.bankId === bank(scope)?.id && row.state === "accepted")!;
+		expect(active).toBeDefined();
+		expect(active.id).not.toBe(original.id);
+		expect(active).toMatchObject({
+			lineageId: original.lineageId, textHash: original.textHash, assertedAt: original.assertedAt,
+		});
+		expect(fixture.requests.findLast(({ item }) => item.document_id === active.id)).toMatchObject({
+			bank: bank(scope)!.id,
+			item: { timestamp: original.assertedAt.toISOString(), metadata: { lineage: original.lineageId } },
+		});
+		expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(true);
+		const visible = published(scope).map((row) => row.text).sort();
+		expect.soft(visible, scope + " replay publication").toEqual(
+			[independentDog, ...(kind === "edit" ? [correctedBicycle] : []),
+				...(scope.startsWith("project:") ? [projectOnlyFact] : [])].sort(),
+		);
+		expect.soft(
+			fixture.applications.slice(beforeReplayChecks).some((call) =>
+				call.facts.some((fact) => fact.id.startsWith(active.id + ":"))),
+			scope + " bounded replay checks",
+		).toBe(true);
+	};
+	if (replay === "consent") {
+		await consent("decline");
+		expect(db.select().from(s.memorySourceRevisions).all().find((row) => row.id === original.id)?.state).toBe("revoked");
+		expect(published("personal").map((row) => row.text)).not.toContain(independentDog);
+		await consent("include");
+		assertReplay("personal");
+	} else {
+		async function move(projectId: string | null) {
+			const reply = await conversation.PATCH(lineageJudgeEvent(
+				"/api/conversations/chat", "PATCH", { projectId }, { id: "chat" },
+			) as Parameters<typeof conversation.PATCH>[0]);
+			expect(reply.status).toBe(200);
+			expect(await reply.json()).toMatchObject({ projectId });
+			await migration.prepareMemoryMigration(h.userId);
+			await h.engine.drain(memoryDeliveryJob);
+		}
+		if (replay === "scope-date-readback") {
+			const { memoryTextHash } = await import("./revisions");
+			const actionAt = db.select().from(s.memoryActions).all().find((entry) => entry.id === action.id)!.createdAt;
+			let sawDatePatch = false;
+			fixture.ignoreCorrectionDate((fact, time) => {
+				const replayIntent = db.select().from(s.memoryActions).all()
+					.map((entry) => JSON.parse(entry.intentJson ?? "{}"))
+					.find((entry) => entry.replayOriginActionId === action.id);
+				expect(replayIntent?.replayFactDates).toContainEqual({
+					id: fact.id, sourceId: fact.document_id, textHash: memoryTextHash(correctedBicycle),
+				});
+				expect(fact.text).toBe(correctedBicycle);
+				expect(time).toBe(actionAt.toISOString());
+				sawDatePatch = true;
+			});
+			await move("project");
+			expect(sawDatePatch).toBe(true);
+			expect(migration.verifyMemoryMigration(h.userId, prepared.id).ready).toBe(false);
+			expect(db.select().from(s.memoryDeliveryJobs).all().some((job) =>
+				job.bankId === bank("project:project")?.id && job.errorCode === "memory_edit_date_readback",
+			)).toBe(true);
+			expect(published("project:project").map((entry) => entry.text)).toEqual([projectOnlyFact]);
+			return;
+		}
+		await move("project");
+		assertReplay("project:project");
+		if (replay === "scope-time") {
+			const actionDate = db.select().from(s.memoryActions).all().find((entry) => entry.id === action.id)!.createdAt;
+			expect(actionDate.getTime()).toBeGreaterThan(original.assertedAt.getTime());
+			const project = bank("project:project")!;
+			expect([...fixture.banks.get(project.id)!.values()].find((f) => f.text === independentDog)?.mentioned_at)
+				.toBe(original.assertedAt.toISOString());
+			expect.soft(
+				[...fixture.banks.get(project.id)!.values()].find((f) => f.text === correctedBicycle)?.mentioned_at,
+				"native corrected claim date",
+			).toBe(actionDate.toISOString());
+			expect.soft(
+				published("project:project").find((row) => row.text === correctedBicycle)?.updatedAt,
+				"published correction date",
+			).toEqual(actionDate);
+		}
+		expect(published("personal").map((row) => row.text)).not.toContain(independentDog);
+		await move(null);
+		assertReplay("personal");
+		expect(published("project:project").map((row) => row.text)).toEqual([projectOnlyFact]);
+		expect(published("personal").map((row) => row.text)).not.toContain(projectOnlyFact);
+	}
+});
+
+it("post-cutover lineage judge admits a genuinely changed explicit chat edit at its new assertion date", async () => {
+	const { db, s } = await seed();
+	const { randomUUID } = await import("node:crypto");
+	const actions = await import("../../../../routes/api/knowledge/memory/actions/+server");
+	const messagesRoute = await import("../../../../routes/api/conversations/[id]/messages/+server");
+	const { createMessage } = await import("../messages");
+	const { captureMemoryTurnAcceptance, deliverCompletedMemoryTurn } = await import("./chat-delivery");
+	const { readPublishedMemory } = await import("./publication");
+	const { memoryDeliveryJob } = await import("./delivery-job");
+	const migration = await import("./migration");
+	const fixture = await lineageJudgeNative();
+	await allowMigrationHistory();
+	const prepared = await migration.prepareMemoryMigration(h.userId);
+	await h.engine.drain(memoryDeliveryJob);
+	expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(true);
+	const bank = db.select().from(s.memoryBanks).get()!;
+	const published = () => readPublishedMemory(h.userId, bank.id);
+	const original = db.select().from(s.memorySourceRevisions).get()!;
+	const row = published().find((row) => row.text === oldBicycle)!;
+	const remove = await actions.POST(lineageJudgeEvent(
+		"/api/knowledge/memory/actions", "POST", {
+			kind: "remove", requestId: randomUUID(),
+			ref: { scope: { kind: "personal" }, generation: bank.generation, rowId: row.nativeId },
+		},
+	) as Parameters<typeof actions.POST>[0]);
+	expect(remove.status).toBe(200);
+	await h.engine.drain(memoryDeliveryJob);
+	expect(published().map((row) => row.text)).toEqual([independentDog]);
+
+	const deleted = await messagesRoute.DELETE(lineageJudgeEvent(
+		"/api/conversations/chat/messages", "DELETE",
+		{ messageIds: ["m"], editSourceMessageId: "m" }, { id: "chat" },
+	) as Parameters<typeof messagesRoute.DELETE>[0]);
+	expect(await deleted.json()).toEqual({ deleted: 1 });
+	const acceptance = captureMemoryTurnAcceptance(h.userId, "chat");
+	const newBicycle = "My bicycle is blue with white stripes.";
+	const editedUser = await createMessage("chat", "user", newBicycle + " " + independentDog);
+	const reply = await createMessage("chat", "assistant", "Understood.");
+	await deliverCompletedMemoryTurn({
+		userId: h.userId, conversationId: "chat", memoryAcceptance: acceptance,
+		userMessageId: editedUser.id, assistantMessageId: reply.id,
+		turnOrigin: "edit_resend", editSourceMessageId: "m",
+	});
+	await h.engine.drain(memoryDeliveryJob);
+	const newSource = db.select().from(s.memorySourceRevisions).all()
+		.find((source) => source.messageId === editedUser.id)!;
+	expect(newSource).toMatchObject({
+		predecessorSourceId: original.id, lineageId: original.lineageId,
+		assertedAt: original.assertedAt, state: "accepted",
+	});
+	expect(newSource.explicitEditAt!.getTime()).toBeGreaterThan(original.assertedAt.getTime());
+	const request = fixture.requests.find(({item}) => item.document_id === newSource.id)!;
+	expect(request.item.timestamp).toBe(newSource.explicitEditAt!.toISOString());
+	expect(JSON.parse(request.item.content)).toEqual({
+		kind: "source_edit", before: original.text, after: newSource.text,
+		explicit_edit_at: newSource.explicitEditAt!.toISOString(),
+		original_asserted_at: original.assertedAt.toISOString(),
+	});
+	expect(published().map((row) => row.text).sort()).toEqual([newBicycle, independentDog].sort());
+});
+
+it.each(["before cutover", "through two recorded moves", "through old coalesced moves"] as const)(
+	"post-cutover lineage judge holds project-origin text %s",
+	async (scenario) => {
+		const { db, s } = await seed();
+		const { randomUUID } = await import("node:crypto");
+		const { eq } = await import("drizzle-orm");
+		const history = await import("../../../../routes/api/knowledge/memory/history-import/+server");
+		const conversation = await import("../../../../routes/api/conversations/[id]/+server");
+		const { readPublishedMemory } = await import("./publication");
+		const { memoryDeliveryJob } = await import("./delivery-job");
+		const migration = await import("./migration");
+		const fixture = await lineageJudgeNative();
+		db.insert(s.projects).values([
+			{ id: "origin", userId: h.userId, name: "Origin" },
+			{ id: "destination", userId: h.userId, name: "Destination" },
+		]).run();
+		db.update(s.conversations).set({ projectId: "origin" }).where(eq(s.conversations.id, "chat")).run();
+		if (scenario === "before cutover") await allowMigrationHistory();
+		const prepared = await migration.prepareMemoryMigration(h.userId);
+		await h.engine.drain(memoryDeliveryJob);
+		if (scenario === "before cutover") {
+			const bank = db.select().from(s.memoryBanks).where(eq(s.memoryBanks.scopeKey, "project:origin")).get()!;
+			expect(fixture.requests).toHaveLength(1);
+			expect(readPublishedMemory(h.userId, bank.id).map((row) => row.text)).toContain(oldBicycle);
+		} else {
+			expect(fixture.requests).toHaveLength(0);
+			expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(true);
+		}
+		for (const projectId of scenario === "before cutover" ? [null] : [null, "destination"]) {
+			const moved = await conversation.PATCH(lineageJudgeEvent(
+				"/api/conversations/chat", "PATCH", { projectId }, { id: "chat" },
+			) as Parameters<typeof conversation.PATCH>[0]);
+			expect(moved.status).toBe(200);
+			expect(await moved.json()).toMatchObject({ projectId });
+		}
+		const moves = db.select().from(s.memoryEvents).where(eq(s.memoryEvents.eventType, "memory_scope_moved")).all();
+		expect(moves.map(({ conversationId, subjectId, relatedId, payloadJson }) => ({
+			conversationId, subjectId, relatedId, payload: JSON.parse(payloadJson ?? "{}"),
+		}))).toEqual([
+			{ conversationId: "chat", subjectId: "project:origin", relatedId: "personal", payload: { epoch: 0 } },
+			...(scenario === "before cutover" ? [] : [
+				{ conversationId: "chat", subjectId: "personal", relatedId: "project:destination", payload: { epoch: 0 } },
+			]),
+		]);
+		if (scenario === "through old coalesced moves") {
+			for (const move of moves) {
+				db.update(s.memoryEvents).set({
+					eventKey: "u:" + h.userId + ":" + JSON.stringify([
+						"memory_scope_moved", 0, "chat", move.subjectId, move.relatedId,
+					]),
+				}).where(eq(s.memoryEvents.id, move.id)).run();
+			}
+		}
+		const resumed = await history.POST(lineageJudgeEvent(
+			"/api/knowledge/memory/history-import", "POST", { choice: "include", requestId: randomUUID() },
+		) as Parameters<typeof history.POST>[0]);
+		expect(resumed.status).toBe(200);
+		await h.engine.drain(memoryDeliveryJob);
+		const scope = scenario === "before cutover" ? "personal" : "project:destination";
+		const bank = db.select().from(s.memoryBanks).where(eq(s.memoryBanks.scopeKey, scope)).get();
+		expect.soft(
+			fixture.requests.filter(({ bank: wireBank }) => wireBank === bank?.id),
+			"project-origin text in destination retains",
+		).toEqual([]);
+		expect.soft(
+			bank ? readPublishedMemory(h.userId, bank.id).map((row) => row.text) : [],
+			"project-origin text in destination publication",
+		).not.toContain(oldBicycle);
+		expect.soft(migration.inspectMemoryMigration(h.userId).sources[0]).toMatchObject({
+			eligibility: "held",
+		});
+	},
+);

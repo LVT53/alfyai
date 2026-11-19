@@ -1,0 +1,49 @@
+# Per-user Memory replacement migration
+
+Implementation and rehearsal use synthetic data. The owner conditionally authorized the root agent to begin per-user `inspect`, `prepare`, and `verify` for real inactive banks if all implementation, acceptance tests, and final independent review finish before **05:00 Europe/Dublin on 19 November 2026**. If readiness misses the deadline, defer real preparation. Authorization ends at inactive-bank verification. Deployment and authority cutover require separate authorization. Individual workers continue with synthetic data unless the root agent explicitly assigns eligible work.
+
+Keep existing Do Not Remember and history-consent decisions and every exclusion in force. Unknown historical eligibility requires that user's explicit opt-in.
+
+Use Node 22. The single entrypoint is `scripts/memory-backfill.ts`. It requires an explicit database and user, defaults to `inspect`, and prints counts/checkpoint IDs only. The restricted `memory_migration_manifests` rows contain the detailed inventory and original text; do not paste them into logs or reports. Account privacy erasure owns these records alongside other memory state.
+
+## Modes and safeguards
+
+- `inspect`: read-only application inventory; no source/job/account rows created and no model calls. Counts eligible, uncertain, excluded and held sources, authored/endorsed actions and exceptions. The SQLite connection uses normal database WAL settings; inventory does not mutate application records.
+- `prepare`: snapshot the original chats/actions/privacy state, create inactive banks, and enqueue the existing Memory delivery jobs. Repeating it resumes stable source/operation IDs and catches changes. It does not activate native reads. The configured existing worker must run to drain jobs; no second scheduler exists.
+- `verify --manifest ID`: compare the current source/action/privacy fingerprint with the snapshot and inspect current checkpoint jobs, outstanding cleanup and source acceptance. A failed superseded retain stays in the job ledger. A failed required delivery or cleanup blocks readiness and appears in the failed count. Repeating prepare retries required retryable delivery with the same engine job and native operation identity.
+- `cutover --manifest ID`: refuse changed/incomplete snapshots and unconfigured native banks. In one SQLite write transaction, verify the checkpoint and switch the user's reader/writer authority. The legacy projection mutation boundary rejects late old workers after this point. Preparing accounts keep the legacy reader; there is no blended profile.
+- `rollback --manifest ID`: restore legacy authority only within the recorded 30-day window and only when the complete privacy/source/action checkpoint still matches. Any post-cutover removal, reset, choice, source change or other nonrepresentable state leaves memory unavailable (`rollback_blocked`) rather than resurrecting old information.
+
+Mutating real-mode commands require `--execute yes --operator-ack approved-per-user-migration`. These are deliberate operator safeguards, not authorization on behalf of the user. `prepare` must respect that particular user's history choice; current-enabled does not grant historical permission. `verify` cannot substitute for the semantic/isolation acceptance report.
+
+Command shape (placeholders, not executed):
+
+```sh
+node --import tsx scripts/memory-backfill.ts --database /explicit/database.db --user USER_ID
+node --import tsx scripts/memory-backfill.ts --mode prepare --database /explicit/database.db --user USER_ID --execute yes --operator-ack approved-per-user-migration
+node --import tsx scripts/memory-backfill.ts --mode verify --database /explicit/database.db --user USER_ID --manifest MANIFEST_ID
+```
+
+Use the same explicit acknowledgement for cutover/rollback. Never use an implicit default database or all-user target.
+
+## Eligibility and live changes
+
+Unknown historical on/off periods remain out of native requests until the user explicitly includes them, with a fixed cutoff/version. Known off intervals, incognito, deleted sources and pre-reset statements remain excluded. The optional choice is available while preparing and after cutover; native functionality can activate with uncertain history still held. Including/declining later resumes the existing manifest. Source permissions are checked again at native dispatch/publication, and withdrawal revokes queued historical sources before acknowledgement.
+
+Known removed statements are mapped using explicit source/item/provenance IDs, including review-only do-not-remember records. A saved bounded action is applied by shared native curation before publication and replayed on retry, preserving unrelated facts. Generated endorsed profile text is audit intent, never native source material. Verified authored standalone statements retain their own scope and action date. A current legacy review replacement supplies that authored statement once. If the person removes it, the correction stays in restricted audit records and the bounded exclusion of the original statement still applies. Automatic review closure preserves its recorded reason. Where the old pre-edit statement or action date is unavailable, the affected source is held explicitly rather than inventing a correction. An unknown exclusion boundary holds historical backfill for that user; new eligible memory remains independent. A later genuinely new assertion is not a permanent topic ban.
+
+Preparation captures a full content/action/control fingerprint. Repeat preparation to catch persisted chat edits/deletes, new chats and legacy choices. Same-ID text changes without a trustworthy original edit event are reported as exceptions; import time is never asserted as the edit date. During final cutover, SQLite's write transaction is the brief ingestion barrier: source/action changes serialized before the switch invalidate verification, and later live turns use native authority. Native late results remain subject to epoch/source/control fences.
+
+## Synthetic rehearsal
+
+Use only an isolated migrated SQLite fixture in the system temporary directory, with a `.alfyai-memory-synthetic` marker containing `alfyai-memory-synthetic-v1` beside it, and only `@test.invalid` accounts. Pass `--synthetic-fixture yes`. Synthetic mode bypasses the production operator acknowledgement, never the source/consent/epoch/cutover checks. Real-mode flag parsing and execution are also tested against a temporary synthetic database, never a real account database.
+
+`migration.integration.test.ts` runs actual SQLite migrations and the existing job engine. Its native HTTP and curation fixtures are deterministic and explicitly do **not** prove native semantic accuracy. Real pinned-native EN/HU acceptance, throughput, backup/restore and independent review remain separate full-replacement gates.
+
+## Rollback retention
+
+Retain permitted legacy data for at most the 30-day rollback window recorded at cutover, subject to normal user erasure/deletion immediately. No automatic purge is implemented or authorized by this tooling. At expiry, an operator must review the retention/acceptance record and explicitly authorize disposal or document a bounded extension; this is not permission for indefinite retention. Do not restore a backup without preserving newer reset/revocation/control records. A blocked rollback requires resolution of the newer privacy state; it must not be bypassed by changing `authority` manually.
+
+## New-account rollout
+
+`HINDSIGHT_NEW_ACCOUNTS_ENABLED` defaults false and is separate from worker pause. With an authorized rollout configuration, only genuine new account creation receives native authority and an opaque tenant/known interval atomically. Existing accounts are unchanged. A missing/offline native service leaves the new account native and unavailable/pending; account creation itself performs no network request and never silently falls back to legacy. Use the normal application environment/configuration when invoking the CLI; it does not choose an implicit database or grant historical permission.

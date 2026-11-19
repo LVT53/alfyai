@@ -1,0 +1,68 @@
+{
+  "scopeSet": {
+    "rule": "Omit both scenario families whose frozen rubric depends on an Atlas-only source in a personal conversation. Select by frozen category only.",
+    "omittedCategories": [
+      "cross_project_personal_fact",
+      "personalization"
+    ],
+    "profiles": [
+      "p01",
+      "p02",
+      "p03",
+      "p04",
+      "p05",
+      "p06"
+    ]
+  },
+  "frozenAll": {
+    "n": 72,
+    "integratedNative": 50,
+    "earlierHindsight": 69,
+    "earlierRawHistory": 64,
+    "earlierAlfyTool": 37,
+    "earlierAlfyPassive": 32
+  },
+  "sameScopeCompatibleSubset": {
+    "n": 60,
+    "integratedNative": 47,
+    "earlierHindsight": 58,
+    "earlierRawHistory": 52,
+    "earlierAlfyTool": 25,
+    "earlierAlfyPassive": 20
+  },
+  "currentScopeCases": {
+    "directAllergy": {
+      "total": 6,
+      "withheldAtlasSource": 6,
+      "answersReportingLackOfAvailableKnowledge": [
+        "p04",
+        "p05"
+      ],
+      "overbroadRecordOrHistoryClaims": [
+        "p01",
+        "p02",
+        "p03",
+        "p06"
+      ]
+    },
+    "personalization": {
+      "total": 6,
+      "admittedAtlasAllergy": 0,
+      "passedAccessibleIngredientAndTimingConstraints": [
+        "p01",
+        "p05",
+        "p06"
+      ],
+      "failedWithUnsupportedPreferenceClaim": [
+        "p02",
+        "p03",
+        "p04"
+      ]
+    }
+  },
+  "sourceHashes": {
+    "docs/plans/hindsight-memory/alfyai-baseline/cases.json": "d0ed6cfa67a7c69b3193ef3e2edf61d62e0350a1de6cb113d7d77aeec5043d23",
+    "docs/plans/hindsight-memory/alfyai-baseline/graded-answers.json": "e7f977f71aafec132d5b8577b273339c83902856a79809a34badb39b1e11b2fb",
+    "/Users/lvt53/.codex/visualizations/2026/11/17/01a1ebf0-5321-7190-a198-41c2994a41ea/hindsight-bench-v2/graded-answers.json": "067040ab167d3c13d65fb67f47f665f8032c7d66b8d1faeb76080953de340881"
+  }
+}

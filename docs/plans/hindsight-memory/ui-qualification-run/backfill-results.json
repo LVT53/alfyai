@@ -1,0 +1,901 @@
+{
+  "started": "2026-11-18T18:19:42.339Z",
+  "pin": "9fb28dbd724dc1ce4da7cb4c49008e601db76c5f",
+  "banks": [
+    {
+      "id": "uiq-1118-backfill",
+      "tenant": "p05"
+    }
+  ],
+  "groups": {},
+  "bank": "uiq-1118-backfill",
+  "request": {
+    "items": [
+      {
+        "document_id": "new",
+        "timestamp": "2026-11-12T12:00:00Z",
+        "content": "User: I now live in Cork. My bicycle is blue.",
+        "tags": [
+          "new"
+        ],
+        "metadata": {
+          "chat_id": "chat-new",
+          "message_id": "message-new"
+        }
+      },
+      {
+        "document_id": "question",
+        "timestamp": "2026-11-10T12:00:00Z",
+        "content": "User: Would a red canoe be suitable for a beginner? I have never owned a canoe.",
+        "tags": [
+          "question"
+        ],
+        "metadata": {
+          "chat_id": "chat-question",
+          "message_id": "message-question"
+        }
+      },
+      {
+        "document_id": "old",
+        "timestamp": "2026-10-01T12:00:00Z",
+        "content": "User: I live in Dublin. My bicycle is green.",
+        "tags": [
+          "old"
+        ],
+        "metadata": {
+          "chat_id": "chat-old",
+          "message_id": "message-old"
+        }
+      }
+    ],
+    "async": true,
+    "operation_id": "34d85d09-c7c9-4b6a-bd6b-3fcdc0d83e35"
+  },
+  "ack": {
+    "success": true,
+    "bank_id": "uiq-1118-backfill",
+    "items_count": 3,
+    "async": true,
+    "operation_id": "34d85d09-c7c9-4b6a-bd6b-3fcdc0d83e35",
+    "operation_ids": null,
+    "usage": null
+  },
+  "first": {
+    "items": [
+      {
+        "id": "15289dc5-fdda-4412-a360-941a33b3bdfb",
+        "text": "User's bicycle is blue.",
+        "context": "",
+        "date": "2026-11-12T12:00:00.010000+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-11-12T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "05e619be-a0c4-4a91-a8a6-25f160caf7a3"
+        ]
+      },
+      {
+        "id": "05e619be-a0c4-4a91-a8a6-25f160caf7a3",
+        "text": "User's bicycle is blue. | Involving: user",
+        "context": "",
+        "date": "2026-11-12T12:00:00.010000+00:00",
+        "fact_type": "world",
+        "document_id": "new",
+        "mentioned_at": "2026-11-12T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "bicycle, user",
+        "chunk_id": "uiq-1118-backfill_new_0",
+        "proof_count": 1,
+        "tags": [
+          "new"
+        ],
+        "metadata": {
+          "chat_id": "chat-new",
+          "message_id": "message-new"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:48.308232+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "46c23a81-fb11-4c4a-b792-dd071e4920b9",
+        "text": "User lives in Cork as of November 12, 2026.",
+        "context": "",
+        "date": "2026-11-12T12:00:00+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-11-12T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "d9577822-4414-4276-b6d1-845d225d17f8"
+        ]
+      },
+      {
+        "id": "d9577822-4414-4276-b6d1-845d225d17f8",
+        "text": "User now lives in Cork. | When: as of November 12, 2026 | Where: Cork | Involving: user",
+        "context": "",
+        "date": "2026-11-12T12:00:00+00:00",
+        "fact_type": "world",
+        "document_id": "new",
+        "mentioned_at": "2026-11-12T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "Cork, user",
+        "chunk_id": "uiq-1118-backfill_new_0",
+        "proof_count": 1,
+        "tags": [
+          "new"
+        ],
+        "metadata": {
+          "chat_id": "chat-new",
+          "message_id": "message-new"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:48.308232+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "c4192ebe-3186-4f6e-9464-c15c9ce2828f",
+        "text": "The user has never owned a canoe.",
+        "context": "",
+        "date": "2026-11-10T12:00:00+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-11-10T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "590271c3-7768-43ff-823a-fb993f6416a8"
+        ]
+      },
+      {
+        "id": "590271c3-7768-43ff-823a-fb993f6416a8",
+        "text": "The user has never owned a canoe. | Involving: user",
+        "context": "",
+        "date": "2026-11-10T12:00:00+00:00",
+        "fact_type": "world",
+        "document_id": "question",
+        "mentioned_at": "2026-11-10T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "canoe, user",
+        "chunk_id": "uiq-1118-backfill_question_0",
+        "proof_count": 1,
+        "tags": [
+          "question"
+        ],
+        "metadata": {
+          "chat_id": "chat-question",
+          "message_id": "message-question"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:47.973397+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "73e7fa6b-3406-4f0c-8b8f-74b9636b94ae",
+        "text": "User's bicycle is green.",
+        "context": "",
+        "date": "2026-10-01T12:00:00.010000+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "a5702139-a8f4-46d5-838e-4ed1a512a350"
+        ]
+      },
+      {
+        "id": "a5702139-a8f4-46d5-838e-4ed1a512a350",
+        "text": "User's bicycle is green. | Involving: user",
+        "context": "",
+        "date": "2026-10-01T12:00:00.010000+00:00",
+        "fact_type": "world",
+        "document_id": "old",
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "bicycle, user",
+        "chunk_id": "uiq-1118-backfill_old_0",
+        "proof_count": 1,
+        "tags": [
+          "old"
+        ],
+        "metadata": {
+          "chat_id": "chat-old",
+          "message_id": "message-old"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:46.528501+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "4784f8c2-8ca6-4cd6-bdc2-992152350d8c",
+        "text": "User lives in Dublin.",
+        "context": "",
+        "date": "2026-10-01T12:00:00+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "bb0ed126-631b-4950-a0ee-1c52e66c3c86"
+        ]
+      },
+      {
+        "id": "bb0ed126-631b-4950-a0ee-1c52e66c3c86",
+        "text": "User lives in Dublin. | Where: Dublin | Involving: user",
+        "context": "",
+        "date": "2026-10-01T12:00:00+00:00",
+        "fact_type": "world",
+        "document_id": "old",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "Dublin, user",
+        "chunk_id": "uiq-1118-backfill_old_0",
+        "proof_count": 1,
+        "tags": [
+          "old"
+        ],
+        "metadata": {
+          "chat_id": "chat-old",
+          "message_id": "message-old"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:46.528501+00:00",
+        "source_memory_ids": []
+      }
+    ],
+    "total": 10,
+    "limit": 100,
+    "offset": 0
+  },
+  "recall": {
+    "native": {
+      "results": [
+        {
+          "id": "590271c3-7768-43ff-823a-fb993f6416a8",
+          "text": "The user has never owned a canoe. | Involving: user",
+          "type": "world",
+          "entities": [
+            "canoe",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-10T12:00:00+00:00",
+          "document_id": "question",
+          "metadata": {
+            "chat_id": "chat-question",
+            "message_id": "message-question"
+          },
+          "chunk_id": "uiq-1118-backfill_question_0",
+          "tags": [
+            "question"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0895808371655749,
+            "reranker": 0.9946223497390747,
+            "semantic": 0.8421717788083436,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "d9577822-4414-4276-b6d1-845d225d17f8",
+          "text": "User now lives in Cork. | When: as of November 12, 2026 | Where: Cork | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "Cork"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-12T12:00:00+00:00",
+          "document_id": "new",
+          "metadata": {
+            "chat_id": "chat-new",
+            "message_id": "message-new"
+          },
+          "chunk_id": "uiq-1118-backfill_new_0",
+          "tags": [
+            "new"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0837371927610429,
+            "reranker": 0.9882993102073669,
+            "semantic": 0.8067386631213836,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "a5702139-a8f4-46d5-838e-4ed1a512a350",
+          "text": "User's bicycle is green. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "bicycle"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "document_id": "old",
+          "metadata": {
+            "chat_id": "chat-old",
+            "message_id": "message-old"
+          },
+          "chunk_id": "uiq-1118-backfill_old_0",
+          "tags": [
+            "old"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.010362238976248632,
+            "reranker": 0.009652274660766125,
+            "semantic": 0.8451315760612488,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "bb0ed126-631b-4950-a0ee-1c52e66c3c86",
+          "text": "User lives in Dublin. | Where: Dublin | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "Dublin"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "old",
+          "metadata": {
+            "chat_id": "chat-old",
+            "message_id": "message-old"
+          },
+          "chunk_id": "uiq-1118-backfill_old_0",
+          "tags": [
+            "old"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0032696352453108605,
+            "reranker": 0.00304561760276556,
+            "semantic": 0.8092483878135681,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "05e619be-a0c4-4a91-a8a6-25f160caf7a3",
+          "text": "User's bicycle is blue. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "bicycle"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-12T12:00:00.010000+00:00",
+          "document_id": "new",
+          "metadata": {
+            "chat_id": "chat-new",
+            "message_id": "message-new"
+          },
+          "chunk_id": "uiq-1118-backfill_new_0",
+          "tags": [
+            "new"
+          ],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.001858239803249064,
+            "reranker": 0.0016945963725447655,
+            "semantic": 0.8436562074320382,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "canoe": {
+          "entity_id": "426d1255-4073-4950-a6be-5077ecd94a34",
+          "canonical_name": "canoe",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "751500a8-8ff4-46d8-aa14-1d0d5b505c7a",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "Cork": {
+          "entity_id": "b45b5980-30ab-4373-a3c3-7a26e16d86dc",
+          "canonical_name": "Cork",
+          "observations": []
+        },
+        "bicycle": {
+          "entity_id": "961f6b1e-f018-4fb8-9512-f1fb8051834a",
+          "canonical_name": "bicycle",
+          "observations": []
+        },
+        "Dublin": {
+          "entity_id": "7c01f500-4cb5-4fbd-b06b-bd34efe9007d",
+          "canonical_name": "Dublin",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": null
+    },
+    "evidence": [
+      {
+        "id": "590271c3-7768-43ff-823a-fb993f6416a8",
+        "text": "The user has never owned a canoe. | Involving: user",
+        "asserted_at": "2026-11-10T12:00:00Z",
+        "source": "question"
+      },
+      {
+        "id": "d9577822-4414-4276-b6d1-845d225d17f8",
+        "text": "User now lives in Cork. | When: as of November 12, 2026 | Where: Cork | Involving: user",
+        "asserted_at": "2026-11-12T12:00:00Z",
+        "source": "new"
+      },
+      {
+        "id": "a5702139-a8f4-46d5-838e-4ed1a512a350",
+        "text": "User's bicycle is green. | Involving: user",
+        "asserted_at": "2026-10-01T12:00:00Z",
+        "source": "old"
+      },
+      {
+        "id": "bb0ed126-631b-4950-a0ee-1c52e66c3c86",
+        "text": "User lives in Dublin. | Where: Dublin | Involving: user",
+        "asserted_at": "2026-10-01T12:00:00Z",
+        "source": "old"
+      },
+      {
+        "id": "05e619be-a0c4-4a91-a8a6-25f160caf7a3",
+        "text": "User's bicycle is blue. | Involving: user",
+        "asserted_at": "2026-11-12T12:00:00Z",
+        "source": "new"
+      }
+    ]
+  },
+  "answer": {
+    "text": "You currently live in Cork, as this is the latest explicit assertion regarding your residence (asserted on November 12, 2026), superseding the older fact that you lived in Dublin. Your bicycle is blue, based on the most recent assertion from November 12, 2026, which overrides the previous claim that it was green. Regarding the canoe, you do not own one, as the evidence explicitly states you have never owned a canoe.",
+    "response": {
+      "id": "chatcmpl-8a585f48d7f81caa",
+      "object": "chat.completion",
+      "created": 1795025990,
+      "model": "qwen3-6-27b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "You currently live in Cork, as this is the latest explicit assertion regarding your residence (asserted on November 12, 2026), superseding the older fact that you lived in Dublin. Your bicycle is blue, based on the most recent assertion from November 12, 2026, which overrides the previous claim that it was green. Regarding the canoe, you do not own one, as the evidence explicitly states you have never owned a canoe.",
+            "refusal": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": null
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": null,
+          "token_ids": null,
+          "routed_experts": null,
+          "weight_versions": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.34.0-a3da6d34",
+      "usage": {
+        "prompt_tokens": 591,
+        "total_tokens": 689,
+        "completion_tokens": 98,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  "retry": {
+    "success": true,
+    "bank_id": "uiq-1118-backfill",
+    "items_count": 3,
+    "async": true,
+    "operation_id": "34d85d09-c7c9-4b6a-bd6b-3fcdc0d83e35",
+    "operation_ids": null,
+    "usage": null
+  },
+  "afterRetry": {
+    "items": [
+      {
+        "id": "15289dc5-fdda-4412-a360-941a33b3bdfb",
+        "text": "User's bicycle is blue.",
+        "context": "",
+        "date": "2026-11-12T12:00:00.010000+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-11-12T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "05e619be-a0c4-4a91-a8a6-25f160caf7a3"
+        ]
+      },
+      {
+        "id": "05e619be-a0c4-4a91-a8a6-25f160caf7a3",
+        "text": "User's bicycle is blue. | Involving: user",
+        "context": "",
+        "date": "2026-11-12T12:00:00.010000+00:00",
+        "fact_type": "world",
+        "document_id": "new",
+        "mentioned_at": "2026-11-12T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "bicycle, user",
+        "chunk_id": "uiq-1118-backfill_new_0",
+        "proof_count": 1,
+        "tags": [
+          "new"
+        ],
+        "metadata": {
+          "chat_id": "chat-new",
+          "message_id": "message-new"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:48.308232+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "46c23a81-fb11-4c4a-b792-dd071e4920b9",
+        "text": "User lives in Cork as of November 12, 2026.",
+        "context": "",
+        "date": "2026-11-12T12:00:00+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-11-12T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "d9577822-4414-4276-b6d1-845d225d17f8"
+        ]
+      },
+      {
+        "id": "d9577822-4414-4276-b6d1-845d225d17f8",
+        "text": "User now lives in Cork. | When: as of November 12, 2026 | Where: Cork | Involving: user",
+        "context": "",
+        "date": "2026-11-12T12:00:00+00:00",
+        "fact_type": "world",
+        "document_id": "new",
+        "mentioned_at": "2026-11-12T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "Cork, user",
+        "chunk_id": "uiq-1118-backfill_new_0",
+        "proof_count": 1,
+        "tags": [
+          "new"
+        ],
+        "metadata": {
+          "chat_id": "chat-new",
+          "message_id": "message-new"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:48.308232+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "c4192ebe-3186-4f6e-9464-c15c9ce2828f",
+        "text": "The user has never owned a canoe.",
+        "context": "",
+        "date": "2026-11-10T12:00:00+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-11-10T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "590271c3-7768-43ff-823a-fb993f6416a8"
+        ]
+      },
+      {
+        "id": "590271c3-7768-43ff-823a-fb993f6416a8",
+        "text": "The user has never owned a canoe. | Involving: user",
+        "context": "",
+        "date": "2026-11-10T12:00:00+00:00",
+        "fact_type": "world",
+        "document_id": "question",
+        "mentioned_at": "2026-11-10T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "canoe, user",
+        "chunk_id": "uiq-1118-backfill_question_0",
+        "proof_count": 1,
+        "tags": [
+          "question"
+        ],
+        "metadata": {
+          "chat_id": "chat-question",
+          "message_id": "message-question"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:47.973397+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "73e7fa6b-3406-4f0c-8b8f-74b9636b94ae",
+        "text": "User's bicycle is green.",
+        "context": "",
+        "date": "2026-10-01T12:00:00.010000+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "a5702139-a8f4-46d5-838e-4ed1a512a350"
+        ]
+      },
+      {
+        "id": "a5702139-a8f4-46d5-838e-4ed1a512a350",
+        "text": "User's bicycle is green. | Involving: user",
+        "context": "",
+        "date": "2026-10-01T12:00:00.010000+00:00",
+        "fact_type": "world",
+        "document_id": "old",
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "bicycle, user",
+        "chunk_id": "uiq-1118-backfill_old_0",
+        "proof_count": 1,
+        "tags": [
+          "old"
+        ],
+        "metadata": {
+          "chat_id": "chat-old",
+          "message_id": "message-old"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:46.528501+00:00",
+        "source_memory_ids": []
+      },
+      {
+        "id": "4784f8c2-8ca6-4cd6-bdc2-992152350d8c",
+        "text": "User lives in Dublin.",
+        "context": "",
+        "date": "2026-10-01T12:00:00+00:00",
+        "fact_type": "observation",
+        "document_id": null,
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "",
+        "chunk_id": null,
+        "proof_count": 1,
+        "tags": [],
+        "metadata": {},
+        "consolidated_at": null,
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:50.153156+00:00",
+        "source_memory_ids": [
+          "bb0ed126-631b-4950-a0ee-1c52e66c3c86"
+        ]
+      },
+      {
+        "id": "bb0ed126-631b-4950-a0ee-1c52e66c3c86",
+        "text": "User lives in Dublin. | Where: Dublin | Involving: user",
+        "context": "",
+        "date": "2026-10-01T12:00:00+00:00",
+        "fact_type": "world",
+        "document_id": "old",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "occurred_start": null,
+        "occurred_end": null,
+        "entities": "Dublin, user",
+        "chunk_id": "uiq-1118-backfill_old_0",
+        "proof_count": 1,
+        "tags": [
+          "old"
+        ],
+        "metadata": {
+          "chat_id": "chat-old",
+          "message_id": "message-old"
+        },
+        "consolidated_at": "2026-11-18T18:19:50.163313+00:00",
+        "consolidation_failed_at": null,
+        "state": "valid",
+        "invalidation_reason": null,
+        "invalidated_at": null,
+        "edited_at": null,
+        "updated_at": "2026-11-18T18:19:46.528501+00:00",
+        "source_memory_ids": []
+      }
+    ],
+    "total": 10,
+    "limit": 100,
+    "offset": 0
+  },
+  "retryPreservedIds": true,
+  "finished": "2026-11-18T18:19:51.329Z"
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "chatcmpl-ae44cac91b26c476",
+    "content": "{\"valid\": false, \"issues\": []}",
+    "thinking": {
+      "enable_thinking": false
+    }
+  },
+  {
+    "id": "chatcmpl-80cc7fec1b0cbc61",
+    "content": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"629ec156-438a-48f5-b404-c778811830d2\",\n      \"problem\": \"The fact 'The user keeps their reading lamp on their writing desk.' is missing from proposed_facts and displayed_observations, despite being supported by the source assertion 'Yes, on my writing desk.' and not being removed by the user edit.\"\n    }\n  ]\n}",
+    "thinking": {
+      "enable_thinking": false
+    }
+  },
+  {
+    "id": "chatcmpl-baf4b6018eca7c72",
+    "content": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"629ec156-438a-48f5-b404-c778811830d2\",\n      \"problem\": \"The fact 'The user keeps their reading lamp on their writing desk.' is missing from proposed_facts and displayed_observations, despite being supported by the source assertion 'Yes, on my writing desk.' and not being removed by the edit.\"\n    }\n  ]\n}",
+    "thinking": {
+      "enable_thinking": false
+    }
+  }
+]

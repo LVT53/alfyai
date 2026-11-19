@@ -1,0 +1,231 @@
+{
+  "method": "Manual non-blind semantic review; not a new 72-question benchmark or a production accuracy estimate.",
+  "checks": [
+    {
+      "suite": "supersession-results.json",
+      "case": "gear",
+      "stage": "before-later-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "gear",
+      "stage": "after-explicit-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "gear",
+      "stage": "older-chat-reprocessed",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "gear",
+      "stage": "question-and-future-plan",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "city_hu",
+      "stage": "before-later-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": "Regular Wednesday swimming preserved; model sometimes declines to label it a hobby."
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "city_hu",
+      "stage": "after-explicit-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": "Regular Wednesday swimming preserved; model sometimes declines to label it a hobby."
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "city_hu",
+      "stage": "older-chat-reprocessed",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": "Regular Wednesday swimming preserved; model sometimes declines to label it a hobby."
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "projects",
+      "stage": "before-later-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "projects",
+      "stage": "after-explicit-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-results.json",
+      "case": "projects",
+      "stage": "older-chat-reprocessed",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "gear",
+      "stage": "before-later-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "gear",
+      "stage": "after-explicit-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "gear",
+      "stage": "older-chat-reprocessed",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "gear",
+      "stage": "question-and-future-plan",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "city_hu",
+      "stage": "before-later-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": "Regular Wednesday swimming preserved; model sometimes declines to label it a hobby."
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "city_hu",
+      "stage": "after-explicit-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": "Regular Wednesday swimming preserved; model sometimes declines to label it a hobby."
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "city_hu",
+      "stage": "older-chat-reprocessed",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": "Regular Wednesday swimming preserved; model sometimes declines to label it a hobby."
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "projects",
+      "stage": "before-later-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "projects",
+      "stage": "after-explicit-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "supersession-shared-results.json",
+      "case": "projects",
+      "stage": "older-chat-reprocessed",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "note": ""
+    },
+    {
+      "suite": "temporal-followup",
+      "case": "historical-correction-is-not-physical-change",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true
+    },
+    {
+      "suite": "temporal-followup",
+      "case": "later-statement-about-past",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true
+    },
+    {
+      "suite": "temporal-followup",
+      "case": "new-current-chat-wins",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true
+    },
+    {
+      "suite": "temporal-followup",
+      "case": "old-edit-reprocessed-after-new-chat",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true
+    },
+    {
+      "suite": "composed-lifecycle",
+      "case": "accepted-before-edit",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "expectedColour": "purple"
+    },
+    {
+      "suite": "composed-lifecycle",
+      "case": "injected-interruption-before-publication",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "expectedColour": "purple"
+    },
+    {
+      "suite": "composed-lifecycle",
+      "case": "after-actual-service-restart",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "expectedColour": "purple"
+    },
+    {
+      "suite": "composed-lifecycle",
+      "case": "latest-edit-published",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "expectedColour": "green"
+    },
+    {
+      "suite": "composed-lifecycle",
+      "case": "older-chat-reprocessed-and-published",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "expectedColour": "green"
+    },
+    {
+      "suite": "composed-lifecycle",
+      "case": "late-native-old-write",
+      "currentStateCorrect": true,
+      "unrelatedFactsPreserved": true,
+      "expectedColour": "green"
+    }
+  ]
+}

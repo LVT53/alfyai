@@ -1,0 +1,204 @@
+[
+  {
+    "id": "conflict_kayaks",
+    "stage": "third-value-conflict",
+    "input": {
+      "operation": "reconcile_a_previously_applied_edit_after_a_later_source_revision",
+      "timeline": [
+        {
+          "order": 1,
+          "type": "original_source",
+          "text": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club."
+        },
+        {
+          "order": 2,
+          "type": "user_edit_already_applied",
+          "instruction": "Correct only my touring kayak's colour to purple. Keep everything else."
+        },
+        {
+          "order": 3,
+          "type": "later_source_revision",
+          "text": "I own a green touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club."
+        }
+      ],
+      "instruction": "There is no new user edit now. Reconcile the earlier edit against facts re-extracted from event 3. An unexplained third target value in event 3 is a conflict, not a fresh request to apply event 2 to that new value.",
+      "facts": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a green touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    "result": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"green\",\n          \"replace\": \"purple\"\n        }\n      ]\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-9bae5a50e0a40146",
+        "object": "chat.completion",
+        "created": 1795017405,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"ca515f40-5da7-4280-9788-bb8ba6a68399\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"dcf0f879-01c6-428e-90b4-731060f9320a\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"39e04e23-8193-4f0b-9669-b217ce9ab830\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"green\",\n          \"replace\": \"purple\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 665,
+          "total_tokens": 887,
+          "completion_tokens": 222,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      {
+        "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+        "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+      },
+      {
+        "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+        "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+      },
+      {
+        "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+        "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+      }
+    ],
+    "conflicts": [
+      "39e04e23-8193-4f0b-9669-b217ce9ab830"
+    ]
+  },
+  {
+    "id": "conflict_projects",
+    "stage": "third-value-conflict",
+    "input": {
+      "operation": "reconcile_a_previously_applied_edit_after_a_later_source_revision",
+      "timeline": [
+        {
+          "order": 1,
+          "type": "original_source",
+          "text": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme."
+        },
+        {
+          "order": 2,
+          "type": "user_edit_already_applied",
+          "instruction": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged."
+        },
+        {
+          "order": 3,
+          "type": "later_source_revision",
+          "text": "My Juniper project uses Scala and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme."
+        }
+      ],
+      "instruction": "There is no new user edit now. Reconcile the earlier edit against facts re-extracted from event 3. An unexplained third target value in event 3 is a conflict, not a fresh request to apply event 2 to that new value.",
+      "facts": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Scala and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    "result": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"uses Scala\",\n          \"replace\": \"uses [conflict: Ruby/Go/Scala]\"\n        }\n      ]\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-b82a35ac4d85a266",
+        "object": "chat.completion",
+        "created": 1795017406,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"335388f4-1e4a-42fc-a0b7-8600fad72824\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"fa2cbda3-69d1-4c00-bbf7-a514f05e9570\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"ef7ae5ae-3ee0-4a93-8166-afb2d83841a1\",\n      \"conflict\": true,\n      \"edits\": [\n        {\n          \"find\": \"uses Scala\",\n          \"replace\": \"uses [conflict: Ruby/Go/Scala]\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 625,
+          "total_tokens": 849,
+          "completion_tokens": 224,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      {
+        "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+        "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+      },
+      {
+        "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+        "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+      },
+      {
+        "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+        "text": "User's Juniper project uses [conflict: Ruby/Go/Scala] and ships on Mondays. | Involving: user"
+      }
+    ],
+    "conflicts": [
+      "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1"
+    ]
+  }
+]

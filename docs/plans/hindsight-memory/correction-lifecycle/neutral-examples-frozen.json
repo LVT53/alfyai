@@ -1,0 +1,105 @@
+{
+  "prompt": "A prior user edit and a later source revision disagree. The conflict has ALREADY been detected. Your only task is to REMOVE the disputed relationship from the current native facts, keeping every unrelated detail byte-for-byte. Do not choose the old, corrected, or revised value. Do not write conflict markers into a fact. The supplied before/after fact examples identify the disputed relationship. Remove that relationship entirely from the current facts; do NOT copy the approved value. Return every fact ID with conflict=true only on affected facts and minimal exact substring edits {find,replace}. Each find must occur exactly once, edits may not overlap. Empty edits mean unchanged. Preserve ownership, activities, other objects/people and new details; remove only the disputed relationship. Update repeated inline annotations of that same relationship too. Whole-fact deletion is allowed only if it contains no unrelated information.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "facts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "conflict": {
+              "type": "boolean"
+            },
+            "edits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "find": {
+                    "type": "string"
+                  },
+                  "replace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "find",
+                  "replace"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "conflict",
+            "edits"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "facts"
+    ],
+    "additionalProperties": false
+  },
+  "inputs": [
+    {
+      "id": "conflict_kayaks",
+      "stage": "third-value-conflict",
+      "c": {
+        "id": "conflict_kayaks",
+        "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+        "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+        "changed": "I own a green touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+        "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+        "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+      },
+      "facts": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a green touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "conflict_projects",
+      "stage": "third-value-conflict",
+      "c": {
+        "id": "conflict_projects",
+        "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+        "action": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged.",
+        "changed": "My Juniper project uses Scala and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+        "query": "What languages, schedules and features do my projects have?",
+        "expect": "Juniper Go Mondays later offline CLI; Harbor Kotlin dark. No Ruby."
+      },
+      "facts": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Scala and ships on Mondays. | Involving: user"
+        }
+      ]
+    }
+  ]
+}

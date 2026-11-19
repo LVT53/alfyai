@@ -1,0 +1,280 @@
+[
+  {
+    "id": "conflict_new_basket",
+    "previous": "My bicycle is red.",
+    "latest": "My bicycle is green and now has a front basket.",
+    "action": "I corrected my bicycle colour to blue; do not silently choose a conflicting edited-source colour. Preserve other new details.",
+    "facts": [
+      {
+        "id": "basket",
+        "text": "The user owns a green bicycle that now has a front basket."
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red bicycle.",
+      "accepted": "User owns a blue bicycle.",
+      "safeRemainder": "User owns a bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "basket",
+            "kind": "merge"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-ae139820b53f372b",
+        "object": "chat.completion",
+        "created": 1795016281,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"basket\",\n      \"kind\": \"merge\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 423,
+          "total_tokens": 459,
+          "completion_tokens": 36,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user owns a blue bicycle that now has a front basket."
+    ],
+    "merges": [
+      {
+        "id": "basket",
+        "value": {
+          "text": "The user owns a blue bicycle that now has a front basket."
+        },
+        "response": {
+          "id": "chatcmpl-8dc2f8e246a12a9d",
+          "object": "chat.completion",
+          "created": 1795016281,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"text\": \"The user owns a blue bicycle that now has a front basket.\"}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 203,
+            "total_tokens": 222,
+            "completion_tokens": 19,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    ],
+    "conflicts": [],
+    "ms": 797
+  },
+  {
+    "id": "conflict_shared_city_hu",
+    "previous": "Én és a húgom Győrben élünk.",
+    "latest": "Én Pécsen élek és kerékpározni kezdtem. A húgom továbbra is Győrben él.",
+    "action": "I corrected only my own city to Szeged. A changed source city without an explicit move must remain unresolved; keep my sister and new activity.",
+    "facts": [
+      {
+        "id": "cities",
+        "text": "A felhasználó Pécsen él és kerékpározni kezdett, a húga pedig Győrben él."
+      }
+    ],
+    "ledger": {
+      "original": "A felhasználó és a húga Győrben él.",
+      "accepted": "A felhasználó Szegeden él, a húga Győrben él.",
+      "safeRemainder": "A felhasználó húga Győrben él."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "cities",
+            "kind": "conflict"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-96b236fada2ce13d",
+        "object": "chat.completion",
+        "created": 1795016281,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"cities\",\n      \"kind\": \"conflict\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 487,
+          "total_tokens": 524,
+          "completion_tokens": 37,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "A felhasználó húga Győrben él."
+    ],
+    "merges": [],
+    "conflicts": [
+      "cities"
+    ],
+    "ms": 689
+  },
+  {
+    "id": "conflict_two_bikes",
+    "previous": "My road bicycle is red. My mountain bicycle is green.",
+    "latest": "My road bicycle is green and I ride it on Tuesdays; my mountain bicycle is still green.",
+    "action": "Earlier I corrected only the road bicycle colour to yellow; conflicting edited-source colour must not silently win. Preserve other details.",
+    "facts": [
+      {
+        "id": "bikes",
+        "text": "The user owns a green road bicycle ridden on Tuesdays and a green mountain bicycle."
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red road bicycle.",
+      "accepted": "User owns a yellow road bicycle.",
+      "safeRemainder": "User owns a road bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "bikes",
+            "kind": "conflict"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-a77b7aecc8c01079",
+        "object": "chat.completion",
+        "created": 1795016282,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"bikes\",\n      \"kind\": \"conflict\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 448,
+          "total_tokens": 486,
+          "completion_tokens": 38,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "User owns a road bicycle."
+    ],
+    "merges": [],
+    "conflicts": [
+      "bikes"
+    ],
+    "ms": 333
+  }
+]

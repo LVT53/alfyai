@@ -1,0 +1,1084 @@
+[
+  {
+    "id": "kayaks",
+    "beforeCorrection": {
+      "items": [
+        {
+          "id": "e3353b2e-1c39-4295-aa62-a79ef04feb78",
+          "text": "User's white racing kayak is stored at the club.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "cd66e628-6bbf-459a-8347-b83a8cbcf4a3"
+          ]
+        },
+        {
+          "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+          "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.030000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "club, user, white racing kayak",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:03.741192+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "47915a6c-2567-4083-9e52-85c90e963f3a",
+          "text": "User's orange touring kayak has a deck compass.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "4b85749e-c315-48c9-af08-0dadd4cd07e5"
+          ]
+        },
+        {
+          "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+          "text": "User's orange touring kayak now has a deck compass. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "deck compass, orange touring kayak, user",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:03.741192+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "278eadcc-33f6-4721-947e-b5d2ac9e95c1",
+          "text": "User paddles the touring kayak on Saturdays.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "b851b183-79a4-4903-9fbc-c62951eda295"
+          ]
+        },
+        {
+          "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "touring kayak, user",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:03.741192+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "6b071f58-dfb6-4f4e-a762-4fb5c9dc4129",
+          "text": "User owns an orange touring kayak.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+          ]
+        },
+        {
+          "id": "9480dced-c81e-4616-9ba6-dea11b628023",
+          "text": "User owns a white racing kayak.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:05.749379+00:00",
+          "source_memory_ids": [
+            "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+          ]
+        },
+        {
+          "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+          "text": "User owns an orange touring kayak and a white racing kayak. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "orange touring kayak, user, white racing kayak",
+          "chunk_id": "cl1-kayaks_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:59:03.741192+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 9,
+      "limit": 100,
+      "offset": 0
+    },
+    "reprocess": {
+      "stage": "forced-reprocess",
+      "facts": [
+        {
+          "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+          "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+          "text": "User's orange touring kayak now has a deck compass. | Involving: user"
+        },
+        {
+          "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+          "text": "User owns an orange touring kayak and a white racing kayak. | Involving: user"
+        }
+      ],
+      "decision": {
+        "text": "{\n  \"facts\": [\n    {\n      \"id\": \"cd66e628-6bbf-459a-8347-b83a8cbcf4a3\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"4b85749e-c315-48c9-af08-0dadd4cd07e5\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"orange\",\n          \"replace\": \"purple\"\n        }\n      ]\n    },\n    {\n      \"id\": \"b851b183-79a4-4903-9fbc-c62951eda295\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"a13dd6d7-cfd7-4ec3-a4b6-b78e17629173\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"an orange\",\n          \"replace\": \"a purple\"\n        }\n      ]\n    }\n  ]\n}",
+        "response": {
+          "id": "chatcmpl-9bc9f877250aef8b",
+          "object": "chat.completion",
+          "created": 1795017546,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"facts\": [\n    {\n      \"id\": \"cd66e628-6bbf-459a-8347-b83a8cbcf4a3\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"4b85749e-c315-48c9-af08-0dadd4cd07e5\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"orange\",\n          \"replace\": \"purple\"\n        }\n      ]\n    },\n    {\n      \"id\": \"b851b183-79a4-4903-9fbc-c62951eda295\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"a13dd6d7-cfd7-4ec3-a4b6-b78e17629173\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"an orange\",\n          \"replace\": \"a purple\"\n        }\n      ]\n    }\n  ]\n}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": "We need answer user's request. Need produce final JSON? User provided action, originalSource, currentSource, facts. Need return entry for EVERY fact ID with list of minimal exact substring replacements (find,replace); empty edits means unchanged. Need apply correction: \"Correct only my touring kayak's colour to purple. Keep everything else.\" Need identify facts affected.\n\nFacts:\ncd66... text: \"User's white racing kayak is stored at the club. | Where: club | Involving: user\"\nNo orange touring kayak color. unchanged.\n\n4b85749e... text: \"User's orange touring kayak now has a deck compass. | Involving: user\"\nNeed change orange to purple? The fact says orange touring kayak now has deck compass. Correction only color to purple. Keep deck compass. Replace \"orange\" with \"purple\". But find must occur exactly once. It occurs once. Good.\n\nb851... text: \"User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user\"\nNo color. unchanged.\n\na13dd... text: \"User owns an orange touring kayak and a white racing kayak. | Involving: user\"\nNeed change orange to purple. But careful: \"an orange\" -> \"a purple\"? Minimal exact substring replacements. If replace \"orange\" with \"purple\", text becomes \"User owns an purple touring kayak...\" grammatically wrong. Need preserve untouched text verbatim except replacements. Could replace \"an orange\" with \"a purple\" to correct article. Is that minimal? The target is color. But article change necessary? The instruction says minimal exact substring replacements. Could replace \"orange\" with \"purple\" and maybe \"an purple\" is not ideal but maybe acceptable? They likely expect article correction? Need think. The action: Correct only my touring kayak's colour to purple. Keep everything else. Original source: \"I own an orange touring kayak and a white racing kayak.\" Current source same plus deck compass. Facts include \"User owns an orange touring kayak and a white racing kayak.\" To correct color to purple, should be \"User owns a purple touring kayak and a white racing kayak.\" Need replace \"an orange\" with \"a purple\". That changes article, but it's part of color phrase. Is that allowed? It says minimal exact substring replacements. It doesn't forbid article. Need each find occurs exactly once. \"an orange\" occurs once. Replace with \"a purple\". For fact 4b85749e: \"User's orange touring kayak now has a deck compass.\" Replace \"orange\" with \"purple\" (no article). Good.\n\nNeed consider conflict? The current source says orange still, but user action durable correction. We apply correction to facts. No conflict? The original source and current source both orange. User says correct to purple. So change.\n\nNeed output format? Probably JSON array of objects: {\"id\":..., \"edits\":[{\"find\":\"...\",\"replace\":\"...\"}]} or empty edits. Need ensure every fact ID. No commentary.\n\nNeed maybe include unchanged facts with empty edits. Need exact JSON. Could be:\n[\n {\"id\":\"cd66...\",\"edits\":[]},\n {\"id\":\"4b85...\",\"edits\":[{\"find\":\"orange\",\"replace\":\"purple\"}]},\n {\"id\":\"b851...\",\"edits\":[]},\n {\"id\":\"a13d...\",\"edits\":[{\"find\":\"an orange\",\"replace\":\"a purple\"}]}\n]\n\nNeed ensure find occurs exactly once in that fact. For a13: \"an orange\" once. For 4b: \"orange\" once. Good.\n\nDouble-check if \"User's orange touring kayak now has a deck compass.\" If replace orange with purple, text: \"User's purple touring kayak now has a deck compass.\" Good.\n\nCould there be need to remove \"orange\" from fact a13 and not article? If application code preserves untouched text verbatim, replacing \"orange\" with \"purple\" yields \"an purple\". Maybe acceptable? But likely they want grammatical. The instruction: minimal exact substring replacements. If we replace \"an orange\" with \"a purple\", we are changing article, but it's necessary to keep grammar. Is article considered part of color? It's minimal enough. Could also replace \"an orange touring\" with \"a purple touring\". But \"an orange\" enough.\n\nNeed maybe for fact 4b, \"User's orange\" could replace \"User's orange\" with \"User's purple\"? No need.\n\nNeed final only JSON. Ensure no markdown? Probably raw JSON.\n"
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 623,
+            "total_tokens": 1905,
+            "completion_tokens": 1282,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 972
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      },
+      "attempts": [
+        {
+          "decision": {
+            "text": "{\n  \"facts\": [\n    {\n      \"id\": \"cd66e628-6bbf-459a-8347-b83a8cbcf4a3\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"4b85749e-c315-48c9-af08-0dadd4cd07e5\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"orange\",\n          \"replace\": \"purple\"\n        }\n      ]\n    },\n    {\n      \"id\": \"b851b183-79a4-4903-9fbc-c62951eda295\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"a13dd6d7-cfd7-4ec3-a4b6-b78e17629173\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"an orange\",\n          \"replace\": \"a purple\"\n        }\n      ]\n    }\n  ]\n}",
+            "response": {
+              "id": "chatcmpl-9bc9f877250aef8b",
+              "object": "chat.completion",
+              "created": 1795017546,
+              "model": "qwen3-6-27b",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"facts\": [\n    {\n      \"id\": \"cd66e628-6bbf-459a-8347-b83a8cbcf4a3\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"4b85749e-c315-48c9-af08-0dadd4cd07e5\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"orange\",\n          \"replace\": \"purple\"\n        }\n      ]\n    },\n    {\n      \"id\": \"b851b183-79a4-4903-9fbc-c62951eda295\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"a13dd6d7-cfd7-4ec3-a4b6-b78e17629173\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"an orange\",\n          \"replace\": \"a purple\"\n        }\n      ]\n    }\n  ]\n}",
+                    "refusal": null,
+                    "annotations": null,
+                    "audio": null,
+                    "function_call": null,
+                    "reasoning": "We need answer user's request. Need produce final JSON? User provided action, originalSource, currentSource, facts. Need return entry for EVERY fact ID with list of minimal exact substring replacements (find,replace); empty edits means unchanged. Need apply correction: \"Correct only my touring kayak's colour to purple. Keep everything else.\" Need identify facts affected.\n\nFacts:\ncd66... text: \"User's white racing kayak is stored at the club. | Where: club | Involving: user\"\nNo orange touring kayak color. unchanged.\n\n4b85749e... text: \"User's orange touring kayak now has a deck compass. | Involving: user\"\nNeed change orange to purple? The fact says orange touring kayak now has deck compass. Correction only color to purple. Keep deck compass. Replace \"orange\" with \"purple\". But find must occur exactly once. It occurs once. Good.\n\nb851... text: \"User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user\"\nNo color. unchanged.\n\na13dd... text: \"User owns an orange touring kayak and a white racing kayak. | Involving: user\"\nNeed change orange to purple. But careful: \"an orange\" -> \"a purple\"? Minimal exact substring replacements. If replace \"orange\" with \"purple\", text becomes \"User owns an purple touring kayak...\" grammatically wrong. Need preserve untouched text verbatim except replacements. Could replace \"an orange\" with \"a purple\" to correct article. Is that minimal? The target is color. But article change necessary? The instruction says minimal exact substring replacements. Could replace \"orange\" with \"purple\" and maybe \"an purple\" is not ideal but maybe acceptable? They likely expect article correction? Need think. The action: Correct only my touring kayak's colour to purple. Keep everything else. Original source: \"I own an orange touring kayak and a white racing kayak.\" Current source same plus deck compass. Facts include \"User owns an orange touring kayak and a white racing kayak.\" To correct color to purple, should be \"User owns a purple touring kayak and a white racing kayak.\" Need replace \"an orange\" with \"a purple\". That changes article, but it's part of color phrase. Is that allowed? It says minimal exact substring replacements. It doesn't forbid article. Need each find occurs exactly once. \"an orange\" occurs once. Replace with \"a purple\". For fact 4b85749e: \"User's orange touring kayak now has a deck compass.\" Replace \"orange\" with \"purple\" (no article). Good.\n\nNeed consider conflict? The current source says orange still, but user action durable correction. We apply correction to facts. No conflict? The original source and current source both orange. User says correct to purple. So change.\n\nNeed output format? Probably JSON array of objects: {\"id\":..., \"edits\":[{\"find\":\"...\",\"replace\":\"...\"}]} or empty edits. Need ensure every fact ID. No commentary.\n\nNeed maybe include unchanged facts with empty edits. Need exact JSON. Could be:\n[\n {\"id\":\"cd66...\",\"edits\":[]},\n {\"id\":\"4b85...\",\"edits\":[{\"find\":\"orange\",\"replace\":\"purple\"}]},\n {\"id\":\"b851...\",\"edits\":[]},\n {\"id\":\"a13d...\",\"edits\":[{\"find\":\"an orange\",\"replace\":\"a purple\"}]}\n]\n\nNeed ensure find occurs exactly once in that fact. For a13: \"an orange\" once. For 4b: \"orange\" once. Good.\n\nDouble-check if \"User's orange touring kayak now has a deck compass.\" If replace orange with purple, text: \"User's purple touring kayak now has a deck compass.\" Good.\n\nCould there be need to remove \"orange\" from fact a13 and not article? If application code preserves untouched text verbatim, replacing \"orange\" with \"purple\" yields \"an purple\". Maybe acceptable? But likely they want grammatical. The instruction: minimal exact substring replacements. If we replace \"an orange\" with \"a purple\", we are changing article, but it's necessary to keep grammar. Is article considered part of color? It's minimal enough. Could also replace \"an orange touring\" with \"a purple touring\". But \"an orange\" enough.\n\nNeed maybe for fact 4b, \"User's orange\" could replace \"User's orange\" with \"User's purple\"? No need.\n\nNeed final only JSON. Ensure no markdown? Probably raw JSON.\n"
+                  },
+                  "logprobs": null,
+                  "finish_reason": "stop",
+                  "stop_reason": null,
+                  "token_ids": null,
+                  "routed_experts": null
+                }
+              ],
+              "service_tier": null,
+              "system_fingerprint": "vllm-0.31.0-6612147e",
+              "usage": {
+                "prompt_tokens": 623,
+                "total_tokens": 1905,
+                "completion_tokens": 1282,
+                "prompt_tokens_details": null,
+                "completion_tokens_details": {
+                  "reasoning_tokens": 972
+                }
+              },
+              "prompt_logprobs": null,
+              "prompt_token_ids": null,
+              "prompt_text": null,
+              "kv_transfer_params": null,
+              "ec_transfer_params": null,
+              "metrics": null
+            }
+          },
+          "valid": true
+        }
+      ],
+      "projected": [
+        {
+          "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+          "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+          "text": "User's purple touring kayak now has a deck compass. | Involving: user"
+        },
+        {
+          "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+          "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+        }
+      ],
+      "writes": [
+        {
+          "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+          "text": "User's purple touring kayak now has a deck compass. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "type": "world",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": [
+            "deck compass",
+            "orange touring kayak",
+            "user"
+          ],
+          "document_id": "source",
+          "chunk_id": "cl1-kayaks_source_0",
+          "tags": [],
+          "metadata": {},
+          "observation_scopes": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:59:13.827923+00:00",
+          "consolidated_at": null,
+          "consolidation_failed_at": null
+        },
+        {
+          "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+          "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "type": "world",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": [
+            "orange touring kayak",
+            "user",
+            "white racing kayak"
+          ],
+          "document_id": "source",
+          "chunk_id": "cl1-kayaks_source_0",
+          "tags": [],
+          "metadata": {},
+          "observation_scopes": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:59:13.861058+00:00",
+          "consolidated_at": null,
+          "consolidation_failed_at": null
+        }
+      ],
+      "snapshot": {
+        "stage": "forced-reprocess",
+        "list": {
+          "items": [
+            {
+              "id": "e3353b2e-1c39-4295-aa62-a79ef04feb78",
+              "text": "User's white racing kayak is stored at the club.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.030000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:05.749379+00:00",
+              "source_memory_ids": [
+                "cd66e628-6bbf-459a-8347-b83a8cbcf4a3"
+              ]
+            },
+            {
+              "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+              "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.030000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "club, user, white racing kayak",
+              "chunk_id": "cl1-kayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:03.741192+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "ad6d8a7f-e8e2-45bf-91fb-dc14bd4ac33e",
+              "text": "User's purple touring kayak has a deck compass.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:15.407676+00:00",
+              "source_memory_ids": [
+                "4b85749e-c315-48c9-af08-0dadd4cd07e5"
+              ]
+            },
+            {
+              "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+              "text": "User's purple touring kayak now has a deck compass. | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.020000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "deck compass, orange touring kayak, user",
+              "chunk_id": "cl1-kayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:59:15.416440+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": "2026-11-18T15:59:13.827923+00:00",
+              "updated_at": "2026-11-18T15:59:13.827923+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "278eadcc-33f6-4721-947e-b5d2ac9e95c1",
+              "text": "User paddles the touring kayak on Saturdays.",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:05.749379+00:00",
+              "source_memory_ids": [
+                "b851b183-79a4-4903-9fbc-c62951eda295"
+              ]
+            },
+            {
+              "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+              "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00.010000+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "touring kayak, user",
+              "chunk_id": "cl1-kayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:59:05.758366+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:03.741192+00:00",
+              "source_memory_ids": []
+            },
+            {
+              "id": "0812e6b5-8223-46d9-bc5b-bed3f4393447",
+              "text": "User owns a purple touring kayak.",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:15.407676+00:00",
+              "source_memory_ids": [
+                "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+              ]
+            },
+            {
+              "id": "aece0ba2-36f1-42db-b3ca-605dcb324c1a",
+              "text": "User owns a white racing kayak.",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "observation",
+              "document_id": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "",
+              "chunk_id": null,
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": null,
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": null,
+              "updated_at": "2026-11-18T15:59:15.407676+00:00",
+              "source_memory_ids": [
+                "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+              ]
+            },
+            {
+              "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+              "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+              "context": "",
+              "date": "2026-11-18T12:00:00+00:00",
+              "fact_type": "world",
+              "document_id": "source",
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "occurred_start": null,
+              "occurred_end": null,
+              "entities": "orange touring kayak, user, white racing kayak",
+              "chunk_id": "cl1-kayaks_source_0",
+              "proof_count": 1,
+              "tags": [],
+              "metadata": {},
+              "consolidated_at": "2026-11-18T15:59:15.416440+00:00",
+              "consolidation_failed_at": null,
+              "state": "valid",
+              "invalidation_reason": null,
+              "invalidated_at": null,
+              "edited_at": "2026-11-18T15:59:13.861058+00:00",
+              "updated_at": "2026-11-18T15:59:13.861058+00:00",
+              "source_memory_ids": []
+            }
+          ],
+          "total": 9,
+          "limit": 100,
+          "offset": 0
+        },
+        "recall": {
+          "results": [
+            {
+              "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+              "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user",
+              "type": "world",
+              "entities": [
+                "touring kayak",
+                "user"
+              ],
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.093796432435964,
+                "reranker": 0.9944427013397217,
+                "semantic": 0.8381503127902947,
+                "keyword": 0.30000001192092896
+              },
+              "attachments": null
+            },
+            {
+              "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+              "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+              "type": "world",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "orange touring kayak"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 1.091646140345131,
+                "reranker": 0.9924877285957336,
+                "semantic": 0.8645188131641649,
+                "keyword": 0.4000000059604645
+              },
+              "attachments": null
+            },
+            {
+              "id": "278eadcc-33f6-4721-947e-b5d2ac9e95c1",
+              "text": "User paddles the touring kayak on Saturdays.",
+              "type": "observation",
+              "entities": [
+                "touring kayak",
+                "user"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "b851b183-79a4-4903-9fbc-c62951eda295"
+              ],
+              "scores": {
+                "final": 1.0886575367194447,
+                "reranker": 0.9897705912590027,
+                "semantic": 0.8237904801243845,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "e3353b2e-1c39-4295-aa62-a79ef04feb78",
+              "text": "User's white racing kayak is stored at the club.",
+              "type": "observation",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "club"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "cd66e628-6bbf-459a-8347-b83a8cbcf4a3"
+              ],
+              "scores": {
+                "final": 1.072025504298437,
+                "reranker": 0.9746493101119995,
+                "semantic": 0.8252245679631587,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "0812e6b5-8223-46d9-bc5b-bed3f4393447",
+              "text": "User owns a purple touring kayak.",
+              "type": "observation",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "orange touring kayak"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+              ],
+              "scores": {
+                "final": 1.0600338514594863,
+                "reranker": 0.9637469053268433,
+                "semantic": 0.8452718257904113,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "aece0ba2-36f1-42db-b3ca-605dcb324c1a",
+              "text": "User owns a white racing kayak.",
+              "type": "observation",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "orange touring kayak"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173"
+              ],
+              "scores": {
+                "final": 1.0464902044411037,
+                "reranker": 0.9514334797859192,
+                "semantic": 0.8444576263427794,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+              "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user",
+              "type": "world",
+              "entities": [
+                "white racing kayak",
+                "user",
+                "club"
+              ],
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.9504773283631033,
+                "reranker": 0.8641418218612671,
+                "semantic": 0.8472000269413026,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            },
+            {
+              "id": "ad6d8a7f-e8e2-45bf-91fb-dc14bd4ac33e",
+              "text": "User's purple touring kayak has a deck compass.",
+              "type": "observation",
+              "entities": [
+                "user",
+                "orange touring kayak",
+                "deck compass"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": null,
+              "metadata": {},
+              "chunk_id": null,
+              "tags": [],
+              "source_fact_ids": [
+                "4b85749e-c315-48c9-af08-0dadd4cd07e5"
+              ],
+              "scores": {
+                "final": 0.9077246136823629,
+                "reranker": 0.8252725005149841,
+                "semantic": 0.8224174274454982,
+                "keyword": 0.10000000149011612
+              },
+              "attachments": null
+            },
+            {
+              "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+              "text": "User's purple touring kayak now has a deck compass. | Involving: user",
+              "type": "world",
+              "entities": [
+                "user",
+                "orange touring kayak",
+                "deck compass"
+              ],
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": [],
+              "source_fact_ids": null,
+              "scores": {
+                "final": 0.4680862011272824,
+                "reranker": 0.4255681335926056,
+                "semantic": 0.8337380687878214,
+                "keyword": 0.20000000298023224
+              },
+              "attachments": null
+            }
+          ],
+          "trace": null,
+          "entities": {
+            "touring kayak": {
+              "entity_id": "932f34ef-e159-4077-941f-a5e3bb660f2d",
+              "canonical_name": "touring kayak",
+              "observations": []
+            },
+            "user": {
+              "entity_id": "9b7f8932-7265-4b9a-8599-1978de546a34",
+              "canonical_name": "user",
+              "observations": []
+            },
+            "white racing kayak": {
+              "entity_id": "411432eb-486a-47bd-b9f5-33cc74e9cdd2",
+              "canonical_name": "white racing kayak",
+              "observations": []
+            },
+            "orange touring kayak": {
+              "entity_id": "ab7fae78-cdde-4c4f-b9b3-479b43f0e12c",
+              "canonical_name": "orange touring kayak",
+              "observations": []
+            },
+            "club": {
+              "entity_id": "bc16586b-88fd-497e-a46f-08e89543de31",
+              "canonical_name": "club",
+              "observations": []
+            },
+            "deck compass": {
+              "entity_id": "c40c0107-cae4-4a34-b2d1-bd7930ef9aca",
+              "canonical_name": "deck compass",
+              "observations": []
+            }
+          },
+          "chunks": {
+            "cl1-kayaks_source_0": {
+              "id": "cl1-kayaks_source_0",
+              "text": "User: I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+              "chunk_index": 0,
+              "truncated": false,
+              "attachments": null
+            }
+          },
+          "source_facts": {
+            "b851b183-79a4-4903-9fbc-c62951eda295": {
+              "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+              "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "cd66e628-6bbf-459a-8347-b83a8cbcf4a3": {
+              "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+              "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": "",
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.030000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173": {
+              "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+              "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            },
+            "4b85749e-c315-48c9-af08-0dadd4cd07e5": {
+              "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+              "text": "User's purple touring kayak now has a deck compass. | Involving: user",
+              "type": "world",
+              "entities": null,
+              "context": null,
+              "occurred_start": null,
+              "occurred_end": null,
+              "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+              "document_id": "source",
+              "metadata": {},
+              "chunk_id": "cl1-kayaks_source_0",
+              "tags": null,
+              "source_fact_ids": null,
+              "scores": null,
+              "attachments": null
+            }
+          },
+          "source_facts_truncated": false
+        },
+        "admitted": [
+          {
+            "id": "b851b183-79a4-4903-9fbc-c62951eda295",
+            "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+          },
+          {
+            "id": "a13dd6d7-cfd7-4ec3-a4b6-b78e17629173",
+            "text": "User owns a purple touring kayak and a white racing kayak. | Involving: user"
+          },
+          {
+            "id": "cd66e628-6bbf-459a-8347-b83a8cbcf4a3",
+            "text": "User's white racing kayak is stored at the club. | Where: club | Involving: user"
+          },
+          {
+            "id": "4b85749e-c315-48c9-af08-0dadd4cd07e5",
+            "text": "User's purple touring kayak now has a deck compass. | Involving: user"
+          }
+        ],
+        "answer": {
+          "text": "You own a purple touring kayak and a white racing kayak. You paddle the touring kayak on Saturdays. The purple touring kayak has a deck compass. The white racing kayak is stored at the club. The provided facts do not specify when you paddle the racing kayak or any other equipment/storage details for either kayak.",
+          "response": {
+            "id": "chatcmpl-996b15a8c09a2467",
+            "object": "chat.completion",
+            "created": 1795017556,
+            "model": "qwen3-6-27b",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": "You own a purple touring kayak and a white racing kayak. You paddle the touring kayak on Saturdays. The purple touring kayak has a deck compass. The white racing kayak is stored at the club. The provided facts do not specify when you paddle the racing kayak or any other equipment/storage details for either kayak.",
+                  "refusal": null,
+                  "annotations": null,
+                  "audio": null,
+                  "function_call": null,
+                  "reasoning": null
+                },
+                "logprobs": null,
+                "finish_reason": "stop",
+                "stop_reason": null,
+                "token_ids": null,
+                "routed_experts": null
+              }
+            ],
+            "service_tier": null,
+            "system_fingerprint": "vllm-0.31.0-6612147e",
+            "usage": {
+              "prompt_tokens": 320,
+              "total_tokens": 382,
+              "completion_tokens": 62,
+              "prompt_tokens_details": null,
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "prompt_logprobs": null,
+            "prompt_token_ids": null,
+            "prompt_text": null,
+            "kv_transfer_params": null,
+            "ec_transfer_params": null,
+            "metrics": null
+          }
+        }
+      }
+    }
+  }
+]

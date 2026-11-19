@@ -1,0 +1,345 @@
+[
+  {
+    "id": "question_only",
+    "query": "What camera do I own?",
+    "want": "ownership unknown",
+    "evidence": [],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "I do not have any evidence indicating what camera you own.",
+      "usage": {
+        "prompt_tokens": 193,
+        "total_tokens": 206,
+        "completion_tokens": 13,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 243,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "shopping",
+    "query": "Which dishwasher is installed in my kitchen?",
+    "want": "installed dishwasher unknown; shopping does not establish purchase",
+    "evidence": [
+      {
+        "id": "0e41e4b0-a2fc-4db8-abee-0d917a21d1c1",
+        "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "document_id": null
+      },
+      {
+        "id": "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9",
+        "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen. | Involving: user | Concerned about noise levels in an open-plan kitchen.",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "document_id": "source"
+      },
+      {
+        "id": "ac79c8e7-7107-4cbe-99f7-dd02ead4d3a8",
+        "text": "User is concerned about noise levels in an open-plan kitchen.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+        "document_id": null
+      },
+      {
+        "id": "448a955a-d9a8-41fe-a278-52fcdedb4e51",
+        "text": "User is comparing dishwashers. | Involving: user",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "Based on the available evidence, no dishwasher is currently installed in your kitchen. You are only considering the Bosch Series 4 and comparing dishwashers, with specific concerns about noise levels in an open-plan layout. There is no record of a purchase or installation.",
+      "usage": {
+        "prompt_tokens": 584,
+        "total_tokens": 637,
+        "completion_tokens": 53,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 524,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "neighbor_device",
+    "query": "What laptop do I own?",
+    "want": "user laptop unknown; Dell belongs to neighbor",
+    "evidence": [
+      {
+        "id": "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776",
+        "text": "The user's neighbor left a Dell XPS 13 with the user for repair. | When: 2026-10-01 | Involving: user, user's neighbor",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      },
+      {
+        "id": "7db2b025-9ff7-4bbe-9e3a-6e4d9fad1a54",
+        "text": "The user's neighbor left a Dell XPS 13 with the user for repair on 2026-10-01.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "Based on the provided evidence, it is unknown what laptop you own. The records only state that your neighbor left a Dell XPS 13 with you for repair on October 1, 2026. This indicates possession for repair purposes, not ownership.",
+      "usage": {
+        "prompt_tokens": 413,
+        "total_tokens": 468,
+        "completion_tokens": 55,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 478,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "translation",
+    "query": "How many children do I have, and what is my profession?",
+    "want": "both unknown; translated text is not biography",
+    "evidence": [],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "I do not have any information about your number of children or your profession.",
+      "usage": {
+        "prompt_tokens": 200,
+        "total_tokens": 216,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 399,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "actual_self_assertion",
+    "query": "Which laptop do I have?",
+    "want": "Asus Zenbook 14",
+    "evidence": [
+      {
+        "id": "bf6e3df1-a3e8-4fe8-9e59-ae6636901549",
+        "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026. | When: October 1, 2026 | Involving: user",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      },
+      {
+        "id": "91a16c9f-f2a4-4b24-9613-5ad5b90d816c",
+        "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "You have an Asus Zenbook 14.",
+      "usage": {
+        "prompt_tokens": 411,
+        "total_tokens": 422,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 212,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "not_yet_sold",
+    "query": "Have I sold my car, and which model is it?",
+    "want": "not sold according to statement; Ford Focus",
+    "evidence": [
+      {
+        "id": "53580f6d-2530-4b22-9ed7-150ca7a26e9c",
+        "text": "The user is thinking of selling their Ford Focus but has not listed it yet.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      },
+      {
+        "id": "71339898-bac3-4399-88f4-27f7b0f9e9db",
+        "text": "User is thinking of selling their Ford Focus but has not listed it yet. | Involving: user",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "You have not sold your car yet. You are currently thinking of selling it, but it has not been listed. The model is a Ford Focus.",
+      "usage": {
+        "prompt_tokens": 390,
+        "total_tokens": 421,
+        "completion_tokens": 31,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 412,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "question_only_hu",
+    "query": "Milyen porszívóm van?",
+    "want": "ownership unknown",
+    "evidence": [],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "Nincs adat a porszívódról.",
+      "usage": {
+        "prompt_tokens": 195,
+        "total_tokens": 207,
+        "completion_tokens": 12,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 235,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "query": "Tudsz rólam valamilyen ételérzékenységet?",
+    "want": "user food sensitivity unknown; client is gluten-sensitive",
+    "evidence": [
+      {
+        "id": "287763b0-ad94-42c5-a3a4-797db2717ee1",
+        "text": "Az étteremkeresés Budapesten történik.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      },
+      {
+        "id": "03c84eaf-1be4-4adf-8cfc-54a7879d6b34",
+        "text": "Az ügyfél gluténérzékeny, és az étteremkeresés Budapesten történik. | Where: Budapest | Involving: user, ügyfél | Gluténérzékenység miatt speciális étterem szükséges.",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      },
+      {
+        "id": "be9eea11-045b-41ff-b3c6-05d006037e14",
+        "text": "Az ügyfél gluténérzékeny.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "Az elérhető bizonyítékok alapján nem állapítható meg, hogy *neked* van-e ételérzékenységed. Az adatok csak azt rögzítik, hogy egy „ügyfél” gluténérzékeny, és az étteremkeresés Budapesten történik. A gluténérzékenység tehát egy harmadik félre vonatkozik, nem pedig rád.",
+      "usage": {
+        "prompt_tokens": 501,
+        "total_tokens": 592,
+        "completion_tokens": 91,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 1176,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "applicant_hu",
+    "query": "Mi a foglalkozásom?",
+    "want": "user profession unknown; applicant is biologist",
+    "evidence": [
+      {
+        "id": "d11f4f6f-a194-49b7-a5b3-1f6cabae9b33",
+        "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      },
+      {
+        "id": "d886dee8-e9f6-4291-9609-b15c505871c1",
+        "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik. | When: 2026-10-01 | Involving: user",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "A megadott bizonyítékok alapján nem állapítható meg a foglalkozásod. Az adatok csak arra utalnak, hogy egy biológus jelentkező számára kértél motivációs levelet, de ez nem jelenti azt, hogy te magad biológus vagy.",
+      "usage": {
+        "prompt_tokens": 422,
+        "total_tokens": 489,
+        "completion_tokens": 67,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 700,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "self_assertion_hu",
+    "query": "Milyen e-könyv-olvasóm van?",
+    "want": "Kobo Libra Colour",
+    "evidence": [
+      {
+        "id": "39d6c769-65f6-4536-b9b5-a03f7e62645d",
+        "text": "A felhasználó Kobo Libra Colour olvasóján túl kicsik a betűk. | Involving: user | A felhasználó betűméret-növelési útmutatást kér.",
+        "type": "world",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": "source"
+      },
+      {
+        "id": "86e230ae-04f6-46d1-a757-112f7d6b914e",
+        "text": "The user's Kobo Libra Colour e-reader has text that is too small.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      },
+      {
+        "id": "22af440f-f1fd-456b-b2f5-ca92c864de66",
+        "text": "The user requested guidance on increasing the font size on their Kobo Libra Colour.",
+        "type": "observation",
+        "mentioned_at": "2026-10-01T12:00:00+00:00",
+        "document_id": null
+      }
+    ],
+    "answer": {
+      "arm": "compact-native-facts",
+      "text": "Kobo Libra Colour e-könyv-olvasód van.",
+      "usage": {
+        "prompt_tokens": 499,
+        "total_tokens": 514,
+        "completion_tokens": 15,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 227,
+      "finish": "stop"
+    }
+  }
+]

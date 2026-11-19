@@ -1,0 +1,29 @@
+{
+  "at": "2026-11-18T19:18:28.300Z",
+  "deleted": [
+    {
+      "bank": "cap-1118-short",
+      "result": {
+        "success": true,
+        "message": "Bank 'cap-1118-short' and all associated data deleted successfully",
+        "deleted_count": 213
+      }
+    },
+    {
+      "bank": "cap-1118-context",
+      "result": {
+        "success": true,
+        "message": "Bank 'cap-1118-context' and all associated data deleted successfully",
+        "deleted_count": 111
+      }
+    },
+    {
+      "bank": "cap-1118-long",
+      "result": {
+        "success": true,
+        "message": "Bank 'cap-1118-long' and all associated data deleted successfully",
+        "deleted_count": 19
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "clf-1118-baseline-en",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'clf-1118-baseline-en' and all associated data deleted successfully\",\"deleted_count\":31}"
+  },
+  {
+    "id": "clf-1118-current-en",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'clf-1118-current-en' and all associated data deleted successfully\",\"deleted_count\":28}"
+  },
+  {
+    "id": "clf-1118-current-hu",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'clf-1118-current-hu' and all associated data deleted successfully\",\"deleted_count\":28}"
+  },
+  {
+    "id": "clf-1118-serial-en",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'clf-1118-serial-en' and all associated data deleted successfully\",\"deleted_count\":32}"
+  },
+  {
+    "id": "clf-1118-serial-hu",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'clf-1118-serial-hu' and all associated data deleted successfully\",\"deleted_count\":29}"
+  },
+  {
+    "id": "clf-1118-serial-holdout",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'clf-1118-serial-holdout' and all associated data deleted successfully\",\"deleted_count\":26}"
+  }
+]

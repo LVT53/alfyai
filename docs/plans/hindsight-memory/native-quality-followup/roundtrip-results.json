@@ -1,0 +1,807 @@
+[
+  {
+    "id": "forget_keep_new_details",
+    "items": {
+      "items": [
+        {
+          "id": "7164df11-0af6-4589-86a9-270b16e24782",
+          "text": "User started pottery.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:02:58.968215+00:00",
+          "source_memory_ids": [
+            "4364c0d1-1454-474f-9ace-eea9035694b2"
+          ]
+        },
+        {
+          "id": "4364c0d1-1454-474f-9ace-eea9035694b2",
+          "text": "User started pottery. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "pottery, user",
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:02:58.974017+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:59:49.164139+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "441f3569-8886-4a14-b2d3-c85ad98667d4",
+          "text": "User prefers espresso as of November 18, 2026.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:02:58.968215+00:00",
+          "source_memory_ids": [
+            "1307809d-1563-4a74-94c6-54d7737d4c8b"
+          ]
+        },
+        {
+          "id": "1307809d-1563-4a74-94c6-54d7737d4c8b",
+          "text": "User now prefers espresso as of November 18, 2026. | When: November 18, 2026 | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "espresso, user",
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:02:58.974017+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T14:59:49.164139+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "56775f4a-eb91-464e-83ee-42e2fff79ff1",
+          "text": "User owns a bicycle.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:02:58.968215+00:00",
+          "source_memory_ids": [
+            "50b8cce7-827b-4113-84b5-999097daac37"
+          ]
+        },
+        {
+          "id": "50b8cce7-827b-4113-84b5-999097daac37",
+          "text": "User owns a bicycle. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "bicycle, user",
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:02:58.974017+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:02:57.117528+00:00",
+          "updated_at": "2026-11-18T15:02:57.117528+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "50b8cce7-827b-4113-84b5-999097daac37",
+          "text": "User owns a bicycle. | Involving: user",
+          "type": "world",
+          "entities": [
+            "bicycle",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0502741064976082,
+            "reranker": 0.9548550844192505,
+            "semantic": 0.8594312327930702,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "56775f4a-eb91-464e-83ee-42e2fff79ff1",
+          "text": "User owns a bicycle.",
+          "type": "observation",
+          "entities": [
+            "bicycle",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "50b8cce7-827b-4113-84b5-999097daac37"
+          ],
+          "scores": {
+            "final": 1.0482354229167385,
+            "reranker": 0.9530016183853149,
+            "semantic": 0.8607740915283034,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "7164df11-0af6-4589-86a9-270b16e24782",
+          "text": "User started pottery.",
+          "type": "observation",
+          "entities": [
+            "pottery",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "4364c0d1-1454-474f-9ace-eea9035694b2"
+          ],
+          "scores": {
+            "final": 0.002215145768109072,
+            "reranker": 0.00201389635913074,
+            "semantic": 0.772678017616272,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "4364c0d1-1454-474f-9ace-eea9035694b2",
+          "text": "User started pottery. | Involving: user",
+          "type": "world",
+          "entities": [
+            "pottery",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0021900610183661893,
+            "reranker": 0.0019910905975848436,
+            "semantic": 0.798624575138092,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "1307809d-1563-4a74-94c6-54d7737d4c8b",
+          "text": "User now prefers espresso as of November 18, 2026. | When: November 18, 2026 | Involving: user",
+          "type": "world",
+          "entities": [
+            "espresso",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0019436172453194654,
+            "reranker": 0.0017670366214588284,
+            "semantic": 0.79542076587677,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "441f3569-8886-4a14-b2d3-c85ad98667d4",
+          "text": "User prefers espresso as of November 18, 2026.",
+          "type": "observation",
+          "entities": [
+            "espresso",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "1307809d-1563-4a74-94c6-54d7737d4c8b"
+          ],
+          "scores": {
+            "final": 0.0010375397584434071,
+            "reranker": 0.0009432776714675128,
+            "semantic": 0.8004075288772583,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "bicycle": {
+          "entity_id": "79ec7520-7972-4e44-8b85-5fcca19cd5b0",
+          "canonical_name": "bicycle",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "f9b69947-0b68-4ec2-8d45-9dbd6e5c4383",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "pottery": {
+          "entity_id": "57e7bd26-27bb-4031-8f88-808b5cb04e57",
+          "canonical_name": "pottery",
+          "observations": []
+        },
+        "espresso": {
+          "entity_id": "0b3068d1-3978-48dd-a303-61ac6c72b922",
+          "canonical_name": "espresso",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "50b8cce7-827b-4113-84b5-999097daac37": {
+          "id": "50b8cce7-827b-4113-84b5-999097daac37",
+          "text": "User owns a bicycle. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "4364c0d1-1454-474f-9ace-eea9035694b2": {
+          "id": "4364c0d1-1454-474f-9ace-eea9035694b2",
+          "text": "User started pottery. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "1307809d-1563-4a74-94c6-54d7737d4c8b": {
+          "id": "1307809d-1563-4a74-94c6-54d7737d4c8b",
+          "text": "User now prefers espresso as of November 18, 2026. | When: November 18, 2026 | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-forget-keep-new-details_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  },
+  {
+    "id": "shared_subject_hu",
+    "items": {
+      "items": [
+        {
+          "id": "3c181108-c246-452f-99cc-96fd1c9cdb46",
+          "text": "A felhasználó 2026. november 18-án kerámiázni tanul.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:03:01.188942+00:00",
+          "source_memory_ids": [
+            "c78baf26-d8a4-4e0d-b75c-28c85afd867d"
+          ]
+        },
+        {
+          "id": "c78baf26-d8a4-4e0d-b75c-28c85afd867d",
+          "text": "A felhasználó 2026. november 18-án kerámiázni tanul. | When: 2026. november 18. | Involving: user",
+          "context": "",
+          "date": "2026-11-18T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "kerámiázás, user",
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:03:01.194303+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:00:15.070446+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "e1c7ee66-a576-4daf-8ee1-ab15d497b804",
+          "text": "A felhasználó és a párja Szegeden él.",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:03:01.188942+00:00",
+          "source_memory_ids": [
+            "d56b1bd6-3123-4e0d-85a1-c9ef090709b3"
+          ]
+        },
+        {
+          "id": "d56b1bd6-3123-4e0d-85a1-c9ef090709b3",
+          "text": "A felhasználó és a párja Szegeden él. | Where: Szeged | Involving: user, a felhasználó párja",
+          "context": "",
+          "date": "2026-11-18T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Szeged, pár, user",
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:03:01.194303+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:00:15.070446+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "54616a92-9cd8-478c-8c3c-26eb4a527bc2",
+          "text": "A felhasználó párja gluténérzékeny.",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T15:03:01.188942+00:00",
+          "source_memory_ids": [
+            "481509f6-ffd2-4c16-8c56-02ffca1838fa"
+          ]
+        },
+        {
+          "id": "481509f6-ffd2-4c16-8c56-02ffca1838fa",
+          "text": "A felhasználó párja gluténérzékeny. | Involving: a felhasználó párja",
+          "context": "",
+          "date": "2026-11-18T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "gluténérzékenység, pár, user",
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T15:03:01.194303+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": "2026-11-18T15:02:59.248366+00:00",
+          "updated_at": "2026-11-18T15:02:59.248366+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "recall": {
+      "results": [
+        {
+          "id": "d56b1bd6-3123-4e0d-85a1-c9ef090709b3",
+          "text": "A felhasználó és a párja Szegeden él. | Where: Szeged | Involving: user, a felhasználó párja",
+          "type": "world",
+          "entities": [
+            "Szeged",
+            "user",
+            "pár"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.019046591331880296,
+            "reranker": 0.0173161793500185,
+            "semantic": 0.7905300259590206,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "c78baf26-d8a4-4e0d-b75c-28c85afd867d",
+          "text": "A felhasználó 2026. november 18-án kerámiázni tanul. | When: 2026. november 18. | Involving: user",
+          "type": "world",
+          "entities": [
+            "kerámiázás",
+            "user"
+          ],
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0016012845321427861,
+            "reranker": 0.0014558053808286786,
+            "semantic": 0.7533198742079823,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "3c181108-c246-452f-99cc-96fd1c9cdb46",
+          "text": "A felhasználó 2026. november 18-án kerámiázni tanul.",
+          "type": "observation",
+          "entities": [
+            "kerámiázás",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "c78baf26-d8a4-4e0d-b75c-28c85afd867d"
+          ],
+          "scores": {
+            "final": 0.0014208597507810185,
+            "reranker": 0.001291772467084229,
+            "semantic": 0.742365256406949,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "481509f6-ffd2-4c16-8c56-02ffca1838fa",
+          "text": "A felhasználó párja gluténérzékeny. | Involving: a felhasználó párja",
+          "type": "world",
+          "entities": [
+            "gluténérzékenység",
+            "user",
+            "pár"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0013310881037320518,
+            "reranker": 0.0012101567117497325,
+            "semantic": 0.8172716120157705,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "54616a92-9cd8-478c-8c3c-26eb4a527bc2",
+          "text": "A felhasználó párja gluténérzékeny.",
+          "type": "observation",
+          "entities": [
+            "gluténérzékenység",
+            "user",
+            "pár"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "481509f6-ffd2-4c16-8c56-02ffca1838fa"
+          ],
+          "scores": {
+            "final": 0.000830128306926998,
+            "reranker": 0.0007547098794020712,
+            "semantic": 0.8133204205846285,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "e1c7ee66-a576-4daf-8ee1-ab15d497b804",
+          "text": "A felhasználó és a párja Szegeden él.",
+          "type": "observation",
+          "entities": [
+            "Szeged",
+            "user",
+            "pár"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "d56b1bd6-3123-4e0d-85a1-c9ef090709b3"
+          ],
+          "scores": {
+            "final": 0.0006956193731853361,
+            "reranker": 0.0006324212881736457,
+            "semantic": 0.7755223050402235,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Szeged": {
+          "entity_id": "194da2bb-aa19-47e1-8a42-1f0e9fc80b53",
+          "canonical_name": "Szeged",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "50e30434-aa5f-45ad-b7af-9d80fcc0ce07",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "pár": {
+          "entity_id": "5fe0ed9e-8160-4946-97d0-256f19d1ff9a",
+          "canonical_name": "pár",
+          "observations": []
+        },
+        "kerámiázás": {
+          "entity_id": "09367662-f012-4589-8752-20c2173700a3",
+          "canonical_name": "kerámiázás",
+          "observations": []
+        },
+        "gluténérzékenység": {
+          "entity_id": "47fea6c6-ec35-4bd3-9ef8-2c5338136b1f",
+          "canonical_name": "gluténérzékenység",
+          "observations": []
+        }
+      },
+      "chunks": null,
+      "source_facts": {
+        "c78baf26-d8a4-4e0d-b75c-28c85afd867d": {
+          "id": "c78baf26-d8a4-4e0d-b75c-28c85afd867d",
+          "text": "A felhasználó 2026. november 18-án kerámiázni tanul. | When: 2026. november 18. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.020000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "481509f6-ffd2-4c16-8c56-02ffca1838fa": {
+          "id": "481509f6-ffd2-4c16-8c56-02ffca1838fa",
+          "text": "A felhasználó párja gluténérzékeny. | Involving: a felhasználó párja",
+          "type": "world",
+          "entities": null,
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        },
+        "d56b1bd6-3123-4e0d-85a1-c9ef090709b3": {
+          "id": "d56b1bd6-3123-4e0d-85a1-c9ef090709b3",
+          "text": "A felhasználó és a párja Szegeden él. | Where: Szeged | Involving: user, a felhasználó párja",
+          "type": "world",
+          "entities": null,
+          "context": "",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-11-18T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "nqnc-shared-subject-hu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    }
+  }
+]

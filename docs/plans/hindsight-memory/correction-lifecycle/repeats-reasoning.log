@@ -1,0 +1,5 @@
+phone 0 [{"id":"ffa1c90e-ad79-4bbd-8fa8-9f7f1704369a","text":"User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user"},{"id":"673221cf-c7dc-48e2-9d33-4dcb1e6f7587","text":"User's new personal telephone number is 07700 905555. | Involving: user"},{"id":"c7353803-bce5-4a6c-ad45-f83291af8bdf","text":"07700 904444 now belongs to the community choir reception."}]
+Error: {"error":{"message":"EngineCore encountered an issue. See stack trace (above) for the root cause.","type":"InternalServerError","param":null,"code":500}}
+    at model (/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/hindsight-memory/correction-lifecycle/lib-reasoning.cjs:11:571)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/docs/plans/hindsight-memory/correction-lifecycle/repeats-reasoning.cjs:3:280

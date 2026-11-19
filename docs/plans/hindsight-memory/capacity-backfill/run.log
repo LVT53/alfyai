@@ -1,0 +1,15 @@
+2026-11-18T19:10:30.619Z retain-short-16 105.8s
+2026-11-18T19:11:03.877Z consolidate-one-short 33.3s
+2026-11-18T19:11:29.246Z consolidate-eight-short 25.2s
+2026-11-18T19:12:03.623Z consolidate-one-short-repeat 34.2s
+2026-11-18T19:13:41.369Z retain-context-16 97.7s
+2026-11-18T19:14:15.646Z consolidate-one-context 34.3s
+2026-11-18T19:14:34.991Z retain-long-0 19.3s
+2026-11-18T19:14:54.415Z retain-long-1 19.4s
+2026-11-18T19:15:30.010Z retain-long-2 35.6s
+2026-11-18T19:15:41.223Z consolidate-one-long 11.2s
+2026-11-18T19:15:46.329Z live-turn-0 5.1s
+2026-11-18T19:15:54.486Z live-turn-1 8.2s
+2026-11-18T19:15:59.637Z live-turn-2 5.1s
+2026-11-18T19:16:05.760Z live-turn-3 6.1s
+2026-11-18T19:16:16.594Z CAPACITY COMPLETE

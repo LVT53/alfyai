@@ -1,0 +1,3461 @@
+{
+  "bank": "recovery-native-shared-gear",
+  "checks": [
+    {
+      "label": "historical-correction-is-not-physical-change",
+      "max_tokens": 1200,
+      "evidence": [
+        {
+          "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+          "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-question-plan"
+        },
+        {
+          "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+          "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+          "asserted_at": "2026-11-20T12:00:00Z",
+          "source": "explicit-source-edit"
+        },
+        {
+          "id": "2ad04224-930c-424a-8655-e7dab263b428",
+          "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+          "asserted_at": "2026-11-10T12:00:00Z",
+          "source": "manual-correction"
+        },
+        {
+          "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+          "text": "The user's touring kayak is blue. | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+          "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+          "text": "The user owns an orange touring kayak. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+          "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+          "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+          "text": "The user prefers decaf coffee. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        }
+      ],
+      "raw": {
+        "results": [
+          {
+            "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+            "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+            "type": "world",
+            "entities": [
+              "yellow",
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "document_id": "question-plan-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_question-plan-r1_0",
+            "tags": [
+              "question-plan-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0946147179603578,
+              "reranker": 0.9965935945510864,
+              "semantic": 0.850403453421696,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+            "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+            "type": "world",
+            "entities": [
+              "green touring kayak",
+              "user"
+            ],
+            "context": "Application source-edit event: only actual changes are newly asserted; before/unchanged text is historical context.",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "document_id": "source-edit-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_source-edit-r1_0",
+            "tags": [
+              "source-edit-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0945105857228579,
+              "reranker": 0.9974940419197083,
+              "semantic": 0.8382143281825991,
+              "keyword": 0.6000000238418579
+            },
+            "attachments": null
+          },
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "document_id": "manual-correction-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.089592602971482,
+              "reranker": 0.9979957342147827,
+              "semantic": 0.8876786298943399,
+              "keyword": 0.9000000357627869
+            },
+            "attachments": null
+          },
+          {
+            "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+            "text": "The user's touring kayak is blue. | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0742758439011768,
+              "reranker": 0.986441969871521,
+              "semantic": 0.8552993535995483,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "type": "world",
+            "entities": [
+              "club",
+              "user",
+              "racing kayak"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0703534132756491,
+              "reranker": 0.9848222732543945,
+              "semantic": 0.8251032829284668,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "type": "world",
+            "entities": [
+              "orange touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0382026645092115,
+              "reranker": 0.9552406668663025,
+              "semantic": 0.8406429981802122,
+              "keyword": 0.6000000238418579
+            },
+            "attachments": null
+          },
+          {
+            "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+            "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "espresso",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.008056241202905231,
+              "reranker": 0.007397554814815521,
+              "semantic": 0.7657849788665771,
+              "keyword": null
+            },
+            "attachments": null
+          },
+          {
+            "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+            "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+            "type": "world",
+            "entities": [
+              "paddling",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0012172644788681622,
+              "reranker": 0.0011177397100254893,
+              "semantic": 0.7966257333755493,
+              "keyword": null
+            },
+            "attachments": null
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "type": "world",
+            "entities": [
+              "decaf coffee",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0010831250765112623,
+              "reranker": 0.0009965733624994755,
+              "semantic": 0.7861095666885376,
+              "keyword": null
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "yellow": {
+            "entity_id": "b5e597ae-5ca9-42ec-b334-8947a60a9f27",
+            "canonical_name": "yellow",
+            "observations": []
+          },
+          "touring kayak": {
+            "entity_id": "b89b466c-8c86-49c5-849c-7bd4ed9a8873",
+            "canonical_name": "touring kayak",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "ecff840f-99d6-4e59-ba10-e53286d7d264",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "green touring kayak": {
+            "entity_id": "8f209683-4c8b-49a6-8472-3e4572644989",
+            "canonical_name": "green touring kayak",
+            "observations": []
+          },
+          "club": {
+            "entity_id": "d5409f5f-6397-497c-8300-bcc1ed54a921",
+            "canonical_name": "club",
+            "observations": []
+          },
+          "racing kayak": {
+            "entity_id": "f5097496-d6c6-4f01-9305-7e3f54d5632b",
+            "canonical_name": "racing kayak",
+            "observations": []
+          },
+          "orange touring kayak": {
+            "entity_id": "e2197de5-6ca5-4dbb-9577-bed19b81bbdb",
+            "canonical_name": "orange touring kayak",
+            "observations": []
+          },
+          "espresso": {
+            "entity_id": "23d4571a-b3d0-4ba2-9dc3-2f8c874f7346",
+            "canonical_name": "espresso",
+            "observations": []
+          },
+          "paddling": {
+            "entity_id": "d74f86ce-94de-429f-826b-13cf346afdd6",
+            "canonical_name": "paddling",
+            "observations": []
+          },
+          "decaf coffee": {
+            "entity_id": "5fc4bfcc-ca24-45ef-93d9-dcce23a3760d",
+            "canonical_name": "decaf coffee",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "answer": {
+        "text": "We cannot conclude that the kayak was physically repainted through that sequence. The evidence indicates conflicting statements and corrections rather than a physical transformation history.\n\nThe timeline shows:\n1.  **Nov 1, 2026:** Stated as orange.\n2.  **Nov 5, 2026:** Stated as blue.\n3.  **Nov 10, 2026:** Explicitly corrected to purple, noting it is \"not orange or blue.\"\n4.  **Nov 20, 2026:** Stated as green.\n\nThe Nov 10 correction explicitly negates the previous orange and blue claims, suggesting those were errors or different contexts, not prior physical states. The current state (as of the latest explicit assertion on Nov 20) is green. The plan to repaint it yellow in January 2027 is a future event and does not affect the current state. Therefore, these are conflicting assertions and corrections, not a verified physical repaint history.",
+        "response": {
+          "id": "chatcmpl-bcb16250b7da19c4",
+          "object": "chat.completion",
+          "created": 1795019148,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "We cannot conclude that the kayak was physically repainted through that sequence. The evidence indicates conflicting statements and corrections rather than a physical transformation history.\n\nThe timeline shows:\n1.  **Nov 1, 2026:** Stated as orange.\n2.  **Nov 5, 2026:** Stated as blue.\n3.  **Nov 10, 2026:** Explicitly corrected to purple, noting it is \"not orange or blue.\"\n4.  **Nov 20, 2026:** Stated as green.\n\nThe Nov 10 correction explicitly negates the previous orange and blue claims, suggesting those were errors or different contexts, not prior physical states. The current state (as of the latest explicit assertion on Nov 20) is green. The plan to repaint it yellow in January 2027 is a future event and does not affect the current state. Therefore, these are conflicting assertions and corrections, not a verified physical repaint history.",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 1006,
+            "total_tokens": 1222,
+            "completion_tokens": 216,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    },
+    {
+      "label": "later-statement-about-past",
+      "max_tokens": 1200,
+      "evidence": [
+        {
+          "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+          "text": "The user's friend owns a red kayak. | Involving: user's friend",
+          "asserted_at": "2026-11-23T12:00:00Z",
+          "source": "historical-message"
+        },
+        {
+          "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+          "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+          "asserted_at": "2026-11-20T12:00:00Z",
+          "source": "explicit-source-edit"
+        },
+        {
+          "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+          "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-question-plan"
+        },
+        {
+          "id": "2ad04224-930c-424a-8655-e7dab263b428",
+          "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+          "asserted_at": "2026-11-10T12:00:00Z",
+          "source": "manual-correction"
+        },
+        {
+          "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+          "text": "The user owns an orange touring kayak. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+          "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+          "text": "The user's touring kayak is blue. | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+          "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+          "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user",
+          "asserted_at": "2026-11-23T12:00:00Z",
+          "source": "historical-message"
+        },
+        {
+          "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+          "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+          "text": "The user prefers decaf coffee. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        }
+      ],
+      "raw": {
+        "results": [
+          {
+            "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+            "text": "The user's friend owns a red kayak. | Involving: user's friend",
+            "type": "world",
+            "entities": [
+              "red kayak",
+              "user's friend"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-23T12:00:00.010000+00:00",
+            "document_id": "historical-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_historical-r1_0",
+            "tags": [
+              "historical-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0962404952289995,
+              "reranker": 0.997576117515564,
+              "semantic": 0.876882486157567,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+            "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+            "type": "world",
+            "entities": [
+              "green touring kayak",
+              "user"
+            ],
+            "context": "Application source-edit event: only actual changes are newly asserted; before/unchanged text is historical context.",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "document_id": "source-edit-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_source-edit-r1_0",
+            "tags": [
+              "source-edit-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0958062609581098,
+              "reranker": 0.9986748695373535,
+              "semantic": 0.8763710113013996,
+              "keyword": 0.699999988079071
+            },
+            "attachments": null
+          },
+          {
+            "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+            "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+            "type": "world",
+            "entities": [
+              "yellow",
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "document_id": "question-plan-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_question-plan-r1_0",
+            "tags": [
+              "question-plan-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.091873150998599,
+              "reranker": 0.9940975308418274,
+              "semantic": 0.8712521378325351,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "document_id": "manual-correction-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0906655630020246,
+              "reranker": 0.9989784955978394,
+              "semantic": 0.8612049221992554,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "type": "world",
+            "entities": [
+              "orange touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.085301690591525,
+              "reranker": 0.9985760450363159,
+              "semantic": 0.8704826831817689,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "type": "world",
+            "entities": [
+              "club",
+              "user",
+              "racing kayak"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0851710916831923,
+              "reranker": 0.9984558820724487,
+              "semantic": 0.8539917978043451,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+            "text": "The user's touring kayak is blue. | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0834699665030387,
+              "reranker": 0.9948843717575073,
+              "semantic": 0.8638760366365946,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+            "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "espresso",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0473219532466072,
+              "reranker": 0.9616918563842773,
+              "semantic": 0.7780069576506007,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+            "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": "2026-07-01T00:00:00+00:00",
+            "occurred_end": "2026-07-31T23:59:59+00:00",
+            "mentioned_at": "2026-11-23T12:00:00+00:00",
+            "document_id": "historical-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_historical-r1_0",
+            "tags": [
+              "historical-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.9987810850143433,
+              "reranker": 0.9987810850143433,
+              "semantic": 0.8940952623571694,
+              "keyword": 1.2000000476837158
+            },
+            "attachments": null
+          },
+          {
+            "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+            "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+            "type": "world",
+            "entities": [
+              "paddling",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0004420862238641865,
+              "reranker": 0.00040594080928713083,
+              "semantic": 0.8032420160318637,
+              "keyword": null
+            },
+            "attachments": null
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "type": "world",
+            "entities": [
+              "decaf coffee",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0003750129048819747,
+              "reranker": 0.00034504590439610183,
+              "semantic": 0.7707862121335408,
+              "keyword": null
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "red kayak": {
+            "entity_id": "15f22b9b-a3e3-499f-a84d-878e2f533a9a",
+            "canonical_name": "red kayak",
+            "observations": []
+          },
+          "user's friend": {
+            "entity_id": "f1e84825-37c8-4cd0-86bf-2b98eae812b4",
+            "canonical_name": "user's friend",
+            "observations": []
+          },
+          "green touring kayak": {
+            "entity_id": "8f209683-4c8b-49a6-8472-3e4572644989",
+            "canonical_name": "green touring kayak",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "ecff840f-99d6-4e59-ba10-e53286d7d264",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "yellow": {
+            "entity_id": "b5e597ae-5ca9-42ec-b334-8947a60a9f27",
+            "canonical_name": "yellow",
+            "observations": []
+          },
+          "touring kayak": {
+            "entity_id": "b89b466c-8c86-49c5-849c-7bd4ed9a8873",
+            "canonical_name": "touring kayak",
+            "observations": []
+          },
+          "orange touring kayak": {
+            "entity_id": "e2197de5-6ca5-4dbb-9577-bed19b81bbdb",
+            "canonical_name": "orange touring kayak",
+            "observations": []
+          },
+          "club": {
+            "entity_id": "d5409f5f-6397-497c-8300-bcc1ed54a921",
+            "canonical_name": "club",
+            "observations": []
+          },
+          "racing kayak": {
+            "entity_id": "f5097496-d6c6-4f01-9305-7e3f54d5632b",
+            "canonical_name": "racing kayak",
+            "observations": []
+          },
+          "espresso": {
+            "entity_id": "23d4571a-b3d0-4ba2-9dc3-2f8c874f7346",
+            "canonical_name": "espresso",
+            "observations": []
+          },
+          "paddling": {
+            "entity_id": "d74f86ce-94de-429f-826b-13cf346afdd6",
+            "canonical_name": "paddling",
+            "observations": []
+          },
+          "decaf coffee": {
+            "entity_id": "5fc4bfcc-ca24-45ef-93d9-dcce23a3760d",
+            "canonical_name": "decaf coffee",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "answer": {
+        "text": "Your touring kayak is currently green, as explicitly stated in the latest assertion from November 20, 2026. In July 2026, it was orange, according to a historical message asserted on November 23, 2026. The red kayak is owned by your friend, as noted in an assertion from November 23, 2026. Note that the plan to repaint the kayak yellow in January 2027 is a future event and does not affect its current color.",
+        "response": {
+          "id": "chatcmpl-812374ea1471fa2a",
+          "object": "chat.completion",
+          "created": 1795019159,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Your touring kayak is currently green, as explicitly stated in the latest assertion from November 20, 2026. In July 2026, it was orange, according to a historical message asserted on November 23, 2026. The red kayak is owned by your friend, as noted in an assertion from November 23, 2026. Note that the plan to repaint the kayak yellow in January 2027 is a future event and does not affect its current color.",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 1190,
+            "total_tokens": 1301,
+            "completion_tokens": 111,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    },
+    {
+      "label": "new-current-chat-wins",
+      "max_tokens": 512,
+      "evidence": [
+        {
+          "id": "48804ad0-8ec0-481d-ae52-c3ff126f2685",
+          "text": "User's touring kayak is black as of November 24, 2026. | When: November 24, 2026 | Involving: user",
+          "asserted_at": "2026-11-24T12:00:00Z",
+          "source": "new-current-assertion"
+        },
+        {
+          "id": "2ad04224-930c-424a-8655-e7dab263b428",
+          "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+          "asserted_at": "2026-11-10T12:00:00Z",
+          "source": "manual-correction"
+        },
+        {
+          "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+          "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+          "asserted_at": "2026-11-20T12:00:00Z",
+          "source": "explicit-source-edit"
+        },
+        {
+          "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+          "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+          "text": "The user's touring kayak is blue. | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+          "text": "The user owns an orange touring kayak. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+          "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user",
+          "asserted_at": "2026-11-23T12:00:00Z",
+          "source": "historical-message"
+        },
+        {
+          "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+          "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-question-plan"
+        },
+        {
+          "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+          "text": "The user's friend owns a red kayak. | Involving: user's friend",
+          "asserted_at": "2026-11-23T12:00:00Z",
+          "source": "historical-message"
+        },
+        {
+          "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+          "text": "The user prefers decaf coffee. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+          "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+          "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        }
+      ],
+      "raw": {
+        "results": [
+          {
+            "id": "48804ad0-8ec0-481d-ae52-c3ff126f2685",
+            "text": "User's touring kayak is black as of November 24, 2026. | When: November 24, 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-24T12:00:00+00:00",
+            "document_id": "current-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_current-r1_0",
+            "tags": [
+              "current-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0970688362154242,
+              "reranker": 0.9978323578834534,
+              "semantic": 0.8555585828090574,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "document_id": "manual-correction-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0893935379100173,
+              "reranker": 0.9978134036064148,
+              "semantic": 0.8643534345205505,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+            "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+            "type": "world",
+            "entities": [
+              "green touring kayak",
+              "user"
+            ],
+            "context": "Application source-edit event: only actual changes are newly asserted; before/unchanged text is historical context.",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "document_id": "source-edit-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_source-edit-r1_0",
+            "tags": [
+              "source-edit-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0864540638988964,
+              "reranker": 0.9901516437530518,
+              "semantic": 0.8322986364364683,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "type": "world",
+            "entities": [
+              "club",
+              "user",
+              "racing kayak"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0850884307860453,
+              "reranker": 0.9983798265457153,
+              "semantic": 0.8335034946499187,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+            "text": "The user's touring kayak is blue. | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0839274007163635,
+              "reranker": 0.9953044056892395,
+              "semantic": 0.8505576938058336,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "type": "world",
+            "entities": [
+              "orange touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.072860124290806,
+              "reranker": 0.9871286749839783,
+              "semantic": 0.8228970977190616,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+            "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": "2026-07-01T00:00:00+00:00",
+            "occurred_end": "2026-07-31T23:59:59+00:00",
+            "mentioned_at": "2026-11-23T12:00:00+00:00",
+            "document_id": "historical-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_historical-r1_0",
+            "tags": [
+              "historical-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.9903823733329773,
+              "reranker": 0.9903823733329773,
+              "semantic": 0.8449706779429148,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+            "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+            "type": "world",
+            "entities": [
+              "yellow",
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "document_id": "question-plan-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_question-plan-r1_0",
+            "tags": [
+              "question-plan-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.941646450186429,
+              "reranker": 0.857323408126831,
+              "semantic": 0.8390220153623252,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+            "text": "The user's friend owns a red kayak. | Involving: user's friend",
+            "type": "world",
+            "entities": [
+              "red kayak",
+              "user's friend"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-23T12:00:00.010000+00:00",
+            "document_id": "historical-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_historical-r1_0",
+            "tags": [
+              "historical-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.21167037932020444,
+              "reranker": 0.19261951744556427,
+              "semantic": 0.8098055833694006,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "type": "world",
+            "entities": [
+              "decaf coffee",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0025198392158772903,
+              "reranker": 0.0023184807505458593,
+              "semantic": 0.8312185507286474,
+              "keyword": 0.30000001192092896
+            },
+            "attachments": null
+          },
+          {
+            "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+            "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "espresso",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0007370707813811684,
+              "reranker": 0.0006768071325495839,
+              "semantic": 0.8043987867594503,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+            "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+            "type": "world",
+            "entities": [
+              "paddling",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.00042049794331982425,
+              "reranker": 0.00038611760828644037,
+              "semantic": 0.774958206715692,
+              "keyword": null
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "touring kayak": {
+            "entity_id": "b89b466c-8c86-49c5-849c-7bd4ed9a8873",
+            "canonical_name": "touring kayak",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "ecff840f-99d6-4e59-ba10-e53286d7d264",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "green touring kayak": {
+            "entity_id": "8f209683-4c8b-49a6-8472-3e4572644989",
+            "canonical_name": "green touring kayak",
+            "observations": []
+          },
+          "club": {
+            "entity_id": "d5409f5f-6397-497c-8300-bcc1ed54a921",
+            "canonical_name": "club",
+            "observations": []
+          },
+          "racing kayak": {
+            "entity_id": "f5097496-d6c6-4f01-9305-7e3f54d5632b",
+            "canonical_name": "racing kayak",
+            "observations": []
+          },
+          "orange touring kayak": {
+            "entity_id": "e2197de5-6ca5-4dbb-9577-bed19b81bbdb",
+            "canonical_name": "orange touring kayak",
+            "observations": []
+          },
+          "yellow": {
+            "entity_id": "b5e597ae-5ca9-42ec-b334-8947a60a9f27",
+            "canonical_name": "yellow",
+            "observations": []
+          },
+          "red kayak": {
+            "entity_id": "15f22b9b-a3e3-499f-a84d-878e2f533a9a",
+            "canonical_name": "red kayak",
+            "observations": []
+          },
+          "user's friend": {
+            "entity_id": "f1e84825-37c8-4cd0-86bf-2b98eae812b4",
+            "canonical_name": "user's friend",
+            "observations": []
+          },
+          "decaf coffee": {
+            "entity_id": "5fc4bfcc-ca24-45ef-93d9-dcce23a3760d",
+            "canonical_name": "decaf coffee",
+            "observations": []
+          },
+          "espresso": {
+            "entity_id": "23d4571a-b3d0-4ba2-9dc3-2f8c874f7346",
+            "canonical_name": "espresso",
+            "observations": []
+          },
+          "paddling": {
+            "entity_id": "d74f86ce-94de-429f-826b-13cf346afdd6",
+            "canonical_name": "paddling",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "answer": {
+        "text": "Your touring kayak is currently black, as of November 24, 2026. This is the latest explicit assertion, superseding previous colors like purple, green, blue, and orange. Regarding your coffee preference, you prefer espresso, as stated on November 5, 2026, which supersedes the earlier preference for decaf from November 1, 2026.",
+        "response": {
+          "id": "chatcmpl-ac1fa570785b71a6",
+          "object": "chat.completion",
+          "created": 1795019167,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Your touring kayak is currently black, as of November 24, 2026. This is the latest explicit assertion, superseding previous colors like purple, green, blue, and orange. Regarding your coffee preference, you prefer espresso, as stated on November 5, 2026, which supersedes the earlier preference for decaf from November 1, 2026.",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 1286,
+            "total_tokens": 1371,
+            "completion_tokens": 85,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    },
+    {
+      "label": "old-edit-reprocessed-after-new-chat",
+      "max_tokens": 512,
+      "evidence": [
+        {
+          "id": "48804ad0-8ec0-481d-ae52-c3ff126f2685",
+          "text": "User's touring kayak is black as of November 24, 2026. | When: November 24, 2026 | Involving: user",
+          "asserted_at": "2026-11-24T12:00:00Z",
+          "source": "new-current-assertion"
+        },
+        {
+          "id": "2ad04224-930c-424a-8655-e7dab263b428",
+          "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+          "asserted_at": "2026-11-10T12:00:00Z",
+          "source": "manual-correction"
+        },
+        {
+          "id": "f36774af-ff81-407e-a3c4-86757536af6d",
+          "text": "User owns a green touring kayak. | When: 2026-11-20 | Involving: user | Explicit source edit changed the touring kayak color from orange to green.",
+          "asserted_at": "2026-11-20T12:00:00Z",
+          "source": "explicit-source-edit"
+        },
+        {
+          "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+          "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+          "text": "The user's touring kayak is blue. | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+          "text": "The user owns an orange touring kayak. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+          "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user",
+          "asserted_at": "2026-11-23T12:00:00Z",
+          "source": "historical-message"
+        },
+        {
+          "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+          "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+          "asserted_at": "2026-11-22T12:00:00Z",
+          "source": "later-question-plan"
+        },
+        {
+          "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+          "text": "The user's friend owns a red kayak. | Involving: user's friend",
+          "asserted_at": "2026-11-23T12:00:00Z",
+          "source": "historical-message"
+        },
+        {
+          "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+          "text": "The user prefers decaf coffee. | Involving: user",
+          "asserted_at": "2026-11-01T12:00:00Z",
+          "source": "original-chat"
+        },
+        {
+          "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+          "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        },
+        {
+          "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+          "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+          "asserted_at": "2026-11-05T12:00:00Z",
+          "source": "other-chat"
+        }
+      ],
+      "raw": {
+        "results": [
+          {
+            "id": "48804ad0-8ec0-481d-ae52-c3ff126f2685",
+            "text": "User's touring kayak is black as of November 24, 2026. | When: November 24, 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-24T12:00:00+00:00",
+            "document_id": "current-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_current-r1_0",
+            "tags": [
+              "current-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0970934764163136,
+              "reranker": 0.9978547692298889,
+              "semantic": 0.8555585828090574,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "document_id": "manual-correction-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0894113685170266,
+              "reranker": 0.9978297352790833,
+              "semantic": 0.8643534345205505,
+              "keyword": 0.5
+            },
+            "attachments": null
+          },
+          {
+            "id": "f36774af-ff81-407e-a3c4-86757536af6d",
+            "text": "User owns a green touring kayak. | When: 2026-11-20 | Involving: user | Explicit source edit changed the touring kayak color from orange to green.",
+            "type": "world",
+            "entities": [
+              "green touring kayak",
+              "user"
+            ],
+            "context": "Application source-edit event: only actual changes are newly asserted; before/unchanged text is historical context.",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "document_id": "source-edit-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_source-edit-r2_0",
+            "tags": [
+              "source-edit-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0887964950848932,
+              "reranker": 0.9922864437103271,
+              "semantic": 0.8568445188747524,
+              "keyword": 0.6000000238418579
+            },
+            "attachments": null
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "type": "world",
+            "entities": [
+              "club",
+              "user",
+              "racing kayak"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0851671400258835,
+              "reranker": 0.9984522461891174,
+              "semantic": 0.8335034946499187,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+            "text": "The user's touring kayak is blue. | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0839849775784636,
+              "reranker": 0.9953572750091553,
+              "semantic": 0.8505576938058336,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "type": "world",
+            "entities": [
+              "orange touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 1.0767959101885967,
+              "reranker": 0.9907499551773071,
+              "semantic": 0.8228970977190616,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+            "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": "2026-07-01T00:00:00+00:00",
+            "occurred_end": "2026-07-31T23:59:59+00:00",
+            "mentioned_at": "2026-11-23T12:00:00+00:00",
+            "document_id": "historical-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_historical-r1_0",
+            "tags": [
+              "historical-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.9916607737541199,
+              "reranker": 0.9916607737541199,
+              "semantic": 0.8449706779429148,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+            "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+            "type": "world",
+            "entities": [
+              "yellow",
+              "touring kayak",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "document_id": "question-plan-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_question-plan-r1_0",
+            "tags": [
+              "question-plan-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.8608882947817241,
+              "reranker": 0.783797025680542,
+              "semantic": 0.8390220153623252,
+              "keyword": 0.4000000059604645
+            },
+            "attachments": null
+          },
+          {
+            "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+            "text": "The user's friend owns a red kayak. | Involving: user's friend",
+            "type": "world",
+            "entities": [
+              "red kayak",
+              "user's friend"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-23T12:00:00.010000+00:00",
+            "document_id": "historical-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_historical-r1_0",
+            "tags": [
+              "historical-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.23889127292199105,
+              "reranker": 0.21739046275615692,
+              "semantic": 0.8098055833694006,
+              "keyword": 0.20000000298023224
+            },
+            "attachments": null
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "type": "world",
+            "entities": [
+              "decaf coffee",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "original-chat-r1",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "tags": [
+              "original-chat-r1"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.011733474658644803,
+              "reranker": 0.01079586148262024,
+              "semantic": 0.8312185507286474,
+              "keyword": 0.30000001192092896
+            },
+            "attachments": null
+          },
+          {
+            "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+            "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+            "type": "world",
+            "entities": [
+              "espresso",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.0006831118706628849,
+              "reranker": 0.0006272599566727877,
+              "semantic": 0.8043987867594503,
+              "keyword": 0.10000000149011612
+            },
+            "attachments": null
+          },
+          {
+            "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+            "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+            "type": "world",
+            "entities": [
+              "paddling",
+              "user"
+            ],
+            "context": "User-authored chat assertion",
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "document_id": "other-chat-r2",
+            "metadata": {},
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "tags": [
+              "other-chat-r2"
+            ],
+            "source_fact_ids": null,
+            "scores": {
+              "final": 0.00045718318686008795,
+              "reranker": 0.0004198034293949604,
+              "semantic": 0.774958206715692,
+              "keyword": null
+            },
+            "attachments": null
+          }
+        ],
+        "trace": null,
+        "entities": {
+          "touring kayak": {
+            "entity_id": "b89b466c-8c86-49c5-849c-7bd4ed9a8873",
+            "canonical_name": "touring kayak",
+            "observations": []
+          },
+          "user": {
+            "entity_id": "ecff840f-99d6-4e59-ba10-e53286d7d264",
+            "canonical_name": "user",
+            "observations": []
+          },
+          "green touring kayak": {
+            "entity_id": "8f209683-4c8b-49a6-8472-3e4572644989",
+            "canonical_name": "green touring kayak",
+            "observations": []
+          },
+          "club": {
+            "entity_id": "d5409f5f-6397-497c-8300-bcc1ed54a921",
+            "canonical_name": "club",
+            "observations": []
+          },
+          "racing kayak": {
+            "entity_id": "f5097496-d6c6-4f01-9305-7e3f54d5632b",
+            "canonical_name": "racing kayak",
+            "observations": []
+          },
+          "orange touring kayak": {
+            "entity_id": "e2197de5-6ca5-4dbb-9577-bed19b81bbdb",
+            "canonical_name": "orange touring kayak",
+            "observations": []
+          },
+          "yellow": {
+            "entity_id": "b5e597ae-5ca9-42ec-b334-8947a60a9f27",
+            "canonical_name": "yellow",
+            "observations": []
+          },
+          "red kayak": {
+            "entity_id": "15f22b9b-a3e3-499f-a84d-878e2f533a9a",
+            "canonical_name": "red kayak",
+            "observations": []
+          },
+          "user's friend": {
+            "entity_id": "f1e84825-37c8-4cd0-86bf-2b98eae812b4",
+            "canonical_name": "user's friend",
+            "observations": []
+          },
+          "decaf coffee": {
+            "entity_id": "5fc4bfcc-ca24-45ef-93d9-dcce23a3760d",
+            "canonical_name": "decaf coffee",
+            "observations": []
+          },
+          "espresso": {
+            "entity_id": "23d4571a-b3d0-4ba2-9dc3-2f8c874f7346",
+            "canonical_name": "espresso",
+            "observations": []
+          },
+          "paddling": {
+            "entity_id": "d74f86ce-94de-429f-826b-13cf346afdd6",
+            "canonical_name": "paddling",
+            "observations": []
+          }
+        },
+        "chunks": null,
+        "source_facts": null,
+        "source_facts_truncated": null
+      },
+      "answer": {
+        "text": "Your touring kayak is currently black, as explicitly asserted on November 24, 2026, which supersedes previous colors like purple, green, blue, and orange. Regarding your coffee preference, the latest explicit assertion is that you prefer espresso, stated on November 5, 2026, which supersedes the earlier preference for decaf from November 1, 2026. Note that the plan to repaint the kayak yellow in January 2027 is a future event and does not affect its current color.",
+        "response": {
+          "id": "chatcmpl-9c078fb227a1dc6d",
+          "object": "chat.completion",
+          "created": 1795019181,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Your touring kayak is currently black, as explicitly asserted on November 24, 2026, which supersedes previous colors like purple, green, blue, and orange. Regarding your coffee preference, the latest explicit assertion is that you prefer espresso, stated on November 5, 2026, which supersedes the earlier preference for decaf from November 1, 2026. Note that the plan to repaint the kayak yellow in January 2027 is a future event and does not affect its current color.",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 1290,
+            "total_tokens": 1405,
+            "completion_tokens": 115,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "event": "original-chat",
+      "doc": "original-chat-r1",
+      "at": "2026-11-01T12:00:00Z",
+      "ack": [
+        {
+          "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+          "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user"
+        },
+        {
+          "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+          "text": "The user prefers decaf coffee. | Involving: user"
+        },
+        {
+          "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+          "text": "The user owns an orange touring kayak. | Involving: user"
+        }
+      ],
+      "list": {
+        "items": [
+          {
+            "id": "019d97d9-939e-4b11-81ed-11fe93486a3a",
+            "text": "The user's racing kayak is white.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "757bec31-8253-41c8-9e3d-e2336ac04bc9",
+            "text": "The user's racing kayak is stored at the club.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "club, racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "02ede8d2-f79c-4920-817a-5138fd1f6f25",
+            "text": "The user prefers decaf coffee.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "4cc6c819-d1d7-4077-8b66-17df17d85728"
+            ]
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "decaf coffee, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "03b1df37-a12d-4efa-8e15-aa9958ddc345",
+            "text": "The user owns an orange touring kayak.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "f22f32a9-f4a1-48e2-8f21-c1078b38846e"
+            ]
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "orange touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 7,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "event": "other-chat",
+      "doc": "other-chat-r2",
+      "at": "2026-11-05T12:00:00Z",
+      "ack": [
+        {
+          "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+          "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+          "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user"
+        },
+        {
+          "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+          "text": "The user's touring kayak is blue. | Involving: user"
+        }
+      ],
+      "list": {
+        "items": [
+          {
+            "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+            "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+            "context": "Application source-edit event: only actual changes are newly asserted; before/unchanged text is historical context.",
+            "date": "2026-11-20T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "source-edit-r1",
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "entities": "green touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_source-edit-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "source-edit-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:16.973294+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:15.654843+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "03b1df37-a12d-4efa-8e15-aa9958ddc345",
+            "text": "The user's touring kayak is green; earlier it was purple, before that blue, and before that orange. (2026-11-05 12:00: The user's touring kayak is blue.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 5,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:30.921022+00:00",
+            "source_memory_ids": [
+              "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+              "d4e1e4fc-e2eb-46c3-b994-fc78b33b255a",
+              "2ad04224-930c-424a-8655-e7dab263b428",
+              "b95befca-9f53-40e5-8c03-b1109b322aa4",
+              "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d"
+            ]
+          },
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-10T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "manual-correction-r1",
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:08.484989+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:06.960402+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+            "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r2",
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "paddling, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r2"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:30.930890+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:28.012549+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1e282cdf-879b-4e22-817f-ded8e938b383",
+            "text": "The user paddles on Saturdays.",
+            "context": "",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:30.921022+00:00",
+            "source_memory_ids": [
+              "bb744ab4-e169-4721-b623-d37feebdd19b",
+              "35684b44-a139-446b-b90f-3612a155d1f1"
+            ]
+          },
+          {
+            "id": "bb744ab4-e169-4721-b623-d37feebdd19b",
+            "text": "User paddles on Saturdays. | When: Saturdays | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Saturdays, paddling, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+            "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r2",
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "espresso, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r2"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:30.930890+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:28.012549+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1f664f04-7b28-468a-b02a-7682d5134ec3",
+            "text": "User prefers espresso as of November 05, 2026. | When: November 05, 2026 | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "espresso, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "02ede8d2-f79c-4920-817a-5138fd1f6f25",
+            "text": "The user prefers espresso as of November 05, 2026; earlier preferred decaf coffee.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:30.921022+00:00",
+            "source_memory_ids": [
+              "4cc6c819-d1d7-4077-8b66-17df17d85728",
+              "1f664f04-7b28-468a-b02a-7682d5134ec3",
+              "1679d6f0-f676-43dd-9f4b-cf513a15a84c"
+            ]
+          },
+          {
+            "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+            "text": "The user's touring kayak is blue. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r2",
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r2"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:30.930890+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:28.012549+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "d4e1e4fc-e2eb-46c3-b994-fc78b33b255a",
+            "text": "User's touring kayak is blue. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "019d97d9-939e-4b11-81ed-11fe93486a3a",
+            "text": "The user's racing kayak is white.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "757bec31-8253-41c8-9e3d-e2336ac04bc9",
+            "text": "The user's racing kayak is stored at the club.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "club, racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "decaf coffee, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "orange touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 16,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "event": "manual-correction",
+      "doc": "manual-correction-r1",
+      "at": "2026-11-10T12:00:00Z",
+      "ack": [
+        {
+          "id": "2ad04224-930c-424a-8655-e7dab263b428",
+          "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color."
+        }
+      ],
+      "list": {
+        "items": [
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-10T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "manual-correction-r1",
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:08.484989+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:06.960402+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "03b1df37-a12d-4efa-8e15-aa9958ddc345",
+            "text": "The user's touring kayak is purple; earlier it was blue and before that orange.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:08.476890+00:00",
+            "source_memory_ids": [
+              "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+              "d4e1e4fc-e2eb-46c3-b994-fc78b33b255a",
+              "2ad04224-930c-424a-8655-e7dab263b428"
+            ]
+          },
+          {
+            "id": "1e282cdf-879b-4e22-817f-ded8e938b383",
+            "text": "The user paddles on Saturdays.",
+            "context": "",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:03.349937+00:00",
+            "source_memory_ids": [
+              "bb744ab4-e169-4721-b623-d37feebdd19b"
+            ]
+          },
+          {
+            "id": "bb744ab4-e169-4721-b623-d37feebdd19b",
+            "text": "User paddles on Saturdays. | When: Saturdays | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Saturdays, paddling, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1f664f04-7b28-468a-b02a-7682d5134ec3",
+            "text": "User prefers espresso as of November 05, 2026. | When: November 05, 2026 | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "espresso, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "02ede8d2-f79c-4920-817a-5138fd1f6f25",
+            "text": "The user prefers espresso as of November 05, 2026; earlier preferred decaf coffee.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:03.349937+00:00",
+            "source_memory_ids": [
+              "4cc6c819-d1d7-4077-8b66-17df17d85728",
+              "1f664f04-7b28-468a-b02a-7682d5134ec3"
+            ]
+          },
+          {
+            "id": "d4e1e4fc-e2eb-46c3-b994-fc78b33b255a",
+            "text": "User's touring kayak is blue. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "019d97d9-939e-4b11-81ed-11fe93486a3a",
+            "text": "The user's racing kayak is white.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "757bec31-8253-41c8-9e3d-e2336ac04bc9",
+            "text": "The user's racing kayak is stored at the club.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "club, racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "decaf coffee, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "orange touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 12,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "event": "explicit-source-edit",
+      "doc": "source-edit-r2",
+      "at": "2026-11-20T12:00:00Z",
+      "ack": [
+        {
+          "id": "f36774af-ff81-407e-a3c4-86757536af6d",
+          "text": "User owns a green touring kayak. | When: 2026-11-20 | Involving: user | Explicit source edit changed the touring kayak color from orange to green."
+        }
+      ]
+    },
+    {
+      "event": "later-question-plan",
+      "doc": "question-plan-r1",
+      "at": "2026-11-22T12:00:00Z",
+      "ack": [
+        {
+          "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+          "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user"
+        }
+      ],
+      "list": {
+        "items": [
+          {
+            "id": "9f9c5198-2b9c-4122-aa26-9ba30565fa2e",
+            "text": "The user plans to repaint their touring kayak yellow in January 2027.",
+            "context": "",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:48.142801+00:00",
+            "source_memory_ids": [
+              "a5847bba-a093-4230-9732-d1f9e96de6cc"
+            ]
+          },
+          {
+            "id": "a5847bba-a093-4230-9732-d1f9e96de6cc",
+            "text": "User plans to repaint their touring kayak yellow in January 2027. | When: January 2027 | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "question-plan-r1",
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "touring kayak, user, yellow",
+            "chunk_id": "recovery-native-shared-gear_question-plan-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "question-plan-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:48.149131+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:46.940629+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "b95befca-9f53-40e5-8c03-b1109b322aa4",
+            "text": "User owns a green touring kayak. | When: 2026-11-20T12:00:00Z | Involving: user",
+            "context": "Application source-edit event: only actual changes are newly asserted; before/unchanged text is historical context.",
+            "date": "2026-11-20T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "source-edit-r1",
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "entities": "green touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_source-edit-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "source-edit-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:16.973294+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:15.654843+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "03b1df37-a12d-4efa-8e15-aa9958ddc345",
+            "text": "The user's touring kayak is green; earlier it was purple, before that blue, and before that orange. (2026-11-05 12:00: The user's touring kayak is blue.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-20T12:00:00+00:00",
+            "occurred_start": "2026-11-20T12:00:00+00:00",
+            "occurred_end": "2026-11-20T12:00:00+00:00",
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 5,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:30.921022+00:00",
+            "source_memory_ids": [
+              "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+              "d4e1e4fc-e2eb-46c3-b994-fc78b33b255a",
+              "2ad04224-930c-424a-8655-e7dab263b428",
+              "b95befca-9f53-40e5-8c03-b1109b322aa4",
+              "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d"
+            ]
+          },
+          {
+            "id": "2ad04224-930c-424a-8655-e7dab263b428",
+            "text": "User's touring kayak is purple, not orange or blue. | Involving: user | User corrected the kayak's color.",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-10T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "manual-correction-r1",
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_manual-correction-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "manual-correction-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:08.484989+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:06.960402+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "35684b44-a139-446b-b90f-3612a155d1f1",
+            "text": "The user paddles on Saturdays. | When: Saturdays | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r2",
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "paddling, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r2"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:30.930890+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:28.012549+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1e282cdf-879b-4e22-817f-ded8e938b383",
+            "text": "The user paddles on Saturdays.",
+            "context": "",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:30.921022+00:00",
+            "source_memory_ids": [
+              "bb744ab4-e169-4721-b623-d37feebdd19b",
+              "35684b44-a139-446b-b90f-3612a155d1f1"
+            ]
+          },
+          {
+            "id": "bb744ab4-e169-4721-b623-d37feebdd19b",
+            "text": "User paddles on Saturdays. | When: Saturdays | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Saturdays, paddling, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1679d6f0-f676-43dd-9f4b-cf513a15a84c",
+            "text": "As of November 5, 2026, the user prefers espresso. | When: November 5, 2026 | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r2",
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "espresso, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r2"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:30.930890+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:28.012549+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1f664f04-7b28-468a-b02a-7682d5134ec3",
+            "text": "User prefers espresso as of November 05, 2026. | When: November 05, 2026 | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "espresso, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "02ede8d2-f79c-4920-817a-5138fd1f6f25",
+            "text": "The user prefers espresso as of November 05, 2026; earlier preferred decaf coffee.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-05T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:30.921022+00:00",
+            "source_memory_ids": [
+              "4cc6c819-d1d7-4077-8b66-17df17d85728",
+              "1f664f04-7b28-468a-b02a-7682d5134ec3",
+              "1679d6f0-f676-43dd-9f4b-cf513a15a84c"
+            ]
+          },
+          {
+            "id": "a4ebc5a5-b051-4f8c-9bae-d7069fa02d8d",
+            "text": "The user's touring kayak is blue. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r2",
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r2_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r2"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:30.930890+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:28.012549+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "d4e1e4fc-e2eb-46c3-b994-fc78b33b255a",
+            "text": "User's touring kayak is blue. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-05T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "other-chat-r1",
+            "mentioned_at": "2026-11-05T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_other-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "other-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:21:03.363059+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:21:00.820359+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "019d97d9-939e-4b11-81ed-11fe93486a3a",
+            "text": "The user's racing kayak is white.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "757bec31-8253-41c8-9e3d-e2336ac04bc9",
+            "text": "The user's racing kayak is stored at the club.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:51.915210+00:00",
+            "source_memory_ids": [
+              "9edc8794-22e0-44af-9285-aa166e98e83c"
+            ]
+          },
+          {
+            "id": "9edc8794-22e0-44af-9285-aa166e98e83c",
+            "text": "The user's racing kayak is white and is stored at the club. | Where: the club | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "club, racing kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "4cc6c819-d1d7-4077-8b66-17df17d85728",
+            "text": "The user prefers decaf coffee. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "decaf coffee, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "f22f32a9-f4a1-48e2-8f21-c1078b38846e",
+            "text": "The user owns an orange touring kayak. | Involving: user",
+            "context": "User-authored chat assertion",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "original-chat-r1",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "orange touring kayak, user",
+            "chunk_id": "recovery-native-shared-gear_original-chat-r1_0",
+            "proof_count": 1,
+            "tags": [
+              "original-chat-r1"
+            ],
+            "metadata": {},
+            "consolidated_at": "2026-11-18T16:20:51.922499+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T16:20:50.659125+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 18,
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    {
+      "event": "historical-message",
+      "doc": "historical-r1",
+      "at": "2026-11-23T12:00:00Z",
+      "ack": [
+        {
+          "id": "e8277b06-54f5-44a4-b25d-b12f6e5503a3",
+          "text": "The user's friend owns a red kayak. | Involving: user's friend"
+        },
+        {
+          "id": "d7f78142-e630-4aa6-abc2-0137361a0ddf",
+          "text": "The user's touring kayak was orange in July 2026. | When: July 2026 | Involving: user"
+        }
+      ]
+    },
+    {
+      "event": "new-current-assertion",
+      "doc": "current-r1",
+      "at": "2026-11-24T12:00:00Z",
+      "ack": [
+        {
+          "id": "48804ad0-8ec0-481d-ae52-c3ff126f2685",
+          "text": "User's touring kayak is black as of November 24, 2026. | When: November 24, 2026 | Involving: user"
+        }
+      ]
+    }
+  ]
+}

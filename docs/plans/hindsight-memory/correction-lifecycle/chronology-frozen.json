@@ -1,0 +1,192 @@
+{
+  "prompt": "Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts. Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves all untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace a whole fact with empty text only if ALL its information is targeted.\nThe user action is durable intent about the original statement, and must survive reprocessing of that statement. Removing an attribution also removes historical/former wording of that attribution. Keep a new owner, new unrelated details and explicit later life events. Match only the target person/object/project/relationship. Shared subjects may need a minimal subject replacement to retain the other person's fact. Never invent the opposite of a forgotten fact. Corrections change the original claim, not an explicitly new event. If an edited source changes the target to a third conflicting value without an explicit new event, remove only the disputed aspect (any value), preserve ALL independent details and mark conflict true. Do not delete an entire multi-claim clause just to remove one property. Use the supplied original source to distinguish replay from a new event. Return no commentary.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "facts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "conflict": {
+              "type": "boolean"
+            },
+            "edits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "find": {
+                    "type": "string"
+                  },
+                  "replace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "find",
+                  "replace"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "conflict",
+            "edits"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "facts"
+    ],
+    "additionalProperties": false
+  },
+  "inputs": [
+    {
+      "id": "kayaks",
+      "stage": "changed-source",
+      "c": {
+        "id": "kayaks",
+        "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+        "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+        "changed": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+        "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+        "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+      },
+      "facts": [
+        {
+          "id": "8c515635-5b8c-4302-8244-b99a23171a5a",
+          "text": "The racing kayak is stored at the club. | Where: the club"
+        },
+        {
+          "id": "ba236c86-3741-4385-ba1a-e11b120b5b28",
+          "text": "The touring kayak has a deck compass as of November 18, 2026. | When: November 18, 2026"
+        },
+        {
+          "id": "0106449d-cd8b-42de-aa46-9a8a143048ee",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "809b521d-b4ae-4b63-a228-a75301ba387b",
+          "text": "User owns an orange touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "phone",
+      "stage": "changed-source",
+      "c": {
+        "id": "phone",
+        "source": "My personal telephone number is 07700 904444. I coordinate the community choir on Thursdays.",
+        "action": "Forget the association between me personally and telephone number 07700 904444. Keep other information and do not erase a later association with an organisation.",
+        "changed": "My former personal telephone number 07700 904444 now belongs to the community choir reception. My new personal number is 07700 905555. I coordinate the community choir on Thursdays.",
+        "query": "What are my and the choir's contact details and when do I coordinate the choir?",
+        "expect": "No former personal attribution. Later choir reception 904444, new personal 905555, Thursdays remain."
+      },
+      "facts": [
+        {
+          "id": "ffa1c90e-ad79-4bbd-8fa8-9f7f1704369a",
+          "text": "User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user"
+        },
+        {
+          "id": "673221cf-c7dc-48e2-9d33-4dcb1e6f7587",
+          "text": "User's new personal telephone number is 07700 905555. | Involving: user"
+        },
+        {
+          "id": "c7353803-bce5-4a6c-ad45-f83291af8bdf",
+          "text": "User's former personal telephone number 07700 904444 now belongs to the community choir reception. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "new_event",
+      "stage": "changed-source",
+      "c": {
+        "id": "new_event",
+        "source": "I live in Cork and work remotely. My sister lives in Limerick.",
+        "action": "Correct where I lived at the time of this statement to Galway, not Cork. This is a correction of the old statement, not a ban on future moves.",
+        "changed": "At the time of my old statement I lived in Cork and worked remotely. On 17 November 2026 I moved to Waterford. My sister still lives in Limerick; I now commute by train.",
+        "query": "Where did I live before, where do I live now, how do I work or commute, and where does my sister live?",
+        "expect": "Old Galway not Cork, new Waterford move preserved, remote historical, train current, sister Limerick."
+      },
+      "facts": [
+        {
+          "id": "3695ecac-6bc6-4474-ae4f-dac858208b06",
+          "text": "User now commutes by train. | When: As of 18 November 2026 | Involving: user"
+        },
+        {
+          "id": "c942311a-cbd1-46a1-86f2-66e774db660b",
+          "text": "User's sister still lives in Limerick. | When: As of 18 November 2026 | Where: Limerick | Involving: user's sister"
+        },
+        {
+          "id": "f93ee925-0088-40c1-a0c5-72011598fb5f",
+          "text": "User moved to Waterford on 17 November 2026. | When: 17 November 2026 | Where: Waterford | Involving: user"
+        },
+        {
+          "id": "4b475dd9-12bd-4c02-bcd4-0f44d061eebf",
+          "text": "User lived in Cork and worked remotely at the time of their old statement. | When: At the time of user's old statement | Where: Cork | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "conflict_kayaks",
+      "stage": "third-value-conflict",
+      "c": {
+        "id": "conflict_kayaks",
+        "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+        "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+        "changed": "I own a green touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+        "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+        "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+      },
+      "facts": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a green touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "conflict_projects",
+      "stage": "third-value-conflict",
+      "c": {
+        "id": "conflict_projects",
+        "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+        "action": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged.",
+        "changed": "My Juniper project uses Scala and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+        "query": "What languages, schedules and features do my projects have?",
+        "expect": "Juniper Go Mondays later offline CLI; Harbor Kotlin dark. No Ruby."
+      },
+      "facts": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Scala and ships on Mondays. | Involving: user"
+        }
+      ]
+    }
+  ],
+  "note": "Only input chronology changes. No top-level fresh action: earlier edit and later source revision are distinct events."
+}

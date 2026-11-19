@@ -1,0 +1,9 @@
+{
+  "sha256": {
+    "docs/plans/hindsight-memory/alfyai-baseline/run.ts": "1871193f778f423f965038f8e616e1deaf530f153ba8a55dcd4e1793e5fbe692",
+    "docs/plans/hindsight-memory/alfyai-baseline/answer.cjs": "6d7455b77576a6334bfda20ffbdcdabeb716edafa02baace0419ad0c659e2422",
+    "docs/plans/hindsight-memory/alfyai-baseline/plan.md": "9ef4c215a58bb9ab5889e5ab9b2fb9346cc7ac05f87ceab6c1c63b95008de672",
+    "/tmp/alfyai-memory-baseline/cases.json": "d0ed6cfa67a7c69b3193ef3e2edf61d62e0350a1de6cb113d7d77aeec5043d23"
+  },
+  "note": "Protocol and source fixed before first full profile; hashes recorded during first profile preflight. No gold answers supplied to any model."
+}

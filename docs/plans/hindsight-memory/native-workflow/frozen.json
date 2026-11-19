@@ -1,0 +1,16 @@
+{
+  "cases": [
+    "correct",
+    "retire",
+    "delete-source",
+    "repeated-correct",
+    "repeated-delete"
+  ],
+  "original": "My bicycle is red. I prefer decaf coffee.",
+  "second": "The red bicycle in my hallway belongs to me. I prefer short replies.",
+  "expectations": "Single correction/retirement should survive unrelated writes, identical retries and restart. Deletion should remove source and its unrelated facts too. Repeated evidence may require more than one action. Changed-source replay is expected to reset native curation; record it as a limitation, not silently repair it.",
+  "hashes": {
+    "workflow.cjs": "39ac2bb65aa01143d00dee543a3b69a377ee74cb1728b842234e010f8c41879a",
+    "common.cjs": "004dd8dc2563b22b92e26f5549f8bbe9dcf010c32348f3b731c13d69f285a4c2"
+  }
+}

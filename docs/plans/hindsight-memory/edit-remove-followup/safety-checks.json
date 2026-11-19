@@ -1,0 +1,26 @@
+[
+  {
+    "case": "hu-regression",
+    "rejectedEditLeftNativeFactsUnchanged": true
+  },
+  {
+    "case": "hu-fresh",
+    "rejectedEditLeftNativeFactsUnchanged": true
+  },
+  {
+    "control": "correct",
+    "pass": true
+  },
+  {
+    "control": "missed-omission",
+    "pass": true
+  },
+  {
+    "control": "wrong-subject",
+    "pass": true
+  },
+  {
+    "control": "collateral-loss",
+    "pass": true
+  }
+]

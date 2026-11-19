@@ -1,0 +1,190 @@
+[
+  {
+    "profile": "p01",
+    "rejects": [
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"I own a Nikon Z5 and use it as my everyday device.\"}",
+        "created_at": 1789041601
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"I prefer two short connected sentences without lists unless I request otherwise.\"}",
+        "created_at": 1789473601
+      }
+    ],
+    "statuses": [
+      {
+        "status": "active",
+        "count": 12
+      },
+      {
+        "status": "expired",
+        "count": 1
+      }
+    ],
+    "modelErrors": []
+  },
+  {
+    "profile": "p02",
+    "rejects": [
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"I own a ROG Ally X and use it as my everyday device.\"}",
+        "created_at": 1789041602
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"I prefer two short connected sentences without lists unless I request otherwise.\"}",
+        "created_at": 1789473601
+      }
+    ],
+    "statuses": [
+      {
+        "status": "active",
+        "count": 12
+      },
+      {
+        "status": "expired",
+        "count": 1
+      }
+    ],
+    "modelErrors": []
+  },
+  {
+    "profile": "p03",
+    "rejects": [
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"I own a Creality K1C and use it as my everyday device.\"}",
+        "created_at": 1789041602
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"I prefer two short connected sentences without lists unless I request otherwise.\"}",
+        "created_at": 1789473601
+      }
+    ],
+    "statuses": [
+      {
+        "status": "active",
+        "count": 12
+      },
+      {
+        "status": "expired",
+        "count": 1
+      }
+    ],
+    "modelErrors": []
+  },
+  {
+    "profile": "p04",
+    "rejects": [
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"A Sony A6700 készüléket hasonlítom össze más lehetőségekkel, és tartozékainak árait keresem.\"}",
+        "created_at": 1788350402
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"Van egy saját Nikon Z50 II készülékem, ezt használom naponta.\"}",
+        "created_at": 1789041603
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"A húgom továbbra is a saját Sony A6700 készülékét használja.\"}",
+        "created_at": 1789041603
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"Mostantól két rövid, összefüggő mondatban válaszolj, felsorolás nélkül, hacsak mást nem kérek.\"}",
+        "created_at": 1789473602
+      }
+    ],
+    "statuses": [
+      {
+        "status": "active",
+        "count": 10
+      },
+      {
+        "status": "expired",
+        "count": 1
+      },
+      {
+        "status": "retired",
+        "count": 4
+      }
+    ],
+    "modelErrors": []
+  },
+  {
+    "profile": "p05",
+    "rejects": [
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"Van egy saját Lenovo Yoga Tab Plus készülékem, ezt használom naponta.\"}",
+        "created_at": 1789041602
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"Mostantól két rövid, összefüggő mondatban szeretem a válaszokat, felsorolás nélkül, hacsak mást nem kérek.\"}",
+        "created_at": 1789473602
+      }
+    ],
+    "statuses": [
+      {
+        "status": "active",
+        "count": 10
+      },
+      {
+        "status": "expired",
+        "count": 1
+      },
+      {
+        "status": "retired",
+        "count": 4
+      }
+    ],
+    "modelErrors": []
+  },
+  {
+    "profile": "p06",
+    "rejects": [
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"Van egy saját PocketBook Era készülékem, amit naponta használok.\"}",
+        "created_at": 1789041602
+      },
+      {
+        "event_name": "judge_candidate_rejected",
+        "reason": "missing_target",
+        "metadata_json": "{\"statement\":\"Mostantól két rövid, összefüggő mondatban szeretem a válaszokat, felsorolás nélkül, hacsak mást nem kérek.\"}",
+        "created_at": 1789473602
+      }
+    ],
+    "statuses": [
+      {
+        "status": "active",
+        "count": 10
+      },
+      {
+        "status": "retired",
+        "count": 3
+      }
+    ],
+    "modelErrors": []
+  }
+]
