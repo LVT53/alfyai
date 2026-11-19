@@ -3046,7 +3046,7 @@ it.each([
 			return { deleted_count: mode === "unexpected links" ? 1 : 0 };
 		});
 		const checker = vi
-			.fn(async (_prompt, payload: unknown) => {
+			.fn(async (_prompt, payload: unknown): Promise<unknown> => {
 				const input = payload as {
 					displayed_observations?: Array<{ text: string }>;
 				};
