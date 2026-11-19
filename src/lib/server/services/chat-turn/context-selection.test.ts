@@ -1600,6 +1600,7 @@ describe("buildConstructedContext", () => {
 		for (const message of [
 			"Review the Launch Project plan.",
 			"What did I say about my cat in our last chat?",
+			"Search our past chats for the conversation titled Original. What did we decide in the Launch Project?",
 		]) {
 			const ordinary = await buildConstructedContext({ ...params, message });
 			expect(ordinary.inputValue).toContain("## Project Folder");

@@ -7411,6 +7411,33 @@ describe("memory_context names what happened", () => {
 		});
 	});
 
+	it.each([
+		"Please search our past chats for the conversation titled Earlier synthetic blue touring kayak discussion. What name did I give it at the time?",
+		"Keresd meg a korábbi beszélgetéseinkben az Earlier synthetic blue touring kayak discussion című chatet. Milyen nevet mondtam akkor a kajakomra?",
+	])(
+		"attaches the authored title and historical attribution for %s",
+		async (requestText) => {
+			getMemoryContextMock.mockResolvedValueOnce(historyOf());
+			const { payload } = await recall(
+				{ mode: "history", query: "blue touring kayak name" },
+				{ requestText },
+			);
+			expect(getMemoryContextMock).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				mode: "history",
+				query: "blue touring kayak name",
+				authoredHistoryTitle: "Earlier synthetic blue touring kayak discussion",
+			});
+			expect(payload).toMatchObject({
+				evidenceScope: "past_chat_only",
+				attribution: expect.stringContaining(
+					"cannot establish what is true now",
+				),
+			});
+		},
+	);
+
 	it("names nothing for a lookup that found something", async () => {
 		getMemoryContextMock.mockResolvedValueOnce(personaResult());
 		expect((await recall()).entry?.metadata).not.toHaveProperty("reasonCode");

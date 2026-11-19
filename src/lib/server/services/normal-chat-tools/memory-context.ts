@@ -158,10 +158,11 @@ export function compactMemoryContextCandidates(
 	}));
 }
 
+const PAST_CHAT_ATTRIBUTION =
+	"These are historical transcripts and summaries. Attribute facts to what the person said then, in that chat. They cannot establish what is true now. If asked about the present, use current Memory or what the person says in the current chat.";
+
 // One payload shape per mode: only the keys the requested mode's result
-// actually carries are included (the per-call "use this only as memory
-// context" caution string is removed — that rule now lives in the base
-// prompt, once, instead of on every call). `executeToolWithEnvelope` drops
+// actually carries are included. `executeToolWithEnvelope` drops
 // any of these that still end up empty/null (e.g. `selectedSibling: null`),
 // so defaults here don't need to dodge that — they just need to stay
 // confined to the fields their own mode actually has.
@@ -189,6 +190,8 @@ export function compactMemoryContextModelPayload(
 	if (result.mode === "history") {
 		return {
 			...envelope,
+			evidenceScope: "past_chat_only",
+			attribution: PAST_CHAT_ATTRIBUTION,
 			conversations: result.conversations,
 			selectedConversation: result.selectedConversation,
 			omittedConversationCount: result.omittedConversationCount,
@@ -198,6 +201,8 @@ export function compactMemoryContextModelPayload(
 
 	return {
 		...envelope,
+		evidenceScope: "past_chat_only",
+		attribution: PAST_CHAT_ATTRIBUTION,
 		project: result.project,
 		siblings: result.siblings,
 		reportSiblings: result.reportSiblings ?? [],

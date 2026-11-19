@@ -7,6 +7,8 @@ export type GetMemoryContextParams = {
 	userId: string;
 	conversationId: string;
 	mode?: string | null;
+	/** Exact title named in the authenticated current user message. */
+	authoredHistoryTitle?: string;
 	query?: string | null;
 	userDisplayName?: string | null;
 	maxSiblings?: number | null;

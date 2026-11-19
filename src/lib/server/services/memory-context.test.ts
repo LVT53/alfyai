@@ -515,6 +515,139 @@ describe("memory context service", () => {
 		expect(result.evidenceCandidates).toEqual([]);
 	});
 
+	it("honors the authored exact chat title before looking up messages or an indicated detail ID", async () => {
+		seedAuthorizedMemoryCaller();
+		const { sqlite, db } = openSeedDatabase();
+		const title = "Earlier synthetic blue touring kayak discussion";
+		db.insert(schema.conversations)
+			.values([
+				{ id: "earlier", userId: "user-1", title },
+				{
+					id: "other",
+					userId: "user-1",
+					title: "Later touring kayak discussion",
+				},
+				{ id: "incognito", userId: "user-1", title, memoryIncognito: true },
+				{ id: "project", userId: "user-1", title, projectId: "not-this-scope" },
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "first",
+					conversationId: "earlier",
+					role: "user",
+					content: "I called the blue touring kayak EARLIER-NAME.",
+				},
+				{
+					id: "second",
+					conversationId: "other",
+					role: "assistant",
+					content: "You call the blue touring kayak CLEARED-CURRENT-NAME.",
+				},
+			])
+			.run();
+		const { getMemoryContext } = await import("./memory-context");
+		const input = {
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "blue touring kayak name",
+			authoredHistoryTitle: title,
+		};
+		const list = (await getMemoryContext(input)) as HistoryMemoryContextResult;
+		expect(
+			list.conversations.map(({ conversationId }) => conversationId),
+		).toEqual(["earlier"]);
+		expect(JSON.stringify(list)).toContain("EARLIER-NAME");
+		expect(JSON.stringify(list)).not.toContain("CLEARED-CURRENT-NAME");
+		for (const unauthorized of ["other", "incognito", "project"])
+			await expect(
+				getMemoryContext({ ...input, historyConversationId: unauthorized }),
+			).rejects.toThrow("outside memory_context history scope");
+		const selected = (await getMemoryContext({
+			...input,
+			mode: "project",
+			historyConversationId: "earlier",
+		})) as HistoryMemoryContextResult;
+		expect(selected.selectedConversation?.conversationId).toBe("earlier");
+		expect(mockGetProjectContext).not.toHaveBeenCalled();
+		await expect(
+			getMemoryContext({
+				...input,
+				mode: "project",
+				siblingConversationId: "other",
+			}),
+		).rejects.toThrow("outside memory_context history scope");
+		await expect(
+			getMemoryContext({
+				...input,
+				authoredHistoryTitle: "Unknown discussion",
+			}),
+		).rejects.toThrow("title");
+		db.insert(schema.conversations)
+			.values({ id: "duplicate", userId: "user-1", title })
+			.run();
+		await expect(getMemoryContext(input)).rejects.toThrow("title");
+		sqlite.close();
+	});
+
+	it("opens a named current-project chat without searching other projects", async () => {
+		seedAuthorizedMemoryCaller();
+		const { sqlite, db } = openSeedDatabase();
+		const title = "Design room";
+		mockGetConversationProjectId.mockResolvedValue("current-project");
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "sibling",
+					userId: "user-1",
+					title,
+					projectId: "current-project",
+				},
+				{
+					id: "other",
+					userId: "user-1",
+					title,
+					projectId: "different-project",
+				},
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "allowed",
+					conversationId: "sibling",
+					role: "user",
+					content: "Historical design decision",
+				},
+				{
+					id: "disallowed",
+					conversationId: "other",
+					role: "user",
+					content: "Cross-project design secret",
+				},
+			])
+			.run();
+		const { getMemoryContext } = await import("./memory-context");
+		const result = (await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "project",
+			query: "design",
+			authoredHistoryTitle: title,
+			siblingConversationId: "sibling",
+		})) as HistoryMemoryContextResult;
+		expect(result.selectedConversation?.messages[0]?.content).toBe(
+			"Historical design decision",
+		);
+		expect(
+			result.conversations.map(({ conversationId }) => conversationId),
+		).toEqual(["sibling"]);
+		expect(JSON.stringify(result)).not.toContain("Cross-project design secret");
+		sqlite.close();
+	});
+
 	it("returns multiple older non-project history hits for a topic without leaking other users or projects", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		const now = new Date("2026-05-16T09:00:00.000Z");

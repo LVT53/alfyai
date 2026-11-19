@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { requestsPastChatLookup } from "./past-chat-request";
+import {
+	namedPastChatTitle,
+	requestsPastChatLookup,
+} from "./past-chat-request";
 
 describe("explicit past chat lookup", () => {
 	it.each([
@@ -44,4 +47,23 @@ describe("explicit past chat lookup", () => {
 	])("withholds lookup on %s", (request) => {
 		expect(requestsPastChatLookup(request)).toBe(false);
 	});
+});
+
+it.each([
+	[
+		"Please search our past chats for the conversation titled Earlier synthetic blue touring kayak discussion. What name did I give it at the time?",
+		"Earlier synthetic blue touring kayak discussion",
+	],
+	[
+		"Keresd meg a korábbi beszélgetéseinkben az Earlier synthetic blue touring kayak discussion című chatet. Milyen nevet mondtam akkor a kajakomra?",
+		"Earlier synthetic blue touring kayak discussion",
+	],
+	["Open the conversation titled 'Kayak names'.", "Kayak names"],
+	["What did I say in the earlier chat 'Kayak names'?", "Kayak names"],
+	["Nyisd meg a Kajak nevek című beszélgetést.", "Kajak nevek"],
+	["“Our old chat titled Decoy.” Search earlier chats about lamps.", null],
+	["Open the conversation titled.", ""],
+	["Search for the lamp in my old chats.", null],
+])("uses the title the person actually wrote in %s", (request, title) => {
+	expect(namedPastChatTitle(request)).toBe(title);
 });

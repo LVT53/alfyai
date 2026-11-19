@@ -17,6 +17,8 @@ Owner decision, 2026-11-18. This supersedes any earlier design allowing the mode
 
 Use current Memory for remembered personal facts and preferences. Search past chats only when the current user message explicitly requests it, for example “What did I say about the lamp in a previous chat?” or “Mit mondtam a lámpáról egy korábbi beszélgetésben?” The same rule applies to past project discussions. Memory controls and existing conversation ownership and project scope still apply.
 
+If the person names a past chat by title, use only the unique exact match among their eligible personal chats and chats in their current project. Ask for a unique title if the match cannot be resolved. Quote titles that contain sentence punctuation. Describe retained transcripts as what was said then. They cannot establish what is true now.
+
 Visible messages in the current chat, explicitly linked sources, and authorized project metadata and files remain available. A later turn reads Memory or requested chats through the current authorization checks.
 
 UI implication: choose a memory space explicitly. Personal says “Available in all your chats”; each project says “Only used in this project”. Project views distinguish their own stored memories from personal memory also available there. Name/description awareness is not a remembered project fact. The later [Quiet list design](agreed-ui-design.md) is approved and the [full implementation plan](../../superpowers/plans/2026-11-18-hindsight-memory-replacement.md) is finalized. Deployment, real-user migration and cutover require separate authorization.

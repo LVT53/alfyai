@@ -159,6 +159,9 @@ export async function getMemoryForTurn(
 	params: GetMemoryContextParams,
 ): Promise<MemoryContextResult> {
 	const mode = params.mode?.trim() || "persona";
+	if (params.authoredHistoryTitle !== undefined && mode === "project") {
+		return getHistoryMemoryContext(params);
+	}
 	if (mode === "project") {
 		return getProjectMemoryContext(params);
 	}

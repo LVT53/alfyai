@@ -83,6 +83,7 @@ export const TOOL_REASON_CODES = {
 	memory_context: [
 		"chat_out_of_reach",
 		"history_request_required",
+		"history_title_unresolved",
 		"nothing_found",
 		"memory_off",
 		"memory_unavailable",

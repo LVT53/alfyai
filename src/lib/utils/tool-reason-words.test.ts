@@ -164,6 +164,7 @@ describe("the words of every tool outcome", () => {
 			"memory_off",
 			"chat_out_of_reach",
 			"history_request_required",
+			"history_title_unresolved",
 			"link_not_from_a_source",
 			"reading_budget_used",
 			"reply_limit_reached",

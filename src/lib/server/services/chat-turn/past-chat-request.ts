@@ -27,19 +27,91 @@ const CURRENT_CHAT_ONLY =
 const LOOKUP_EXCLUSION =
 	/\b(?:without (?:searching|looking|reading|checking)|(?:do not|don't|never)\s+(?:search|look|read|open|check|use)|anelkul,?\s+hogy|ne\s+(?:keress|nezz|olvass))\b/u;
 
-function pastChatRequestProse(requestText?: string): string {
-	if (!requestText || requestText.length > 8_000) return "";
+function maskQuotedProse(requestText: string): string {
+	const blank = (part: string) => " ".repeat(part.length);
 	return requestText
-		.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/gu, " ")
-		.replace(/^\s*>[^\r\n]*/gmu, " ")
+		.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/gu, blank)
+		.replace(/^\s*>[^\r\n]*/gmu, blank)
 		.replace(
 			/`[^`\r\n]*`|"[^"]*(?:"|$)|“[^”]*(?:”|$)|„[^”]*(?:”|$)|«[^»]*(?:»|$)|(?<![\p{L}\p{N}])'[^'\r\n]+'(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])[‘’](?:[^’]|’(?=[\p{L}\p{N}]))*’(?![\p{L}\p{N}])/gu,
-			" ",
-		)
+			blank,
+		);
+}
+
+function pastChatRequestProse(requestText?: string): string {
+	if (!requestText || requestText.length > 8_000) return "";
+	return maskQuotedProse(requestText)
 		.normalize("NFD")
 		.replace(/\p{M}/gu, "")
 		.replace(/’/gu, "'")
 		.toLowerCase();
+}
+
+const TITLE_QUOTES = new Map([
+	['"', '"'],
+	["'", "'"],
+	["“", "”"],
+	["„", "”"],
+	["‘", "’"],
+	["«", "»"],
+]);
+
+function readChatTitle(fragment: string): string {
+	const text = fragment.trim();
+	const closing = TITLE_QUOTES.get(text[0] ?? "");
+	if (!closing) return (text.split(/[.!?;\r\n]/u, 1)[0] ?? "").trim();
+	const end = text.indexOf(closing, 1);
+	return end < 0 ? "" : text.slice(1, end).trim();
+}
+
+/** Null is a topic search. An empty string is a title selector that could not be resolved. */
+export function namedPastChatTitle(requestText?: string): string | null {
+	if (!requestText || requestText.length > 8_000) return null;
+	const prose = maskQuotedProse(requestText);
+	const english = [
+		...prose.matchAll(
+			/\b(?:chats?|conversations?|discussions?)\s+(?:titled|named|called)\b/giu,
+		),
+	];
+	const adjacentTitles = [
+		...prose.matchAll(
+			/\b(?:the|my|our)\s+(?:(?:old|older|past|prior|previous|earlier|last)\s+)?(?:chat|conversation|discussion)\b/giu,
+		),
+	].flatMap((match) => {
+		const fragment = requestText
+			.slice(match.index + match[0].length)
+			.trimStart();
+		return TITLE_QUOTES.has(fragment[0] ?? "") ? [readChatTitle(fragment)] : [];
+	});
+	const hungarian = [
+		...prose.matchAll(
+			/\b(?:című|cimu)\s+(?:chat|cset|beszélgetés|beszelgetes)\p{L}*/giu,
+		),
+	];
+	if (english.length + hungarian.length + adjacentTitles.length > 1) return "";
+	if (adjacentTitles.length) return adjacentTitles[0] ?? "";
+	const prefix = english[0];
+	if (prefix)
+		return readChatTitle(requestText.slice(prefix.index + prefix[0].length));
+	const suffix = hungarian[0];
+	if (!suffix) return null;
+	const before = prose.slice(0, suffix.index);
+	const source = [
+		...before.matchAll(
+			/\b(?:beszélget|beszelget|chat|cset)\p{L}*(?:ben|ből|bol)\s+(?:a|az)\b/giu,
+		),
+	].at(-1);
+	const verb = [
+		...before.matchAll(
+			/\b(?:nyisd|keresd|mutasd|nézd|nezd)\s+meg\s+(?:a|az)\b/giu,
+		),
+	].at(-1);
+	const start = source ?? verb;
+	return start
+		? readChatTitle(
+				requestText.slice(start.index + start[0].length, suffix.index),
+			)
+		: "";
 }
 
 function pastChatRequestClauses(prose: string): string[] {

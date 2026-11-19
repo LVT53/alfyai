@@ -1,4 +1,14 @@
-import { and, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import {
+	and,
+	count,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import {
 	conversationSummaries,
 	conversations,
@@ -13,6 +23,7 @@ import {
 	messageTimestampOrderDesc,
 } from "$lib/server/services/message-ordering";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
+import { getConversationProjectId } from "$lib/server/services/projects";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import {
@@ -83,12 +94,67 @@ async function getDb() {
 
 type HistoryCandidate = {
 	conversationId: string;
+	projectId?: string | null;
 	title: string;
 	summary: string | null;
 	updatedAt: number;
 	score: number;
 	messageSnippets: HistoryMemoryContextMessage[];
 };
+
+export class HistoryChatTitleUnresolvedError extends ToolCallRefusedError {
+	constructor() {
+		super(
+			"I couldn't identify exactly one available past chat with the title the person gave. Ask for a unique chat title.",
+		);
+	}
+}
+
+async function resolveNamedHistoryCandidate(
+	params: GetMemoryContextParams,
+	title: string,
+): Promise<HistoryCandidate> {
+	if (!title) throw new HistoryChatTitleUnresolvedError();
+	const db = await getDb();
+	const projectId = await getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	);
+	const normalize = (value: string) =>
+		value.trim().normalize("NFC").toLowerCase();
+	const target = normalize(title);
+	const matches = (
+		await db
+			.select({
+				conversationId: conversations.id,
+				projectId: conversations.projectId,
+				title: conversations.title,
+				updatedAt: conversations.updatedAt,
+			})
+			.from(conversations)
+			.where(
+				and(
+					eq(conversations.userId, params.userId),
+					or(
+						isNull(conversations.projectId),
+						projectId ? eq(conversations.projectId, projectId) : undefined,
+					),
+					ne(conversations.id, params.conversationId),
+					buildConversationContextScopeCondition(),
+				),
+			)
+	).filter((candidate) => normalize(candidate.title) === target);
+	const match = matches[0];
+	if (!match || matches.length !== 1)
+		throw new HistoryChatTitleUnresolvedError();
+	return {
+		...match,
+		updatedAt: toTimestampMs(match.updatedAt),
+		summary: null,
+		score: 0,
+		messageSnippets: [],
+	};
+}
 
 async function filterHistoryByProjectionPolicy(params: {
 	userId: string;
@@ -152,10 +218,11 @@ async function listHistoryCandidates(params: {
 	userId: string;
 	conversationId: string;
 	query: string;
+	named?: HistoryCandidate;
 }): Promise<HistoryCandidate[]> {
 	const db = await getDb();
 	const terms = tokenizeQuery(params.query);
-	if (terms.length === 0) return [];
+	if (terms.length === 0) return params.named ? [params.named] : [];
 	const summaryFilter = buildHistoryTermFilter(terms, [
 		sql`${conversations.title}`,
 		sql`${conversationSummaries.summary}`,
@@ -163,6 +230,9 @@ async function listHistoryCandidates(params: {
 	const messageFilter = buildHistoryTermFilter(terms, [
 		sql`${messages.content}`,
 	]);
+	const projectScope = params.named?.projectId
+		? eq(conversations.projectId, params.named.projectId)
+		: isNull(conversations.projectId);
 	const summaryRows = await db
 		.select({
 			conversationId: conversationSummaries.conversationId,
@@ -179,8 +249,11 @@ async function listHistoryCandidates(params: {
 			and(
 				eq(conversationSummaries.userId, params.userId),
 				eq(conversations.userId, params.userId),
-				isNull(conversations.projectId),
+				projectScope,
 				ne(conversations.id, params.conversationId),
+				params.named
+					? eq(conversations.id, params.named.conversationId)
+					: undefined,
 				// Every candidate here is BY DEFINITION another conversation, so
 				// the scope is asked without an exception: an incognito chat's
 				// title and summary are not this conversation's to search.
@@ -204,8 +277,11 @@ async function listHistoryCandidates(params: {
 		.where(
 			and(
 				eq(conversations.userId, params.userId),
-				isNull(conversations.projectId),
+				projectScope,
 				ne(conversations.id, params.conversationId),
+				params.named
+					? eq(conversations.id, params.named.conversationId)
+					: undefined,
 				// The raw message text of another chat. This is the query the
 				// live check caught: with no scope term it returned a candidate
 				// quoting a secret typed into an incognito conversation.
@@ -218,6 +294,7 @@ async function listHistoryCandidates(params: {
 		.limit(HISTORY_MESSAGE_MATCH_LIMIT);
 
 	const candidates = new Map<string, HistoryCandidate>();
+	if (params.named) candidates.set(params.named.conversationId, params.named);
 	for (const row of summaryRows) {
 		const score = scoreHistoryText(terms, `${row.title}\n${row.summary ?? ""}`);
 		if (score <= 0) continue;
@@ -273,6 +350,7 @@ async function loadHistoryConversationDetail(params: {
 	historyConversationId: string;
 	maxMessages: number;
 	candidate?: HistoryCandidate | null;
+	namedProjectId?: string | null;
 	includeAttachments?: boolean;
 }): Promise<{
 	conversation: HistoryMemoryContextSelectedConversation;
@@ -280,6 +358,17 @@ async function loadHistoryConversationDetail(params: {
 	attachmentArtifactIds: string[];
 }> {
 	const db = await getDb();
+	if (
+		params.namedProjectId &&
+		params.namedProjectId !==
+			(await getConversationProjectId(
+				params.userId,
+				params.currentConversationId,
+			))
+	)
+		throw new ToolCallRefusedError(
+			"historyConversationId is outside memory_context history scope",
+		);
 	const [conversation] = await db
 		.select({
 			conversationId: conversations.id,
@@ -291,7 +380,9 @@ async function loadHistoryConversationDetail(params: {
 			and(
 				eq(conversations.id, params.historyConversationId),
 				eq(conversations.userId, params.userId),
-				isNull(conversations.projectId),
+				params.namedProjectId
+					? eq(conversations.projectId, params.namedProjectId)
+					: isNull(conversations.projectId),
 				ne(conversations.id, params.currentConversationId),
 				// The id came from the candidate list above, which is scoped —
 				// but this query is the one that reads the conversation's whole
@@ -476,14 +567,27 @@ export async function getHistoryMemoryContext(
 		MIN_MAX_HISTORY_MESSAGES,
 		OPERATIONAL_MAX_HISTORY_MESSAGES,
 	);
-	const historyConversationId =
-		params.historyConversationId?.trim() ||
-		params.selectedConversationId?.trim() ||
-		null;
+	const named =
+		params.authoredHistoryTitle === undefined
+			? undefined
+			: await resolveNamedHistoryCandidate(params, params.authoredHistoryTitle);
+	const requestedIds = [
+		params.historyConversationId?.trim(),
+		params.selectedConversationId?.trim(),
+		named && params.mode === "project"
+			? params.siblingConversationId?.trim()
+			: undefined,
+	].filter(Boolean);
+	if (named && requestedIds.some((id) => id !== named.conversationId))
+		throw new ToolCallRefusedError(
+			"historyConversationId is outside memory_context history scope",
+		);
+	const historyConversationId = requestedIds[0] ?? null;
 	const candidates = await listHistoryCandidates({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		query,
+		named,
 	});
 	const selectedCandidates = candidates.slice(0, maxHistoryConversations);
 	const historyConversations = selectedCandidates.map((candidate) => ({
@@ -512,6 +616,7 @@ export async function getHistoryMemoryContext(
 				historyConversationId,
 				maxMessages,
 				candidate: selectedHistoryCandidate,
+				namedProjectId: named?.projectId,
 				includeAttachments: params.includeAttachments,
 			})
 		: null;

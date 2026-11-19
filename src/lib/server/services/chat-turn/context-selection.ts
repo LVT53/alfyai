@@ -149,7 +149,10 @@ import {
 	buildHistoryModelMessages,
 	type HistoryToolMessagesMode,
 } from "./conversation-history";
-import { requestsPastChatLookup } from "./past-chat-request";
+import {
+	namedPastChatTitle,
+	requestsPastChatLookup,
+} from "./past-chat-request";
 
 const SESSION_HISTORY_CONTEXT_TOKENS = 2_000;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
@@ -1970,6 +1973,7 @@ export async function buildConstructedContext(params: {
 	// Only its tool path has those authored answers available to veto a read.
 	const pastProjectLookupAllowed = projectLabelPromise.then((label) =>
 		!params.historyBeforeMessageId &&
+		namedPastChatTitle(params.message) === null &&
 		label &&
 		requestsPastChatLookup(params.message, label)
 			? isMemoryActiveForConversation({

@@ -9,6 +9,7 @@ import {
 } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import {
+	namedPastChatTitle,
 	prohibitsPastChatLookup,
 	requestsPastChatLookup,
 } from "$lib/server/services/chat-turn/past-chat-request";
@@ -26,6 +27,7 @@ import {
 	searchImages,
 } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
+import { HistoryChatTitleUnresolvedError } from "$lib/server/services/memory-context/history";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
 import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
@@ -648,6 +650,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const pastChatLookupRequested =
 		requestsPastChatLookup(ctx.requestText) &&
 		!ctx.resumeProvenance?.userTexts?.some(prohibitsPastChatLookup);
+	const authoredHistoryTitle = pastChatLookupRequested
+		? namedPastChatTitle(ctx.requestText)
+		: null;
 	// Where an address a tool is asked to open came from, for this turn
 	// (docs/plans/exfil-channels): the user's words and tool results, never the
 	// model's. Cheap to make; the conversation's stored messages are read only when
@@ -1066,9 +1071,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					options: ToolExecutionOptions,
 				) => {
 					const safeInput = sanitizeMemoryContextInput(input);
+					const historyLookup =
+						safeInput.mode === "history" || safeInput.mode === "project";
 					const historyRequestRequired =
-						(safeInput.mode === "history" || safeInput.mode === "project") &&
-						!pastChatLookupRequested;
+						historyLookup && !pastChatLookupRequested;
 					return executeToolWithEnvelope({
 						toolName: "memory_context",
 						timeoutMs: TOOL_TIMEOUTS_MS.memory_context,
@@ -1084,6 +1090,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
 								...safeInput,
+								...(historyLookup && authoredHistoryTitle !== null
+									? { authoredHistoryTitle }
+									: {}),
 							});
 							const candidates = compactMemoryContextCandidates(
 								result,
@@ -1140,7 +1149,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													"memory_context",
 													historyRequestRequired
 														? "history_request_required"
-														: "chat_out_of_reach",
+														: error instanceof HistoryChatTitleUnresolvedError
+															? "history_title_unresolved"
+															: "chat_out_of_reach",
 												)
 											: isToolTimeoutError(error)
 												? {}
