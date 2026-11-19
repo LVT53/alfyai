@@ -44,7 +44,7 @@ import {
 export type ReasonKind = "fail" | "stop" | "info" | "empty";
 
 /** `key: null` when the row's own verb says it all and the row has no body. */
-export type ReasonWords = { kind: ReasonKind; key: I18nKey | null };
+type ReasonWords = { kind: ReasonKind; key: I18nKey | null };
 
 type ToolWords<Codes extends string> = {
 	codes: Record<Codes, ReasonWords> &
