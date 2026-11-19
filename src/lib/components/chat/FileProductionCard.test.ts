@@ -229,6 +229,224 @@ describe("FileProductionCard", () => {
 		expect(hu.queryByText(serverMessage)).toBeNull();
 	});
 
+	// The server writes a raw English message on a failed job, for the model and
+	// the log. The card says the code's sentence and nothing else, in both
+	// languages: every code the file maker writes has one, grouped where the cause
+	// reads the same to a person.
+	const RAW_MESSAGE =
+		'Traceback (most recent call last): File "/srv/alfyai/run.py", line 9, in <module>';
+
+	function failedWith(code: string, message = RAW_MESSAGE): FileProductionJob {
+		return makeJob({
+			status: "failed",
+			error: { code, message, retryable: false },
+		});
+	}
+
+	function expectOnlySentence(
+		job: FileProductionJob,
+		english: string,
+		hungarian: string,
+		label: string,
+	) {
+		uiLanguage.set("en");
+		const en = render(FileProductionCard, { job });
+		expect(en.getByText(english), `${label} in English`).toBeInTheDocument();
+		expect(en.container.textContent).not.toContain("Traceback");
+		en.unmount();
+		uiLanguage.set("hu");
+		const hu = render(FileProductionCard, { job });
+		expect(
+			hu.getByText(hungarian),
+			`${label} in Hungarian`,
+		).toBeInTheDocument();
+		expect(hu.container.textContent).not.toContain("Traceback");
+		hu.unmount();
+	}
+
+	it.each([
+		[
+			"a request the file maker cannot read",
+			[
+				"invalid_tool_input",
+				"missing_file_production_request",
+				"invalid_file_production_request",
+				"unsupported_file_production_request",
+				"invalid_inline_text_request",
+				"missing_inline_text_content",
+				"invalid_json_body",
+				"missing_conversation_id",
+				"missing_idempotency_key",
+				"missing_request_title",
+				"unsupported_source_mode",
+				"invalid_program_language",
+				"missing_program_source",
+				"missing_program_requested_outputs",
+				"mixed_output_groups",
+			],
+			"The file request couldn't be read.",
+			"A fájlkérés nem olvasható.",
+		],
+		[
+			"a problem in the file maker or its storage",
+			[
+				"program_execution_threw",
+				"program_execution_failed",
+				"program_output_storage_failed",
+				"generated_document_source_persistence_failed",
+				"inline_text_write_failed",
+				"tool_execution_failed",
+			],
+			"The file maker ran into a problem.",
+			"A fájlkészítő hibába ütközött.",
+		],
+		[
+			"a program that made no file",
+			["program_no_outputs", "file_production_no_output_files"],
+			"The program made no file.",
+			"A program nem készített fájlt.",
+		],
+		[
+			"a program that made another file than the one asked for",
+			[
+				"program_output_type_mismatch",
+				"program_output_filename_mismatch",
+				"program_output_mime_mismatch",
+				"program_output_signature_mismatch",
+				"unexpected_program_output_files",
+				"invalid_xlsx_output",
+				"invalid_text_output",
+				"xlsx_output_too_complex",
+			],
+			"The program didn't make the file that was asked for.",
+			"A program nem a kért fájlt készítette el.",
+		],
+		[
+			"a change that cannot be applied to the file",
+			[
+				"no_previous_version_for_patches",
+				"patch_failed",
+				"patch_not_applicable",
+			],
+			"The change couldn't be applied to the file.",
+			"A módosítást nem sikerült alkalmazni a fájlon.",
+		],
+		[
+			"as many files as one reply allows",
+			["produce_file_turn_limit", "produce_file_turn_retry_limit"],
+			"Alfy has made as many files as one reply allows.",
+			"Alfy ebben a válaszban már annyi fájlt készített, amennyit lehet.",
+		],
+		[
+			"a render the person stopped",
+			["render_cancelled"],
+			"You stopped this before it finished.",
+			"Ezt leállítottad, mielőtt befejeződött.",
+		],
+		[
+			"an inline text type that is not supported",
+			["unsupported_inline_text_output_type"],
+			"That output type is not supported for this document yet.",
+			"Ez a kimeneti típus még nem támogatott ennél a dokumentumnál.",
+		],
+		[
+			"a spreadsheet that is too large to check",
+			["xlsx_output_too_large"],
+			"A produced file is too large.",
+			"Egy előállított fájl túl nagy.",
+		],
+	])("says %s in its own words, in both languages", (_cause, codes, english, hungarian) => {
+		for (const code of codes) {
+			expectOnlySentence(failedWith(code), english, hungarian, code);
+		}
+	});
+
+	// The codes that had words before keep them.
+	it.each([
+		["too_many_outputs", "Too many outputs were requested."],
+		["source_too_large", "The file production source is too large."],
+		["projection_too_large", "The document text projection is too large."],
+		["page_limit_exceeded", "The document would exceed the page limit."],
+		["table_limit_exceeded", "A table exceeds the configured limit."],
+		["chart_limit_exceeded", "A chart exceeds the configured limit."],
+		["image_limit_exceeded", "Images exceed the configured limit."],
+		["renderer_timeout", "Document rendering timed out."],
+		["sandbox_timeout", "Program execution timed out."],
+		["output_file_too_large", "A produced file is too large."],
+		["job_outputs_too_large", "The produced files are too large."],
+		["invalid_document_source", "The generated document source is invalid."],
+		[
+			"unsupported_document_block",
+			"The document contains an unsupported block.",
+		],
+		[
+			"unsupported_table_structure",
+			"The document contains an unsupported table structure.",
+		],
+		[
+			"unsupported_chart_type",
+			"The document contains an unsupported chart type.",
+		],
+		["unsupported_chart_data", "The chart data is not supported."],
+		[
+			"unsupported_pdf_block",
+			"This PDF renderer does not support that block yet.",
+		],
+		[
+			"unsupported_output_type",
+			"That output type is not supported for this document yet.",
+		],
+		["pdf_font_missing", "The PDF renderer is missing its Unicode font."],
+		["document_render_failed", "The document could not be rendered."],
+		["tool_failed", "The file request failed before it could start."],
+	])("keeps the words it already had for %s", (code, english) => {
+		const { getByText, container } = render(FileProductionCard, {
+			job: failedWith(code),
+		});
+		expect(getByText(english)).toBeInTheDocument();
+		expect(container.textContent).not.toContain("Traceback");
+	});
+
+	it("never shows the message of a code it has no words for", () => {
+		// A code from a newer server, a missing one, and the names an object lookup
+		// would answer for (a plain map read would hand back a function).
+		for (const code of [
+			"a_code_from_a_newer_server",
+			"",
+			"constructor",
+			"toString",
+			"__proto__",
+		]) {
+			expectOnlySentence(
+				failedWith(code),
+				"The file couldn't be made.",
+				"A fájlt nem sikerült elkészíteni.",
+				`"${code}"`,
+			);
+		}
+	});
+
+	it("words the code even when the server sent no message with it", () => {
+		const { getByText } = render(FileProductionCard, {
+			job: failedWith("too_many_outputs", ""),
+		});
+		expect(getByText("Too many outputs were requested.")).toBeInTheDocument();
+	});
+
+	it("says the fallback for a failed job that carries no error at all", () => {
+		const { getByText } = render(FileProductionCard, {
+			job: makeJob({ status: "failed", error: null }),
+		});
+		expect(getByText("The file couldn't be made.")).toBeInTheDocument();
+	});
+
+	it("says a cancelled job was cancelled", () => {
+		const { getByText } = render(FileProductionCard, {
+			job: makeJob({ status: "cancelled", error: null }),
+		});
+		expect(getByText("This request was cancelled.")).toBeInTheDocument();
+	});
+
 	it("opens produced files with version and source fallbacks while background metadata sync catches up", async () => {
 		const onOpenDocument = vi.fn();
 		const { getByRole } = render(FileProductionCard, {

@@ -5,6 +5,7 @@
 
 import {
 	type ParallelClientDeps,
+	type ParallelExtractResult,
 	type ParallelExtractUrlError,
 	parallelExtractWithErrors,
 } from "./client";
@@ -14,6 +15,7 @@ import {
 	type GroundedWebResult,
 	type GroundedWebSource,
 	MAX_PAYLOAD_EVIDENCE,
+	type ReadFailureCode,
 } from "./types";
 
 const DEFAULT_OBJECTIVE =
@@ -144,6 +146,51 @@ function buildFailureNote(errors: ParallelExtractUrlError[]): string {
 	return `## Could not read\n\n${lines.join("\n")}${overflow}`;
 }
 
+// Why a read brought back nothing to read, as the code a tool row words. Only
+// the Extract API's own report is read, its HTTP status and its error type,
+// never its text. When no page came back it is the reason EVERY reported failure
+// shares: 401, 403 or 451 (the site turned the reader away), 404 or 410 (the
+// page is gone), 408, 504 or an error type that says it timed out (the site did
+// not answer in time). A failure that names nothing, or two that disagree, name
+// nothing: the row's one sentence would be wrong for one of the pages. When pages
+// came back and not one held any text (no full_content, no excerpt), the pages
+// had nothing to read. A read that brought back a page names nothing.
+const REFUSED_STATUSES = new Set([401, 403, 451]);
+const GONE_STATUSES = new Set([404, 410]);
+const TIMEOUT_STATUSES = new Set([408, 504]);
+const TIMEOUT_ERROR_TYPE = /time[ _-]?out|timed[ _-]?out/i;
+
+function readFailureOf(
+	error: ParallelExtractUrlError,
+): ReadFailureCode | undefined {
+	if (error.errorType && TIMEOUT_ERROR_TYPE.test(error.errorType)) {
+		return "site_timeout";
+	}
+	if (error.status === undefined) return undefined;
+	if (REFUSED_STATUSES.has(error.status)) return "site_refused";
+	if (GONE_STATUSES.has(error.status)) return "page_not_found";
+	if (TIMEOUT_STATUSES.has(error.status)) return "site_timeout";
+	return undefined;
+}
+
+function classifyReadFailure(
+	results: ParallelExtractResult[],
+	errors: ParallelExtractUrlError[],
+): ReadFailureCode | undefined {
+	if (results.length === 0) {
+		const [first, ...rest] = errors.map(readFailureOf);
+		return first !== undefined && rest.every((code) => code === first)
+			? first
+			: undefined;
+	}
+	const nothingToRead = results.every(
+		(result) =>
+			!result.full_content?.trim() &&
+			result.excerpts.every((excerpt) => !excerpt.trim()),
+	);
+	return nothingToRead ? "no_readable_text" : undefined;
+}
+
 // Join the fetched-page brief with the failure note, tolerating either being
 // empty (e.g. every url failed -> no page content, note only).
 //
@@ -255,6 +302,7 @@ export async function fetchUrlViaParallel(
 		evidence[k].score = 1 - k / MAX_PAYLOAD_EVIDENCE;
 	}
 
+	const readFailure = classifyReadFailure(results, errors);
 	return {
 		query: req.urls.join(", "),
 		queries: req.urls.map((url) => ({ query: url })),
@@ -290,5 +338,6 @@ export async function fetchUrlViaParallel(
 				totalLatencyMs,
 			},
 		}),
+		...(readFailure ? { readFailure } : {}),
 	};
 }

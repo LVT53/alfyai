@@ -32,10 +32,16 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import type { ToolCallFilesData } from "$lib/server/services/messages-types";
 import { getEntryByMimeType, resolveEntry } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
+import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 import { FILE_CARD_LIMIT } from "$lib/utils/tool-calls";
 
 import { applyLocalDistillGate } from "./connector-distill";
-import { noMatchingConnectionMessage, truncateText } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	truncateText,
+	withReasonCode,
+} from "./shared";
 
 export const filesToolInputSchema = z.object({
 	action: z.enum([
@@ -487,22 +493,25 @@ function buildPayload(params: {
 	citations?: FilesCitation[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): FilesToolOutcome {
 	const citations = params.citations ?? [];
+	const modelPayload: FilesToolModelPayload = {
+		success: params.success,
+		name: "files",
+		sourceType: "document",
+		action: params.action,
+		message: params.message,
+		results: params.results ?? [],
+		citations,
+		...(params.pendingWriteId ? { pendingWriteId: params.pendingWriteId } : {}),
+		...(params.preview ? { preview: params.preview } : {}),
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "files",
-			sourceType: "document",
-			action: params.action,
-			message: params.message,
-			results: params.results ?? [],
-			citations,
-			...(params.pendingWriteId
-				? { pendingWriteId: params.pendingWriteId }
-				: {}),
-			...(params.preview ? { preview: params.preview } : {}),
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: citations.map(toCandidate),
 		// Every outcome starts with no cards; the read outcomes attach them
 		// through withFileCards once the connection (and thus preview support)
@@ -529,21 +538,43 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof NextcloudFilesError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your Nextcloud connection needs to be reconnected before I can access your files. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Nextcloud connection needs to be reconnected before I can access your files. Please reconnect it in Settings.",
+					code,
+				};
 			case "not_found":
-				return "That file or folder couldn't be found in your Nextcloud.";
+				return {
+					message: "That file or folder couldn't be found in your Nextcloud.",
+					code,
+				};
 			case "too_large":
-				return "That file is too large for me to read right now.";
+				return {
+					message: "That file is too large for me to read right now.",
+					code,
+				};
 			case "invalid_path":
-				return "That file path isn't valid.";
+				return { message: "That file path isn't valid.", code };
 			case "invalid_config":
-				return "Your Nextcloud connection is missing required configuration. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Nextcloud connection is missing required configuration. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your files right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your files right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
 	if (err instanceof OneDriveError) {
@@ -555,21 +586,43 @@ function mapAdapterError(err: unknown): string {
 			// onedriveRefreshAccessToken's doc comment — it throws this code
 			// specifically for that case.
 			case "invalid_grant":
-				return "Your OneDrive connection needs to be reconnected before I can access your files. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your OneDrive connection needs to be reconnected before I can access your files. Please reconnect it in Settings.",
+					code,
+				};
 			case "not_found":
-				return "That file or folder couldn't be found in your OneDrive.";
+				return {
+					message: "That file or folder couldn't be found in your OneDrive.",
+					code,
+				};
 			case "too_large":
-				return "That file is too large for me to read right now.";
+				return {
+					message: "That file is too large for me to read right now.",
+					code,
+				};
 			case "invalid_path":
-				return "That file path isn't valid.";
+				return { message: "That file path isn't valid.", code };
 			case "invalid_config":
 			case "not_configured":
-				return "Your OneDrive connection is missing required configuration. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your OneDrive connection is missing required configuration. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your files right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your files right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach your files right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't reach your files right now. Please try again in a moment.",
+		code,
+	};
 }
 
 function searchOutcome(
@@ -841,6 +894,7 @@ async function saveOutcome(
 			success: false,
 			action: "save",
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -849,6 +903,7 @@ async function saveOutcome(
 			success: false,
 			action: "save",
 			message: "Content is required to save a file.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -859,6 +914,7 @@ async function saveOutcome(
 			action: "save",
 			message:
 				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+			reason: "needs_reconnect",
 		});
 	}
 
@@ -948,6 +1004,7 @@ async function moveOutcome(
 			success: false,
 			action: "move",
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -956,6 +1013,7 @@ async function moveOutcome(
 			success: false,
 			action: "move",
 			message: "A source path is required to move or rename a file.",
+			reason: "request_adjusted",
 		});
 	}
 	if (!input.destinationPath) {
@@ -963,6 +1021,7 @@ async function moveOutcome(
 			success: false,
 			action: "move",
 			message: "A destination path is required to move or rename a file.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -973,6 +1032,7 @@ async function moveOutcome(
 			action: "move",
 			message:
 				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+			reason: "needs_reconnect",
 		});
 	}
 
@@ -1056,6 +1116,7 @@ async function deleteOutcome(
 			success: false,
 			action: "delete",
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -1064,6 +1125,7 @@ async function deleteOutcome(
 			success: false,
 			action: "delete",
 			message: "A file path is required to delete a file.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -1074,6 +1136,7 @@ async function deleteOutcome(
 			action: "delete",
 			message:
 				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+			reason: "needs_reconnect",
 		});
 	}
 
@@ -1145,6 +1208,7 @@ async function createFolderOutcome(
 			success: false,
 			action: "create_folder",
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -1153,6 +1217,7 @@ async function createFolderOutcome(
 			success: false,
 			action: "create_folder",
 			message: "A folder path is required to create a folder.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -1163,6 +1228,7 @@ async function createFolderOutcome(
 			action: "create_folder",
 			message:
 				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+			reason: "needs_reconnect",
 		});
 	}
 
@@ -1241,6 +1307,7 @@ async function shareLinkOutcome(
 			success: false,
 			action: "share_link",
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 
@@ -1249,6 +1316,7 @@ async function shareLinkOutcome(
 			success: false,
 			action: "share_link",
 			message: "A file path is required to create a public share link.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -1259,6 +1327,7 @@ async function shareLinkOutcome(
 			action: "share_link",
 			message:
 				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+			reason: "needs_reconnect",
 		});
 	}
 
@@ -1398,6 +1467,7 @@ export async function runFilesTool(
 					success: false,
 					action: input.action,
 					message: `Writing to ${conn.label} isn't supported yet — OneDrive connections are currently read-only. I can list, search, and read files, but not save, move, delete, create folders, or share links.`,
+					reason: "read_only_account",
 				});
 			}
 
@@ -1469,6 +1539,7 @@ export async function runFilesTool(
 					success: false,
 					action: input.action,
 					message: `Your ${conn.label} connection is missing its stored credentials. Please reconnect it in Settings.`,
+					reason: "needs_reconnect",
 				});
 			}
 
@@ -1479,6 +1550,7 @@ export async function runFilesTool(
 							success: false,
 							action: "search",
 							message: "A search query is required to search your files.",
+							reason: "request_adjusted",
 						});
 					}
 					const files = await searchFilesForConn(conn, secret, input.query);
@@ -1514,6 +1586,7 @@ export async function runFilesTool(
 						success: false,
 						action: "read",
 						message: "A file path is required to read a file.",
+						reason: "request_adjusted",
 					});
 				}
 				// A `read` fans out into a stat (the folder guard just below) and
@@ -1536,6 +1609,7 @@ export async function runFilesTool(
 						success: false,
 						action: "read",
 						message: `"${fileLabel(input.path)}" is a folder, not a file. Use the "list" action to see what's inside it.`,
+						reason: "request_adjusted",
 					});
 				}
 				const file = await readFileForConn(
@@ -1557,10 +1631,12 @@ export async function runFilesTool(
 					await distillFilesReadOutcome({ userId, modelId, input, outcome }),
 				);
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -1571,6 +1647,7 @@ export async function runFilesTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	if (result.kind === "no-match") {
@@ -1582,6 +1659,7 @@ export async function runFilesTool(
 				result.selector,
 				result.connections,
 			),
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

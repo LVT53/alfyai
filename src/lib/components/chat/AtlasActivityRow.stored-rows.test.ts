@@ -176,7 +176,7 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 		expectNoRawI18nKeys();
 	});
 
-	it("renders a failed v1 row with its stored error and a Retry", () => {
+	it("renders a failed v1 row with the fallback sentence, not its stored message, and a Retry", () => {
 		const card = mapAtlasJobRowToCard(
 			storedRow({
 				status: "failed",
@@ -198,8 +198,14 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 			"data-status",
 			"failed",
 		);
+		// `atlas_quality_gate_failed` is a code earlier releases stored; its cause is
+		// not worth a sentence of its own, so the row says the tool's fallback and
+		// never the message that was written for the log.
 		expect(screen.getByTestId("atlas-failure-reason")).toHaveTextContent(
-			"Atlas could not verify enough claims to publish.",
+			"Atlas could not finish. Please try again.",
+		);
+		expect(document.body).not.toHaveTextContent(
+			"could not verify enough claims",
 		);
 		expect(screen.getByTestId("atlas-retry")).toBeInTheDocument();
 		expectNoRawI18nKeys();

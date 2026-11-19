@@ -116,6 +116,7 @@ describe("visibleTakes and shownTake", () => {
 			kind: "failed",
 			unavailable: false,
 			retryable: true,
+			errorCode: "image_render_failed",
 		});
 	});
 	it("offers a model retry that landed late as a take", () => {

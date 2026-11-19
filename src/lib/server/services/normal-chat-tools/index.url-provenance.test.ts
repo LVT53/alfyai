@@ -28,6 +28,7 @@ import {
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
@@ -76,7 +77,10 @@ vi.mock("$lib/server/services/parallel-search/fetch-url", () => ({
 vi.mock("$lib/server/services/sandbox-execution", () => ({
 	executeCode: vi.fn(),
 }));
-vi.mock("$lib/server/services/image-search", () => ({
+vi.mock("$lib/server/services/image-search", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/image-search")
+	>()),
 	searchImages: vi.fn(),
 }));
 vi.mock("$lib/server/config-store", async () => {
@@ -765,6 +769,163 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 			await fetchUrl(set, ["https://earlier-user.example/page"]);
 
 			expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+		});
+	});
+});
+
+// A tool row says why a page could not be read from a code on the entry's
+// metadata. The code rides beside the model's payload: what the model reads, the
+// entry's outputSummary and its stored status are what they always were.
+describe("fetch_url names what happened", () => {
+	const PAGE = "https://example.com/page";
+	const GRANT = {
+		kind: "admitted" as const,
+		turnId: "t",
+		segmentId: "s",
+		attemptId: "a",
+		stepId: "step",
+		executionId: "e",
+		proposalOrdinal: 0,
+		maxPayloadTokens: 8_000,
+		maxFailurePayloadTokens: 256,
+	};
+
+	async function fetchWithBudget(
+		set: ReturnType<typeof tools>,
+		kind: "admitted" | "denied" = "admitted",
+	) {
+		return (await requireTool(set.tools.fetch_url).execute(
+			{ urls: [PAGE] },
+			bindReadResultGrant(
+				{ toolCallId: "call-budget", messages: [] },
+				kind === "admitted" ? GRANT : { ...GRANT, kind, maxPayloadTokens: 0 },
+			),
+		)) as Record<string, unknown>;
+	}
+
+	it("names a link that came from neither the person nor a tool", async () => {
+		const set = tools();
+
+		await fetchUrl(set, [EXFIL], "call-refused");
+
+		const [entry] = set.getToolCalls();
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			refusedUrlCount: 1,
+			reasonCode: "link_not_from_a_source",
+		});
+	});
+
+	it("names a page reader that answered with an error, and the model reads the same", async () => {
+		const message = "Parallel extract failed: 500 Internal Server Error boom";
+		const set = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockRejectedValueOnce(
+			new ParallelApiError(message, 500),
+		);
+
+		const result = await fetchUrl(set, [PAGE]);
+
+		expect(result).toEqual({ success: false, error: message });
+		const [entry] = set.getToolCalls();
+		expect(entry?.status).toBe("done");
+		expect(entry?.outputSummary).toBe(message);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			error: message,
+			reasonCode: "read_unavailable",
+		});
+	});
+
+	it("names nothing for any other failure: the row says its own fallback", async () => {
+		const set = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockRejectedValueOnce(new Error("upstream 502"));
+
+		await fetchUrl(set, [PAGE]);
+
+		const [entry] = set.getToolCalls();
+		expect(entry?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names why no page could be read when the Extract API said, and the payload is what it was", async () => {
+		const failed = groundedResult({ urls: [PAGE], failed: true });
+		const plain = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockResolvedValueOnce(failed);
+		const before = await fetchUrl(plain, [PAGE]);
+
+		const named = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockResolvedValueOnce({
+			...failed,
+			readFailure: "page_not_found",
+		});
+		const after = await fetchUrl(named, [PAGE]);
+
+		expect(after).toEqual(before);
+		const [entry] = named.getToolCalls();
+		expect(entry?.outputSummary).toBe(plain.getToolCalls()[0]?.outputSummary);
+		expect(entry?.metadata).toMatchObject({ reasonCode: "page_not_found" });
+		expect(plain.getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names nothing for a read that brought back a page", async () => {
+		const set = tools({ requestText: `Read ${PAGE}` });
+
+		await fetchUrl(set, [PAGE]);
+
+		const [entry] = set.getToolCalls();
+		expect(entry?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	describe("with a result budget (the way a turn runs it)", () => {
+		it("keeps the reason a read named when the budget records its fixed failure", async () => {
+			const recorder = createToolCallRecorder();
+			const set = tools({ recorder, requestText: `Read ${PAGE}` });
+			fetchUrlViaParallelMock.mockResolvedValueOnce({
+				...groundedResult({ urls: [PAGE], failed: true }),
+				readFailure: "site_refused",
+			});
+
+			const result = await fetchWithBudget(set);
+
+			expect(result).toMatchObject({ success: false, bounded: true });
+			const [entry] = recorder.getEntries();
+			expect(entry?.status).toBe("failed");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				bounded: true,
+				reasonCode: "site_refused",
+			});
+		});
+
+		it("names a link that came from neither as link_not_from_a_source through the fixed failure", async () => {
+			const recorder = createToolCallRecorder();
+			const set = tools({ recorder });
+
+			await requireTool(set.tools.fetch_url).execute(
+				{ urls: [EXFIL] },
+				bindReadResultGrant({ toolCallId: "call-budget", messages: [] }, GRANT),
+			);
+
+			const [entry] = recorder.getEntries();
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "link_not_from_a_source",
+			});
+		});
+
+		it("names a read the turn's reading budget refused as reading_budget_used", async () => {
+			const recorder = createToolCallRecorder();
+			const set = tools({ recorder, requestText: `Read ${PAGE}` });
+
+			const result = await fetchWithBudget(set, "denied");
+
+			expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+			expect(result).toMatchObject({ success: false, bounded: true });
+			const [entry] = recorder.getEntries();
+			expect(entry?.status).toBe("failed");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "reading_budget_used",
+			});
 		});
 	});
 });

@@ -11,6 +11,7 @@
 
 import type { I18nKey } from "$lib/i18n";
 import type { Translate } from "$lib/utils/tool-evidence-presentation";
+import { resolveToolReason } from "$lib/utils/tool-reason-words";
 
 /** The kinds a take makes: a picture card's takes, a video card's take. */
 export type TakeKind = "image" | "video";
@@ -46,7 +47,13 @@ export type TakeCardState =
 	| { kind: "starting" }
 	/** `finishing`: ComfyUI is done; the decode and the app's own work are left. */
 	| { kind: "making"; finishing: boolean }
-	| { kind: "failed"; unavailable: boolean; retryable: boolean }
+	/** `errorCode`: the take's own code, which the card words (`takeStateWords`); null for a result that could not be read. */
+	| {
+			kind: "failed";
+			unavailable: boolean;
+			retryable: boolean;
+			errorCode: string | null;
+	  }
 	/** The explicit-picture filter kept the result back: it looked explicit, or (unchecked) the check could not run. */
 	| { kind: "blocked"; unchecked: boolean }
 	| { kind: "stopped" }
@@ -92,7 +99,12 @@ export function takeCardState(
 		case "succeeded":
 			return landed
 				? { kind: "ready" }
-				: { kind: "failed", unavailable: false, retryable: true };
+				: {
+						kind: "failed",
+						unavailable: false,
+						retryable: true,
+						errorCode: null,
+					};
 		case "cancelled":
 			return { kind: "stopped" };
 		case "failed":
@@ -109,6 +121,7 @@ export function takeCardState(
 					take.errorCode === `${kind}_server_unreachable` ||
 					take.errorCode === `${kind}_server_not_configured`,
 				retryable: take.retryable,
+				errorCode: take.errorCode,
 			};
 	}
 }
@@ -151,6 +164,26 @@ export function goneWords(
 }
 
 /**
+ * A failed take's line: the sentence of its code, the one the tool's row says
+ * (`utils/tool-reason-words.ts`, for a picture and a clip alike), never the code
+ * and never what the model was told. A code this version does not know reads as the
+ * kind's own fallback sentence; a failure with no code (a result that could not be
+ * read) keeps the card's own line.
+ */
+function failureLine(
+	code: string | null,
+	kind: TakeKind,
+	t: Translate,
+): string {
+	if (code === null) return t("artifacts.take.failed");
+	const reason = resolveToolReason(
+		kind === "image" ? "make_image" : "make_video",
+		code,
+	);
+	return reason.key ? t(reason.key) : t("artifacts.take.failed");
+}
+
+/**
  * The card's one status line and its detail, in the reader's language. While
  * the take is being made the detail is the countdown, which the card keeps
  * (`takeTimeLine`): it is the card's own clock, not the state's.
@@ -172,7 +205,7 @@ export function takeStateWords(
 			return {
 				line: state.unavailable
 					? t(words.unavailable)
-					: t("artifacts.take.failed"),
+					: failureLine(state.errorCode, kind, t),
 				detail: t("artifacts.take.nothingSaved"),
 			};
 		case "blocked":

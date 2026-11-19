@@ -36,6 +36,7 @@ import {
 	runFilesTool,
 	sanitizeFilesToolInput,
 } from "./files";
+import { reasonCodeOf } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -219,6 +220,21 @@ describe("runFilesTool", () => {
 		expect(outcome.modelPayload.results).toEqual([]);
 		expect(outcome.modelPayload.citations).toEqual([]);
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "files",
+				sourceType: "document",
+				action: "search",
+				message:
+					"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.",
+				results: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity but still executes against the first (sorted) connection", async () => {
@@ -279,6 +295,7 @@ describe("runFilesTool", () => {
 		expect(outcome.modelPayload.message).toContain("Bob Nextcloud");
 		expect(outcome.modelPayload.message).toContain('"onedrive"');
 		expect(nextcloudSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("search returns compact results and citations", async () => {
@@ -478,6 +495,7 @@ describe("runFilesTool", () => {
 		expect(outcome.modelPayload.message).toContain("is a folder, not a file");
 		expect(outcome.modelPayload.message).toContain('"list"');
 		expect(nextcloudReadFileMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("read still reads a regular file when stat says it is not a directory", async () => {
@@ -644,6 +662,7 @@ describe("runFilesTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
 		expect(outcome.modelPayload.message).not.toContain("super-secret-password");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("maps generic adapter failures to a graceful note", async () => {
@@ -663,6 +682,48 @@ describe("runFilesTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("couldn't reach your files");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
+	});
+
+	it.each([
+		[
+			"a file that is not there",
+			new NextcloudFilesError("nope", "not_found"),
+			"item_not_found",
+		],
+		[
+			"a file that is too large",
+			new NextcloudFilesError("big", "too_large"),
+			"too_large",
+		],
+		[
+			"a path that is not valid",
+			new NextcloudFilesError("bad", "invalid_path"),
+			"request_adjusted",
+		],
+		[
+			"a connection missing its configuration",
+			new NextcloudFilesError("cfg", "invalid_config"),
+			"not_set_up",
+		],
+		[
+			"a server that did not answer",
+			new NextcloudFilesError("down", "request_failed"),
+			"account_unreachable",
+		],
+	] as const)("names %s", async (_label, error, reason) => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudSearchMock.mockRejectedValue(error);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe(reason);
 	});
 
 	it("returns a graceful note when the connection secret is missing", async () => {
@@ -681,6 +742,7 @@ describe("runFilesTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(nextcloudSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("requires a query for search and a path for read", async () => {
@@ -705,6 +767,8 @@ describe("runFilesTool", () => {
 		);
 		expect(readOutcome.modelPayload.success).toBe(false);
 		expect(readOutcome.modelPayload.message).toContain("path is required");
+		expect(reasonCodeOf(searchOutcome.modelPayload)).toBe("request_adjusted");
+		expect(reasonCodeOf(readOutcome.modelPayload)).toBe("request_adjusted");
 	});
 });
 
@@ -1100,6 +1164,7 @@ describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", (
 		expect(outcome.modelPayload.message).toContain("OneDrive");
 		expect(outcome.modelPayload.message).toContain("reconnected");
 		expect(outcome.modelPayload.message).not.toContain("super-secret");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	// Task 8 Finding B — a read-time refresh failing with Microsoft's
@@ -1130,6 +1195,7 @@ describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", (
 		expect(outcome.modelPayload.message).toBe(
 			"Your OneDrive connection needs to be reconnected before I can access your files. Please reconnect it in Settings.",
 		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 });
 
@@ -1173,6 +1239,8 @@ describe("runFilesTool — write actions against a onedrive connection are refus
 		expect(outcome.modelPayload.action).toBe(action);
 		expect(outcome.modelPayload.message).toContain("OneDrive");
 		expect(outcome.modelPayload.message.toLowerCase()).toContain("read-only");
+		// A OneDrive connection can only be read: the account is read-only.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("read_only_account");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
@@ -1265,6 +1333,9 @@ describe("runFilesTool — locality Option A distillation gate covers OneDrive (
 		expect(serialized).not.toContain("123-45-6789");
 		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
 		expect(outcome.modelPayload.message).toContain("withheld");
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serialized).not.toContain("details_withheld");
 	});
 });
 
@@ -1364,6 +1435,8 @@ describe("runFilesTool — locality Option A distillation gate", () => {
 		expect(serialized).not.toContain("123-45-6789");
 		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
 		expect(outcome.modelPayload.message).toContain("withheld");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serialized).not.toContain("details_withheld");
 	});
 });
 
@@ -1488,6 +1561,26 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 		// allowWrites is checked before the secret is ever decrypted — same
 		// hard-gate posture as executeNextcloudWrite (4.2).
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
+	});
+
+	it("a connection missing its stored credentials is refused, and the row says it needs connecting again", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue(null);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "save", path: "/AlfyAI/note.txt", content: "hello" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"missing its stored credentials",
+		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
 	});
 
 	it("requires content to save", async () => {
@@ -1502,6 +1595,7 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	// Fix 2 (write-safety hardening) — the "reversible" claim on an overwrite
@@ -1790,6 +1884,7 @@ describe("runFilesTool — move action (explicit-confirm write flow, GAP A1)", (
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("a destination outside the allowlist is HONORED but flagged in the preview", async () => {
@@ -1834,6 +1929,8 @@ describe("runFilesTool — move action (explicit-confirm write flow, GAP A1)", (
 		expect(noSource.modelPayload.success).toBe(false);
 
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(noDest.modelPayload)).toBe("request_adjusted");
+		expect(reasonCodeOf(noSource.modelPayload)).toBe("request_adjusted");
 	});
 });
 
@@ -1907,6 +2004,7 @@ describe("runFilesTool — delete action (explicit-confirm write flow, GAP A1)",
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("requires a path", async () => {
@@ -1922,6 +2020,7 @@ describe("runFilesTool — delete action (explicit-confirm write flow, GAP A1)",
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("path is required");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 });
 
@@ -1997,6 +2096,7 @@ describe("runFilesTool — create_folder action (explicit-confirm write flow, GA
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("requires a path", async () => {
@@ -2012,6 +2112,7 @@ describe("runFilesTool — create_folder action (explicit-confirm write flow, GA
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("path is required");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 });
 
@@ -2092,6 +2193,7 @@ describe("runFilesTool — share_link action (explicit-confirm write flow, GAP B
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
 		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("requires a path", async () => {
@@ -2107,6 +2209,7 @@ describe("runFilesTool — share_link action (explicit-confirm write flow, GAP B
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("path is required");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 });
 

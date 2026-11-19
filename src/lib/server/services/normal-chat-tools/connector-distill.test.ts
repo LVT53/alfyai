@@ -22,6 +22,7 @@ import {
 import {
 	createToolCallRecorder,
 	executeToolWithEnvelope,
+	reasonCodeOf,
 	type ToolCallRecorder,
 } from "./shared";
 
@@ -130,6 +131,64 @@ describe("decideLocalDistill", () => {
 			}),
 		).rejects.toThrow(/outside a tool call/);
 		expect(mocks.distillConnectorPayload).not.toHaveBeenCalled();
+	});
+});
+
+// A read the cloud model was given none of is told apart from one it was given
+// a local summary of: the first says so on the row (a code beside the payload,
+// never in it), the second is the envelope's localDistilled mark.
+describe("applyLocalDistillGate and the row's reason", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		distillOn();
+	});
+
+	const gate = (outcome: {
+		modelPayload: { success: boolean; note: string };
+	}) =>
+		applyLocalDistillGate({
+			...params,
+			outcome,
+			onDistilled: (o, distilled) => ({
+				...o,
+				modelPayload: { ...o.modelPayload, note: distilled },
+			}),
+			onUnavailable: (o) => ({
+				...o,
+				modelPayload: { ...o.modelPayload, note: "withheld" },
+			}),
+		});
+
+	it("tags the payload it made when the details were withheld, and the payload says nothing of it", async () => {
+		mocks.distillConnectorPayload.mockResolvedValue({ unavailable: true });
+		let outcome:
+			| { modelPayload: { success: boolean; note: string } }
+			| undefined;
+		await inToolCall(async () => {
+			outcome = await gate({ modelPayload: { success: true, note: "raw" } });
+		});
+
+		expect(outcome?.modelPayload).toEqual({ success: true, note: "withheld" });
+		expect(reasonCodeOf(outcome?.modelPayload)).toBe("details_withheld");
+		expect(JSON.stringify(outcome)).not.toContain("details_withheld");
+	});
+
+	it("tags nothing when a local summary was made, and nothing when no summary was wanted", async () => {
+		let summarised:
+			| { modelPayload: { success: boolean; note: string } }
+			| undefined;
+		await inToolCall(async () => {
+			summarised = await gate({ modelPayload: { success: true, note: "raw" } });
+		});
+		expect(summarised?.modelPayload.note).toBe("A standup.");
+		expect(reasonCodeOf(summarised?.modelPayload)).toBeUndefined();
+
+		mocks.hasLocalDistillEnabled.mockResolvedValue(false);
+		const untouched = { modelPayload: { success: true, note: "raw" } };
+		await inToolCall(async () => {
+			expect(await gate(untouched)).toBe(untouched);
+		});
+		expect(reasonCodeOf(untouched.modelPayload)).toBeUndefined();
 	});
 });
 

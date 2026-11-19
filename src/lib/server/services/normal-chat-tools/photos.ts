@@ -34,9 +34,17 @@ import {
 	STEP_IMAGE_TURN_BUDGET,
 	type StepImageQueue,
 } from "$lib/server/services/vision/step-images";
+import {
+	CONNECTOR_PLACEHOLDER_TITLES,
+	type ConnectorReasonCode,
+} from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	withReasonCode,
+} from "./shared";
 
 export const photosToolInputSchema = z.object({
 	action: z.enum([
@@ -224,7 +232,7 @@ function toToolResultItem(
 function citationLabel(item: PhotoToolResultItem): string {
 	if (item.fileName) return item.fileName;
 	if (item.description) return item.description;
-	return "(photo)";
+	return CONNECTOR_PLACEHOLDER_TITLES.photo;
 }
 
 // Sources-tab candidate — keeps the real filename/thumbnailPath (the user's
@@ -255,24 +263,27 @@ function buildPayload(params: {
 	people?: PhotoPersonItem[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): PhotosToolOutcome {
 	const citations = params.citations ?? [];
+	const modelPayload: PhotosToolModelPayload = {
+		success: params.success,
+		name: "photos",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		results: params.results ?? [],
+		citations,
+		...(params.albums ? { albums: params.albums } : {}),
+		...(params.people ? { people: params.people } : {}),
+		...(params.pendingWriteId ? { pendingWriteId: params.pendingWriteId } : {}),
+		...(params.preview ? { preview: params.preview } : {}),
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "photos",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			results: params.results ?? [],
-			citations,
-			...(params.albums ? { albums: params.albums } : {}),
-			...(params.people ? { people: params.people } : {}),
-			...(params.pendingWriteId
-				? { pendingWriteId: params.pendingWriteId }
-				: {}),
-			...(params.preview ? { preview: params.preview } : {}),
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: params.candidates ?? [],
 	};
 }
@@ -295,18 +306,38 @@ function withAmbiguityPrefix(
 	return ambiguous ? `${ambiguityNote(conn, connections)} ${message}` : message;
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof ImmichError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your Immich connection needs to be reconnected before I can access your photos. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Immich connection needs to be reconnected before I can access your photos. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your Immich connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your Immich connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your photos right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your photos right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't reach your photos right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't reach your photos right now. Please try again in a moment.",
+		code,
+	};
 }
 
 // Shared by every action that returns PhotoResult[] (search / search_by_date /
@@ -709,6 +740,7 @@ async function proposeAddToAlbum(
 			action: "add_to_album",
 			message:
 				"At least one photo (from a prior search) is required to add to an album.",
+			reason: "request_adjusted",
 		});
 	}
 
@@ -720,6 +752,7 @@ async function proposeAddToAlbum(
 			success: false,
 			action: "add_to_album",
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+			reason: "writes_turned_off",
 		});
 	}
 	// A write-scoped key (Issue 6.4's enable-writes flow) is a SEPARATE
@@ -731,6 +764,7 @@ async function proposeAddToAlbum(
 			action: "add_to_album",
 			message:
 				"Enable Immich writes (re-enter your password) in settings first.",
+			reason: "read_only_account",
 		});
 	}
 
@@ -829,10 +863,12 @@ export async function runPhotosTool(
 					const albums = await immichListAlbums(userId, conn.id);
 					return listAlbumsOutcome(conn, albums, ambiguous, connections);
 				} catch (err) {
+					const failure = mapAdapterError(err);
 					return buildPayload({
 						success: false,
 						action: input.action,
-						message: mapAdapterError(err),
+						message: failure.message,
+						reason: failure.code,
 					});
 				}
 			}
@@ -842,10 +878,12 @@ export async function runPhotosTool(
 					const people = await immichListPeople(userId, conn.id);
 					return listPeopleOutcome(conn, people, ambiguous, connections);
 				} catch (err) {
+					const failure = mapAdapterError(err);
 					return buildPayload({
 						success: false,
 						action: input.action,
-						message: mapAdapterError(err),
+						message: failure.message,
+						reason: failure.code,
 					});
 				}
 			}
@@ -859,6 +897,7 @@ export async function runPhotosTool(
 						action: "album",
 						message:
 							"An albumId is required — call list_albums first to find it.",
+						reason: "request_adjusted",
 					});
 				}
 				try {
@@ -883,10 +922,12 @@ export async function runPhotosTool(
 						look,
 					});
 				} catch (err) {
+					const failure = mapAdapterError(err);
 					return buildPayload({
 						success: false,
 						action: input.action,
-						message: mapAdapterError(err),
+						message: failure.message,
+						reason: failure.code,
 					});
 				}
 			}
@@ -909,6 +950,7 @@ export async function runPhotosTool(
 									conn,
 									connections,
 								),
+								reason: "item_not_found",
 							});
 						}
 						personIds = matches.map((p) => p.id);
@@ -948,10 +990,12 @@ export async function runPhotosTool(
 						look,
 					});
 				} catch (err) {
+					const failure = mapAdapterError(err);
 					return buildPayload({
 						success: false,
 						action: input.action,
-						message: mapAdapterError(err),
+						message: failure.message,
+						reason: failure.code,
 					});
 				}
 			}
@@ -961,6 +1005,7 @@ export async function runPhotosTool(
 					success: false,
 					action: "search",
 					message: "A search query is required to search your photos.",
+					reason: "request_adjusted",
 				});
 			}
 
@@ -986,10 +1031,12 @@ export async function runPhotosTool(
 					look,
 				});
 			} catch (err) {
+				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: mapAdapterError(err),
+					message: failure.message,
+					reason: failure.code,
 				});
 			}
 		},
@@ -1000,6 +1047,7 @@ export async function runPhotosTool(
 			success: false,
 			action: input.action,
 			message: notConnectedMessage,
+			reason: "not_connected",
 		});
 	}
 	if (result.kind === "no-match") {
@@ -1011,6 +1059,7 @@ export async function runPhotosTool(
 				result.selector,
 				result.connections,
 			),
+			reason: "no_such_account",
 		});
 	}
 	return result.value;

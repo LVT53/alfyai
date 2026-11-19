@@ -151,7 +151,7 @@ describe("ToolActivityRow, a make_video call", () => {
 			videoError: "video_blocked",
 		});
 		expect(built.verb).toBe("The video was blocked");
-		expect(built.body).toEqual({ kind: "error", reason: expect.any(String) });
+		expect(built.body).toEqual({ kind: "reason", text: expect.any(String) });
 	});
 
 	it("says it is making a video while the call runs", () => {

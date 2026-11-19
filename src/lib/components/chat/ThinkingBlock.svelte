@@ -43,7 +43,10 @@ import {
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
 } from "$lib/utils/tool-calls";
+import { uiLanguage } from "$lib/stores/settings";
+import { intlLocale } from "$lib/utils/locale";
 import {
+	formatEventTime,
 	getAgendaCandidates,
 	getPhotoCandidates,
 	immichThumbnailUrl,
@@ -74,6 +77,10 @@ let {
 	output = undefined,
 	thinkingIsDone = false,
 	segments = [],
+	// The reply this block belongs to is over (not streaming any more). A tool call
+	// still marked running in it was cut off, and its row reads as the quiet stop
+	// instead of a spinner that cannot end (a reply stopped, then reloaded).
+	turnEnded = false,
 	thinkingDurationSeconds = 0,
 	// P1 (ADR-0056) — true once the assistant's visible answer text has
 	// started streaming (MessageBubble's own `hasVisibleContent`). Distinct
@@ -152,6 +159,7 @@ let {
 	output?: NormalChatOutputProjection;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
+	turnEnded?: boolean;
 	thinkingDurationSeconds?: number;
 	answerStarted?: boolean;
 	liveThoughtStepClass?: string;
@@ -175,6 +183,21 @@ let {
 	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 
+// The reader's own dates and times: the language the app is in, not the browser's.
+const locale = $derived(intlLocale($uiLanguage));
+
+/**
+ * One run of an account's calls as a row: what Alfy looked at and what came back,
+ * in the reader's language and clock. A call still marked running in a reply that
+ * is over was cut off, and reads as stopped.
+ */
+function buildConnectorItem(
+	tools: ToolCallSegment[],
+	key: string,
+): ToolActivityItem {
+	return buildConnectorActivityItem(tools, key, $t, { turnEnded, locale });
+}
+
 /**
  * Every live/expanded-rail render site calls `buildToolActivityItem`
  * directly, inline in the template, rather than mapping a pre-built list —
@@ -189,7 +212,7 @@ function buildEnrichedToolActivityItem(
 	segment: ToolCallSegment,
 	key: string,
 ): ToolActivityItem {
-	const built = buildToolActivityItem(segment, key, $t);
+	const built = buildToolActivityItem(segment, key, $t, { turnEnded });
 	const body = built.body;
 	if (body?.kind !== "artifact") return built;
 	const preview = conversationArtifacts.find(
@@ -330,7 +353,7 @@ const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
 const activityItems: ToolActivityItem[] = $derived(
 	toolStackEntries.map((entry) =>
 		entry.kind === "connector-group"
-			? buildConnectorActivityItem(entry.tools, entry.key, $t)
+			? buildConnectorItem(entry.tools, entry.key)
 			: buildEnrichedToolActivityItem(entry.tool, entry.key),
 	),
 );
@@ -669,15 +692,6 @@ const formattedThinkingTime = $derived.by(() => {
 	return formatDurationLabel(thinkingDurationSeconds);
 });
 
-function formatEventTime(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return iso;
-	return new Intl.DateTimeFormat(undefined, {
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(date);
-}
-
 function hideBrokenThumbnail(event: Event): void {
 	const img = event.currentTarget;
 	if (img instanceof HTMLImageElement) img.style.display = "none";
@@ -960,7 +974,7 @@ function toggleFullReasoning(): void {
 		<ul class="agenda-list">
 			{#each items as item (item.id)}
 				<li class="agenda-row">
-					<span class="agenda-time">{formatEventTime(String(item.metadata?.start ?? ''))}</span>
+					<span class="agenda-time">{formatEventTime(String(item.metadata?.start ?? ''), locale)}</span>
 					<span class="agenda-title">{item.title}</span>
 					{#if item.metadata?.location}
 						<span class="agenda-location">{item.metadata.location}</span>
@@ -1328,7 +1342,7 @@ function toggleFullReasoning(): void {
 								{@render thoughtStepEntry(entry.step)}
 							{:else}
 								<ToolActivityRow
-									item={buildConnectorActivityItem(entry.tools, entry.key, $t)}
+									item={buildConnectorItem(entry.tools, entry.key)}
 									open={openActivityKeys.has(entry.key)}
 									onToggle={toggleActivityRow}
 								/>
@@ -1357,7 +1371,7 @@ function toggleFullReasoning(): void {
 						/>
 					{:else if entry.kind === 'connector-group'}
 						<ToolActivityRow
-							item={buildConnectorActivityItem(entry.tools, entry.key, $t)}
+							item={buildConnectorItem(entry.tools, entry.key)}
 							open={openActivityKeys.has(entry.key)}
 							onToggle={toggleActivityRow}
 						/>

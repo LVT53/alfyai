@@ -12,6 +12,7 @@ import projectsDict from "./projects";
 import readAloudDict from "./read-aloud";
 import settingsDict from "./settings";
 import skillsDict from "./skills";
+import toolRowsDict from "./tool-rows";
 
 /**
  * Key Naming Convention
@@ -58,6 +59,7 @@ const dictionary = {
 		...readAloudDict.en,
 		...settingsDict.en,
 		...skillsDict.en,
+		...toolRowsDict.en,
 	},
 	hu: {
 		...commonDict.hu,
@@ -72,6 +74,7 @@ const dictionary = {
 		...readAloudDict.hu,
 		...settingsDict.hu,
 		...skillsDict.hu,
+		...toolRowsDict.hu,
 	},
 } as const;
 

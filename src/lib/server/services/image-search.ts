@@ -15,6 +15,29 @@ function nonEmptyString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/**
+ * The picture search was never set up (no Brave key). The message is what the
+ * model has always read; the class is how a tool row tells this from any other
+ * failure without reading the words of the message.
+ */
+export class ImageSearchNotConfiguredError extends Error {
+	constructor() {
+		super("BRAVE_SEARCH_API_KEY is not configured");
+		this.name = "ImageSearchNotConfiguredError";
+	}
+}
+
+/** Brave answered with a non-2xx status (the plan ran out answers 402). Same: the message is the model's, the class is the row's. */
+export class ImageSearchApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+		this.name = "ImageSearchApiError";
+	}
+}
+
 export async function searchImages(
 	query: string,
 ): Promise<ImageSearchResult[]> {
@@ -22,7 +45,7 @@ export async function searchImages(
 	const apiKey = config.braveSearchApiKey;
 
 	if (!apiKey) {
-		throw new Error("BRAVE_SEARCH_API_KEY is not configured");
+		throw new ImageSearchNotConfiguredError();
 	}
 
 	const url = new URL("https://api.search.brave.com/res/v1/images/search");
@@ -40,8 +63,9 @@ export async function searchImages(
 
 	if (!response.ok) {
 		const errorText = await response.text().catch(() => "");
-		throw new Error(
+		throw new ImageSearchApiError(
 			`Brave Search API error: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""}`,
+			response.status,
 		);
 	}
 

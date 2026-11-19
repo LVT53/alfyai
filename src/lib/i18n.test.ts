@@ -10,6 +10,7 @@ import knowledgeDict from "./i18n/knowledge";
 import legalDict from "./i18n/legal";
 import settingsDict from "./i18n/settings";
 import skillsDict from "./i18n/skills";
+import toolRowsDict from "./i18n/tool-rows";
 import { collectDictionaryKeys } from "./i18n.test-helpers";
 
 describe("i18n composer and skills namespaces", () => {
@@ -255,6 +256,7 @@ describe("i18n composer and skills namespaces", () => {
 			legalDict,
 			settingsDict,
 			skillsDict,
+			toolRowsDict,
 		];
 		const en: Record<string, string> = Object.assign(
 			{},

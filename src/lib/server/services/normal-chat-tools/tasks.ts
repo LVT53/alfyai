@@ -9,9 +9,14 @@ import {
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import {
+	connectorReasonForAdapterError,
+	noMatchingConnectionMessage,
+	withReasonCode,
+} from "./shared";
 
 // Read-only by construction for v1: the action enum only ever lists read
 // actions over the CalDAV VTODO source this tool aggregates — same posture
@@ -111,36 +116,61 @@ function buildPayload(params: {
 	message: string;
 	tasks?: TaskItem[];
 	projects?: TaskProjectItem[];
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): TasksToolOutcome {
 	const tasks = params.tasks ?? [];
 	const citations = tasks.map(taskCitation);
+	const modelPayload: TasksToolModelPayload = {
+		success: params.success,
+		name: "tasks",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		tasks,
+		projects: params.projects ?? [],
+		citations,
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "tasks",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			tasks,
-			projects: params.projects ?? [],
-			citations,
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: tasks.map(toCandidate),
 	};
 }
 
-function mapAdapterError(err: unknown): string {
+function mapAdapterError(err: unknown): {
+	message: string;
+	code: ConnectorReasonCode;
+} {
+	const code = connectorReasonForAdapterError(err);
 	if (err instanceof CalDavError) {
 		switch (err.code) {
 			case "needs_reauth":
-				return "Your CalDAV connection needs to be reconnected before I can access your tasks. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your CalDAV connection needs to be reconnected before I can access your tasks. Please reconnect it in Settings.",
+					code,
+				};
 			case "connection_not_found":
-				return "Your CalDAV connection couldn't be found. Please reconnect it in Settings.";
+				return {
+					message:
+						"Your CalDAV connection couldn't be found. Please reconnect it in Settings.",
+					code,
+				};
 			default:
-				return "I couldn't reach your CalDAV server right now. Please try again in a moment.";
+				return {
+					message:
+						"I couldn't reach your CalDAV server right now. Please try again in a moment.",
+					code,
+				};
 		}
 	}
-	return "I couldn't look up your tasks right now. Please try again in a moment.";
+	return {
+		message:
+			"I couldn't look up your tasks right now. Please try again in a moment.",
+		code,
+	};
 }
 
 // Per-connection task listing — CalDAV VTODOs (providers/caldav-tasks.ts).
@@ -318,6 +348,7 @@ export async function runTasksTool(
 			action: input.action,
 			message:
 				"You don't have a Tasks connection set up yet. Connect a CalDAV account in Settings to view your tasks.",
+			reason: "not_connected",
 		});
 	}
 
@@ -333,6 +364,7 @@ export async function runTasksTool(
 					input.account,
 					allConnections,
 				),
+				reason: "no_such_account",
 			});
 		}
 		connections = [selected];
@@ -346,10 +378,12 @@ export async function runTasksTool(
 		const outcome = await runListTasks(userId, connections, input);
 		return distillTasksReadOutcome({ userId, modelId, input, outcome });
 	} catch (err) {
+		const failure = mapAdapterError(err);
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message: mapAdapterError(err),
+			message: failure.message,
+			reason: failure.code,
 		});
 	}
 }

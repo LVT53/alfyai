@@ -7,7 +7,14 @@ import {
 } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 
-import { sanitizeMetadata, truncateText } from "./shared";
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
+
+import {
+	reasonCodeOf,
+	reasonMetadata,
+	sanitizeMetadata,
+	truncateText,
+} from "./shared";
 
 export const memoryContextInputSchema = z.object({
 	mode: z
@@ -201,9 +208,30 @@ export function compactMemoryContextModelPayload(
 	};
 }
 
+/**
+ * What a lookup's row says when the lookup did not bring back something to
+ * show, as a code of memory_context's closed list: memory is off (the inert
+ * result `getMemoryContext` tags), the profile could not be read, or there was
+ * nothing there. The payload the model reads says what it always did.
+ */
+function memoryResultReason(
+	result: MemoryContextResult,
+): ToolReasonCode<"memory_context"> | undefined {
+	if (reasonCodeOf(result) === "memory_off") return "memory_off";
+	if (result.mode === "persona") {
+		if (result.status === "error") return "memory_unavailable";
+		return result.status === "empty" ? "nothing_found" : undefined;
+	}
+	if (result.mode === "history") {
+		return result.status === "empty" ? "nothing_found" : undefined;
+	}
+	return result.hasProjectContext ? undefined : "nothing_found";
+}
+
 export function createMemoryContextMetadata(
 	result: MemoryContextResult,
 ): ToolCallEntry["metadata"] {
+	const reason = memoryResultReason(result);
 	const metadata: NonNullable<ToolCallEntry["metadata"]> = {
 		ok: true,
 		evidenceReady: true,
@@ -257,6 +285,7 @@ export function createMemoryContextMetadata(
 				? (result.attachmentArtifactIds ?? [])
 				: [],
 		),
+		...(reason ? reasonMetadata("memory_context", reason) : {}),
 	};
 }
 
