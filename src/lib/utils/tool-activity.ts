@@ -432,6 +432,8 @@ export const TOOL_ROW_I18N_KEYS: readonly I18nKey[] = [
 	"toolRows.verb.suggestedInstruction",
 	"toolRows.verb.leftAsItWas",
 	"toolRows.verb.adjustingRequest",
+	"toolRows.verb.videoNotMade",
+	"toolRows.verb.adjustingVideo",
 	"toolRows.suffix.page",
 	"toolRows.suffix.part",
 ];
@@ -486,55 +488,6 @@ function citedCount(sources: FetchedSource[]): number {
 
 function firstStringInput(input: Record<string, unknown>): string {
 	return String(Object.values(input ?? {})[0] ?? "").trim();
-}
-
-const IMAGE_REASON_KEYS: Record<string, I18nKey> = {
-	image_server_unreachable: "toolActivity.pictureReason.unreachable",
-	image_graph_rejected: "toolActivity.pictureReason.rejected",
-	image_render_failed: "toolActivity.pictureReason.renderFailed",
-	image_render_timeout: "toolActivity.pictureReason.renderTimeout",
-	image_result_missing: "toolActivity.pictureReason.resultMissing",
-	image_input_missing: "toolActivity.pictureReason.inputMissing",
-	image_server_not_configured: "toolActivity.pictureReason.notConfigured",
-	not_configured: "toolActivity.pictureReason.notConfigured",
-	image_request_invalid: "toolActivity.pictureReason.requestInvalid",
-	image_blocked: "toolActivity.pictureReason.blocked",
-	image_unchecked: "toolActivity.pictureReason.unchecked",
-};
-
-/** The explicit-picture filter's codes: the row says the picture was blocked, not that making it failed. */
-const IMAGE_FILTER_ERRORS = new Set(["image_blocked", "image_unchecked"]);
-
-/**
- * The localized reason for a make_image row that did not make its picture; null
- * when the person has nothing to act on. A refusal (too many takes, a repeated
- * retry, an unknown picture name...) is mostly a correction for the model, which
- * recovers by itself; only the refusals the person must act on — no server, an
- * explicit request, H3's missing transparency — get words here.
- */
-function imageReasonKey(
-	metadata: Record<string, string | number | boolean | null> | undefined,
-): I18nKey | null {
-	const code = metadata?.imageError;
-	if (typeof code === "string" && IMAGE_REASON_KEYS[code]) {
-		return IMAGE_REASON_KEYS[code];
-	}
-	const refusal = metadata?.imageRefusal;
-	if (typeof refusal === "string") {
-		if (refusal === "not_configured") {
-			return "toolActivity.pictureReason.notConfigured";
-		}
-		if (refusal === "explicit_request") {
-			return "toolActivity.pictureReason.explicitRequest";
-		}
-		if (refusal === "transparent_unavailable") {
-			return "toolActivity.pictureReason.transparentUnavailable";
-		}
-		return metadata?.imageUnreadable === true
-			? "toolActivity.pictureReason.unreadable"
-			: null;
-	}
-	return "toolActivity.pictureReason.generic";
 }
 
 /**
@@ -809,7 +762,38 @@ type RowBase = Pick<
 	"key" | "status" | "iconType" | "pinned" | "alwaysOpen"
 >;
 
-/** A make_image call's row: its verb, title and failure words. */
+/**
+ * How a picture's or a clip's call ended, from the registry: its code, and the
+ * code's kind and sentence. A call that simply worked has none. The code comes from
+ * the fields the tool already writes (`imageRefusal`, `imageError`, a Stop's flag,
+ * `videoError`) and the envelope's shared one; a call that failed with no code at
+ * all, or one this version does not know, reads as the tool's own fallback sentence.
+ */
+function takeOutcome(
+	toolName: "make_image" | "make_video",
+	segment: ToolCallSegment,
+): { code: string | null; kind: ReasonKind; key: I18nKey | null } | null {
+	const code = readReasonCode(toolName, segment.metadata);
+	const failed = segment.status === "failed" || segment.metadata?.ok === false;
+	if (code === null && !failed) return null;
+	const words = resolveToolReason(toolName, code);
+	return { code, kind: words.kind, key: words.key };
+}
+
+/** The glyph an outcome's kind draws: broke is the red cross, a stop on purpose the quiet dash, information a tick. */
+function takeStatus(kind: ReasonKind): ToolActivityStatus {
+	return kind === "fail" ? "failed" : kind === "stop" ? "skipped" : "done";
+}
+
+/**
+ * A make_image call's row: its verb, title and failure words. The glyph follows the
+ * code's kind like every row's: a Stop, a refusal the model corrects by itself, the
+ * explicit-picture refusal, the transparency refusal and the filter's block are the
+ * quiet dash; a breakage is the red cross, and so is "the picture could not be
+ * checked" (the check failed, and later it may not); the envelope giving up while the
+ * take still renders is a tick, as before. The words are the code's sentence, never
+ * what the model was told.
+ */
 function makeImageRow(
 	segment: ToolCallSegment,
 	base: RowBase,
@@ -837,81 +821,36 @@ function makeImageRow(
 			body: null,
 		};
 	}
-	// A Stop is not a failure: the person asked for it.
-	if (metadata?.imageStopped === true) {
-		const stoppedVerb = translate(VERB_KEYS.pictureStopped);
+	const outcome = takeOutcome("make_image", segment);
+	if (outcome) {
+		// The verb says what happened to the picture; a sentence follows when there is
+		// more to say (a Stop, a still-rendering take and a model's correction say it
+		// all in their verb).
+		const verbKey =
+			outcome.code === "stopped"
+				? VERB_KEYS.pictureStopped
+				: outcome.code === "image_tool_timeout"
+					? VERB_KEYS.pictureStillMaking
+					: outcome.kind === "stop" && outcome.key === null
+						? VERB_KEYS.pictureRequestAdjusted
+						: outcome.code === "image_blocked" ||
+								outcome.code === "image_unchecked"
+							? VERB_KEYS.pictureBlocked
+							: outcome.kind === "stop"
+								? VERB_KEYS.pictureNotMade
+								: VERB_KEYS.pictureFailed;
+		const outcomeVerb = translate(verbKey);
 		return {
 			...base,
-			status: "done",
-			verb: stoppedVerb,
+			status: takeStatus(outcome.kind),
+			verb: outcomeVerb,
 			object: title,
 			meta: "",
-			summaryLabel: stoppedVerb,
-			title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
-			body: null,
-		};
-	}
-	// The tool's envelope gave up waiting, but the take is still rendering and
-	// lands on its card: that is not a failure.
-	if (metadata?.imageError === "image_tool_timeout") {
-		const stillVerb = translate(VERB_KEYS.pictureStillMaking);
-		return {
-			...base,
-			status: "done",
-			verb: stillVerb,
-			object: title,
-			meta: "",
-			summaryLabel: stillVerb,
-			title: title ? `${stillVerb}: ${title}` : stillVerb,
-			body: null,
-		};
-	}
-	// A refusal meant only for the model (too many takes, a repeated retry, an
-	// unknown picture name): the model corrects itself, so the person sees a
-	// neutral row, not a failure. An explicit request and H3's transparent
-	// refusal are the person's to act on, so they fall through to the failed
-	// branch and get their own reason below.
-	if (
-		typeof metadata?.imageRefusal === "string" &&
-		metadata.imageRefusal !== "not_configured" &&
-		metadata.imageRefusal !== "explicit_request" &&
-		metadata.imageRefusal !== "transparent_unavailable" &&
-		metadata.imageUnreadable !== true
-	) {
-		const adjustedVerb = translate(VERB_KEYS.pictureRequestAdjusted);
-		return {
-			...base,
-			status: "done",
-			verb: adjustedVerb,
-			object: title,
-			meta: "",
-			summaryLabel: adjustedVerb,
-			title: title ? `${adjustedVerb}: ${title}` : adjustedVerb,
-			body: null,
-		};
-	}
-	if (status === "failed" || metadata?.ok === false) {
-		const failedVerb = translate(
-			metadata?.imageRefusal === "explicit_request" ||
-				metadata?.imageRefusal === "transparent_unavailable"
-				? VERB_KEYS.pictureNotMade
-				: typeof metadata?.imageError === "string" &&
-						IMAGE_FILTER_ERRORS.has(metadata.imageError)
-					? VERB_KEYS.pictureBlocked
-					: VERB_KEYS.pictureFailed,
-		);
-		// Words for the person come from the code, never from what the model was told.
-		const reasonKey = imageReasonKey(metadata);
-		const reason = reasonKey ? translate(reasonKey) : "";
-		return {
-			...base,
-			status: "failed",
-			verb: failedVerb,
-			object: title,
-			meta: "",
-			summaryLabel: failedVerb,
-			title: title ? `${failedVerb}: ${title}` : failedVerb,
-			body: reason ? { kind: "reason", text: reason } : null,
+			summaryLabel: outcomeVerb,
+			title: title ? `${outcomeVerb}: ${title}` : outcomeVerb,
+			body: outcome.key
+				? { kind: "reason", text: translate(outcome.key) }
+				: null,
 		};
 	}
 	const doneVerb = translate(
@@ -961,27 +900,16 @@ function withImageCard(
 	};
 }
 
-type VideoErrorMetadata = Record<string, unknown> | undefined;
-
-/** The person's words for a video take's failure code; null when there is no code. */
-function videoReasonKey(metadata: VideoErrorMetadata): I18nKey | null {
-	const code =
-		typeof metadata?.videoError === "string" ? metadata.videoError : null;
-	if (!code) return null;
-	if (code === "video_blocked") return "artifacts.video.card.blockedDetail";
-	if (code === "video_unchecked") return "artifacts.video.card.uncheckedDetail";
-	if (
-		code === "video_server_unreachable" ||
-		code === "video_server_not_configured" ||
-		// The tool's own refusal code for the same fact (no LTX address set).
-		code === "not_configured"
-	) {
-		return "artifacts.video.card.unavailable";
-	}
-	return "artifacts.take.failed";
-}
-
-/** A make_video call's row: its verb, title and failure words, in the video's own language. */
+/**
+ * A make_video call's row, in the picture row's grammar and the video's own
+ * language. The stops on purpose (the explicit-request refusal, a request that did
+ * not clearly ask for a video, the filter's block, a Stop) are the quiet dash, with
+ * "Video not made" and a sentence, "The video was blocked", or "Stopped the video";
+ * a request the model corrects by itself is "Adjusting the video request" with no
+ * body; every breakage code is the red cross with its own sentence, in the row's
+ * body when there is no card and on the clip's card when there is; "the clip could
+ * not be checked" stays a failure (the check failed, and later it may not).
+ */
 function makeVideoRow(
 	segment: ToolCallSegment,
 	base: RowBase,
@@ -1009,54 +937,36 @@ function makeVideoRow(
 			body: null,
 		};
 	}
-	// A Stop is not a failure: the person asked for it.
-	if (metadata?.videoStopped === true) {
-		const stoppedVerb = translate("artifacts.video.row.stopped");
+	const outcome = takeOutcome("make_video", segment);
+	if (outcome) {
+		// The tool's envelope giving up while the take still renders, a Stop and a
+		// correction for the model say it all in their verb; a stop on purpose and a
+		// breakage add their sentence.
+		const verbKey: I18nKey =
+			outcome.code === "stopped"
+				? "artifacts.video.row.stopped"
+				: outcome.code === "video_tool_timeout"
+					? "artifacts.video.row.stillMaking"
+					: outcome.kind === "stop" && outcome.key === null
+						? "toolRows.verb.adjustingVideo"
+						: outcome.code === "video_blocked" ||
+								outcome.code === "video_unchecked"
+							? "artifacts.video.row.blocked"
+							: outcome.kind === "stop"
+								? "toolRows.verb.videoNotMade"
+								: "artifacts.video.row.failed";
+		const outcomeVerb = translate(verbKey);
 		return {
 			...base,
-			status: "done",
-			verb: stoppedVerb,
+			status: takeStatus(outcome.kind),
+			verb: outcomeVerb,
 			object: title,
 			meta: "",
-			summaryLabel: stoppedVerb,
-			title: title ? `${stoppedVerb}: ${title}` : stoppedVerb,
-			body: null,
-		};
-	}
-	// The tool's envelope gave up waiting, but the take is still rendering and
-	// lands on its card: that is not a failure.
-	if (metadata?.videoError === "video_tool_timeout") {
-		const stillVerb = translate("artifacts.video.row.stillMaking");
-		return {
-			...base,
-			status: "done",
-			verb: stillVerb,
-			object: title,
-			meta: "",
-			summaryLabel: stillVerb,
-			title: title ? `${stillVerb}: ${title}` : stillVerb,
-			body: null,
-		};
-	}
-	if (status === "failed" || metadata?.ok === false) {
-		const blocked =
-			typeof metadata?.videoError === "string" &&
-			(metadata.videoError === "video_blocked" ||
-				metadata.videoError === "video_unchecked");
-		const failedVerb = translate(
-			blocked ? "artifacts.video.row.blocked" : "artifacts.video.row.failed",
-		);
-		const reasonKey = videoReasonKey(metadata);
-		const reason = reasonKey ? translate(reasonKey) : "";
-		return {
-			...base,
-			status: "failed",
-			verb: failedVerb,
-			object: title,
-			meta: "",
-			summaryLabel: failedVerb,
-			title: title ? `${failedVerb}: ${title}` : failedVerb,
-			body: reason ? { kind: "reason", text: reason } : null,
+			summaryLabel: outcomeVerb,
+			title: title ? `${outcomeVerb}: ${title}` : outcomeVerb,
+			body: outcome.key
+				? { kind: "reason", text: translate(outcome.key) }
+				: null,
 		};
 	}
 	const doneVerb = translate("artifacts.video.row.made");

@@ -843,14 +843,16 @@ test.describe("MiniMax-H3-Image: 12 MP pictures, 2048 px short-edge changes", ()
 		conversationId = await openChat(page);
 		await sendMessage(page, AI_SMOKE_TRANSPARENT_PICTURE_MARKER);
 
-		// The person sees "Picture not made" and why, and no card exists.
+		// The person sees "Picture not made" as a quiet row (a stop on purpose, not a
+		// breakage) and why, in words that name no Admin setting, and no card exists.
 		const row = page
 			.getByTestId("tool-activity-row")
 			.filter({ hasText: "Picture not made" });
 		await expect(row).toBeVisible({ timeout: 45_000 });
+		await expect(row).toHaveAttribute("data-status", "skipped");
 		await row.click();
-		await expect(page.getByTestId("tool-activity-error")).toContainText(
-			"H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
+		await expect(page.getByTestId("tool-activity-reason")).toHaveText(
+			"The current picture model can't make transparent pictures.",
 		);
 		await expect(page.locator(CARD)).toHaveCount(0);
 		const refused = await readDetail(page, conversationId);

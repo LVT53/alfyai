@@ -3809,7 +3809,7 @@ describe("make_image rows", () => {
 		});
 	});
 
-	it("shows a model-only refusal as a neutral row, and an unreadable upload of the person as a failure", () => {
+	it("shows a model-only refusal as the quiet dash, and an unreadable upload of the person as a failure", () => {
 		const neutral = buildToolActivityItem(
 			makeImageCall({
 				metadata: { ok: false, imageRefusal: "too_many_takes" },
@@ -3818,7 +3818,7 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(neutral).toMatchObject({
-			status: "done",
+			status: "skipped",
 			verb: "Adjusting the picture request",
 			body: null,
 		});
@@ -3854,22 +3854,28 @@ describe("make_image rows", () => {
 			translate,
 		);
 
+		// A stop on purpose, not a breakage: the quiet dash, and a sentence that
+		// says what happened to everyone, with no Admin setting named.
 		expect(item).toMatchObject({
-			status: "failed",
+			status: "skipped",
 			verb: "Picture not made",
 			body: {
 				kind: "reason",
-				text: "H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
+				text: "The current picture model can't make transparent pictures.",
 			},
 		});
 		// The model's English instruction never becomes the person's row.
 		expect(JSON.stringify(item)).not.toContain(modelText);
+		expect(JSON.stringify(item)).not.toMatch(/Admin|H3|Qwen/);
 		expect(
 			chatDict.en["toolActivity.pictureReason.transparentUnavailable"],
-		).toBeTruthy();
+		).toBe("The current picture model can't make transparent pictures.");
 		expect(
 			chatDict.hu["toolActivity.pictureReason.transparentUnavailable"],
-		).toBeTruthy();
+		).toBe("A mostani képmodell nem tud átlátszó képet készíteni.");
+		expect(
+			chatDict.hu["toolActivity.pictureReason.transparentUnavailable"],
+		).not.toMatch(/Admin|H3|Qwen/);
 	});
 
 	it("says a picture the filter stopped plainly, from the code, never the model's words", () => {
@@ -3886,7 +3892,9 @@ describe("make_image rows", () => {
 			"blocked",
 			translate,
 		);
+		// The filter turned it down on purpose: the quiet dash.
 		expect(blocked).toMatchObject({
+			status: "skipped",
 			verb: "Picture blocked",
 			body: {
 				kind: "reason",
@@ -3906,7 +3914,9 @@ describe("make_image rows", () => {
 			"unchecked",
 			translate,
 		);
+		// The check could not run, and later it may: that one stays a failure.
 		expect(unchecked).toMatchObject({
+			status: "failed",
 			verb: "Picture blocked",
 			body: {
 				kind: "reason",
@@ -3923,6 +3933,7 @@ describe("make_image rows", () => {
 			translate,
 		);
 		expect(request).toMatchObject({
+			status: "skipped",
 			verb: "Picture not made",
 			body: { kind: "reason", text: "Explicit pictures are not made here." },
 		});
@@ -3966,12 +3977,93 @@ describe("make_image rows", () => {
 			"k10",
 			translate,
 		);
+		// The person asked for it: the quiet dash, with the row's own verb.
 		expect(item).toMatchObject({
-			status: "done",
+			status: "skipped",
 			verb: "Picture stopped",
 			object: "Red door",
 			body: null,
 		});
+	});
+
+	it("says the turn's time running out, and a timeout of the envelope, in the shared words", () => {
+		const outOfTime = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				outputSummary: "The working deadline passed.",
+				metadata: { ok: false, reasonCode: "out_of_time" },
+			}),
+			"out-of-time",
+			translate,
+		);
+		expect(outOfTime).toMatchObject({
+			status: "skipped",
+			verb: "Picture not made",
+			body: {
+				kind: "reason",
+				text: "The time for this reply ran out, so Alfy stopped here.",
+			},
+		});
+		const timedOut = buildToolActivityItem(
+			makeImageCall({
+				status: "failed",
+				metadata: { ok: false, reasonCode: "timed_out" },
+			}),
+			"timed-out",
+			translate,
+		);
+		expect(timedOut).toMatchObject({
+			status: "failed",
+			verb: "Could not make the picture",
+			body: {
+				kind: "reason",
+				text: "This took too long, so Alfy stopped waiting.",
+			},
+		});
+		// The tool's own timeout code beats the envelope's.
+		expect(
+			buildToolActivityItem(
+				makeImageCall({
+					status: "failed",
+					metadata: {
+						ok: false,
+						reasonCode: "timed_out",
+						imageError: "image_tool_timeout",
+					},
+				}),
+				"own-timeout",
+				translate,
+			).verb,
+		).toBe("Still being made, it will appear on its card");
+	});
+
+	it("reads every breakage code of a take as a failure with its own sentence", () => {
+		const sentences: Record<string, string> = {
+			image_server_unreachable: "The picture server could not be reached.",
+			image_graph_rejected: "The picture server refused this request.",
+			image_render_failed: "The picture server could not render the picture.",
+			image_render_timeout: "The picture took too long to render.",
+			image_result_missing: "The picture server lost the result.",
+			image_input_missing: "A picture this one is made from is gone.",
+			image_server_not_configured: "No picture server is set up.",
+			image_request_invalid: "The picture request could not be read.",
+			image_worker_lost: "The picture could not be made.",
+			image_take_missing: "The picture could not be made.",
+			image_graph_missing: "The picture could not be made.",
+			image_error: "The picture could not be made.",
+		};
+		for (const [code, text] of Object.entries(sentences)) {
+			const item = buildToolActivityItem(
+				makeImageCall({ metadata: { ok: false, imageError: code } }),
+				`take-${code}`,
+				translate,
+			);
+			expect(item, code).toMatchObject({
+				status: "failed",
+				verb: "Could not make the picture",
+				body: { kind: "reason", text },
+			});
+		}
 	});
 
 	it("has every reason in Hungarian too", () => {
@@ -4174,21 +4266,101 @@ describe("make_video rows", () => {
 		});
 
 		// A refusal (an explicit request, an unknown picture, or the envelope
-		// failing before a take) keeps the model's words out of the person's row.
-		for (const code of ["explicit_request", "unknown_picture", "video_error"]) {
-			const refused = buildToolActivityItem(
-				makeVideoCall({
-					outputSummary: modelText,
-					metadata: { ok: false, videoError: code },
-				}),
-				`video-refusal-${code}`,
+		// failing before a take) keeps the model's words out of the person's row, and
+		// says each case in its own words: the two stops on purpose are the quiet
+		// dash ("Video not made" with a sentence, or "Adjusting the video request"
+		// with none), and the envelope failing is the fallback in red.
+		const explicit = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "explicit_request" },
+			}),
+			"video-refusal-explicit",
+			translate,
+		);
+		expect(explicit).toMatchObject({
+			status: "skipped",
+			verb: "Video not made",
+			object: "Harbour at dawn",
+			body: { kind: "reason", text: "Explicit videos are not made here." },
+		});
+		const notAsked = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "not_asked_for" },
+			}),
+			"video-refusal-not-asked",
+			translate,
+		);
+		expect(notAsked).toMatchObject({
+			status: "skipped",
+			verb: "Video not made",
+			body: {
+				kind: "reason",
+				text: "Alfy wasn't sure you wanted a video, so it didn't make one yet.",
+			},
+		});
+		const unknown = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "unknown_picture" },
+			}),
+			"video-refusal-unknown",
+			translate,
+		);
+		expect(unknown).toMatchObject({
+			status: "skipped",
+			verb: "Adjusting the video request",
+			body: null,
+		});
+		const envelope = buildToolActivityItem(
+			makeVideoCall({
+				outputSummary: modelText,
+				metadata: { ok: false, videoError: "video_error" },
+			}),
+			"video-refusal-envelope",
+			translate,
+		);
+		expect(envelope).toMatchObject({
+			status: "failed",
+			verb: "Couldn't make the video",
+			body: { kind: "reason", text: "The video couldn't be made." },
+		});
+		for (const item of [explicit, notAsked, unknown, envelope]) {
+			expect(JSON.stringify(item)).not.toContain(modelText);
+		}
+	});
+
+	it("words every breakage code of a clip in its own sentence, as a failure", () => {
+		const sentences: Record<string, string> = {
+			video_graph_rejected: "The video server refused this request.",
+			video_render_failed: "The video server couldn't make the clip.",
+			video_render_timeout: "The clip took too long to make.",
+			video_result_missing: "The video server lost the clip.",
+			video_input_missing: "A picture the clip starts from is gone.",
+			video_request_invalid: "The video request couldn't be read.",
+			video_item_deleted: "The clip was deleted while it was being made.",
+			video_media_unavailable: "The finished clip couldn't be saved.",
+			video_media_failed: "The finished clip couldn't be saved.",
+			video_artifact_failed: "The clip was made but couldn't be kept.",
+			video_take_missing: "The clip's record went missing.",
+			video_worker_lost: "The video couldn't be made.",
+			video_error: "The video couldn't be made.",
+			video_server_unreachable: "Videos can't be made right now.",
+			video_server_not_configured: "Videos can't be made right now.",
+			not_configured: "Videos can't be made right now.",
+		};
+		for (const [code, text] of Object.entries(sentences)) {
+			const item = buildToolActivityItem(
+				makeVideoCall({ metadata: { ok: false, videoError: code } }),
+				`video-take-${code}`,
 				translate,
 			);
-			expect(refused).toMatchObject({
+			expect(item, code).toMatchObject({
 				status: "failed",
-				body: { kind: "reason", text: "Couldn't make this one." },
+				verb: "Couldn't make the video",
+				body: { kind: "reason", text },
 			});
-			expect(JSON.stringify(refused)).not.toContain(modelText);
 		}
 	});
 
@@ -4206,7 +4378,9 @@ describe("make_video rows", () => {
 			"video-blocked",
 			translate,
 		);
+		// The filter turned it down on purpose: the quiet dash.
 		expect(blocked).toMatchObject({
+			status: "skipped",
 			verb: "The video was blocked",
 			meta: "",
 			body: {
@@ -4227,7 +4401,9 @@ describe("make_video rows", () => {
 			"video-unchecked",
 			translate,
 		);
+		// The check could not run, and later it may: that one stays a failure.
 		expect(unchecked).toMatchObject({
+			status: "failed",
 			verb: "The video was blocked",
 			body: {
 				kind: "reason",
@@ -4252,7 +4428,7 @@ describe("make_video rows", () => {
 		);
 		expect(item).toMatchObject({
 			status: "failed",
-			body: { kind: "reason", text: "Couldn't make this one." },
+			body: { kind: "reason", text: "The video couldn't be made." },
 		});
 		expect(JSON.stringify(item)).not.toContain("still being made");
 	});
@@ -4296,11 +4472,61 @@ describe("make_video rows", () => {
 			translate,
 		);
 
+		// The person asked for it: the quiet dash, with the row's own verb.
 		expect(item).toMatchObject({
-			status: "done",
+			status: "skipped",
 			verb: "Stopped the video",
 			object: "Harbour at dawn",
 			body: null,
+		});
+	});
+
+	it("says it in Hungarian: the verbs the stops and the adjusting row use, and every sentence", async () => {
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		try {
+			const hu = get(t);
+			const row = (metadata: ToolCallSegment["metadata"]) =>
+				buildToolActivityItem(makeVideoCall({ metadata }), "video-hu", hu);
+			expect(row({ ok: false, videoError: "not_asked_for" })).toMatchObject({
+				status: "skipped",
+				verb: "A videó nem készült el",
+				body: {
+					text: "Alfy nem volt biztos benne, hogy videót szeretnél, ezért még nem készített.",
+				},
+			});
+			expect(row({ ok: false, videoError: "unknown_picture" })).toMatchObject({
+				status: "skipped",
+				verb: "Videókérés pontosítása",
+				body: null,
+			});
+			expect(
+				row({ ok: false, videoError: "video_render_timeout" }),
+			).toMatchObject({
+				status: "failed",
+				body: { text: "A klip túl sokáig készült." },
+			});
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("an out-of-time call is the quiet dash with the shared sentence", () => {
+		const item = buildToolActivityItem(
+			makeVideoCall({
+				status: "failed",
+				metadata: { ok: false, reasonCode: "out_of_time" },
+			}),
+			"video-out-of-time",
+			translate,
+		);
+		expect(item).toMatchObject({
+			status: "skipped",
+			verb: "Video not made",
+			body: {
+				kind: "reason",
+				text: "The time for this reply ran out, so Alfy stopped here.",
+			},
 		});
 	});
 });

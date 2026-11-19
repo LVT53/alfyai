@@ -781,17 +781,20 @@ describe("ImageCardBody", () => {
 		).toBeInTheDocument();
 	});
 
-	it("says a failed take could not be made and that nothing was saved", () => {
+	it("says why a failed take could not be made, in its code's own sentence, and that nothing was saved", () => {
 		render(ImageCardBody, {
 			card: card([
 				take({
 					status: "failed",
 					fileId: null,
-					errorCode: "image_render_failed",
+					errorCode: "image_render_timeout",
 				}),
 			]),
 		});
-		expect(screen.getByText("Couldn't make this one.")).toBeInTheDocument();
+		expect(
+			screen.getByText("The picture took too long to render."),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Couldn't make this one.")).toBeNull();
 		expect(screen.getByText("Nothing was saved.")).toBeInTheDocument();
 	});
 

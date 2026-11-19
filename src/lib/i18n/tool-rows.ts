@@ -43,6 +43,8 @@ const toolRowsDict = {
 		"toolRows.verb.suggestedInstruction": "Suggested an instruction",
 		"toolRows.verb.leftAsItWas": "Left as it was:",
 		"toolRows.verb.adjustingRequest": "Adjusting the request",
+		"toolRows.verb.videoNotMade": "Video not made",
+		"toolRows.verb.adjustingVideo": "Adjusting the video request",
 
 		// After the object of a read of a file: which part of it.
 		"toolRows.suffix.page": "· page {number}",
@@ -493,6 +495,8 @@ const toolRowsDict = {
 		"toolRows.verb.suggestedInstruction": "Utasítást javasolt:",
 		"toolRows.verb.leftAsItWas": "Változatlan maradt:",
 		"toolRows.verb.adjustingRequest": "Kérés pontosítása",
+		"toolRows.verb.videoNotMade": "A videó nem készült el",
+		"toolRows.verb.adjustingVideo": "Videókérés pontosítása",
 
 		"toolRows.suffix.page": "· {number}. oldal",
 		"toolRows.suffix.part": "· {number}. rész",
