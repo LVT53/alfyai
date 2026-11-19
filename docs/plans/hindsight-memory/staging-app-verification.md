@@ -39,6 +39,18 @@ The diagnosis temporarily routed the isolated foreground provider through a loop
 
 ## Remaining acceptance
 
-Stage scope acceptance failed on the generated-answer retrieval path. Local commit `d6fc53eb0` keeps saved answers out of automatic cross-chat evidence for native, preparing and previously cut-over accounts. Focused regressions reproduced exposure at the reranker and in reused prompt construction before the fix. The focused run passed 209 tests after the change. It also checked that the working set retains same-chat results, explicit attachments still reach the prompt, and never-enrolled legacy accounts retain their existing behavior. The staging build and exact candidate replay still need to include the fix.
+Stage scope acceptance failed on the generated-answer retrieval path. Local commit `d6fc53eb0` keeps saved answers within their original conversation for automatic evidence retrieval by native, preparing and previously cut-over accounts. Focused regressions reproduced exposure at the reranker and in reused prompt construction before the fix. The focused run passed 209 tests after the change. It also checked that the working set retains same-chat results, explicit attachments still reach the prompt, and never-enrolled legacy accounts retain their existing behavior. The staging build and exact candidate replay still need to include the fix.
 
-Mixed edit and partial removal, optional-history decline, reset, durable erasure and matched backup restore remain to be verified against the eventual staging build and native provider configuration.
+### Integrated candidate gates
+
+The requested tool-row branch merged at `11e129463`. The merged tool preserves fail-closed Memory controls and reports a lookup failure through `memory_unavailable` client metadata. It keeps the inert model payload and distinguishes a confirmed pause through `memory_off`. The merge passed 299 focused tests.
+
+The full release run on `66c42d8a8096ccee78a62e72493e3e83d68643d8` passed the static checks, migrations, build, artifact chunks and Fallow. Playwright passed 1,726 tests, skipped 77 existing cases and recorded zero failures or flaky results. The gate exited unsuccessfully because one legacy Knowledge unit fixture did not represent the new Memory-account policy seam. Its original relevance assertions were unchanged in the test-only correction at `7a575210d109a693795fd97834185b4ab2df9d8f`. The full unit rerun on that commit passed 29,111 tests and skipped three existing cases. Type checking returned zero errors and zero warnings. The runtime is identical at both commits.
+
+Local gate receipts are in `/tmp/alfyai-memory-integrated-release-gate` and `/tmp/alfyai-memory-integrated-unit-closure`. The first receipt retains the initial unit failure and full browser run. The exact candidate archive for isolated GPU app verification has Git tree `4c4976a2466f815fe1d82298cbf179b3ee346775` and SHA-256 `2a29c74d42f25f6dd63207214202b71aae307628131da17aec0cf1eb02364d31`.
+
+### GPU staging status
+
+The GPU app uses a separate path under `/home/alfydesign/apps/alfyai-memory-gpu-stage-7a575210`, a fresh synthetic SQLite database, an app bind on the dedicated bridge at `172.30.43.1:13003`, and its own Hindsight at `127.0.0.1:18894`. The original staging rehearsal keeps its existing endpoint and bank bindings. The host has the owner-only directories for the new app. Automatic approval review rejected the tracked archive and synthetic helper transfers to that path pending explicit user authorization for the payload and destination. No archive transferred, no candidate process started, and no native callback changed.
+
+The remaining GPU app checks are a fresh cross-project canary with real generated answer artifacts and captured model requests, authenticated EN/HU retain and recall, partial edit and removal, learning off and optional-history decline, reset and durable erasure, and matched backup restore with the older pair held from serving. The planned app uses environment-backed model settings. Its results will qualify that provider configuration.
