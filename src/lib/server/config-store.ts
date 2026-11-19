@@ -246,6 +246,7 @@ export interface RuntimeConfig {
 	hindsightOvernightIdle: boolean;
 	hindsightRestoreHold: boolean;
 	hindsightWorkerEnabled: boolean;
+	hindsightQuarantineEnabled: boolean;
 	hindsightNewAccountsEnabled: boolean;
 	hindsightConcurrency: number;
 	hindsightCurationModel: ModelId | null;
@@ -411,6 +412,7 @@ function buildDefaultConfig(): RuntimeConfig {
 		hindsightOvernightIdle: envConfig.hindsightOvernightIdle,
 		hindsightRestoreHold: envConfig.hindsightRestoreHold,
 		hindsightWorkerEnabled: envConfig.hindsightWorkerEnabled,
+		hindsightQuarantineEnabled: envConfig.hindsightQuarantineEnabled,
 		hindsightNewAccountsEnabled: envConfig.hindsightNewAccountsEnabled,
 		hindsightConcurrency: envConfig.hindsightConcurrency,
 		hindsightCurationModel: envConfig.hindsightCurationModel,

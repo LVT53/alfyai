@@ -258,6 +258,8 @@ For a server-only curation binding, leave `HINDSIGHT_CURATION_MODEL` unset and l
 
 ### Native Memory replacement (gated)
 
+Review-only draft extraction additionally requires `HINDSIGHT_QUARANTINE_ENABLED=true` in the app and `HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT=true` on the private native deployment. Both default to off in the AlfyAI configuration. Draft extraction cannot enroll an account or publish a memory.
+
 The replacement uses a private, pinned Hindsight service for native extraction and consolidation. AlfyAI owns authenticated tenant/scope routing, immutable source revisions, deliberate edit/remove intent, job delivery and coherent published UI generations. Personal memories may be used in every chat; project facts stay inside their project. Project awareness outside it is an explicit minimal disclosure, not permission to recall the project's contents. Legacy memory tables remain for controlled migration/rollback; no account is enrolled by enabling a worker alone.
 
 `HINDSIGHT_NEW_ACCOUNTS_ENABLED` is an environment-only rollout switch, default false, read through runtime config. Enabling it makes newly created accounts native-authority with an opaque tenant and known memory interval in their account-creation transaction. Existing accounts stay legacy until explicit per-user migration. This switch is independent of worker pause; a native outage never silently switches users back to legacy. Enable it only with the authorized replacement rollout.

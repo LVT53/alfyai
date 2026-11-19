@@ -15,6 +15,11 @@ import { approvedMemoryBase, fetchPrivateMemory } from "./private-endpoint";
 
 export { NativeMemoryError } from "./contracts";
 
+const MAX_PREVIEW_SOURCE_BYTES = 8_192;
+const MAX_PREVIEW_RESPONSE_BYTES = 262_144;
+const MAX_PREVIEW_FACTS = 64;
+const MAX_PREVIEW_FACT_BYTES = 2_048;
+
 function object(value: unknown): Record<string, unknown> {
 	if (!value || typeof value !== "object" || Array.isArray(value))
 		throw new NativeMemoryError("native_format_unsupported", false);
@@ -37,6 +42,57 @@ function memories(value: unknown): NativeMemory[] {
 		return r as unknown as NativeMemory;
 	});
 }
+
+function previewFacts(
+	value: Record<string, unknown>,
+	source: string,
+): Array<{ text: string }> {
+	const { facts, chunks } = value;
+	if (
+		!Array.isArray(facts) ||
+		facts.length > MAX_PREVIEW_FACTS ||
+		!Array.isArray(chunks) ||
+		chunks.length > MAX_PREVIEW_FACTS
+	)
+		throw new NativeMemoryError("native_format_unsupported", false);
+	const expectedCounts = chunks.map((raw) => {
+		const chunk = object(raw);
+		if (
+			typeof chunk.text !== "string" ||
+			!chunk.text.trim() ||
+			!source.includes(chunk.text) ||
+			typeof chunk.fact_count !== "number" ||
+			!Number.isInteger(chunk.fact_count) ||
+			chunk.fact_count < 0 ||
+			chunk.fact_count > MAX_PREVIEW_FACTS
+		)
+			throw new NativeMemoryError("native_format_unsupported", false);
+		return chunk.fact_count;
+	});
+	const actualCounts = chunks.map(() => 0);
+	const drafts = facts.map((raw) => {
+		const fact = object(raw);
+		if (
+			typeof fact.text !== "string" ||
+			!fact.text.trim() ||
+			Buffer.byteLength(fact.text) > MAX_PREVIEW_FACT_BYTES ||
+			(fact.fact_type !== "world" && fact.fact_type !== "experience") ||
+			typeof fact.chunk_index !== "number" ||
+			!Number.isInteger(fact.chunk_index) ||
+			fact.chunk_index < 0 ||
+			fact.chunk_index >= chunks.length ||
+			(fact.attachments !== undefined &&
+				(!Array.isArray(fact.attachments) || fact.attachments.length > 0))
+		)
+			throw new NativeMemoryError("native_format_unsupported", false);
+		actualCounts[fact.chunk_index] += 1;
+		return { text: fact.text.trim() };
+	});
+	if (expectedCounts.some((count, index) => count !== actualCounts[index]))
+		throw new NativeMemoryError("native_format_unsupported", false);
+	return drafts;
+}
+
 /** Server-only, bound to a single authorized bank. Never expose as an HTTP proxy. */
 export class HindsightClient {
 	private readonly base: string;
@@ -75,6 +131,7 @@ export class HindsightClient {
 		url: string,
 		init: RequestInit,
 		beforeDispatch?: () => void | Promise<void>,
+		maxResponseBytes?: number,
 	): Promise<Response> {
 		if (!this.options.allowedUrls && this.options.fetcher) {
 			const preparation = beforeDispatch?.();
@@ -82,7 +139,13 @@ export class HindsightClient {
 			init.signal?.throwIfAborted();
 			return this.options.fetcher(url, init);
 		}
-		return fetchPrivateMemory(url, init, this.options.fetcher, beforeDispatch);
+		return fetchPrivateMemory(
+			url,
+			init,
+			this.options.fetcher,
+			beforeDispatch,
+			maxResponseBytes,
+		);
 	}
 	async verifyCapabilities(): Promise<void> {
 		const response = await this.send(`${this.base}/ext/alfyai/capabilities`, {
@@ -121,6 +184,7 @@ export class HindsightClient {
 		method = "GET",
 		body?: unknown,
 		beforeDispatch?: () => void | Promise<void>,
+		maxResponseBytes?: number,
 	): Promise<Record<string, unknown>> {
 		try {
 			if (this.options.tenantId) {
@@ -144,6 +208,7 @@ export class HindsightClient {
 					signal,
 				},
 				beforeDispatch,
+				maxResponseBytes,
 			);
 			if (method === "DELETE" && response.status === 404) return {};
 			if (!response.ok)
@@ -156,6 +221,18 @@ export class HindsightClient {
 					response.status >= 500 || response.status === 429,
 				);
 			if (response.status === 204) return {};
+			if (maxResponseBytes !== undefined) {
+				const bytes = await response.arrayBuffer();
+				if (bytes.byteLength > maxResponseBytes)
+					throw new NativeMemoryError("native_format_unsupported", false);
+				try {
+					return object(
+						JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+					);
+				} catch {
+					throw new NativeMemoryError("native_format_unsupported", false);
+				}
+			}
 			return object(await response.json());
 		} catch (error) {
 			if (error instanceof NativeMemoryError) throw error;
@@ -185,6 +262,38 @@ export class HindsightClient {
 			if (effective[key] !== value)
 				throw new NativeMemoryError("native_config_mismatch", false);
 		}
+	}
+	async extractDrafts(
+		{ content, timestamp }: { content: string; timestamp: string },
+		beforeDispatch: () => void | Promise<void>,
+	): Promise<Array<{ text: string }>> {
+		const assertEnabled = () => {
+			if (!getConfig().hindsightQuarantineEnabled)
+				throw new NativeMemoryError("native_preview_disabled", false);
+		};
+		assertEnabled();
+		if (!this.options.tenantId)
+			throw new NativeMemoryError("native_capability_mismatch", false);
+		const time = Date.parse(timestamp);
+		if (
+			!content.trim() ||
+			Buffer.byteLength(content) > MAX_PREVIEW_SOURCE_BYTES ||
+			!Number.isFinite(time) ||
+			new Date(time).toISOString() !== timestamp
+		)
+			throw new NativeMemoryError("native_preview_input_invalid", false);
+		await this.verifyConfig();
+		const result = await this.request(
+			"/memories/dry-run-extract",
+			"POST",
+			{ content, timestamp },
+			async () => {
+				assertEnabled();
+				await beforeDispatch();
+			},
+			MAX_PREVIEW_RESPONSE_BYTES,
+		);
+		return previewFacts(result, content);
 	}
 	async retain(item: RetainSource, operationId: string): Promise<string[]> {
 		const result = await this.request("/memories", "POST", {

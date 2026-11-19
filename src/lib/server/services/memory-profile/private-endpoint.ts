@@ -3,6 +3,7 @@ import { Agent as HttpAgent, request as httpRequest } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { isPrivateHostname } from "../connections/host-locality";
+import { NativeMemoryError } from "./contracts";
 
 class PrivateMemoryEndpointError extends Error {
 	constructor() {
@@ -67,6 +68,7 @@ async function directMemoryRequest(
 	input: RequestInfo | URL,
 	init: RequestInit,
 	beforeDispatch?: BeforeDispatch,
+	maxResponseBytes?: number,
 ): Promise<Response> {
 	const request = new Request(input, init);
 	const url = new URL(request.url);
@@ -100,7 +102,19 @@ async function directMemoryRequest(
 					return;
 				}
 				const chunks: Buffer[] = [];
-				incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+				let responseBytes = 0;
+				incoming.on("data", (chunk: Buffer) => {
+					responseBytes += chunk.byteLength;
+					if (
+						maxResponseBytes !== undefined &&
+						responseBytes > maxResponseBytes
+					) {
+						incoming.destroy();
+						reject(new NativeMemoryError("native_format_unsupported", false));
+						return;
+					}
+					chunks.push(chunk);
+				});
 				incoming.once("error", reject);
 				incoming.once("end", () => {
 					const responseHeaders = new Headers();
@@ -135,6 +149,7 @@ export async function fetchPrivateMemory(
 	init?: RequestInit,
 	fetcher?: typeof fetch,
 	beforeDispatch?: BeforeDispatch,
+	maxResponseBytes?: number,
 ): Promise<Response> {
 	const url = privateMemoryUrl(input instanceof Request ? input.url : input);
 	const host = hostOf(url);
@@ -162,7 +177,13 @@ export async function fetchPrivateMemory(
 		request = input instanceof Request ? new Request(url, input) : url.href;
 		options.headers = headers;
 	}
-	if (!fetcher) return directMemoryRequest(request, options, beforeDispatch);
+	if (!fetcher)
+		return directMemoryRequest(
+			request,
+			options,
+			beforeDispatch,
+			maxResponseBytes,
+		);
 	const preparation = beforeDispatch?.();
 	if (preparation) await preparation;
 	return fetcher(request, options);

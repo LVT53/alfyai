@@ -75,6 +75,7 @@ interface Config {
 	hindsightOvernightIdle: boolean;
 	hindsightRestoreHold: boolean;
 	hindsightWorkerEnabled: boolean;
+	hindsightQuarantineEnabled: boolean;
 	hindsightNewAccountsEnabled: boolean;
 	hindsightConcurrency: number;
 	hindsightCurationModel: ModelId | null;
@@ -722,6 +723,8 @@ function readConfig(): Config {
 			process.env.HINDSIGHT_RESTORE_HOLD !== undefined &&
 			process.env.HINDSIGHT_RESTORE_HOLD !== "false",
 		hindsightWorkerEnabled: process.env.HINDSIGHT_WORKER_ENABLED === "true",
+		hindsightQuarantineEnabled:
+			process.env.HINDSIGHT_QUARANTINE_ENABLED === "true",
 		hindsightNewAccountsEnabled:
 			process.env.HINDSIGHT_NEW_ACCOUNTS_ENABLED === "true",
 		hindsightConcurrency: Math.max(
