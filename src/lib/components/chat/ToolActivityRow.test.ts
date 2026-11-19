@@ -528,7 +528,7 @@ describe("ToolActivityRow", () => {
 				sourceType: "web",
 				metadata: {
 					source: `site${index}.com`,
-					thumbnail: `https://imgs.search.brave.com/thumb${index}`,
+					thumbnail: `https://saved-thumbnails.example/thumb${index}`,
 				},
 			})) as ToolCallSegment["candidates"];
 
@@ -553,7 +553,7 @@ describe("ToolActivityRow", () => {
 			expect(thumbs).toHaveLength(3);
 			const image = thumbs[0].querySelector("img") as HTMLImageElement;
 			expect(image.getAttribute("src")).toBe(
-				`/api/image-search/thumbnail?url=${encodeURIComponent("https://imgs.search.brave.com/thumb0")}`,
+				`/api/image-search/thumbnail?url=${encodeURIComponent("https://images.example0.test/h.jpg")}`,
 			);
 			expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
 			expect(image.getAttribute("alt")).toBe("Harbour 1");
@@ -562,9 +562,11 @@ describe("ToolActivityRow", () => {
 			);
 			// No address of the search's own is ever requested.
 			expect(container.innerHTML).not.toContain(
-				'imgs.search.brave.com/thumb0"',
+				'saved-thumbnails.example/thumb0"',
 			);
-			expect(container.innerHTML).not.toContain("images.example0.test");
+			expect(container.innerHTML).not.toContain(
+				'src="https://images.example0.test',
+			);
 		});
 
 		it("keeps the publisher link accessible when a Parallel preview fails", async () => {

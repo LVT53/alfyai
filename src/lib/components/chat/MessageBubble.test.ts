@@ -6041,8 +6041,7 @@ describe("MessageBubble: what the reply may show of the web is what its own tool
 	// docs/plans/exfil-channels: a picture or a favicon is requested on a reply's behalf
 	// only for an address a tool of the same message returned. The bubble derives that
 	// from the message's segments and hands it to the renderer.
-	const THUMB =
-		"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+	const THUMB = "https://saved-thumbnails.example/previews/pet";
 
 	function catSearch(): NonNullable<ChatMessage["thinkingSegments"]>[number] {
 		return {
@@ -6096,7 +6095,11 @@ describe("MessageBubble: what the reply may show of the web is what its own tool
 			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
 		);
 		expect(lastOptions().toolImages).toEqual([
-			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
+			{
+				url: "https://example.com/cat.jpg",
+				thumbnail: "https://example.com/cat.jpg",
+				savedThumbnailUrl: THUMB,
+			},
 		]);
 		expect([...(lastOptions().toolSourceHosts as Set<string>)]).toEqual([
 			"example.com",
@@ -6160,7 +6163,11 @@ describe("MessageBubble: what the reply may show of the web is what its own tool
 			expect(markdownLoaderMock.renderMarkdown).toHaveBeenCalled(),
 		);
 		expect(lastOptions().toolImages).toEqual([
-			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
+			{
+				url: "https://example.com/cat.jpg",
+				thumbnail: "https://example.com/cat.jpg",
+				savedThumbnailUrl: THUMB,
+			},
 		]);
 	});
 });

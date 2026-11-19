@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { imageSearchDisplays, messages } from "../../src/lib/server/db/schema";
 import {
-	BRAVE_THUMBNAIL_HOST,
 	FAVICON_ROUTE,
 	IMAGE_SEARCH_TOOL,
 	IMAGE_THUMBNAIL_ROUTE,
@@ -23,8 +22,7 @@ import { createEmptyConversation, login } from "./helpers";
 
 const HOST = "sentinel.invalid";
 const KNOWN_HOST = "known.invalid";
-// The names the app itself uses for them, so the spec cannot drift from the code it checks.
-const BRAVE_HOST = BRAVE_THUMBNAIL_HOST;
+const OLD_PREVIEW_HOST = "retired-preview.invalid";
 const PIXEL = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
 	"base64",
@@ -39,8 +37,8 @@ function routeWithQuery(route: string): RegExp {
 type Calls = {
 	/** Everything asked of the stand-in host, whatever the path. */
 	standIn: string[];
-	/** Everything asked of Brave's image proxy directly (the app's route is the only way to it). */
-	brave: string[];
+	/** Direct requests to the separate preview host recorded in old messages. */
+	oldPreview: string[];
 	/** The app's favicon proxy, with the host asked about. */
 	favicon: string[];
 	/** The app's thumbnail route, which these specs answer themselves (the server route is its own slice). */
@@ -52,7 +50,12 @@ async function watchRequests(
 	page: Page,
 	options: { thumbnailStatus?: number } = {},
 ): Promise<Calls> {
-	const calls: Calls = { standIn: [], brave: [], favicon: [], thumbnail: [] };
+	const calls: Calls = {
+		standIn: [],
+		oldPreview: [],
+		favicon: [],
+		thumbnail: [],
+	};
 	const picture = (route: { fulfill: (init: object) => Promise<void> }) =>
 		route.fulfill({
 			status: 200,
@@ -68,9 +71,9 @@ async function watchRequests(
 		},
 	);
 	await page.route(
-		new RegExp(`^https?://[^/]*${BRAVE_HOST.replaceAll(".", "\\.")}/`),
+		new RegExp(`^https?://[^/]*${OLD_PREVIEW_HOST.replaceAll(".", "\\.")}/`),
 		async (route) => {
-			calls.brave.push(route.request().url());
+			calls.oldPreview.push(route.request().url());
 			await picture(route);
 		},
 	);
@@ -125,7 +128,7 @@ async function openChat(page: Page, conversationId: string) {
 	await page.reload({ waitUntil: "networkidle" });
 }
 
-/** The tool call image_search leaves in a stored reply: the picture and Brave's resized copy of it. */
+/** Saved image results can carry a separate thumbnail or the publisher's own image. */
 function imageSearchCall(
 	picture: string,
 	thumbnail: string,
@@ -223,7 +226,9 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 				"the favicon proxy asked about the stand-in host",
 			)
 			.toEqual([]);
-		expect.soft(calls.brave, "Brave's proxy, asked directly").toEqual([]);
+		expect
+			.soft(calls.oldPreview, "old preview host, asked directly")
+			.toEqual([]);
 		expect.soft(calls.thumbnail, "the thumbnail route").toEqual([]);
 
 		// The picture the reply named is a chip: the words it gave, the host, and a way to
@@ -267,59 +272,56 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 		await expect(prose.locator(".fixed, .inset-0, .z-50")).toHaveCount(0);
 	});
 
-	test("a picture image_search returned is shown once, as Brave's thumbnail through the app's route, and nothing goes to the picture's own host", async ({
-		page,
-	}) => {
-		const calls = await watchRequests(page);
-		const picture = URL_ON(HOST, "cat.jpg");
-		const thumbnail = URL_ON(
-			BRAVE_HOST,
-			"Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9zZW50aW5lbC5pbnZhbGlkL2NhdC5qcGc",
-		);
-		const conversationId = await seedReply(
+	for (const reference of ["original", "saved thumbnail"] as const) {
+		test(`an old chat referencing its ${reference} loads the publisher picture through the app after reload`, async ({
 			page,
-			`Here is the cat.\n\n![A cat on a sofa](${picture})`,
-			[imageSearchCall(picture, thumbnail)],
-		);
-		await openChat(page, conversationId);
+		}) => {
+			const calls = await watchRequests(page);
+			const picture = URL_ON(HOST, "cat.jpg?sig=a%2Fb&size=large");
+			const savedThumbnail = URL_ON(OLD_PREVIEW_HOST, "cached/cat");
+			const embedded = reference === "original" ? picture : savedThumbnail;
+			const conversationId = await seedReply(
+				page,
+				`Here is the cat.\n\n![A cat on a sofa](${embedded})`,
+				[imageSearchCall(picture, savedThumbnail)],
+			);
+			await openChat(page, conversationId);
 
-		const reply = page.getByTestId("assistant-message");
-		const prose = reply.locator(".markdown-html");
-		await expect(reply).toContainText("Here is the cat.");
-		await settle(page);
-		expect.soft(calls.standIn, "the picture's own host").toEqual([]);
-		expect.soft(calls.brave, "Brave's proxy, asked directly").toEqual([]);
+			const prose = page
+				.getByTestId("assistant-message")
+				.locator(".markdown-html");
+			const image = prose.getByRole("img", { name: "A cat on a sofa" });
+			const src = `${IMAGE_THUMBNAIL_ROUTE}?url=${encodeURIComponent(picture)}`;
+			await expect(image).toHaveAttribute("src", src);
+			await expect(
+				prose.locator(".markdown-image-frame--loaded"),
+			).toBeVisible();
+			await expect(prose.locator("a.source-link-chip--image")).toHaveCount(0);
 
-		const images = prose.locator("img");
-		await expect(images).toHaveCount(1);
-		const source = await images.first().getAttribute("src");
-		expect(source?.startsWith(`${IMAGE_THUMBNAIL_ROUTE}?url=`)).toBe(true);
-		expect(
-			new URL(source ?? "", "http://app.test").searchParams.get("url"),
-		).toBe(thumbnail);
-		await expect(images.first()).toHaveAttribute("alt", "A cat on a sofa");
-		// It loads, and the skeleton frame hands over to the picture.
-		await expect(prose.locator(".markdown-image-frame--loaded")).toHaveCount(1);
-		await expect(prose.locator("a.source-link-chip--image")).toHaveCount(0);
+			await page.reload({ waitUntil: "networkidle" });
+			await expect(image).toHaveAttribute("src", src);
+			await expect(
+				prose.locator(".markdown-image-frame--loaded"),
+			).toBeVisible();
 
-		// A click on it opens the lightbox on the same copy.
-		await images.first().click();
-		const lightbox = page.getByTestId("image-lightbox");
-		await expect(lightbox).toBeVisible();
-		await expect(lightbox.locator("img")).toHaveAttribute(
-			"src",
-			new RegExp(`${IMAGE_THUMBNAIL_ROUTE.replaceAll("/", "\\/")}\\?url=`),
-		);
+			await image.click();
+			const lightbox = page.getByTestId("image-lightbox");
+			await expect(lightbox).toBeVisible();
+			await expect(lightbox.locator("img")).toHaveAttribute(
+				"src",
+				new URL(src, page.url()).href,
+			);
 
-		expect(calls.thumbnail.length).toBeGreaterThanOrEqual(1);
-		expect(
-			calls.thumbnail.every((url) =>
-				url.includes(encodeURIComponent(thumbnail)),
-			),
-		).toBe(true);
-		expect(calls.standIn, "the picture's own host").toEqual([]);
-		expect(calls.brave, "Brave's proxy, asked directly").toEqual([]);
-	});
+			expect(calls.thumbnail.length).toBeGreaterThan(0);
+			expect(
+				new Set(
+					calls.thumbnail.map((url) => new URL(url).searchParams.get("url")),
+				),
+			).toEqual(new Set([picture]));
+			expect(calls.standIn).toEqual([]);
+			expect(calls.oldPreview).toEqual([]);
+		});
+	}
 
 	for (const succeeds of [true, false]) {
 		test(`a reloaded Parallel image ${succeeds ? "loads through the app" : "offers its source page after a failed preview"}`, async ({
@@ -391,7 +393,7 @@ test.describe("what a reply asks the browser to fetch on its own", () => {
 	}) => {
 		const calls = await watchRequests(page, { thumbnailStatus: 404 });
 		const picture = URL_ON(HOST, "gone.jpg");
-		const thumbnail = URL_ON(BRAVE_HOST, "Zq3s9x/gone");
+		const thumbnail = URL_ON(OLD_PREVIEW_HOST, "cached/gone");
 		const conversationId = await seedReply(
 			page,
 			`Here is the cat.\n\n![A cat](${picture})`,

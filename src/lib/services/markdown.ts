@@ -37,7 +37,7 @@ type RenderMarkdownOptions = {
 	sourceReferences?: SourceReferenceCandidate[];
 	/**
 	 * What the message's image_search calls returned: the only pictures a reply may
-	 * show, and then as Brave's thumbnail through the app's own route. Without them no
+	 * show, through the app’s own thumbnail route. Without them no
 	 * picture from the web is shown (a preview, a history page).
 	 */
 	toolImages?: readonly ToolImage[];
@@ -179,10 +179,12 @@ const INERT_MARKUP = { allowClass: isRenderedClass };
  * not have written.
  */
 type ResourcePolicy = {
-	/** image_search's results, by the comparison form of their address and of their thumbnail's. */
+	/** image_search's results, by the comparison form of their address. */
 	images: ReadonlyMap<string, ToolImage>;
 	/** The thumbnails the app's route may be asked for. */
 	thumbnails: ReadonlySet<string>;
+	/** Exact aliases in old replies. These never enter the fetch allowlist. */
+	savedAliases: ReadonlyMap<string, ToolImage>;
 	/** The hosts whose favicon a chip may ask for. */
 	sourceHosts: ReadonlySet<string>;
 };
@@ -190,8 +192,11 @@ type ResourcePolicy = {
 function createResourcePolicy(options: RenderMarkdownOptions): ResourcePolicy {
 	const images = new Map<string, ToolImage>();
 	const thumbnails = new Set<string>();
+	const savedAliases = new Map<string, ToolImage>();
 	for (const image of options.toolImages ?? []) {
 		if (image.thumbnail) thumbnails.add(image.thumbnail);
+		if (image.savedThumbnailUrl)
+			savedAliases.set(image.savedThumbnailUrl, image);
 		for (const address of [image.url, image.thumbnail]) {
 			const key = provenanceKey(address);
 			// A picture a tool returned twice is shown by the result that has a thumbnail.
@@ -201,6 +206,7 @@ function createResourcePolicy(options: RenderMarkdownOptions): ResourcePolicy {
 	return {
 		images,
 		thumbnails,
+		savedAliases,
 		sourceHosts: options.toolSourceHosts ?? new Set(),
 	};
 }
@@ -1013,7 +1019,7 @@ function createMarkdownRenderer(
 		}
 		const key = provenanceKey(href);
 		if (key === null) return escapeMarkdownText(alt);
-		const result = policy.images.get(key);
+		const result = policy.images.get(key) ?? policy.savedAliases.get(href);
 		if (result?.thumbnail) {
 			const fallback =
 				result.sourcePageUrl && linkTextDepth === 0
@@ -1034,7 +1040,7 @@ function createMarkdownRenderer(
 			);
 		}
 		return renderBlockedImage({
-			href: result?.sourcePageUrl ?? href,
+			href: result?.sourcePageUrl ?? result?.url ?? href,
 			alt,
 			imageNotLoadedLabel,
 		});

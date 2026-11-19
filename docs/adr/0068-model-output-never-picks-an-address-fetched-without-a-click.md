@@ -12,7 +12,7 @@ The owner approved this on 2026-10-12 as the prerequisite for [ADR-0067](0067-al
 
 **2. One gate for HTML.** `sanitizeHtml` removes every attribute that makes the browser fetch unless its caller allows that exact address. So file previews, the Document history preview and Mermaid get nothing remote by default. Model markdown also loses forms, popovers, positioning CSS and class names the renderer did not write itself (the app's global utility classes could otherwise draw a fake login screen over the chat).
 
-**3. A chat reply shows only pictures its own tools returned.** An image_search result is shown as Brave's 500 px thumbnail through the same-origin `/api/image-search/thumbnail` route, and the Immich photo proxy stays as it is. Any other image becomes a visibly external link chip and is never fetched. The CSP's `img-src` drops `https:`.
+**3. A chat reply shows only pictures its own tools returned.** An image_search result is shown as a 500 px preview through the same-origin `/api/image-search/thumbnail` route (see the [publisher image amendment](#19-november-2026-amendment-for-parallel-image-search)), and the Immich photo proxy stays as it is. Any other image becomes a visibly external link chip and is never fetched. The CSP's `img-src` drops `https:`.
 Rejected:
 - **Originals straight from their hosts:** the renderer would be the only defence, and every host sees the reader.
 - **A full proxy of originals:** a DNS-pinning SSRF guard, a cache and, in a sample of Wikipedia lead images, a 2.3 MB median per picture through the home server. A 500 px copy averaged 68 KB.
@@ -72,4 +72,4 @@ Rejected:
 
 ### 19 November 2026 amendment for Parallel Image Search
 
-Parallel returns the publisher's original image and source page. For its results, the existing thumbnail route authorizes the precise HTTPS image target recorded for the signed-in user. It uses the guarded outbound fetch, caps the input at 2 MiB and 24 megapixels, and returns a single raster preview up to 500 pixels on either side. A failed preview offers the publisher's source page on click. The browser uses the same-origin route for current and reopened chats. Historical Brave results continue to use the exact Brave thumbnail they recorded.
+Parallel returns the publisher's original image and source page. For its results, the existing thumbnail route authorizes the precise HTTPS image target recorded for the signed-in user. It uses the guarded outbound fetch, caps the input at 2 MiB and 24 megapixels, and returns a single raster preview up to 500 pixels on either side. A failed preview offers the publisher's source page on click. In reopened chats an old thumbnail address can identify a saved search result. The browser requests the same-origin preview of the original publisher image stored in that result.

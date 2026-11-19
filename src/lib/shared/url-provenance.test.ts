@@ -5,7 +5,6 @@ import {
 	extractUrlsFromValue,
 	faviconRouteUrl,
 	imageThumbnailRouteUrl,
-	isBraveThumbnailUrl,
 	provenanceKey,
 	readFaviconRouteUrl,
 	readImageThumbnailRouteUrl,
@@ -18,8 +17,7 @@ import {
 // on its own must come from the user's words or a tool's result. These cases pin
 // what counts as the same address, and what a message's tools returned.
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://saved-thumbnails.example/previews/pet";
 
 function toolCall(
 	name: string,
@@ -204,24 +202,8 @@ describe("extractUrlsFromValue", () => {
 	});
 });
 
-describe("isBraveThumbnailUrl", () => {
-	it("accepts Brave's image proxy over https only", () => {
-		expect(isBraveThumbnailUrl(THUMB)).toBe(true);
-		for (const value of [
-			THUMB.replace("https:", "http:"),
-			"https://imgs.search.brave.com.evil.example/x",
-			"https://evil.example/imgs.search.brave.com/x",
-			"https://imgs.search.brave.com:8443/x",
-			"https://user@imgs.search.brave.com/x",
-			"https://search.brave.com/images/x",
-		]) {
-			expect(isBraveThumbnailUrl(value), value).toBe(false);
-		}
-	});
-});
-
 describe("toolImages", () => {
-	it("reads image_search's results, with the Brave thumbnail when there is one", () => {
+	it("reads image_search's results, using historical thumbnail addresses only to identify a saved publisher picture", () => {
 		expect(
 			toolImages([
 				toolCall("image_search", [
@@ -237,9 +219,17 @@ describe("toolImages", () => {
 				]),
 			]),
 		).toEqual([
-			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
+			{
+				url: "https://example.com/cat.jpg",
+				thumbnail: "https://example.com/cat.jpg",
+				savedThumbnailUrl: THUMB,
+			},
 			{ url: "https://example.com/dog.jpg", thumbnail: null },
-			{ url: "https://example.com/owl.jpg", thumbnail: null },
+			{
+				url: "https://example.com/owl.jpg",
+				thumbnail: "https://example.com/owl.jpg",
+				savedThumbnailUrl: "https://evil.example/owl.jpg",
+			},
 		]);
 	});
 

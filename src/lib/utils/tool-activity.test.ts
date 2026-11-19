@@ -2643,7 +2643,7 @@ describe("each tool's row shows what it found", () => {
 				metadata: {
 					source: `site${index}.com`,
 					...(index < withThumbnails
-						? { thumbnail: `https://imgs.search.brave.com/thumb${index}` }
+						? { thumbnail: `https://saved-thumbnails.example/thumb${index}` }
 						: {}),
 				},
 			})) as ToolCallSegment["candidates"];
@@ -2725,7 +2725,7 @@ describe("each tool's row shows what it found", () => {
 				kind: "thumbs",
 				items: Array.from({ length: 8 }, (_, index) => ({
 					src: imageThumbnailRouteUrl(
-						`https://imgs.search.brave.com/thumb${index}`,
+						`https://images.example${index}.test/harbour.jpg`,
 					),
 					host: `site${index}.com`,
 					title: `Harbour at dawn ${index + 1}`,
@@ -2742,7 +2742,7 @@ describe("each tool's row shows what it found", () => {
 			});
 			expect(one.meta).toBe("1 picture");
 
-			// Six found, only two with a thumbnail Brave's own proxy served: the row
+			// Six found, only two with a saved thumbnail: the row
 			// counts them all and shows what it can.
 			const some = row({
 				name: "image_search",
@@ -2753,7 +2753,7 @@ describe("each tool's row shows what it found", () => {
 			expect(some.body).toMatchObject({ kind: "thumbs" });
 			expect((some.body as { items: unknown[] }).items).toHaveLength(2);
 
-			// A thumbnail that is not on Brave's proxy is never loaded.
+			// A mismatched thumbnail on a current image result is never loaded.
 			const stranger = row({
 				name: "image_search",
 				input: { query: "harbour" },
@@ -2764,7 +2764,10 @@ describe("each tool's row shows what it found", () => {
 						url: "https://pictures.example.test/a.jpg",
 						snippet: "example.test",
 						sourceType: "web",
-						metadata: { thumbnail: "https://attacker.example/pixel.gif" },
+						metadata: {
+							provider: "parallel",
+							thumbnail: "https://attacker.example/pixel.gif",
+						},
 					},
 				] as ToolCallSegment["candidates"],
 			});
@@ -2781,15 +2784,15 @@ describe("each tool's row shows what it found", () => {
 					url: "https://one.example.test/harbour.jpg",
 					snippet: "one.example.test",
 					sourceType: "web",
-					metadata: { thumbnail: "https://imgs.search.brave.com/same" },
+					metadata: { thumbnail: "https://saved-thumbnails.example/same" },
 				},
 				{
 					id: "b",
 					title: "Harbour (again)",
-					url: "https://two.example.test/harbour.jpg",
+					url: "https://one.example.test/harbour.jpg",
 					snippet: "two.example.test",
 					sourceType: "web",
-					metadata: { thumbnail: "https://imgs.search.brave.com/same" },
+					metadata: { thumbnail: "https://saved-thumbnails.example/same" },
 				},
 				{
 					id: "c",
@@ -2797,7 +2800,7 @@ describe("each tool's row shows what it found", () => {
 					url: "https://three.example.test/dawn.jpg",
 					snippet: "three.example.test",
 					sourceType: "web",
-					metadata: { thumbnail: "https://imgs.search.brave.com/other" },
+					metadata: { thumbnail: "https://saved-thumbnails.example/other" },
 				},
 			] as ToolCallSegment["candidates"];
 			const item = row({
@@ -2827,7 +2830,7 @@ describe("each tool's row shows what it found", () => {
 						title: "No source named",
 						url: "https://www.pictures.example.test/a.jpg",
 						sourceType: "web",
-						metadata: { thumbnail: "https://imgs.search.brave.com/n" },
+						metadata: { thumbnail: "https://saved-thumbnails.example/n" },
 					},
 				] as ToolCallSegment["candidates"],
 			});

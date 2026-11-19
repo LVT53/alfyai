@@ -2598,7 +2598,7 @@ A **Library Document** the user chose for an **Atlas Turn**: an explicit attachm
 _Avoid_: knowledge attachment, uploaded research input, library artifact citation
 
 **Atlas Web Source**:
-A web page discovered through **Parallel Search** during the **Atlas Turn**'s research work. Web sources are the primary source pool for an Atlas and appear in the Atlas under a "Web Sources" subsection of the Sources section. Text discovery and page fetch both run through Parallel. Atlas availability gates on `PARALLEL_API_KEY` (`missing_parallel`). **(historical, v1/v2)** V1 and v2 also ran a separate Brave-backed image-search path for report images; v3 has no image web-source path.
+A web page discovered through **Parallel Search** during the **Atlas Turn**'s research work. Web sources are the primary source pool for an Atlas and appear in the Atlas under a "Web Sources" subsection of the Sources section. Text discovery and page fetch both run through Parallel. Atlas availability gates on `PARALLEL_API_KEY` (`missing_parallel`). **(historical, v1/v2)** V1 and v2 also searched for report images. Atlas v3 has no image web-source path. Normal Chat uses Parallel Fast for image search.
 _Avoid_: search result, fetched page, web citation, SearXNG result
 
 **Atlas Source Acquisition** (historical, v1 — module deleted in Phase B of the v3-only consolidation):

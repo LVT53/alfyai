@@ -25,9 +25,6 @@ const MAX_VALUE_DEPTH = 12;
 /** The tool whose results are pictures to show (see `toolImages`). */
 export const IMAGE_SEARCH_TOOL = "image_search";
 
-/** Brave's image proxy used by historical image_search results. */
-export const BRAVE_THUMBNAIL_HOST = "imgs.search.brave.com";
-
 /** The app's same-origin route that serves a search thumbnail. */
 export const IMAGE_THUMBNAIL_ROUTE = "/api/image-search/thumbnail";
 
@@ -227,19 +224,10 @@ export interface ToolImage {
 	url: string;
 	/** The source of the same-origin thumbnail, or null if none is available. */
 	thumbnail: string | null;
+	/** A historical thumbnail address that may appear in saved Markdown. Lookup only. */
+	savedThumbnailUrl?: string;
 	/** Publisher page to offer if its image cannot be displayed. */
 	sourcePageUrl?: string;
-}
-
-/** Whether this is an address on Brave's image proxy (https, its host, no port). */
-export function isBraveThumbnailUrl(raw: unknown): boolean {
-	const parsed = parseHttpUrl(raw);
-	return Boolean(
-		parsed &&
-			parsed.protocol === "https:" &&
-			parsed.hostname === BRAVE_THUMBNAIL_HOST &&
-			!parsed.port,
-	);
 }
 
 /** Exact HTTPS request target, preserving the hostname and query of a signed image. */
@@ -259,17 +247,20 @@ export function searchResultSourcePage(
 		: undefined;
 }
 
-/** A new result previews its own image. Old results may preview Brave's resized copy. */
+/** The only preview fetch target is the exact HTTPS publisher image in the result. */
 export function searchResultThumbnail(
 	candidate: ToolEvidenceCandidate,
 ): string | null {
-	const thumb = candidate.metadata?.thumbnail;
-	if (typeof thumb !== "string") return null;
-	if (candidate.metadata?.provider === "parallel") {
-		const target = imagePreviewTarget(candidate.url);
-		return target && target === imagePreviewTarget(thumb) ? target : null;
-	}
-	return isBraveThumbnailUrl(thumb) ? thumb.trim() : null;
+	const thumbnail = imagePreviewTarget(candidate.metadata?.thumbnail);
+	const target = imagePreviewTarget(candidate.url);
+	if (!thumbnail || !target) return null;
+	if (candidate.metadata?.provider === "parallel")
+		return target === thumbnail ? target : null;
+	// Older search results stored a separate resized image. Its address can
+	// identify the picture in saved Markdown, but is never a fetch target.
+	if (candidate.metadata?.provider != null || target === thumbnail) return null;
+	// The old writer shortened publisher URLs longer than 500 characters.
+	return candidate.url?.endsWith("...") ? null : target;
 }
 
 /**
@@ -287,9 +278,16 @@ export function toolImages(
 			const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
 			if (!parseHttpUrl(url)) continue;
 			const sourcePageUrl = searchResultSourcePage(candidate);
+			const savedThumbnailUrl =
+				candidate.metadata?.provider == null
+					? imagePreviewTarget(candidate.metadata?.thumbnail)
+					: null;
 			images.push({
 				url,
 				thumbnail: searchResultThumbnail(candidate),
+				...(savedThumbnailUrl && savedThumbnailUrl !== url
+					? { savedThumbnailUrl }
+					: {}),
 				...(sourcePageUrl ? { sourcePageUrl } : {}),
 			});
 		}

@@ -1,16 +1,12 @@
 import { requireApiUser } from "$lib/server/api/auth";
-import {
-	fetchBraveThumbnail,
-	fetchPublisherThumbnail,
-} from "$lib/server/services/image-search";
+import { fetchPublisherThumbnail } from "$lib/server/services/image-search";
 import { hasSourceThumbnail } from "$lib/server/services/url-provenance";
-import { isBraveThumbnailUrl } from "$lib/shared/url-provenance";
 import type { RequestHandler } from "./$types";
 
 /**
  * Serve only exact image-search previews recorded for the signed-in user.
  * Publisher originals are fetched through the public-address guard and resized
- * to inert raster thumbnails. Old Brave results retain their hosted preview.
+ * to inert raster thumbnails.
  */
 
 function notFound(): Response {
@@ -27,11 +23,9 @@ export const GET: RequestHandler = async (event) => {
 		return notFound();
 	}
 
-	let thumbnail: Awaited<ReturnType<typeof fetchBraveThumbnail>>;
+	let thumbnail: Awaited<ReturnType<typeof fetchPublisherThumbnail>>;
 	try {
-		thumbnail = isBraveThumbnailUrl(requested)
-			? await fetchBraveThumbnail(requested)
-			: await fetchPublisherThumbnail(requested);
+		thumbnail = await fetchPublisherThumbnail(requested);
 	} catch {
 		// It does not throw; if it ever does, not the error: it carries the address.
 		return notFound();

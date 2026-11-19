@@ -3,11 +3,7 @@ import {
 	createOutboundFetch,
 	type OutboundFetch,
 } from "$lib/server/outbound";
-import {
-	imagePreviewTarget,
-	isBraveThumbnailUrl,
-	sourceHostOf,
-} from "$lib/shared/url-provenance";
+import { imagePreviewTarget, sourceHostOf } from "$lib/shared/url-provenance";
 import { getConfig } from "../config-store";
 import { verifyUploadSignature } from "./knowledge/upload-signature";
 import { parallelImageSearch } from "./parallel-search/client";
@@ -75,13 +71,8 @@ export async function searchImages(
 	return results;
 }
 
-// The authenticated preview route reuses the outbound guard for both the
-// historical Brave thumbnail and the publisher original returned by Parallel.
 const THUMBNAIL_FETCH_TIMEOUT_MS = 8_000;
 const THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
-// The outbound fetch: Brave's host is fixed, but the server's own fetches all
-// take the one path that checks the address a name resolves to and never
-// follows a redirect (`$lib/server/outbound`).
 const thumbnailFetch = createOutboundFetch(
 	{},
 	{ timeoutMs: THUMBNAIL_FETCH_TIMEOUT_MS, maxBytes: THUMBNAIL_MAX_BYTES },
@@ -127,24 +118,6 @@ async function readCapped(
 		offset += chunk.byteLength;
 	}
 	return bytes;
-}
-
-/**
- * Brave's thumbnail at this address, or null when the address is not on Brave's
- * image proxy, the fetch fails or redirects, takes over 8 s, or the answer is
- * not a raster image of at most 2 MB. Never throws, and says nothing about why:
- * the error carries the address.
- *
- * `options.fetch` is the seam a test injects through (the default is the
- * outbound fetch): a test that stubs the global instead does not intercept it,
- * and would reach the network.
- */
-export async function fetchBraveThumbnail(
-	address: string,
-	options: { fetch?: OutboundFetch } = {},
-): Promise<SearchThumbnail | null> {
-	if (!isBraveThumbnailUrl(address)) return null;
-	return fetchThumbnailBytes(address, options.fetch ?? thumbnailFetch);
 }
 
 async function fetchThumbnailBytes(

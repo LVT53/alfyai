@@ -6,13 +6,12 @@ vi.mock("$lib/server/config-store", () => ({
 
 import { getConfig } from "$lib/server/config-store";
 import {
-	fetchBraveThumbnail,
+	fetchPublisherThumbnail,
 	ImageSearchNotConfiguredError,
 	searchImages,
 } from "./image-search";
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://images.example.com/cat.png";
 
 describe("searchImages", () => {
 	const fetchMock = vi.fn<typeof fetch>();
@@ -171,16 +170,11 @@ describe("searchImages", () => {
 	});
 });
 
-// The fetch of Brave's thumbnail, held to the limits that make a fetched file
-// safe to serve: no redirect, a short wait, a small body, raster images only
-// (never SVG, which can carry script). Every test hands the function its own
-// `fetch`: a test that stubbed the global instead would stop intercepting the
-// day the default fetch changes, and would then reach the network.
-describe("fetchBraveThumbnail", () => {
+describe("fetchPublisherThumbnail", () => {
 	const fetchMock = vi.fn();
 	const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 	const fetchThumbnail = (address: string) =>
-		fetchBraveThumbnail(address, {
+		fetchPublisherThumbnail(address, {
 			fetch: fetchMock as unknown as typeof globalThis.fetch,
 		});
 
@@ -205,55 +199,6 @@ describe("fetchBraveThumbnail", () => {
 	beforeEach(() => {
 		fetchMock.mockReset();
 		fetchMock.mockImplementation(async () => imageResponse());
-	});
-
-	it("fetches Brave's address without a redirect, a cookie or a fragment, and returns the bytes and type", async () => {
-		const result = await fetchThumbnail(`${THUMB}#ignored`);
-
-		expect(result).toEqual({ bytes: PNG, contentType: "image/png" });
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		const [address, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-		expect(address).toBe(THUMB);
-		expect(init.redirect).toBe("manual");
-		expect(init.signal).toBeInstanceOf(AbortSignal);
-		expect(init.credentials).toBeUndefined();
-		expect(init.headers).not.toHaveProperty("cookie");
-	});
-
-	it("never fetches an address that is not on Brave's image proxy", async () => {
-		for (const address of [
-			"https://example.com/cat.jpg",
-			"https://evil.example/collect?d=secret",
-			"http://imgs.search.brave.com/sig/abc",
-			"https://imgs.search.brave.com:8443/sig/abc",
-			"https://imgs.search.brave.com.evil.example/sig/abc",
-			"https://user@imgs.search.brave.com/sig/abc",
-			"javascript:alert(1)",
-			"not a url",
-			"",
-		]) {
-			await expect(fetchThumbnail(address)).resolves.toBeNull();
-		}
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	it("returns each of the five raster types a thumbnail comes in, with the parameters taken off the type", async () => {
-		for (const type of [
-			"image/jpeg",
-			"image/png",
-			"image/webp",
-			"image/gif",
-			"image/avif",
-		]) {
-			fetchMock.mockImplementationOnce(async () =>
-				imageResponse(PNG, `${type.toUpperCase()}; charset=binary`),
-			);
-
-			await expect(fetchThumbnail(THUMB)).resolves.toEqual({
-				bytes: PNG,
-				contentType: type,
-			});
-		}
 	});
 
 	it("returns nothing for anything but a raster image: not SVG, not HTML, not a body with no type", async () => {
@@ -353,15 +298,16 @@ describe("fetchBraveThumbnail", () => {
 		expect(sent).toBeLessThan(4 * 1024 * 1024);
 	});
 
-	it("returns a body exactly at the cap", async () => {
+	it("accepts an otherwise-valid raster whose input exactly reaches the cap", async () => {
+		const { default: sharp } = await import("sharp");
+		const png = await sharp({
+			create: { width: 1, height: 1, channels: 3, background: "red" },
+		})
+			.png()
+			.toBuffer();
 		const exact = new Uint8Array(2 * 1024 * 1024);
-		fetchMock.mockImplementationOnce(async () =>
-			imageResponse(exact, "image/webp"),
-		);
-
-		const result = await fetchThumbnail(THUMB);
-
-		expect(result?.contentType).toBe("image/webp");
-		expect(result?.bytes.byteLength).toBe(exact.byteLength);
+		exact.set(png);
+		fetchMock.mockImplementationOnce(async () => imageResponse(exact));
+		expect((await fetchThumbnail(THUMB))?.contentType).toBe("image/webp");
 	});
 });
