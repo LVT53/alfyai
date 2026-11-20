@@ -61,3 +61,17 @@ The optional review worker defaults off. It requires the server-side `HINDSIGHT_
 The owner can then explicitly start review. Only the exact currently eligible authored source goes through pinned dry-run extraction, with no preceding chat context. Known linked withdrawals, revisions requiring native curation replay, explicit known excluded wording, and changed source, project or consent checks hold the source before dispatch. Native dry-run does not retain facts, create embeddings, or publish Memory. SQLite drafts are accessible only through the owner's review API. Any explicit Keep or Edit and keep is a new owner-authored assertion in its original scope, dated at approval. The original source assertion date remains provenance. During preparation the approved action goes to the inactive native target and becomes available to chats after cutover. Discard stores a content-free decision. Restore holds, rollbacks, Clear Memory, Clear Workspace and account erasure remove the review grant and its drafts. Chat ownership and scope moves scrub affected draft content and detach obsolete approval provenance. The ordinary account archive excludes the grant and pending drafts.
 
 Known text matching is conservative and cannot establish the semantic equivalence of unidentified or paraphrased historical material. Confirm the scope of consent for processing the held cohort before enabling it. Keep all withheld sources whose known exclusion cannot be resolved before inference outside that reviewed grant.
+
+### Recover completed retains in an inactive bank
+
+If several completed retains are present in the same inactive bank, a source job can fail publication because other sources in that snapshot have yet to be admitted. Keep the account in Preparing under legacy authority. Stop its scoped worker between completed attempts, preserve the SQLite and native backup, and verify the target account, current manifest and bank. The global Memory worker and new-account enrollment must be paused. No other operator may write that bank while the recovery runs.
+
+```bash
+node --import tsx scripts/memory-backfill.ts --mode recover-retained \
+  --database /explicit/database.db --user USER_ID --manifest MANIFEST_ID \
+  --bank BANK_ID --execute yes --operator-ack approved-per-user-migration
+```
+
+This operation reads the native bank without retaining any source again. It requires settled native operations and an unchanged manifest, and checks the current eligibility, scope and withdrawal state of every recovered source. Any unknown raw or observation support, or any change to the text or support of a previously published observation, blocks publication. Preserve the legacy serving state in that case.
+
+The recovered sources enter one application generation. Failed checkpoint jobs are reopened through the job engine, which verifies their admitted native facts before completing them. Drain only the exact account's jobs. Run normal migration verification and scope recall checks before completing cutover. A successful recovery command alone does not make the account ready.

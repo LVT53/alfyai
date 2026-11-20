@@ -29,12 +29,14 @@ import {
 import { parseJsonRecord } from "./internal-json";
 import {
 	inspectMemoryMigration,
+	latestManifest,
 	settleMemoryMigration,
 } from "./migration-progress";
 import {
 	assertCurationPublication,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
+	readAcknowledgedFacts,
 	verifiedSourceCleanupSnapshot,
 } from "./publication";
 import {
@@ -433,6 +435,60 @@ export async function runMemoryDelivery(
 		await drainNative(client, ctx.signal);
 		const delivery = db.transaction((tx) => assertDelivery(tx, row));
 		let source = delivery.source;
+		const migrationContext = parseJsonRecord(source.context);
+		if (
+			account?.authority === "preparing" &&
+			source.state === "accepted" &&
+			source.nativeAcknowledged &&
+			source.acceptedGeneration === bank.generation &&
+			(migrationContext.migrationDefaultHistory === true ||
+				typeof migrationContext.migrationAuthoredId === "string")
+		) {
+			const manifest = latestManifest(row.userId);
+			const checkpoint = parseJsonRecord(manifest?.checkpointJson ?? null);
+			if (
+				!source.nativeOperationId ||
+				!Array.isArray(checkpoint.requestIds) ||
+				!checkpoint.requestIds.includes(row.requestId) ||
+				!Array.isArray(checkpoint.sourceIds) ||
+				!checkpoint.sourceIds.includes(source.id)
+			)
+				throw new NativeMemoryError(
+					"memory_migration_recovery_unverified",
+					false,
+				);
+			const raw = (await captureSettledNative(client, ctx.signal)).filter(
+				(fact) =>
+					fact.fact_type !== "observation" && fact.document_id === source.id,
+			);
+			const expected = readAcknowledgedFacts(source.acknowledgedFactsJson);
+			if (
+				expected.length !== raw.length ||
+				expected.some(
+					(fact) =>
+						!raw.some((live) => live.id === fact.id && live.text === fact.text),
+				)
+			)
+				throw new NativeMemoryError(
+					"memory_migration_recovery_unverified",
+					false,
+				);
+			await ctx.succeed({
+				apply: (tx) => {
+					const current = assertDelivery(tx, row);
+					assertCurationPublication(tx, bank.id, bank.epoch);
+					if (
+						current.bank.revision !== bank.revision ||
+						current.source.state !== "accepted" ||
+						current.source.acceptedGeneration !== bank.generation ||
+						current.source.acknowledgedFactsJson !==
+							source.acknowledgedFactsJson
+					)
+						throw Error("memory_migration_recovery_unverified");
+				},
+			});
+			return;
+		}
 		if (!source.nativeOperationId)
 			throw new NativeMemoryError("memory_operation_identity_missing", false);
 		const predecessor = source.predecessorSourceId

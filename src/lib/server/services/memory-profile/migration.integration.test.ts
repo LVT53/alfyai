@@ -213,6 +213,12 @@ async function nativeFixture() {
 		}
 	>();
 	const retained: string[] = [];
+	const extraObservations: Array<{
+		id: string;
+		text: string;
+		fact_type: "observation";
+		source_memory_ids: string[];
+	}> = [];
 	const fetcher = vi.fn(
 		async (url: RequestInfo | URL, options?: RequestInit) => {
 			const path = String(url);
@@ -241,10 +247,11 @@ async function nativeFixture() {
 			else if (path.includes("/memories/list")) {
 				const rows = [...facts.values()].filter((fact) => fact.bank === bank);
 				data = {
-					total: rows.length * 2,
+					total: rows.length * 2 + extraObservations.length,
 					offset: 0,
 					items: [
 						...rows,
+						...extraObservations,
 						...rows.map((f) => ({
 							id: `${f.id}:observation`,
 							text: f.text,
@@ -300,7 +307,7 @@ async function nativeFixture() {
 			};
 		},
 	);
-	return { facts, retained, fetcher, curationInputs };
+	return { facts, retained, fetcher, curationInputs, extraObservations };
 }
 it("runs legacy exclusion through the real job engine and shared bounded curation before atomic cutover", async () => {
 	const { db, s } = await legacyItem();
@@ -3427,4 +3434,99 @@ it("excludes imported author turns and does not use imported assistant replies a
 			assertMemorySourceCurrent(tx, original.id, h.userId, original.bankId),
 		),
 	).toThrow("memory_source_changed");
+});
+
+it("recovers two completed retains without accepting either alone or sending them again", async () => {
+	const { db, s } = await seed();
+	db.insert(s.messages)
+		.values({
+			id: "second",
+			conversationId: "chat",
+			role: "user",
+			content: "I prefer quiet meeting rooms.",
+			createdAt: new Date("2020-01-02"),
+		})
+		.run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const manifest = await migration.prepareMemoryMigration(h.userId);
+	const sources = db.select().from(s.memorySourceRevisions).all();
+	expect(sources).toHaveLength(2);
+	for (const source of sources) {
+		const id = `${source.id}:fact`;
+		f.facts.set(id, {
+			id,
+			text: source.text,
+			bank: source.bankId,
+			fact_type: "world",
+			document_id: source.id,
+			consolidated_at: "2026-11-18T00:00:00Z",
+		});
+	}
+	f.extraObservations.push({
+		id: "mixed",
+		text: "Two independently asserted preferences.",
+		fact_type: "observation",
+		source_memory_ids: sources.map((source) => `${source.id}:fact`),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.all()
+			.map((j) => j.errorCode),
+	).toEqual(["memory_preparation_failed", "memory_preparation_failed"]);
+	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+		false,
+	);
+	const retainedBefore = f.retained.length;
+	const bank = db.select().from(s.memoryBanks).get();
+	const config = await import("$lib/server/config-store");
+	vi.mocked(config.getConfig).mockReturnValue({
+		...config.getConfig(),
+		hindsightWorkerEnabled: false,
+		hindsightNewAccountsEnabled: false,
+	});
+	const { recoverAcknowledgedHistoricalMigration } = await import(
+		"./migration-recovery"
+	);
+	const recover = () =>
+		recoverAcknowledgedHistoricalMigration({
+			userId: h.userId,
+			manifestId: manifest.id,
+			bankId: bank?.id ?? "",
+		});
+	f.extraObservations.push({
+		id: "unknown",
+		text: "Unknown support",
+		fact_type: "observation",
+		source_memory_ids: ["unknown-fact"],
+	});
+	await expect(recover()).rejects.toThrow("memory_candidate_unaccepted");
+	expect(db.select().from(s.memoryPublishedRows).all()).toEqual([]);
+	expect(
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.map((source) => source.state),
+	).toEqual(["pending", "pending"]);
+	f.extraObservations.pop();
+	await expect(recover()).resolves.toMatchObject({ reopened: 2 });
+	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+		false,
+	);
+	expect(db.select().from(s.memoryPublishedRows).all()).toHaveLength(3);
+	vi.mocked(config.getConfig).mockReturnValue({
+		...config.getConfig(),
+		hindsightWorkerEnabled: true,
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+		true,
+	);
+	expect(f.retained).toHaveLength(retainedBefore);
+	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
 });

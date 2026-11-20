@@ -11,6 +11,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 		"--database",
 		"--user",
 		"--manifest",
+		"--bank",
 		"--authorization-file",
 		"--synthetic-fixture",
 		"--execute",
@@ -35,6 +36,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 			"cutover",
 			"rollback",
 			"authorize-review",
+			"recover-retained",
 		].includes(mode)
 	)
 		throw Error("invalid_mode");
@@ -101,6 +103,22 @@ async function main() {
 				endorsements: inventory.actions.filter((a) => a.kind === "endorsement")
 					.length,
 				holdHistory: inventory.holdHistory,
+			};
+		} else if (mode === "recover-retained") {
+			const bankId = values.get("--bank");
+			const manifestId = values.get("--manifest");
+			if (!bankId || !manifestId)
+				throw Error("explicit_bank_and_manifest_required");
+			const { recoverAcknowledgedHistoricalMigration } = await import(
+				"../src/lib/server/services/memory-profile/migration-recovery"
+			);
+			summary = {
+				mode,
+				...(await recoverAcknowledgedHistoricalMigration({
+					userId,
+					manifestId,
+					bankId,
+				})),
 			};
 		} else if (mode === "authorize-review") {
 			const { authorizeMemoryQuarantine } = await import(
