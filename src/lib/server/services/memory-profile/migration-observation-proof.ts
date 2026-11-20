@@ -220,6 +220,21 @@ export function matchOrdinaryMigrationCompanions(
 	const observations = memories.filter(
 		(row) => row.fact_type === "observation",
 	);
+	const priorRawIds = new Set(
+		prior.flatMap((row) =>
+			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
+		),
+	);
+	const priorByNativeId = new Map(prior.map((row) => [row.nativeId, row]));
+	if (
+		observations.some((live) => {
+			if (!live.source_memory_ids?.some((id) => priorRawIds.has(id)))
+				return false;
+			const old = priorByNativeId.get(live.id);
+			return !old || !samePriorObservation(old, live, raw);
+		})
+	)
+		return null;
 	const strictIds = new Set(strict.map((row) => row.id));
 	const missing = prior.filter(
 		(row) => !observations.some((live) => samePriorObservation(row, live, raw)),
@@ -289,7 +304,7 @@ export function matchApprovedOrdinaryRecovery(
 			(action) =>
 				action.kind !== "remove" ||
 				!action.scope ||
-				!action.before ||
+				!normalizeQuarantineText(action.before) ||
 				!inventory.exceptions.some(
 					({ id, reason }) => id === action.id && reason === "missing_source",
 				),

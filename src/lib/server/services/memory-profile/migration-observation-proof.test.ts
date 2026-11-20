@@ -147,4 +147,17 @@ it("preserves the exact already-published companion under an unlocated Remove", 
 			[raw, { ...stable, id: "new-id" }],
 		),
 	).toBeNull();
+	const other = { ...stable, id: "other" };
+	expect(
+		matchOrdinaryMigrationCompanions([surviving], [], [raw, stable, other]),
+	).toBeNull();
+	const newRaw = { ...raw, id: "n" };
+	const newObservation = { ...stable, id: "new-obs", source_memory_ids: ["n"] };
+	expect(
+		matchOrdinaryMigrationCompanions(
+			prior,
+			[],
+			[raw, stable, newRaw, newObservation],
+		)?.exact,
+	).toEqual([surviving]);
 });
