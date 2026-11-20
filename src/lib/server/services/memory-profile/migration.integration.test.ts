@@ -3565,7 +3565,7 @@ it("keeps a surgical rewind bank unclaimable after its manifest reports failure"
 		.set({
 			status: "failed",
 			checkpointJson: JSON.stringify({
-				...JSON.parse(manifest.checkpointJson),
+				...JSON.parse(manifest.checkpointJson ?? "{}"),
 				migrationRewind: { bankId: bank.id },
 			}),
 		})
