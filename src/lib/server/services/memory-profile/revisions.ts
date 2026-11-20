@@ -477,8 +477,9 @@ export function assertMemorySourceCurrent(
 			message?.role !== "user" ||
 			parseJsonRecord(message.metadataJson).forkCopy ||
 			(context.migration === true &&
-				message.createdAt.toISOString() !==
-					(context.migrationMessageAt ?? source.assertedAt.toISOString())) ||
+				(message.importSource ||
+					message.createdAt.toISOString() !==
+						(context.migrationMessageAt ?? source.assertedAt.toISOString()))) ||
 			memoryTextHash(message.content) !== source.textHash
 		)
 			throw new Error("memory_source_changed");
@@ -729,6 +730,11 @@ export function resolveMemorySourceContext(
 		!Array.isArray(input.messages)
 	)
 		return "";
+	if (
+		"migrationDefaultHistory" in input &&
+		input.migrationDefaultHistory === true
+	)
+		return "";
 	const admitted: Array<{
 		id: string;
 		role: string;
@@ -903,6 +909,7 @@ export function resolveMemorySourceContext(
 				}
 				if (
 					parseJsonRecord(message.metadataJson).forkCopy ||
+					(historical && Boolean(message.importSource)) ||
 					message.messageSequence === null ||
 					(typeof raw.messageTextHash === "string" &&
 						raw.messageTextHash !== memoryTextHash(message.content))

@@ -1,4 +1,4 @@
-import { and, eq, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -21,6 +21,17 @@ type HistoricalControls = {
 	resetAt?: Date | null;
 	enabled: boolean;
 };
+
+export function usesDefaultHistoricalMemory(
+	controls: HistoricalControls,
+	at: Date,
+) {
+	return (
+		controls.enabled &&
+		controls.account?.historyChoice == null &&
+		controls.intervals.every((interval) => at < interval.startedAt)
+	);
+}
 
 /** The same historical permission rules apply to sources and each piece of chat context. */
 export function historicalMemoryExclusion(
@@ -54,6 +65,10 @@ export function historicalMemoryExclusion(
 		at <= account.historyCutoff
 	)
 		return null;
+	// The master Memory switch is the default for sources that predate any
+	// recorded controls. Explicit choices and ambiguous recorded boundaries
+	// retain their existing meaning.
+	if (usesDefaultHistoricalMemory(controls, at)) return null;
 	return "unknown_history";
 }
 
@@ -87,12 +102,7 @@ export function isHistoricalMemorySourceEligible(input: {
 	const intervals = db
 		.select()
 		.from(memoryControlIntervals)
-		.where(
-			and(
-				eq(memoryControlIntervals.userId, userId),
-				lte(memoryControlIntervals.startedAt, input.assertedAt),
-			),
-		)
+		.where(eq(memoryControlIntervals.userId, userId))
 		.all();
 	return (
 		historicalMemoryExclusion(

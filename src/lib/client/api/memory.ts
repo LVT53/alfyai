@@ -171,50 +171,6 @@ export async function fetchMemoryOperation(
 	);
 }
 
-export type MemoryHistoryImport =
-	import("$lib/memory-types").HistoryImportStatus & {
-		available: boolean;
-		shouldPrompt: boolean;
-	};
-function history(value: unknown): MemoryHistoryImport {
-	return validate<MemoryHistoryImport>(
-		value,
-		(v) =>
-			typeof v.available === "boolean" &&
-			typeof v.shouldPrompt === "boolean" &&
-			(v.choice === null || v.choice === "include" || v.choice === "decline") &&
-			typeof v.status === "string" &&
-			nullableString(v.cutoff) &&
-			nullableString(v.decidedAt) &&
-			typeof v.policyVersion === "string",
-	);
-}
-export async function fetchMemoryHistoryImport(): Promise<MemoryHistoryImport> {
-	return history(
-		await requestJson<unknown>(
-			"/api/knowledge/memory/history-import",
-			undefined,
-			"Unable to load historical memory choice",
-		),
-	);
-}
-export async function saveMemoryHistoryImport(
-	choice: "include" | "decline",
-	requestId: string,
-): Promise<MemoryHistoryImport> {
-	return history(
-		await requestJson<unknown>(
-			"/api/knowledge/memory/history-import",
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ choice, requestId }),
-			},
-			"Unable to save historical memory choice",
-		),
-	);
-}
-
 export async function fetchMemoryOperationByRequest(
 	requestId: string,
 ): Promise<MemoryOperation> {

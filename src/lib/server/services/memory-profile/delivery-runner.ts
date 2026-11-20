@@ -27,7 +27,10 @@ import {
 	nativeMemoryClient,
 } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
-import { settleMemoryMigration } from "./migration-progress";
+import {
+	inspectMemoryMigration,
+	settleMemoryMigration,
+} from "./migration-progress";
 import {
 	assertCurationPublication,
 	prepareNativeSnapshot,
@@ -141,6 +144,16 @@ function assertDelivery(tx: Tx, row: typeof memoryDeliveryJobs.$inferSelect) {
 		source.epoch !== row.epoch
 	)
 		throw new NativeMemoryError("memory_source_control_changed", false);
+	if (parseJsonRecord(source.context).migrationDefaultHistory === true) {
+		const intended = inspectMemoryMigration(row.userId).sources.find(
+			({ id }) => id === source.messageId,
+		);
+		if (intended?.eligibility !== "eligible" || !intended.defaultHistory)
+			throw new NativeMemoryError(
+				"memory_historical_permission_changed",
+				false,
+			);
+	}
 	return { bank, source, transitions: memoryResendTransitions(tx, source) };
 }
 

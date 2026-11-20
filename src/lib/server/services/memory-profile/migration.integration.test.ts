@@ -26,26 +26,23 @@ async function seed() {
 		.run();
 	return { db, s };
 }
-it("inspect is read only and current on does not establish historical permission", async () => {
+it("inspect is read only when the enabled master switch permits older history", async () => {
 	const { db, s } = await seed();
 	const { inspectMemoryMigration } = await import("./migration");
 	const report = inspectMemoryMigration(h.userId);
-	expect(report.sources[0].eligibility).toBe("uncertain");
+	expect(report.sources[0].eligibility).toBe("eligible");
 	expect(db.select().from(s.memoryAccounts).all()).toHaveLength(0);
 	expect(db.select().from(s.memoryMigrationManifests).all()).toHaveLength(0);
 });
 it("preparation checkpoints source jobs once, preserves dates, and refuses premature cutover", async () => {
 	const { db, s } = await seed();
-	const { recordHistoryImportChoice } = await import("./migration-policy");
-	await recordHistoryImportChoice(h.userId, {
-		choice: "include",
-		requestId: "choice",
-	});
 	const m = await import("./migration");
 	const first = await m.prepareMemoryMigration(h.userId);
 	await m.prepareMemoryMigration(h.userId);
 	expect(db.select().from(s.memorySourceRevisions).all()).toHaveLength(1);
 	expect(db.select().from(s.memoryDeliveryJobs).all()).toHaveLength(1);
+	expect(db.select().from(s.memoryHistoryChoices).all()).toEqual([]);
+	expect(db.select().from(s.memoryAccounts).get()?.historyChoice).toBeNull();
 	expect(
 		db.select().from(s.memorySourceRevisions).get()?.assertedAt.toISOString(),
 	).toBe("2020-01-01T00:00:00.000Z");
@@ -113,6 +110,20 @@ async function legacyItem(status = "suppressed", metadataJson = "{}") {
 		.run();
 	return { db, s };
 }
+it("keeps a known withdrawal out of default historical inference", async () => {
+	const { db, s } = await legacyItem();
+	const migration = await import("./migration");
+	expect(migration.inspectMemoryMigration(h.userId).sources).toContainEqual(
+		expect.objectContaining({
+			id: "m",
+			eligibility: "excluded",
+			reason: "known_withdrawal",
+		}),
+	);
+	await migration.prepareMemoryMigration(h.userId);
+	expect(db.select().from(s.memorySourceRevisions).all()).toEqual([]);
+});
+
 it("maps known indirect exclusions and retains unrelated source content for bounded native curation", async () => {
 	const { db, s } = await legacyItem();
 	const policy = await import("./migration-policy");
@@ -314,8 +325,18 @@ it("runs legacy exclusion through the real job engine and shared bounded curatio
 	m.cutoverMemoryMigration(h.userId, manifest.id);
 	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("hindsight");
 });
-it("allows native cutover with held uncertain history and offers the optional choice while preparing", async () => {
+
+async function keepPriorHistoryDecline() {
+	const { recordHistoryImportChoice } = await import("./migration-policy");
+	await recordHistoryImportChoice(h.userId, {
+		choice: "decline",
+		requestId: "prior-decline",
+	});
+}
+
+it("allows empty native cutover while an earlier decline still holds chat history", async () => {
 	const { db, s } = await seed();
+	await keepPriorHistoryDecline();
 	await nativeFixture();
 	const m = await import("./migration");
 	const manifest = await m.prepareMemoryMigration(h.userId);
@@ -795,6 +816,7 @@ it("rollback refuses to revive legacy state after a post-cutover removal", async
 });
 it("preserves authored standalone statements but never seeds generated endorsements", async () => {
 	const { db, s } = await legacyItem("active", '{"origin":"user_authored"}');
+	await keepPriorHistoryDecline();
 	db.delete(s.memoryProfileItemProvenance).run();
 	db.insert(s.memoryProfileItems)
 		.values({
@@ -915,7 +937,7 @@ it("real-mode execution guards run against an isolated synthetic database only",
 		],
 		{ encoding: "utf8", stdio: "pipe" },
 	);
-	expect(JSON.parse(result)).toMatchObject({ uncertain: 1, ready: false });
+	expect(JSON.parse(result)).toMatchObject({ uncertain: 0, ready: false });
 });
 it("rollout provisions only genuinely new accounts atomically, even while the native worker is paused", async () => {
 	const { db, s } = await seed();
@@ -1331,6 +1353,7 @@ it("missing accepted source checkpoints cannot be called a complete migration", 
 });
 it("empty-bank provisioning retains an existing native service binding", async () => {
 	const { db, s } = await seed();
+	await keepPriorHistoryDecline();
 	const { NATIVE_BANK_CONFIG_PENDING } = await import("./contracts");
 	const f = await nativeFixture();
 	const m = await import("./migration");
@@ -1529,6 +1552,29 @@ it.each(["before packing", "after packing"] as const)(
 		);
 	},
 );
+
+it("holds default historical input when its original scope differs from the current project", async () => {
+	const { db, s } = await seed();
+	db.insert(s.projects)
+		.values({ id: "project", userId: h.userId, name: "Project" })
+		.run();
+	const { moveConversationToProject } = await import("../conversations");
+	await moveConversationToProject(h.userId, "chat", "project");
+	const migration = await import("./migration");
+	const inventory = migration.inspectMemoryMigration(h.userId);
+	expect(inventory.sources).toContainEqual(
+		expect.objectContaining({
+			id: "m",
+			eligibility: "held",
+			reason: "historical_scope_changed",
+		}),
+	);
+	expect(inventory.exceptions).toContainEqual(
+		expect.objectContaining({ sourceIds: ["m"] }),
+	);
+	await migration.prepareMemoryMigration(h.userId);
+	expect(db.select().from(s.memorySourceRevisions).all()).toEqual([]);
+});
 
 it("catch-up moves prepared messages to their new project scope", async () => {
 	const { db, s } = await legacyItem();
@@ -1748,6 +1794,7 @@ it("preparing an already cut-over account does not issue an authority write", as
 
 it("retains an active legacy review correction once without chat import consent", async () => {
 	const { db, s } = await seedLegacyReviewCorrection();
+	await keepPriorHistoryDecline();
 	const fixture = await nativeFixture();
 	const migration = await import("./migration");
 	const manifest = await migration.prepareMemoryMigration(h.userId);
@@ -1767,6 +1814,7 @@ it("retains an active legacy review correction once without chat import consent"
 it("fails closed when the user deletes a queued authored correction before delivery", async () => {
 	const { db, s, projection, corrected, itemId } =
 		await seedLegacyReviewCorrection();
+	await keepPriorHistoryDecline();
 	const fixture = await nativeFixture();
 	const migration = await import("./migration");
 	const manifest = await migration.prepareMemoryMigration(h.userId);
@@ -2033,9 +2081,7 @@ it.each([
 	async (kind, replay) => {
 		const { db, s } = await seed();
 		const { randomUUID } = await import("node:crypto");
-		const history = await import(
-			"../../../../routes/api/knowledge/memory/history-import/+server"
-		);
+		const { recordHistoryImportChoice } = await import("./migration-policy");
 		const actions = await import(
 			"../../../../routes/api/knowledge/memory/actions/+server"
 		);
@@ -2072,16 +2118,14 @@ it.each([
 				})
 				.run();
 		}
+		await keepPriorHistoryDecline();
 		const prepared = await migration.prepareMemoryMigration(h.userId);
 		async function consent(choice: "include" | "decline") {
-			const result = await history.POST(
-				migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
-					choice,
-					requestId: randomUUID(),
-				}) as Parameters<typeof history.POST>[0],
-			);
-			expect(result.status).toBe(200);
-			expect(await result.json()).toMatchObject({ choice });
+			const result = await recordHistoryImportChoice(h.userId, {
+				choice,
+				requestId: randomUUID(),
+			});
+			expect(result).toMatchObject({ choice });
 			await h.engine.drain(memoryDeliveryJob);
 		}
 		await consent("include");
@@ -2737,9 +2781,7 @@ it.each(["before cutover", "through two recorded moves"] as const)(
 		const { db, s } = await seed();
 		const { randomUUID } = await import("node:crypto");
 		const { eq } = await import("drizzle-orm");
-		const history = await import(
-			"../../../../routes/api/knowledge/memory/history-import/+server"
-		);
+		const { recordHistoryImportChoice } = await import("./migration-policy");
 		const conversation = await import(
 			"../../../../routes/api/conversations/[id]/+server"
 		);
@@ -2758,6 +2800,7 @@ it.each(["before cutover", "through two recorded moves"] as const)(
 			.where(eq(s.conversations.id, "chat"))
 			.run();
 		if (scenario === "before cutover") await allowMigrationHistory();
+		else await keepPriorHistoryDecline();
 		const prepared = await migration.prepareMemoryMigration(h.userId);
 		await h.engine.drain(memoryDeliveryJob);
 		if (scenario === "before cutover") {
@@ -2821,13 +2864,11 @@ it.each(["before cutover", "through two recorded moves"] as const)(
 						},
 					]),
 		]);
-		const resumed = await history.POST(
-			migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
-				choice: "include",
-				requestId: randomUUID(),
-			}) as Parameters<typeof history.POST>[0],
-		);
-		expect(resumed.status).toBe(200);
+		const resumed = await recordHistoryImportChoice(h.userId, {
+			choice: "include",
+			requestId: randomUUID(),
+		});
+		expect(resumed.choice).toBe("include");
 		await h.engine.drain(memoryDeliveryJob);
 		const scope =
 			scenario === "before cutover" ? "personal" : "project:destination";
@@ -2860,6 +2901,7 @@ it.each(["before cutover", "through two recorded moves"] as const)(
 
 it("keeps a standalone legacy authored item in its learned project after a chat move", async () => {
 	const { db, s } = await seed();
+	await keepPriorHistoryDecline();
 	const { eq } = await import("drizzle-orm");
 	const migration = await import("./migration");
 	const { memoryDeliveryJob } = await import("./delivery-job");
@@ -3268,4 +3310,121 @@ it("withdraws a queued old-project source before retain when its chat moves away
 			.all()
 			.map(({ state }) => state),
 	).toEqual(["revoked"]);
+});
+
+it("keeps a recorded decline after switching master Memory off and on and rejects cached choice writes", async () => {
+	const { db, s } = await seed();
+	await keepPriorHistoryDecline();
+	const policy = await import("./migration-policy");
+	await policy.setMemoryEnabled(h.userId, false);
+	await policy.setMemoryEnabled(h.userId, true);
+	const migration = await import("./migration");
+	await migration.prepareMemoryMigration(h.userId);
+	const route = await import(
+		"../../../../routes/api/knowledge/memory/history-import/+server"
+	);
+	const post = await route.POST(
+		migrationReplayEvent("/api/knowledge/memory/history-import", "POST", {
+			choice: "include",
+			requestId: "stale-browser",
+		}) as Parameters<typeof route.POST>[0],
+	);
+	expect(post.status).toBe(410);
+	const get = await route.GET(
+		migrationReplayEvent(
+			"/api/knowledge/memory/history-import",
+			"POST",
+			{},
+		) as Parameters<typeof route.GET>[0],
+	);
+	expect(await get.json()).toMatchObject({
+		available: false,
+		shouldPrompt: false,
+		choice: "decline",
+	});
+	expect(
+		db
+			.select()
+			.from(s.memoryHistoryChoices)
+			.all()
+			.map((choice) => choice.choice),
+	).toEqual(["decline"]);
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.all()
+			.map((job) => job.kind),
+	).toEqual(["provision"]);
+});
+
+it("excludes imported author turns and does not use imported assistant replies as context", async () => {
+	const { db, s } = await seed();
+	const { eq } = await import("drizzle-orm");
+	db.update(s.messages)
+		.set({ messageSequence: 1 })
+		.where(eq(s.messages.id, "m"))
+		.run();
+	const at = new Date("2020-01-02T00:00:00Z");
+	db.insert(s.messages)
+		.values([
+			{
+				id: "external-answer",
+				conversationId: "chat",
+				role: "assistant",
+				content: "Imported assistant content",
+				importSource: "external",
+				createdAt: at,
+				messageSequence: 2,
+			},
+			{
+				id: "local-later",
+				conversationId: "chat",
+				role: "user",
+				content: "I live in a blue house.",
+				createdAt: at,
+				messageSequence: 3,
+			},
+			{
+				id: "external-turn",
+				conversationId: "chat",
+				role: "user",
+				content: "Imported user content",
+				importSource: "external",
+				createdAt: at,
+				messageSequence: 4,
+			},
+		])
+		.run();
+	const migration = await import("./migration");
+	expect(migration.inspectMemoryMigration(h.userId).sources).toContainEqual(
+		expect.objectContaining({
+			id: "external-turn",
+			eligibility: "excluded",
+			reason: "imported_message",
+		}),
+	);
+	await migration.prepareMemoryMigration(h.userId);
+	const rows = db.select().from(s.memorySourceRevisions).all();
+	expect(rows.map((row) => row.messageId).sort()).toEqual(["local-later", "m"]);
+	expect(
+		JSON.parse(
+			rows.find((row) => row.messageId === "local-later")?.context ?? "{}",
+		),
+	).toMatchObject({
+		migrationDefaultHistory: true,
+		messages: [],
+	});
+	const original = rows.find((row) => row.messageId === "m");
+	if (!original) throw Error("first test source missing");
+	db.update(s.messages)
+		.set({ importSource: "external" })
+		.where(eq(s.messages.id, "m"))
+		.run();
+	const { assertMemorySourceCurrent } = await import("./revisions");
+	expect(() =>
+		db.transaction((tx) =>
+			assertMemorySourceCurrent(tx, original.id, h.userId, original.bankId),
+		),
+	).toThrow("memory_source_changed");
 });

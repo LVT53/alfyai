@@ -192,7 +192,12 @@ export async function recordHistoryImportChoice(
 			.from(memoryResetGenerations)
 			.where(eq(memoryResetGenerations.userId, userId))
 			.get();
-		const controls = { intervals, resetAt: reset?.at, enabled: true };
+		const controls = {
+			account: { ...account, historyChoice: "decline" },
+			intervals,
+			resetAt: reset?.at,
+			enabled: true,
+		};
 		return tx
 			.select()
 			.from(memorySourceRevisions)

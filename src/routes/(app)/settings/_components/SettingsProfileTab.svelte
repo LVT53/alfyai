@@ -40,7 +40,6 @@ import {
 import { spotlightTarget } from "$lib/actions/spotlight";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import MemoryCleanupStatus from "$lib/components/ui/MemoryCleanupStatus.svelte";
-import MemoryHistoryImportNotice from "$lib/components/ui/MemoryHistoryImportNotice.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { type I18nKey, t } from "$lib/i18n";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
@@ -934,7 +933,6 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				</div>
 
-				<MemoryHistoryImportNotice profile />
 
 				<!-- The person's own Pictures and videos switch. Off, their chats are
 				     not offered make_image or make_video (images/picture-making.ts);

@@ -323,13 +323,14 @@ export async function prepareMemoryMigration(userId: string) {
 				messageTextHash: string;
 			}> = [];
 			let authority: ReturnType<typeof recordMemorySource> | undefined;
-			for (const message of contextRows) {
+			for (const message of source.defaultHistory ? [] : contextRows) {
 				if (message.id === source.id) break;
 				if (message.role === "user") authority = recorded.get(message.id);
 				if (
 					authority &&
 					(message.role === "user" ||
 						(message.role === "assistant" &&
+							!message.importSource &&
 							!parseJsonRecord(message.metadataJson).forkCopy &&
 							!hasConflictingScopeOrigin(
 								scopeMoves.get(message.conversationId) ?? [],
@@ -368,15 +369,18 @@ export async function prepareMemoryMigration(userId: string) {
 					context: JSON.stringify({
 						migration: true,
 						migrationMessageAt: source.messageAt,
-						messages: [
-							...context.slice(-5),
-							{
-								id: source.id,
-								role: "user",
-								sourceId: "$current",
-								textHash: memoryTextHash(source.text),
-							},
-						],
+						migrationDefaultHistory: source.defaultHistory,
+						messages: source.defaultHistory
+							? []
+							: [
+									...context.slice(-5),
+									{
+										id: source.id,
+										role: "user",
+										sourceId: "$current",
+										textHash: memoryTextHash(source.text),
+									},
+								],
 					}),
 					assertedAt: new Date(source.assertedAt),
 					explicitEditAt: source.explicitEditAt

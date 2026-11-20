@@ -18,8 +18,12 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import { nativeCurationForMigration } from "./curation-lineage";
-import { historicalMemoryExclusion } from "./history-eligibility";
+import {
+	historicalMemoryExclusion,
+	usesDefaultHistoricalMemory,
+} from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import { knownQuarantineWithdrawal } from "./quarantine-policy";
 import { memoryScopeKey, memoryTextHash } from "./revisions";
 import { memoryScopeAt, readMemoryScopeMoves } from "./scope-history";
 import { parseMemoryItemMetadata } from "./types";
@@ -37,6 +41,7 @@ interface MigrationSource {
 	reason: string | null;
 	lineageId: string;
 	replayActionIds?: string[];
+	defaultHistory?: true;
 }
 interface MigrationAction {
 	id: string;
@@ -189,13 +194,16 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				assertedAt: m.createdAt,
 			});
 			const at = date(revision?.assertedAt ?? m.createdAt);
-			const reason = meta.forkCopy
-				? "fork_copy"
-				: historicalMemoryExclusion(controls, {
-						assertedAt:
-							revision?.explicitEditAt ?? revision?.assertedAt ?? m.createdAt,
-						incognito: chat.memoryIncognito,
-					});
+			const permissionAt =
+				revision?.explicitEditAt ?? revision?.assertedAt ?? m.createdAt;
+			const reason = m.importSource
+				? "imported_message"
+				: meta.forkCopy
+					? "fork_copy"
+					: historicalMemoryExclusion(controls, {
+							assertedAt: permissionAt,
+							incognito: chat.memoryIncognito,
+						});
 			result.sources.push({
 				id: m.id,
 				conversationId: chat.id,
@@ -214,6 +222,9 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 							? "excluded"
 							: "eligible",
 				reason,
+				...(!reason && usesDefaultHistoricalMemory(controls, permissionAt)
+					? { defaultHistory: true as const }
+					: {}),
 			});
 		}
 		const previous = latestManifest(userId);
@@ -610,6 +621,29 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				}
 		for (const source of result.sources) {
 			if (source.eligibility !== "eligible") continue;
+			if (source.defaultHistory) {
+				const scopeKey = memoryScopeKey(source.scope);
+				const origin = memoryScopeAt(
+					scopeMoves.get(source.conversationId) ?? [],
+					scopeKey,
+					new Date(source.messageAt ?? source.assertedAt),
+				);
+				if (origin !== scopeKey) {
+					source.eligibility = "held";
+					source.reason = "historical_scope_changed";
+					result.exceptions.push({
+						id: `historical-scope:${source.id}`,
+						reason: source.reason,
+						sourceIds: [source.id],
+					});
+					continue;
+				}
+				if (knownQuarantineWithdrawal(result, source, source.text)) {
+					source.eligibility = "excluded";
+					source.reason = "known_withdrawal";
+					continue;
+				}
+			}
 			const plan = curation.plan(
 				{
 					userId,
@@ -634,7 +668,12 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					reason: source.reason,
 					sourceIds: [source.id],
 				});
-			} else if (plan.ids.length) source.replayActionIds = plan.ids;
+			} else if (plan.ids.length) {
+				if (source.defaultHistory) {
+					source.eligibility = "excluded";
+					source.reason = "known_withdrawal";
+				} else source.replayActionIds = plan.ids;
+			}
 		}
 		result.sources.sort(
 			(a, b) =>
