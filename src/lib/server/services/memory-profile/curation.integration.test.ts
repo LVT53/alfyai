@@ -5047,3 +5047,181 @@ it("re-review: an edited chat never sends withdrawn sibling wording to the check
 		]),
 	});
 });
+
+it.each([
+	"pending-only",
+	"mixed-support",
+	"stale-source",
+	"prior-observation-id",
+] as const)(
+	"Remove publication handles overlapping retain receipt: %s",
+	async (shape) => {
+		const f = await setup();
+		const fixture = await nativeFixture(f, [
+			{ forget: ["kayak"], replace: [], preserve: ["sister bicycle"] },
+			{
+				facts: [
+					{ id: "kayak", text: "" },
+					{ id: "sister", text: "sister bicycle" },
+				],
+			},
+			ckOkay,
+			ckOkay,
+		]);
+		const { eq } = await import("drizzle-orm");
+		const { recordMemorySource } = await import("./revisions");
+		const jobs = await import("./delivery-job");
+		const actions = await import("./curation-actions");
+		const { readPublishedMemory } = await import("./publication");
+		const chatId = randomUUID();
+		const messageId = randomUUID();
+		const text = "My favorite exercise is fencing.";
+		const at = new Date();
+		f.db
+			.insert(f.s.conversations)
+			.values({
+				id: chatId,
+				userId: h.userId,
+				title: "Separate retained source",
+			})
+			.run();
+		f.db
+			.insert(f.s.messages)
+			.values({
+				id: messageId,
+				conversationId: chatId,
+				role: "user",
+				content: text,
+				createdAt: at,
+			})
+			.run();
+		const pending = recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: `message:${messageId}`,
+			lineageId: messageId,
+			conversationId: chatId,
+			messageId,
+			text,
+			context: "",
+			assertedAt: at,
+		});
+		const nativeOperationId = randomUUID();
+		const delivery = await jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: pending.id,
+			requestId: `source:${pending.id}`,
+		});
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
+				nativeAcknowledged: true,
+				nativeSubmitted: true,
+				nativeOperationId,
+			})
+			.where(eq(f.s.memorySourceRevisions.id, pending.id))
+			.run();
+		f.db
+			.update(f.s.memoryDeliveryJobs)
+			.set({
+				status: "failed",
+				retryable: true,
+				errorCode: "memory_curation_publication_held",
+			})
+			.where(eq(f.s.memoryDeliveryJobs.id, delivery.row.id))
+			.run();
+		fixture.setFacts([
+			{ id: "kayak", text: "green kayak" },
+			{ id: "sister", text: "sister bicycle" },
+			{ id: "pending-support", text, document_id: pending.id },
+		]);
+		if (shape === "stale-source") {
+			f.db
+				.update(f.s.messages)
+				.set({ content: "Changed after native acknowledgment." })
+				.where(eq(f.s.messages.id, messageId))
+				.run();
+		}
+		if (shape === "prior-observation-id") {
+			f.db
+				.update(f.s.memoryPublishedRows)
+				.set({ nativeId: "existing-published-id" })
+				.where(eq(f.s.memoryPublishedRows.id, "sister"))
+				.run();
+		}
+		if (shape === "mixed-support" || shape === "prior-observation-id") {
+			const transport = fixture.fetcher.getMockImplementation();
+			if (!transport) throw Error("missing fixture");
+			fixture.fetcher.mockImplementation(async (url, init) => {
+				const response = await transport(url, init);
+				if (!String(url).includes("/memories/list")) return response;
+				const body = await response.json();
+				for (const row of body.items) {
+					if (row.id !== "observation-pending-support") continue;
+					if (shape === "mixed-support") row.source_memory_ids.push("sister");
+					else row.id = "existing-published-id";
+				}
+				return Response.json(body);
+			});
+		}
+		const op = await actions.submitMemoryAction(h.userId, {
+			kind: "remove",
+			ref: ckRef,
+			requestId: randomUUID(),
+		});
+		expect(op.exclusionAcknowledged).toBe(true);
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const current = actions.getMemoryOperation(h.userId, { id: op.id });
+		expect(current).toMatchObject({
+			status: shape === "pending-only" ? "applied" : "failed",
+			exclusionAcknowledged: true,
+			cleanupPending: shape !== "pending-only",
+		});
+		const personal = readPublishedMemory(h.userId, f.bank.id);
+		expect(personal).toHaveLength(1);
+		expect(personal[0].text).toContain("sister");
+		expect(personal[0].text).not.toContain("kayak");
+		expect(fixture.patches).toEqual(["kayak"]);
+		expect(
+			f.db
+				.select()
+				.from(f.s.memorySourceRevisions)
+				.where(eq(f.s.memorySourceRevisions.id, pending.id))
+				.get(),
+		).toMatchObject({
+			state: "pending",
+			nativeAcknowledged: true,
+			acknowledgedFactsJson: "[]",
+		});
+		if (shape === "pending-only") {
+			const { retry } = await import("../jobs/ledger");
+			expect(
+				retry(jobs.memoryDeliveryJob, delivery.row.id, { userId: h.userId }),
+			).not.toBeNull();
+			await h.engine.drain(jobs.memoryDeliveryJob);
+			expect(
+				f.db
+					.select()
+					.from(f.s.memoryDeliveryJobs)
+					.where(eq(f.s.memoryDeliveryJobs.id, delivery.row.id))
+					.get()?.status,
+			).toBe("succeeded");
+			expect(
+				readPublishedMemory(h.userId, f.bank.id)
+					.map((row) => row.text)
+					.sort(),
+			).toEqual([text, "sister bicycle"].sort());
+			const retainOperations = fixture.fetcher.mock.calls.flatMap(
+				([url, init]) =>
+					String(url).endsWith("/memories") && init?.method === "POST"
+						? [JSON.parse(String(init.body)).operation_id]
+						: [],
+			);
+			expect(retainOperations).toEqual([nativeOperationId]);
+		}
+	},
+);

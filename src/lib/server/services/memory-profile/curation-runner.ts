@@ -49,6 +49,7 @@ import {
 	manualPublicationReceipts,
 	prepareNativeSnapshot,
 	publishedEditResult,
+	publishedRowsForGeneration,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
 	readPublishedMemory,
@@ -506,6 +507,118 @@ async function patch(
 		);
 	}
 }
+/** A Remove can settle independently of a retained source whose own publication was held. */
+function removalPublicationSnapshot(
+	tx: Tx,
+	action: typeof memoryActions.$inferSelect,
+	bank: typeof memoryBanks.$inferSelect,
+	actionSourceIds: string[],
+	memories: NativeMemory[],
+) {
+	if (!action.exclusionAcknowledged) return memories;
+	const pending = tx
+		.select({ source: memorySourceRevisions })
+		.from(memoryDeliveryJobs)
+		.innerJoin(
+			memorySourceRevisions,
+			eq(memorySourceRevisions.id, memoryDeliveryJobs.sourceId),
+		)
+		.innerJoin(
+			memoryAccounts,
+			eq(memoryAccounts.userId, memoryDeliveryJobs.userId),
+		)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.userId, bank.userId),
+				eq(memoryDeliveryJobs.bankId, bank.id),
+				eq(memoryDeliveryJobs.epoch, bank.epoch),
+				eq(memoryDeliveryJobs.kind, "source"),
+				eq(memoryDeliveryJobs.controlRevision, memoryAccounts.controlRevision),
+				eq(memoryDeliveryJobs.status, "failed"),
+				eq(memoryDeliveryJobs.errorCode, "memory_curation_publication_held"),
+				sql`${memoryDeliveryJobs.requestId} = 'source:' || ${memorySourceRevisions.id}`,
+				eq(
+					memorySourceRevisions.controlRevision,
+					memoryDeliveryJobs.controlRevision,
+				),
+				eq(memorySourceRevisions.state, "pending"),
+				eq(memorySourceRevisions.nativeAcknowledged, true),
+				eq(memorySourceRevisions.nativeSubmitted, true),
+			),
+		)
+		.all();
+	const candidates = pending
+		.map(({ source }) => source)
+		.filter(
+			(source) =>
+				source.userId === bank.userId &&
+				source.bankId === bank.id &&
+				source.epoch === bank.epoch &&
+				source.createdAt <= action.createdAt &&
+				source.messageId &&
+				source.eventId.startsWith("message:") &&
+				source.nativeOperationId &&
+				!source.acceptedGeneration &&
+				!readAcknowledgedFacts(source.acknowledgedFactsJson).length &&
+				!actionSourceIds.includes(source.id),
+		);
+	if (!candidates.length) return memories;
+	const revocations = tx
+		.select()
+		.from(memoryRevocations)
+		.where(
+			and(
+				eq(memoryRevocations.bankId, bank.id),
+				eq(memoryRevocations.epoch, bank.epoch),
+			),
+		)
+		.all();
+	const pendingIds = new Set(
+		candidates
+			.filter(
+				(source) =>
+					!revocations.some((revocation) => revocation.sourceId === source.id),
+			)
+			.map(
+				(source) =>
+					assertMemorySourceCurrent(tx, source.id, bank.userId, bank.id).id,
+			),
+	);
+	const pendingFacts = new Set(
+		memories
+			.filter(
+				(fact) =>
+					fact.fact_type !== "observation" &&
+					fact.document_id &&
+					pendingIds.has(fact.document_id) &&
+					!revocations.some(
+						(revocation) => revocation.nativeFactId === fact.id,
+					),
+			)
+			.map(({ id }) => id),
+	);
+	if (!pendingFacts.size) return memories;
+	const prior = new Set(
+		bank.generation
+			? publishedRowsForGeneration(
+					tx,
+					bank.id,
+					bank.epoch,
+					bank.generation,
+				).map((row) => row.nativeId)
+			: [],
+	);
+	return memories.filter((row) => {
+		const support = row.source_memory_ids ?? [];
+		return (
+			row.fact_type !== "observation" ||
+			prior.has(row.id) ||
+			!support.length ||
+			!support.every((id) => pendingFacts.has(id))
+		);
+	});
+}
+
 function acceptedUpdates(
 	tx: Tx,
 	ctx: Context,
@@ -1741,13 +1854,17 @@ async function executeMemoryAction(
 			verifiedCuratedDiff?.assertCurrent(tx);
 			repaired?.assertContextCurrent?.(tx);
 			repaired?.apply(tx);
+			const publicationMemories =
+				action.kind === "remove"
+					? removalPublicationSnapshot(tx, action, bank, sourceIds, memories)
+					: memories;
 			acceptedUpdates(tx, ctx, sourceIds, memories, action.id, intent.facts);
 			const generation = publishNativeSnapshot(tx, {
 				userId: action.userId,
 				bankId: bank.id,
 				epoch: bank.epoch,
 				expectedRevision: bank.revision,
-				memories,
+				memories: publicationMemories,
 				prepared,
 				sourceIds,
 				verifiedCuratedChanges: !!repaired,
