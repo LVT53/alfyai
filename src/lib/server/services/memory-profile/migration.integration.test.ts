@@ -3530,3 +3530,47 @@ it("recovers two completed retains without accepting either alone or sending the
 	expect(f.retained).toHaveLength(retainedBefore);
 	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
 });
+
+it("holds surgical rewind until the exact unpublished drift contributors are proved", async () => {
+	const { db, s } = await seed();
+	const recovery = await import("./migration-pending-rewind");
+	const migration = await import("./migration");
+	const manifest = await migration.prepareMemoryMigration(h.userId);
+	const bank = db.select().from(s.memoryBanks).get();
+	await expect(
+		recovery.rewindUnpublishedMigrationSources({
+			userId: h.userId,
+			manifestId: manifest.id,
+			bankId: bank?.id ?? "",
+			sourceIds: ["foreign-source"],
+			manifestHash: "0".repeat(64),
+		}),
+	).rejects.toThrow("memory_migration_rewind_unverified");
+	expect(db.select().from(s.memoryRevocations).all()).toEqual([]);
+	expect(db.select().from(s.memorySourceRevisions).get()?.state).toBe(
+		"pending",
+	);
+});
+
+it("keeps a surgical rewind bank unclaimable after its manifest reports failure", async () => {
+	const { db, s } = await seed();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	await migration.prepareMemoryMigration(h.userId);
+	const bank = db.select().from(s.memoryBanks).get();
+	const manifest = db.select().from(s.memoryMigrationManifests).get();
+	if (!bank || !manifest) throw Error("seeded_migration_missing");
+	db.update(s.memoryMigrationManifests)
+		.set({
+			status: "failed",
+			checkpointJson: JSON.stringify({
+				...JSON.parse(manifest.checkpointJson),
+				migrationRewind: { bankId: bank.id },
+			}),
+		})
+		.run();
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(db.select().from(s.memoryDeliveryJobs).get()?.status).toBe("queued");
+	expect(f.fetcher).not.toHaveBeenCalled();
+});

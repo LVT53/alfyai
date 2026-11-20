@@ -45,6 +45,12 @@ export const memoryDeliveryJob = defineJobKind({
 			SELECT 1 FROM memory_delivery_jobs running
 			WHERE running.bank_id = ${jobs.bankId} AND running.status = 'running'
 		) AND (
+			${jobs.kind} = 'cleanup' OR NOT EXISTS (
+			SELECT 1 FROM memory_migration_manifests m
+			WHERE m.user_id = ${jobs.userId} AND m.epoch = ${jobs.epoch}
+			AND json_extract(m.checkpoint_json, '$.migrationRewind.bankId') = ${jobs.bankId}
+			)
+		) AND (
 			${jobs.kind} <> 'source_cleanup' OR NOT EXISTS (
 				WITH RECURSIVE resend(id, depth) AS (
 					SELECT ${jobs.sourceId}, 0

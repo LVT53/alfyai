@@ -487,8 +487,13 @@ export class HindsightClient {
 		if (result.deleted_count !== 0)
 			throw new NativeMemoryError("memory_edit_readback_mismatch", false);
 	}
-	async deleteDocument(id: string): Promise<void> {
-		await this.request(`/documents/${encodeURIComponent(id)}`, "DELETE");
+	async deleteDocument(id: string, beforeDispatch?: () => void): Promise<void> {
+		await this.request(
+			`/documents/${encodeURIComponent(id)}`,
+			"DELETE",
+			undefined,
+			beforeDispatch,
+		);
 	}
 	async bankExists(): Promise<boolean> {
 		try {

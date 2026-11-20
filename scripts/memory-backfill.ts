@@ -37,6 +37,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 			"rollback",
 			"authorize-review",
 			"recover-retained",
+			"rewind-unpublished",
 		].includes(mode)
 	)
 		throw Error("invalid_mode");
@@ -118,6 +119,48 @@ async function main() {
 					userId,
 					manifestId,
 					bankId,
+				})),
+			};
+		} else if (mode === "rewind-unpublished") {
+			const file = values.get("--authorization-file");
+			const bankId = values.get("--bank");
+			const manifestId = values.get("--manifest");
+			if (
+				!file ||
+				!isAbsolute(file) ||
+				realpathSync(file) !== file ||
+				!bankId ||
+				!manifestId
+			)
+				throw Error("private_rewind_authorization_file_required");
+			const info = lstatSync(file);
+			if (
+				!info.isFile() ||
+				info.uid !== process.getuid?.() ||
+				(info.mode & 0o077) !== 0 ||
+				info.size > 16 * 1024
+			)
+				throw Error("private_rewind_authorization_file_required");
+			const proof = JSON.parse(readFileSync(file, "utf8"));
+			if (
+				proof.userId !== userId ||
+				proof.bankId !== bankId ||
+				proof.manifestId !== manifestId ||
+				typeof proof.manifestHash !== "string" ||
+				!/^[a-f0-9]{64}$/u.test(proof.manifestHash)
+			)
+				throw Error("private_rewind_authorization_scope_mismatch");
+			const { rewindUnpublishedMigrationSources } = await import(
+				"../src/lib/server/services/memory-profile/migration-pending-rewind"
+			);
+			summary = {
+				mode,
+				...(await rewindUnpublishedMigrationSources({
+					userId,
+					bankId,
+					manifestId,
+					manifestHash: proof.manifestHash,
+					sourceIds: proof.sourceIds,
 				})),
 			};
 		} else if (mode === "authorize-review") {

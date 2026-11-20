@@ -4,6 +4,7 @@ import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
 	memoryDeliveryJobs,
+	memoryMigrationManifests,
 	memoryRevocations,
 	memorySourceRevisions,
 } from "$lib/server/db/schema";
@@ -13,6 +14,7 @@ import { memoryDeliveryJob } from "./delivery-job";
 import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
+import { matchPriorMigrationObservations } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
 	latestManifest,
@@ -21,6 +23,7 @@ import {
 import {
 	admittedNativeFacts,
 	publishNativeSnapshot,
+	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "./publication";
 import {
@@ -80,6 +83,12 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 			Array.isArray(checkpoint.requestIds) &&
 				Array.isArray(checkpoint.sourceIds),
 		);
+		const rewound = parseJsonRecord(
+			JSON.stringify(checkpoint.migrationRewind ?? {}),
+		);
+		const renumbered =
+			rewound.bankId === bankId && rewound.generation === bank.generation;
+		requireRecovery(!checkpoint.migrationRewind || renumbered);
 		const requiredRequests = new Set(checkpoint.requestIds);
 		const requiredSources = new Set(checkpoint.sourceIds);
 		const inventory = inspectMemoryMigration(userId);
@@ -184,12 +193,13 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 			fingerprint: inventory.fingerprint,
 			manifestJson: manifest.manifestJson,
 			checkpointJson: manifest.checkpointJson,
+			renumbered,
 			entries,
 			revocations,
 		};
 	};
 	const before = db.transaction(read);
-	requireRecovery(before.entries.length > 0);
+	requireRecovery(before.entries.length > 0 || before.renumbered);
 	const { bank } = before;
 	const signal = AbortSignal.timeout(180_000);
 	const client = nativeMemoryClient(bankId, before.tenantId, signal, {
@@ -203,7 +213,6 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 		);
 	const memories = await captureSettledNative(client, signal);
 	const raw = memories.filter((row) => row.fact_type !== "observation");
-	const byId = new Map(memories.map((row) => [row.id, row]));
 	return db.transaction((tx) => {
 		const current = read(tx);
 		requireRecovery(JSON.stringify(before) === JSON.stringify(current));
@@ -226,17 +235,10 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 				return live?.text === fact.text && live.document_id === fact.source.id;
 			}),
 		);
-		// This recovery cannot rewrite an already published observation.
-		for (const row of readPublishedMemory(userId, bankId, undefined, tx)) {
-			const supports = JSON.parse(row.sourceIdsJson) as string[];
-			const live = byId.get(row.nativeId);
-			requireRecovery(
-				live?.fact_type === "observation" &&
-					live.text === row.nativeText &&
-					JSON.stringify([...(live.source_memory_ids ?? [])].sort()) ===
-						JSON.stringify([...supports].sort()),
-			);
-		}
+		const prior = readPublishedMemory(userId, bankId, undefined, tx);
+		requireRecovery(
+			matchPriorMigrationObservations(prior, memories, current.renumbered),
+		);
 		for (const { source } of current.entries) {
 			const acknowledgements = raw
 				.filter((fact) => fact.document_id === source.id)
@@ -257,6 +259,26 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 			memories,
 			sourceIds: [...selected],
 		});
+		const proof = (row: (typeof prior)[number]) =>
+			JSON.stringify([
+				row.text,
+				row.nativeText,
+				readAcknowledgedFacts(row.sourceFingerprintsJson).sort((a, b) =>
+					a.id.localeCompare(b.id),
+				),
+			]);
+		const published = new Set(
+			readPublishedMemory(userId, bankId, undefined, tx).map(proof),
+		);
+		requireRecovery(prior.every((row) => published.has(proof(row))));
+		if (current.renumbered) {
+			const checkpoint = parseJsonRecord(current.checkpointJson);
+			delete checkpoint.migrationRewind;
+			tx.update(memoryMigrationManifests)
+				.set({ checkpointJson: JSON.stringify(checkpoint) })
+				.where(eq(memoryMigrationManifests.id, manifestId))
+				.run();
+		}
 		let reopened = 0;
 		for (const { job } of current.entries) {
 			if (job.status !== "failed") continue;
