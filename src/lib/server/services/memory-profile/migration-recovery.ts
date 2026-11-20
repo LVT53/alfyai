@@ -441,6 +441,14 @@ export async function recoverAcknowledgedHistoricalMigration(
 				const unaffected = observed.filter(
 					(row) => row.id !== target.id && row.id !== changed.id,
 				);
+				const protectedSupport = new Set(supported.map((fact) => fact.id));
+				requireRecovery(
+					!unaffected.some(
+						(row) =>
+							row.fact_type === "observation" &&
+							row.source_memory_ids?.some((id) => protectedSupport.has(id)),
+					),
+				);
 				assertMigrationWithdrawalWording(userId, bank.scopeKey, unaffected);
 				const otherPrior = prior.filter((row) => row.id !== original.id);
 				requireRecovery(

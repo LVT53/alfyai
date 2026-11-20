@@ -3888,10 +3888,23 @@ it("resumes an interrupted selective archive without losing independent assertio
 	);
 	const scope = { userId: h.userId, bankId: bank.id, manifestId: manifest.id };
 	const target = { sourceId: old.id, nativeFactId: conflict };
-	const result = await recoverAcknowledgedHistoricalMigration({
-		...scope,
-		selectiveRepair: { ...target, inspectOnly: true },
+	const inspect = () =>
+		recoverAcknowledgedHistoricalMigration({
+			...scope,
+			selectiveRepair: { ...target, inspectOnly: true },
+		});
+	f.extraObservations.push({
+		id: "unapproved-overlap",
+		text: "A separate competing protected presentation",
+		fact_type: "observation",
+		source_memory_ids: [`${authority.id}:fact`],
 	});
+	await expect(inspect()).rejects.toThrow(
+		"memory_migration_recovery_unverified",
+	);
+	expect(f.archived.size).toBe(0);
+	f.extraObservations.pop();
+	const result = await inspect();
 	expect(result.snapshotHash).toMatch(/^[0-9a-f]{64}$/);
 	const apply = (hash = result.snapshotHash ?? "") =>
 		recoverAcknowledgedHistoricalMigration({
