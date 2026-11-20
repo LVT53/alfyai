@@ -23,6 +23,7 @@ import {
 	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
 	reconnectVerifiedObservations,
+	samePriorObservation,
 } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
@@ -185,6 +186,8 @@ export async function recoverAcknowledgedHistoricalMigration(
 					selectiveMarker.sourceId === selectiveRepair.sourceId &&
 					selectiveMarker.nativeFactId === selectiveRepair.nativeFactId &&
 					selectiveMarker.snapshotHash === selectiveRepair.snapshotHash &&
+					(selectiveMarker.authoredFamily === undefined ||
+						typeof selectiveMarker.authoredFamily === "boolean") &&
 					typeof selectiveMarker.authoredSourceId === "string" &&
 					typeof selectiveMarker.authoredObservationId === "string" &&
 					typeof selectiveMarker.targetTextHash === "string" &&
@@ -442,27 +445,39 @@ export async function recoverAcknowledgedHistoricalMigration(
 					(row) => row.id !== target.id && row.id !== changed.id,
 				);
 				const protectedSupport = new Set(supported.map((fact) => fact.id));
-				requireRecovery(
-					!unaffected.some(
-						(row) =>
-							row.fact_type === "observation" &&
-							row.source_memory_ids?.some((id) => protectedSupport.has(id)),
+				const originalWording = approved.get(original.nativeId);
+				const related = unaffected.filter(
+					(row) =>
+						row.fact_type === "observation" &&
+						row.source_memory_ids?.some((id) => protectedSupport.has(id)),
+				);
+				const matchRaw = new Map(raw.map((row) => [row.id, row]));
+				const otherPrior = prior.filter((row) => row.id !== original.id);
+				const companions = related.map((row) =>
+					otherPrior.filter(
+						(old) =>
+							old.nativeId === row.id &&
+							samePriorObservation(old, row, matchRaw),
 					),
 				);
-				assertMigrationWithdrawalWording(userId, bank.scopeKey, unaffected);
-				const otherPrior = prior.filter((row) => row.id !== original.id);
 				requireRecovery(
-					reconnectVerifiedObservations(
-						otherPrior,
-						unaffected,
-						approvedMigrationObservationWording(
-							tx,
-							userId,
-							bankId,
-							otherPrior,
-							true,
+					(related.length === 0 || related.length === 2) &&
+						companions.every(
+							(group) =>
+								group.length === 1 && group[0].text !== originalWording,
 						),
-					),
+				);
+				assertMigrationWithdrawalWording(userId, bank.scopeKey, unaffected);
+				const otherApproved = approvedMigrationObservationWording(
+					tx,
+					userId,
+					bankId,
+					otherPrior,
+					true,
+				);
+				for (const group of companions) otherApproved.delete(group[0].nativeId);
+				requireRecovery(
+					reconnectVerifiedObservations(otherPrior, unaffected, otherApproved),
 				);
 				const snapshotHash = historicalMergeSnapshotHash(
 					{
@@ -482,6 +497,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 				const marker = {
 					sourceId: selectiveRepair.sourceId,
 					authoredSourceId,
+					authoredFamily: related.length > 0,
 					authoredObservationId: original.nativeId,
 					nativeFactId: target.id,
 					snapshotHash,
@@ -630,12 +646,27 @@ export async function recoverAcknowledgedHistoricalMigration(
 						(fact) => acceptedById.get(fact.id)?.source.id === ownerSource.id,
 					),
 			);
+
+			const ownerSupport = new Set(
+				readAcknowledgedFacts(ownerRow.sourceFingerprintsJson).map(
+					(fact) => fact.id,
+				),
+			);
+			for (const other of prior)
+				if (
+					other.id !== ownerRow.id &&
+					readAcknowledgedFacts(other.sourceFingerprintsJson).some((fact) =>
+						ownerSupport.has(fact.id),
+					)
+				)
+					approved.delete(other.nativeId);
 			approved.set(ownerRow.nativeId, owner);
 			tx.update(memorySourceRevisions)
 				.set({
 					context: JSON.stringify({
 						...parseJsonRecord(ownerSource.context),
 						migrationExactWording: true,
+						migrationExactWordingFamily: marker.authoredFamily === true,
 					}),
 				})
 				.where(eq(memorySourceRevisions.id, ownerSource.id))

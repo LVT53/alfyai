@@ -220,3 +220,56 @@ it("reconnects each exact independent observation and pins approved authored tex
 		),
 	).toBeNull();
 });
+
+it("reserves exact immutable companions before uniquely reconnecting the authored target", async () => {
+	const { reconnectVerifiedObservations } = await import(
+		"./migration-observation-proof"
+	);
+	const prior = [
+		ordinary,
+		surviving,
+		{
+			...surviving,
+			id: "companion-two",
+			nativeId: "companion-two",
+			text: "Other exact observation",
+			nativeText: "Other exact observation",
+		},
+	];
+	const authored = new Map([[ordinary.nativeId, "Exact author correction"]]);
+	const live = [
+		raw,
+		stable,
+		{
+			...stable,
+			id: "companion-two-renumbered",
+			text: "Other exact observation",
+		},
+		successor,
+	];
+	expect(reconnectVerifiedObservations(prior, live, authored)).toEqual(
+		new Map([
+			[stable.id, surviving.text],
+			["companion-two-renumbered", "Other exact observation"],
+			[successor.id, "Exact author correction"],
+		]),
+	);
+	expect(
+		reconnectVerifiedObservations(
+			prior,
+			[...live, { ...successor, id: "unknown-overlap" }],
+			authored,
+		),
+	).toBeNull();
+	expect(
+		reconnectVerifiedObservations(
+			prior,
+			live.map((row) =>
+				row.id === "companion-two-renumbered"
+					? { ...row, text: "Changed companion" }
+					: row,
+			),
+			authored,
+		),
+	).toBeNull();
+});

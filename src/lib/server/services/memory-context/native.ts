@@ -20,7 +20,9 @@ import {
 import { nativeMemoryClient } from "../memory-profile/hindsight-client";
 import {
 	admittedNativeFacts,
+	approvedMigrationRankFamily,
 	curatedNativeRankKeys,
+	matchVerifiedObservationRows,
 	nativeRankSupportKey,
 	readAcknowledgedFacts,
 	readPublishedMemory,
@@ -119,18 +121,29 @@ export async function recallMemory(
 			);
 			ranking = matches.filter((m) => m.fact_type === "observation");
 			if (ranking.length && isStillActive(db)) {
-				const bridge = db.transaction((tx) => curatedNativeRankKeys(tx, bank));
+				const { bridge, family } = db.transaction((tx) => ({
+					bridge: curatedNativeRankKeys(tx, bank),
+					family: approvedMigrationRankFamily(
+						tx,
+						userId,
+						bank.id,
+						readPublishedMemory(userId, bank.id, undefined, tx),
+					),
+				}));
 				if (
 					ranking.some((rank) => {
-						const key = nativeRankSupportKey(rank.source_memory_ids ?? []);
-						return key && bridge.has(key);
+						const support = rank.source_memory_ids ?? [];
+						const key = nativeRankSupportKey(support);
+						return (
+							support.some((id) => family?.ids.has(id)) ||
+							(key && bridge.has(key))
+						);
 					})
 				) {
 					const snapshot = await client.list();
-					confirmedEvidence.set(
-						bank.id,
-						new Map(snapshot.map((row) => [row.id, row])),
-					);
+					const unique = new Map(snapshot.map((row) => [row.id, row]));
+					if (unique.size === snapshot.length)
+						confirmedEvidence.set(bank.id, unique);
 				}
 			}
 		} catch {
@@ -163,6 +176,36 @@ export async function recallMemory(
 				const bridged = new Set(bridge.values());
 				const evidence = confirmedEvidence.get(bank.id);
 				const acceptedById = new Map(facts.map((fact) => [fact.id, fact]));
+				const family = approvedMigrationRankFamily(
+					tx,
+					userId,
+					bank.id,
+					accepted,
+				);
+				const familyRows = new Set(family?.rows.map((row) => row.nativeId));
+				const verifiedFamily =
+					family &&
+					evidence &&
+					matchVerifiedObservationRows(
+						family.rows,
+						[...evidence.values()],
+						family.approved,
+					);
+				const exactRankEvidence = (row: (typeof accepted)[number]) =>
+					readAcknowledgedFacts(row.sourceFingerprintsJson).every((fact) => {
+						const raw = evidence?.get(fact.id);
+						const source = acceptedById.get(fact.id)?.source;
+						return (
+							!!raw &&
+							raw.fact_type !== "observation" &&
+							!!source &&
+							raw.document_id === source.id &&
+							raw.text === fact.text &&
+							(raw.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
+							fact.assertedAtMs ===
+								(source.explicitEditAt ?? source.assertedAt).getTime()
+						);
+					});
 				const liveCoverage = new Map<string, number>();
 				for (const live of evidence?.values() ?? [])
 					if (live.fact_type === "observation")
@@ -182,6 +225,23 @@ export async function recallMemory(
 									(fact) => fact.id,
 								),
 							);
+					if (
+						(direct && familyRows.has(direct.nativeId)) ||
+						support.some((id) => family?.ids.has(id))
+					) {
+						const match = verifiedFamily?.get(rank.id);
+						const live = evidence?.get(rank.id);
+						if (
+							match &&
+							match.text === match.prior.text &&
+							live?.text === rank.text &&
+							nativeRankSupportKey(live.source_memory_ids ?? []) === key &&
+							family?.rows.every(exactRankEvidence) &&
+							!order.has(match.prior.nativeId)
+						)
+							order.set(match.prior.nativeId, index);
+						continue;
+					}
 					if (matchesDirect && !bridged.has(direct.nativeId)) {
 						if (!order.has(direct.nativeId)) order.set(direct.nativeId, index);
 						continue;
@@ -199,23 +259,7 @@ export async function recallMemory(
 						support.some((id) => liveCoverage.get(id) !== 1)
 					)
 						continue;
-					if (
-						readAcknowledgedFacts(row.sourceFingerprintsJson).every((fact) => {
-							const raw = evidence?.get(fact.id);
-							const source = acceptedById.get(fact.id)?.source;
-							return (
-								!!raw &&
-								raw.fact_type !== "observation" &&
-								!!source &&
-								raw.document_id === source.id &&
-								raw.text === fact.text &&
-								(raw.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
-								fact.assertedAtMs ===
-									(source.explicitEditAt ?? source.assertedAt).getTime()
-							);
-						})
-					)
-						order.set(row.nativeId, index);
+					if (exactRankEvidence(row)) order.set(row.nativeId, index);
 				}
 				accepted.sort(
 					(a, b) =>

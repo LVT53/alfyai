@@ -4,12 +4,14 @@ import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { parseJsonRecord } from "./internal-json";
 import { inspectMemoryMigration } from "./migration-progress";
-import { splitNativeNotes } from "./presentation";
 import {
 	admittedNativeFacts,
 	approvedMigrationObservationWording,
 	readAcknowledgedFacts,
 	readPublishedMemory,
+	reconnectVerifiedObservations,
+	samePriorObservation,
+	sameSupport,
 } from "./publication";
 import {
 	knownQuarantineWithdrawal,
@@ -19,91 +21,10 @@ import { assertMemorySourceCurrent, memoryScopeKey } from "./revisions";
 
 type PublishedRow = typeof memoryPublishedRows.$inferSelect;
 
-function sameSupport(
-	prior: PublishedRow,
-	observed: NativeMemory,
-	raw: ReadonlyMap<string, NativeMemory>,
-) {
-	if (observed.fact_type !== "observation") return false;
-	const support = readAcknowledgedFacts(prior.sourceFingerprintsJson);
-	const ids = new Set(observed.source_memory_ids ?? []);
-	return (
-		support.length > 0 &&
-		ids.size === support.length &&
-		observed.source_memory_ids?.length === support.length &&
-		support.every((fact) => {
-			const live = raw.get(fact.id);
-			return (
-				ids.has(fact.id) &&
-				live?.text === fact.text &&
-				(live.mentioned_at ?? null) === (fact.mentionedAt ?? null)
-			);
-		})
-	);
-}
-
-export function samePriorObservation(
-	prior: PublishedRow,
-	observed: NativeMemory,
-	raw: ReadonlyMap<string, NativeMemory>,
-) {
-	return (
-		observed.text === prior.nativeText &&
-		sameSupport(prior, observed, raw) &&
-		splitNativeNotes(
-			observed,
-			(observed.source_memory_ids ?? []).flatMap((id) => {
-				const fact = raw.get(id);
-				return fact ? [fact] : [];
-			}),
-		) === prior.text
-	);
-}
-
-/**
- * Reconnect only a unique, complete support match. An ordinary observation
- * must retain its full previous presentation. A current approved authored
- * statement may keep its own wording above that same underlying evidence.
- */
-export function reconnectVerifiedObservations(
-	prior: PublishedRow[],
-	memories: NativeMemory[],
-	approved: ReadonlyMap<string, string>,
-) {
-	const raw = new Map(
-		memories
-			.filter((row) => row.fact_type !== "observation")
-			.map((row) => [row.id, row]),
-	);
-	const observations = memories.filter(
-		(row) => row.fact_type === "observation",
-	);
-	const matched = new Map<string, string>();
-	for (const old of prior) {
-		const wording = approved.get(old.nativeId);
-		const candidates = observations.filter((row) =>
-			wording
-				? sameSupport(old, row, raw)
-				: samePriorObservation(old, row, raw),
-		);
-		if (candidates.length !== 1 || matched.has(candidates[0].id)) return null;
-		matched.set(candidates[0].id, wording ?? old.text);
-	}
-	const priorRaw = new Set(
-		prior.flatMap((row) =>
-			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
-		),
-	);
-	if (
-		observations.some(
-			(row) =>
-				!matched.has(row.id) &&
-				row.source_memory_ids?.some((id) => priorRaw.has(id)),
-		)
-	)
-		return null;
-	return matched;
-}
+export {
+	reconnectVerifiedObservations,
+	samePriorObservation,
+} from "./publication";
 
 /** A plain rewind may verify one regenerated ordinary presentation. */
 export function matchPriorMigrationRepresentation(
