@@ -98,6 +98,21 @@ export function matchPriorMigrationRepresentation(
 		protectedRows.some((p) => p.id === row.id)
 	)
 		return null;
+	// Confirm the raw evidence also survives in an independently exact
+	// prior observation. The regenerated row cannot be its only witness.
+	const preservedEvidence = new Set(
+		exact.flatMap((priorRow) =>
+			readAcknowledgedFacts(priorRow.sourceFingerprintsJson).map(
+				(fact) => fact.id,
+			),
+		),
+	);
+	if (
+		!readAcknowledgedFacts(row.sourceFingerprintsJson).every((fact) =>
+			preservedEvidence.has(fact.id),
+		)
+	)
+		return null;
 	const candidates = memories.filter(
 		(live) => !used.has(live.id) && sameSupport(row, live, raw),
 	);

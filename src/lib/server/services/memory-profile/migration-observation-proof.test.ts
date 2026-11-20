@@ -48,6 +48,9 @@ it("matches one ordinary renamed presentation without borrowing another exact ob
 		regenerated: { prior: ordinary, nativeId: "successor" },
 	});
 	expect(
+		matchPriorMigrationRepresentation([ordinary], [raw, successor], true, []),
+	).toBeNull();
+	expect(
 		matchPriorMigrationRepresentation(prior, live, true, [ordinary]),
 	).toBeNull();
 	expect(
