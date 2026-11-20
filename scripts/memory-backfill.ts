@@ -1,6 +1,15 @@
 #!/usr/bin/env tsx
 /** Inspect by default. Mutations require explicit operator execution acknowledgement. */
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	lstatSync,
+	openSync,
+	readFileSync,
+	realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +22,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 		"--manifest",
 		"--bank",
 		"--authorization-file",
+		"--authorization-hash",
 		"--synthetic-fixture",
 		"--execute",
 		"--operator-ack",
@@ -113,12 +123,67 @@ async function main() {
 			const { recoverAcknowledgedHistoricalMigration } = await import(
 				"../src/lib/server/services/memory-profile/migration-recovery"
 			);
+			const file = values.get("--authorization-file");
+			let reviewedMerge: { sourceId: string; snapshotHash: string } | undefined;
+			const approvedHash = values.get("--authorization-hash");
+			if (file || approvedHash) {
+				if (
+					!file ||
+					!approvedHash ||
+					!/^[a-f0-9]{64}$/u.test(approvedHash) ||
+					!isAbsolute(file) ||
+					realpathSync(file) !== file
+				)
+					throw Error("private_merge_authorization_file_required");
+				const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+				let bytes: Buffer;
+				try {
+					const info = fstatSync(fd);
+					if (
+						!info.isFile() ||
+						info.uid !== process.getuid?.() ||
+						(info.mode & 0o777) !== 0o600 ||
+						info.size > 4096
+					)
+						throw Error("private_merge_authorization_file_required");
+					bytes = readFileSync(fd);
+				} finally {
+					closeSync(fd);
+				}
+				if (
+					bytes.length > 4096 ||
+					createHash("sha256").update(bytes).digest("hex") !== approvedHash
+				)
+					throw Error("private_merge_authorization_scope_mismatch");
+				const receipt = JSON.parse(bytes.toString("utf8"));
+				if (
+					receipt.userId !== userId ||
+					receipt.manifestId !== manifestId ||
+					receipt.bankId !== bankId ||
+					receipt.verdict !== "clear" ||
+					receipt.verdictSource !== "local_model" ||
+					receipt.model !== "qwen3-6-27b" ||
+					receipt.checks !== 2 ||
+					receipt.policy !== "reviewed-historical-merge-v1" ||
+					typeof receipt.sourceId !== "string" ||
+					!receipt.sourceId ||
+					typeof receipt.snapshotHash !== "string" ||
+					!/^[a-f0-9]{64}$/u.test(receipt.snapshotHash)
+				)
+					throw Error("private_merge_authorization_scope_mismatch");
+				reviewedMerge = {
+					sourceId: receipt.sourceId,
+					snapshotHash: receipt.snapshotHash,
+				};
+			}
+
 			summary = {
 				mode,
 				...(await recoverAcknowledgedHistoricalMigration({
 					userId,
 					manifestId,
 					bankId,
+					reviewedMerge,
 				})),
 			};
 		} else if (mode === "rewind-unpublished") {

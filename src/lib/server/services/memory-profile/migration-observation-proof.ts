@@ -372,6 +372,7 @@ export function matchPlainMigrationRewind(
 	prior: PublishedRow[],
 	memories: NativeMemory[],
 	allowOrdinary: boolean,
+	reviewedSourceId?: string,
 ) {
 	const fallback = () =>
 		matchPriorMigrationRepresentation(
@@ -417,7 +418,10 @@ export function matchPlainMigrationRewind(
 				),
 		)
 	)
-		return matchOrdinaryMigrationCompanions(prior, prior, memories);
+		return reviewedSourceId
+			? null
+			: matchOrdinaryMigrationCompanions(prior, prior, memories);
+	if (reviewedSourceId && explicitAction) return null;
 	if (!allowOrdinary || explicitAction)
 		return unlocated.length
 			? matchOrdinaryMigrationCompanions(prior, prior, memories)
@@ -454,6 +458,66 @@ export function matchPlainMigrationRewind(
 		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
 		return !facts.length || !facts.every((fact) => ordinaryIds.has(fact.id));
 	});
+	if (reviewedSourceId) {
+		if (!unlocated.length) return null;
+		const raw = new Map(
+			memories
+				.filter((row) => row.fact_type !== "observation")
+				.map((row) => [row.id, row]),
+		);
+		const observations = memories.filter(
+			(row) => row.fact_type === "observation",
+		);
+		const exact = prior.filter((row) =>
+			observations.some(
+				(live) =>
+					live.id === row.nativeId && samePriorObservation(row, live, raw),
+			),
+		);
+		const missing = prior.filter((row) => !exact.includes(row));
+		if (missing.length !== 1 || strict.includes(missing[0])) return null;
+		const oldSupport = new Set(
+			readAcknowledgedFacts(missing[0].sourceFingerprintsJson).map(
+				(fact) => fact.id,
+			),
+		);
+		const priorRaw = new Set(
+			prior.flatMap((row) =>
+				readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+					(fact) => fact.id,
+				),
+			),
+		);
+		const exactIds = new Set(exact.map((row) => row.nativeId));
+		const changed = observations.filter(
+			(live) =>
+				!exactIds.has(live.id) &&
+				live.source_memory_ids?.some((id) => priorRaw.has(id)),
+		);
+		if (changed.length !== 1 || changed[0].id !== missing[0].nativeId)
+			return null;
+		if (
+			observations.some((live) => {
+				if (exactIds.has(live.id) || live.id === changed[0].id) return false;
+				const ids = live.source_memory_ids ?? [];
+				return (
+					!ids.length ||
+					ids.some((id) => raw.get(id)?.document_id !== reviewedSourceId)
+				);
+			})
+		)
+			return null;
+		const support = changed[0].source_memory_ids ?? [];
+		const added = support.filter((id) => !oldSupport.has(id));
+		if (
+			new Set(support).size !== support.length ||
+			![...oldSupport].every((id) => support.includes(id)) ||
+			!added.length ||
+			!added.every((id) => raw.get(id)?.document_id === reviewedSourceId)
+		)
+			return null;
+		return { exact, regenerated: null };
+	}
 	return unlocated.length
 		? matchOrdinaryMigrationCompanions(prior, strict, memories)
 		: matchPriorMigrationRepresentation(strict, memories, true);

@@ -10,6 +10,7 @@ import {
 } from "$lib/server/db/schema";
 import { reopen } from "../jobs/ledger";
 import type { Tx } from "../jobs/types";
+import type { NativeMemory } from "./contracts";
 import { memoryDeliveryJob } from "./delivery-job";
 import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
@@ -34,6 +35,7 @@ import {
 	assertMemoryBankFence,
 	assertMemorySourceCurrent,
 	memoryScopeKey,
+	memoryTextHash,
 } from "./revisions";
 
 const recoveryErrors = new Set([
@@ -46,6 +48,17 @@ function requireRecovery(condition: unknown): asserts condition {
 	if (!condition) throw Error("memory_migration_recovery_unverified");
 }
 
+/** A reviewed verdict expires with any applicant, checkpoint, provenance or native snapshot change. */
+function historicalMergeSnapshotHash(state: unknown, memories: NativeMemory[]) {
+	return memoryTextHash(
+		JSON.stringify([
+			"reviewed-historical-merge-v1",
+			state,
+			[...memories].sort((a, b) => a.id.localeCompare(b.id)),
+		]),
+	);
+}
+
 /**
  * Reconcile an inactive bank whose native writes finished while publication was
  * held. This only reads native state. It cannot retry retain, waive a curation
@@ -56,10 +69,15 @@ export async function recoverAcknowledgedHistoricalMigration(
 		userId: string;
 		manifestId: string;
 		bankId: string;
+		reviewedMerge?: { sourceId: string } & (
+			| { snapshotHash: string }
+			| { inspectOnly: true }
+		);
 	},
 	ordinaryApproval?: { manifestHash: string; sourceIds: string[] },
 ) {
-	const { userId, manifestId, bankId } = input;
+	const { userId, manifestId, bankId, reviewedMerge } = input;
+	requireRecovery(!reviewedMerge || !ordinaryApproval);
 	const read = (tx: Tx) => {
 		const config = getConfig();
 		requireRecovery(
@@ -216,6 +234,15 @@ export async function recoverAcknowledgedHistoricalMigration(
 	};
 	const before = db.transaction(read);
 	requireRecovery(before.entries.length > 0 || before.renumbered);
+	if (reviewedMerge)
+		requireRecovery(
+			!before.renumbered &&
+				before.entries.length === 1 &&
+				before.entries[0].source.id === reviewedMerge.sourceId &&
+				before.entries[0].job.status === "failed" &&
+				before.entries[0].job.errorCode === "memory_preparation_failed" &&
+				before.entries[0].source.messageId,
+		);
 	const { bank } = before;
 	const signal = AbortSignal.timeout(180_000);
 	const client = nativeMemoryClient(bankId, before.tenantId, signal, {
@@ -252,7 +279,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 			}),
 		);
 		const prior = readPublishedMemory(userId, bankId, undefined, tx);
-		if (!current.ordinaryCoverage)
+		if (!current.ordinaryCoverage && !reviewedMerge)
 			assertDefaultHistoryWithdrawalBoundary(
 				tx,
 				userId,
@@ -261,18 +288,33 @@ export async function recoverAcknowledgedHistoricalMigration(
 				memories,
 			);
 
-		const representation = current.ordinaryCoverage
-			? matchPlainMigrationRewind(
-					tx,
-					userId,
-					bankId,
-					bank.scopeKey,
-					prior,
-					memories,
-					!!ordinaryApproval,
-				)
-			: matchPriorMigrationRepresentation(prior, memories, current.renumbered);
+		const representation =
+			current.ordinaryCoverage || reviewedMerge
+				? matchPlainMigrationRewind(
+						tx,
+						userId,
+						bankId,
+						bank.scopeKey,
+						prior,
+						memories,
+						!!ordinaryApproval || !!reviewedMerge,
+						reviewedMerge?.sourceId,
+					)
+				: matchPriorMigrationRepresentation(
+						prior,
+						memories,
+						current.renumbered,
+					);
 		requireRecovery(representation);
+		if (reviewedMerge) {
+			const snapshotHash = historicalMergeSnapshotHash(
+				{ userId, manifestId, state: current, prior, accepted },
+				memories,
+			);
+			if ("inspectOnly" in reviewedMerge)
+				return { reopened: 0, sources: 1, snapshotHash };
+			requireRecovery(reviewedMerge.snapshotHash === snapshotHash);
+		}
 		for (const { source } of current.entries) {
 			const acknowledgements = raw
 				.filter((fact) => fact.document_id === source.id)
@@ -316,7 +358,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 						supportProof(representation.regenerated.prior),
 			);
 		}
-		if (ordinaryApproval) {
+		if (ordinaryApproval || reviewedMerge) {
 			const covered = new Set(
 				rows
 					.flatMap((row) => readAcknowledgedFacts(row.sourceFingerprintsJson))
