@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
 import type { memoryPublishedRows } from "$lib/server/db/schema";
 import type { NativeMemory } from "./contracts";
-import { matchPriorMigrationRepresentation } from "./migration-observation-proof";
+import {
+	matchOrdinaryMigrationEvidence,
+	matchPriorMigrationRepresentation,
+} from "./migration-observation-proof";
 
 const ordinary: typeof memoryPublishedRows.$inferSelect = {
 	id: "ordinary",
@@ -80,4 +83,44 @@ it("matches one ordinary renamed presentation without borrowing another exact ob
 			[],
 		),
 	).toBeNull();
+});
+
+it("permits ordinary coalescence only when original raw evidence remains represented", () => {
+	expect(
+		matchOrdinaryMigrationEvidence([ordinary, surviving], [raw, stable]),
+	).toBe(true);
+	expect(matchOrdinaryMigrationEvidence([ordinary], [raw])).toBe(false);
+	expect(
+		matchOrdinaryMigrationEvidence(
+			[ordinary],
+			[{ ...raw, mentioned_at: "2025-02-01" }, stable],
+		),
+	).toBe(false);
+	expect(
+		matchOrdinaryMigrationEvidence(
+			[{ ...ordinary, sourceFingerprintsJson: "[]" }],
+			[raw, stable],
+		),
+	).toBe(false);
+});
+
+it("requires every original fact after a derived observation splits", () => {
+	const otherRaw = { ...raw, id: "b", text: "Other independent raw fact" };
+	const combined = {
+		...ordinary,
+		sourceFingerprintsJson: JSON.stringify([
+			{ id: "a", text: raw.text, mentionedAt: raw.mentioned_at },
+			{ id: "b", text: otherRaw.text, mentionedAt: otherRaw.mentioned_at },
+		]),
+	};
+	const additional = { ...successor, source_memory_ids: ["b"] };
+	expect(
+		matchOrdinaryMigrationEvidence(
+			[combined],
+			[raw, otherRaw, stable, additional],
+		),
+	).toBe(true);
+	expect(
+		matchOrdinaryMigrationEvidence([combined], [raw, otherRaw, stable]),
+	).toBe(false);
 });

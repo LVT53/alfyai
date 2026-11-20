@@ -162,6 +162,7 @@ async function main() {
 					manifestHash: proof.manifestHash,
 					sourceIds: proof.sourceIds,
 					holdCorrectionConflict: proof.holdCorrectionConflict === true,
+					allowOrdinaryConsolidation: proof.allowOrdinaryConsolidation === true,
 				})),
 			};
 		} else if (mode === "authorize-review") {

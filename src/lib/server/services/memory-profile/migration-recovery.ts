@@ -15,8 +15,10 @@ import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import {
+	matchOrdinaryMigrationEvidence,
 	matchPriorMigrationRepresentation,
 	protectedMigrationObservations,
+	strictOrdinaryRecoveryRows,
 } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
@@ -50,11 +52,14 @@ function requireRecovery(condition: unknown): asserts condition {
  * held. This only reads native state. It cannot retry retain, waive a curation
  * check or change the account's serving authority.
  */
-export async function recoverAcknowledgedHistoricalMigration(input: {
-	userId: string;
-	manifestId: string;
-	bankId: string;
-}) {
+export async function recoverAcknowledgedHistoricalMigration(
+	input: {
+		userId: string;
+		manifestId: string;
+		bankId: string;
+	},
+	ordinaryApproval?: { manifestHash: string; sourceIds: string[] },
+) {
 	const { userId, manifestId, bankId } = input;
 	const read = (tx: Tx) => {
 		const config = getConfig();
@@ -92,6 +97,14 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 		const renumbered =
 			rewound.bankId === bankId && rewound.generation === bank.generation;
 		requireRecovery(!checkpoint.migrationRewind || renumbered);
+		if (ordinaryApproval)
+			requireRecovery(
+				renumbered &&
+					rewound.holdCorrectionConflict === false &&
+					rewound.originalManifestHash === ordinaryApproval.manifestHash &&
+					JSON.stringify(rewound.sourceIds) ===
+						JSON.stringify(ordinaryApproval.sourceIds),
+			);
 		const requiredRequests = new Set(checkpoint.requestIds);
 		const requiredSources = new Set(checkpoint.sourceIds);
 		const inventory = inspectMemoryMigration(userId);
@@ -241,14 +254,18 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 		);
 		const prior = readPublishedMemory(userId, bankId, undefined, tx);
 		const representation = matchPriorMigrationRepresentation(
-			prior,
+			ordinaryApproval
+				? strictOrdinaryRecoveryRows(tx, userId, bankId, bank.scopeKey, prior)
+				: prior,
 			memories,
 			current.renumbered,
-			current.ordinaryCoverage
+			!ordinaryApproval && current.ordinaryCoverage
 				? protectedMigrationObservations(tx, userId, bankId)
 				: undefined,
 		);
 		requireRecovery(representation);
+		if (ordinaryApproval)
+			requireRecovery(matchOrdinaryMigrationEvidence(prior, memories));
 		for (const { source } of current.entries) {
 			const acknowledgements = raw
 				.filter((fact) => fact.document_id === source.id)
@@ -290,6 +307,20 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 				successor &&
 					supportProof(successor) ===
 						supportProof(representation.regenerated.prior),
+			);
+		}
+		if (ordinaryApproval) {
+			const covered = new Set(
+				rows
+					.flatMap((row) => readAcknowledgedFacts(row.sourceFingerprintsJson))
+					.map((fact) => JSON.stringify(fact)),
+			);
+			requireRecovery(
+				prior.every((row) =>
+					readAcknowledgedFacts(row.sourceFingerprintsJson).every((fact) =>
+						covered.has(JSON.stringify(fact)),
+					),
+				),
 			);
 		}
 		if (current.renumbered) {

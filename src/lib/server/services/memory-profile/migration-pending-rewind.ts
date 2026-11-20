@@ -15,9 +15,11 @@ import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import { prepareMemoryMigration } from "./migration";
 import {
+	matchOrdinaryMigrationEvidence,
 	matchPriorMigrationRepresentation,
 	protectedMigrationObservations,
 	samePriorObservation,
+	strictOrdinaryRecoveryRows,
 } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
@@ -51,6 +53,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 	manifestHash: string;
 	sourceIds: string[];
 	holdCorrectionConflict?: boolean;
+	allowOrdinaryConsolidation?: boolean;
 }) {
 	const { userId, manifestId, bankId, manifestHash } = input;
 	requireRewind(
@@ -62,6 +65,8 @@ export async function rewindUnpublishedMigrationSources(input: {
 	);
 	const ids = [...input.sourceIds].sort();
 	const holdConflict = input.holdCorrectionConflict === true;
+	const allowOrdinary = input.allowOrdinaryConsolidation === true;
+	requireRewind(!allowOrdinary || !holdConflict);
 
 	const read = (tx: Tx) => {
 		const c = getConfig();
@@ -99,7 +104,9 @@ export async function rewindUnpublishedMigrationSources(input: {
 			marker.generation === bank.generation &&
 			JSON.stringify(marker.sourceIds) === JSON.stringify(ids) &&
 			(marker.holdCorrectionConflict === true) === holdConflict;
-		requireRewind(!checkpoint.migrationRewind || ongoing);
+		requireRewind(
+			(!checkpoint.migrationRewind || ongoing) && (!allowOrdinary || ongoing),
+		);
 		requireRewind(
 			memoryTextHash(manifest.manifestJson) === manifestHash ||
 				(ongoing && marker.originalManifestHash === manifestHash),
@@ -182,6 +189,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 		});
 		const accepted = admittedNativeFacts(userId, bankId, tx);
 		requireRewind(accepted.every((fact) => !ids.includes(fact.source.id)));
+		const published = readPublishedMemory(userId, bankId, undefined, tx);
 		return {
 			bank,
 			manifest,
@@ -190,7 +198,16 @@ export async function rewindUnpublishedMigrationSources(input: {
 			tenantId: a.tenantId,
 			entries,
 			accepted,
-			published: readPublishedMemory(userId, bankId, undefined, tx),
+			published,
+			strictOrdinary: allowOrdinary
+				? strictOrdinaryRecoveryRows(
+						tx,
+						userId,
+						bankId,
+						bank.scopeKey,
+						published,
+					)
+				: [],
 			protected: protectedMigrationObservations(tx, userId, bankId),
 		};
 	};
@@ -357,24 +374,35 @@ export async function rewindUnpublishedMigrationSources(input: {
 		restored.every(
 			(row) => !row.document_id || !ids.includes(row.document_id),
 		) &&
-			matchPriorMigrationRepresentation(
-				saved.published,
-				restored,
-				true,
-				holdConflict ? undefined : saved.protected,
-			),
+			(allowOrdinary
+				? matchPriorMigrationRepresentation(
+						saved.strictOrdinary,
+						restored,
+						true,
+					) && matchOrdinaryMigrationEvidence(saved.published, restored)
+				: matchPriorMigrationRepresentation(
+						saved.published,
+						restored,
+						true,
+						holdConflict ? undefined : saved.protected,
+					)),
 	);
 	guard();
 	const prepared = await prepareMemoryMigration(
 		userId,
-		holdConflict ? { bankId, assertCurrent } : undefined,
+		holdConflict || allowOrdinary
+			? { bankId, assertCurrent, holdCorrectionConflict: holdConflict }
+			: undefined,
 	);
 	requireRewind(prepared.id === manifestId);
-	const result = await recoverAcknowledgedHistoricalMigration({
-		userId,
-		manifestId,
-		bankId,
-	});
+	const result = await recoverAcknowledgedHistoricalMigration(
+		{
+			userId,
+			manifestId,
+			bankId,
+		},
+		allowOrdinary ? { manifestHash, sourceIds: ids } : undefined,
+	);
 	return {
 		replacedSources: holdConflict ? 0 : ids.length,
 		heldConflicts: holdConflict ? ids.length : 0,

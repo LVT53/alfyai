@@ -1,13 +1,16 @@
-import type { memoryPublishedRows } from "$lib/server/db/schema";
+import { and, eq } from "drizzle-orm";
+import { memoryActions, type memoryPublishedRows } from "$lib/server/db/schema";
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { parseJsonRecord } from "./internal-json";
+import { inspectMemoryMigration } from "./migration-progress";
 import { splitNativeNotes } from "./presentation";
 import {
 	admittedNativeFacts,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "./publication";
+import { assertMemorySourceCurrent, memoryScopeKey } from "./revisions";
 
 type PublishedRow = typeof memoryPublishedRows.$inferSelect;
 
@@ -164,4 +167,101 @@ export function assertHistoryPreservesAuthoredObservations(
 	const protectedRows = protectedMigrationObservations(tx, userId, bankId);
 	if (!matchPriorMigrationObservations(protectedRows, memories, false))
 		throw Error("memory_migration_authored_observation_changed");
+}
+
+// Observation count and wording may change, but every prior raw fact must
+// remain exactly present and represented by a current native observation.
+export function matchOrdinaryMigrationEvidence(
+	prior: PublishedRow[],
+	memories: NativeMemory[],
+) {
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	const support = new Set(
+		memories
+			.filter((row) => row.fact_type === "observation")
+			.flatMap((row) => row.source_memory_ids ?? []),
+	);
+	return prior.every((row) => {
+		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
+		return (
+			facts.length > 0 &&
+			facts.every((fact) => {
+				const live = raw.get(fact.id);
+				return (
+					support.has(fact.id) &&
+					live?.text === fact.text &&
+					(live.mentioned_at ?? null) === (fact.mentionedAt ?? null)
+				);
+			})
+		);
+	});
+}
+
+/** Only current, unedited default-history originals may use the optional rule.
+ * All other evidence and anything tied to an explicit action stay exact.
+ */
+export function strictOrdinaryRecoveryRows(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	scopeKey: string,
+	prior: PublishedRow[],
+) {
+	const explicitAction = tx
+		.select({ id: memoryActions.id })
+		.from(memoryActions)
+		.where(
+			and(eq(memoryActions.userId, userId), eq(memoryActions.bankId, bankId)),
+		)
+		.get();
+	if (explicitAction) return prior;
+	const inventory = inspectMemoryMigration(userId);
+	const originals = new Map(
+		inventory.sources.map((source) => [source.id, source]),
+	);
+	const linked = new Set(
+		inventory.actions.flatMap((action) => action.sourceIds),
+	);
+	const unlocated = inventory.actions.some(
+		(action) =>
+			action.kind !== "authored" &&
+			!action.sourceIds.length &&
+			(!action.scope || memoryScopeKey(action.scope) === scopeKey),
+	);
+	const ordinaryIds = new Set<string>();
+	for (const fact of admittedNativeFacts(userId, bankId, tx)) {
+		const source = fact.source;
+		const context = parseJsonRecord(source.context);
+		const original = originals.get(source.messageId ?? "");
+		if (
+			!unlocated &&
+			source.messageId &&
+			!source.explicitEditAt &&
+			!source.predecessorSourceId &&
+			context.migrationDefaultHistory === true &&
+			typeof context.migrationAuthoredId !== "string" &&
+			!linked.has(source.messageId) &&
+			!linked.has(source.lineageId) &&
+			!linked.has(source.id) &&
+			original?.defaultHistory &&
+			original.eligibility === "eligible" &&
+			!original.replayActionIds?.length &&
+			original.text === source.text &&
+			original.assertedAt === source.assertedAt.toISOString() &&
+			original.lineageId === source.lineageId &&
+			original.conversationId === source.conversationId &&
+			memoryScopeKey(original.scope) === scopeKey
+		) {
+			assertMemorySourceCurrent(tx, source.id, userId, bankId);
+			ordinaryIds.add(fact.id);
+		}
+	}
+	return prior.filter((row) => {
+		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
+		return !facts.length || !facts.every((fact) => ordinaryIds.has(fact.id));
+	});
 }

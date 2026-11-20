@@ -55,11 +55,15 @@ export {
 /** The existing delivery job owns retries/checkpoints; this snapshot only inventories intent. */
 export async function prepareMemoryMigration(
 	userId: string,
-	restoredCorrection?: { bankId: string; assertCurrent: (tx: Tx) => void },
+	restoredRewind?: {
+		bankId: string;
+		assertCurrent: (tx: Tx) => void;
+		holdCorrectionConflict: boolean;
+	},
 ) {
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
-		restoredCorrection?.assertCurrent(tx);
+		restoredRewind?.assertCurrent(tx);
 		const personalBank = ensureMemoryBank(userId, { kind: "personal" });
 		const account = tx
 			.select()
@@ -80,7 +84,7 @@ export async function prepareMemoryMigration(
 					),
 				)
 				.run();
-		if (restoredCorrection) {
+		if (restoredRewind?.holdCorrectionConflict) {
 			const previous = latestManifest(userId);
 			const checkpoint = parseJsonRecord(previous?.checkpointJson ?? null);
 			const rewind = parseJsonRecord(
@@ -90,7 +94,7 @@ export async function prepareMemoryMigration(
 				!previous ||
 				previous.epoch !== account.epoch ||
 				account.authority !== "preparing" ||
-				rewind.bankId !== restoredCorrection.bankId ||
+				rewind.bankId !== restoredRewind.bankId ||
 				!Array.isArray(rewind.correctionHolds) ||
 				!rewind.correctionHolds.length
 			)
