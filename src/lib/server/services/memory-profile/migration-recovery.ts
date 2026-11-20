@@ -14,7 +14,10 @@ import { memoryDeliveryJob } from "./delivery-job";
 import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
-import { matchPriorMigrationObservations } from "./migration-observation-proof";
+import {
+	matchPriorMigrationRepresentation,
+	protectedMigrationObservations,
+} from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
 	latestManifest,
@@ -194,6 +197,7 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 			manifestJson: manifest.manifestJson,
 			checkpointJson: manifest.checkpointJson,
 			renumbered,
+			ordinaryCoverage: renumbered && rewound.holdCorrectionConflict === false,
 			entries,
 			revocations,
 		};
@@ -236,9 +240,15 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 			}),
 		);
 		const prior = readPublishedMemory(userId, bankId, undefined, tx);
-		requireRecovery(
-			matchPriorMigrationObservations(prior, memories, current.renumbered),
+		const representation = matchPriorMigrationRepresentation(
+			prior,
+			memories,
+			current.renumbered,
+			current.ordinaryCoverage
+				? protectedMigrationObservations(tx, userId, bankId)
+				: undefined,
 		);
+		requireRecovery(representation);
 		for (const { source } of current.entries) {
 			const acknowledgements = raw
 				.filter((fact) => fact.document_id === source.id)
@@ -259,18 +269,29 @@ export async function recoverAcknowledgedHistoricalMigration(input: {
 			memories,
 			sourceIds: [...selected],
 		});
-		const proof = (row: (typeof prior)[number]) =>
-			JSON.stringify([
-				row.text,
-				row.nativeText,
+		const supportProof = (row: (typeof prior)[number]) =>
+			JSON.stringify(
 				readAcknowledgedFacts(row.sourceFingerprintsJson).sort((a, b) =>
 					a.id.localeCompare(b.id),
 				),
-			]);
-		const published = new Set(
-			readPublishedMemory(userId, bankId, undefined, tx).map(proof),
+			);
+		const proof = (row: (typeof prior)[number]) =>
+			JSON.stringify([row.text, row.nativeText, supportProof(row)]);
+		const rows = readPublishedMemory(userId, bankId, undefined, tx);
+		const published = new Set(rows.map(proof));
+		requireRecovery(
+			representation.exact.every((row) => published.has(proof(row))),
 		);
-		requireRecovery(prior.every((row) => published.has(proof(row))));
+		if (representation.regenerated) {
+			const successor = rows.find(
+				(row) => row.nativeId === representation.regenerated?.nativeId,
+			);
+			requireRecovery(
+				successor &&
+					supportProof(successor) ===
+						supportProof(representation.regenerated.prior),
+			);
+		}
 		if (current.renumbered) {
 			const checkpoint = parseJsonRecord(current.checkpointJson);
 			delete checkpoint.migrationRewind;

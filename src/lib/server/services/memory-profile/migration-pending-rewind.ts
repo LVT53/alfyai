@@ -15,7 +15,8 @@ import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import { prepareMemoryMigration } from "./migration";
 import {
-	matchPriorMigrationObservations,
+	matchPriorMigrationRepresentation,
+	protectedMigrationObservations,
 	samePriorObservation,
 } from "./migration-observation-proof";
 import {
@@ -190,6 +191,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 			entries,
 			accepted,
 			published: readPublishedMemory(userId, bankId, undefined, tx),
+			protected: protectedMigrationObservations(tx, userId, bankId),
 		};
 	};
 	const before = db.transaction(read);
@@ -354,7 +356,13 @@ export async function rewindUnpublishedMigrationSources(input: {
 	requireRewind(
 		restored.every(
 			(row) => !row.document_id || !ids.includes(row.document_id),
-		) && matchPriorMigrationObservations(saved.published, restored, true),
+		) &&
+			matchPriorMigrationRepresentation(
+				saved.published,
+				restored,
+				true,
+				holdConflict ? undefined : saved.protected,
+			),
 	);
 	guard();
 	const prepared = await prepareMemoryMigration(
