@@ -7,9 +7,9 @@ import { inspectMemoryMigration } from "./migration-progress";
 import { splitNativeNotes } from "./presentation";
 import {
 	admittedNativeFacts,
+	approvedMigrationObservationWording,
 	readAcknowledgedFacts,
 	readPublishedMemory,
-	verifiedMigrationAuthoredWording,
 } from "./publication";
 import {
 	knownQuarantineWithdrawal,
@@ -103,37 +103,6 @@ export function reconnectVerifiedObservations(
 	)
 		return null;
 	return matched;
-}
-
-export function approvedMigrationObservationWording(
-	tx: Tx,
-	userId: string,
-	bankId: string,
-	prior: PublishedRow[],
-) {
-	const admitted = new Map(
-		admittedNativeFacts(userId, bankId, tx).map((f) => [f.id, f]),
-	);
-	const result = new Map<string, string>();
-	for (const old of prior) {
-		const facts = readAcknowledgedFacts(old.sourceFingerprintsJson);
-		const source = admitted.get(facts[0]?.id)?.source;
-		if (
-			!source ||
-			!facts.every(
-				(fact) =>
-					admitted.get(fact.id)?.source.id === source.id &&
-					admitted.get(fact.id)?.text === fact.text &&
-					fact.assertedAtMs === source.assertedAt.getTime(),
-			)
-		)
-			continue;
-		const sourceFacts = readAcknowledgedFacts(source.acknowledgedFactsJson);
-		if (sourceFacts.length !== facts.length) continue;
-		const text = verifiedMigrationAuthoredWording(tx, source);
-		if (text) result.set(old.nativeId, text);
-	}
-	return result;
 }
 
 /** A plain rewind may verify one regenerated ordinary presentation. */
@@ -379,6 +348,24 @@ function containsWithdrawnWording(
 			return withdrawn.some((fragment) => normalized.includes(fragment));
 		})
 	);
+}
+
+export function assertMigrationWithdrawalWording(
+	userId: string,
+	scopeKey: string,
+	memories: NativeMemory[],
+) {
+	const actions = unlocatedScopeActions(
+		inspectMemoryMigration(userId),
+		scopeKey,
+	);
+	if (
+		containsWithdrawnWording(
+			actions,
+			memories.map((row) => row.text),
+		)
+	)
+		throw Error("memory_migration_withdrawal_boundary");
 }
 
 export function assertDefaultHistoryWithdrawalBoundary(

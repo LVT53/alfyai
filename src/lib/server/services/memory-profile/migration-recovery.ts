@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout } from "node:timers/promises";
 import { and, eq } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
@@ -17,8 +18,8 @@ import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import {
-	approvedMigrationObservationWording,
 	assertDefaultHistoryWithdrawalBoundary,
+	assertMigrationWithdrawalWording,
 	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
 	reconnectVerifiedObservations,
@@ -30,6 +31,8 @@ import {
 } from "./migration-progress";
 import {
 	admittedNativeFacts,
+	approvedMigrationObservationWording,
+	assertCurationPublication,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
 	readPublishedMemory,
@@ -347,6 +350,35 @@ export async function recoverAcknowledgedHistoricalMigration(
 				sameState(tx);
 				const prior = readPublishedMemory(userId, bankId, undefined, tx);
 				const accepted = admittedNativeFacts(userId, bankId, tx);
+				assertCurationPublication(tx, bankId, bank.epoch);
+				const acceptedById = new Map(accepted.map((fact) => [fact.id, fact]));
+				const raw = observed.filter((row) => row.fact_type !== "observation");
+				const rawIds = new Set(raw.map((row) => row.id));
+				requireRecovery(
+					rawIds.size === raw.length &&
+						accepted.every((f) => rawIds.has(f.id)) &&
+						raw.every((row) => {
+							const a = acceptedById.get(row.id);
+							return a
+								? row.document_id === a.source.id && row.text === a.text
+								: row.document_id === selectiveRepair.sourceId;
+						}),
+				);
+				const revoked = before.revocations;
+				requireRecovery(
+					raw.every(
+						(row) =>
+							row.id === selectiveRepair.nativeFactId ||
+							!revoked.some(
+								(entry) =>
+									(entry.sourceId && entry.sourceId === row.document_id) ||
+									(entry.nativeFactId === row.id &&
+										(!entry.nativeTextHash ||
+											entry.nativeTextHash === memoryTextHash(row.text))),
+							),
+					),
+				);
+
 				const approved = approvedMigrationObservationWording(
 					tx,
 					userId,
@@ -400,6 +432,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 				const unaffected = observed.filter(
 					(row) => row.id !== target.id && row.id !== changed.id,
 				);
+				assertMigrationWithdrawalWording(userId, bank.scopeKey, unaffected);
 				const otherPrior = prior.filter((row) => row.id !== original.id);
 				requireRecovery(
 					reconnectVerifiedObservations(otherPrior, unaffected, approved),
@@ -498,7 +531,13 @@ export async function recoverAcknowledgedHistoricalMigration(
 			);
 		}
 		requireRecovery(await client.matchesArchivedFact(target));
-		await client.consolidate(guard);
+		const consolidation = await client.consolidate(guard);
+		for (;;) {
+			const { status } = await client.operation(consolidation);
+			if (status === "completed") break;
+			requireRecovery(status === "pending" || status === "processing");
+			await setTimeout(250, undefined, { signal });
+		}
 	}
 	const memories = await captureSettledNative(client, signal);
 	const raw = memories.filter((row) => row.fact_type !== "observation");

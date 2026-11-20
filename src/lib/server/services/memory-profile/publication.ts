@@ -969,18 +969,31 @@ export function curatedNativeRankKeys(
 ) {
 	const keys = new Map<string, string>();
 	if (!bank.generation) return keys;
-	const edited = new Set(
-		acceptedEditPresentations(tx, bank).map(({ row }) => row.id),
-	);
-	if (!edited.size) return keys;
+
 	const captured = publishedRowsForGeneration(
 		tx,
 		bank.id,
 		bank.epoch,
 		bank.generation,
 	);
+	const edited = new Set(
+		acceptedEditPresentations(tx, bank).map(({ row }) => row.id),
+	);
+	let authored: ReadonlyMap<string, string>;
+	try {
+		authored = approvedMigrationObservationWording(
+			tx,
+			bank.userId,
+			bank.id,
+			readPublishedMemory(bank.userId, bank.id, bank.generation, tx),
+		);
+	} catch {
+		authored = new Map();
+	}
+	if (!edited.size && !authored.size) return keys;
 	for (const { row, facts } of uniquePublishedSupport(captured)) {
-		if (!edited.has(row.id)) continue;
+		if (!edited.has(row.id) && authored.get(row.nativeId) !== row.text)
+			continue;
 		const support = nativeRankSupportKey(facts.map(({ id }) => id));
 		if (support) keys.set(support, row.nativeId);
 	}
@@ -1122,6 +1135,37 @@ export function verifiedMigrationAuthoredWording(
 	return source.text;
 }
 
+export function approvedMigrationObservationWording(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	prior: Array<typeof memoryPublishedRows.$inferSelect>,
+) {
+	const admitted = new Map(
+		admittedNativeFacts(userId, bankId, tx).map((f) => [f.id, f]),
+	);
+	const result = new Map<string, string>();
+	for (const old of prior) {
+		const facts = readAcknowledgedFacts(old.sourceFingerprintsJson);
+		const source = admitted.get(facts[0]?.id)?.source;
+		if (
+			!source ||
+			!facts.every(
+				(fact) =>
+					admitted.get(fact.id)?.source.id === source.id &&
+					admitted.get(fact.id)?.text === fact.text &&
+					fact.assertedAtMs === source.assertedAt.getTime(),
+			)
+		)
+			continue;
+		const sourceFacts = readAcknowledgedFacts(source.acknowledgedFactsJson);
+		if (sourceFacts.length !== facts.length) continue;
+		const text = verifiedMigrationAuthoredWording(tx, source);
+		if (text) result.set(old.nativeId, text);
+	}
+	return result;
+}
+
 export function publishNativeSnapshot(
 	tx: Tx,
 	input: {
@@ -1198,6 +1242,52 @@ export function publishNativeSnapshot(
 		)
 	)
 		throw Error("memory_candidate_unaccepted");
+
+	if (bank.generation) {
+		const prior = readPublishedMemory(
+			input.userId,
+			bank.id,
+			bank.generation,
+			tx,
+		);
+		const approved = approvedMigrationObservationWording(
+			tx,
+			input.userId,
+			bank.id,
+			prior,
+		);
+		for (const old of prior) {
+			const display = approved.get(old.nativeId);
+			if (!display) continue;
+			const expected = readAcknowledgedFacts(old.sourceFingerprintsJson);
+			const ids = new Set(expected.map((fact) => fact.id));
+			const candidates = input.memories.filter(
+				(row) =>
+					row.fact_type === "observation" &&
+					row.source_memory_ids?.some((id) => ids.has(id)),
+			);
+			const [candidate] = candidates;
+			if (
+				candidates.length !== 1 ||
+				candidate.source_memory_ids?.length !== ids.size ||
+				new Set(candidate.source_memory_ids).size !== ids.size ||
+				!candidate.source_memory_ids.every((id) => ids.has(id)) ||
+				expected.some(
+					(fact) =>
+						raw.get(fact.id)?.text !== fact.text ||
+						(raw.get(fact.id)?.mentioned_at ?? null) !==
+							(fact.mentionedAt ?? null) ||
+						raw.get(fact.id)?.document_id !==
+							acknowledged.get(fact.id)?.source.id,
+				)
+			)
+				throw new NativeMemoryError(
+					"memory_migration_authored_observation_changed",
+					false,
+				);
+			prepared.set(candidate.id, display);
+		}
+	}
 
 	// A complete standalone authored statement is its own approved display.
 	// Never project it onto a mixed-support or ambiguous derived observation.

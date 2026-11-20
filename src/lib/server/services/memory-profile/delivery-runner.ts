@@ -30,6 +30,7 @@ import { parseJsonRecord } from "./internal-json";
 import {
 	assertDefaultHistoryWithdrawalBoundary,
 	assertHistoryPreservesAuthoredObservations,
+	reconnectVerifiedObservations,
 } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
@@ -37,10 +38,13 @@ import {
 	settleMemoryMigration,
 } from "./migration-progress";
 import {
+	admittedNativeFacts,
+	approvedMigrationObservationWording,
 	assertCurationPublication,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
+	readPublishedMemory,
 	verifiedSourceCleanupSnapshot,
 } from "./publication";
 import {
@@ -461,7 +465,8 @@ export async function runMemoryDelivery(
 					"memory_migration_recovery_unverified",
 					false,
 				);
-			const raw = (await captureSettledNative(client, ctx.signal)).filter(
+			const replaySnapshot = await captureSettledNative(client, ctx.signal);
+			const raw = replaySnapshot.filter(
 				(fact) =>
 					fact.fact_type !== "observation" && fact.document_id === source.id,
 			);
@@ -489,6 +494,74 @@ export async function runMemoryDelivery(
 							source.acknowledgedFactsJson
 					)
 						throw Error("memory_migration_recovery_unverified");
+					if (
+						typeof migrationContext.migrationSelectiveArchivedHash === "string"
+					) {
+						const prior = readPublishedMemory(
+							row.userId,
+							bank.id,
+							undefined,
+							tx,
+						);
+						const expectedFacts = admittedNativeFacts(row.userId, bank.id, tx);
+						const rawRows = replaySnapshot.filter(
+							(fact) => fact.fact_type !== "observation",
+						);
+						if (
+							rawRows.length !== expectedFacts.length ||
+							expectedFacts.some(
+								(fact) =>
+									!rawRows.some(
+										(live) =>
+											live.id === fact.id &&
+											live.text === fact.text &&
+											live.document_id === fact.source.id,
+									),
+							)
+						)
+							throw Error("memory_migration_recovery_unverified");
+						assertDefaultHistoryWithdrawalBoundary(
+							tx,
+							row.userId,
+							bank.id,
+							bank.scopeKey,
+							replaySnapshot,
+						);
+						const prepared = reconnectVerifiedObservations(
+							prior,
+							replaySnapshot,
+							approvedMigrationObservationWording(
+								tx,
+								row.userId,
+								bank.id,
+								prior,
+							),
+						);
+						if (
+							!prepared ||
+							prepared.size !== replaySnapshot.length - rawRows.length
+						)
+							throw Error("memory_migration_recovery_unverified");
+						if (
+							prior.some(
+								(previous) =>
+									!replaySnapshot.some(
+										(next) =>
+											next.fact_type === "observation" &&
+											next.id === previous.nativeId &&
+											next.text === previous.nativeText,
+									),
+							)
+						)
+							publishNativeSnapshot(tx, {
+								userId: row.userId,
+								bankId: bank.id,
+								epoch: bank.epoch,
+								expectedRevision: bank.revision,
+								memories: replaySnapshot,
+								prepared,
+							});
+					}
 				},
 			});
 			return;

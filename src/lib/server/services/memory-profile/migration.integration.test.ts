@@ -3902,6 +3902,17 @@ it("resumes an interrupted selective archive without losing independent assertio
 		"memory_migration_recovery_unverified",
 	);
 	expect(f.archived.size).toBe(0);
+	f.facts.set("unknown-raw", {
+		id: "unknown-raw",
+		text: "Unadmitted synthetic scope",
+		bank: bank.id,
+		fact_type: "world",
+		document_id: "foreign-document",
+		consolidated_at: "2026-11-18T00:00:00Z",
+	});
+	await expect(apply()).rejects.toThrow("memory_migration_recovery_unverified");
+	expect(f.archived.size).toBe(0);
+	f.facts.delete("unknown-raw");
 	f.interruptNextArchive();
 	await expect(apply()).rejects.toThrow();
 	expect(f.archived.has(conflict)).toBe(true);
@@ -3916,6 +3927,14 @@ it("resumes an interrupted selective archive without losing independent assertio
 	);
 	expect(jobFor(old.id)?.status).toBe("failed");
 	await expect(apply()).resolves.toMatchObject({ reopened: 1, sources: 1 });
+	f.hideObservation.add(independent);
+	f.extraObservations.push({
+		id: "rekeyed-independent",
+		text: "My independent trail is Cedar.",
+		fact_type: "observation",
+		source_memory_ids: [independent],
+	});
+
 	vi.mocked(config.getConfig).mockReturnValue({
 		...config.getConfig(),
 		hindsightWorkerEnabled: true,
@@ -3931,6 +3950,58 @@ it("resumes an interrupted selective archive without losing independent assertio
 	expect(visible.map((row) => row.text).sort()).toEqual(
 		[authored, "My independent trail is Cedar."].sort(),
 	);
+	expect(visible.find((row) => row.text.includes("Cedar"))?.nativeId).toBe(
+		"rekeyed-independent",
+	);
+	migration.cutoverMemoryMigration(h.userId, manifest.id);
+	const { publishNativeSnapshot } = await import("./publication");
+	const { nativeMemoryClient } = await import("./hindsight-client");
+	const terminalBank = db
+		.select()
+		.from(s.memoryBanks)
+		.where(eq(s.memoryBanks.id, bank.id))
+		.get();
+	const account = db.select().from(s.memoryAccounts).get();
+	if (!terminalBank || !account) throw Error("test_cutover_missing");
+	const client = nativeMemoryClient(bank.id, account.tenantId);
+	const exact = await client.list();
+	const support = `${authority.id}:fact`;
+	const drifted = exact.map((r) =>
+		r.fact_type === "observation" && r.source_memory_ids?.includes(support)
+			? { ...r, source_memory_ids: [support, independent] }
+			: r,
+	);
+	expect(() =>
+		db.transaction((tx) =>
+			publishNativeSnapshot(tx, {
+				userId: h.userId,
+				bankId: bank.id,
+				epoch: bank.epoch,
+				expectedRevision: terminalBank.revision,
+				memories: drifted,
+			}),
+		),
+	).toThrow("memory_migration_authored_observation_changed");
+	expect(readPublishedMemory(h.userId, bank.id)).toEqual(visible);
+	const renamed = exact.map((r) =>
+		r.fact_type === "observation" && r.source_memory_ids?.includes(support)
+			? { ...r, id: "rekeyed-authored", text: "Rephrased native evidence." }
+			: r,
+	);
+	db.transaction((tx) =>
+		publishNativeSnapshot(tx, {
+			userId: h.userId,
+			bankId: bank.id,
+			epoch: bank.epoch,
+			expectedRevision: terminalBank.revision,
+			memories: renamed,
+		}),
+	);
+	expect(
+		readPublishedMemory(h.userId, bank.id).find(
+			(row) => row.nativeId === "rekeyed-authored",
+		)?.text,
+	).toBe(authored);
 	expect(db.select().from(s.memoryRevocations).get()).toMatchObject({
 		nativeFactId: conflict,
 	});

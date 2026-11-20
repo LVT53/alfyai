@@ -13,6 +13,7 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 const recall = vi.fn();
+const list = vi.fn();
 const wireEndpoint = "http://127.0.0.1:18890";
 let wire: typeof fetch | undefined;
 vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
@@ -37,6 +38,7 @@ vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
 				: {
 						recall: (query: string, budget: number) =>
 							recall(query, budget, signal),
+						list: () => list(),
 					},
 	};
 });
@@ -60,6 +62,7 @@ beforeEach(() => {
 		])
 		.run();
 	recall.mockRejectedValue(new Error("offline"));
+	list.mockResolvedValue([]);
 });
 afterEach(() => {
 	wire = undefined;
@@ -339,6 +342,7 @@ it.each([
 						id: personal ? "n-b1" : "n-b2",
 						text: personal ? "Personal preference" : "Project decision",
 						type: "observation",
+						source_fact_ids: [personal ? "f-b1" : "f-b2"],
 					},
 				],
 			});
@@ -387,6 +391,8 @@ it.each([
 	"hidden split",
 	"late revoke",
 	"new generation",
+	"wrong direct support",
+	"changed native raw",
 ] as const)(
 	"uses only a unique currently admitted Edit result for replacement native ranks (%s)",
 	async (mode) => {
@@ -394,9 +400,22 @@ it.each([
 		const db = drizzle(sqlite, { schema });
 		const { memoryPresentationFingerprint, memorySupportFingerprint } =
 			await import("../memory-profile/publication");
-		const facts = [{ id: "f-b1", text: "Accepted purple kayak" }];
+		const source = db.select().from(schema.memorySourceRevisions).get();
+		if (!source) throw Error("test_source_missing");
+		const timing = {
+			mentionedAt: null,
+			assertedAtMs: source.assertedAt.getTime(),
+		};
+		const facts = [{ id: "f-b1", text: "Accepted purple kayak", ...timing }];
+		db.update(schema.memoryPublishedRows)
+			.set({ sourceFingerprintsJson: JSON.stringify(facts) })
+			.run();
 		if (mode === "partial") {
-			facts.push({ id: "second", text: "A second accepted assertion" });
+			facts.push({
+				id: "second",
+				text: "A second accepted assertion",
+				...timing,
+			});
 			db.update(schema.memorySourceRevisions)
 				.set({ acknowledgedFactsJson: JSON.stringify(facts) })
 				.run();
@@ -463,6 +482,23 @@ it.each([
 				}),
 			})
 			.run();
+		list.mockResolvedValue([
+			{
+				id: "native-new-id",
+				fact_type: "observation",
+				text: "Malicious native claim and quotation",
+				source_memory_ids: ["f-b1"],
+			},
+			{
+				id: "f-b1",
+				fact_type: "world",
+				document_id: "s-b1",
+				text:
+					mode === "changed native raw"
+						? "Wrong raw text"
+						: "Accepted purple kayak",
+			},
+		]);
 		recall.mockImplementation(async () => {
 			if (mode === "late revoke")
 				db.insert(schema.memoryRevocations)
@@ -496,11 +532,18 @@ it.each([
 			}
 			return [
 				{
-					id: "native-new-id",
+					id: mode === "wrong direct support" ? "n-b1" : "native-new-id",
 					fact_type: "observation",
-					text: "Malicious native claim and quotation",
+					text:
+						mode === "wrong direct support"
+							? "Accepted purple kayak"
+							: "Malicious native claim and quotation",
 					source_memory_ids:
-						mode === "mixed" ? ["f-b1", "not-admitted"] : ["f-b1"],
+						mode === "mixed"
+							? ["f-b1", "not-admitted"]
+							: mode === "wrong direct support"
+								? ["wrong-raw"]
+								: ["f-b1"],
 				},
 			];
 		});
