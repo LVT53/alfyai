@@ -185,6 +185,8 @@ export async function recoverAcknowledgedHistoricalMigration(
 					selectiveMarker.sourceId === selectiveRepair.sourceId &&
 					selectiveMarker.nativeFactId === selectiveRepair.nativeFactId &&
 					selectiveMarker.snapshotHash === selectiveRepair.snapshotHash &&
+					typeof selectiveMarker.authoredSourceId === "string" &&
+					typeof selectiveMarker.authoredObservationId === "string" &&
 					typeof selectiveMarker.targetTextHash === "string" &&
 					typeof selectiveMarker.rawAfterHash === "string" &&
 					typeof selectiveMarker.independentAfterHash === "string",
@@ -429,13 +431,30 @@ export async function recoverAcknowledgedHistoricalMigration(
 									before.entries[0].source.assertedAt.getTime(),
 						),
 				);
+				const authoredSourceId = acceptedById.get(supported[0].id)?.source.id;
+				requireRecovery(
+					authoredSourceId &&
+						supported.every(
+							(f) => acceptedById.get(f.id)?.source.id === authoredSourceId,
+						),
+				);
 				const unaffected = observed.filter(
 					(row) => row.id !== target.id && row.id !== changed.id,
 				);
 				assertMigrationWithdrawalWording(userId, bank.scopeKey, unaffected);
 				const otherPrior = prior.filter((row) => row.id !== original.id);
 				requireRecovery(
-					reconnectVerifiedObservations(otherPrior, unaffected, approved),
+					reconnectVerifiedObservations(
+						otherPrior,
+						unaffected,
+						approvedMigrationObservationWording(
+							tx,
+							userId,
+							bankId,
+							otherPrior,
+							true,
+						),
+					),
 				);
 				const snapshotHash = historicalMergeSnapshotHash(
 					{
@@ -454,6 +473,8 @@ export async function recoverAcknowledgedHistoricalMigration(
 				);
 				const marker = {
 					sourceId: selectiveRepair.sourceId,
+					authoredSourceId,
+					authoredObservationId: original.nativeId,
 					nativeFactId: target.id,
 					snapshotHash,
 					targetTextHash: memoryTextHash(target.text),
@@ -565,9 +586,53 @@ export async function recoverAcknowledgedHistoricalMigration(
 		);
 		const prior = readPublishedMemory(userId, bankId, undefined, tx);
 
-		const approved = selectiveRepair
-			? approvedMigrationObservationWording(tx, userId, bankId, prior)
-			: new Map<string, string>();
+		const approved = new Map<string, string>();
+		if (selectiveRepair) {
+			const marker = current.selectiveMarker;
+			requireRecovery(
+				marker &&
+					typeof marker.authoredObservationId === "string" &&
+					typeof marker.authoredSourceId === "string",
+			);
+			const scoped = approvedMigrationObservationWording(
+				tx,
+				userId,
+				bankId,
+				prior,
+				true,
+			);
+			for (const [id, text] of scoped) approved.set(id, text);
+			const ownerRow = prior.find(
+				(row) => row.nativeId === marker.authoredObservationId,
+			);
+			requireRecovery(ownerRow);
+			const owner = approvedMigrationObservationWording(tx, userId, bankId, [
+				ownerRow,
+			]).get(ownerRow.nativeId);
+			const ownerSource = assertMemorySourceCurrent(
+				tx,
+				marker.authoredSourceId,
+				userId,
+				bankId,
+			);
+			requireRecovery(
+				owner &&
+					owner === ownerSource.text &&
+					readAcknowledgedFacts(ownerRow.sourceFingerprintsJson).every(
+						(fact) => acceptedById.get(fact.id)?.source.id === ownerSource.id,
+					),
+			);
+			approved.set(ownerRow.nativeId, owner);
+			tx.update(memorySourceRevisions)
+				.set({
+					context: JSON.stringify({
+						...parseJsonRecord(ownerSource.context),
+						migrationExactWording: true,
+					}),
+				})
+				.where(eq(memorySourceRevisions.id, ownerSource.id))
+				.run();
+		}
 		const selectivePrepared = selectiveRepair
 			? reconnectVerifiedObservations(prior, memories, approved)
 			: null;

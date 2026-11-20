@@ -1393,11 +1393,13 @@ it.each([false, true])(
 								id: "renumbered-kayak",
 								text: changed ? "the kayak was green" : "green kayak",
 								type: "observation",
+								source_fact_ids: ["kayak"],
 							},
 							{
 								id: "observation-sister",
 								text: "sister bicycle",
 								type: "observation",
+								source_fact_ids: ["sister"],
 							},
 						],
 					}),
@@ -4605,6 +4607,12 @@ it.each([
 								id: "regenerated",
 								text: newer ? "blue kayak" : "green kayak",
 								type: "observation",
+								source_fact_ids:
+									kind === "newer replaces native support"
+										? ["incoming"]
+										: extraSupport
+											? ["correction", "incoming"]
+											: ["correction"],
 							},
 						],
 					}),

@@ -118,15 +118,10 @@ export async function recallMemory(
 				},
 			);
 			ranking = matches.filter((m) => m.fact_type === "observation");
-			const accepted = readPublishedMemory(userId, bank.id);
-			const byId = new Map(accepted.map((row) => [row.nativeId, row]));
-			const unmatched = ranking.filter(
-				(rank) => byId.get(rank.id)?.nativeText !== rank.text,
-			);
-			if (unmatched.length && isStillActive(db)) {
+			if (ranking.length && isStillActive(db)) {
 				const bridge = db.transaction((tx) => curatedNativeRankKeys(tx, bank));
 				if (
-					unmatched.some((rank) => {
+					ranking.some((rank) => {
 						const key = nativeRankSupportKey(rank.source_memory_ids ?? []);
 						return key && bridge.has(key);
 					})
@@ -161,74 +156,66 @@ export async function recallMemory(
 			const order = new Map<string, number>();
 			if (ranking) {
 				const byId = new Map(accepted.map((row) => [row.nativeId, row]));
-				const unresolved = ranking
-					.map((rank, index) => ({ rank, index }))
-					.filter(({ rank, index }) => {
-						const row = byId.get(rank.id);
-						const key = nativeRankSupportKey(rank.source_memory_ids ?? []);
-						if (
-							!row ||
-							row.nativeText !== rank.text ||
-							!key ||
-							key !==
-								nativeRankSupportKey(
-									readAcknowledgedFacts(row.sourceFingerprintsJson).map(
-										(fact) => fact.id,
-									),
-								)
-						)
-							return true;
-						if (!order.has(rank.id)) order.set(rank.id, index);
-						return false;
-					});
-				if (
-					unresolved.length &&
-					bank.generation &&
+				const bridge =
 					accepted[0]?.generation === bank.generation
-				) {
-					const curated = curatedNativeRankKeys(tx, bank);
-					const acceptedById = new Map(facts.map((fact) => [fact.id, fact]));
-					const counts = new Map<string, number>();
-					for (const rank of ranking)
-						for (const id of rank.source_memory_ids ?? [])
-							counts.set(id, (counts.get(id) ?? 0) + 1);
-					for (const { rank, index } of unresolved) {
-						const ids = rank.source_memory_ids ?? [];
-						if (ids.some((id) => counts.get(id) !== 1)) continue;
-						const key = nativeRankSupportKey(ids);
-						const approved = key && curated.get(key);
-						const row = approved ? byId.get(approved) : undefined;
-						const evidence = confirmedEvidence.get(bank.id);
-						const live = evidence?.get(rank.id);
-						if (
-							!row ||
-							!live ||
-							live.fact_type !== "observation" ||
-							live.text !== rank.text ||
-							nativeRankSupportKey(live.source_memory_ids ?? []) !== key ||
-							order.has(row.nativeId)
-						)
-							continue;
-						if (
-							readAcknowledgedFacts(row.sourceFingerprintsJson).every(
-								(fact) => {
-									const raw = evidence?.get(fact.id);
-									const source = acceptedById.get(fact.id)?.source;
-									return (
-										!!raw &&
-										raw.fact_type !== "observation" &&
-										!!source &&
-										raw.document_id === source.id &&
-										raw.text === fact.text &&
-										(raw.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
-										fact.assertedAtMs ===
-											(source.explicitEditAt ?? source.assertedAt).getTime()
-									);
-								},
-							)
-						)
-							order.set(row.nativeId, index);
+						? curatedNativeRankKeys(tx, bank)
+						: new Map<string, string>();
+				const bridged = new Set(bridge.values());
+				const evidence = confirmedEvidence.get(bank.id);
+				const acceptedById = new Map(facts.map((fact) => [fact.id, fact]));
+				const liveCoverage = new Map<string, number>();
+				for (const live of evidence?.values() ?? [])
+					if (live.fact_type === "observation")
+						for (const id of new Set(live.source_memory_ids ?? []))
+							liveCoverage.set(id, (liveCoverage.get(id) ?? 0) + 1);
+				for (const [index, rank] of ranking.entries()) {
+					const support = rank.source_memory_ids ?? [];
+					const key = nativeRankSupportKey(support);
+					if (!key) continue;
+					const direct = byId.get(rank.id);
+					const matchesDirect =
+						direct &&
+						direct.nativeText === rank.text &&
+						key ===
+							nativeRankSupportKey(
+								readAcknowledgedFacts(direct.sourceFingerprintsJson).map(
+									(fact) => fact.id,
+								),
+							);
+					if (matchesDirect && !bridged.has(direct.nativeId)) {
+						if (!order.has(direct.nativeId)) order.set(direct.nativeId, index);
+						continue;
 					}
+					const mapped = bridge.get(key);
+					const row = mapped ? byId.get(mapped) : undefined;
+					const live = evidence?.get(rank.id);
+					if (
+						!row ||
+						!live ||
+						live.fact_type !== "observation" ||
+						live.text !== rank.text ||
+						nativeRankSupportKey(live.source_memory_ids ?? []) !== key ||
+						order.has(row.nativeId) ||
+						support.some((id) => liveCoverage.get(id) !== 1)
+					)
+						continue;
+					if (
+						readAcknowledgedFacts(row.sourceFingerprintsJson).every((fact) => {
+							const raw = evidence?.get(fact.id);
+							const source = acceptedById.get(fact.id)?.source;
+							return (
+								!!raw &&
+								raw.fact_type !== "observation" &&
+								!!source &&
+								raw.document_id === source.id &&
+								raw.text === fact.text &&
+								(raw.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
+								fact.assertedAtMs ===
+									(source.explicitEditAt ?? source.assertedAt).getTime()
+							);
+						})
+					)
+						order.set(row.nativeId, index);
 				}
 				accepted.sort(
 					(a, b) =>

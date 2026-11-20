@@ -5,6 +5,7 @@ import {
 	memoryActions,
 	memoryBanks,
 	memoryDeliveryJobs,
+	memoryProfileItems,
 	memoryPublishedRows,
 	memoryRevocations,
 	memorySourceRevisions,
@@ -23,6 +24,7 @@ import {
 	assertMemorySourceCurrent,
 	memoryTextHash,
 } from "./revisions";
+import { parseMemoryItemMetadata } from "./types";
 export interface AcknowledgedFact {
 	id: string;
 	text: string;
@@ -986,6 +988,7 @@ export function curatedNativeRankKeys(
 			bank.userId,
 			bank.id,
 			readPublishedMemory(bank.userId, bank.id, bank.generation, tx),
+			true,
 		);
 	} catch {
 		authored = new Map();
@@ -1099,9 +1102,10 @@ export function curatedObservationChanges(
 }
 
 /** Called only inside the engine's fenced synchronous write. Capturing all pages happens before this transaction. */
-export function verifiedMigrationAuthoredWording(
+function verifiedMigrationAuthoredWording(
 	tx: Tx,
 	source: typeof memorySourceRevisions.$inferSelect,
+	requiresPin: boolean,
 ) {
 	const context = parseJsonRecord(source.context);
 	if (
@@ -1112,6 +1116,27 @@ export function verifiedMigrationAuthoredWording(
 		context.migrationAuthoredId !== source.lineageId
 	)
 		return undefined;
+	if (
+		requiresPin &&
+		context.migrationExactWording !== true &&
+		typeof context.legacyReviewResolutionId !== "string"
+	) {
+		const item =
+			typeof context.legacyItemId === "string"
+				? tx
+						.select({ metadata: memoryProfileItems.metadataJson })
+						.from(memoryProfileItems)
+						.where(
+							and(
+								eq(memoryProfileItems.userId, source.userId),
+								eq(memoryProfileItems.id, context.legacyItemId),
+							),
+						)
+						.get()
+				: undefined;
+		if (parseMemoryItemMetadata(item?.metadata).reviewResolution !== "edited")
+			return undefined;
+	}
 	const action = tx
 		.select({ id: memoryActions.id })
 		.from(memoryActions)
@@ -1140,6 +1165,7 @@ export function approvedMigrationObservationWording(
 	userId: string,
 	bankId: string,
 	prior: Array<typeof memoryPublishedRows.$inferSelect>,
+	requiresPin = false,
 ) {
 	const admitted = new Map(
 		admittedNativeFacts(userId, bankId, tx).map((f) => [f.id, f]),
@@ -1160,7 +1186,7 @@ export function approvedMigrationObservationWording(
 			continue;
 		const sourceFacts = readAcknowledgedFacts(source.acknowledgedFactsJson);
 		if (sourceFacts.length !== facts.length) continue;
-		const text = verifiedMigrationAuthoredWording(tx, source);
+		const text = verifiedMigrationAuthoredWording(tx, source, requiresPin);
 		if (text) result.set(old.nativeId, text);
 	}
 	return result;
@@ -1255,6 +1281,7 @@ export function publishNativeSnapshot(
 			input.userId,
 			bank.id,
 			prior,
+			true,
 		);
 		for (const old of prior) {
 			const display = approved.get(old.nativeId);
@@ -1316,7 +1343,7 @@ export function publishNativeSnapshot(
 			!candidate.source_memory_ids.every((id) => ids.has(id))
 		)
 			continue;
-		const wording = verifiedMigrationAuthoredWording(tx, source);
+		const wording = verifiedMigrationAuthoredWording(tx, source, true);
 		if (wording) prepared.set(candidate.id, wording);
 	}
 

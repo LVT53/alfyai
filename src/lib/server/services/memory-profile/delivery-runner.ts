@@ -535,6 +535,7 @@ export async function runMemoryDelivery(
 								row.userId,
 								bank.id,
 								prior,
+								true,
 							),
 						);
 						if (

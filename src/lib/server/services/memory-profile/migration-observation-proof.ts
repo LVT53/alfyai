@@ -219,7 +219,13 @@ export function assertHistoryPreservesAuthoredObservations(
 		!reconnectVerifiedObservations(
 			protectedRows,
 			memories,
-			approvedMigrationObservationWording(tx, userId, bankId, protectedRows),
+			approvedMigrationObservationWording(
+				tx,
+				userId,
+				bankId,
+				protectedRows,
+				true,
+			),
 		)
 	)
 		throw Error("memory_migration_authored_observation_changed");
@@ -398,7 +404,7 @@ export function assertDefaultHistoryWithdrawalBoundary(
 		!reconnectVerifiedObservations(
 			prior,
 			memories,
-			approvedMigrationObservationWording(tx, userId, bankId, prior),
+			approvedMigrationObservationWording(tx, userId, bankId, prior, true),
 		)
 	)
 		throw Error("memory_migration_withdrawal_boundary");

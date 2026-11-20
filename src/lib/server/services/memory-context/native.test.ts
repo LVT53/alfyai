@@ -393,6 +393,8 @@ it.each([
 	"new generation",
 	"wrong direct support",
 	"changed native raw",
+	"hidden native split",
+	"direct native hidden split",
 ] as const)(
 	"uses only a unique currently admitted Edit result for replacement native ranks (%s)",
 	async (mode) => {
@@ -482,11 +484,17 @@ it.each([
 				}),
 			})
 			.run();
+		const isDirect =
+			mode === "direct native hidden split" || mode === "wrong direct support";
+		const rankId = isDirect ? "n-b1" : "native-new-id";
+		const rankText = isDirect
+			? "Accepted purple kayak"
+			: "Malicious native claim and quotation";
 		list.mockResolvedValue([
 			{
-				id: "native-new-id",
+				id: rankId,
 				fact_type: "observation",
-				text: "Malicious native claim and quotation",
+				text: rankText,
 				source_memory_ids: ["f-b1"],
 			},
 			{
@@ -498,6 +506,17 @@ it.each([
 						? "Wrong raw text"
 						: "Accepted purple kayak",
 			},
+			...(mode === "hidden native split" ||
+			mode === "direct native hidden split"
+				? [
+						{
+							id: "hidden-live-split",
+							fact_type: "observation",
+							text: "New mixed evidence",
+							source_memory_ids: ["f-b1", "unknown"],
+						},
+					]
+				: []),
 		]);
 		recall.mockImplementation(async () => {
 			if (mode === "late revoke")
@@ -532,12 +551,9 @@ it.each([
 			}
 			return [
 				{
-					id: mode === "wrong direct support" ? "n-b1" : "native-new-id",
+					id: rankId,
 					fact_type: "observation",
-					text:
-						mode === "wrong direct support"
-							? "Accepted purple kayak"
-							: "Malicious native claim and quotation",
+					text: rankText,
 					source_memory_ids:
 						mode === "mixed"
 							? ["f-b1", "not-admitted"]
