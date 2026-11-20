@@ -623,11 +623,13 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 			if (source.eligibility !== "eligible") continue;
 			if (source.defaultHistory) {
 				const scopeKey = memoryScopeKey(source.scope);
-				const origin = memoryScopeAt(
-					scopeMoves.get(source.conversationId) ?? [],
-					scopeKey,
-					new Date(source.messageAt ?? source.assertedAt),
-				);
+				const origin = source.conversationId
+					? memoryScopeAt(
+							scopeMoves.get(source.conversationId) ?? [],
+							scopeKey,
+							new Date(source.messageAt ?? source.assertedAt),
+						)
+					: null;
 				if (origin !== scopeKey) {
 					source.eligibility = "held";
 					source.reason = "historical_scope_changed";
