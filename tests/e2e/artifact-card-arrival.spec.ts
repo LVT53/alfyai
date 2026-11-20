@@ -468,6 +468,37 @@ test.describe("an artifact card that arrives late", () => {
 		await expect(answer).toHaveText(AI_SMOKE_LATE_CARD_FINAL_ANSWER);
 		await expectTerminalActivityGone(page);
 		await expectBelow(card, sentences);
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		const task = card.getByRole("checkbox", { name: /^Múzeumjegyek/ });
+		const done = card.getByRole("checkbox", { name: /Asztalfoglalás/ });
+		await expect(task).toHaveCSS("appearance", "none");
+		await expect(task).not.toBeChecked();
+		await expect(done).toBeChecked();
+		await expect(done).toHaveCSS("background-image", /data:image/);
+
+		const layout = await task.evaluate((box: HTMLInputElement) => {
+			const label = box.labels?.[0];
+			const text = label?.querySelector("span");
+			if (!label || !text) throw new Error("Checklist item needs a label");
+			const boxBounds = box.getBoundingClientRect();
+			const textBounds = text.getBoundingClientRect();
+			const lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight);
+			return {
+				boxOffset: boxBounds.top + boxBounds.height / 2 - textBounds.top,
+				lineHeight,
+				textHeight: textBounds.height,
+				gap: textBounds.left - boxBounds.right,
+			};
+		});
+		expect(layout.textHeight).toBeGreaterThan(layout.lineHeight);
+		expect(Math.abs(layout.boxOffset - layout.lineHeight / 2)).toBeLessThan(2);
+		expect(layout.gap).toBeGreaterThanOrEqual(8);
+		const doneTargetHeight = await done.evaluate(
+			(box: HTMLInputElement) =>
+				box.labels?.[0]?.getBoundingClientRect().height ?? 0,
+		);
+		expect(doneTargetHeight).toBeGreaterThanOrEqual(44);
 	});
 
 	test("keeps them where they are in a long chat too, where the card used to push them out of the window", async ({

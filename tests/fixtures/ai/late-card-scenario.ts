@@ -36,8 +36,8 @@ export const AI_SMOKE_LATE_CARD_TITLE = "Hétvégi terv";
 export const AI_SMOKE_LATE_CARD_MARKDOWN = [
 	"# Hétvégi terv",
 	"",
-	"- [ ] Múzeumjegyek foglalása",
-	"- [ ] Asztalfoglalás szombat estére",
+	"- [ ] Múzeumjegyek foglalása vasárnap délelőttre, miután mindenki visszajelzett, hogy melyik időpont felel meg neki.",
+	"- [x] Asztalfoglalás szombat estére",
 	"- [ ] Esőkabát és kényelmes cipő",
 	"- [ ] Vonatjegy vasárnapra",
 	"- [ ] Pénz felváltása",
