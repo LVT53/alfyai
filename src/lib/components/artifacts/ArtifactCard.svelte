@@ -507,6 +507,7 @@ function handleOpen(): void {
 						<label class="artifact-card-tick-row">
 							<input
 								type="checkbox"
+								class="custom-checkbox"
 								checked={tickItem.done}
 								onclick={(event) => {
 									// A checkbox's native click default action flips its own
@@ -731,7 +732,7 @@ function handleOpen(): void {
 					</div>
 				{/if}
 				{#if view.tickable}
-					<div class="artifact-card-body">
+					<div class="artifact-card-body artifact-card-checklist">
 						{@render tickableBlock()}
 					</div>
 				{/if}
@@ -1192,10 +1193,21 @@ function handleOpen(): void {
 		font-size: var(--text-xs);
 	}
 
+	.artifact-card-checklist {
+		gap: var(--space-sm);
+		padding-block: var(--space-sm) var(--space-md);
+	}
+
+	@container artifact-card (max-width: 26rem) {
+		.artifact-card-checklist {
+			padding-inline-start: 0.875rem;
+		}
+	}
+
 	.artifact-card-tickable {
 		display: flex;
 		flex-direction: column;
-		gap: 0.2rem;
+		gap: var(--space-xs);
 		margin: 0;
 		padding: 0;
 		list-style: none;
@@ -1203,20 +1215,26 @@ function handleOpen(): void {
 
 	.artifact-card-tick-row {
 		display: flex;
-		align-items: center;
-		gap: var(--space-xs, 0.375rem);
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding-block: var(--space-xs);
 		color: var(--text-primary);
 		font-size: var(--text-sm);
+		line-height: 1.5;
+		overflow-wrap: anywhere;
 		cursor: pointer;
 	}
 
-	/* Redesign §5.2: "checklist ticks are 44 px tall on phones" — a task's
-	   whole row (the `<label>`, not just the visual checkbox square) is the
-	   tap target, so a taller row is enough; it applies to both chrome
-	   values since they share this exact row markup. */
+	/* Centre the shared 20px checkbox against the first line of the label. */
+	.artifact-card-tick-row > input {
+		margin-block-start: max(0px, calc((1lh - 20px) / 2));
+	}
+
+	/* Keep the whole label a 44px tap target, with even padding on one-line rows. */
 	@media (max-width: 767px) {
 		.artifact-card-tick-row {
 			min-height: 44px;
+			padding-block: max(var(--space-xs), calc((44px - 1lh) / 2));
 		}
 	}
 
