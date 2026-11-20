@@ -771,6 +771,11 @@ export function resolveMemorySourceContext(
 			)
 				continue;
 			if (raw.role === "user" && raw.id !== dependency.messageId) continue;
+			if (
+				parseJsonRecord(dependency.context).migrationDefaultHistory === true &&
+				(raw.role !== "user" || dependency.state !== "accepted")
+			)
+				continue;
 			const bank = tx
 				.select()
 				.from(memoryBanks)
