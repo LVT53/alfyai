@@ -161,6 +161,7 @@ async function main() {
 					manifestId,
 					manifestHash: proof.manifestHash,
 					sourceIds: proof.sourceIds,
+					holdCorrectionConflict: proof.holdCorrectionConflict === true,
 				})),
 			};
 		} else if (mode === "authorize-review") {

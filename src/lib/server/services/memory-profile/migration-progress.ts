@@ -619,6 +619,17 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					s.eligibility = "held";
 					s.reason = "unknown_exclusion_boundary";
 				}
+		const migration = latestManifest(userId);
+		const currentCheckpoint = parseJsonRecord(
+			migration?.epoch === epoch ? migration.checkpointJson : null,
+		);
+		const authoredConflictHolds = Array.isArray(
+			currentCheckpoint.migrationCorrectionHolds,
+		)
+			? currentCheckpoint.migrationCorrectionHolds.map((entry) =>
+					parseJsonRecord(JSON.stringify(entry)),
+				)
+			: [];
 		for (const source of result.sources) {
 			if (source.eligibility !== "eligible") continue;
 			if (source.defaultHistory) {
@@ -675,6 +686,25 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					source.eligibility = "excluded";
 					source.reason = "known_withdrawal";
 				} else source.replayActionIds = plan.ids;
+			}
+			if (
+				source.eligibility === "eligible" &&
+				source.defaultHistory &&
+				authoredConflictHolds.some(
+					(hold) =>
+						hold.messageId === source.id &&
+						hold.textHash === memoryTextHash(source.text) &&
+						hold.assertedAt === source.assertedAt &&
+						hold.scopeKey === memoryScopeKey(source.scope),
+				)
+			) {
+				source.eligibility = "held";
+				source.reason = "held_conflict_with_later_correction";
+				result.exceptions.push({
+					id: `authored-conflict:${source.id}`,
+					reason: source.reason,
+					sourceIds: [source.id],
+				});
 			}
 		}
 		result.sources.sort(

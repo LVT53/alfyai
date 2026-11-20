@@ -3574,3 +3574,53 @@ it("keeps a surgical rewind bank unclaimable after its manifest reports failure"
 	expect(db.select().from(s.memoryDeliveryJobs).get()?.status).toBe("queued");
 	expect(f.fetcher).not.toHaveBeenCalled();
 });
+
+it("keeps only the exact original covered by a confirmed later correction on hold", async () => {
+	const { db, s } = await seed();
+	db.insert(s.messages)
+		.values({
+			id: "independent",
+			conversationId: "chat",
+			role: "user",
+			content: "I prefer quiet meeting rooms.",
+			createdAt: new Date("2020-03-01"),
+		})
+		.run();
+	const { inspectMemoryMigration, prepareMemoryMigration } = await import(
+		"./migration"
+	);
+	const { memoryTextHash } = await import("./revisions");
+	await prepareMemoryMigration(h.userId);
+	const manifest = db.select().from(s.memoryMigrationManifests).get();
+	if (!manifest) throw Error("seeded_migration_missing");
+	db.update(s.memoryMigrationManifests)
+		.set({
+			checkpointJson: JSON.stringify({
+				...JSON.parse(manifest.checkpointJson ?? "{}"),
+				migrationCorrectionHolds: [
+					{
+						messageId: "m",
+						textHash: memoryTextHash("My bicycle is blue. My dog is Rex."),
+						assertedAt: "2020-01-01T00:00:00.000Z",
+						scopeKey: "personal",
+					},
+				],
+			}),
+		})
+		.run();
+	const held = inspectMemoryMigration(h.userId);
+	expect(held.sources).toEqual([
+		expect.objectContaining({
+			id: "m",
+			eligibility: "held",
+			reason: "held_conflict_with_later_correction",
+		}),
+		expect.objectContaining({ id: "independent", eligibility: "eligible" }),
+	]);
+	await prepareMemoryMigration(h.userId);
+	expect(
+		inspectMemoryMigration(h.userId).sources.find((source) => source.id === "m")
+			?.eligibility,
+	).toBe("held");
+	expect(db.select().from(s.messages).all()).toHaveLength(2);
+});

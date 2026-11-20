@@ -49,6 +49,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 	bankId: string;
 	manifestHash: string;
 	sourceIds: string[];
+	holdCorrectionConflict?: boolean;
 }) {
 	const { userId, manifestId, bankId, manifestHash } = input;
 	requireRewind(
@@ -59,6 +60,8 @@ export async function rewindUnpublishedMigrationSources(input: {
 			new Set(input.sourceIds).size === input.sourceIds.length,
 	);
 	const ids = [...input.sourceIds].sort();
+	const holdConflict = input.holdCorrectionConflict === true;
+
 	const read = (tx: Tx) => {
 		const c = getConfig();
 		requireRewind(
@@ -76,7 +79,6 @@ export async function rewindUnpublishedMigrationSources(input: {
 		requireRewind(
 			manifest?.id === manifestId &&
 				manifest.epoch === a.epoch &&
-				memoryTextHash(manifest.manifestJson) === manifestHash &&
 				!verifyMemoryMigration(userId, manifestId).changed,
 		);
 		const bank = assertMemoryBankFence(tx, userId, bankId, a.epoch);
@@ -94,8 +96,13 @@ export async function rewindUnpublishedMigrationSources(input: {
 		const ongoing =
 			marker.bankId === bankId &&
 			marker.generation === bank.generation &&
-			JSON.stringify(marker.sourceIds) === JSON.stringify(ids);
+			JSON.stringify(marker.sourceIds) === JSON.stringify(ids) &&
+			(marker.holdCorrectionConflict === true) === holdConflict;
 		requireRewind(!checkpoint.migrationRewind || ongoing);
+		requireRewind(
+			memoryTextHash(manifest.manifestJson) === manifestHash ||
+				(ongoing && marker.originalManifestHash === manifestHash),
+		);
 		const jobs = tx
 			.select()
 			.from(memoryDeliveryJobs)
@@ -153,7 +160,11 @@ export async function rewindUnpublishedMigrationSources(input: {
 			const spec = inventory.sources.find((s) => s.id === source.messageId);
 			const meta = parseJsonRecord(source.context);
 			requireRewind(
-				spec?.eligibility === "eligible" &&
+				spec &&
+					(spec.eligibility === "eligible" ||
+						(ongoing &&
+							holdConflict &&
+							spec.reason === "held_conflict_with_later_correction")) &&
 					spec.defaultHistory &&
 					!spec.explicitEditAt &&
 					!spec.replayActionIds?.length &&
@@ -177,6 +188,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 			ongoing,
 			tenantId: a.tenantId,
 			entries,
+			accepted,
 			published: readPublishedMemory(userId, bankId, undefined, tx),
 		};
 	};
@@ -200,6 +212,15 @@ export async function rewindUnpublishedMigrationSources(input: {
 		);
 		const byId = new Map(memories.map((m) => [m.id, m]));
 		const contributors = new Set<string>();
+		const conflictingFacts = new Set<string>();
+		const changedObservations = new Set<string>();
+		const protectedEvidence = new Map<string, Set<string>>();
+		const admitted = new Map(
+			before.accepted.map((fact) => [fact.id, fact.source]),
+		);
+		const origins = new Map(
+			before.entries.map(({ source }) => [source.id, source]),
+		);
 		for (const prior of before.published) {
 			const live = byId.get(prior.nativeId);
 			requireRewind(live?.fact_type === "observation");
@@ -223,9 +244,77 @@ export async function rewindUnpublishedMigrationSources(input: {
 				const owner = raw.get(id)?.document_id;
 				requireRewind(owner && ids.includes(owner));
 				contributors.add(owner);
+				if (holdConflict) {
+					requireRewind(live.text !== prior.nativeText);
+					const older = origins.get(owner);
+					requireRewind(older);
+					const protectedSupport = support.flatMap((fact) => {
+						const source = admitted.get(fact.id);
+						return source &&
+							(typeof parseJsonRecord(source.context).migrationAuthoredId ===
+								"string" ||
+								source.explicitEditAt)
+							? [{ source, assertedAtMs: fact.assertedAtMs }]
+							: [];
+					});
+					requireRewind(
+						protectedSupport.length > 0 &&
+							protectedSupport.every(
+								({ source, assertedAtMs }) =>
+									source.bankId === bankId &&
+									typeof assertedAtMs === "number" &&
+									assertedAtMs > older.assertedAt.getTime(),
+							),
+					);
+					const evidence = protectedEvidence.get(owner) ?? new Set<string>();
+					for (const { source } of protectedSupport) evidence.add(source.id);
+					protectedEvidence.set(owner, evidence);
+					conflictingFacts.add(id);
+					changedObservations.add(live.id);
+				}
 			}
 		}
 		requireRewind(contributors.size === ids.length);
+		let correctionHolds: Array<{
+			messageId: string;
+			textHash: string;
+			assertedAt: string;
+			scopeKey: string;
+			protectedSourceIds: string[];
+		}> = [];
+		if (holdConflict) {
+			// A mixed source that also supports independent observations needs a
+			// different disposition. Do not hold those unrelated assertions.
+			requireRewind(
+				[...raw.values()].every(
+					(fact) =>
+						!fact.document_id ||
+						!contributors.has(fact.document_id) ||
+						conflictingFacts.has(fact.id),
+				),
+			);
+			requireRewind(
+				memories.every(
+					(row) =>
+						row.fact_type !== "observation" ||
+						changedObservations.has(row.id) ||
+						!(row.source_memory_ids ?? []).some((id) =>
+							conflictingFacts.has(id),
+						),
+				),
+			);
+			correctionHolds = before.entries.map(({ source }) => {
+				const evidence = protectedEvidence.get(source.id);
+				requireRewind(source.messageId && evidence?.size);
+				return {
+					messageId: source.messageId,
+					textHash: source.textHash,
+					assertedAt: source.assertedAt.toISOString(),
+					scopeKey: before.bank.scopeKey,
+					protectedSourceIds: [...evidence].sort(),
+				};
+			});
+		}
 		db.transaction((tx) => {
 			requireRewind(JSON.stringify(read(tx)) === JSON.stringify(before));
 			tx.update(memoryMigrationManifests)
@@ -236,6 +325,9 @@ export async function rewindUnpublishedMigrationSources(input: {
 							bankId,
 							generation: before.bank.generation,
 							sourceIds: ids,
+							originalManifestHash: manifestHash,
+							holdCorrectionConflict: holdConflict,
+							correctionHolds,
 						},
 					}),
 				})
@@ -252,10 +344,10 @@ export async function rewindUnpublishedMigrationSources(input: {
 	});
 	const saved = db.transaction(read);
 	requireRewind(saved.ongoing);
-	const guard = () =>
-		db.transaction((tx) => {
-			requireRewind(JSON.stringify(read(tx)) === JSON.stringify(saved));
-		});
+	const assertCurrent = (tx: Tx) => {
+		requireRewind(JSON.stringify(read(tx)) === JSON.stringify(saved));
+	};
+	const guard = () => db.transaction(assertCurrent);
 	for (const id of ids) await client.deleteDocument(id, guard);
 	await client.consolidate(guard);
 	const restored = await captureSettledNative(client, signal);
@@ -265,12 +357,19 @@ export async function rewindUnpublishedMigrationSources(input: {
 		) && matchPriorMigrationObservations(saved.published, restored, true),
 	);
 	guard();
-	const prepared = await prepareMemoryMigration(userId);
+	const prepared = await prepareMemoryMigration(
+		userId,
+		holdConflict ? { bankId, assertCurrent } : undefined,
+	);
 	requireRewind(prepared.id === manifestId);
 	const result = await recoverAcknowledgedHistoricalMigration({
 		userId,
 		manifestId,
 		bankId,
 	});
-	return { replacedSources: ids.length, ...result };
+	return {
+		replacedSources: holdConflict ? 0 : ids.length,
+		heldConflicts: holdConflict ? ids.length : 0,
+		...result,
+	};
 }

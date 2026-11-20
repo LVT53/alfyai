@@ -53,9 +53,13 @@ export {
 } from "./migration-progress";
 
 /** The existing delivery job owns retries/checkpoints; this snapshot only inventories intent. */
-export async function prepareMemoryMigration(userId: string) {
+export async function prepareMemoryMigration(
+	userId: string,
+	restoredCorrection?: { bankId: string; assertCurrent: (tx: Tx) => void },
+) {
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
+		restoredCorrection?.assertCurrent(tx);
 		const personalBank = ensureMemoryBank(userId, { kind: "personal" });
 		const account = tx
 			.select()
@@ -76,6 +80,42 @@ export async function prepareMemoryMigration(userId: string) {
 					),
 				)
 				.run();
+		if (restoredCorrection) {
+			const previous = latestManifest(userId);
+			const checkpoint = parseJsonRecord(previous?.checkpointJson ?? null);
+			const rewind = parseJsonRecord(
+				JSON.stringify(checkpoint.migrationRewind ?? {}),
+			);
+			if (
+				!previous ||
+				previous.epoch !== account.epoch ||
+				account.authority !== "preparing" ||
+				rewind.bankId !== restoredCorrection.bankId ||
+				!Array.isArray(rewind.correctionHolds) ||
+				!rewind.correctionHolds.length
+			)
+				throw Error("memory_migration_rewind_unverified");
+			const previousHolds = Array.isArray(checkpoint.migrationCorrectionHolds)
+				? checkpoint.migrationCorrectionHolds
+				: [];
+			const holds = [
+				...new Map(
+					[...previousHolds, ...rewind.correctionHolds].map((hold) => [
+						JSON.stringify(hold),
+						hold,
+					]),
+				).values(),
+			];
+			tx.update(memoryMigrationManifests)
+				.set({
+					checkpointJson: JSON.stringify({
+						...checkpoint,
+						migrationCorrectionHolds: holds,
+					}),
+				})
+				.where(eq(memoryMigrationManifests.id, previous.id))
+				.run();
+		}
 		const user = tx.select().from(users).where(eq(users.id, userId)).get();
 		if (!user) throw Error("memory_unauthorized");
 		const intervals = tx
