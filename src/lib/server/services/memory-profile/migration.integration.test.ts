@@ -213,6 +213,9 @@ async function nativeFixture() {
 		}
 	>();
 	const retained: string[] = [];
+	const archived = new Map(facts);
+	let interruptArchive = false;
+	const hideObservation = new Set<string>();
 	const extraObservations: Array<{
 		id: string;
 		text: string;
@@ -246,37 +249,47 @@ async function nativeFixture() {
 			else if (path.includes("/operations/")) data = { status: "completed" };
 			else if (path.includes("/memories/list")) {
 				const rows = [...facts.values()].filter((fact) => fact.bank === bank);
-				data = {
-					total:
-						rows.length +
-						extraObservations.length +
-						rows.filter(
-							(f) =>
-								!extraObservations.some((o) => o.id === `${f.id}:observation`),
-						).length,
-					offset: 0,
-					items: [
-						...rows,
-						...extraObservations,
-						...rows
-							.filter(
-								(f) =>
-									!extraObservations.some(
-										(o) => o.id === `${f.id}:observation`,
-									),
-							)
-							.map((f) => ({
-								id: `${f.id}:observation`,
-								text: f.text,
-								fact_type: "observation",
-								source_memory_ids: [f.id],
-							})),
-					],
-				};
+				const derived = rows
+					.filter(
+						(f) =>
+							!hideObservation.has(f.id) &&
+							!extraObservations.some((o) => o.id === `${f.id}:observation`),
+					)
+					.map((f) => ({
+						id: `${f.id}:observation`,
+						text: f.text,
+						fact_type: "observation",
+						source_memory_ids: [f.id],
+					}));
+				const items = [...rows, ...extraObservations, ...derived];
+				data = { total: items.length, offset: 0, items };
 			} else if (options?.method === "PATCH" && path.includes("/memories/")) {
 				const id = decodeURIComponent(path.split("/").at(-1) ?? "");
 				const f = facts.get(id);
-				if (f?.bank === bank) f.text = JSON.parse(String(options.body)).text;
+				if (f?.bank === bank) {
+					const patch = JSON.parse(String(options.body));
+					if (patch.state === "invalidated") {
+						archived.set(id, f);
+						facts.delete(id);
+						for (let i = extraObservations.length - 1; i >= 0; i--)
+							if (extraObservations[i].source_memory_ids.includes(id))
+								extraObservations.splice(i, 1);
+						if (interruptArchive) {
+							interruptArchive = false;
+							throw Error("synthetic_interruption_after_native_archive");
+						}
+					} else if (typeof patch.text === "string") f.text = patch.text;
+				}
+			} else if (path.includes("/memories/") && options?.method === "GET") {
+				const id = decodeURIComponent(path.split("/").at(-1) ?? "");
+				const archivedFact = archived.get(id);
+				if (!archivedFact || archivedFact.bank !== bank)
+					return new Response("{}", { status: 404 });
+				data = {
+					...archivedFact,
+					state: "invalidated",
+					type: archivedFact.fact_type,
+				};
 			} else if (options?.method === "DELETE" && path.includes("/documents/")) {
 				const id = decodeURIComponent(path.split("/").at(-1) ?? "");
 				for (const [key, f] of facts)
@@ -320,7 +333,18 @@ async function nativeFixture() {
 			};
 		},
 	);
-	return { facts, retained, fetcher, curationInputs, extraObservations };
+	return {
+		facts,
+		retained,
+		fetcher,
+		curationInputs,
+		extraObservations,
+		archived,
+		hideObservation,
+		interruptNextArchive: () => {
+			interruptArchive = true;
+		},
+	};
 }
 it("runs legacy exclusion through the real job engine and shared bounded curation before atomic cutover", async () => {
 	const { db, s } = await legacyItem();
@@ -3769,4 +3793,146 @@ it("publishes only the exact reviewed ordinary merge without re-retaining", asyn
 		true,
 	);
 	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
+});
+
+it("resumes an interrupted selective archive without losing independent assertions or retaining again", async () => {
+	const { db, s } = await seed();
+	db.update(s.messages).set({ content: "My radio code is OLD." }).run();
+	db.insert(s.memoryProjectionState)
+		.values({ id: "projection", userId: h.userId, resetGeneration: 0 })
+		.run();
+	const authored = "The current radio code is NEW.";
+	db.insert(s.memoryProfileItems)
+		.values({
+			id: "approved",
+			userId: h.userId,
+			projectionStateId: "projection",
+			itemKey: "correction",
+			category: "about_you",
+			scopeType: "global",
+			scopeId: "global",
+			status: "active",
+			statement: authored,
+			metadataJson: JSON.stringify({
+				origin: "user_authored",
+				reviewResolution: "edited",
+			}),
+			updatedAt: new Date("2021-01-01"),
+		})
+		.run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const manifest = await migration.prepareMemoryMigration(h.userId);
+	const { eq } = await import("drizzle-orm");
+	const { claimNext } = await import("../jobs/ledger");
+	const { runAttempt } = await import("../jobs/runner");
+	const workerId = "selective-test";
+	const claim = async (id: string) => {
+		const job = claimNext(jobs.memoryDeliveryJob, { workerId, jobId: id });
+		if (!job) throw Error("test_claim_missing");
+		await runAttempt(jobs.memoryDeliveryJob, job, { workerId });
+	};
+	const sources = db.select().from(s.memorySourceRevisions).all();
+	const [authority] = sources.filter((row) => row.messageId === null);
+	const [old] = sources.filter((row) => row.messageId === "m");
+	const jobFor = (id: string) =>
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.sourceId, id))
+			.get();
+	const authoredJob = jobFor(authority.id);
+	const oldJob = jobFor(old.id);
+	if (!authoredJob || !oldJob) throw Error("test_job_missing");
+	await claim(authoredJob.id);
+	const bank = db.select().from(s.memoryBanks).get();
+	const prior = db.select().from(s.memoryPublishedRows).get();
+	if (!bank || !prior) throw Error("test_publication_missing");
+	expect(prior.text).toBe(authored);
+	const conflict = `${old.id}:fact`;
+	const independent = `${old.id}:accompanying`;
+	f.hideObservation.add(conflict);
+	f.facts.set(independent, {
+		id: independent,
+		text: "My independent trail is Cedar.",
+		bank: old.bankId,
+		fact_type: "world",
+		document_id: old.id,
+		consolidated_at: "2026-11-18T00:00:00Z",
+	});
+	f.extraObservations.push({
+		id: prior.nativeId,
+		text: "The radio code is OLD.",
+		fact_type: "observation",
+		source_memory_ids: [`${authority.id}:fact`, conflict],
+	});
+	await claim(oldJob.id);
+	expect(jobFor(old.id)?.errorCode).toBe("memory_preparation_failed");
+	expect(
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.where(eq(s.memorySourceRevisions.id, old.id))
+			.get()?.nativeAcknowledged,
+	).toBe(true);
+	const retained = f.retained.length;
+	const config = await import("$lib/server/config-store");
+	vi.mocked(config.getConfig).mockReturnValue({
+		...config.getConfig(),
+		hindsightWorkerEnabled: false,
+		hindsightNewAccountsEnabled: false,
+	});
+	const { recoverAcknowledgedHistoricalMigration } = await import(
+		"./migration-recovery"
+	);
+	const scope = { userId: h.userId, bankId: bank.id, manifestId: manifest.id };
+	const target = { sourceId: old.id, nativeFactId: conflict };
+	const result = await recoverAcknowledgedHistoricalMigration({
+		...scope,
+		selectiveRepair: { ...target, inspectOnly: true },
+	});
+	expect(result.snapshotHash).toMatch(/^[0-9a-f]{64}$/);
+	const apply = (hash = result.snapshotHash ?? "") =>
+		recoverAcknowledgedHistoricalMigration({
+			...scope,
+			selectiveRepair: { ...target, snapshotHash: hash },
+		});
+	await expect(apply("0".repeat(64))).rejects.toThrow(
+		"memory_migration_recovery_unverified",
+	);
+	expect(f.archived.size).toBe(0);
+	f.interruptNextArchive();
+	await expect(apply()).rejects.toThrow();
+	expect(f.archived.has(conflict)).toBe(true);
+	await expect(recoverAcknowledgedHistoricalMigration(scope)).rejects.toThrow(
+		"memory_migration_recovery_unverified",
+	);
+	await expect(migration.prepareMemoryMigration(h.userId)).rejects.toThrow(
+		"memory_migration_recovery_unverified",
+	);
+	expect(db.select().from(s.memoryPublishedRows).get()?.nativeId).toBe(
+		prior.nativeId,
+	);
+	expect(jobFor(old.id)?.status).toBe("failed");
+	await expect(apply()).resolves.toMatchObject({ reopened: 1, sources: 1 });
+	vi.mocked(config.getConfig).mockReturnValue({
+		...config.getConfig(),
+		hindsightWorkerEnabled: true,
+	});
+	await claim(oldJob.id);
+	expect(jobFor(old.id)?.status).toBe("succeeded");
+	expect(f.retained.length).toBe(retained);
+	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+		true,
+	);
+	const { readPublishedMemory } = await import("./publication");
+	const visible = readPublishedMemory(h.userId, bank.id);
+	expect(visible.map((row) => row.text).sort()).toEqual(
+		[authored, "My independent trail is Cedar."].sort(),
+	);
+	expect(db.select().from(s.memoryRevocations).get()).toMatchObject({
+		nativeFactId: conflict,
+	});
+	await expect(apply()).rejects.toThrow("memory_migration_recovery_unverified");
 });

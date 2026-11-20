@@ -65,6 +65,14 @@ export async function prepareMemoryMigration(
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
 		restoredRewind?.assertCurrent(tx);
+		const pendingRepair = parseJsonRecord(
+			JSON.stringify(
+				parseJsonRecord(latestManifest(userId)?.checkpointJson ?? null)
+					.migrationRewind ?? {},
+			),
+		);
+		if (pendingRepair.selectiveRetain)
+			throw Error("memory_migration_recovery_unverified");
 		const personalBank = ensureMemoryBank(userId, { kind: "personal" });
 		const account = tx
 			.select()

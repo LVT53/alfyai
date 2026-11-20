@@ -431,11 +431,12 @@ export class HindsightClient {
 			};
 		});
 	}
-	async matchesArchivedFact(expected: {
-		id: string;
-		text: string;
-		sourceId: string;
-	}): Promise<boolean> {
+	async matchesArchivedFact(
+		expected: { id: string; sourceId: string } & (
+			| { text: string }
+			| { textHash: string }
+		),
+	): Promise<boolean> {
 		try {
 			const fact = await this.request(
 				`/memories/${encodeURIComponent(expected.id)}`,
@@ -445,7 +446,11 @@ export class HindsightClient {
 				fact.state === "invalidated" &&
 				(fact.type === "world" || fact.type === "experience") &&
 				fact.document_id === expected.sourceId &&
-				fact.text === expected.text
+				typeof fact.text === "string" &&
+				("text" in expected
+					? fact.text === expected.text
+					: createHash("sha256").update(fact.text).digest("hex") ===
+						expected.textHash)
 			);
 		} catch (error) {
 			if (

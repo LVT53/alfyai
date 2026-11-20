@@ -47,6 +47,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 			"rollback",
 			"authorize-review",
 			"recover-retained",
+			"repair-selective-retain",
 			"rewind-unpublished",
 		].includes(mode)
 	)
@@ -115,7 +116,10 @@ async function main() {
 					.length,
 				holdHistory: inventory.holdHistory,
 			};
-		} else if (mode === "recover-retained") {
+		} else if (
+			mode === "recover-retained" ||
+			mode === "repair-selective-retain"
+		) {
 			const bankId = values.get("--bank");
 			const manifestId = values.get("--manifest");
 			if (!bankId || !manifestId)
@@ -124,9 +128,13 @@ async function main() {
 				"../src/lib/server/services/memory-profile/migration-recovery"
 			);
 			const file = values.get("--authorization-file");
+			const selective = mode === "repair-selective-retain";
 			let reviewedMerge: { sourceId: string; snapshotHash: string } | undefined;
+			let selectiveRepair:
+				| { sourceId: string; nativeFactId: string; snapshotHash: string }
+				| undefined;
 			const approvedHash = values.get("--authorization-hash");
-			if (file || approvedHash) {
+			if (selective || file || approvedHash) {
 				if (
 					!file ||
 					!approvedHash ||
@@ -160,21 +168,32 @@ async function main() {
 					receipt.userId !== userId ||
 					receipt.manifestId !== manifestId ||
 					receipt.bankId !== bankId ||
-					receipt.verdict !== "clear" ||
-					receipt.verdictSource !== "local_model" ||
-					receipt.model !== "qwen3-6-27b" ||
-					receipt.checks !== 2 ||
-					receipt.policy !== "reviewed-historical-merge-v1" ||
+					(selective
+						? receipt.policy !== "selective-retain-repair-v1" ||
+							typeof receipt.nativeFactId !== "string" ||
+							!receipt.nativeFactId
+						: receipt.verdict !== "clear" ||
+							receipt.verdictSource !== "local_model" ||
+							receipt.model !== "qwen3-6-27b" ||
+							receipt.checks !== 2 ||
+							receipt.policy !== "reviewed-historical-merge-v1") ||
 					typeof receipt.sourceId !== "string" ||
 					!receipt.sourceId ||
 					typeof receipt.snapshotHash !== "string" ||
 					!/^[a-f0-9]{64}$/u.test(receipt.snapshotHash)
 				)
 					throw Error("private_merge_authorization_scope_mismatch");
-				reviewedMerge = {
-					sourceId: receipt.sourceId,
-					snapshotHash: receipt.snapshotHash,
-				};
+				if (selective)
+					selectiveRepair = {
+						sourceId: receipt.sourceId,
+						nativeFactId: receipt.nativeFactId,
+						snapshotHash: receipt.snapshotHash,
+					};
+				else
+					reviewedMerge = {
+						sourceId: receipt.sourceId,
+						snapshotHash: receipt.snapshotHash,
+					};
 			}
 
 			summary = {
@@ -184,6 +203,7 @@ async function main() {
 					manifestId,
 					bankId,
 					reviewedMerge,
+					selectiveRepair,
 				})),
 			};
 		} else if (mode === "rewind-unpublished") {

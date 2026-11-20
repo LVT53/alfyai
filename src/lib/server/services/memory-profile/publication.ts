@@ -20,6 +20,7 @@ import {
 	assertMemoryBankAccess,
 	assertMemoryBankFence,
 	assertMemoryCurationSourceCurrent,
+	assertMemorySourceCurrent,
 	memoryTextHash,
 } from "./revisions";
 export interface AcknowledgedFact {
@@ -1085,6 +1086,42 @@ export function curatedObservationChanges(
 }
 
 /** Called only inside the engine's fenced synchronous write. Capturing all pages happens before this transaction. */
+export function verifiedMigrationAuthoredWording(
+	tx: Tx,
+	source: typeof memorySourceRevisions.$inferSelect,
+) {
+	const context = parseJsonRecord(source.context);
+	if (
+		source.messageId ||
+		source.predecessorSourceId ||
+		source.explicitEditAt ||
+		typeof context.migrationAuthoredId !== "string" ||
+		context.migrationAuthoredId !== source.lineageId
+	)
+		return undefined;
+	const action = tx
+		.select({ id: memoryActions.id })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, source.userId),
+				eq(memoryActions.bankId, source.bankId),
+				eq(memoryActions.epoch, source.epoch),
+				inArray(memoryActions.kind, [
+					"edit",
+					"remove",
+					"migration_edit",
+					"migration_remove",
+				]),
+				sql`exists (select 1 from json_each(${memoryActions.intentJson}, '$.sourceIds') where value = ${source.id})`,
+			),
+		)
+		.get();
+	if (action) return undefined;
+	assertMemorySourceCurrent(tx, source.id, source.userId, source.bankId);
+	return source.text;
+}
+
 export function publishNativeSnapshot(
 	tx: Tx,
 	input: {
@@ -1100,7 +1137,9 @@ export function publishNativeSnapshot(
 		verifiedCuratedDiff?: { sourceId: string; proofs: ReadonlySet<string> };
 	},
 ) {
-	const prepared = input.prepared ?? prepareNativeSnapshot(input.memories);
+	const prepared = new Map(
+		input.prepared ?? prepareNativeSnapshot(input.memories),
+	);
 	const bank = assertMemoryBankFence(
 		tx,
 		input.userId,
@@ -1142,6 +1181,55 @@ export function publishNativeSnapshot(
 			.filter((m) => m.fact_type !== "observation")
 			.map((m) => [m.id, m]),
 	);
+	const selectivelyArchived = new Map(
+		sources.flatMap((source) => {
+			const hash = parseJsonRecord(
+				source.context,
+			).migrationSelectiveArchivedHash;
+			return typeof hash === "string" ? [[source.id, hash] as const] : [];
+		}),
+	);
+	if (
+		selectivelyArchived.size &&
+		[...raw.values()].some(
+			(fact) =>
+				fact.document_id &&
+				selectivelyArchived.get(fact.document_id) === memoryTextHash(fact.text),
+		)
+	)
+		throw Error("memory_candidate_unaccepted");
+
+	// A complete standalone authored statement is its own approved display.
+	// Never project it onto a mixed-support or ambiguous derived observation.
+	for (const source of sources) {
+		const facts = readAcknowledgedFacts(source.acknowledgedFactsJson);
+		const ids = new Set(facts.map((fact) => fact.id));
+		if (!ids.size || ids.size !== facts.length) continue;
+		if (
+			facts.some(
+				(fact) =>
+					raw.get(fact.id)?.document_id !== source.id ||
+					raw.get(fact.id)?.text !== fact.text,
+			)
+		)
+			continue;
+		const candidates = input.memories.filter(
+			(row) =>
+				row.fact_type === "observation" &&
+				row.source_memory_ids?.some((id) => ids.has(id)),
+		);
+		const [candidate] = candidates;
+		if (
+			candidates.length !== 1 ||
+			candidate.source_memory_ids?.length !== ids.size ||
+			new Set(candidate.source_memory_ids).size !== ids.size ||
+			!candidate.source_memory_ids.every((id) => ids.has(id))
+		)
+			continue;
+		const wording = verifiedMigrationAuthoredWording(tx, source);
+		if (wording) prepared.set(candidate.id, wording);
+	}
+
 	const correctionDates = new Map<string, number>();
 	const replayEdits = tx
 		.select()

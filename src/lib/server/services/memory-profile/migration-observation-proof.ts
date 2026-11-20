@@ -9,6 +9,7 @@ import {
 	admittedNativeFacts,
 	readAcknowledgedFacts,
 	readPublishedMemory,
+	verifiedMigrationAuthoredWording,
 } from "./publication";
 import {
 	knownQuarantineWithdrawal,
@@ -57,6 +58,82 @@ export function samePriorObservation(
 			}),
 		) === prior.text
 	);
+}
+
+/**
+ * Reconnect only a unique, complete support match. An ordinary observation
+ * must retain its full previous presentation. A current approved authored
+ * statement may keep its own wording above that same underlying evidence.
+ */
+export function reconnectVerifiedObservations(
+	prior: PublishedRow[],
+	memories: NativeMemory[],
+	approved: ReadonlyMap<string, string>,
+) {
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	const observations = memories.filter(
+		(row) => row.fact_type === "observation",
+	);
+	const matched = new Map<string, string>();
+	for (const old of prior) {
+		const wording = approved.get(old.nativeId);
+		const candidates = observations.filter((row) =>
+			wording
+				? sameSupport(old, row, raw)
+				: samePriorObservation(old, row, raw),
+		);
+		if (candidates.length !== 1 || matched.has(candidates[0].id)) return null;
+		matched.set(candidates[0].id, wording ?? old.text);
+	}
+	const priorRaw = new Set(
+		prior.flatMap((row) =>
+			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
+		),
+	);
+	if (
+		observations.some(
+			(row) =>
+				!matched.has(row.id) &&
+				row.source_memory_ids?.some((id) => priorRaw.has(id)),
+		)
+	)
+		return null;
+	return matched;
+}
+
+export function approvedMigrationObservationWording(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	prior: PublishedRow[],
+) {
+	const admitted = new Map(
+		admittedNativeFacts(userId, bankId, tx).map((f) => [f.id, f]),
+	);
+	const result = new Map<string, string>();
+	for (const old of prior) {
+		const facts = readAcknowledgedFacts(old.sourceFingerprintsJson);
+		const source = admitted.get(facts[0]?.id)?.source;
+		if (
+			!source ||
+			!facts.every(
+				(fact) =>
+					admitted.get(fact.id)?.source.id === source.id &&
+					admitted.get(fact.id)?.text === fact.text &&
+					fact.assertedAtMs === source.assertedAt.getTime(),
+			)
+		)
+			continue;
+		const sourceFacts = readAcknowledgedFacts(source.acknowledgedFactsJson);
+		if (sourceFacts.length !== facts.length) continue;
+		const text = verifiedMigrationAuthoredWording(tx, source);
+		if (text) result.set(old.nativeId, text);
+	}
+	return result;
 }
 
 /** A plain rewind may verify one regenerated ordinary presentation. */
@@ -169,7 +246,13 @@ export function assertHistoryPreservesAuthoredObservations(
 	memories: NativeMemory[],
 ) {
 	const protectedRows = protectedMigrationObservations(tx, userId, bankId);
-	if (!matchPriorMigrationObservations(protectedRows, memories, false))
+	if (
+		!reconnectVerifiedObservations(
+			protectedRows,
+			memories,
+			approvedMigrationObservationWording(tx, userId, bankId, protectedRows),
+		)
+	)
 		throw Error("memory_migration_authored_observation_changed");
 }
 
@@ -325,7 +408,11 @@ export function assertDefaultHistoryWithdrawalBoundary(
 			actions,
 			memories.map((row) => row.text),
 		) ||
-		!matchOrdinaryMigrationCompanions(prior, prior, memories)
+		!reconnectVerifiedObservations(
+			prior,
+			memories,
+			approvedMigrationObservationWording(tx, userId, bankId, prior),
+		)
 	)
 		throw Error("memory_migration_withdrawal_boundary");
 }

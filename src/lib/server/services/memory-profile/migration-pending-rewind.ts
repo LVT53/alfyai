@@ -97,6 +97,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 		const marker = parseJsonRecord(
 			JSON.stringify(checkpoint.migrationRewind ?? {}),
 		);
+		requireRewind(!marker.selectiveRetain);
 		const ongoing =
 			marker.bankId === bankId &&
 			marker.generation === bank.generation &&

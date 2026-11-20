@@ -161,3 +161,62 @@ it("preserves the exact already-published companion under an unlocated Remove", 
 		)?.exact,
 	).toEqual([surviving]);
 });
+
+it("reconnects each exact independent observation and pins approved authored text to unique native evidence", async () => {
+	const { reconnectVerifiedObservations } = await import(
+		"./migration-observation-proof"
+	);
+	const authored = {
+		...surviving,
+		sourceFingerprintsJson: JSON.stringify([
+			{
+				id: "b",
+				text: "Approved raw",
+				mentionedAt: raw.mentioned_at,
+				assertedAtMs: 2,
+			},
+		]),
+	};
+	const approved = new Map([[authored.nativeId, "Exact human wording"]]);
+	const b = { ...raw, id: "b", text: "Approved raw" };
+	const independent = {
+		...stable,
+		id: "renumbered-independent",
+		text: ordinary.nativeText,
+	};
+	const reviewed = {
+		...successor,
+		id: "renumbered-authored",
+		source_memory_ids: ["b"],
+	};
+	const live = [raw, b, independent, reviewed];
+	expect(
+		reconnectVerifiedObservations([ordinary, authored], live, approved),
+	).toEqual(
+		new Map([
+			[independent.id, ordinary.text],
+			[reviewed.id, "Exact human wording"],
+		]),
+	);
+	expect(
+		reconnectVerifiedObservations(
+			[ordinary, authored],
+			[...live, { ...reviewed, id: "ambiguous" }],
+			approved,
+		),
+	).toBeNull();
+	expect(
+		reconnectVerifiedObservations(
+			[ordinary, authored],
+			[raw, { ...b, mentioned_at: "2025-05-01" }, independent, reviewed],
+			approved,
+		),
+	).toBeNull();
+	expect(
+		reconnectVerifiedObservations(
+			[ordinary, authored],
+			[raw, b, { ...independent, text: "Changed assertion" }, reviewed],
+			approved,
+		),
+	).toBeNull();
+});
