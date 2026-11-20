@@ -10,6 +10,10 @@ import {
 	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "./publication";
+import {
+	knownQuarantineWithdrawal,
+	normalizeQuarantineText,
+} from "./quarantine-policy";
 import { assertMemorySourceCurrent, memoryScopeKey } from "./revisions";
 
 type PublishedRow = typeof memoryPublishedRows.$inferSelect;
@@ -201,16 +205,63 @@ export function matchOrdinaryMigrationEvidence(
 	});
 }
 
+// An unlocated withdrawal permits no new representation of a dropped row's
+// raw support. Its exact, already-visible companion must still be present.
+export function matchOrdinaryMigrationCompanions(
+	prior: PublishedRow[],
+	strict: PublishedRow[],
+	memories: NativeMemory[],
+) {
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	const observations = memories.filter(
+		(row) => row.fact_type === "observation",
+	);
+	const strictIds = new Set(strict.map((row) => row.id));
+	const missing = prior.filter(
+		(row) => !observations.some((live) => samePriorObservation(row, live, raw)),
+	);
+	if (missing.some((row) => strictIds.has(row.id))) return null;
+	for (const row of missing) {
+		const ids = new Set(
+			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
+		);
+		const representations = observations.filter((live) =>
+			live.source_memory_ids?.some((id) => ids.has(id)),
+		);
+		if (
+			representations.length !== 1 ||
+			!sameSupport(row, representations[0], raw) ||
+			!prior.some(
+				(old) =>
+					old.nativeId === representations[0].id &&
+					samePriorObservation(old, representations[0], raw),
+			)
+		)
+			return null;
+	}
+	return matchPriorMigrationRepresentation(
+		prior.filter((row) => !missing.includes(row)),
+		memories,
+		true,
+	);
+}
+
 /** Only current, unedited default-history originals may use the optional rule.
  * All other evidence and anything tied to an explicit action stay exact.
  */
-export function strictOrdinaryRecoveryRows(
+export function matchApprovedOrdinaryRecovery(
 	tx: Tx,
 	userId: string,
 	bankId: string,
 	scopeKey: string,
 	prior: PublishedRow[],
+	memories: NativeMemory[],
 ) {
+	if (!matchOrdinaryMigrationEvidence(prior, memories)) return null;
 	const explicitAction = tx
 		.select({ id: memoryActions.id })
 		.from(memoryActions)
@@ -218,7 +269,8 @@ export function strictOrdinaryRecoveryRows(
 			and(eq(memoryActions.userId, userId), eq(memoryActions.bankId, bankId)),
 		)
 		.get();
-	if (explicitAction) return prior;
+	if (explicitAction)
+		return matchPriorMigrationRepresentation(prior, memories, true);
 	const inventory = inspectMemoryMigration(userId);
 	const originals = new Map(
 		inventory.sources.map((source) => [source.id, source]),
@@ -226,19 +278,44 @@ export function strictOrdinaryRecoveryRows(
 	const linked = new Set(
 		inventory.actions.flatMap((action) => action.sourceIds),
 	);
-	const unlocated = inventory.actions.some(
+	const unlocated = inventory.actions.filter(
 		(action) =>
 			action.kind !== "authored" &&
 			!action.sourceIds.length &&
 			(!action.scope || memoryScopeKey(action.scope) === scopeKey),
 	);
+	if (
+		unlocated.some(
+			(action) =>
+				action.kind !== "remove" ||
+				!action.scope ||
+				!action.before ||
+				!inventory.exceptions.some(
+					({ id, reason }) => id === action.id && reason === "missing_source",
+				),
+		)
+	)
+		return matchPriorMigrationRepresentation(prior, memories, true);
+	if (
+		unlocated.length &&
+		memories.some((row) =>
+			unlocated.some((action) =>
+				action.before.split(/\r?\n/u).some((fragment) => {
+					const withdrawn = normalizeQuarantineText(fragment);
+					return (
+						withdrawn && normalizeQuarantineText(row.text).includes(withdrawn)
+					);
+				}),
+			),
+		)
+	)
+		return null;
 	const ordinaryIds = new Set<string>();
 	for (const fact of admittedNativeFacts(userId, bankId, tx)) {
 		const source = fact.source;
 		const context = parseJsonRecord(source.context);
 		const original = originals.get(source.messageId ?? "");
 		if (
-			!unlocated &&
 			source.messageId &&
 			!source.explicitEditAt &&
 			!source.predecessorSourceId &&
@@ -250,6 +327,7 @@ export function strictOrdinaryRecoveryRows(
 			original?.defaultHistory &&
 			original.eligibility === "eligible" &&
 			!original.replayActionIds?.length &&
+			!knownQuarantineWithdrawal(inventory, original, source.text) &&
 			original.text === source.text &&
 			original.assertedAt === source.assertedAt.toISOString() &&
 			original.lineageId === source.lineageId &&
@@ -260,8 +338,11 @@ export function strictOrdinaryRecoveryRows(
 			ordinaryIds.add(fact.id);
 		}
 	}
-	return prior.filter((row) => {
+	const strict = prior.filter((row) => {
 		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
 		return !facts.length || !facts.every((fact) => ordinaryIds.has(fact.id));
 	});
+	return unlocated.length
+		? matchOrdinaryMigrationCompanions(prior, strict, memories)
+		: matchPriorMigrationRepresentation(strict, memories, true);
 }

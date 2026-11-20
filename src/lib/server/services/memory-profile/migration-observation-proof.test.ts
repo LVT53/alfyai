@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import type { memoryPublishedRows } from "$lib/server/db/schema";
 import type { NativeMemory } from "./contracts";
 import {
+	matchOrdinaryMigrationCompanions,
 	matchOrdinaryMigrationEvidence,
 	matchPriorMigrationRepresentation,
 } from "./migration-observation-proof";
@@ -123,4 +124,27 @@ it("requires every original fact after a derived observation splits", () => {
 	expect(
 		matchOrdinaryMigrationEvidence([combined], [raw, otherRaw, stable]),
 	).toBe(false);
+});
+
+it("preserves the exact already-published companion under an unlocated Remove", () => {
+	const prior = [ordinary, surviving];
+	expect(
+		matchOrdinaryMigrationCompanions(prior, [], [raw, stable])?.exact,
+	).toEqual([surviving]);
+	expect(
+		matchOrdinaryMigrationCompanions(prior, [ordinary], [raw, stable]),
+	).toBeNull();
+	expect(
+		matchOrdinaryMigrationCompanions(prior, [], [raw, successor]),
+	).toBeNull();
+	expect(
+		matchOrdinaryMigrationCompanions(prior, [], [raw, stable, successor]),
+	).toBeNull();
+	expect(
+		matchOrdinaryMigrationCompanions(
+			prior,
+			[],
+			[raw, { ...stable, id: "new-id" }],
+		),
+	).toBeNull();
 });
