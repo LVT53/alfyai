@@ -27,7 +27,10 @@ import {
 	nativeMemoryClient,
 } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
-import { assertHistoryPreservesAuthoredObservations } from "./migration-observation-proof";
+import {
+	assertDefaultHistoryWithdrawalBoundary,
+	assertHistoryPreservesAuthoredObservations,
+} from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
 	latestManifest,
@@ -746,16 +749,30 @@ export async function runMemoryDelivery(
 		await ctx.succeed({
 			apply: (tx) => {
 				const { transitions } = assertDelivery(tx, row);
-				if (
-					account?.authority === "preparing" &&
-					migrationContext.migrationDefaultHistory === true
-				)
-					assertHistoryPreservesAuthoredObservations(
-						tx,
-						row.userId,
-						row.bankId,
-						memories,
-					);
+				const defaultHistory =
+					migrationContext.migrationDefaultHistory === true;
+				if (account?.authority === "preparing") {
+					if (
+						defaultHistory ||
+						migrationContext.migration === true ||
+						typeof migrationContext.migrationAuthoredId === "string"
+					)
+						assertDefaultHistoryWithdrawalBoundary(
+							tx,
+							row.userId,
+							row.bankId,
+							bank.scopeKey,
+							memories,
+							defaultHistory,
+						);
+					if (defaultHistory)
+						assertHistoryPreservesAuthoredObservations(
+							tx,
+							row.userId,
+							row.bankId,
+							memories,
+						);
+				}
 				verifiedCuratedDiff?.assertCurrent(tx);
 				repair.assertContextCurrent?.(tx);
 				replayed.apply(tx, memories);

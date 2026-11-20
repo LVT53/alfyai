@@ -15,9 +15,8 @@ import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import { prepareMemoryMigration } from "./migration";
 import {
-	matchApprovedOrdinaryRecovery,
+	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
-	protectedMigrationObservations,
 	samePriorObservation,
 } from "./migration-observation-proof";
 import {
@@ -198,7 +197,6 @@ export async function rewindUnpublishedMigrationSources(input: {
 			entries,
 			accepted,
 			published,
-			protected: protectedMigrationObservations(tx, userId, bankId),
 		};
 	};
 	const before = db.transaction(read);
@@ -364,22 +362,18 @@ export async function rewindUnpublishedMigrationSources(input: {
 		restored.every(
 			(row) => !row.document_id || !ids.includes(row.document_id),
 		) &&
-			(allowOrdinary
-				? db.transaction((tx) =>
-						matchApprovedOrdinaryRecovery(
+			(holdConflict
+				? matchPriorMigrationRepresentation(saved.published, restored, true)
+				: db.transaction((tx) =>
+						matchPlainMigrationRewind(
 							tx,
 							userId,
 							bankId,
 							saved.bank.scopeKey,
 							saved.published,
 							restored,
+							allowOrdinary,
 						),
-					)
-				: matchPriorMigrationRepresentation(
-						saved.published,
-						restored,
-						true,
-						holdConflict ? undefined : saved.protected,
 					)),
 	);
 	guard();

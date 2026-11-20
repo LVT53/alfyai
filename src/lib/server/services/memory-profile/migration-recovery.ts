@@ -15,9 +15,9 @@ import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import {
-	matchApprovedOrdinaryRecovery,
+	assertDefaultHistoryWithdrawalBoundary,
+	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
-	protectedMigrationObservations,
 } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
@@ -252,23 +252,26 @@ export async function recoverAcknowledgedHistoricalMigration(
 			}),
 		);
 		const prior = readPublishedMemory(userId, bankId, undefined, tx);
-		const representation = ordinaryApproval
-			? matchApprovedOrdinaryRecovery(
+		if (!current.ordinaryCoverage)
+			assertDefaultHistoryWithdrawalBoundary(
+				tx,
+				userId,
+				bankId,
+				bank.scopeKey,
+				memories,
+			);
+
+		const representation = current.ordinaryCoverage
+			? matchPlainMigrationRewind(
 					tx,
 					userId,
 					bankId,
 					bank.scopeKey,
 					prior,
 					memories,
+					!!ordinaryApproval,
 				)
-			: matchPriorMigrationRepresentation(
-					prior,
-					memories,
-					current.renumbered,
-					current.ordinaryCoverage
-						? protectedMigrationObservations(tx, userId, bankId)
-						: undefined,
-				);
+			: matchPriorMigrationRepresentation(prior, memories, current.renumbered);
 		requireRecovery(representation);
 		for (const { source } of current.entries) {
 			const acknowledgements = raw

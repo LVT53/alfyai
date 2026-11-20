@@ -28,6 +28,7 @@ import {
 } from "./delivery-job";
 import { historicalMemoryExclusion } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import { assertMigratedHistoryWithdrawalBoundary } from "./migration-observation-proof";
 import {
 	inspectMemoryMigration,
 	latestManifest,
@@ -734,6 +735,11 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 			)
 		)
 			throw Error("memory_migration_not_ready");
+		assertMigratedHistoryWithdrawalBoundary(
+			tx,
+			userId,
+			banks.filter((bank) => bank.status !== "retired"),
+		);
 		tx.update(memoryAccounts)
 			.set({
 				authority: "hindsight",

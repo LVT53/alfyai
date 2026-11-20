@@ -265,18 +265,134 @@ export function matchOrdinaryMigrationCompanions(
 	);
 }
 
+function unlocatedScopeActions(
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+	scopeKey: string,
+) {
+	return inventory.actions.filter(
+		(action) =>
+			action.kind !== "authored" &&
+			!action.sourceIds.length &&
+			(!action.scope || memoryScopeKey(action.scope) === scopeKey),
+	);
+}
+
+function containsWithdrawnWording(
+	actions: ReturnType<typeof unlocatedScopeActions>,
+	texts: string[],
+) {
+	const withdrawn = actions.flatMap((action) =>
+		action.kind === "edit" || action.kind === "remove"
+			? action.before
+					.split(/\r?\n/u)
+					.map(normalizeQuarantineText)
+					.filter(Boolean)
+			: [],
+	);
+	return (
+		withdrawn.length > 0 &&
+		texts.some((text) => {
+			const normalized = normalizeQuarantineText(text);
+			return withdrawn.some((fragment) => normalized.includes(fragment));
+		})
+	);
+}
+
+export function assertDefaultHistoryWithdrawalBoundary(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	scopeKey: string,
+	memories: NativeMemory[],
+	applyingDefault = true,
+) {
+	const actions = unlocatedScopeActions(
+		inspectMemoryMigration(userId),
+		scopeKey,
+	);
+	if (!actions.length) return;
+	if (
+		!applyingDefault &&
+		!admittedNativeFacts(userId, bankId, tx).some(
+			({ source }) =>
+				parseJsonRecord(source.context).migrationDefaultHistory === true,
+		)
+	)
+		return;
+	const prior = readPublishedMemory(userId, bankId, undefined, tx);
+	if (
+		containsWithdrawnWording(
+			actions,
+			memories.map((row) => row.text),
+		) ||
+		!matchOrdinaryMigrationCompanions(prior, prior, memories)
+	)
+		throw Error("memory_migration_withdrawal_boundary");
+}
+
+export function assertMigratedHistoryWithdrawalBoundary(
+	tx: Tx,
+	userId: string,
+	banks: { id: string; scopeKey: string }[],
+) {
+	const inventory = inspectMemoryMigration(userId);
+	for (const bank of banks) {
+		const actions = unlocatedScopeActions(inventory, bank.scopeKey);
+		if (!actions.length) continue;
+		const historical = admittedNativeFacts(userId, bank.id, tx).filter(
+			({ source }) =>
+				parseJsonRecord(source.context).migrationDefaultHistory === true,
+		);
+		if (!historical.length) continue;
+		const ids = new Set(historical.map((fact) => fact.id));
+		const derived = readPublishedMemory(userId, bank.id, undefined, tx).filter(
+			(row) =>
+				readAcknowledgedFacts(row.sourceFingerprintsJson).some((fact) =>
+					ids.has(fact.id),
+				),
+		);
+		if (
+			containsWithdrawnWording(actions, [
+				...historical.map((fact) => fact.text),
+				...derived.flatMap((row) => [row.text, row.nativeText]),
+			])
+		)
+			throw Error("memory_migration_withdrawal_boundary");
+	}
+}
+
 /** Only current, unedited default-history originals may use the optional rule.
  * All other evidence and anything tied to an explicit action stay exact.
  */
-export function matchApprovedOrdinaryRecovery(
+export function matchPlainMigrationRewind(
 	tx: Tx,
 	userId: string,
 	bankId: string,
 	scopeKey: string,
 	prior: PublishedRow[],
 	memories: NativeMemory[],
+	allowOrdinary: boolean,
 ) {
+	const fallback = () =>
+		matchPriorMigrationRepresentation(
+			prior,
+			memories,
+			true,
+			allowOrdinary
+				? undefined
+				: protectedMigrationObservations(tx, userId, bankId),
+		);
+	const inventory = inspectMemoryMigration(userId);
+	const unlocated = unlocatedScopeActions(inventory, scopeKey);
+	if (!allowOrdinary && !unlocated.length) return fallback();
 	if (!matchOrdinaryMigrationEvidence(prior, memories)) return null;
+	if (
+		containsWithdrawnWording(
+			unlocated,
+			memories.map((row) => row.text),
+		)
+	)
+		return null;
 	const explicitAction = tx
 		.select({ id: memoryActions.id })
 		.from(memoryActions)
@@ -284,20 +400,11 @@ export function matchApprovedOrdinaryRecovery(
 			and(eq(memoryActions.userId, userId), eq(memoryActions.bankId, bankId)),
 		)
 		.get();
-	if (explicitAction)
-		return matchPriorMigrationRepresentation(prior, memories, true);
-	const inventory = inspectMemoryMigration(userId);
 	const originals = new Map(
 		inventory.sources.map((source) => [source.id, source]),
 	);
 	const linked = new Set(
 		inventory.actions.flatMap((action) => action.sourceIds),
-	);
-	const unlocated = inventory.actions.filter(
-		(action) =>
-			action.kind !== "authored" &&
-			!action.sourceIds.length &&
-			(!action.scope || memoryScopeKey(action.scope) === scopeKey),
 	);
 	if (
 		unlocated.some(
@@ -310,21 +417,11 @@ export function matchApprovedOrdinaryRecovery(
 				),
 		)
 	)
-		return matchPriorMigrationRepresentation(prior, memories, true);
-	if (
-		unlocated.length &&
-		memories.some((row) =>
-			unlocated.some((action) =>
-				action.before.split(/\r?\n/u).some((fragment) => {
-					const withdrawn = normalizeQuarantineText(fragment);
-					return (
-						withdrawn && normalizeQuarantineText(row.text).includes(withdrawn)
-					);
-				}),
-			),
-		)
-	)
-		return null;
+		return matchOrdinaryMigrationCompanions(prior, prior, memories);
+	if (!allowOrdinary || explicitAction)
+		return unlocated.length
+			? matchOrdinaryMigrationCompanions(prior, prior, memories)
+			: fallback();
 	const ordinaryIds = new Set<string>();
 	for (const fact of admittedNativeFacts(userId, bankId, tx)) {
 		const source = fact.source;
