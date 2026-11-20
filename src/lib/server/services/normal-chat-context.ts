@@ -287,7 +287,7 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 		// languages). Change its words only against a run like that one.
 		return [
 			"Quick mode: thinking is off for this turn. Answer directly from what you know when that is enough.",
-			"Use a tool only when the person needs an example to recognize something by sight, current or verifiable facts, their own data or connections, a pasted link, or a requested file.",
+			"Use a tool only when the person needs a visual reference to recognize, choose or make something, current or verifiable facts, their own data or connections, a pasted link, or a requested file.",
 			"When the choice is truly the user's, ask with ask_user instead of putting questions in your text, and call it before writing anything.",
 		].join(" ");
 	}

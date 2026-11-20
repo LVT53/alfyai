@@ -408,7 +408,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	image_search: {
 		description:
-			"Use supplied pictures first. Proactively find web pictures when appearance helps identify, compare or do something. Do not use for decoration, directions (map_route), personal photos (photos) or facts alone. Search, then inspect resultIds before relying on visual details. Embed helpful results as `![alt text](url)` or they are invisible. Cite sourcePageUrl.",
+			"Use supplied pictures first. Show one photo for recognition, comparison or a technique. For recipes, show the dish or a key stage (browned butter, risen dough). Do not use for facts alone, decoration, directions (map_route) or personal photos (photos). Inspect resultIds for visual details. Embed ![alt text](url) or it is invisible. Cite sourcePageUrl.",
 		errorPrefix: "Image search failed",
 	},
 	produce_file: {

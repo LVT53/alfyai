@@ -1527,7 +1527,7 @@ describe("prepareOutboundChatContext", () => {
 		it("sends a question whose choice is the person's to the card, before any text", () => {
 			const guidance = guidanceFor("off");
 			expect(guidance).toContain(
-				"Use a tool only when the person needs an example to recognize something by sight, current or verifiable facts, their own data or connections, a pasted link, or a requested file.",
+				"Use a tool only when the person needs a visual reference to recognize, choose or make something, current or verifiable facts, their own data or connections, a pasted link, or a requested file.",
 			);
 			expect(guidance).toContain(ASK_ON_QUICK);
 		});

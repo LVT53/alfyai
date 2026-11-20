@@ -34,4 +34,15 @@ export const imageSearchIntents = [
 			hu: "Mi a feketerigó tudományos neve?",
 		},
 	},
+	{
+		id: "focaccia",
+		visual: {
+			en: "I've never baked focaccia before. Can you walk me through a simple version for my first try?",
+			hu: "Még sosem sütöttem focacciát. Végigvezetnél egy egyszerű recepten, amit kezdőként is el tudok készíteni?",
+		},
+		text: {
+			en: "My focaccia recipe calls for half a kilogram of flour. How many grams is that?",
+			hu: "A focacciareceptemhez fél kiló liszt kell. Ez hány gramm?",
+		},
+	},
 ] as const;

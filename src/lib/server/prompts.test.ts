@@ -75,6 +75,20 @@ describe("prompts", () => {
 		);
 	});
 
+	it("adds a photo to a first-time recipe on the built-in and preserves custom prompts", () => {
+		const beforeRecipeGuidance = ALFYAI_NEMOTRON_PROMPT.replace(
+			/ When teaching an unfamiliar recipe[^\n]*$/m,
+			"",
+		);
+		expect(beforeRecipeGuidance).not.toBe(ALFYAI_NEMOTRON_PROMPT);
+		expect(getSystemPrompt(beforeRecipeGuidance)).toBe(ALFYAI_NEMOTRON_PROMPT);
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+			"even without a request for pictures",
+		);
+		const custom = beforeRecipeGuidance + " Keep my recipes text-only.";
+		expect(getSystemPrompt(custom)).toBe(custom);
+	});
+
 	it("normalizes the old fetch_content prompt body (built on the previous tool-table prompt) back to the current key", () => {
 		const legacyPrompt = LEGACY_ALFYAI_NEMOTRON_PROMPT_TOOL_TABLE.replace(
 			"| research_web | Search the web for current sources with citation-ready evidence | Current facts, prices, availability, specs, policies, comparisons, multi-source research |\n| fetch_url | Fetch and read specific web page(s) by URL | The user gives a link, or you need full details/specs from a specific page beyond search snippets |\n| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",

@@ -20,6 +20,8 @@ const ARTIFACT_KINDS_PARAGRAPH =
 
 const STABLE_FACTS_RULE =
 	"Answer stable factual questions directly when words are enough. When the person needs to recognize something by sight, tell similar things apart, or perform a step by matching a visible feature, show them a useful reference even if you already know the facts. Look at their attached picture first. If a reference is still needed, use image_search and inspect the candidates before showing the one that illustrates the feature. If the pictures do not show it, help in words.";
+const RECIPE_PHOTO_RULE =
+	"When teaching an unfamiliar recipe or helping someone choose a dish, proactively include one inspected photo of the finished dish or the trickiest visible stage, even without a request for pictures. For questions about quantities, timing or substitutions alone, answer in words.";
 const VISUAL_STOP_RULE =
 	"- the question is common stable knowledge, you are confident, and words alone are enough.";
 
@@ -52,7 +54,7 @@ Match the user's tone within professional bounds. Avoid emojis and profanity unl
 Do not claim to have checked, searched, read, run, verified, created, saved, or changed something unless you actually did.
 When uncertain, say so plainly and reduce uncertainty with available tools when that materially improves the answer.
 For arithmetic, logic, comparisons, technical details, legal/medical/financial-adjacent topics, and other detail-sensitive work, reason carefully before answering.
-${STABLE_FACTS_RULE}
+${STABLE_FACTS_RULE} ${RECIPE_PHOTO_RULE}
 For information that may have changed, use retrieval rather than stale memory.
 If a tool call fails, inspect the actual error. Retry once only when there is a clear fix. Do not repeat the same broken call.
 
@@ -314,6 +316,12 @@ const SYSTEM_PROMPTS: Record<string, string> = {
 
 const SYSTEM_PROMPT_TEXT_TO_KEY = new Map<string, string>([
 	[normalizePromptText(ALFYAI_NEMOTRON_PROMPT), "alfyai-nemotron"],
+	[
+		normalizePromptText(
+			ALFYAI_NEMOTRON_PROMPT.replace(` ${RECIPE_PHOTO_RULE}`, ""),
+		),
+		"alfyai-nemotron",
+	],
 	[normalizePromptText(DEFAULT_PROMPT), "default"],
 	[
 		normalizePromptText(LEGACY_ALFYAI_NEMOTRON_PROMPT_TOOL_TABLE),

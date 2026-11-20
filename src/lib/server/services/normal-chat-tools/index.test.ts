@@ -5338,7 +5338,13 @@ describe("createNormalChatTools", () => {
 			research_web: ["objective", "searchQueries", "[title](url)"],
 			fetch_url: ["objective", "[title](url)"],
 			memory_context: ["`persona`", "`history`", "`project`", "conversationId"],
-			image_search: ["![alt text](url)", "invisible"],
+			image_search: [
+				"For recipes",
+				"key stage",
+				"facts alone",
+				"![alt text](url)",
+				"invisible",
+			],
 			produce_file: ["patches", "read_generated_file", "requestTitle"],
 		};
 
