@@ -10,6 +10,7 @@ import {
 	memoryControlIntervals,
 	memoryDeliveryJobs,
 	memoryMigrationManifests,
+	memoryQuarantineSessions,
 	memoryResetGenerations,
 	memoryRevocations,
 	memorySourceRevisions,
@@ -18,6 +19,7 @@ import {
 } from "$lib/server/db/schema";
 import { cancelAll, enqueueAtomic, retry } from "../jobs";
 import type { Tx } from "../jobs/types";
+import { carryMemoryScopeMoves } from "../memory-behavior-log";
 import { HINDSIGHT_ENGINE_COMMIT } from "./contracts";
 import type { ActionIntentRecord } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
@@ -791,22 +793,22 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 		return report;
 	});
 }
-/** Fail closed if a native-era choice cannot be represented in legacy authority. Never resurrect. */
 function requireRestart(condition: unknown): asserts condition {
 	if (!condition) throw Error("memory_migration_restart_refused");
 }
 
 /**
  * Start a preparation over in a fresh epoch, history first. Only an account
- * that is still preparing qualifies: legacy Memory still serves it, so
- * nothing the person sees changes. The operator names the exact current
- * manifest by its hash. The current epoch is retired the way an erasure
- * retires one, but the reset generation is not advanced: its Hindsight banks
- * get the erasure's cleanup jobs, and its queued work is cancelled and kept
- * for the record. One new prepare then queues the account's history before
- * its authored statements, the order a single preparation uses. Statements
- * published before their older history otherwise refuse that history one
- * shape at a time. Checkpoint holds carry over to the new manifest.
+ * that is still preparing qualifies: legacy Memory still serves it. The
+ * operator names the exact current manifest by its hash. The current epoch is
+ * retired the way an erasure retires one, but the reset generation is not
+ * advanced: its Hindsight banks get cleanup jobs of their own, which the
+ * person's cleanup status leaves out and verify waits for, its chat scope
+ * history and history boundary are carried forward, and its queued work is
+ * cancelled and kept for the record. One new prepare then queues the
+ * account's history before its authored statements, the order a single
+ * preparation uses; checkpoint holds and edit exceptions keep applying.
+ * A restart that stopped after its atomic step resumes with the same receipt.
  */
 export async function restartMemoryPreparation(
 	userId: string,
@@ -814,6 +816,8 @@ export async function restartMemoryPreparation(
 ) {
 	let retiredEpoch = -1;
 	let cleanupJobs = 0;
+	let scopeMovesCarried = 0;
+	let resumed = false;
 	await enqueueAtomic(memoryDeliveryJob, (tx) => {
 		const account = tx
 			.select()
@@ -826,9 +830,6 @@ export async function restartMemoryPreparation(
 			account?.lifecycleState === "active" &&
 				account.authority === "preparing" &&
 				manifest?.id === input.manifestId &&
-				manifest.epoch === account.epoch &&
-				// Still draining, or stopped by a failed job; never once prepared.
-				(manifest.status === "preparing" || manifest.status === "failed") &&
 				/^[a-f0-9]{64}$/u.test(input.manifestHash) &&
 				createHash("sha256").update(manifest.manifestJson).digest("hex") ===
 					input.manifestHash &&
@@ -846,6 +847,25 @@ export async function restartMemoryPreparation(
 					),
 				)
 				.get(),
+		);
+		// A quarantine review's decisions live in the epoch's own bank.
+		requireRestart(
+			!tx
+				.select({ userId: memoryQuarantineSessions.userId })
+				.from(memoryQuarantineSessions)
+				.where(eq(memoryQuarantineSessions.userId, userId))
+				.get(),
+		);
+		if (manifest.status === "restarted") {
+			requireRestart(manifest.epoch === account.epoch - 1);
+			resumed = true;
+			retiredEpoch = manifest.epoch;
+			return [];
+		}
+		// Still draining, or stopped by a failed job; never once prepared.
+		requireRestart(
+			manifest.epoch === account.epoch &&
+				(manifest.status === "preparing" || manifest.status === "failed"),
 		);
 		const banks = tx
 			.select()
@@ -869,10 +889,25 @@ export async function restartMemoryPreparation(
 			)
 			.run();
 		tx.update(memoryMigrationManifests)
-			.set({ status: "restarted" })
+			.set({
+				status: "restarted",
+				checkpointJson: JSON.stringify({
+					...checkpoint,
+					historyBoundaryAt:
+						typeof checkpoint.historyBoundaryAt === "string"
+							? checkpoint.historyBoundaryAt
+							: manifest.createdAt.toISOString(),
+				}),
+			})
 			.where(eq(memoryMigrationManifests.id, manifest.id))
 			.run();
-		const cleanup = bankCleanupInputs(tx, account, banks);
+		scopeMovesCarried = carryMemoryScopeMoves(
+			tx,
+			userId,
+			account.epoch,
+			account.epoch + 1,
+		);
+		const cleanup = bankCleanupInputs(tx, account, banks, "restart-erase");
 		cleanupJobs = cleanup.length;
 		return cleanup;
 	});
@@ -883,12 +918,16 @@ export async function restartMemoryPreparation(
 	const prepared = await prepareMemoryMigration(userId);
 	return {
 		retiredEpoch,
+		resumed,
 		cleanupJobs,
+		scopeMovesCarried,
 		manifestId: prepared.id,
 		ready: prepared.ready,
+		changed: prepared.changed,
 	};
 }
 
+/** Fail closed if a native-era choice cannot be represented in legacy authority. Never resurrect. */
 export function rollbackMemoryMigration(userId: string, id: string) {
 	return db.transaction((tx) => {
 		const m = tx

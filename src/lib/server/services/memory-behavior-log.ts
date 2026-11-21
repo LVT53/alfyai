@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryEvents } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
@@ -151,6 +151,53 @@ export function recordMemoryScopeMove(
 			payloadJson: JSON.stringify({ epoch }),
 		})
 		.run();
+}
+
+/**
+ * A restarted preparation keeps the chat scope history of the epoch it
+ * retires: each move is copied forward with its own time and order, so the
+ * new epoch reads the same history. A row from an earlier release keeps a key
+ * that still marks it as one.
+ */
+export function carryMemoryScopeMoves(
+	tx: Tx,
+	userId: string,
+	fromEpoch: number,
+	toEpoch: number,
+): number {
+	const moves = tx
+		.select()
+		.from(memoryEvents)
+		.where(
+			and(
+				eq(memoryEvents.userId, userId),
+				eq(memoryEvents.eventType, "memory_scope_moved"),
+			),
+		)
+		.orderBy(sql`rowid ASC`)
+		.all();
+	let carried = 0;
+	for (const move of moves) {
+		const payload = parseJsonRecord(move.payloadJson) ?? {};
+		if (payload.epoch !== fromEpoch) continue;
+		const id = randomUUID();
+		const current = move.eventKey.startsWith(
+			scopeEventKey(userId, "memory_scope_moved:"),
+		);
+		tx.insert(memoryEvents)
+			.values({
+				...move,
+				id,
+				eventKey: scopeEventKey(
+					userId,
+					`${current ? "memory_scope_moved" : "memory_scope_moved_legacy"}:${id}`,
+				),
+				payloadJson: JSON.stringify({ ...payload, epoch: toEpoch }),
+			})
+			.run();
+		carried++;
+	}
+	return carried;
 }
 
 export async function recordMemoryBehaviorEvents(

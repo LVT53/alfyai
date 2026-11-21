@@ -4898,14 +4898,15 @@ it.each([
 	},
 );
 
-it("restarts a two-stage preparation in a fresh epoch, history first", async () => {
+/** Zsombor's shape: a statement published first, then an older chat refused. */
+async function twoStagePreparation() {
 	const { db, s } = await seed();
 	const history = "Mila, my sister in Porto, works as a ferry pilot.";
 	const authored = "My sister Mila lives in Porto.";
 	db.update(s.messages)
 		.set({ content: history, createdAt: new Date("2020-01-01") })
 		.run();
-	// A chat still queued when the restart comes, as most of Zsombor's were.
+	// An older chat a later correction holds back.
 	db.insert(s.messages)
 		.values({
 			id: "m3",
@@ -4940,6 +4941,7 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 	const { claimNext } = await import("../jobs/ledger");
 	const { runAttempt } = await import("../jobs/runner");
 	const { createHash } = await import("node:crypto");
+	const { memoryTextHash } = await import("./revisions");
 	const claim = async (id: string) => {
 		const job = claimNext(jobs.memoryDeliveryJob, {
 			workerId: "restart-test",
@@ -4958,9 +4960,7 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 	const epoch0 = db.select().from(s.memorySourceRevisions).all();
 	const [statement0] = epoch0.filter((row) => row.messageId === null);
 	const [chat0] = epoch0.filter((row) => row.messageId === "m");
-	const [waiting0] = epoch0.filter((row) => row.messageId === "m3");
-	// Two stages, as Zsombor's account ran: the statement is published first,
-	// then the older chat merges into it and is refused.
+	const [held0] = epoch0.filter((row) => row.messageId === "m3");
 	await claim(jobFor(statement0.id)?.id ?? "");
 	expect(jobFor(statement0.id)?.status).toBe("succeeded");
 	f.extraObservations.push({
@@ -4976,23 +4976,20 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 	});
 	// That native state belonged to the old bank only.
 	f.extraObservations.length = 0;
-	const oldBank = db.select().from(s.memoryBanks).get();
-	const account0 = db.select().from(s.memoryAccounts).get();
-	const manifest0 = db.select().from(s.memoryMigrationManifests).get();
-	if (!oldBank || !account0 || !manifest0) throw Error("test_state_missing");
-	const legacyBefore = db.select().from(s.memoryProfileItems).all();
-	const resetBefore = db.select().from(s.memoryResetGenerations).all();
-	const manifestHash = createHash("sha256")
-		.update(manifest0.manifestJson)
-		.digest("hex");
-	// A correction hold recorded by an earlier rewind must survive the restart.
+	// A rewind recorded a correction hold for the still-queued older chat.
+	const swim = migration
+		.inspectMemoryMigration(h.userId)
+		.sources.find(({ id }) => id === "m3");
+	if (!swim) throw Error("test_source_missing");
 	const hold = {
-		messageId: "earlier-correction-conflict",
-		textHash: "0".repeat(64),
-		assertedAt: "2019-01-01T00:00:00.000Z",
+		messageId: "m3",
+		textHash: memoryTextHash(swim.text),
+		assertedAt: swim.assertedAt,
 		scopeKey: "personal",
 		protectedSourceIds: [],
 	};
+	const manifest0 = db.select().from(s.memoryMigrationManifests).get();
+	if (!manifest0) throw Error("test_manifest_missing");
 	db.update(s.memoryMigrationManifests)
 		.set({
 			checkpointJson: JSON.stringify({
@@ -5002,35 +4999,130 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 		})
 		.where(eq(s.memoryMigrationManifests.id, first.id))
 		.run();
-	// Nothing may be running.
-	const waitingJob = jobFor(waiting0.id);
-	db.update(s.memoryDeliveryJobs)
-		.set({ status: "running" })
-		.where(eq(s.memoryDeliveryJobs.id, waitingJob?.id ?? ""))
-		.run();
-	await expect(
-		migration.restartMemoryPreparation(h.userId, {
-			manifestId: first.id,
-			manifestHash,
-		}),
-	).rejects.toThrow("memory_migration_restart_refused");
-	db.update(s.memoryDeliveryJobs)
-		.set({ status: "queued" })
-		.where(eq(s.memoryDeliveryJobs.id, waitingJob?.id ?? ""))
-		.run();
-	await expect(
-		migration.restartMemoryPreparation(h.userId, {
-			manifestId: first.id,
-			manifestHash: "0".repeat(64),
-		}),
-	).rejects.toThrow("memory_migration_restart_refused");
-	expect(db.select().from(s.memoryAccounts).get()?.epoch).toBe(0);
-
-	const restarted = await migration.restartMemoryPreparation(h.userId, {
-		manifestId: first.id,
+	const manifestHash = createHash("sha256")
+		.update(manifest0.manifestJson)
+		.digest("hex");
+	return {
+		db,
+		s,
+		f,
+		migration,
+		eq,
+		claim,
+		jobFor,
+		createHash,
+		first,
+		history,
+		statement0,
+		chat0,
+		held0,
+		hold,
 		manifestHash,
+	};
+}
+
+it("restarts a two-stage preparation in a fresh epoch, history first", async () => {
+	const t = await twoStagePreparation();
+	const { db, s, f, migration, eq, claim, jobFor, createHash } = t;
+	const oldBank = db.select().from(s.memoryBanks).get();
+	const account0 = db.select().from(s.memoryAccounts).get();
+	if (!oldBank || !account0) throw Error("test_state_missing");
+	const legacyBefore = db.select().from(s.memoryProfileItems).all();
+	const resetBefore = db.select().from(s.memoryResetGenerations).all();
+	const restart = (manifestId: string, manifestHash: string) =>
+		migration.restartMemoryPreparation(h.userId, { manifestId, manifestHash });
+	const refused = async (setup: () => void, undo: () => void) => {
+		setup();
+		await expect(restart(t.first.id, t.manifestHash)).rejects.toThrow(
+			"memory_migration_restart_refused",
+		);
+		undo();
+		expect(db.select().from(s.memoryAccounts).get()?.epoch).toBe(0);
+	};
+	await expect(restart(t.first.id, "0".repeat(64))).rejects.toThrow(
+		"memory_migration_restart_refused",
+	);
+	await expect(restart("another-manifest", t.manifestHash)).rejects.toThrow(
+		"memory_migration_restart_refused",
+	);
+	// Nothing may be running.
+	const waiting = jobFor(t.held0.id);
+	const setJob = (status: "running" | "queued") =>
+		db
+			.update(s.memoryDeliveryJobs)
+			.set({ status })
+			.where(eq(s.memoryDeliveryJobs.id, waiting?.id ?? ""))
+			.run();
+	await refused(
+		() => setJob("running"),
+		() => setJob("queued"),
+	);
+	// Not while a rewind is recorded.
+	const checkpoint = () =>
+		db
+			.select()
+			.from(s.memoryMigrationManifests)
+			.where(eq(s.memoryMigrationManifests.id, t.first.id))
+			.get()?.checkpointJson ?? "{}";
+	const saved = checkpoint();
+	const setCheckpoint = (json: string) =>
+		db
+			.update(s.memoryMigrationManifests)
+			.set({ checkpointJson: json })
+			.where(eq(s.memoryMigrationManifests.id, t.first.id))
+			.run();
+	await refused(
+		() =>
+			setCheckpoint(
+				JSON.stringify({ ...JSON.parse(saved), migrationRewind: {} }),
+			),
+		() => setCheckpoint(saved),
+	);
+	// Not for an account that is being erased.
+	const setLifecycle = (lifecycleState: string) =>
+		db
+			.update(s.memoryAccounts)
+			.set({ lifecycleState })
+			.where(eq(s.memoryAccounts.userId, h.userId))
+			.run();
+	await refused(
+		() => setLifecycle("erasing"),
+		() => setLifecycle("active"),
+	);
+	// Not while a quarantine review keeps decisions in the old bank.
+	await refused(
+		() =>
+			db
+				.insert(s.memoryQuarantineSessions)
+				.values({
+					userId: h.userId,
+					manifestId: t.first.id,
+					epoch: 0,
+					controlRevision: 0,
+					cutoff: new Date("2026-01-01"),
+					policyVersion: "synthetic",
+					cohortHash: "0".repeat(64),
+					manifestHash: t.manifestHash,
+					allowedCohortHash: "0".repeat(64),
+					deniedSourceIdsJson: "[]",
+					cohortCount: 0,
+					reviewPolicyVersion: "synthetic",
+				})
+				.run(),
+		() =>
+			db
+				.delete(s.memoryQuarantineSessions)
+				.where(eq(s.memoryQuarantineSessions.userId, h.userId))
+				.run(),
+	);
+
+	const restarted = await restart(t.first.id, t.manifestHash);
+	expect(restarted).toMatchObject({
+		retiredEpoch: 0,
+		resumed: false,
+		cleanupJobs: 1,
+		scopeMovesCarried: 0,
 	});
-	expect(restarted).toMatchObject({ retiredEpoch: 0, cleanupJobs: 1 });
 	expect(db.select().from(s.memoryAccounts).get()).toMatchObject({
 		epoch: 1,
 		authority: "preparing",
@@ -5044,9 +5136,10 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 		db
 			.select()
 			.from(s.memoryMigrationManifests)
-			.where(eq(s.memoryMigrationManifests.id, first.id))
+			.where(eq(s.memoryMigrationManifests.id, t.first.id))
 			.get()?.status,
 	).toBe("restarted");
+	// The old queue is cancelled, not run.
 	expect(
 		db
 			.select()
@@ -5056,24 +5149,21 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 			.map((j) => j.status)
 			.sort(),
 	).toEqual(["cancelled", "failed", "succeeded"]);
-	// One fresh prepare: the chats are queued before the statement.
+	// The hold still holds: the older chat gets no source in the new epoch.
 	const epoch1 = db
 		.select()
 		.from(s.memorySourceRevisions)
 		.where(eq(s.memorySourceRevisions.epoch, 1))
 		.all();
-	const [statement1] = epoch1.filter((row) => row.messageId === null);
-	const [chat1] = epoch1.filter((row) => row.messageId === "m");
-	const [waiting1] = epoch1.filter((row) => row.messageId === "m3");
-	expect(statement1.eventId).not.toBe(statement0.eventId);
-	const queued1 = db
-		.select()
-		.from(s.memoryDeliveryJobs)
-		.all()
-		.filter((j) => j.epoch === 1 && j.kind === "source")
-		.map((j) => j.sourceId);
-	expect(queued1.at(-1)).toBe(statement1.id);
-	expect(queued1.slice(0, -1).sort()).toEqual([chat1.id, waiting1.id].sort());
+	expect(epoch1.some((row) => row.messageId === "m3")).toBe(false);
+	expect(
+		migration
+			.inspectMemoryMigration(h.userId)
+			.sources.find(({ id }) => id === "m3"),
+	).toMatchObject({
+		eligibility: "held",
+		reason: "held_conflict_with_later_correction",
+	});
 	expect(
 		JSON.parse(
 			db
@@ -5082,8 +5172,45 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 				.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
 				.get()?.checkpointJson ?? "{}",
 		).migrationCorrectionHolds,
-	).toEqual([hold]);
-	// The old bank leaves Hindsight through the erasure's own cleanup job.
+	).toEqual([t.hold]);
+	// One fresh prepare: the chat is queued before the statement.
+	const [statement1] = epoch1.filter((row) => row.messageId === null);
+	const [chat1] = epoch1.filter((row) => row.messageId === "m");
+	expect(statement1.eventId).not.toBe(t.statement0.eventId);
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.all()
+			.filter((j) => j.epoch === 1 && j.kind === "source")
+			.map((j) => j.sourceId),
+	).toEqual([chat1.id, statement1.id]);
+	expect(restarted.changed).toBe(false);
+	// The person's cleanup status leaves the restart's cleanup out.
+	const controls = await import("../memory-controls");
+	expect(
+		(await controls.getNativeMemoryCleanupStatus(h.userId))
+			.nativeCleanupPending,
+	).toBe(false);
+
+	// History first: the statement then joins the chat's row.
+	await claim(jobFor(chat1.id)?.id ?? "");
+	expect(jobFor(chat1.id)?.status).toBe("succeeded");
+	const chatFact = `${chat1.id}:fact`;
+	const statementFact = `${statement1.id}:fact`;
+	f.extraObservations.push({
+		id: `${chatFact}:observation`,
+		text: t.history,
+		fact_type: "observation",
+		source_memory_ids: [chatFact, statementFact],
+	});
+	f.hideObservation.add(statementFact);
+	await claim(jobFor(statement1.id)?.id ?? "");
+	expect(jobFor(statement1.id)?.status).toBe("succeeded");
+	// Verify waits until the old bank is gone from Hindsight.
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId),
+	).toMatchObject({ ready: false, retiredCleanupPending: 1 });
 	const cleanup = db
 		.select()
 		.from(s.memoryDeliveryJobs)
@@ -5092,38 +5219,14 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 	expect(cleanup).toMatchObject({
 		userId: account0.tenantId,
 		bankId: oldBank.id,
-		requestId: `erase:${oldBank.id}`,
+		requestId: `restart-erase:${oldBank.id}`,
 		status: "queued",
 	});
 	await claim(cleanup?.id ?? "");
-	expect(
-		db
-			.select()
-			.from(s.memoryDeliveryJobs)
-			.where(eq(s.memoryDeliveryJobs.id, cleanup?.id ?? ""))
-			.get()?.status,
-	).toBe("succeeded");
 	expect(f.deletedBanks.has(oldBank.id)).toBe(true);
-
-	// History first: the statement then joins the chat's row.
-	await claim(jobFor(chat1.id)?.id ?? "");
-	expect(jobFor(chat1.id)?.status).toBe("succeeded");
-	await claim(jobFor(waiting1.id)?.id ?? "");
-	expect(jobFor(waiting1.id)?.status).toBe("succeeded");
-	const chatFact = `${chat1.id}:fact`;
-	const statementFact = `${statement1.id}:fact`;
-	f.extraObservations.push({
-		id: `${chatFact}:observation`,
-		text: history,
-		fact_type: "observation",
-		source_memory_ids: [chatFact, statementFact],
-	});
-	f.hideObservation.add(statementFact);
-	await claim(jobFor(statement1.id)?.id ?? "");
-	expect(jobFor(statement1.id)?.status).toBe("succeeded");
 	expect(
-		migration.verifyMemoryMigration(h.userId, restarted.manifestId).ready,
-	).toBe(true);
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId),
+	).toMatchObject({ ready: true, retiredCleanupPending: 0 });
 	migration.cutoverMemoryMigration(h.userId, restarted.manifestId);
 	const { recallMemory } = await import("../memory-context/native");
 	const recalled = await recallMemory(h.userId, {
@@ -5141,11 +5244,174 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 		.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
 		.get();
 	await expect(
-		migration.restartMemoryPreparation(h.userId, {
-			manifestId: restarted.manifestId,
-			manifestHash: createHash("sha256")
+		restart(
+			restarted.manifestId,
+			createHash("sha256")
 				.update(manifest1?.manifestJson ?? "")
 				.digest("hex"),
+		),
+	).rejects.toThrow("memory_migration_restart_refused");
+});
+
+it("resumes a restart that stopped after its atomic step", async () => {
+	const t = await twoStagePreparation();
+	const { db, s, migration } = t;
+	const delivery = await import("./delivery-job");
+	const spy = vi
+		.spyOn(delivery, "enqueueMemoryMutation")
+		.mockRejectedValueOnce(Error("synthetic_prepare_interrupted"));
+	await expect(
+		migration.restartMemoryPreparation(h.userId, {
+			manifestId: t.first.id,
+			manifestHash: t.manifestHash,
+		}),
+	).rejects.toThrow("synthetic_prepare_interrupted");
+	spy.mockRestore();
+	// Half done: a new epoch with no manifest yet.
+	expect(db.select().from(s.memoryAccounts).get()?.epoch).toBe(1);
+	expect(
+		db
+			.select()
+			.from(s.memoryMigrationManifests)
+			.all()
+			.map(({ epoch, status }) => ({ epoch, status })),
+	).toEqual([{ epoch: 0, status: "restarted" }]);
+	const resumed = await migration.restartMemoryPreparation(h.userId, {
+		manifestId: t.first.id,
+		manifestHash: t.manifestHash,
+	});
+	expect(resumed).toMatchObject({
+		retiredEpoch: 0,
+		resumed: true,
+		cleanupJobs: 0,
+	});
+	expect(db.select().from(s.memoryAccounts).get()?.epoch).toBe(1);
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.all()
+			.filter((j) => j.kind === "cleanup"),
+	).toHaveLength(1);
+	expect(
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.filter((row) => row.epoch === 1 && row.messageId === "m"),
+	).toHaveLength(1);
+	// Once the new epoch has its manifest, the old receipt is spent.
+	await expect(
+		migration.restartMemoryPreparation(h.userId, {
+			manifestId: t.first.id,
+			manifestHash: t.manifestHash,
 		}),
 	).rejects.toThrow("memory_migration_restart_refused");
+});
+
+it("keeps the retired epoch's chat scope history after a restart", async () => {
+	const { db, s } = await seed();
+	db.insert(s.projects)
+		.values({ id: "project", userId: h.userId, name: "Project" })
+		.run();
+	const { moveConversationToProject } = await import("../conversations");
+	await moveConversationToProject(h.userId, "chat", "project");
+	await nativeFixture();
+	const migration = await import("./migration");
+	const { createHash } = await import("node:crypto");
+	const first = await migration.prepareMemoryMigration(h.userId);
+	const held = () =>
+		migration
+			.inspectMemoryMigration(h.userId)
+			.sources.find(({ id }) => id === "m");
+	expect(held()).toMatchObject({
+		eligibility: "held",
+		reason: "historical_scope_changed",
+	});
+	const manifest = db.select().from(s.memoryMigrationManifests).get();
+	const restarted = await migration.restartMemoryPreparation(h.userId, {
+		manifestId: first.id,
+		manifestHash: createHash("sha256")
+			.update(manifest?.manifestJson ?? "")
+			.digest("hex"),
+	});
+	expect(restarted).toMatchObject({ retiredEpoch: 0, scopeMovesCarried: 1 });
+	// The chat's earlier scope still keeps its message out of the project.
+	expect(held()).toMatchObject({
+		eligibility: "held",
+		reason: "historical_scope_changed",
+	});
+	expect(
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.some((row) => row.messageId === "m"),
+	).toBe(false);
+});
+
+it("keeps the held-history boundary across a restart", async () => {
+	const { db, s } = await seed();
+	// A review-only removal with unknown provenance holds older history.
+	db.insert(s.memoryReviewItems)
+		.values({
+			id: "review",
+			userId: h.userId,
+			subjectKey: "k",
+			subjectLabel: "s",
+			question: "q",
+			reason: "r",
+			affectedItemIdsJson: '["missing"]',
+		})
+		.run();
+	db.insert(s.memoryReviewResolutions)
+		.values({
+			id: "resolution",
+			userId: h.userId,
+			reviewItemId: "review",
+			resolutionType: "do_not_remember",
+		})
+		.run();
+	await allowMigrationHistory();
+	await nativeFixture();
+	const migration = await import("./migration");
+	const { eq } = await import("drizzle-orm");
+	const { createHash } = await import("node:crypto");
+	expect(migration.inspectMemoryMigration(h.userId).holdHistory).toBe(true);
+	const first = await migration.prepareMemoryMigration(h.userId);
+	// The first preparation began two hours ago; a chat came an hour later.
+	db.update(s.memoryMigrationManifests)
+		.set({ createdAt: new Date(Date.now() - 2 * 3_600_000) })
+		.where(eq(s.memoryMigrationManifests.id, first.id))
+		.run();
+	db.insert(s.messages)
+		.values({
+			id: "later",
+			conversationId: "chat",
+			role: "user",
+			content: "I started learning the cello.",
+			createdAt: new Date(Date.now() - 3_600_000),
+		})
+		.run();
+	expect(
+		migration
+			.inspectMemoryMigration(h.userId)
+			.sources.find(({ id }) => id === "later")?.eligibility,
+	).toBe("eligible");
+	const manifest = db.select().from(s.memoryMigrationManifests).get();
+	const restarted = await migration.restartMemoryPreparation(h.userId, {
+		manifestId: first.id,
+		manifestHash: createHash("sha256")
+			.update(manifest?.manifestJson ?? "")
+			.digest("hex"),
+	});
+	// The boundary stays where the first preparation put it.
+	expect(
+		migration
+			.inspectMemoryMigration(h.userId)
+			.sources.find(({ id }) => id === "later")?.eligibility,
+	).toBe("eligible");
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId).changed,
+	).toBe(false);
 });
