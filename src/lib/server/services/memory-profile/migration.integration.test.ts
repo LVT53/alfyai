@@ -4416,3 +4416,152 @@ it.each([false, true])(
 		expect(db.select().from(s.messages).all()).toHaveLength(2);
 	},
 );
+
+it.each([
+	"accepted",
+	"pinned",
+	"companion",
+	"reworded",
+	"unrepresented",
+	"newer",
+] as const)(
+	"older history that corroborates a generated authored observation: %s",
+	async (variant) => {
+		const { db, s } = await seed();
+		const history = "Mila, my sister in Porto, works as a ferry pilot.";
+		const authored = "My sister Mila lives in Porto.";
+		db.update(s.messages)
+			.set({
+				content: history,
+				createdAt: new Date(variant === "newer" ? "2022-01-01" : "2020-01-01"),
+			})
+			.run();
+		db.insert(s.memoryProjectionState)
+			.values({ id: "projection", userId: h.userId, resetGeneration: 0 })
+			.run();
+		db.insert(s.memoryProfileItems)
+			.values({
+				id: "authored",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "sister",
+				category: "about_you",
+				scopeType: "global",
+				scopeId: "global",
+				status: "active",
+				statement: authored,
+				metadataJson: JSON.stringify({
+					origin: "user_authored",
+					...(variant === "pinned" ? { reviewResolution: "edited" } : {}),
+				}),
+				updatedAt: new Date("2021-01-01"),
+			})
+			.run();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		const manifest = await migration.prepareMemoryMigration(h.userId);
+		const { eq } = await import("drizzle-orm");
+		const { claimNext } = await import("../jobs/ledger");
+		const { runAttempt } = await import("../jobs/runner");
+		const claim = async (id: string) => {
+			const job = claimNext(jobs.memoryDeliveryJob, {
+				workerId: "corroboration-test",
+				jobId: id,
+			});
+			if (!job) throw Error("test_claim_missing");
+			await runAttempt(jobs.memoryDeliveryJob, job, {
+				workerId: "corroboration-test",
+			});
+		};
+		const sources = db.select().from(s.memorySourceRevisions).all();
+		const [authority] = sources.filter((row) => row.messageId === null);
+		const [older] = sources.filter((row) => row.messageId === "m");
+		const jobFor = (id: string) =>
+			db
+				.select()
+				.from(s.memoryDeliveryJobs)
+				.where(eq(s.memoryDeliveryJobs.sourceId, id))
+				.get();
+		const support = `${authority.id}:fact`;
+		const generated = `${support}:observation`;
+		const companion = {
+			id: "exact-companion",
+			text: "Mila is a sister of the user.",
+			fact_type: "observation" as const,
+			source_memory_ids: [support],
+		};
+		if (variant === "companion") f.extraObservations.push(companion);
+		await claim(jobFor(authority.id)?.id ?? "");
+		expect(jobFor(authority.id)?.status).toBe("succeeded");
+		if (variant === "companion")
+			db.update(s.memorySourceRevisions)
+				.set({
+					context: JSON.stringify({
+						...JSON.parse(authority.context),
+						migrationExactWording: true,
+						migrationExactWordingFamily: true,
+					}),
+				})
+				.where(eq(s.memorySourceRevisions.id, authority.id))
+				.run();
+		const { readPublishedMemory } = await import("./publication");
+		const bank = db.select().from(s.memoryBanks).get();
+		if (!bank) throw Error("test_bank_missing");
+		const before = readPublishedMemory(h.userId, bank.id);
+		const incoming = `${older.id}:fact`;
+		const target = variant === "companion" ? companion.id : generated;
+		const targetBefore = before.find((row) => row.nativeId === target);
+		if (!targetBefore) throw Error("test_target_missing");
+		if (variant === "companion")
+			companion.source_memory_ids = [support, incoming];
+		else
+			f.extraObservations.push({
+				id: generated,
+				text:
+					variant === "reworded" ? "Mila lives in Porto, Portugal." : authored,
+				fact_type: "observation",
+				source_memory_ids: [support, incoming],
+			});
+		if (variant === "unrepresented") f.hideObservation.add(incoming);
+		await claim(jobFor(older.id)?.id ?? "");
+		if (variant !== "accepted") {
+			expect(jobFor(older.id)).toMatchObject({
+				status: "failed",
+				errorCode: "memory_preparation_failed",
+			});
+			expect(readPublishedMemory(h.userId, bank.id)).toEqual(before);
+			return;
+		}
+		expect(jobFor(older.id)?.status).toBe("succeeded");
+		const after = readPublishedMemory(h.userId, bank.id);
+		const kept = after.find((row) => row.nativeId === generated);
+		expect(kept).toMatchObject({
+			text: targetBefore.text,
+			nativeText: targetBefore.nativeText,
+			updatedAt: targetBefore.updatedAt,
+		});
+		expect(JSON.parse(kept?.sourceIdsJson ?? "[]")).toEqual([
+			support,
+			incoming,
+		]);
+		const independent = after.find(
+			(row) => row.nativeId === `${incoming}:observation`,
+		);
+		expect(JSON.parse(independent?.sourceIdsJson ?? "[]")).toEqual([incoming]);
+		expect(after).toHaveLength(2);
+		expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+			true,
+		);
+		migration.cutoverMemoryMigration(h.userId, manifest.id);
+		const { recallMemory } = await import("../memory-context/native");
+		const recalled = await recallMemory(h.userId, {
+			conversationId: "chat",
+			query: "Mila",
+			tokenBudget: 4000,
+		});
+		expect(recalled.map((row) => row.ref.rowId).sort()).toEqual(
+			[generated, `${incoming}:observation`].sort(),
+		);
+	},
+);

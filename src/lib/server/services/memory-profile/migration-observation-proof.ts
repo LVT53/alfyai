@@ -4,15 +4,18 @@ import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { parseJsonRecord } from "./internal-json";
 import { inspectMemoryMigration } from "./migration-progress";
+import { splitNativeNotes } from "./presentation";
 import {
 	admittedNativeFacts,
 	approvedMigrationObservationWording,
+	approvedMigrationRankFamily,
 	matchVerifiedObservationRows,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 	reconnectVerifiedObservations,
 	samePriorObservation,
 	sameSupport,
+	verifiedMigrationAuthoredWording,
 } from "./publication";
 import {
 	knownQuarantineWithdrawal,
@@ -135,22 +138,162 @@ export function assertHistoryPreservesAuthoredObservations(
 	userId: string,
 	bankId: string,
 	memories: NativeMemory[],
+	incoming?: { sourceId: string; scopeKey: string },
 ) {
 	const protectedRows = protectedMigrationObservations(tx, userId, bankId);
+	const approved = approvedMigrationObservationWording(
+		tx,
+		userId,
+		bankId,
+		protectedRows,
+		true,
+	);
 	if (
-		!reconnectVerifiedObservations(
-			protectedRows,
-			memories,
-			approvedMigrationObservationWording(
+		reconnectVerifiedObservations(protectedRows, memories, approved) ||
+		(incoming &&
+			corroboratedAuthoredObservations(
 				tx,
-				userId,
-				bankId,
+				{ userId, bankId, ...incoming },
 				protectedRows,
-				true,
-			),
+				memories,
+				approved,
+			))
+	)
+		return;
+	throw Error("memory_migration_authored_observation_changed");
+}
+
+/** A plain authored statement: no exact pinned wording, edit, removal or family. */
+function plainAuthoredSource(
+	tx: Tx,
+	source: ReturnType<typeof admittedNativeFacts>[number]["source"],
+) {
+	const context = parseJsonRecord(source.context);
+	return (
+		context.migrationExactWording !== true &&
+		context.migrationExactWordingFamily !== true &&
+		typeof context.legacyReviewResolutionId !== "string" &&
+		verifiedMigrationAuthoredWording(tx, source, false) === source.text &&
+		verifiedMigrationAuthoredWording(tx, source, true) === undefined
+	);
+}
+
+/**
+ * Older eligible history may corroborate a generated observation of a plain
+ * authored statement without changing it. The observation keeps its native
+ * ID, wording, display, original facts and date. Every added fact comes from
+ * the incoming history source, which is older than the statement, and also
+ * supports an ordinary observation, so it stays recallable on its own. Exact
+ * edits, their companions, explicit edits and statements tied to an edit or
+ * removal stay exact. Publication keeps the observation's native support.
+ */
+function corroboratedAuthoredObservations(
+	tx: Tx,
+	input: { userId: string; bankId: string; scopeKey: string; sourceId: string },
+	protectedRows: PublishedRow[],
+	memories: NativeMemory[],
+	approved: ReadonlyMap<string, string>,
+) {
+	const { userId, bankId, scopeKey, sourceId } = input;
+	const incoming = assertMemorySourceCurrent(tx, sourceId, userId, bankId);
+	if (
+		!ordinaryMigrationSource(
+			incoming,
+			scopeKey,
+			ordinaryMigrationInventory(inspectMemoryMigration(userId)),
 		)
 	)
-		throw Error("memory_migration_authored_observation_changed");
+		return false;
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	const observations = memories.filter(
+		(row) => row.fact_type === "observation",
+	);
+	const admitted = new Map(
+		admittedNativeFacts(userId, bankId, tx).map((fact) => [fact.id, fact]),
+	);
+	const family = approvedMigrationRankFamily(
+		tx,
+		userId,
+		bankId,
+		readPublishedMemory(userId, bankId, undefined, tx),
+	);
+	const protectedFacts = new Set(
+		protectedRows.flatMap((row) =>
+			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
+		),
+	);
+	const protectedNative = new Set(protectedRows.map((row) => row.nativeId));
+	const trimmed = new Map<string, NativeMemory>();
+	for (const old of protectedRows) {
+		const live = observations.find((row) => row.id === old.nativeId);
+		if (
+			!live ||
+			samePriorObservation(old, live, raw) ||
+			approved.has(old.nativeId) ||
+			family?.rows.some((row) => row.id === old.id) ||
+			live.text !== old.nativeText
+		)
+			continue;
+		const original = readAcknowledgedFacts(old.sourceFingerprintsJson);
+		const originalIds = original.map((fact) => fact.id);
+		const support = live.source_memory_ids ?? [];
+		const added = support.filter((id) => !originalIds.includes(id));
+		if (
+			!original.length ||
+			!added.length ||
+			new Set(support).size !== support.length ||
+			!original.every((fact) => {
+				const source = admitted.get(fact.id)?.source;
+				const current = raw.get(fact.id);
+				return (
+					support.includes(fact.id) &&
+					!!source &&
+					admitted.get(fact.id)?.text === fact.text &&
+					current?.document_id === source.id &&
+					current.text === fact.text &&
+					(current.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
+					fact.assertedAtMs === source.assertedAt.getTime() &&
+					fact.assertedAtMs > incoming.assertedAt.getTime() &&
+					plainAuthoredSource(tx, source)
+				);
+			}) ||
+			!added.every(
+				(id) =>
+					raw.get(id)?.document_id === incoming.id &&
+					!admitted.has(id) &&
+					!protectedFacts.has(id) &&
+					observations.some(
+						(other) =>
+							other.id !== live.id &&
+							!protectedNative.has(other.id) &&
+							!!other.source_memory_ids?.includes(id) &&
+							other.source_memory_ids.every((x) => !protectedFacts.has(x)),
+					),
+			) ||
+			splitNativeNotes(
+				live,
+				support.flatMap((id) => {
+					const fact = raw.get(id);
+					return fact ? [fact] : [];
+				}),
+			) !== old.text
+		)
+			continue;
+		const view = { ...live, source_memory_ids: originalIds };
+		if (samePriorObservation(old, view, raw)) trimmed.set(live.id, view);
+	}
+	return (
+		trimmed.size > 0 &&
+		!!reconnectVerifiedObservations(
+			protectedRows,
+			memories.map((row) => trimmed.get(row.id) ?? row),
+			approved,
+		)
+	);
 }
 
 // Observation count and wording may change, but every prior raw fact must

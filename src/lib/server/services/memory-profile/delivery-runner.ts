@@ -845,6 +845,7 @@ export async function runMemoryDelivery(
 							row.userId,
 							row.bankId,
 							memories,
+							{ sourceId: source.id, scopeKey: bank.scopeKey },
 						);
 				}
 				verifiedCuratedDiff?.assertCurrent(tx);

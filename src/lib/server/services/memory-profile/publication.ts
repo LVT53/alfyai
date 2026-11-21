@@ -1102,7 +1102,7 @@ export function curatedObservationChanges(
 }
 
 /** Called only inside the engine's fenced synchronous write. Capturing all pages happens before this transaction. */
-function verifiedMigrationAuthoredWording(
+export function verifiedMigrationAuthoredWording(
 	tx: Tx,
 	source: typeof memorySourceRevisions.$inferSelect,
 	requiresPin: boolean,
