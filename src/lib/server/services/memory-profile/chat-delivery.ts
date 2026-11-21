@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	conversations,
@@ -421,9 +421,14 @@ export async function revokeDeletedMemoryMessages(
 		.all();
 	await revokeSourcesAndQueue(sources, options?.editSourceMessageId, true);
 }
+/**
+ * `liveOnly` revokes only sources not already revoked: a second sweep over
+ * chats a first one withdrew, which must not write each revocation again.
+ */
 export async function revokeConversationMemory(
 	userId: string,
 	conversationIds: string[],
+	options: { liveOnly?: boolean } = {},
 ): Promise<void> {
 	if (!conversationIds.length) return;
 	const sources = db
@@ -433,9 +438,13 @@ export async function revokeConversationMemory(
 			and(
 				eq(memorySourceRevisions.userId, userId),
 				inArray(memorySourceRevisions.conversationId, conversationIds),
+				options.liveOnly
+					? ne(memorySourceRevisions.state, "revoked")
+					: undefined,
 			),
 		)
 		.all();
+	if (options.liveOnly && !sources.length) return;
 	await revokeSourcesAndQueue(sources);
 }
 /** Called by the owned scope move inside the same write barrier as its row update. */

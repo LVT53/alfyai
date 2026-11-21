@@ -5957,6 +5957,31 @@ it("asks whether anything is owed with one index lookup per imported message", a
 	expect(plan.some((detail) => /^SCAN s\b/.test(detail))).toBe(false);
 }, 60_000);
 
+it("a deleted imported chat's withdrawal is written once", async () => {
+	const { db, s } = await liveNativeAccount();
+	const imported = await import("./imported-history");
+	const { deleteConversationWithCleanup } = await import(
+		"../cleanup/conversation-cleanup"
+	);
+	storedImport({ db, s });
+	expect(await imported.recordImportedHistory(h.userId)).toBe(2);
+	const taken = db
+		.select()
+		.from(s.memorySourceRevisions)
+		.all()
+		.filter((row) => row.conversationId === "older-import")
+		.map((row) => row.id);
+	await deleteConversationWithCleanup(h.userId, "older-import");
+	const revoked = db
+		.select({ sourceId: s.memoryRevocations.sourceId })
+		.from(s.memoryRevocations)
+		.all()
+		.map(({ sourceId }) => sourceId)
+		.filter((id) => id !== null && taken.includes(id))
+		.sort();
+	expect(revoked).toEqual([...taken].sort());
+}, 60_000);
+
 it("what can never be taken up costs no inventory", async () => {
 	const { db, s } = await liveNativeAccount();
 	const { eq } = await import("drizzle-orm");

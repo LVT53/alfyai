@@ -154,8 +154,8 @@ export async function deleteConversationWithCleanup(
 		);
 	// A writer that took the chat up while this delete ran (the imported-history
 	// catch-up, say) recorded its sources after the first revocation. Sources
-	// keep the chat's id, so one more sweep withdraws those too.
-	await revokeConversationMemory(userId, [conversationId]);
+	// keep the chat's id, so one more sweep withdraws those, and only those.
+	await revokeConversationMemory(userId, [conversationId], { liveOnly: true });
 
 	return {
 		deletedArtifactIds,
