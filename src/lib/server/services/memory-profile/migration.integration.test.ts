@@ -7222,6 +7222,16 @@ it("still refuses the removed statement's own wording after an approval", async 
 		displayed_before: unlocatedStatement,
 		user_saved_after: "",
 	});
+	// The final review ran and passed, so no review made this refusal.
+	expect(
+		f.curationInputs.some(
+			(input) => "displayed_observations" in (input as object),
+		),
+	).toBe(true);
+	expect(
+		JSON.parse(db.select().from(s.memoryActions).get()?.intentJson ?? "{}")
+			.meaningCheck,
+	).toEqual({ started: [], checked: [source.id] });
 	expect(db.select().from(s.memoryDeliveryJobs).get()).toMatchObject({
 		status: "failed",
 		errorCode: "memory_preparation_failed",
