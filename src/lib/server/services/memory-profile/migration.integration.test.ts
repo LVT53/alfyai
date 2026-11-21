@@ -6041,3 +6041,110 @@ it("two passes at once never record a message twice", async () => {
 			.sort(),
 	).toEqual(["I knit scarves.", "I sail on weekends."]);
 }, 60_000);
+
+it("a chat deleted and imported again is taken up at once, whatever a pass remembered", async () => {
+	const { db, s } = await liveNativeAccount();
+	const imported = await import("./imported-history");
+	const { importConversations } = await import("../chatgpt-import");
+	const { deleteConversationWithCleanup } = await import(
+		"../cleanup/conversation-cleanup"
+	);
+	// Said while Memory was off: owed, never takeable, so a whole pass remembers.
+	db.insert(s.memoryControlIntervals)
+		.values([
+			{
+				id: "synthetic-on",
+				userId: h.userId,
+				enabled: true,
+				epoch: 0,
+				startedAt: new Date("2019-01-01"),
+			},
+			{
+				id: "synthetic-off",
+				userId: h.userId,
+				enabled: false,
+				epoch: 0,
+				startedAt: new Date("2020-01-15"),
+				endedAt: new Date("2020-03-01"),
+			},
+		])
+		.run();
+	storedImport({ db, s });
+	const zip = await chatgptExport([
+		{
+			id: "gpt-1",
+			turns: [
+				{
+					mine: "I grow chillies on my balcony.",
+					reply: "Chillies like sun.",
+					at: importedLater,
+				},
+			],
+		},
+	]);
+	const chat = () =>
+		db
+			.select()
+			.from(s.conversations)
+			.all()
+			.find((row) => row.title === "Synthetic gpt-1")?.id ?? "";
+	const live = () =>
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.filter((row) => row.conversationId === chat() && row.state !== "revoked")
+			.map((row) => row.text);
+	await importConversations(h.userId, zip, { conversationIds: ["gpt-1"] });
+	expect(live()).toEqual(["I grow chillies on my balcony."]);
+	expect(await imported.catchUpImportedHistory(h.userId, "maintenance")).toBe(
+		0,
+	);
+	// The chat holds the newest rows, so its copy takes the same rowids: the
+	// same count and sum of imported messages as the remembered pass read.
+	await deleteConversationWithCleanup(h.userId, chat());
+	await importConversations(h.userId, zip, { conversationIds: ["gpt-1"] });
+	expect(live()).toEqual(["I grow chillies on my balcony."]);
+}, 60_000);
+
+it("a chat moved back where it was said is taken up by the next pass", async () => {
+	const { db, s } = await liveNativeAccount();
+	const imported = await import("./imported-history");
+	const policy = await import("./migration-policy");
+	const { moveConversationToProject } = await import("../conversations");
+	db.insert(s.projects)
+		.values({ id: "garden", userId: h.userId, name: "Synthetic project" })
+		.run();
+	await policy.setMemoryEnabled(h.userId, false);
+	storedImport({ db, s }, { texts: ["I sail on weekends."] });
+	await moveConversationToProject(h.userId, "older-import", "garden");
+	// Memory back on: said in another scope, so held, and the pass remembers.
+	await policy.setMemoryEnabled(h.userId, true);
+	const sources = () =>
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.filter((row) => row.conversationId === "older-import");
+	expect(sources()).toEqual([]);
+	await moveConversationToProject(h.userId, "older-import", null);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(1);
+	expect(sources().map((row) => row.text)).toEqual(["I sail on weekends."]);
+}, 60_000);
+
+it("an import's own pass never trusts what a whole pass remembered", async () => {
+	const { db, s } = await liveNativeAccount();
+	const imported = await import("./imported-history");
+	db.insert(s.memoryResetGenerations)
+		.values({ userId: h.userId, resetGeneration: 1, advancedAt: new Date() })
+		.run();
+	storedImport({ db, s });
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	// A change the remembered state cannot see: whole passes trust it for six
+	// hours, the import's own pass reads its chats anyway.
+	db.delete(s.memoryResetGenerations).run();
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(
+		await imported.catchUpImportedHistory(h.userId, "import", ["older-import"]),
+	).toBe(2);
+}, 60_000);

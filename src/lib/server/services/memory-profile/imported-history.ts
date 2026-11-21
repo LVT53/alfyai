@@ -26,7 +26,7 @@ const IMPORTED_HISTORY_BATCH = 200;
 /** Claimed after the person's own turns, removals and cleanups (default 0). */
 const IMPORTED_HISTORY_PRIORITY = 10;
 /**
- * How long a whole pass that found nothing more to take up spares later
+ * How long a whole pass that found nothing more to take up spares later whole
  * passes their inventory while nothing it read has changed. Anything the
  * cheap state below cannot see (a correction undone, a message whose date
  * was in the future) is picked up when it runs out.
@@ -47,18 +47,24 @@ const settled = new Map<string, { state: string; at: number }>();
 
 /**
  * What decides whether imported messages can be taken up, read cheaply: the
- * account's history controls and the set of imported messages. Switching
- * Memory off or on moves the control revision; a deletion, a move or a
- * withdrawal only ever takes messages out of reach.
+ * account's history controls, the imported messages, and the chats that hold
+ * them (each one's id, project and creation time, so a chat deleted and
+ * imported again, whose rows can take the old rowids, or a chat moved back
+ * where it was said, reads as a change). Switching Memory off or on moves the
+ * control revision.
  */
 function takeUpState(userId: string, account: MemoryAccount) {
-	const imported = db.get<{ n: number; total: number }>(sql`
-		SELECT count(*) AS n, total(m.rowid) AS total FROM messages m
-		JOIN conversations c ON c.id = m.conversation_id
-		WHERE c.user_id = ${userId}
-			AND m.role = 'user'
-			AND m.import_source IS NOT NULL
-	`);
+	const imported = db.get<{ n: number; total: number; chats: string | null }>(
+		sql`
+			SELECT count(*) AS n, total(m.rowid) AS total,
+				group_concat(DISTINCT c.id || '@' || coalesce(c.project_id, '') || '@' || c.created_at) AS chats
+			FROM messages m
+			JOIN conversations c ON c.id = m.conversation_id
+			WHERE c.user_id = ${userId}
+				AND m.role = 'user'
+				AND m.import_source IS NOT NULL
+		`,
+	);
 	return JSON.stringify([
 		account.tenantId,
 		account.epoch,
@@ -68,6 +74,7 @@ function takeUpState(userId: string, account: MemoryAccount) {
 		account.historyPolicyVersion,
 		imported?.n ?? 0,
 		imported?.total ?? 0,
+		memoryTextHash(imported?.chats ?? ""),
 	]);
 }
 
@@ -357,9 +364,16 @@ export async function recordImportedHistory(
 	if (!enabled) return 0;
 	const owedIds = owedImportedMessages(userId, account.epoch, conversationIds);
 	if (!owedIds.size) return 0;
-	const state = takeUpState(userId, account);
+	// Only a whole pass reads or writes the memo: an import always reads the
+	// chats it just made.
+	const state = conversationIds ? null : takeUpState(userId, account);
 	const memo = settled.get(userId);
-	if (memo?.state === state && Date.now() - memo.at < SETTLED_FOR_MS) return 0;
+	if (
+		state !== null &&
+		memo?.state === state &&
+		Date.now() - memo.at < SETTLED_FOR_MS
+	)
+		return 0;
 	// Built outside the write barrier; each batch checks it still holds.
 	const inventory = inspectMemoryMigration(userId);
 	const replayed = new Set(inventory.actions.flatMap((a) => a.sourceIds));
@@ -399,7 +413,7 @@ export async function recordImportedHistory(
 		await new Promise((resolve) => setImmediate(resolve));
 	}
 	// Only a whole pass knows that what is left can never be taken up as things are.
-	if (finished && !conversationIds)
+	if (finished && state !== null)
 		settled.set(userId, { state, at: Date.now() });
 	return recorded;
 }
