@@ -1,10 +1,11 @@
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, or, sql } from "drizzle-orm";
 import type { MemoryScope } from "$lib/memory-types";
 import { db } from "$lib/server/db";
 import {
 	conversationForks,
 	conversations,
 	memoryAccounts,
+	memoryActions,
 	memoryControlIntervals,
 	memoryDeliveryJobs,
 	memoryMigrationManifests,
@@ -18,6 +19,8 @@ import {
 	projects,
 	users,
 } from "$lib/server/db/schema";
+import type { Tx } from "../jobs/types";
+import { parseActionIntent } from "./curation-intent";
 import { nativeCurationForMigration } from "./curation-lineage";
 import {
 	historicalMemoryExclusion,
@@ -164,6 +167,86 @@ export function deterministicId(value: string) {
 /** One forget step per chat: replay sends the model every listed chat's facts. */
 export function unlocatedCurationRequestId(actionId: string, sourceId: string) {
 	return deterministicId(`migration-unlocated:${actionId}:${sourceId}`);
+}
+
+/** A per-chat forget step recorded that its final review passed for this revision. */
+function checkedRevision(
+	intentJson: string | null | undefined,
+	sourceId: string,
+) {
+	if (!intentJson) return false;
+	try {
+		return (
+			parseActionIntent(intentJson).meaningCheck?.checked.includes(sourceId) ===
+			true
+		);
+	} catch {
+		return false;
+	}
+}
+
+/** Whether a chat revision passed the forget step of one approved unlocated removal. */
+export function recordedMeaningCheck(
+	tx: Tx,
+	userId: string,
+	unlocatedActionId: string,
+	sourceId: string,
+) {
+	const step = tx
+		.select({ intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, userId),
+				eq(
+					memoryActions.requestId,
+					unlocatedCurationRequestId(unlocatedActionId, sourceId),
+				),
+			),
+		)
+		.get();
+	return checkedRevision(step?.intentJson, sourceId);
+}
+
+/**
+ * A chat revision that may not be published as it is: an approved unlocated
+ * removal covers it, or a per-chat forget step lists it, and no forget step
+ * recorded a passed final review for it.
+ */
+export function meaningCheckPending(
+	tx: Tx,
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+	source: typeof memorySourceRevisions.$inferSelect,
+) {
+	const original = inventory.sources.find(({ id }) => id === source.messageId);
+	if (
+		parseJsonRecord(source.context).migrationDefaultHistory === true &&
+		original &&
+		inventory.actions.some(
+			(action) =>
+				unlocatedCurationCovers(action, original) &&
+				!recordedMeaningCheck(tx, source.userId, action.id, source.id),
+		)
+	)
+		return true;
+	return tx
+		.select({ intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, source.userId),
+				eq(memoryActions.bankId, source.bankId),
+				eq(memoryActions.epoch, source.epoch),
+				eq(memoryActions.kind, "migration_remove"),
+				sql`json_type(${memoryActions.intentJson}, '$.meaningCheck') = 'object'`,
+				or(
+					sql`exists (select 1 from json_each(${memoryActions.intentJson}, '$.sourceIds') where value = ${source.id})`,
+					sql`json_extract(${memoryActions.intentJson}, '$.addedSourceId') = ${source.id}`,
+				),
+			),
+		)
+		.all()
+		.some(({ intentJson }) => !checkedRevision(intentJson, source.id));
 }
 function records(userId: string) {
 	const user = db.select().from(users).where(eq(users.id, userId)).get();
@@ -921,7 +1004,7 @@ function currentMigrationJobs(
 	});
 }
 export function verifyMemoryMigration(userId: string, id: string) {
-	return db.transaction(() => {
+	return db.transaction((tx) => {
 		const manifest = db
 			.select()
 			.from(memoryMigrationManifests)
@@ -1022,12 +1105,21 @@ export function verifyMemoryMigration(userId: string, id: string) {
 		const curationSweepPending =
 			approval.actionIds.length > 0 &&
 			!(approval.epoch !== undefined && approval.epoch < manifest.epoch);
+		// Published chats that reached publication without a passed forget step.
+		const meaningCheckMissing = approval.actionIds.length
+			? sources.filter(
+					(source) =>
+						source.state === "accepted" &&
+						meaningCheckPending(tx, inventory, source),
+				).length
+			: 0;
 		const ready =
 			accounted &&
 			!changed &&
 			!pending &&
 			retiredCleanup.length === 0 &&
-			!curationSweepPending;
+			!curationSweepPending &&
+			meaningCheckMissing === 0;
 		return {
 			ready,
 			changed,
@@ -1039,6 +1131,7 @@ export function verifyMemoryMigration(userId: string, id: string) {
 				).length,
 			retiredCleanupPending: retiredCleanup.length,
 			curationSweepPending,
+			meaningCheckMissing,
 			held: inventory.exceptions.length,
 			uncertain: inventory.sources.filter((s) => s.eligibility === "uncertain")
 				.length,

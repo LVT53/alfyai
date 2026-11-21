@@ -31,6 +31,7 @@ import {
 import {
 	inspectMemoryMigration,
 	latestManifest,
+	meaningCheckPending,
 	verifyMemoryMigration,
 } from "./migration-progress";
 import {
@@ -272,6 +273,9 @@ export async function recoverAcknowledgedHistoricalMigration(
 					!revocations.some((revocation) => revocation.sourceId === source.id),
 			);
 			assertMemorySourceCurrent(tx, source.id, userId, bankId);
+			// Recovery publishes native facts as they are: never a chat whose
+			// forget step for an approved unlocated removal has not passed.
+			requireRecovery(!meaningCheckPending(tx, inventory, source));
 			const context = parseJsonRecord(source.context);
 			if (source.messageId) {
 				const spec = inventory.sources.find(

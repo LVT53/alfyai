@@ -7120,7 +7120,7 @@ it.each([
 	["without an approval", "none"],
 	["once its own forget step ran", "approved"],
 	["when the chat was queued before the approval", "late"],
-	["when its delivery ran no forget step for it", "unchecked"],
+	["when its delivery never ran its forget step", "unchecked"],
 ] as const)(
 	"an older chat merging into a published row past an unlocated removal, %s",
 	async (_, approval) => {
@@ -7140,12 +7140,14 @@ it.each([
 		}
 		await h.engine.drain(jobs.memoryDeliveryJob);
 		if (approval === "unchecked") {
-			// Its forget step is recorded, but this delivery reports none.
+			// Its forget step is recorded, but this delivery never runs it.
 			const runner = await import("./curation-runner");
-			const replay = runner.replaySourceCuration;
-			vi.spyOn(runner, "replaySourceCuration").mockImplementation(
-				async (...args) => ({ ...(await replay(...args)), checks: [] }),
-			);
+			vi.spyOn(runner, "replaySourceCuration").mockResolvedValue({
+				sourceIds: [],
+				checks: [],
+				verifyDependencies: async () => {},
+				apply: () => {},
+			});
 		}
 		const old = db.select().from(s.memorySourceRevisions).get();
 		if (old?.state !== "accepted") throw Error("old_source_not_accepted");
@@ -7844,3 +7846,149 @@ it("a forget step that passed its final review goes on after its publication fai
 	expect(t.job()?.status).toBe("succeeded");
 	expect(t.published()).toEqual(["My dog is Rex."]);
 }, 60_000);
+
+/** Approve, then restart so the account's chats run in an epoch after the approval. */
+async function approvedRestart() {
+	const migration = await import("./migration");
+	const { latestManifest } = await import("./migration-progress");
+	const { createHash } = await import("node:crypto");
+	const first = await migration.prepareMemoryMigration(h.userId);
+	await approveUnlocatedCuration();
+	const sealed = latestManifest(h.userId);
+	return migration.restartMemoryPreparation(h.userId, {
+		manifestId: first.id,
+		manifestHash: createHash("sha256")
+			.update(sealed?.manifestJson ?? "")
+			.digest("hex"),
+	});
+}
+
+it("recovery refuses a covered chat whose forget step never passed, so cutover stays refused", async () => {
+	const { db, s } = await unlocatedRemoval();
+	await nativeFixture();
+	const curation = await import("./curation");
+	const fixtureModel = curation.createCurationModel(
+		new AbortController().signal,
+	);
+	// The edit's own review refuses: the job fails with a code recovery takes.
+	vi.mocked(curation.createCurationModel).mockReturnValue(
+		async (prompt, input, schema, ...rest) =>
+			(schema.properties as Record<string, unknown>).valid &&
+			!("displayed_observations" in (input as object))
+				? { valid: false, issues: [{ id: "bicycle", problem: "Unsure." }] }
+				: fixtureModel(prompt, input, schema, ...rest),
+	);
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { readPublishedMemory } = await import("./publication");
+	const { eq } = await import("drizzle-orm");
+	const restarted = await approvedRestart();
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const source = db
+		.select()
+		.from(s.memorySourceRevisions)
+		.where(eq(s.memorySourceRevisions.epoch, 1))
+		.get();
+	if (!source) throw Error("test_source_missing");
+	expect(source).toMatchObject({ state: "pending", nativeAcknowledged: true });
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.sourceId, source.id))
+			.get(),
+	).toMatchObject({ status: "failed", errorCode: "memory_preparation_failed" });
+	const config = await import("$lib/server/config-store");
+	vi.mocked(config.getConfig).mockReturnValue({
+		...config.getConfig(),
+		hindsightWorkerEnabled: false,
+		hindsightNewAccountsEnabled: false,
+	});
+	const { recoverAcknowledgedHistoricalMigration } = await import(
+		"./migration-recovery"
+	);
+	await expect(
+		recoverAcknowledgedHistoricalMigration({
+			userId: h.userId,
+			manifestId: restarted.manifestId,
+			bankId: source.bankId,
+		}),
+	).rejects.toThrow("memory_migration_recovery_unverified");
+	vi.mocked(config.getConfig).mockReturnValue({
+		...config.getConfig(),
+		hindsightWorkerEnabled: true,
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(readPublishedMemory(h.userId, source.bankId)).toEqual([]);
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId).ready,
+	).toBe(false);
+	expect(() =>
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId),
+	).toThrow("memory_migration_not_ready");
+});
+
+it("verify and a reopened delivery refuse a covered chat accepted without its recorded check", async () => {
+	const { db, s } = await unlocatedRemoval();
+	await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { reopen } = await import("../jobs/ledger");
+	const { eq } = await import("drizzle-orm");
+	const restarted = await approvedRestart();
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const verify = () =>
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId);
+	expect(verify()).toMatchObject({ ready: true, meaningCheckMissing: 0 });
+	// Take the record away, as if the chat had reached publication some other way.
+	const step = db
+		.select()
+		.from(s.memoryActions)
+		.where(eq(s.memoryActions.epoch, 1))
+		.get();
+	if (!step) throw Error("test_step_missing");
+	const intent = JSON.parse(step.intentJson ?? "{}");
+	db.update(s.memoryActions)
+		.set({
+			intentJson: JSON.stringify({
+				...intent,
+				meaningCheck: { ...intent.meaningCheck, checked: [] },
+			}),
+		})
+		.where(eq(s.memoryActions.id, step.id))
+		.run();
+	expect(verify()).toMatchObject({ ready: false, meaningCheckMissing: 1 });
+	expect(() =>
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId),
+	).toThrow("memory_migration_not_ready");
+	// Delivering the accepted chat again does not verify it either.
+	const source = db
+		.select()
+		.from(s.memorySourceRevisions)
+		.where(eq(s.memorySourceRevisions.epoch, 1))
+		.get();
+	const job = db
+		.select()
+		.from(s.memoryDeliveryJobs)
+		.where(eq(s.memoryDeliveryJobs.sourceId, source?.id ?? ""))
+		.get();
+	expect(
+		reopen(jobs.memoryDeliveryJob, job?.id ?? "", {
+			userId: h.userId,
+			from: ["succeeded"],
+			keepCheckpoint: true,
+		}),
+	).not.toBeNull();
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.id, job?.id ?? ""))
+			.get(),
+	).toMatchObject({
+		status: "failed",
+		retryable: false,
+		errorCode: "memory_meaning_check_missing",
+	});
+});

@@ -35,6 +35,7 @@ import {
 import {
 	inspectMemoryMigration,
 	latestManifest,
+	meaningCheckPending,
 	settleMemoryMigration,
 } from "./migration-progress";
 import {
@@ -486,6 +487,14 @@ export async function runMemoryDelivery(
 					"memory_migration_recovery_unverified",
 					false,
 				);
+			// An accepted chat an approved unlocated removal covers must have
+			// passed its own forget step; nothing here can run it now.
+			if (
+				db.transaction((tx) =>
+					meaningCheckPending(tx, inspectMemoryMigration(row.userId), source),
+				)
+			)
+				throw new NativeMemoryError("memory_meaning_check_missing", false);
 			const replaySnapshot = await captureSettledNative(client, ctx.signal);
 			const raw = replaySnapshot.filter(
 				(fact) =>
@@ -859,12 +868,7 @@ export async function runMemoryDelivery(
 							bank.scopeKey,
 							memories,
 							defaultHistory,
-							{
-								sourceId: source.id,
-								checkedActionIds: replayed.checks.map(
-									({ actionId }) => actionId,
-								),
-							},
+							{ sourceId: source.id },
 						);
 					if (defaultHistory)
 						assertHistoryPreservesAuthoredObservations(

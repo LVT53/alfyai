@@ -5,7 +5,7 @@ import type { NativeMemory } from "./contracts";
 import { parseJsonRecord } from "./internal-json";
 import {
 	inspectMemoryMigration,
-	unlocatedCurationRequestId,
+	recordedMeaningCheck,
 } from "./migration-progress";
 import { splitNativeNotes } from "./presentation";
 import {
@@ -563,34 +563,19 @@ export function matchCorrectionHoldAuthoredRekey(
  * Whether an operator-approved unlocated removal stops holding this
  * publication back. A delivery that is not default history (an authored
  * statement or an explicitly included chat) is not the history the removal is
- * checked against. A default-history chat qualifies only when this delivery
- * ran the chat's own forget step for the removal.
+ * checked against. A default-history chat qualifies only once its own forget
+ * step recorded a passed final review for this revision.
  */
 function meaningChecked(
 	tx: Tx,
 	userId: string,
-	bankId: string,
 	action: ReturnType<typeof unlocatedScopeActions>[number],
 	applyingDefault: boolean,
-	delivery: { sourceId: string; checkedActionIds: readonly string[] },
+	delivery: { sourceId: string },
 ) {
 	if (!action.curateAllHistory) return false;
 	if (!applyingDefault) return true;
-	const check = tx
-		.select({ id: memoryActions.id })
-		.from(memoryActions)
-		.where(
-			and(
-				eq(memoryActions.userId, userId),
-				eq(memoryActions.bankId, bankId),
-				eq(
-					memoryActions.requestId,
-					unlocatedCurationRequestId(action.id, delivery.sourceId),
-				),
-			),
-		)
-		.get();
-	return !!check && delivery.checkedActionIds.includes(check.id);
+	return recordedMeaningCheck(tx, userId, action.id, delivery.sourceId);
 }
 
 export function assertDefaultHistoryWithdrawalBoundary(
@@ -600,7 +585,7 @@ export function assertDefaultHistoryWithdrawalBoundary(
 	scopeKey: string,
 	memories: NativeMemory[],
 	applyingDefault = true,
-	delivery?: { sourceId: string; checkedActionIds: readonly string[] },
+	delivery?: { sourceId: string },
 ) {
 	const actions = unlocatedScopeActions(
 		inspectMemoryMigration(userId),
@@ -623,11 +608,11 @@ export function assertDefaultHistoryWithdrawalBoundary(
 		)
 	)
 		throw Error("memory_migration_withdrawal_boundary");
-	// Only a delivery that says what it checked can be let through.
+	// Only a delivery can be let through; recovery tools stay held.
 	if (
 		delivery &&
 		actions.every((action) =>
-			meaningChecked(tx, userId, bankId, action, applyingDefault, delivery),
+			meaningChecked(tx, userId, action, applyingDefault, delivery),
 		)
 	)
 		return;
