@@ -4602,21 +4602,22 @@ it.each([
 	"later history",
 	"second corroboration",
 	"dropped corroboration",
-	"dropped and unrepresented",
 	"withdrawn unchanged",
 	"withdrawn and reworded",
-	"withdrawn and dropped",
 	"authored presented again",
+	"mixed row drops its chat",
+	"mixed row gains a chat",
 ] as const)(
 	"a corroborated authored observation stays protected: %s",
 	async (variant) => {
+		// Mixed rows: history ran first and the authored fact joined the chat's
+		// observation, so the row's wording came from the chat.
+		const mixed = variant.startsWith("mixed");
 		const { db, s } = await seed();
 		const authored = "My sister Mila lives in Porto.";
+		const chat = "Mila, my sister in Porto, works as a ferry pilot.";
 		db.update(s.messages)
-			.set({
-				content: "Mila, my sister in Porto, works as a ferry pilot.",
-				createdAt: new Date("2020-01-01"),
-			})
+			.set({ content: chat, createdAt: new Date("2020-01-01") })
 			.run();
 		db.insert(s.conversations)
 			.values({ id: "chat2", userId: h.userId, title: "Second synthetic" })
@@ -4648,17 +4649,12 @@ it.each([
 				updatedAt: new Date("2021-01-01"),
 			})
 			.run();
-		let lost: "keep" | "reword" | "drop" = "keep";
+		let reword = false;
 		const reworded = "Mila, my sister, lives in Porto.";
 		const f = await nativeFixture({
 			followDeletes: true,
 			onSupportLost: (observation) => {
-				if (lost === "reword") observation.text = reworded;
-				// Hindsight drops the observation and presents the fact nowhere.
-				if (lost === "drop") {
-					f.hideObservation.add(observation.source_memory_ids[0]);
-					observation.source_memory_ids = [];
-				}
+				if (reword) observation.text = reworded;
 			},
 		});
 		const migration = await import("./migration");
@@ -4688,34 +4684,68 @@ it.each([
 		const [older] = sources.filter((row) => row.messageId === "m");
 		const [second] = sources.filter((row) => row.messageId === "m2");
 		const support = `${authority.id}:fact`;
-		const generated = `${support}:observation`;
 		const first = `${older.id}:fact`;
 		const next = `${second.id}:fact`;
-		await claim(jobFor(authority.id)?.id ?? "");
-		const observation = {
-			id: generated,
-			text: authored,
-			fact_type: "observation" as const,
-			source_memory_ids: [support, first],
-		};
-		f.extraObservations.push(observation);
-		await claim(jobFor(older.id)?.id ?? "");
-		expect(jobFor(older.id)?.status).toBe("succeeded");
 		const { readPublishedMemory } = await import("./publication");
-		const bank = db.select().from(s.memoryBanks).get();
-		if (!bank) throw Error("test_bank_missing");
-		const visible = () => readPublishedMemory(h.userId, bank.id);
+		const visible = () => {
+			const bank = db.select().from(s.memoryBanks).get();
+			return bank ? readPublishedMemory(h.userId, bank.id) : [];
+		};
 		const supportOf = (nativeId: string) =>
 			JSON.parse(
 				visible().find((row) => row.nativeId === nativeId)?.sourceIdsJson ??
 					"null",
 			);
-		expect(supportOf(generated)).toEqual([support, first]);
-		if (variant === "second corroboration")
-			observation.source_memory_ids = [support, first, next];
-		if (variant.startsWith("dropped"))
+		// Like the live account, a sibling observation also presents the statement.
+		const sibling = () =>
+			f.extraObservations.push({
+				id: "authored-sibling",
+				text: "Mila is the user's sister.",
+				fact_type: "observation",
+				source_memory_ids: [support],
+			});
+		const observation = {
+			id: mixed ? `${first}:observation` : `${support}:observation`,
+			text: mixed ? chat : authored,
+			fact_type: "observation" as const,
+			source_memory_ids: mixed ? [first] : [support],
+		};
+		if (mixed) {
+			await claim(jobFor(older.id)?.id ?? "");
+			sibling();
+			f.extraObservations.push(observation);
+			observation.source_memory_ids = [first, support];
+			f.hideObservation.add(support);
+			await claim(jobFor(authority.id)?.id ?? "");
+			expect(supportOf(observation.id)).toEqual([first, support]);
+		} else {
+			sibling();
+			await claim(jobFor(authority.id)?.id ?? "");
+			f.extraObservations.push(observation);
+			observation.source_memory_ids = [support, first];
+			await claim(jobFor(older.id)?.id ?? "");
+			expect(jobFor(older.id)?.status).toBe("succeeded");
+			expect(supportOf(observation.id)).toEqual([support, first]);
+		}
+		const bank = db.select().from(s.memoryBanks).get();
+		if (!bank) throw Error("test_bank_missing");
+		if (
+			variant === "second corroboration" ||
+			variant === "mixed row gains a chat"
+		)
+			observation.source_memory_ids = [...observation.source_memory_ids, next];
+		if (variant === "dropped corroboration")
 			observation.source_memory_ids = [support];
-		if (variant === "dropped and unrepresented") f.hideObservation.add(first);
+		if (variant === "mixed row drops its chat") {
+			// The chat's wording stays, but the row now cites only the statement.
+			observation.source_memory_ids = [support];
+			f.extraObservations.push({
+				id: "chat-own",
+				text: chat,
+				fact_type: "observation",
+				source_memory_ids: [first],
+			});
+		}
 		if (variant === "authored presented again")
 			f.extraObservations.push({
 				id: "authored-again",
@@ -4724,12 +4754,7 @@ it.each([
 				source_memory_ids: [support, next],
 			});
 		if (variant.startsWith("withdrawn")) {
-			lost =
-				variant === "withdrawn and reworded"
-					? "reword"
-					: variant === "withdrawn and dropped"
-						? "drop"
-						: "keep";
+			reword = variant === "withdrawn and reworded";
 			const { revokeMemorySources } = await import("./revisions");
 			revokeMemorySources(h.userId, [older.id]);
 			await jobs.enqueueMemoryDelivery({
@@ -4747,36 +4772,36 @@ it.each([
 				.find((job) => job.kind === "source_cleanup");
 			await claim(cleanup?.id ?? "");
 		}
+		const before = visible();
 		await claim(jobFor(second.id)?.id ?? "");
-		if (
-			variant === "withdrawn and reworded" ||
-			variant === "withdrawn and dropped" ||
-			variant === "authored presented again" ||
-			variant === "dropped and unrepresented"
-		) {
-			expect(jobFor(second.id)).toMatchObject({
-				status: "failed",
-				errorCode: "memory_preparation_failed",
-			});
-			expect(visible().some((row) => row.text === reworded)).toBe(false);
-			expect(visible().some((row) => row.nativeId === "authored-again")).toBe(
-				false,
-			);
+		if (variant === "later history") {
+			expect(jobFor(second.id)?.status).toBe("succeeded");
+			expect(
+				visible().find((row) => row.nativeId === observation.id)?.text,
+			).toBe(authored);
+			expect(supportOf(observation.id)).toEqual([support, first]);
+			expect(supportOf(`${next}:observation`)).toEqual([next]);
+			expect(supportOf(`${first}:observation`)).toEqual([first]);
 			return;
 		}
-		expect(jobFor(second.id)?.status).toBe("succeeded");
-		expect(visible().find((row) => row.nativeId === generated)?.text).toBe(
-			authored,
-		);
-		expect(supportOf(generated)).toEqual(
-			variant === "later history"
-				? [support, first]
-				: variant === "second corroboration"
-					? [support, first, next]
-					: [support],
-		);
-		expect(supportOf(`${next}:observation`)).toEqual([next]);
-		if (!variant.startsWith("withdrawn"))
-			expect(supportOf(`${first}:observation`)).toEqual([first]);
+		// A withdrawn corroborating chat cannot be restored exactly while a
+		// sibling shares the authored fact, so later history fails closed.
+		if (variant.startsWith("withdrawn"))
+			expect(
+				db
+					.select()
+					.from(s.memoryDeliveryJobs)
+					.all()
+					.find((job) => job.kind === "source_cleanup"),
+			).toMatchObject({
+				status: "queued",
+				errorCode: "memory_cleanup_publication_unverified",
+			});
+		expect(jobFor(second.id)).toMatchObject({
+			status: "failed",
+			errorCode: "memory_preparation_failed",
+		});
+		expect(visible()).toEqual(before);
+		expect(visible().some((row) => row.text === reworded)).toBe(false);
 	},
 );
