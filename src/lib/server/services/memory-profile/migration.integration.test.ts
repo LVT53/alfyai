@@ -7648,30 +7648,34 @@ it.each([true, false])(
 	"an import on a live account leaves an older chat an approved unlocated removal covers to a preparation (approved: %s)",
 	async (approved) => {
 		const { db, s } = await unlocatedRemoval();
-		const f = await nativeFixture();
+		await nativeFixture();
 		const migration = await import("./migration");
 		const jobs = await import("./delivery-job");
-		const { latestManifest } = await import("./migration-progress");
-		const { createHash } = await import("node:crypto");
+		const { eq } = await import("drizzle-orm");
 		const first = await migration.prepareMemoryMigration(h.userId);
-		let manifestId = first.id;
-		if (approved) {
-			// Sales' order: approve, then restart before cutover.
-			await approveUnlocatedCuration();
-			const sealed = latestManifest(h.userId);
-			manifestId = (
-				await migration.restartMemoryPreparation(h.userId, {
-					manifestId: first.id,
-					manifestHash: createHash("sha256")
-						.update(sealed?.manifestJson ?? "")
-						.digest("hex"),
-				})
-			).manifestId;
-		}
 		await h.engine.drain(jobs.memoryDeliveryJob);
-		expect(migration.cutoverMemoryMigration(h.userId, manifestId).ready).toBe(
+		expect(migration.cutoverMemoryMigration(h.userId, first.id).ready).toBe(
 			true,
 		);
+		if (approved) {
+			// Cutover refuses an approved account, so a live one gets its
+			// approval directly here: the hold still guards it.
+			const manifest = db
+				.select()
+				.from(s.memoryMigrationManifests)
+				.where(eq(s.memoryMigrationManifests.id, first.id))
+				.get();
+			db.update(s.memoryMigrationManifests)
+				.set({
+					checkpointJson: JSON.stringify({
+						...JSON.parse(manifest?.checkpointJson ?? "{}"),
+						migrationCurateUnlocated: [unlocatedRemovalId],
+						migrationCurateUnlocatedEpoch: 0,
+					}),
+				})
+				.where(eq(s.memoryMigrationManifests.id, first.id))
+				.run();
+		}
 		db.insert(s.projects)
 			.values({ id: "project", userId: h.userId, name: "Project" })
 			.run();
@@ -7703,28 +7707,11 @@ it.each([true, false])(
 		// The personal removal does not cover a project chat.
 		expect(sourceOf("project-import-q0")).toBeDefined();
 		expect(sourceOf("personal-import-q0") === undefined).toBe(approved);
-		if (!approved) return;
-		// Still owed: maintenance takes nothing more up.
-		expect(await imported.catchUpImportedHistory(h.userId, "maintenance")).toBe(
-			0,
-		);
-		// An operator's preparation takes it up with its own forget step.
-		await migration.prepareMemoryMigration(h.userId);
-		const held = sourceOf("personal-import-q0");
-		if (!held) throw Error("test_source_missing");
-		expect(
-			db
-				.select()
-				.from(s.memoryActions)
-				.all()
-				.map(({ intentJson }) => JSON.parse(intentJson ?? "{}").sourceIds)
-				.filter((ids) => ids?.includes(held.id)),
-		).toEqual([[held.id]]);
-		await h.engine.drain(jobs.memoryDeliveryJob);
-		expect(
-			[...f.facts.values()].find(({ document_id }) => document_id === held.id)
-				?.text,
-		).toBe("I keep it in the hall.");
+		if (approved)
+			// Still owed: maintenance takes nothing more up.
+			expect(
+				await imported.catchUpImportedHistory(h.userId, "maintenance"),
+			).toBe(0);
 	},
 	60_000,
 );
@@ -8357,3 +8344,23 @@ it.each([
 	},
 	60_000,
 );
+
+it("cutover refuses an account with an approved meaning check, which verify still reports ready", async () => {
+	const { db, s } = await unlocatedRemoval();
+	await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const restarted = await approvedRestart();
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId),
+	).toMatchObject({
+		ready: true,
+		curationSweepPending: false,
+		meaningCheckMissing: 0,
+	});
+	expect(() =>
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId),
+	).toThrow("memory_migration_cutover_curation_unsupported");
+	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
+});

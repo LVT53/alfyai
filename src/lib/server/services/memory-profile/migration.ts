@@ -792,6 +792,22 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 		}
 		if (account.authority !== "preparing")
 			throw Error("memory_migration_not_ready");
+		// Nothing yet withdraws and holds a chat whose forget step fails on a
+		// live account, and its retained facts would stop every later
+		// publication in its bank. An approved account stays preparing until
+		// that exists; verify still says whether it would be ready.
+		if (
+			readUnlocatedCurationApproval(
+				parseJsonRecord(
+					tx
+						.select()
+						.from(memoryMigrationManifests)
+						.where(eq(memoryMigrationManifests.id, id))
+						.get()?.checkpointJson ?? null,
+				),
+			).actionIds.length
+		)
+			throw Error("memory_migration_cutover_curation_unsupported");
 		const banks = tx
 			.select()
 			.from(memoryBanks)
