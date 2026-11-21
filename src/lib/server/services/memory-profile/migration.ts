@@ -848,13 +848,25 @@ export async function restartMemoryPreparation(
 				)
 				.get(),
 		);
-		// A quarantine review's decisions live in the epoch's own bank.
+		// A quarantine review's decisions live in the epoch's own bank, and so
+		// does any other action that is not the migration's own.
 		requireRestart(
 			!tx
 				.select({ userId: memoryQuarantineSessions.userId })
 				.from(memoryQuarantineSessions)
 				.where(eq(memoryQuarantineSessions.userId, userId))
-				.get(),
+				.get() &&
+				!tx
+					.select({ id: memoryActions.id })
+					.from(memoryActions)
+					.where(
+						and(
+							eq(memoryActions.userId, userId),
+							eq(memoryActions.epoch, account.epoch),
+							sql`${memoryActions.kind} NOT LIKE 'migration_%'`,
+						),
+					)
+					.get(),
 		);
 		if (manifest.status === "restarted") {
 			requireRestart(manifest.epoch === account.epoch - 1);

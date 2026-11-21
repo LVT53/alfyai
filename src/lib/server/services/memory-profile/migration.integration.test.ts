@@ -5089,6 +5089,24 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 		() => setLifecycle("erasing"),
 		() => setLifecycle("active"),
 	);
+	// Not while the epoch holds an action that is not the migration's own,
+	// such as a quarantine review's Keep.
+	await refused(
+		() =>
+			db
+				.insert(s.memoryActions)
+				.values({
+					id: "kept",
+					userId: h.userId,
+					bankId: oldBank.id,
+					epoch: 0,
+					requestId: "synthetic-keep",
+					kind: "add",
+				})
+				.run(),
+		() =>
+			db.delete(s.memoryActions).where(eq(s.memoryActions.id, "kept")).run(),
+	);
 	// Not while a quarantine review keeps decisions in the old bank.
 	await refused(
 		() =>
@@ -5251,6 +5269,28 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 				.digest("hex"),
 		),
 	).rejects.toThrow("memory_migration_restart_refused");
+	// A later Clear Memory queues its own cleanup for the retired bank. Even
+	// holding an operation it can no longer ask about, it succeeds: the
+	// restart's cleanup already deleted that bank.
+	const { prepareNativeMemoryErasure } = await import("./delivery-job");
+	await prepareNativeMemoryErasure(h.userId);
+	const again = db
+		.select()
+		.from(s.memoryDeliveryJobs)
+		.where(eq(s.memoryDeliveryJobs.requestId, `erase:${oldBank.id}`))
+		.get();
+	db.update(s.memoryDeliveryJobs)
+		.set({ nativeOperationIdsJson: '["synthetic-pending-operation"]' })
+		.where(eq(s.memoryDeliveryJobs.id, again?.id ?? ""))
+		.run();
+	await claim(again?.id ?? "");
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.id, again?.id ?? ""))
+			.get()?.status,
+	).toBe("succeeded");
 });
 
 it("resumes a restart that stopped after its atomic step", async () => {
