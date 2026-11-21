@@ -513,6 +513,8 @@ const chatDict = {
 		"chatgptImport.messages":
 			"{count} {count, plural, one {message} other {messages}}",
 		"chatgptImport.next": "Next",
+		"chatgptImport.memoryNote":
+			"Your own messages in these chats can also shape your Memory.",
 		"chatgptImport.noConversations": "No conversations found in this ZIP file.",
 		"chatgptImport.noProject": "No folder",
 		"chatgptImport.parseError":
@@ -1784,6 +1786,8 @@ const chatDict = {
 		"chatgptImport.invalidFile": "Kérjük, válasszon érvényes ZIP fájlt.",
 		"chatgptImport.messages": "{count} üzenet",
 		"chatgptImport.next": "Tovább",
+		"chatgptImport.memoryNote":
+			"A beszélgetésekben írt saját üzeneteid a Memóriádat is alakíthatják.",
 		"chatgptImport.noConversations":
 			"Nem található beszélgetés ebben a ZIP fájlban.",
 		"chatgptImport.noProject": "Nincs mappa",

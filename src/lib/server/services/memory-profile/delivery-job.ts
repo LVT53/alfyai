@@ -120,6 +120,8 @@ export interface EnqueueMemoryDelivery {
 	nativeBaseUrl?: string;
 	nativeCredentialHash?: string;
 	runAfter?: Date;
+	/** Lower is claimed first (the engine's default is 0). */
+	priority?: number;
 }
 export async function enqueueMemoryDelivery(input: EnqueueMemoryDelivery) {
 	const results = await enqueueMemoryMutation(() => [input]);
@@ -136,13 +138,14 @@ function deliveryInput(
 	input: EnqueueMemoryDelivery,
 	tx: Tx,
 ): import("../jobs/types").EnqueueInput<typeof memoryDeliveryJobs> {
-	const { runAfter, ...values } = input;
+	const { runAfter, priority, ...values } = input;
 	return {
 		values: {
 			...values,
 			controlRevision: getControlRevision(input.userId, tx),
 		},
 		runAfter,
+		priority,
 		idempotency: {
 			find: (tx) =>
 				tx

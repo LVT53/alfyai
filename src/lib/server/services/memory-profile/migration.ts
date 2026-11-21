@@ -387,7 +387,12 @@ export async function prepareMemoryMigration(
 			let authority: ReturnType<typeof recordMemorySource> | undefined;
 			for (const message of source.defaultHistory ? [] : contextRows) {
 				if (message.id === source.id) break;
-				if (message.role === "user") authority = recorded.get(message.id);
+				// An imported message is never context: not the person's earlier
+				// words, and never ChatGPT's replies (revisions.ts checks the same).
+				if (message.role === "user")
+					authority = message.importSource
+						? undefined
+						: recorded.get(message.id);
 				if (
 					authority &&
 					(message.role === "user" ||
@@ -432,6 +437,7 @@ export async function prepareMemoryMigration(
 						migration: true,
 						migrationMessageAt: source.messageAt,
 						migrationDefaultHistory: source.defaultHistory,
+						...(source.imported ? { migrationImported: true } : {}),
 						messages: source.defaultHistory
 							? []
 							: [

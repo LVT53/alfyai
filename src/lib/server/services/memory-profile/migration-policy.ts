@@ -379,6 +379,9 @@ export async function setMemoryEnabled(
 	if (enabled) {
 		const { resumeDependencyRepairs } = await import("./delivery-job");
 		await resumeDependencyRepairs(userId);
+		// Imported chats that arrived while Memory was off are owed now.
+		const { catchUpImportedHistory } = await import("./imported-history");
+		await catchUpImportedHistory(userId, "memory_on");
 	}
 
 	if (!enabled && retiredRevision >= 0)
