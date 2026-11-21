@@ -23,7 +23,10 @@ import {
 	usesDefaultHistoricalMemory,
 } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
-import { knownQuarantineWithdrawal } from "./quarantine-policy";
+import {
+	knownQuarantineWithdrawal,
+	normalizeQuarantineText,
+} from "./quarantine-policy";
 import { memoryScopeKey, memoryTextHash } from "./revisions";
 import { memoryScopeAt, readMemoryScopeMoves } from "./scope-history";
 import { parseMemoryItemMetadata } from "./types";
@@ -53,6 +56,8 @@ interface MigrationAction {
 	scope: MemoryScope | null;
 	itemId?: string;
 	reviewResolutionId?: string;
+	/** An operator approved checking this unlocated removal by meaning. */
+	curateAllHistory?: true;
 }
 const REVIEW_CURRENT_SUPPORT_MISSING = "review_current_support_missing";
 interface MigrationInventory {
@@ -79,6 +84,55 @@ function strings(value: string): string[] {
 }
 function date(value: Date | null): string | null {
 	return value && Number.isFinite(value.getTime()) ? value.toISOString() : null;
+}
+
+/**
+ * The inventory action IDs an operator approved for a meaning check, and the
+ * epoch the last new one was approved in. Anything malformed approves nothing.
+ */
+export function readUnlocatedCurationApproval(
+	checkpoint: Record<string, unknown>,
+) {
+	const ids = checkpoint.migrationCurateUnlocated;
+	const epoch = checkpoint.migrationCurateUnlocatedEpoch;
+	return {
+		actionIds: Array.isArray(ids)
+			? ids.filter((id): id is string => typeof id === "string" && !!id)
+			: [],
+		epoch: Number.isInteger(epoch) ? (epoch as number) : undefined,
+	};
+}
+
+/**
+ * A dated edit or removal with something to forget, whose provenance names a
+ * chat that no longer exists: nothing locates the history it came from.
+ */
+function unlocatedRemoval(
+	action: MigrationAction,
+	exceptions: MigrationInventory["exceptions"],
+) {
+	return (
+		(action.kind === "edit" || action.kind === "remove") &&
+		!action.sourceIds.length &&
+		action.at !== null &&
+		normalizeQuarantineText(action.before) !== "" &&
+		exceptions.some(
+			({ id, reason }) => id === action.id && reason === "missing_source",
+		)
+	);
+}
+
+/** Whether an operator may approve checking this inventory action by meaning. */
+export function unlocatedCurationApprovable(
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+	actionId: string,
+) {
+	const action = inventory.actions.find(({ id }) => id === actionId);
+	return (
+		!!action &&
+		(action.curateAllHistory === true ||
+			unlocatedRemoval(action, inventory.exceptions))
+	);
 }
 function records(userId: string) {
 	const user = db.select().from(users).where(eq(users.id, userId)).get();
@@ -629,6 +683,22 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 		const currentCheckpoint = parseJsonRecord(
 			epochManifest(userId, epoch)?.checkpointJson ?? null,
 		);
+		// An approved unlocated removal no longer waits for its missing chat:
+		// preparation checks every older chat of its scope by meaning instead.
+		const approvedCuration = new Set(
+			readUnlocatedCurationApproval(currentCheckpoint).actionIds,
+		);
+		for (const action of result.actions) {
+			if (
+				!approvedCuration.has(action.id) ||
+				!unlocatedRemoval(action, result.exceptions)
+			)
+				continue;
+			result.exceptions = result.exceptions.filter(
+				({ id, reason }) => id !== action.id || reason !== "missing_source",
+			);
+			action.curateAllHistory = true;
+		}
 		const authoredConflictHolds = Array.isArray(
 			currentCheckpoint.migrationCorrectionHolds,
 		)

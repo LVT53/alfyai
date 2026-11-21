@@ -50,6 +50,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 			"repair-selective-retain",
 			"rewind-unpublished",
 			"restart-preparation",
+			"approve-unlocated-curation",
 		].includes(mode)
 	)
 		throw Error("invalid_mode");
@@ -66,6 +67,51 @@ export function parseMemoryBackfillArguments(args: string[]) {
 	)
 		throw Error("explicit_execution_acknowledgement_required");
 	return { values, mode, filename, userId, synthetic };
+}
+/** A small receipt file, by its exact absolute path, that only its owner can read. */
+export function readPrivateReceipt(
+	file: string | undefined,
+	error: string,
+): unknown {
+	let canonical: string | undefined;
+	try {
+		canonical = file && isAbsolute(file) ? realpathSync(file) : undefined;
+	} catch {
+		canonical = undefined;
+	}
+	if (!file || canonical !== file) throw Error(error);
+	const info = lstatSync(file);
+	if (
+		!info.isFile() ||
+		info.uid !== process.getuid?.() ||
+		(info.mode & 0o077) !== 0 ||
+		info.size > 4096
+	)
+		throw Error(error);
+	return JSON.parse(readFileSync(file, "utf8"));
+}
+/** An approval to check unlocated removals by meaning, for one account's current manifest. */
+export function unlocatedCurationReceipt(
+	receipt: unknown,
+	expected: { userId: string; manifestId: string },
+) {
+	const proof =
+		receipt && typeof receipt === "object"
+			? (receipt as Record<string, unknown>)
+			: {};
+	const { manifestHash, actionIds } = proof;
+	if (
+		proof.userId !== expected.userId ||
+		proof.manifestId !== expected.manifestId ||
+		proof.approveUnlocatedCuration !== true ||
+		typeof manifestHash !== "string" ||
+		!/^[a-f0-9]{64}$/u.test(manifestHash) ||
+		!Array.isArray(actionIds) ||
+		!actionIds.length ||
+		actionIds.some((id) => typeof id !== "string" || !id)
+	)
+		throw Error("private_curation_authorization_scope_mismatch");
+	return { manifestHash, actionIds: actionIds as string[] };
 }
 async function main() {
 	const { values, mode, filename, userId, synthetic } =
@@ -116,6 +162,17 @@ async function main() {
 				endorsements: inventory.actions.filter((a) => a.kind === "endorsement")
 					.length,
 				holdHistory: inventory.holdHistory,
+				// Content-free IDs for an approval receipt; see the runbook.
+				unlocatedRemovals: inventory.actions
+					.filter(
+						(a) =>
+							!a.curateAllHistory &&
+							m.unlocatedCurationApprovable(inventory, a.id),
+					)
+					.map((a) => a.id),
+				approvedUnlocatedRemovals: inventory.actions
+					.filter((a) => a.curateAllHistory)
+					.map((a) => a.id),
 			};
 		} else if (
 			mode === "recover-retained" ||
@@ -252,24 +309,13 @@ async function main() {
 				})),
 			};
 		} else if (mode === "restart-preparation") {
-			const file = values.get("--authorization-file");
 			const manifestId = values.get("--manifest");
-			if (
-				!file ||
-				!isAbsolute(file) ||
-				realpathSync(file) !== file ||
-				!manifestId
-			)
+			if (!manifestId)
 				throw Error("private_restart_authorization_file_required");
-			const info = lstatSync(file);
-			if (
-				!info.isFile() ||
-				info.uid !== process.getuid?.() ||
-				(info.mode & 0o077) !== 0 ||
-				info.size > 4096
-			)
-				throw Error("private_restart_authorization_file_required");
-			const proof = JSON.parse(readFileSync(file, "utf8"));
+			const proof = readPrivateReceipt(
+				values.get("--authorization-file"),
+				"private_restart_authorization_file_required",
+			) as Record<string, unknown>;
 			if (
 				proof.userId !== userId ||
 				proof.manifestId !== manifestId ||
@@ -284,6 +330,21 @@ async function main() {
 					manifestId,
 					manifestHash: proof.manifestHash,
 				})),
+			};
+		} else if (mode === "approve-unlocated-curation") {
+			const manifestId = values.get("--manifest");
+			if (!manifestId)
+				throw Error("private_curation_authorization_file_required");
+			const proof = unlocatedCurationReceipt(
+				readPrivateReceipt(
+					values.get("--authorization-file"),
+					"private_curation_authorization_file_required",
+				),
+				{ userId, manifestId },
+			);
+			summary = {
+				mode,
+				...m.approveUnlocatedMemoryCuration(userId, { manifestId, ...proof }),
 			};
 		} else if (mode === "authorize-review") {
 			const { authorizeMemoryQuarantine } = await import(

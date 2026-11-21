@@ -5466,3 +5466,178 @@ it("keeps the held-history boundary across a restart", async () => {
 		migration.verifyMemoryMigration(h.userId, restarted.manifestId).changed,
 	).toBe(false);
 });
+
+/** A deleted memory whose only chat was deleted too, worded unlike any chat. */
+const unlocatedStatement = "I ride a blue bicycle";
+async function unlocatedRemoval() {
+	const { db, s } = await legacyItem();
+	db.update(s.memoryProfileItems).set({ statement: unlocatedStatement }).run();
+	db.update(s.memoryProfileItemProvenance)
+		.set({ sourceId: "unavailable-chat" })
+		.run();
+	return { db, s };
+}
+const unlocatedRemovalId = "item:item:0:2021-01-01T00:00:00.000Z";
+/** The operator's protected receipt, naming the current manifest by its hash. */
+async function approveUnlocatedCuration(
+	actionIds = [unlocatedRemovalId],
+	receipt: { manifestId?: string; manifestHash?: string } = {},
+) {
+	const migration = await import("./migration");
+	const { latestManifest } = await import("./migration-progress");
+	const { createHash } = await import("node:crypto");
+	const manifest = latestManifest(h.userId);
+	return migration.approveUnlocatedMemoryCuration(h.userId, {
+		manifestId: receipt.manifestId ?? manifest?.id ?? "",
+		manifestHash:
+			receipt.manifestHash ??
+			createHash("sha256")
+				.update(manifest?.manifestJson ?? "")
+				.digest("hex"),
+		actionIds,
+	});
+}
+
+it("approves checking an unlocated removal by meaning only for that kind of removal", async () => {
+	const { db, s } = await unlocatedRemoval();
+	const removed = (
+		id: string,
+		statement: string,
+		suppressedAt: Date | null,
+		chat?: string,
+	) => {
+		db.insert(s.memoryProfileItems)
+			.values({
+				id,
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: id,
+				category: "about_you",
+				statement,
+				status: "suppressed",
+				suppressedAt,
+				updatedAt: new Date("2021-02-01"),
+			})
+			.run();
+		if (chat)
+			db.insert(s.memoryProfileItemProvenance)
+				.values({
+					id: `${id}-provenance`,
+					userId: h.userId,
+					itemId: id,
+					sourceType: "conversation",
+					sourceId: chat,
+					label: "Chat",
+				})
+				.run();
+	};
+	// Its chat still exists, so preparation leaves that chat out instead.
+	removed(
+		"located",
+		"I keep bees in the garden",
+		new Date("2021-02-01"),
+		"chat",
+	);
+	// No recorded provenance at all: older history stays held.
+	removed("unbounded", "I collect stamps", new Date("2021-02-01"));
+	// A removal without a date, and one with nothing to forget.
+	removed("undated", "I sail on weekends", null, "deleted-chat");
+	removed("empty", "  ", new Date("2021-02-01"), "deleted-chat");
+	const migration = await import("./migration");
+	const inventory = migration.inspectMemoryMigration(h.userId);
+	const idOf = (item: string) =>
+		inventory.actions.find((action) => action.id.startsWith(`item:${item}:`))
+			?.id ?? "";
+	expect(idOf("item")).toBe(unlocatedRemovalId);
+	expect(inventory.exceptions).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				id: unlocatedRemovalId,
+				reason: "missing_source",
+			}),
+			expect.objectContaining({
+				id: idOf("unbounded"),
+				reason: "unknown_exclusion_boundary",
+			}),
+			expect.objectContaining({
+				id: idOf("undated"),
+				reason: "missing_source",
+			}),
+			expect.objectContaining({ id: idOf("empty"), reason: "missing_source" }),
+		]),
+	);
+	const refused = "memory_migration_unlocated_curation_refused";
+	// Nothing to approve before a preparation records a manifest.
+	await expect(approveUnlocatedCuration()).rejects.toThrow(refused);
+	const first = await migration.prepareMemoryMigration(h.userId);
+	for (const ids of [
+		[idOf("located")],
+		[idOf("unbounded")],
+		[idOf("undated")],
+		[idOf("empty")],
+		["item:unknown:0:2021-01-01T00:00:00.000Z"],
+		[],
+		[unlocatedRemovalId, unlocatedRemovalId],
+		[unlocatedRemovalId, idOf("located")],
+	])
+		await expect(approveUnlocatedCuration(ids)).rejects.toThrow(refused);
+	await expect(
+		approveUnlocatedCuration([unlocatedRemovalId], {
+			manifestHash: "0".repeat(64),
+		}),
+	).rejects.toThrow(refused);
+	await expect(
+		approveUnlocatedCuration([unlocatedRemovalId], { manifestId: "another" }),
+	).rejects.toThrow(refused);
+	const checkpoint = () =>
+		JSON.parse(
+			db.select().from(s.memoryMigrationManifests).get()?.checkpointJson ??
+				"{}",
+		);
+	expect(checkpoint().migrationCurateUnlocated).toBeUndefined();
+
+	await expect(approveUnlocatedCuration()).resolves.toMatchObject({
+		manifestId: first.id,
+		approved: 1,
+		added: 1,
+	});
+	// The same receipt again changes nothing.
+	await expect(approveUnlocatedCuration()).resolves.toMatchObject({
+		approved: 1,
+		added: 0,
+	});
+	expect(checkpoint()).toMatchObject({
+		migrationCurateUnlocated: [unlocatedRemovalId],
+		migrationCurateUnlocatedEpoch: 0,
+	});
+	const approved = migration.inspectMemoryMigration(h.userId);
+	expect(
+		approved.actions.find(({ id }) => id === unlocatedRemovalId),
+	).toMatchObject({ curateAllHistory: true, sourceIds: [] });
+	expect(approved.exceptions.map(({ id }) => id)).not.toContain(
+		unlocatedRemovalId,
+	);
+
+	// A checkpoint that names any other removal changes nothing for it.
+	const { eq } = await import("drizzle-orm");
+	const others = ["located", "unbounded", "undated", "empty"].map(idOf);
+	db.update(s.memoryMigrationManifests)
+		.set({
+			checkpointJson: JSON.stringify({
+				...checkpoint(),
+				migrationCurateUnlocated: [unlocatedRemovalId, ...others],
+			}),
+		})
+		.where(eq(s.memoryMigrationManifests.id, first.id))
+		.run();
+	const widened = migration.inspectMemoryMigration(h.userId);
+	for (const id of others) {
+		expect(
+			widened.actions.find((action) => action.id === id)?.curateAllHistory,
+		).toBeUndefined();
+		expect(widened.exceptions.filter((entry) => entry.id === id)).toEqual(
+			inventory.exceptions.filter((entry) => entry.id === id),
+		);
+	}
+	expect(widened.sources).toEqual(approved.sources);
+});

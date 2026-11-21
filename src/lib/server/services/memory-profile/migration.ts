@@ -35,7 +35,9 @@ import { assertMigratedHistoryWithdrawalBoundary } from "./migration-observation
 import {
 	inspectMemoryMigration,
 	latestManifest,
+	readUnlocatedCurationApproval,
 	settleMemoryMigration,
+	unlocatedCurationApprovable,
 	verifyMemoryMigration,
 } from "./migration-progress";
 import {
@@ -53,6 +55,7 @@ import {
 
 export {
 	inspectMemoryMigration,
+	unlocatedCurationApprovable,
 	verifyMemoryMigration,
 } from "./migration-progress";
 
@@ -942,6 +945,75 @@ export async function restartMemoryPreparation(
 		ready: prepared.ready,
 		changed: prepared.changed,
 	};
+}
+
+/**
+ * Record an operator's approval to check unlocated removals by meaning: a
+ * dated legacy edit or removal whose provenance named a chat that no longer
+ * exists. From the next prepare, every default-history chat of the removal's
+ * scope goes through the curation forget step for it before it publishes, and
+ * the removal's literal wording stays refused. The receipt names the exact
+ * current manifest by its hash. Approvals only accumulate; a new one is
+ * remembered with its epoch, because chats published before it never went
+ * through that step and only a restarted preparation sweeps them.
+ */
+export function approveUnlocatedMemoryCuration(
+	userId: string,
+	input: { manifestId: string; manifestHash: string; actionIds: string[] },
+) {
+	return db.transaction((tx) => {
+		const account = tx
+			.select()
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		const manifest = latestManifest(userId);
+		const checkpoint = parseJsonRecord(manifest?.checkpointJson ?? null);
+		const ids = input.actionIds;
+		requireCurationApproval(
+			account?.lifecycleState === "active" &&
+				account.authority === "preparing" &&
+				manifest?.id === input.manifestId &&
+				manifest.epoch === account.epoch &&
+				["preparing", "failed", "prepared"].includes(manifest.status) &&
+				/^[a-f0-9]{64}$/u.test(input.manifestHash) &&
+				createHash("sha256").update(manifest.manifestJson).digest("hex") ===
+					input.manifestHash &&
+				!checkpoint.migrationRewind &&
+				!checkpoint.cutoverAt &&
+				Array.isArray(ids) &&
+				ids.length > 0 &&
+				ids.length <= 64 &&
+				new Set(ids).size === ids.length,
+		);
+		const inventory = inspectMemoryMigration(userId);
+		requireCurationApproval(
+			ids.every(
+				(id) =>
+					typeof id === "string" && unlocatedCurationApprovable(inventory, id),
+			),
+		);
+		const previous = readUnlocatedCurationApproval(checkpoint);
+		const approved = [...new Set([...previous.actionIds, ...ids])].sort();
+		const added = approved.length - previous.actionIds.length;
+		tx.update(memoryMigrationManifests)
+			.set({
+				checkpointJson: JSON.stringify({
+					...checkpoint,
+					migrationCurateUnlocated: approved,
+					migrationCurateUnlocatedEpoch:
+						added || previous.epoch === undefined
+							? account.epoch
+							: previous.epoch,
+				}),
+			})
+			.where(eq(memoryMigrationManifests.id, manifest.id))
+			.run();
+		return { manifestId: manifest.id, approved: approved.length, added };
+	});
+}
+function requireCurationApproval(condition: unknown): asserts condition {
+	if (!condition) throw Error("memory_migration_unlocated_curation_refused");
 }
 
 /** Fail closed if a native-era choice cannot be represented in legacy authority. Never resurrect. */
