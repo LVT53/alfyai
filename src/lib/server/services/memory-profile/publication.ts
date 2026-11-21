@@ -1205,11 +1205,14 @@ export function samePriorObservation(
  * Reconnect only a unique, complete support match. An ordinary observation
  * must retain its full previous presentation. A current approved authored
  * statement may keep its own wording above that same underlying evidence.
+ * No other observation may present the prior rows' raw facts; `guarded`
+ * narrows that to the given facts (default: all of the prior rows' facts).
  */
 export function matchVerifiedObservationRows(
 	prior: Array<typeof memoryPublishedRows.$inferSelect>,
 	memories: NativeMemory[],
 	approved: ReadonlyMap<string, string>,
+	guarded?: ReadonlySet<string>,
 ) {
 	const raw = new Map(
 		memories
@@ -1239,11 +1242,15 @@ export function matchVerifiedObservationRows(
 		if (candidates.length !== 1 || matched.has(candidates[0].id)) return null;
 		matched.set(candidates[0].id, { prior: old, text: wording ?? old.text });
 	}
-	const priorRaw = new Set(
-		prior.flatMap((row) =>
-			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
-		),
-	);
+	const priorRaw =
+		guarded ??
+		new Set(
+			prior.flatMap((row) =>
+				readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+					(fact) => fact.id,
+				),
+			),
+		);
 	if (
 		observations.some(
 			(row) =>
@@ -1259,8 +1266,14 @@ export function reconnectVerifiedObservations(
 	prior: Array<typeof memoryPublishedRows.$inferSelect>,
 	memories: NativeMemory[],
 	approved: ReadonlyMap<string, string>,
+	guarded?: ReadonlySet<string>,
 ) {
-	const matches = matchVerifiedObservationRows(prior, memories, approved);
+	const matches = matchVerifiedObservationRows(
+		prior,
+		memories,
+		approved,
+		guarded,
+	);
 	return (
 		matches && new Map([...matches].map(([id, match]) => [id, match.text]))
 	);

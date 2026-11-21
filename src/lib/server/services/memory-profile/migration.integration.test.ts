@@ -191,7 +191,18 @@ it("a new exclusion after preparation creates a new source replay checkpoint", a
 	expect(db.select().from(s.memoryDeliveryJobs).all()).toHaveLength(2);
 });
 /** Deterministic wire fixture, not evidence of native semantic quality. */
-async function nativeFixture() {
+async function nativeFixture(
+	options: {
+		/** Strip a deleted document's facts from listed observations, as Hindsight does. */
+		followDeletes?: boolean;
+		/** Called for each observation that loses support but keeps some. */
+		onSupportLost?: (observation: {
+			text: string;
+			source_memory_ids: string[];
+		}) => void;
+	} = {},
+) {
+	const fixtureOptions = options;
 	const client = await import("./hindsight-client");
 	const config = await import("$lib/server/config-store");
 	const contracts = await import("./contracts");
@@ -307,7 +318,19 @@ async function nativeFixture() {
 			} else if (options?.method === "DELETE" && path.includes("/documents/")) {
 				const id = decodeURIComponent(path.split("/").at(-1) ?? "");
 				for (const [key, f] of facts)
-					if (f.bank === bank && f.document_id === id) facts.delete(key);
+					if (f.bank === bank && f.document_id === id) {
+						facts.delete(key);
+						if (!fixtureOptions.followDeletes) continue;
+						for (let i = extraObservations.length - 1; i >= 0; i--) {
+							const o = extraObservations[i];
+							if (!o.source_memory_ids.includes(key)) continue;
+							o.source_memory_ids = o.source_memory_ids.filter(
+								(x) => x !== key,
+							);
+							if (o.source_memory_ids.length) fixtureOptions.onSupportLost?.(o);
+							if (!o.source_memory_ids.length) extraObservations.splice(i, 1);
+						}
+					}
 			}
 			return new Response(JSON.stringify(data));
 		},
@@ -4563,5 +4586,197 @@ it.each([
 		expect(recalled.map((row) => row.ref.rowId).sort()).toEqual(
 			[generated, `${incoming}:observation`].sort(),
 		);
+		// The owner accepted that the authored row now lists the older chat.
+		const read = await import("./native-read");
+		const shown = read
+			.listMemory(h.userId, { scope: { kind: "personal" } })
+			.rows.find((row) => row.ref.rowId === generated);
+		expect(shown?.updatedAt).toBeNull();
+		const detail = shown && read.getMemoryDetail(h.userId, shown.ref);
+		expect(detail?.sources).toHaveLength(2);
+		expect(detail?.origin).toBe("conversation");
+	},
+);
+
+it.each([
+	"later history",
+	"second corroboration",
+	"dropped corroboration",
+	"dropped and unrepresented",
+	"withdrawn unchanged",
+	"withdrawn and reworded",
+	"withdrawn and dropped",
+	"authored presented again",
+] as const)(
+	"a corroborated authored observation stays protected: %s",
+	async (variant) => {
+		const { db, s } = await seed();
+		const authored = "My sister Mila lives in Porto.";
+		db.update(s.messages)
+			.set({
+				content: "Mila, my sister in Porto, works as a ferry pilot.",
+				createdAt: new Date("2020-01-01"),
+			})
+			.run();
+		db.insert(s.conversations)
+			.values({ id: "chat2", userId: h.userId, title: "Second synthetic" })
+			.run();
+		db.insert(s.messages)
+			.values({
+				id: "m2",
+				conversationId: "chat2",
+				role: "user",
+				content: "My sister Mila in Porto just got a new boat.",
+				createdAt: new Date("2019-06-01"),
+			})
+			.run();
+		db.insert(s.memoryProjectionState)
+			.values({ id: "projection", userId: h.userId, resetGeneration: 0 })
+			.run();
+		db.insert(s.memoryProfileItems)
+			.values({
+				id: "authored",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "sister",
+				category: "about_you",
+				scopeType: "global",
+				scopeId: "global",
+				status: "active",
+				statement: authored,
+				metadataJson: JSON.stringify({ origin: "user_authored" }),
+				updatedAt: new Date("2021-01-01"),
+			})
+			.run();
+		let lost: "keep" | "reword" | "drop" = "keep";
+		const reworded = "Mila, my sister, lives in Porto.";
+		const f = await nativeFixture({
+			followDeletes: true,
+			onSupportLost: (observation) => {
+				if (lost === "reword") observation.text = reworded;
+				// Hindsight drops the observation and presents the fact nowhere.
+				if (lost === "drop") {
+					f.hideObservation.add(observation.source_memory_ids[0]);
+					observation.source_memory_ids = [];
+				}
+			},
+		});
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		await migration.prepareMemoryMigration(h.userId);
+		const { eq } = await import("drizzle-orm");
+		const { claimNext } = await import("../jobs/ledger");
+		const { runAttempt } = await import("../jobs/runner");
+		const claim = async (id: string) => {
+			const job = claimNext(jobs.memoryDeliveryJob, {
+				workerId: "corroboration-lifecycle",
+				jobId: id,
+			});
+			if (!job) throw Error("test_claim_missing");
+			await runAttempt(jobs.memoryDeliveryJob, job, {
+				workerId: "corroboration-lifecycle",
+			});
+		};
+		const jobFor = (id: string) =>
+			db
+				.select()
+				.from(s.memoryDeliveryJobs)
+				.where(eq(s.memoryDeliveryJobs.sourceId, id))
+				.get();
+		const sources = db.select().from(s.memorySourceRevisions).all();
+		const [authority] = sources.filter((row) => row.messageId === null);
+		const [older] = sources.filter((row) => row.messageId === "m");
+		const [second] = sources.filter((row) => row.messageId === "m2");
+		const support = `${authority.id}:fact`;
+		const generated = `${support}:observation`;
+		const first = `${older.id}:fact`;
+		const next = `${second.id}:fact`;
+		await claim(jobFor(authority.id)?.id ?? "");
+		const observation = {
+			id: generated,
+			text: authored,
+			fact_type: "observation" as const,
+			source_memory_ids: [support, first],
+		};
+		f.extraObservations.push(observation);
+		await claim(jobFor(older.id)?.id ?? "");
+		expect(jobFor(older.id)?.status).toBe("succeeded");
+		const { readPublishedMemory } = await import("./publication");
+		const bank = db.select().from(s.memoryBanks).get();
+		if (!bank) throw Error("test_bank_missing");
+		const visible = () => readPublishedMemory(h.userId, bank.id);
+		const supportOf = (nativeId: string) =>
+			JSON.parse(
+				visible().find((row) => row.nativeId === nativeId)?.sourceIdsJson ??
+					"null",
+			);
+		expect(supportOf(generated)).toEqual([support, first]);
+		if (variant === "second corroboration")
+			observation.source_memory_ids = [support, first, next];
+		if (variant.startsWith("dropped"))
+			observation.source_memory_ids = [support];
+		if (variant === "dropped and unrepresented") f.hideObservation.add(first);
+		if (variant === "authored presented again")
+			f.extraObservations.push({
+				id: "authored-again",
+				text: "Mila is in Porto.",
+				fact_type: "observation",
+				source_memory_ids: [support, next],
+			});
+		if (variant.startsWith("withdrawn")) {
+			lost =
+				variant === "withdrawn and reworded"
+					? "reword"
+					: variant === "withdrawn and dropped"
+						? "drop"
+						: "keep";
+			const { revokeMemorySources } = await import("./revisions");
+			revokeMemorySources(h.userId, [older.id]);
+			await jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: bank.id,
+				epoch: older.epoch,
+				kind: "source_cleanup",
+				sourceId: older.id,
+				requestId: `source-cleanup:${older.id}`,
+			});
+			const cleanup = db
+				.select()
+				.from(s.memoryDeliveryJobs)
+				.all()
+				.find((job) => job.kind === "source_cleanup");
+			await claim(cleanup?.id ?? "");
+		}
+		await claim(jobFor(second.id)?.id ?? "");
+		if (
+			variant === "withdrawn and reworded" ||
+			variant === "withdrawn and dropped" ||
+			variant === "authored presented again" ||
+			variant === "dropped and unrepresented"
+		) {
+			expect(jobFor(second.id)).toMatchObject({
+				status: "failed",
+				errorCode: "memory_preparation_failed",
+			});
+			expect(visible().some((row) => row.text === reworded)).toBe(false);
+			expect(visible().some((row) => row.nativeId === "authored-again")).toBe(
+				false,
+			);
+			return;
+		}
+		expect(jobFor(second.id)?.status).toBe("succeeded");
+		expect(visible().find((row) => row.nativeId === generated)?.text).toBe(
+			authored,
+		);
+		expect(supportOf(generated)).toEqual(
+			variant === "later history"
+				? [support, first]
+				: variant === "second corroboration"
+					? [support, first, next]
+					: [support],
+		);
+		expect(supportOf(`${next}:observation`)).toEqual([next]);
+		if (!variant.startsWith("withdrawn"))
+			expect(supportOf(`${first}:observation`)).toEqual([first]);
 	},
 );

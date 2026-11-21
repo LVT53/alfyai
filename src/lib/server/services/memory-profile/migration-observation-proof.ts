@@ -1,5 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import { memoryActions, type memoryPublishedRows } from "$lib/server/db/schema";
+import {
+	memoryActions,
+	memoryBanks,
+	type memoryPublishedRows,
+} from "$lib/server/db/schema";
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { parseJsonRecord } from "./internal-json";
@@ -10,6 +14,7 @@ import {
 	approvedMigrationObservationWording,
 	approvedMigrationRankFamily,
 	matchVerifiedObservationRows,
+	publishedRowsForGeneration,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 	reconnectVerifiedObservations,
@@ -110,15 +115,12 @@ export function matchPriorMigrationObservations(
 	);
 }
 
-// Default historical replay may consolidate its own claims. Explicit authored
-// observations already published during preparation stay exact.
-export function protectedMigrationObservations(
-	tx: Tx,
-	userId: string,
-	bankId: string,
+/** Admitted facts from authored statements or explicit edits. */
+function protectedMigrationFacts(
+	admitted: ReturnType<typeof admittedNativeFacts>,
 ) {
-	const protectedIds = new Set(
-		admittedNativeFacts(userId, bankId, tx)
+	return new Set(
+		admitted
 			.filter(
 				({ source }) =>
 					typeof parseJsonRecord(source.context).migrationAuthoredId ===
@@ -126,11 +128,48 @@ export function protectedMigrationObservations(
 			)
 			.map(({ id }) => id),
 	);
-	return readPublishedMemory(userId, bankId, undefined, tx).filter((row) =>
-		readAcknowledgedFacts(row.sourceFingerprintsJson).some((fact) =>
-			protectedIds.has(fact.id),
-		),
-	);
+}
+
+// Default historical replay may consolidate its own claims. Explicit authored
+// observations already published during preparation stay exact.
+// The whole current generation is read, not the visible rows: a row hidden
+// because a corroborating source was withdrawn stays protected while an
+// admitted authored fact remains, compared on its admitted support only.
+export function protectedMigrationObservations(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+) {
+	const facts = admittedNativeFacts(userId, bankId, tx);
+	const admitted = new Map(facts.map((fact) => [fact.id, fact]));
+	const protectedIds = protectedMigrationFacts(facts);
+	const bank = tx
+		.select()
+		.from(memoryBanks)
+		.where(and(eq(memoryBanks.id, bankId), eq(memoryBanks.userId, userId)))
+		.get();
+	if (!bank?.generation) return [];
+	return publishedRowsForGeneration(
+		tx,
+		bankId,
+		bank.epoch,
+		bank.generation,
+	).flatMap((row) => {
+		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
+		const kept = facts.filter(
+			(fact) => admitted.get(fact.id)?.text === fact.text,
+		);
+		if (!kept.some((fact) => protectedIds.has(fact.id))) return [];
+		return kept.length === facts.length
+			? [row]
+			: [
+					{
+						...row,
+						sourceIdsJson: JSON.stringify(kept.map((fact) => fact.id)),
+						sourceFingerprintsJson: JSON.stringify(kept),
+					},
+				];
+	});
 }
 
 export function assertHistoryPreservesAuthoredObservations(
@@ -148,8 +187,14 @@ export function assertHistoryPreservesAuthoredObservations(
 		protectedRows,
 		true,
 	);
+	// Ordinary history that corroborates a protected row may also have its own
+	// observation; only authored and explicitly edited facts must not be
+	// presented again outside their exact rows.
+	const guarded = protectedMigrationFacts(
+		admittedNativeFacts(userId, bankId, tx),
+	);
 	if (
-		reconnectVerifiedObservations(protectedRows, memories, approved) ||
+		reconnectVerifiedObservations(protectedRows, memories, approved, guarded) ||
 		(incoming &&
 			corroboratedAuthoredObservations(
 				tx,
@@ -157,6 +202,7 @@ export function assertHistoryPreservesAuthoredObservations(
 				protectedRows,
 				memories,
 				approved,
+				guarded,
 			))
 	)
 		return;
@@ -181,11 +227,14 @@ function plainAuthoredSource(
 /**
  * Older eligible history may corroborate a generated observation of a plain
  * authored statement without changing it. The observation keeps its native
- * ID, wording, display, original facts and date. Every added fact comes from
- * the incoming history source, which is older than the statement, and also
- * supports an ordinary observation, so it stays recallable on its own. Exact
- * edits, their companions, explicit edits and statements tied to an edit or
- * removal stay exact. Publication keeps the observation's native support.
+ * ID, wording, display and authored facts. Its published support may already
+ * hold earlier corroborating facts from older ordinary history. A job may add
+ * facts from its own incoming history source, which must be older than the
+ * statement, or Hindsight may drop an earlier corroborating link. Every added
+ * or dropped fact must also support an ordinary observation, so it stays
+ * recallable on its own. Exact edits, their companions, explicit edits and
+ * statements tied to an edit or removal stay exact. Publication keeps the
+ * observation's native support; the final exact reconnect still decides.
  */
 function corroboratedAuthoredObservations(
 	tx: Tx,
@@ -193,17 +242,12 @@ function corroboratedAuthoredObservations(
 	protectedRows: PublishedRow[],
 	memories: NativeMemory[],
 	approved: ReadonlyMap<string, string>,
+	protectedFacts: ReadonlySet<string>,
 ) {
 	const { userId, bankId, scopeKey, sourceId } = input;
+	const inventory = ordinaryMigrationInventory(inspectMemoryMigration(userId));
 	const incoming = assertMemorySourceCurrent(tx, sourceId, userId, bankId);
-	if (
-		!ordinaryMigrationSource(
-			incoming,
-			scopeKey,
-			ordinaryMigrationInventory(inspectMemoryMigration(userId)),
-		)
-	)
-		return false;
+	if (!ordinaryMigrationSource(incoming, scopeKey, inventory)) return false;
 	const raw = new Map(
 		memories
 			.filter((row) => row.fact_type !== "observation")
@@ -221,12 +265,15 @@ function corroboratedAuthoredObservations(
 		bankId,
 		readPublishedMemory(userId, bankId, undefined, tx),
 	);
-	const protectedFacts = new Set(
-		protectedRows.flatMap((row) =>
-			readAcknowledgedFacts(row.sourceFingerprintsJson).map((fact) => fact.id),
-		),
-	);
 	const protectedNative = new Set(protectedRows.map((row) => row.nativeId));
+	const recallableElsewhere = (id: string, owner: string) =>
+		observations.some(
+			(other) =>
+				other.id !== owner &&
+				!protectedNative.has(other.id) &&
+				!!other.source_memory_ids?.includes(id) &&
+				other.source_memory_ids.every((x) => !protectedFacts.has(x)),
+		);
 	const trimmed = new Map<string, NativeMemory>();
 	for (const old of protectedRows) {
 		const live = observations.find((row) => row.id === old.nativeId);
@@ -241,39 +288,58 @@ function corroboratedAuthoredObservations(
 		const original = readAcknowledgedFacts(old.sourceFingerprintsJson);
 		const originalIds = original.map((fact) => fact.id);
 		const support = live.source_memory_ids ?? [];
-		const added = support.filter((id) => !originalIds.includes(id));
 		if (
 			!original.length ||
-			!added.length ||
 			new Set(support).size !== support.length ||
 			!original.every((fact) => {
 				const source = admitted.get(fact.id)?.source;
 				const current = raw.get(fact.id);
 				return (
-					support.includes(fact.id) &&
 					!!source &&
 					admitted.get(fact.id)?.text === fact.text &&
 					current?.document_id === source.id &&
 					current.text === fact.text &&
 					(current.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
-					fact.assertedAtMs === source.assertedAt.getTime() &&
-					fact.assertedAtMs > incoming.assertedAt.getTime() &&
-					plainAuthoredSource(tx, source)
+					fact.assertedAtMs === source.assertedAt.getTime()
 				);
-			}) ||
+			})
+		)
+			continue;
+		const authored = original.filter((fact) => {
+			const source = admitted.get(fact.id)?.source;
+			return !!source && plainAuthoredSource(tx, source);
+		});
+		if (!authored.length) continue;
+		const earliestAuthored = Math.min(
+			...authored.map((fact) => fact.assertedAtMs ?? 0),
+		);
+		const corroborating = original.filter((fact) => !authored.includes(fact));
+		if (
+			!corroborating.every((fact) => {
+				const source = admitted.get(fact.id)?.source;
+				return (
+					!!source &&
+					!!ordinaryMigrationSource(source, scopeKey, inventory) &&
+					source.assertedAt.getTime() < earliestAuthored
+				);
+			})
+		)
+			continue;
+		const added = support.filter((id) => !originalIds.includes(id));
+		const dropped = corroborating.filter((fact) => !support.includes(fact.id));
+		if (
+			(!added.length && !dropped.length) ||
+			!authored.every((fact) => support.includes(fact.id)) ||
+			(added.length > 0 &&
+				!(incoming.assertedAt.getTime() < earliestAuthored)) ||
 			!added.every(
 				(id) =>
 					raw.get(id)?.document_id === incoming.id &&
 					!admitted.has(id) &&
 					!protectedFacts.has(id) &&
-					observations.some(
-						(other) =>
-							other.id !== live.id &&
-							!protectedNative.has(other.id) &&
-							!!other.source_memory_ids?.includes(id) &&
-							other.source_memory_ids.every((x) => !protectedFacts.has(x)),
-					),
+					recallableElsewhere(id, live.id),
 			) ||
+			!dropped.every((fact) => recallableElsewhere(fact.id, live.id)) ||
 			splitNativeNotes(
 				live,
 				support.flatMap((id) => {
@@ -292,6 +358,7 @@ function corroboratedAuthoredObservations(
 			protectedRows,
 			memories.map((row) => trimmed.get(row.id) ?? row),
 			approved,
+			protectedFacts,
 		)
 	);
 }
