@@ -67,8 +67,9 @@ function manifestConversationFiles(manifest: unknown): string[] | null {
  * browser (to draw the list the person ticks from) and by the server (to
  * import what was ticked): the files the export's manifest lists for its
  * conversations, in order, else the one `conversations.json` at the root that
- * older exports have. A listed file the archive does not hold refuses the
- * whole export rather than import part of it.
+ * older exports have, keeping the first entry of a conversation listed twice.
+ * A listed file the archive does not hold refuses the whole export rather
+ * than import part of it.
  */
 export async function readExportedConversations(
 	zip: ExportArchive,
@@ -85,6 +86,9 @@ export async function readExportedConversations(
 		}
 	}
 	const entries: unknown[] = [];
+	// One entry per conversation, the first: a conversation listed twice would
+	// otherwise be offered twice and imported twice.
+	const seen = new Set<string>();
 	for (const name of files) {
 		const file = zip.file(name);
 		if (!file) return { ok: false, problem: "missing", file: name };
@@ -102,7 +106,14 @@ export async function readExportedConversations(
 		if (!Array.isArray(parsed))
 			return { ok: false, problem: "not_a_list", file: name };
 		// A large export can hold more entries than a spread may pass at once.
-		for (const entry of parsed) entries.push(entry);
+		for (const entry of parsed) {
+			const id = exportedConversationId(entry);
+			if (id !== null) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+			}
+			entries.push(entry);
+		}
 	}
 	return { ok: true, entries };
 }

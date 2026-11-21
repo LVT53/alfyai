@@ -841,8 +841,16 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("parses a ZIP with multiple conversations", async () => {
-		const conv1 = makeConversation({ id: "c1", title: "First" });
-		const conv2 = makeConversation({ id: "c2", title: "Second" });
+		const conv1 = makeConversation({
+			id: "c1",
+			conversation_id: "c1",
+			title: "First",
+		});
+		const conv2 = makeConversation({
+			id: "c2",
+			conversation_id: "c2",
+			title: "Second",
+		});
 		const buffer = await makeZipWithConversations([conv1, conv2]);
 		const result = await parseConversationsJson(buffer);
 
@@ -1038,9 +1046,14 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("returns both successful conversations and per-entry errors", async () => {
-		const valid = makeConversation({ id: "good", title: "Good" });
+		const valid = makeConversation({
+			id: "good",
+			conversation_id: "good",
+			title: "Good",
+		});
 		const bad = makeConversation({
 			id: "bad",
+			conversation_id: "bad",
 			title: "Bad",
 			mapping: {} as Record<string, ChatGPTMappingNode>,
 		});

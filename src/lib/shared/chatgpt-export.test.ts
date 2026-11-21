@@ -121,6 +121,38 @@ describe("readExportedConversations", () => {
 			).toEqual({ ok: true, entries: [{ id: "a" }] });
 	});
 
+	it("keeps one entry per conversation, the first, so the list and the import agree", async () => {
+		const result = await readExportedConversations(
+			archive({
+				"export_manifest.json": {
+					logical_files: {
+						"conversations.json": {
+							files: ["conversations-0001.json", "conversations-0002.json"],
+						},
+					},
+				},
+				"conversations-0001.json": [
+					{ conversation_id: "a", title: "first" },
+					{ title: "no id" },
+				],
+				"conversations-0002.json": [
+					{ id: "a", title: "again" },
+					{ title: "no id" },
+					{ id: "b" },
+				],
+			}),
+		);
+		expect(result).toEqual({
+			ok: true,
+			entries: [
+				{ conversation_id: "a", title: "first" },
+				{ title: "no id" },
+				{ title: "no id" },
+				{ id: "b" },
+			],
+		});
+	});
+
 	it("says which file is missing, unreadable or not a list", async () => {
 		expect(await readExportedConversations(archive({}))).toEqual({
 			ok: false,
