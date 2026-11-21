@@ -274,7 +274,8 @@ export async function prepareNativeMemoryErasure(
 	return token;
 }
 
-function bankCleanupInputs(
+/** The erasure's own cleanup jobs for retired banks, also used by a restart. */
+export function bankCleanupInputs(
 	tx: Tx,
 	account: typeof memoryAccounts.$inferSelect,
 	banks: Array<typeof memoryBanks.$inferSelect>,

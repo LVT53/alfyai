@@ -49,6 +49,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 			"recover-retained",
 			"repair-selective-retain",
 			"rewind-unpublished",
+			"restart-preparation",
 		].includes(mode)
 	)
 		throw Error("invalid_mode");
@@ -248,6 +249,40 @@ async function main() {
 					sourceIds: proof.sourceIds,
 					holdCorrectionConflict: proof.holdCorrectionConflict === true,
 					allowOrdinaryConsolidation: proof.allowOrdinaryConsolidation === true,
+				})),
+			};
+		} else if (mode === "restart-preparation") {
+			const file = values.get("--authorization-file");
+			const manifestId = values.get("--manifest");
+			if (
+				!file ||
+				!isAbsolute(file) ||
+				realpathSync(file) !== file ||
+				!manifestId
+			)
+				throw Error("private_restart_authorization_file_required");
+			const info = lstatSync(file);
+			if (
+				!info.isFile() ||
+				info.uid !== process.getuid?.() ||
+				(info.mode & 0o077) !== 0 ||
+				info.size > 4096
+			)
+				throw Error("private_restart_authorization_file_required");
+			const proof = JSON.parse(readFileSync(file, "utf8"));
+			if (
+				proof.userId !== userId ||
+				proof.manifestId !== manifestId ||
+				proof.restartPreparation !== true ||
+				typeof proof.manifestHash !== "string" ||
+				!/^[a-f0-9]{64}$/u.test(proof.manifestHash)
+			)
+				throw Error("private_restart_authorization_scope_mismatch");
+			summary = {
+				mode,
+				...(await m.restartMemoryPreparation(userId, {
+					manifestId,
+					manifestHash: proof.manifestHash,
 				})),
 			};
 		} else if (mode === "authorize-review") {

@@ -15,7 +15,12 @@ it("defaults to read-only inspect with an explicit database and user", () => {
 	);
 });
 it("refuses real-mode mutation before opening any database without explicit execution acknowledgement", () => {
-	for (const mode of ["prepare", "cutover", "rollback"]) {
+	for (const mode of [
+		"prepare",
+		"cutover",
+		"rollback",
+		"restart-preparation",
+	]) {
 		const args = [
 			"--database",
 			"/tmp/synthetic.db",

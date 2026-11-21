@@ -236,12 +236,18 @@ async function nativeFixture(
 		fact_type: "observation";
 		source_memory_ids: string[];
 	}> = [];
+	const deletedBanks = new Set<string>();
 	const fetcher = vi.fn(
 		async (url: RequestInfo | URL, options?: RequestInit) => {
 			const path = String(url);
-			const bank = new URL(path).pathname.split("/")[4];
+			const segments = new URL(path).pathname.split("/");
+			const bank = segments[4];
+			if (deletedBanks.has(bank)) return new Response("{}", { status: 404 });
 			let data: unknown = {};
-			if (path.endsWith("/config"))
+			if (options?.method === "DELETE" && segments.length === 5) {
+				deletedBanks.add(bank);
+				for (const [key, f] of facts) if (f.bank === bank) facts.delete(key);
+			} else if (path.endsWith("/config"))
 				data = { config: contracts.NATIVE_BANK_CONFIG };
 			else if (path.endsWith("/memories") && options?.method === "POST") {
 				const body = JSON.parse(String(options.body));
@@ -385,6 +391,7 @@ async function nativeFixture(
 		archived,
 		hideObservation,
 		mentions,
+		deletedBanks,
 		interruptNextArchive: () => {
 			interruptArchive = true;
 		},
@@ -4890,3 +4897,255 @@ it.each([
 		expect(visible().some((row) => row.text === reworded)).toBe(false);
 	},
 );
+
+it("restarts a two-stage preparation in a fresh epoch, history first", async () => {
+	const { db, s } = await seed();
+	const history = "Mila, my sister in Porto, works as a ferry pilot.";
+	const authored = "My sister Mila lives in Porto.";
+	db.update(s.messages)
+		.set({ content: history, createdAt: new Date("2020-01-01") })
+		.run();
+	// A chat still queued when the restart comes, as most of Zsombor's were.
+	db.insert(s.messages)
+		.values({
+			id: "m3",
+			conversationId: "chat",
+			role: "user",
+			content: "I swim in the lake every Sunday.",
+			createdAt: new Date("2019-06-01"),
+		})
+		.run();
+	db.insert(s.memoryProjectionState)
+		.values({ id: "projection", userId: h.userId, resetGeneration: 0 })
+		.run();
+	db.insert(s.memoryProfileItems)
+		.values({
+			id: "authored",
+			userId: h.userId,
+			projectionStateId: "projection",
+			itemKey: "sister",
+			category: "about_you",
+			scopeType: "global",
+			scopeId: "global",
+			status: "active",
+			statement: authored,
+			metadataJson: JSON.stringify({ origin: "user_authored" }),
+			updatedAt: new Date("2021-01-01"),
+		})
+		.run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { eq } = await import("drizzle-orm");
+	const { claimNext } = await import("../jobs/ledger");
+	const { runAttempt } = await import("../jobs/runner");
+	const { createHash } = await import("node:crypto");
+	const claim = async (id: string) => {
+		const job = claimNext(jobs.memoryDeliveryJob, {
+			workerId: "restart-test",
+			jobId: id,
+		});
+		if (!job) throw Error("test_claim_missing");
+		await runAttempt(jobs.memoryDeliveryJob, job, { workerId: "restart-test" });
+	};
+	const jobFor = (id: string) =>
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.sourceId, id))
+			.get();
+	const first = await migration.prepareMemoryMigration(h.userId);
+	const epoch0 = db.select().from(s.memorySourceRevisions).all();
+	const [statement0] = epoch0.filter((row) => row.messageId === null);
+	const [chat0] = epoch0.filter((row) => row.messageId === "m");
+	const [waiting0] = epoch0.filter((row) => row.messageId === "m3");
+	// Two stages, as Zsombor's account ran: the statement is published first,
+	// then the older chat merges into it and is refused.
+	await claim(jobFor(statement0.id)?.id ?? "");
+	expect(jobFor(statement0.id)?.status).toBe("succeeded");
+	f.extraObservations.push({
+		id: `${statement0.id}:fact:observation`,
+		text: "Mila lives in Porto, Portugal.",
+		fact_type: "observation",
+		source_memory_ids: [`${statement0.id}:fact`, `${chat0.id}:fact`],
+	});
+	await claim(jobFor(chat0.id)?.id ?? "");
+	expect(jobFor(chat0.id)).toMatchObject({
+		status: "failed",
+		errorCode: "memory_preparation_failed",
+	});
+	// That native state belonged to the old bank only.
+	f.extraObservations.length = 0;
+	const oldBank = db.select().from(s.memoryBanks).get();
+	const account0 = db.select().from(s.memoryAccounts).get();
+	const manifest0 = db.select().from(s.memoryMigrationManifests).get();
+	if (!oldBank || !account0 || !manifest0) throw Error("test_state_missing");
+	const legacyBefore = db.select().from(s.memoryProfileItems).all();
+	const resetBefore = db.select().from(s.memoryResetGenerations).all();
+	const manifestHash = createHash("sha256")
+		.update(manifest0.manifestJson)
+		.digest("hex");
+	// A correction hold recorded by an earlier rewind must survive the restart.
+	const hold = {
+		messageId: "earlier-correction-conflict",
+		textHash: "0".repeat(64),
+		assertedAt: "2019-01-01T00:00:00.000Z",
+		scopeKey: "personal",
+		protectedSourceIds: [],
+	};
+	db.update(s.memoryMigrationManifests)
+		.set({
+			checkpointJson: JSON.stringify({
+				...JSON.parse(manifest0.checkpointJson ?? "{}"),
+				migrationCorrectionHolds: [hold],
+			}),
+		})
+		.where(eq(s.memoryMigrationManifests.id, first.id))
+		.run();
+	// Nothing may be running.
+	const waitingJob = jobFor(waiting0.id);
+	db.update(s.memoryDeliveryJobs)
+		.set({ status: "running" })
+		.where(eq(s.memoryDeliveryJobs.id, waitingJob?.id ?? ""))
+		.run();
+	await expect(
+		migration.restartMemoryPreparation(h.userId, {
+			manifestId: first.id,
+			manifestHash,
+		}),
+	).rejects.toThrow("memory_migration_restart_refused");
+	db.update(s.memoryDeliveryJobs)
+		.set({ status: "queued" })
+		.where(eq(s.memoryDeliveryJobs.id, waitingJob?.id ?? ""))
+		.run();
+	await expect(
+		migration.restartMemoryPreparation(h.userId, {
+			manifestId: first.id,
+			manifestHash: "0".repeat(64),
+		}),
+	).rejects.toThrow("memory_migration_restart_refused");
+	expect(db.select().from(s.memoryAccounts).get()?.epoch).toBe(0);
+
+	const restarted = await migration.restartMemoryPreparation(h.userId, {
+		manifestId: first.id,
+		manifestHash,
+	});
+	expect(restarted).toMatchObject({ retiredEpoch: 0, cleanupJobs: 1 });
+	expect(db.select().from(s.memoryAccounts).get()).toMatchObject({
+		epoch: 1,
+		authority: "preparing",
+		lifecycleState: "active",
+		tenantId: account0.tenantId,
+	});
+	// Legacy Memory and the reset generation are untouched.
+	expect(db.select().from(s.memoryProfileItems).all()).toEqual(legacyBefore);
+	expect(db.select().from(s.memoryResetGenerations).all()).toEqual(resetBefore);
+	expect(
+		db
+			.select()
+			.from(s.memoryMigrationManifests)
+			.where(eq(s.memoryMigrationManifests.id, first.id))
+			.get()?.status,
+	).toBe("restarted");
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.all()
+			.filter((j) => j.epoch === 0 && j.kind !== "cleanup")
+			.map((j) => j.status)
+			.sort(),
+	).toEqual(["cancelled", "failed", "succeeded"]);
+	// One fresh prepare: the chats are queued before the statement.
+	const epoch1 = db
+		.select()
+		.from(s.memorySourceRevisions)
+		.where(eq(s.memorySourceRevisions.epoch, 1))
+		.all();
+	const [statement1] = epoch1.filter((row) => row.messageId === null);
+	const [chat1] = epoch1.filter((row) => row.messageId === "m");
+	const [waiting1] = epoch1.filter((row) => row.messageId === "m3");
+	expect(statement1.eventId).not.toBe(statement0.eventId);
+	const queued1 = db
+		.select()
+		.from(s.memoryDeliveryJobs)
+		.all()
+		.filter((j) => j.epoch === 1 && j.kind === "source")
+		.map((j) => j.sourceId);
+	expect(queued1.at(-1)).toBe(statement1.id);
+	expect(queued1.slice(0, -1).sort()).toEqual([chat1.id, waiting1.id].sort());
+	expect(
+		JSON.parse(
+			db
+				.select()
+				.from(s.memoryMigrationManifests)
+				.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
+				.get()?.checkpointJson ?? "{}",
+		).migrationCorrectionHolds,
+	).toEqual([hold]);
+	// The old bank leaves Hindsight through the erasure's own cleanup job.
+	const cleanup = db
+		.select()
+		.from(s.memoryDeliveryJobs)
+		.all()
+		.find((j) => j.kind === "cleanup");
+	expect(cleanup).toMatchObject({
+		userId: account0.tenantId,
+		bankId: oldBank.id,
+		requestId: `erase:${oldBank.id}`,
+		status: "queued",
+	});
+	await claim(cleanup?.id ?? "");
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.id, cleanup?.id ?? ""))
+			.get()?.status,
+	).toBe("succeeded");
+	expect(f.deletedBanks.has(oldBank.id)).toBe(true);
+
+	// History first: the statement then joins the chat's row.
+	await claim(jobFor(chat1.id)?.id ?? "");
+	expect(jobFor(chat1.id)?.status).toBe("succeeded");
+	await claim(jobFor(waiting1.id)?.id ?? "");
+	expect(jobFor(waiting1.id)?.status).toBe("succeeded");
+	const chatFact = `${chat1.id}:fact`;
+	const statementFact = `${statement1.id}:fact`;
+	f.extraObservations.push({
+		id: `${chatFact}:observation`,
+		text: history,
+		fact_type: "observation",
+		source_memory_ids: [chatFact, statementFact],
+	});
+	f.hideObservation.add(statementFact);
+	await claim(jobFor(statement1.id)?.id ?? "");
+	expect(jobFor(statement1.id)?.status).toBe("succeeded");
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId).ready,
+	).toBe(true);
+	migration.cutoverMemoryMigration(h.userId, restarted.manifestId);
+	const { recallMemory } = await import("../memory-context/native");
+	const recalled = await recallMemory(h.userId, {
+		conversationId: "chat",
+		query: "Mila",
+		tokenBudget: 4000,
+	});
+	expect(recalled.map((row) => row.ref.rowId)).toContain(
+		`${chatFact}:observation`,
+	);
+	// Once cut over, the account cannot be restarted.
+	const manifest1 = db
+		.select()
+		.from(s.memoryMigrationManifests)
+		.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
+		.get();
+	await expect(
+		migration.restartMemoryPreparation(h.userId, {
+			manifestId: restarted.manifestId,
+			manifestHash: createHash("sha256")
+				.update(manifest1?.manifestJson ?? "")
+				.digest("hex"),
+		}),
+	).rejects.toThrow("memory_migration_restart_refused");
+});

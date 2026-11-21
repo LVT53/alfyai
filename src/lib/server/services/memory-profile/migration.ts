@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -16,12 +16,13 @@ import {
 	messages,
 	users,
 } from "$lib/server/db/schema";
-import { cancelAll, retry } from "../jobs";
+import { cancelAll, enqueueAtomic, retry } from "../jobs";
 import type { Tx } from "../jobs/types";
 import { HINDSIGHT_ENGINE_COMMIT } from "./contracts";
 import type { ActionIntentRecord } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
 import {
+	bankCleanupInputs,
 	type EnqueueMemoryDelivery,
 	enqueueMemoryMutation,
 	memoryDeliveryJob,
@@ -552,8 +553,20 @@ export async function prepareMemoryMigration(
 						userId,
 						bankId: bank.id,
 						epoch: inventory.epoch,
+						// An earlier epoch may hold the bare ID: event IDs are unique
+						// per person across epochs.
 						eventId:
-							scopedRows.length || old.some((s) => s.eventId === action.id)
+							scopedRows.length ||
+							tx
+								.select({ id: memorySourceRevisions.id })
+								.from(memorySourceRevisions)
+								.where(
+									and(
+										eq(memorySourceRevisions.userId, userId),
+										eq(memorySourceRevisions.eventId, action.id),
+									),
+								)
+								.get()
 								? `authored:${bank.id}:${scopedRows.length}:${action.id}`
 								: action.id,
 						lineageId: action.id,
@@ -779,6 +792,103 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 	});
 }
 /** Fail closed if a native-era choice cannot be represented in legacy authority. Never resurrect. */
+function requireRestart(condition: unknown): asserts condition {
+	if (!condition) throw Error("memory_migration_restart_refused");
+}
+
+/**
+ * Start a preparation over in a fresh epoch, history first. Only an account
+ * that is still preparing qualifies: legacy Memory still serves it, so
+ * nothing the person sees changes. The operator names the exact current
+ * manifest by its hash. The current epoch is retired the way an erasure
+ * retires one, but the reset generation is not advanced: its Hindsight banks
+ * get the erasure's cleanup jobs, and its queued work is cancelled and kept
+ * for the record. One new prepare then queues the account's history before
+ * its authored statements, the order a single preparation uses. Statements
+ * published before their older history otherwise refuse that history one
+ * shape at a time. Checkpoint holds carry over to the new manifest.
+ */
+export async function restartMemoryPreparation(
+	userId: string,
+	input: { manifestId: string; manifestHash: string },
+) {
+	let retiredEpoch = -1;
+	let cleanupJobs = 0;
+	await enqueueAtomic(memoryDeliveryJob, (tx) => {
+		const account = tx
+			.select()
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		const manifest = latestManifest(userId);
+		const checkpoint = parseJsonRecord(manifest?.checkpointJson ?? null);
+		requireRestart(
+			account?.lifecycleState === "active" &&
+				account.authority === "preparing" &&
+				manifest?.id === input.manifestId &&
+				manifest.epoch === account.epoch &&
+				// Still draining, or stopped by a failed job; never once prepared.
+				(manifest.status === "preparing" || manifest.status === "failed") &&
+				/^[a-f0-9]{64}$/u.test(input.manifestHash) &&
+				createHash("sha256").update(manifest.manifestJson).digest("hex") ===
+					input.manifestHash &&
+				!checkpoint.migrationRewind &&
+				!checkpoint.cutoverAt,
+		);
+		requireRestart(
+			!tx
+				.select({ id: memoryDeliveryJobs.id })
+				.from(memoryDeliveryJobs)
+				.where(
+					and(
+						inArray(memoryDeliveryJobs.userId, [userId, account.tenantId]),
+						eq(memoryDeliveryJobs.status, "running"),
+					),
+				)
+				.get(),
+		);
+		const banks = tx
+			.select()
+			.from(memoryBanks)
+			.where(
+				and(
+					eq(memoryBanks.userId, userId),
+					eq(memoryBanks.epoch, account.epoch),
+				),
+			)
+			.all();
+		retiredEpoch = account.epoch;
+		tx.update(memoryAccounts)
+			.set({ epoch: account.epoch + 1 })
+			.where(
+				and(
+					eq(memoryAccounts.userId, userId),
+					eq(memoryAccounts.epoch, account.epoch),
+					eq(memoryAccounts.authority, "preparing"),
+				),
+			)
+			.run();
+		tx.update(memoryMigrationManifests)
+			.set({ status: "restarted" })
+			.where(eq(memoryMigrationManifests.id, manifest.id))
+			.run();
+		const cleanup = bankCleanupInputs(tx, account, banks);
+		cleanupJobs = cleanup.length;
+		return cleanup;
+	});
+	await cancelAll(memoryDeliveryJob, {
+		userId,
+		where: (jobs) => eq(jobs.epoch, retiredEpoch),
+	});
+	const prepared = await prepareMemoryMigration(userId);
+	return {
+		retiredEpoch,
+		cleanupJobs,
+		manifestId: prepared.id,
+		ready: prepared.ready,
+	};
+}
+
 export function rollbackMemoryMigration(userId: string, id: string) {
 	return db.transaction((tx) => {
 		const m = tx
