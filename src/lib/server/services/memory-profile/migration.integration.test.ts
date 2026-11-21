@@ -8065,3 +8065,18 @@ it("counts per scope the unlocated actions no approval can lift, which keep merg
 		.run();
 	expect(unliftable()).toEqual({});
 });
+
+it("a covered chat's forget step does not excuse it from the new-assertion check", async () => {
+	const t = await meaningCheckAttempts();
+	const runner = await import("./curation-runner");
+	const verifyNew = vi.spyOn(runner, "verifyNewAssertionCuration");
+	await h.engine.drain(t.jobs.memoryDeliveryJob);
+	expect(t.job()?.status).toBe("succeeded");
+	expect(t.published()).toEqual(["My dog is Rex."]);
+	expect(verifyNew).toHaveBeenCalledWith(
+		expect.anything(),
+		t.source()?.id,
+		expect.anything(),
+		expect.anything(),
+	);
+}, 60_000);

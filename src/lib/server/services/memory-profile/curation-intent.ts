@@ -98,4 +98,6 @@ export type ReplayCheck = {
 	intent: NonNullable<ActionIntentRecord["plan"]>;
 	chatRevision?: boolean;
 	assertProvenance?: (tx: Tx) => void;
+	/** A per-chat forget step for an approved unlocated removal. */
+	meaningCheck?: true;
 };

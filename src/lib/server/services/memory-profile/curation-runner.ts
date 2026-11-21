@@ -2667,6 +2667,7 @@ export async function replaySourceCuration(
 			intent: requirePlan(intent),
 			chatRevision: action.kind === "source_edit",
 			assertProvenance,
+			...(intent.meaningCheck ? { meaningCheck: true as const } : {}),
 		});
 	}
 	return {

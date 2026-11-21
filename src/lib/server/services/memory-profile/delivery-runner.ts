@@ -844,8 +844,12 @@ export async function runMemoryDelivery(
 			)
 			.map(({ id, text }) => ({ id, text }));
 		const prepared = prepareNativeSnapshot(memories);
+		// A per-chat forget step checks only the deleted memory: the person's
+		// own curation still needs the new-assertion check.
 		const verifiedCuratedChanges =
-			!!curated || replayed.checks.length > 0 || repair.replays.length > 0;
+			!!curated ||
+			replayed.checks.some((check) => !check.meaningCheck) ||
+			repair.replays.length > 0;
 		const verifiedCuratedDiff =
 			verifiedCuratedChanges || unchanged
 				? undefined
