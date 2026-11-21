@@ -401,7 +401,6 @@ function handleRetry(): void {
 								<option value={project.id}>{project.name}</option>
 							{/each}
 						</select>
-						<p class="text-xs text-text-muted">{$t("chatgptImport.memoryNote")}</p>
 					</div>
 
 					<div class="rounded-lg border border-border-subtle bg-surface-elevated p-3">
@@ -409,6 +408,7 @@ function handleRetry(): void {
 							{$t("chatgptImport.willImport", { count: selectedCount })}
 						</p>
 					</div>
+					<p class="text-xs text-text-muted">{$t("chatgptImport.memoryNote")}</p>
 				</div>
 			{:else if importState === "importing"}
 				<div class="flex flex-col items-center gap-4 py-4">
