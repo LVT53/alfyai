@@ -173,6 +173,8 @@ async function main() {
 				approvedUnlocatedRemovals: inventory.actions
 					.filter((a) => a.curateAllHistory)
 					.map((a) => a.id),
+				// Per scope: what still holds merges back after any approval.
+				unliftableUnlocated: m.unliftableUnlocatedScopes(inventory),
 			};
 		} else if (
 			mode === "recover-retained" ||

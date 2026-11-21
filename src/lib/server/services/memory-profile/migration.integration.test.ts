@@ -7992,3 +7992,76 @@ it("verify and a reopened delivery refuse a covered chat accepted without its re
 		errorCode: "memory_meaning_check_missing",
 	});
 });
+
+it("counts per scope the unlocated actions no approval can lift, which keep merges refused", async () => {
+	const { db, s } = await unlocatedRemoval();
+	db.update(s.messages).set({ content: "I prefer quiet meeting rooms." }).run();
+	// An accepted fact with no recorded chat: an approval cannot lift it.
+	db.insert(s.memoryProfileItems)
+		.values({
+			id: "endorsed",
+			userId: h.userId,
+			projectionStateId: "projection",
+			itemKey: "endorsed",
+			category: "about_you",
+			statement: "I like tea",
+			status: "active",
+			metadataJson: JSON.stringify({
+				endorsement: "user_accepted",
+				userConfirmedAt: "2021-01-05T00:00:00.000Z",
+			}),
+			updatedAt: new Date("2021-01-05"),
+		})
+		.run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { eq } = await import("drizzle-orm");
+	const unliftable = () =>
+		migration.unliftableUnlocatedScopes(
+			migration.inspectMemoryMigration(h.userId),
+		);
+	expect(unliftable()).toEqual({ personal: 1 });
+	await migration.prepareMemoryMigration(h.userId);
+	await approveUnlocatedCuration();
+	await migration.prepareMemoryMigration(h.userId);
+	expect(unliftable()).toEqual({ personal: 1 });
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const old = db.select().from(s.memorySourceRevisions).get();
+	if (old?.state !== "accepted") throw Error("old_source_not_accepted");
+	db.insert(s.messages)
+		.values({
+			id: "second",
+			conversationId: "chat",
+			role: "user",
+			content: "I usually close the door during meetings.",
+			createdAt: new Date("2020-01-02"),
+		})
+		.run();
+	await migration.prepareMemoryMigration(h.userId);
+	const next = db
+		.select()
+		.from(s.memorySourceRevisions)
+		.all()
+		.find((row) => row.messageId === "second");
+	if (!next) throw Error("new_source_missing");
+	f.extraObservations.push({
+		id: `${old.id}:fact:observation`,
+		text: "I prefer quiet meeting rooms and usually close the door during meetings.",
+		fact_type: "observation",
+		source_memory_ids: [`${old.id}:fact`, `${next.id}:fact`],
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	// The approved removal no longer holds the merge back; the endorsement does.
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.sourceId, next.id))
+			.get(),
+	).toMatchObject({ status: "failed", errorCode: "memory_preparation_failed" });
+	db.delete(s.memoryProfileItems)
+		.where(eq(s.memoryProfileItems.id, "endorsed"))
+		.run();
+	expect(unliftable()).toEqual({});
+});

@@ -56,6 +56,7 @@ import {
 	readMemoryScopeMoves,
 } from "./scope-history";
 
+export { unliftableUnlocatedScopes } from "./migration-observation-proof";
 export {
 	inspectMemoryMigration,
 	unlocatedCurationApprovable,

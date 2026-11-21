@@ -6,6 +6,7 @@ import { parseJsonRecord } from "./internal-json";
 import {
 	inspectMemoryMigration,
 	recordedMeaningCheck,
+	unlocatedCurationApprovable,
 } from "./migration-progress";
 import { splitNativeNotes } from "./presentation";
 import {
@@ -422,6 +423,32 @@ function unlocatedScopeActions(
 			!action.sourceIds.length &&
 			(!action.scope || memoryScopeKey(action.scope) === scopeKey),
 	);
+}
+
+/**
+ * Per scope, the unlocated actions the withdrawal boundary holds publications
+ * back for that an operator's approval cannot lift (an endorsement or a
+ * standalone removal with no recorded chat, say). Content-free: scope keys and
+ * counts.
+ */
+export function unliftableUnlocatedScopes(
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+) {
+	const scopes = new Set([
+		"personal",
+		...inventory.sources.map(({ scope }) => memoryScopeKey(scope)),
+		...inventory.actions.flatMap(({ scope }) =>
+			scope ? [memoryScopeKey(scope)] : [],
+		),
+	]);
+	const counts: Record<string, number> = {};
+	for (const scopeKey of [...scopes].sort()) {
+		const count = unlocatedScopeActions(inventory, scopeKey).filter(
+			({ id }) => !unlocatedCurationApprovable(inventory, id),
+		).length;
+		if (count) counts[scopeKey] = count;
+	}
+	return counts;
 }
 
 function containsWithdrawnWording(
