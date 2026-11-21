@@ -24,6 +24,7 @@ import {
 	type CurationModel,
 	checkMemoryEdit,
 	createCurationModel,
+	type EditedFact,
 	planMemoryEdit,
 } from "./curation";
 import {
@@ -437,16 +438,48 @@ async function saveIntent(
 	actionId: string,
 	intent: ActionIntentRecord,
 ) {
+	await saveIntents(ctx, [{ actionId, intent }]);
+}
+/** Several actions' intents in one fenced write. */
+async function saveIntents(
+	ctx: Context,
+	intents: ReadonlyArray<{ actionId: string; intent: ActionIntentRecord }>,
+) {
 	if (
 		!(await ctx.write((tx) => {
 			actionFence(tx, ctx);
-			tx.update(memoryActions)
-				.set({ intentJson: JSON.stringify(intent) })
-				.where(eq(memoryActions.id, actionId))
-				.run();
+			for (const { actionId, intent } of intents)
+				tx.update(memoryActions)
+					.set({ intentJson: JSON.stringify(intent) })
+					.where(eq(memoryActions.id, actionId))
+					.run();
 		}))
 	)
 		throw new NativeMemoryError("memory_cancelled", false);
+}
+
+/**
+ * Where a per-chat forget step that already began to edit this chat stands,
+ * from its live facts: as before the edit (nothing landed, so it runs again),
+ * as the saved edit left them (it goes on from what it saved), or anything
+ * else, a partial edit say, which no review can check any more.
+ */
+function resumedMeaningCheck(
+	step: NonNullable<ActionIntentRecord["meaningCheck"]>,
+	sourceId: string,
+	live: ReadonlyArray<{ id: string; text: string }>,
+) {
+	if (!step.started.includes(sourceId)) return undefined;
+	const saved = step.edits?.find((edit) => edit.sourceId === sourceId);
+	const same = (facts: ReadonlyArray<{ id: string; text: string }>) =>
+		live.length === facts.length &&
+		facts.every((fact) =>
+			live.some(({ id, text }) => id === fact.id && text === fact.text),
+		);
+	if (saved && same(saved.baseline)) return undefined;
+	if (saved && same(saved.proposal.filter(({ text }) => text.trim())))
+		return saved;
+	throw new NativeMemoryError("memory_meaning_check_interrupted", false);
 }
 function sourcesFor(bankId: string, ids: string[]) {
 	return ids.length
@@ -2470,14 +2503,6 @@ export async function replaySourceCuration(
 	for (const entry of actions) {
 		const { action } = entry;
 		let { intent } = entry;
-		// An earlier attempt already edited this chat's native facts and never
-		// passed its final review. Those edited facts would now read as the
-		// chat's own, so nothing could check the step again: stop for good.
-		if (
-			intent.meaningCheck?.started.includes(source.id) &&
-			!intent.meaningCheck.checked.includes(source.id)
-		)
-			throw new NativeMemoryError("memory_meaning_check_interrupted", false);
 		const recordedIds = recordedActionSources(intent);
 		const assertProvenance = (tx: Tx) => {
 			const bank = actionFence(tx, ctx);
@@ -2558,18 +2583,27 @@ export async function replaySourceCuration(
 			action.kind === "migration_edit" &&
 			typeof intent.replayOriginActionId === "string" &&
 			!newFacts?.length;
-		const proposal = await applyMemoryEdit(
-			{
-				before: intent.before,
-				after: action.text ?? "",
-				intent: requirePlan(intent),
-				facts: originals.map(({ id, text }) => ({ id, text })),
-				newFacts: verifyCorrectionDates ? undefined : newFacts,
-				removalOnly: intent.removalOnly,
-				verifyCorrectionDates,
-			},
-			model,
-		);
+		// A per-chat forget step whose edit already landed goes on from what it
+		// saved: the edit is not made again, and its review compares the result
+		// with the chat's facts from before the edit.
+		const resumed = intent.meaningCheck
+			? resumedMeaningCheck(intent.meaningCheck, source.id, originals)
+			: undefined;
+		const reviewed = resumed?.baseline ?? originals;
+		const proposal: EditedFact[] =
+			resumed?.proposal ??
+			(await applyMemoryEdit(
+				{
+					before: intent.before,
+					after: action.text ?? "",
+					intent: requirePlan(intent),
+					facts: originals.map(({ id, text }) => ({ id, text })),
+					newFacts: verifyCorrectionDates ? undefined : newFacts,
+					removalOnly: intent.removalOnly,
+					verifyCorrectionDates,
+				},
+				model,
+			));
 		const dates = new Map<string, string>();
 		if (verifyCorrectionDates) {
 			const local = new Map(
@@ -2610,30 +2644,45 @@ export async function replaySourceCuration(
 				await saveIntent(ctx, action.id, intent);
 			}
 		}
-		const meaningCheck = intent.meaningCheck;
-		await patch(
-			ctx,
-			client,
-			proposal,
-			assertProvenance,
-			dates,
-			undefined,
-			undefined,
-			meaningCheck && !meaningCheck.started.includes(source.id)
-				? async () => {
-						// Committed before the first native edit, so a failed attempt
-						// leaves it behind for the next one to find.
-						intent = {
-							...intent,
-							meaningCheck: {
-								...meaningCheck,
-								started: [...meaningCheck.started, source.id],
-							},
-						};
-						await saveIntent(ctx, action.id, intent);
-					}
-				: undefined,
-		);
+		if (!resumed)
+			await patch(
+				ctx,
+				client,
+				proposal,
+				assertProvenance,
+				dates,
+				undefined,
+				undefined,
+				intent.meaningCheck
+					? async () => {
+							// Committed before the edit, so a failed attempt leaves
+							// behind what the next one needs to tell what landed. An
+							// earlier pass does not cover this edit.
+							const step = intent.meaningCheck ?? {
+								started: [],
+								checked: [],
+							};
+							intent = {
+								...intent,
+								meaningCheck: {
+									started: [...new Set([...step.started, source.id])],
+									checked: step.checked.filter((id) => id !== source.id),
+									edits: [
+										...(step.edits ?? []).filter(
+											(edit) => edit.sourceId !== source.id,
+										),
+										{
+											sourceId: source.id,
+											baseline: originals,
+											proposal: proposal.map(({ id, text }) => ({ id, text })),
+										},
+									],
+								},
+							};
+							await saveIntent(ctx, action.id, intent);
+						}
+					: undefined,
+			);
 		const applied = await client.list();
 		verifyAppliedProposal(applied, proposal);
 		for (const [id, date] of dates)
@@ -2645,13 +2694,13 @@ export async function replaySourceCuration(
 				throw new NativeMemoryError("memory_edit_date_readback", true);
 		for (const id of permitted) checkedSources.add(id);
 		if (sourceEditId) checkedSources.add(sourceEditId);
-		for (const fact of originals) expected.set(fact.id, fact.text);
+		for (const fact of reviewed) expected.set(fact.id, fact.text);
 		for (const fact of newFacts ?? []) expected.set(fact.id, fact.text);
 		for (const fact of proposal) expected.set(fact.id, fact.text);
 		updates.push({
 			sourceIds: permitted,
 			actionId: action.id,
-			originals,
+			originals: reviewed,
 			intent,
 		});
 		checks.push({
@@ -2661,7 +2710,7 @@ export async function replaySourceCuration(
 			actionOrder: entry.order,
 			replayOrder: intent.replayOrder,
 			sources: [...permitted, ...(sourceEditId ? [sourceEditId] : [])],
-			originals,
+			originals: reviewed,
 			before: intent.before,
 			after: action.text ?? "",
 			intent: requirePlan(intent),
@@ -2718,10 +2767,16 @@ export async function replaySourceCuration(
 					throw new NativeMemoryError(error.code, false);
 				throw error;
 			}
-			// The review passed for this revision: record it before publication.
-			for (const update of updates) {
+			// The review passed for this revision: record it before publication,
+			// all of this delivery's marks in one write.
+			const passed = updates.filter(
+				({ intent }) =>
+					intent.meaningCheck &&
+					!intent.meaningCheck.checked.includes(source.id),
+			);
+			for (const update of passed) {
 				const meaningCheck = update.intent.meaningCheck;
-				if (!meaningCheck || meaningCheck.checked.includes(source.id)) continue;
+				if (!meaningCheck) continue;
 				update.intent = {
 					...update.intent,
 					meaningCheck: {
@@ -2729,8 +2784,8 @@ export async function replaySourceCuration(
 						checked: [...meaningCheck.checked, source.id],
 					},
 				};
-				await saveIntent(ctx, update.actionId, update.intent);
 			}
+			if (passed.length) await saveIntents(ctx, passed);
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
 			verifySourceResult(

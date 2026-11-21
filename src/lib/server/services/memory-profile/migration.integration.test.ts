@@ -7735,9 +7735,10 @@ async function meaningCheckAttempts(
 		input: Record<string, unknown>,
 		props: Record<string, unknown>,
 	) => unknown,
+	fixtureOptions: Parameters<typeof nativeFixture>[0] = { retainOnce: true },
 ) {
 	const { db, s } = await unlocatedRemoval();
-	const f = await nativeFixture({ retainOnce: true });
+	const f = await nativeFixture(fixtureOptions);
 	const curation = await import("./curation");
 	const fixtureModel = curation.createCurationModel(
 		new AbortController().signal,
@@ -7791,29 +7792,67 @@ async function meaningCheckAttempts(
 	};
 }
 
+/** The next `nth` native request that `match` picks answers with `status`. */
+function failNth(
+	f: Awaited<ReturnType<typeof nativeFixture>>,
+	match: (path: string, method?: string) => boolean,
+	nth: number,
+	status = 503,
+) {
+	const original = f.fetcher.getMockImplementation();
+	let seen = 0;
+	f.fetcher.mockImplementation(async (url, options) => {
+		if (match(String(url), options?.method) && ++seen === nth)
+			return new Response("{}", { status });
+		if (!original) throw Error("test_fetcher_missing");
+		return original(url, options);
+	});
+}
+const consolidation = (path: string, method?: string) =>
+	path.endsWith("/consolidate") && method === "POST";
+/** A final review that refuses whenever the chat's dog went missing. */
+function keepsTheDog(
+	input: Record<string, unknown>,
+	props: Record<string, unknown>,
+) {
+	if (!props.valid || !("displayed_observations" in input)) return undefined;
+	const has = (facts: unknown) =>
+		JSON.stringify(facts ?? []).includes("My dog is Rex");
+	return has(input.original_facts) && !has(input.proposed_facts)
+		? {
+				valid: false,
+				issues: [{ id: "dog", problem: "My dog is Rex was lost." }],
+			}
+		: { valid: true, issues: [] };
+}
+/** An edit that drops every fact of the chat, the dog included. */
+function dropsEverything(input: Record<string, unknown>) {
+	return {
+		facts: (input.facts as Array<{ id: string; text: string }>).map((fact) => ({
+			...fact,
+			text: "",
+		})),
+	};
+}
+
 it.each([
 	["refuses", "memory_dependency_check_rejected"],
-	["cannot answer", "memory_meaning_check_interrupted"],
+	["cannot answer", "memory_dependency_check_rejected"],
 ] as const)(
 	"a forget step whose final review %s after it edited native facts stops for good",
 	async (outcome, code) => {
 		let finals = 0;
 		const t = await meaningCheckAttempts((input, props) => {
-			// The edit drops the whole chat, the dog included.
 			if (props.facts && Array.isArray(input.facts))
-				return {
-					facts: (input.facts as Array<{ id: string; text: string }>).map(
-						(fact) => ({ ...fact, text: "" }),
-					),
-				};
-			if (props.valid && "displayed_observations" in input && finals++ === 0) {
-				if (outcome === "cannot answer")
-					throw Error("synthetic_model_unavailable");
-				return {
-					valid: false,
-					issues: [{ id: "dog", problem: "My dog is Rex was lost." }],
-				};
-			}
+				return dropsEverything(input);
+			if (
+				outcome === "cannot answer" &&
+				props.valid &&
+				"displayed_observations" in input &&
+				finals++ === 0
+			)
+				throw Error("synthetic_model_unavailable");
+			return keepsTheDog(input, props);
 		});
 		await h.engine.drain(t.jobs.memoryDeliveryJob);
 		// The native edit happened before the review and stays: a retry would
@@ -7829,7 +7868,7 @@ it.each([
 		});
 		expect(t.source()?.state).not.toBe("accepted");
 		expect(t.published()).toEqual([]);
-		expect(t.meaningCheck()).toEqual({
+		expect(t.meaningCheck()).toMatchObject({
 			started: [t.source()?.id],
 			checked: [],
 		});
@@ -7849,7 +7888,7 @@ it("a forget step that passed its final review goes on after its publication fai
 		.mockImplementation(publish);
 	await h.engine.drain(t.jobs.memoryDeliveryJob);
 	expect(t.job()).toMatchObject({ status: "queued" });
-	expect(t.meaningCheck()).toEqual({
+	expect(t.meaningCheck()).toMatchObject({
 		started: [t.source()?.id],
 		checked: [t.source()?.id],
 	});
@@ -8177,3 +8216,144 @@ it("a refused final review of any other replay stays retryable", async () => {
 		errorCode: "memory_dependency_check_rejected",
 	});
 });
+
+const chatsOwnFacts = "My bicycle is blue. My dog is Rex.";
+const appliedTo = (inputs: unknown[]) =>
+	(inputs as Array<Record<string, unknown>>).filter(
+		(input) => "facts" in input && "edit_plan" in input,
+	);
+const finalReviews = (inputs: unknown[]) =>
+	(inputs as Array<Record<string, unknown>>).filter(
+		(input) => "displayed_observations" in input,
+	);
+
+it("a forget step whose edit landed goes on after a transient failure, reviewed against the chat's own facts", async () => {
+	const t = await meaningCheckAttempts();
+	// The consolidation right after the edit is briefly unavailable.
+	failNth(t.f, consolidation, 2);
+	await h.engine.drain(t.jobs.memoryDeliveryJob);
+	const id = t.source()?.id;
+	expect(t.job()).toMatchObject({ status: "queued" });
+	expect(t.meaningCheck()).toMatchObject({
+		started: [id],
+		checked: [],
+		edits: [
+			{
+				sourceId: id,
+				baseline: [{ id: `${id}:fact`, text: chatsOwnFacts }],
+				proposal: [{ id: `${id}:fact`, text: "My dog is Rex." }],
+			},
+		],
+	});
+	expect(await t.retry()).toBe(true);
+	expect(t.job()?.status).toBe("succeeded");
+	expect(t.published()).toEqual(["My dog is Rex."]);
+	// The landed edit is not made again, and the review compares the result
+	// with what the chat said, not with the facts as the edit left them.
+	expect(appliedTo(t.f.curationInputs)).toHaveLength(1);
+	expect(finalReviews(t.f.curationInputs).at(-1)?.original_facts).toEqual([
+		{ id: `${id}:fact`, text: chatsOwnFacts, sourceId: id },
+	]);
+	expect(t.meaningCheck()).toMatchObject({ started: [id], checked: [id] });
+}, 60_000);
+
+it("a forget step whose edit never landed runs again in full", async () => {
+	const t = await meaningCheckAttempts();
+	failNth(
+		t.f,
+		(path, method) => method === "PATCH" && path.includes("/memories/"),
+		1,
+	);
+	await h.engine.drain(t.jobs.memoryDeliveryJob);
+	expect(t.job()).toMatchObject({ status: "queued" });
+	expect(t.f.facts.get(`${t.source()?.id}:fact`)?.text).toBe(chatsOwnFacts);
+	expect(await t.retry()).toBe(true);
+	expect(t.job()?.status).toBe("succeeded");
+	expect(t.published()).toEqual(["My dog is Rex."]);
+	expect(appliedTo(t.f.curationInputs)).toHaveLength(2);
+}, 60_000);
+
+it("a forget step whose facts changed some other way since its edit stops for good", async () => {
+	const t = await meaningCheckAttempts();
+	failNth(t.f, consolidation, 2);
+	await h.engine.drain(t.jobs.memoryDeliveryJob);
+	const fact = t.f.facts.get(`${t.source()?.id}:fact`);
+	if (!fact) throw Error("test_fact_missing");
+	fact.text = "My dog is Rex and he is old.";
+	await t.retry();
+	expect(t.job()).toMatchObject({
+		status: "failed",
+		retryable: false,
+		errorCode: "memory_meaning_check_interrupted",
+	});
+	expect(t.published()).toEqual([]);
+}, 60_000);
+
+it.each([
+	["had nothing to edit", { retainOnce: true }],
+	["edited, then Hindsight restored the chat", {}],
+] as const)(
+	"a pass recorded when the forget step %s does not cover its next edit",
+	async (first, fixtureOptions) => {
+		let applies = 0;
+		const t = await meaningCheckAttempts((input, props) => {
+			if (props.facts && Array.isArray(input.facts) && "edit_plan" in input) {
+				const attempt = applies++;
+				// The first attempt keeps the chat (or forgets only the bicycle);
+				// the next one drops every fact, the dog included.
+				if (attempt === 0 && first === "had nothing to edit")
+					return { facts: input.facts };
+				if (attempt === 1) return dropsEverything(input);
+			}
+			return keepsTheDog(input, props);
+		}, fixtureOptions);
+		const publication = await import("./publication");
+		const { NativeMemoryError } = await import("./hindsight-client");
+		const publish = publication.publishNativeSnapshot;
+		vi.spyOn(publication, "publishNativeSnapshot")
+			.mockImplementationOnce(() => {
+				throw new NativeMemoryError("memory_curation_publication_held", true);
+			})
+			.mockImplementation(publish);
+		// The second attempt's consolidation after its edit is briefly unavailable.
+		failNth(t.f, consolidation, 4);
+		await h.engine.drain(t.jobs.memoryDeliveryJob);
+		const id = t.source()?.id;
+		expect(t.meaningCheck()?.checked).toEqual([id]);
+		expect(await t.retry()).toBe(true);
+		// The new edit withdrew the earlier pass and saved what it was given.
+		expect(t.meaningCheck()).toMatchObject({
+			started: [id],
+			checked: [],
+			edits: [
+				{
+					sourceId: id,
+					baseline: [{ text: chatsOwnFacts }],
+					proposal: [{ text: "" }],
+				},
+			],
+		});
+		const { meaningCheckPending, inspectMemoryMigration } = await import(
+			"./migration-progress"
+		);
+		const { db } = await import("$lib/server/db");
+		const source = t.source();
+		if (!source) throw Error("test_source_missing");
+		expect(
+			db.transaction((tx) =>
+				meaningCheckPending(tx, inspectMemoryMigration(h.userId), source),
+			),
+		).toBe(true);
+		if (first === "had nothing to edit") {
+			// The edit landed: the review compares it with the chat's own facts.
+			expect(await t.retry()).toBe(true);
+			expect(t.job()).toMatchObject({
+				status: "failed",
+				retryable: false,
+				errorCode: "memory_dependency_check_rejected",
+			});
+			expect(t.published()).toEqual([]);
+		}
+	},
+	60_000,
+);

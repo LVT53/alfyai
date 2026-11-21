@@ -37,10 +37,46 @@ export interface ActionIntentRecord {
 	rollbackPending?: boolean;
 	/**
 	 * A per-chat forget step for an approved unlocated removal (migration.ts):
-	 * the chat revisions whose native facts it began to edit, and those whose
-	 * edit then passed the final review.
+	 * the chat revisions whose native facts it began to edit, those whose
+	 * latest edit then passed the final review, and for each edited revision
+	 * the facts it had before the edit and the facts the edit was to leave.
 	 */
-	meaningCheck?: { started: string[]; checked: string[] };
+	meaningCheck?: {
+		started: string[];
+		checked: string[];
+		edits?: Array<{
+			sourceId: string;
+			baseline: Array<{ id: string; text: string; sourceId: string }>;
+			proposal: Array<{ id: string; text: string }>;
+		}>;
+	};
+}
+
+function validMeaningCheck(value: unknown) {
+	const facts = (list: unknown, owned: boolean) =>
+		Array.isArray(list) &&
+		list.every(
+			(fact) =>
+				isJsonRecord(fact) &&
+				typeof fact.id === "string" &&
+				typeof fact.text === "string" &&
+				(!owned || typeof fact.sourceId === "string"),
+		);
+	return (
+		isJsonRecord(value) &&
+		[value.started, value.checked].every(
+			(ids) => Array.isArray(ids) && ids.every((id) => typeof id === "string"),
+		) &&
+		(value.edits === undefined ||
+			(Array.isArray(value.edits) &&
+				value.edits.every(
+					(edit) =>
+						isJsonRecord(edit) &&
+						typeof edit.sourceId === "string" &&
+						facts(edit.baseline, true) &&
+						facts(edit.proposal, false),
+				)))
+	);
 }
 
 export function parseActionIntent(json: string | null): ActionIntentRecord {
@@ -73,12 +109,7 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 				!value.observationResetFactId)) ||
 		(value.omissionEarlierFingerprint !== undefined &&
 			typeof value.omissionEarlierFingerprint !== "string") ||
-		(value.meaningCheck !== undefined &&
-			(!isJsonRecord(value.meaningCheck) ||
-				[value.meaningCheck.started, value.meaningCheck.checked].some(
-					(ids) =>
-						!Array.isArray(ids) || ids.some((id) => typeof id !== "string"),
-				)))
+		(value.meaningCheck !== undefined && !validMeaningCheck(value.meaningCheck))
 	)
 		throw Error("memory_action_corrupt");
 	parseMemoryAction(value.request);
