@@ -5479,7 +5479,9 @@ it("an import takes up only its own chats; maintenance takes up older owed ones"
 			},
 		])
 		.run();
-	expect(await imported.recordImportedHistory(h.userId, undefined, 1)).toBe(2);
+	expect(await imported.recordImportedHistory(h.userId, { batchSize: 1 })).toBe(
+		2,
+	);
 }, 60_000);
 
 it("a removal tied to an imported message is left to a preparation, which replays it", async () => {
@@ -5631,4 +5633,386 @@ it("a deleted imported chat is never taken up again, not even one deleted mid ta
 	await deleteConversationWithCleanup(h.userId, second);
 	expect(tookUp).toBe(1);
 	expect(live(second)).toEqual([]);
+}, 60_000);
+
+/** An imported chat stored before the take-up existed: owed, never taken up. */
+function storedImport(
+	{ db, s }: Pick<Awaited<ReturnType<typeof liveNativeAccount>>, "db" | "s">,
+	{
+		id = "older-import",
+		texts = ["I sail on weekends.", "I knit scarves."],
+		firstAt = Date.UTC(2020, 1, 1, 10),
+		projectId = null as string | null,
+	} = {},
+) {
+	db.insert(s.conversations)
+		.values({
+			id,
+			userId: h.userId,
+			title: "Older import",
+			projectId,
+			createdAt: new Date("2026-10-01"),
+		})
+		.run();
+	db.insert(s.messages)
+		.values(
+			texts.map((content, i) => ({
+				id: `${id}-q${i}`,
+				conversationId: id,
+				role: "user",
+				content,
+				importSource: "chatgpt",
+				createdAt: new Date(firstAt + i * 24 * 60 * 60 * 1000),
+				messageSequence: i + 1,
+			})),
+		)
+		.run();
+}
+
+it.each([
+	"a control change",
+	"Memory off",
+	"a history choice",
+	"an edited message",
+	"a redated message",
+	"a move to a project",
+	"incognito",
+] as const)(
+	"a change between the inventory and a batch is judged anew by the next pass: %s",
+	async (variant) => {
+		const { db, s } = await liveNativeAccount();
+		const { eq, sql } = await import("drizzle-orm");
+		const imported = await import("./imported-history");
+		const progress = await import("./migration-progress");
+		db.insert(s.projects)
+			.values({ id: "garden", userId: h.userId, name: "Synthetic project" })
+			.run();
+		storedImport({ db, s });
+		const change = {
+			"a control change": () =>
+				db
+					.update(s.memoryAccounts)
+					.set({
+						controlRevision: sql`${s.memoryAccounts.controlRevision} + 1`,
+					})
+					.where(eq(s.memoryAccounts.userId, h.userId))
+					.run(),
+			"Memory off": () =>
+				db
+					.update(s.users)
+					.set({ memoryEnabled: false })
+					.where(eq(s.users.id, h.userId))
+					.run(),
+			"a history choice": () =>
+				db
+					.update(s.memoryAccounts)
+					.set({
+						historyChoice: "decline",
+						historyCutoff: new Date(),
+						historyDecidedAt: new Date(),
+					})
+					.where(eq(s.memoryAccounts.userId, h.userId))
+					.run(),
+			"an edited message": () =>
+				db
+					.update(s.messages)
+					.set({ content: "I sail on Sundays." })
+					.where(eq(s.messages.id, "older-import-q0"))
+					.run(),
+			"a redated message": () =>
+				db
+					.update(s.messages)
+					.set({ createdAt: new Date("2020-03-01T10:00:00Z") })
+					.where(eq(s.messages.id, "older-import-q0"))
+					.run(),
+			"a move to a project": () =>
+				db
+					.update(s.conversations)
+					.set({ projectId: "garden" })
+					.where(eq(s.conversations.id, "older-import"))
+					.run(),
+			incognito: () =>
+				db
+					.update(s.conversations)
+					.set({ memoryIncognito: true })
+					.where(eq(s.conversations.id, "older-import"))
+					.run(),
+		}[variant];
+		// The change lands after the inventory is read, before its batch.
+		const inspect = progress.inspectMemoryMigration;
+		vi.spyOn(progress, "inspectMemoryMigration").mockImplementationOnce(
+			(userId) => {
+				const inventory = inspect(userId);
+				change();
+				return inventory;
+			},
+		);
+		const errors = vi.spyOn(console, "error");
+		const sources = () =>
+			db
+				.select({
+					text: s.memorySourceRevisions.text,
+					at: s.memorySourceRevisions.assertedAt,
+					scopeKey: s.memoryBanks.scopeKey,
+				})
+				.from(s.memorySourceRevisions)
+				.innerJoin(
+					s.memoryBanks,
+					eq(s.memoryBanks.id, s.memorySourceRevisions.bankId),
+				)
+				.where(eq(s.memorySourceRevisions.conversationId, "older-import"))
+				.all()
+				.map(
+					({ text, at, scopeKey }) =>
+						`${scopeKey} ${at.toISOString().slice(0, 10)} ${text}`,
+				)
+				.sort();
+		const both = [
+			"personal 2020-02-01 I sail on weekends.",
+			"personal 2020-02-02 I knit scarves.",
+		];
+		const expected = {
+			"a control change": { first: [], next: both },
+			"Memory off": { first: [], next: [] },
+			"a history choice": { first: [], next: [] },
+			"an edited message": {
+				first: ["personal 2020-02-02 I knit scarves."],
+				next: [
+					"personal 2020-02-01 I sail on Sundays.",
+					"personal 2020-02-02 I knit scarves.",
+				],
+			},
+			"a redated message": {
+				first: ["personal 2020-02-02 I knit scarves."],
+				next: [
+					"personal 2020-02-02 I knit scarves.",
+					"personal 2020-03-01 I sail on weekends.",
+				],
+			},
+			"a move to a project": {
+				first: [],
+				next: [
+					"project:garden 2020-02-01 I sail on weekends.",
+					"project:garden 2020-02-02 I knit scarves.",
+				],
+			},
+			incognito: { first: [], next: [] },
+		}[variant];
+		const first = await imported.recordImportedHistory(h.userId);
+		expect({ first, sources: sources() }).toEqual({
+			first: expected.first.length,
+			sources: expected.first,
+		});
+		// A change is not a failure: nothing is logged.
+		expect(JSON.stringify(errors.mock.calls)).not.toContain(
+			"imported history not taken up",
+		);
+		await imported.recordImportedHistory(h.userId);
+		expect(sources()).toEqual(expected.next);
+	},
+	60_000,
+);
+
+it("a whole pass that leaves nothing it can take up spares the next ones their inventory", async () => {
+	const { db, s } = await liveNativeAccount();
+	const { eq } = await import("drizzle-orm");
+	const imported = await import("./imported-history");
+	const progress = await import("./migration-progress");
+	// Said while Memory was off: owed by the cheap check, never takeable.
+	db.insert(s.memoryControlIntervals)
+		.values([
+			{
+				id: "synthetic-on",
+				userId: h.userId,
+				enabled: true,
+				epoch: 0,
+				startedAt: new Date("2019-01-01"),
+			},
+			{
+				id: "synthetic-off",
+				userId: h.userId,
+				enabled: false,
+				epoch: 0,
+				startedAt: new Date("2020-01-15"),
+				endedAt: new Date("2020-03-01"),
+			},
+		])
+		.run();
+	storedImport({ db, s });
+	const inventories = vi.spyOn(progress, "inspectMemoryMigration");
+	// A pass over some chats says nothing about the rest.
+	expect(
+		await imported.recordImportedHistory(h.userId, {
+			conversationIds: ["older-import"],
+		}),
+	).toBe(0);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(inventories).toHaveBeenCalledTimes(2);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(await imported.catchUpImportedHistory(h.userId, "maintenance")).toBe(
+		0,
+	);
+	expect(inventories).toHaveBeenCalledTimes(2);
+	// A new import is read.
+	storedImport(
+		{ db, s },
+		{
+			id: "newer-import",
+			texts: ["I bake sourdough."],
+			firstAt: Date.UTC(2021, 4, 1, 10),
+		},
+	);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(1);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(inventories).toHaveBeenCalledTimes(3);
+	// So is a history choice, which leaves the control revision alone.
+	db.update(s.memoryAccounts)
+		.set({ historyChoice: "decline", historyCutoff: new Date() })
+		.where(eq(s.memoryAccounts.userId, h.userId))
+		.run();
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(inventories).toHaveBeenCalledTimes(4);
+	// And after six hours, whatever happened.
+	const now = Date.now();
+	vi.spyOn(Date, "now").mockReturnValue(now + 6 * 60 * 60 * 1000 + 1);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(inventories).toHaveBeenCalledTimes(5);
+}, 60_000);
+
+it("a bank or a batch that fails leaves only its own messages owed", async () => {
+	const { db, s } = await liveNativeAccount();
+	const { eq } = await import("drizzle-orm");
+	const imported = await import("./imported-history");
+	const revisions = await import("./revisions");
+	const delivery = await import("./delivery-job");
+	db.insert(s.projects)
+		.values({ id: "garden", userId: h.userId, name: "Synthetic project" })
+		.run();
+	storedImport({ db, s });
+	storedImport(
+		{ db, s },
+		{ id: "garden-import", texts: ["I water tomatoes."], projectId: "garden" },
+	);
+	const garden = revisions.ensureMemoryBank(h.userId, {
+		kind: "project",
+		projectId: "garden",
+	});
+	db.update(s.memoryBanks)
+		.set({ status: "repair_blocked" })
+		.where(eq(s.memoryBanks.id, garden.id))
+		.run();
+	const errors = vi.spyOn(console, "error");
+	// One batch holds all three: the blocked bank's message waits, the rest go.
+	expect(await imported.catchUpImportedHistory(h.userId, "maintenance")).toBe(
+		2,
+	);
+	expect(JSON.stringify(errors.mock.calls)).toContain(
+		"[MEMORY_MAINTENANCE] imported history not taken up trigger=maintenance code=memory_fence_stale",
+	);
+	db.update(s.memoryBanks)
+		.set({ status: "ready" })
+		.where(eq(s.memoryBanks.id, garden.id))
+		.run();
+	expect(await imported.catchUpImportedHistory(h.userId, "maintenance")).toBe(
+		1,
+	);
+	// A batch whose write fails is left owed; the next batch still runs.
+	storedImport(
+		{ db, s },
+		{ id: "third-import", texts: ["I collect stamps.", "I play chess."] },
+	);
+	vi.spyOn(delivery, "enqueueMemoryMutation").mockRejectedValueOnce(
+		Error("memory_synthetic_failure"),
+	);
+	expect(await imported.recordImportedHistory(h.userId, { batchSize: 1 })).toBe(
+		1,
+	);
+	expect(JSON.stringify(errors.mock.calls)).toContain(
+		"[MEMORY_MAINTENANCE] imported history not taken up trigger=direct code=memory_synthetic_failure",
+	);
+	expect(await imported.recordImportedHistory(h.userId, { batchSize: 1 })).toBe(
+		1,
+	);
+}, 60_000);
+
+it("asks whether anything is owed with one index lookup per imported message", async () => {
+	const { db, s } = await liveNativeAccount();
+	const { sqlite } = await import("$lib/server/db");
+	const imported = await import("./imported-history");
+	storedImport({ db, s });
+	const prepare = sqlite.prepare.bind(sqlite);
+	const seen: string[] = [];
+	vi.spyOn(sqlite, "prepare").mockImplementation(((source: string) => {
+		seen.push(source);
+		return prepare(source);
+	}) as typeof sqlite.prepare);
+	await imported.recordImportedHistory(h.userId);
+	const owed = seen.find((source) => source.includes("importedBranchCopy"));
+	expect(owed).toBeDefined();
+	const params = (owed ?? "").split("?").length - 1;
+	const plan = prepare(`EXPLAIN QUERY PLAN ${owed}`)
+		.all(...Array<null>(params).fill(null))
+		.map((row) => (row as { detail: string }).detail);
+	expect(plan.join(" | ")).toContain("memory_source_context_message_idx");
+	expect(plan.some((detail) => /^SCAN s\b/.test(detail))).toBe(false);
+}, 60_000);
+
+it("what can never be taken up costs no inventory", async () => {
+	const { db, s } = await liveNativeAccount();
+	const { eq } = await import("drizzle-orm");
+	const imported = await import("./imported-history");
+	const progress = await import("./migration-progress");
+	const delivery = await import("./chat-delivery");
+	const policy = await import("./migration-policy");
+	// Taken up, then withdrawn: a withdrawal is never undone.
+	storedImport({ db, s });
+	expect(await imported.recordImportedHistory(h.userId)).toBe(2);
+	await delivery.revokeConversationMemory(h.userId, ["older-import"]);
+	// An incognito chat, and a branch copy an older import left unmarked.
+	storedImport({ db, s }, { id: "incognito-import", texts: ["I paint."] });
+	db.update(s.conversations)
+		.set({ memoryIncognito: true })
+		.where(eq(s.conversations.id, "incognito-import"))
+		.run();
+	storedImport({ db, s }, { id: "branch-copy", texts: ["I live in Leeds."] });
+	db.insert(s.conversationForks)
+		.values({
+			id: "branch-copy-fork",
+			forkConversationId: "branch-copy",
+			userId: h.userId,
+			sourceConversationIdSnapshot: "older-import",
+			sourceAssistantMessageIdSnapshot: "chatgpt:node-1",
+			copiedForkPointMessageId: "branch-copy-q0",
+			sourceTitle: "Older import",
+			forkSequence: 1,
+		})
+		.run();
+	const inventories = vi.spyOn(progress, "inspectMemoryMigration");
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	// Nor does anything while Memory is off.
+	storedImport({ db, s }, { id: "while-off", texts: ["I run."] });
+	await policy.setMemoryEnabled(h.userId, false);
+	expect(await imported.recordImportedHistory(h.userId)).toBe(0);
+	expect(inventories).not.toHaveBeenCalled();
+}, 60_000);
+
+it("two passes at once never record a message twice", async () => {
+	const { db, s } = await liveNativeAccount();
+	const imported = await import("./imported-history");
+	storedImport({ db, s });
+	// The first pass's second batch runs after the second pass took that message.
+	const [a, b] = await Promise.all([
+		imported.recordImportedHistory(h.userId, { batchSize: 1 }),
+		imported.recordImportedHistory(h.userId, { batchSize: 1 }),
+	]);
+	expect(a + b).toBe(2);
+	expect(
+		db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.filter((row) => row.conversationId === "older-import")
+			.map((row) => row.text)
+			.sort(),
+	).toEqual(["I knit scarves.", "I sail on weekends."]);
 }, 60_000);
