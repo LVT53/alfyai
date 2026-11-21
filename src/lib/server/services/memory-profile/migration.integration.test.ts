@@ -4136,3 +4136,221 @@ it.each([0, 1, 2])(
 		);
 	},
 );
+
+it.each([false, true])(
+	"resumes a marked correction hold with one verified rekeyed authored presentation (legacy=%s)",
+	async (legacyMarker) => {
+		const { db, s } = await seed();
+		db.insert(s.messages)
+			.values({
+				id: "untouched-history-message",
+				conversationId: "chat",
+				role: "user",
+				content: "I prefer quiet meeting rooms.",
+				createdAt: new Date("2020-02-01"),
+			})
+			.run();
+		db.update(s.messages).set({ content: "My radio code is OLD." }).run();
+		db.insert(s.memoryProjectionState)
+			.values({ id: "projection", userId: h.userId, resetGeneration: 0 })
+			.run();
+		const authored = "The current radio code is NEW.";
+		db.insert(s.memoryProfileItems)
+			.values({
+				id: "approved",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "correction",
+				category: "about_you",
+				scopeType: "global",
+				scopeId: "global",
+				status: "active",
+				statement: authored,
+				metadataJson: JSON.stringify({
+					origin: "user_authored",
+					reviewResolution: "edited",
+				}),
+				updatedAt: new Date("2021-01-01"),
+			})
+			.run();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		const manifest = await migration.prepareMemoryMigration(h.userId);
+		const { eq } = await import("drizzle-orm");
+		const { claimNext } = await import("../jobs/ledger");
+		const { runAttempt } = await import("../jobs/runner");
+		const workerId = "correction-rewind-test";
+		const claim = async (id: string) => {
+			const job = claimNext(jobs.memoryDeliveryJob, { workerId, jobId: id });
+			if (!job) throw Error("test_claim_missing");
+			await runAttempt(jobs.memoryDeliveryJob, job, { workerId });
+		};
+		const sources = db.select().from(s.memorySourceRevisions).all();
+		const [authority] = sources.filter((row) => row.messageId === null);
+		const [old] = sources.filter((row) => row.messageId === "m");
+		const jobFor = (id: string) =>
+			db
+				.select()
+				.from(s.memoryDeliveryJobs)
+				.where(eq(s.memoryDeliveryJobs.sourceId, id))
+				.get();
+		const authoredJob = jobFor(authority.id);
+		const oldJob = jobFor(old.id);
+		if (!authoredJob || !oldJob) throw Error("test_job_missing");
+		const support = `${authority.id}:fact`;
+		const companions = Array.from({ length: 2 }, (_, i) => ({
+			id: `published-companion-${i}`,
+			text: `Exact existing radio observation ${i}.`,
+			fact_type: "observation" as const,
+			source_memory_ids: [support],
+		}));
+		f.extraObservations.push(...companions);
+		const provision = db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.kind, "provision"))
+			.get();
+		if (provision) await claim(provision.id);
+		await claim(authoredJob.id);
+		const bank = db.select().from(s.memoryBanks).get();
+		const prior = db
+			.select()
+			.from(s.memoryPublishedRows)
+			.where(eq(s.memoryPublishedRows.nativeId, `${support}:observation`))
+			.get();
+		if (!bank || !prior) throw Error("test_publication_missing");
+		expect(prior.text).toBe(authored);
+		const independentBefore = db
+			.select()
+			.from(s.memoryPublishedRows)
+			.all()
+			.filter((row) => row.id !== prior.id);
+		const conflict = `${old.id}:fact`;
+		const secondConflict = `${old.id}:second-fact`;
+		f.hideObservation.add(conflict);
+		f.hideObservation.add(secondConflict);
+		f.facts.set(secondConflict, {
+			id: secondConflict,
+			text: "Use the OLD code to reach the radio.",
+			bank: bank.id,
+			fact_type: "world",
+			document_id: old.id,
+			consolidated_at: "2026-11-18T00:00:00Z",
+		});
+		const changed = {
+			id: prior.nativeId,
+			text: "The radio code might still be OLD.",
+			fact_type: "observation" as const,
+			source_memory_ids: [support, conflict, secondConflict],
+		};
+		f.extraObservations.push(changed);
+		await claim(oldJob.id);
+		expect(jobFor(old.id)?.errorCode).toBe("memory_preparation_failed");
+		expect(f.facts.has(conflict)).toBe(true);
+		const config = await import("$lib/server/config-store");
+		vi.mocked(config.getConfig).mockReturnValue({
+			...config.getConfig(),
+			hindsightWorkerEnabled: false,
+			hindsightNewAccountsEnabled: false,
+		});
+		const { createHash } = await import("node:crypto");
+		const saved = db.select().from(s.memoryMigrationManifests).get();
+		if (!saved) throw Error("test_manifest_missing");
+		const { rewindUnpublishedMigrationSources } = await import(
+			"./migration-pending-rewind"
+		);
+		const rewind = (verifiedPreRewindAuthoredObservationId?: string) =>
+			rewindUnpublishedMigrationSources({
+				userId: h.userId,
+				manifestId: manifest.id,
+				bankId: bank.id,
+				manifestHash: createHash("sha256")
+					.update(saved.manifestJson)
+					.digest("hex"),
+				sourceIds: [old.id],
+				holdCorrectionConflict: true,
+				verifiedPreRewindAuthoredObservationId,
+			});
+		const fetch = f.fetcher.getMockImplementation();
+		if (!fetch) throw Error("test_fetch_missing");
+		let interrupt = true;
+		f.fetcher.mockImplementation(async (url, options) => {
+			const result = await fetch(url, options);
+			if (
+				interrupt &&
+				options?.method === "DELETE" &&
+				String(url).includes("/documents/")
+			) {
+				interrupt = false;
+				f.extraObservations.splice(f.extraObservations.indexOf(changed), 1);
+				f.hideObservation.add(support);
+				f.extraObservations.push({
+					id: "regenerated-authored-row",
+					text: "A regenerated phrase about the new radio code.",
+					fact_type: "observation",
+					source_memory_ids: [support],
+				});
+				throw Error("interrupted after deleting the old document");
+			}
+			return result;
+		});
+		await expect(rewind()).rejects.toThrow();
+		expect(f.facts.has(conflict)).toBe(false);
+		expect(f.facts.has(secondConflict)).toBe(false);
+		const interrupted = db.select().from(s.memoryMigrationManifests).get();
+		if (!interrupted) throw Error("test_manifest_missing");
+		const checkpoint = JSON.parse(interrupted.checkpointJson ?? "{}");
+		expect(checkpoint.migrationRewind.correctionAuthoredObservationId).toBe(
+			prior.nativeId,
+		);
+		if (legacyMarker) {
+			delete checkpoint.migrationRewind.correctionAuthoredObservationId;
+			db.update(s.memoryMigrationManifests)
+				.set({ checkpointJson: JSON.stringify(checkpoint) })
+				.run();
+			await expect(rewind()).rejects.toThrow(
+				"memory_migration_rewind_unverified",
+			);
+		}
+		const resume = () => rewind(legacyMarker ? prior.nativeId : undefined);
+		const { readPublishedMemory } = await import("./publication");
+		expect(readPublishedMemory(h.userId, bank.id)).toHaveLength(3);
+		f.extraObservations.push({
+			...changed,
+			id: "ambiguous-successor",
+			source_memory_ids: [support],
+		});
+		await expect(resume()).rejects.toThrow(
+			"memory_migration_rewind_unverified",
+		);
+		f.extraObservations.pop();
+		await expect(resume()).resolves.toMatchObject({
+			heldConflicts: 1,
+			replacedSources: 0,
+		});
+		const published = readPublishedMemory(h.userId, bank.id);
+		expect(
+			published.find((row) => row.nativeId === "regenerated-authored-row")
+				?.text,
+		).toBe(authored);
+		for (const row of independentBefore) {
+			expect(published).toContainEqual(
+				expect.objectContaining({
+					nativeId: row.nativeId,
+					text: row.text,
+					sourceFingerprintsJson: row.sourceFingerprintsJson,
+				}),
+			);
+		}
+		expect(
+			migration
+				.inspectMemoryMigration(h.userId)
+				.sources.find(({ id }) => id === "m"),
+		).toMatchObject({
+			eligibility: "held",
+			reason: "held_conflict_with_later_correction",
+		});
+		expect(db.select().from(s.messages).all()).toHaveLength(2);
+	},
+);

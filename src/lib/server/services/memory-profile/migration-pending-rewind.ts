@@ -15,6 +15,7 @@ import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import { prepareMemoryMigration } from "./migration";
 import {
+	matchCorrectionHoldAuthoredRekey,
 	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
 	samePriorObservation,
@@ -51,6 +52,7 @@ export async function rewindUnpublishedMigrationSources(input: {
 	manifestHash: string;
 	sourceIds: string[];
 	holdCorrectionConflict?: boolean;
+	verifiedPreRewindAuthoredObservationId?: string;
 	allowOrdinaryConsolidation?: boolean;
 }) {
 	const { userId, manifestId, bankId, manifestHash } = input;
@@ -109,6 +111,16 @@ export async function rewindUnpublishedMigrationSources(input: {
 		requireRewind(
 			memoryTextHash(manifest.manifestJson) === manifestHash ||
 				(ongoing && marker.originalManifestHash === manifestHash),
+		);
+		const authored = input.verifiedPreRewindAuthoredObservationId;
+		requireRewind(
+			authored === undefined ||
+				(typeof authored === "string" &&
+					holdConflict &&
+					ongoing &&
+					/^[a-zA-Z0-9:_-]{1,128}$/u.test(authored) &&
+					(marker.correctionAuthoredObservationId === undefined ||
+						marker.correctionAuthoredObservationId === authored)),
 		);
 		const jobs = tx
 			.select()
@@ -336,6 +348,15 @@ export async function rewindUnpublishedMigrationSources(input: {
 							originalManifestHash: manifestHash,
 							holdCorrectionConflict: holdConflict,
 							correctionHolds,
+							...(holdConflict &&
+							ids.length === 1 &&
+							changedObservations.size === 1
+								? {
+										correctionAuthoredObservationId: [
+											...changedObservations,
+										][0],
+									}
+								: {}),
 						},
 					}),
 				})
@@ -359,12 +380,28 @@ export async function rewindUnpublishedMigrationSources(input: {
 	for (const id of ids) await client.deleteDocument(id, guard);
 	await client.consolidate(guard);
 	const restored = await captureSettledNative(client, signal);
+	const restoredMarker = parseJsonRecord(
+		JSON.stringify(saved.checkpoint.migrationRewind),
+	);
+	const legacyAuthored = input.verifiedPreRewindAuthoredObservationId;
+	if (legacyAuthored)
+		restoredMarker.correctionAuthoredObservationId = legacyAuthored;
 	requireRewind(
 		restored.every(
 			(row) => !row.document_id || !ids.includes(row.document_id),
 		) &&
 			(holdConflict
-				? matchPriorMigrationRepresentation(saved.published, restored, true)
+				? (matchPriorMigrationRepresentation(saved.published, restored, true) ??
+					db.transaction((tx) =>
+						matchCorrectionHoldAuthoredRekey(
+							tx,
+							userId,
+							bankId,
+							restoredMarker,
+							saved.published,
+							restored,
+						),
+					))
 				: db.transaction((tx) =>
 						matchPlainMigrationRewind(
 							tx,
@@ -381,7 +418,23 @@ export async function rewindUnpublishedMigrationSources(input: {
 	const prepared = await prepareMemoryMigration(
 		userId,
 		holdConflict || allowOrdinary
-			? { bankId, assertCurrent, holdCorrectionConflict: holdConflict }
+			? {
+					bankId,
+					holdCorrectionConflict: holdConflict,
+					assertCurrent: (tx) => {
+						assertCurrent(tx);
+						if (legacyAuthored)
+							tx.update(memoryMigrationManifests)
+								.set({
+									checkpointJson: JSON.stringify({
+										...saved.checkpoint,
+										migrationRewind: restoredMarker,
+									}),
+								})
+								.where(eq(memoryMigrationManifests.id, manifestId))
+								.run();
+					},
+				}
 			: undefined,
 	);
 	requireRewind(prepared.id === manifestId);

@@ -7,6 +7,7 @@ import { inspectMemoryMigration } from "./migration-progress";
 import {
 	admittedNativeFacts,
 	approvedMigrationObservationWording,
+	matchVerifiedObservationRows,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 	reconnectVerifiedObservations,
@@ -293,6 +294,102 @@ export function assertMigrationWithdrawalWording(
 		)
 	)
 		throw Error("memory_migration_withdrawal_boundary");
+}
+
+/** Reconnect one surviving correction only when the durable hold bound its evidence. */
+export function matchCorrectionHoldAuthoredRekey(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	rewound: Record<string, unknown>,
+	prior: PublishedRow[],
+	memories: NativeMemory[],
+) {
+	if (
+		rewound.holdCorrectionConflict !== true ||
+		typeof rewound.correctionAuthoredObservationId !== "string" ||
+		!Array.isArray(rewound.sourceIds) ||
+		rewound.sourceIds.length !== 1 ||
+		!Array.isArray(rewound.correctionHolds) ||
+		rewound.correctionHolds.length !== 1
+	)
+		return null;
+	const hold = parseJsonRecord(JSON.stringify(rewound.correctionHolds[0]));
+	const sourceIds = hold.protectedSourceIds;
+	if (
+		!Array.isArray(sourceIds) ||
+		sourceIds.length !== 1 ||
+		typeof sourceIds[0] !== "string" ||
+		typeof hold.assertedAt !== "string"
+	)
+		return null;
+	const admitted = admittedNativeFacts(userId, bankId, tx);
+	const byId = new Map(admitted.map((fact) => [fact.id, fact]));
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	if (
+		raw.size !== admitted.length ||
+		admitted.some((fact) => {
+			const live = raw.get(fact.id);
+			return live?.document_id !== fact.source.id || live.text !== fact.text;
+		})
+	)
+		return null;
+	const observations = memories.filter(
+		(row) => row.fact_type === "observation",
+	);
+	const missing = prior.filter(
+		(row) => !observations.some((live) => samePriorObservation(row, live, raw)),
+	);
+	if (missing.length !== 1) return null;
+	const [target] = missing;
+	if (target.nativeId !== rewound.correctionAuthoredObservationId) return null;
+	const support = readAcknowledgedFacts(target.sourceFingerprintsJson);
+	const heldDate = Date.parse(hold.assertedAt);
+	if (
+		!support.length ||
+		support.some(
+			(fact) =>
+				byId.get(fact.id)?.source.id !== sourceIds[0] ||
+				typeof fact.assertedAtMs !== "number" ||
+				!(fact.assertedAtMs > heldDate),
+		)
+	)
+		return null;
+	const approved = approvedMigrationObservationWording(tx, userId, bankId, [
+		target,
+	]);
+	const text = approved.get(target.nativeId);
+	if (!text) return null;
+	const source = assertMemorySourceCurrent(tx, sourceIds[0], userId, bankId);
+	if (text !== source.text) return null;
+	const ids = new Set(support.map((fact) => fact.id));
+	const companions = prior.filter(
+		(row) =>
+			row.id !== target.id &&
+			readAcknowledgedFacts(row.sourceFingerprintsJson).some((fact) =>
+				ids.has(fact.id),
+			),
+	);
+	if (companions.length !== 0 && companions.length !== 2) return null;
+	if (companions.some((row) => row.text === text)) return null;
+	const matches = matchVerifiedObservationRows(prior, memories, approved);
+	if (!matches || matches.size !== observations.length) return null;
+	const successor = [...matches].find(
+		([, match]) => match.prior.id === target.id,
+	);
+	if (!successor) return null;
+	return {
+		target,
+		nativeId: successor[0],
+		text,
+		source,
+		family: companions.length > 0,
+		prepared: new Map([...matches].map(([id, match]) => [id, match.text])),
+	};
 }
 
 export function assertDefaultHistoryWithdrawalBoundary(

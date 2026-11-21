@@ -20,6 +20,7 @@ import { parseJsonRecord } from "./internal-json";
 import {
 	assertDefaultHistoryWithdrawalBoundary,
 	assertMigrationWithdrawalWording,
+	matchCorrectionHoldAuthoredRekey,
 	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
 	reconnectVerifiedObservations,
@@ -699,7 +700,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 				memories,
 			);
 
-		const representation = selectivePrepared
+		const previousRepresentation = selectivePrepared
 			? { exact: [], regenerated: null }
 			: current.ordinaryCoverage || reviewedMerge
 				? matchPlainMigrationRewind(
@@ -717,7 +718,40 @@ export async function recoverAcknowledgedHistoricalMigration(
 						memories,
 						current.renumbered,
 					);
+		const correctionRekey =
+			!previousRepresentation && current.renumbered && !current.entries.length
+				? matchCorrectionHoldAuthoredRekey(
+						tx,
+						userId,
+						bankId,
+						parseJsonRecord(
+							JSON.stringify(
+								parseJsonRecord(current.checkpointJson).migrationRewind,
+							),
+						),
+						prior,
+						memories,
+					)
+				: null;
+		const representation =
+			previousRepresentation ??
+			(correctionRekey && {
+				exact: prior.filter((row) => row.id !== correctionRekey.target.id),
+				regenerated: null,
+			});
 		requireRecovery(representation);
+		if (correctionRekey) {
+			tx.update(memorySourceRevisions)
+				.set({
+					context: JSON.stringify({
+						...parseJsonRecord(correctionRekey.source.context),
+						migrationExactWording: true,
+						migrationExactWordingFamily: correctionRekey.family,
+					}),
+				})
+				.where(eq(memorySourceRevisions.id, correctionRekey.source.id))
+				.run();
+		}
 		if (reviewedMerge) {
 			const snapshotHash = historicalMergeSnapshotHash(
 				{ userId, manifestId, state: current, prior, accepted },
@@ -769,7 +803,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 			epoch: bank.epoch,
 			expectedRevision: bank.revision,
 			memories,
-			...(selectivePrepared ? { prepared: selectivePrepared } : {}),
+			prepared: selectivePrepared ?? correctionRekey?.prepared,
 			sourceIds: [...selected],
 		});
 		const supportProof = (row: (typeof prior)[number]) =>
@@ -785,6 +819,15 @@ export async function recoverAcknowledgedHistoricalMigration(
 		requireRecovery(
 			representation.exact.every((row) => published.has(proof(row))),
 		);
+		if (correctionRekey) {
+			const successor = rows.find(
+				(row) => row.nativeId === correctionRekey.nativeId,
+			);
+			requireRecovery(
+				successor?.text === correctionRekey.text &&
+					supportProof(successor) === supportProof(correctionRekey.target),
+			);
+		}
 		if (representation.regenerated) {
 			const successor = rows.find(
 				(row) => row.nativeId === representation.regenerated?.nativeId,
