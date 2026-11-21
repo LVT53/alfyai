@@ -7623,3 +7623,88 @@ it("refuses an approval unless the account still prepares on that exact manifest
 		added: 1,
 	});
 });
+
+it.each([true, false])(
+	"an import on a live account leaves an older chat an approved unlocated removal covers to a preparation (approved: %s)",
+	async (approved) => {
+		const { db, s } = await unlocatedRemoval();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		const { latestManifest } = await import("./migration-progress");
+		const { createHash } = await import("node:crypto");
+		const first = await migration.prepareMemoryMigration(h.userId);
+		let manifestId = first.id;
+		if (approved) {
+			// Sales' order: approve, then restart before cutover.
+			await approveUnlocatedCuration();
+			const sealed = latestManifest(h.userId);
+			manifestId = (
+				await migration.restartMemoryPreparation(h.userId, {
+					manifestId: first.id,
+					manifestHash: createHash("sha256")
+						.update(sealed?.manifestJson ?? "")
+						.digest("hex"),
+				})
+			).manifestId;
+		}
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(migration.cutoverMemoryMigration(h.userId, manifestId).ready).toBe(
+			true,
+		);
+		db.insert(s.projects)
+			.values({ id: "project", userId: h.userId, name: "Project" })
+			.run();
+		const paraphrase = "My bicycle is blue. I keep it in the hall.";
+		storedImport({ db, s }, { id: "personal-import", texts: [paraphrase] });
+		storedImport(
+			{ db, s },
+			{ id: "project-import", texts: [paraphrase], projectId: "project" },
+		);
+		const inventory = migration.inspectMemoryMigration(h.userId);
+		for (const id of ["personal-import-q0", "project-import-q0"])
+			expect(
+				inventory.sources.find((source) => source.id === id),
+			).toMatchObject({
+				eligibility: "eligible",
+				defaultHistory: true,
+				imported: true,
+			});
+		const imported = await import("./imported-history");
+		expect(await imported.recordImportedHistory(h.userId)).toBe(
+			approved ? 1 : 2,
+		);
+		const sourceOf = (messageId: string) =>
+			db
+				.select()
+				.from(s.memorySourceRevisions)
+				.all()
+				.find((row) => row.messageId === messageId);
+		// The personal removal does not cover a project chat.
+		expect(sourceOf("project-import-q0")).toBeDefined();
+		expect(sourceOf("personal-import-q0") === undefined).toBe(approved);
+		if (!approved) return;
+		// Still owed: maintenance takes nothing more up.
+		expect(await imported.catchUpImportedHistory(h.userId, "maintenance")).toBe(
+			0,
+		);
+		// An operator's preparation takes it up with its own forget step.
+		await migration.prepareMemoryMigration(h.userId);
+		const held = sourceOf("personal-import-q0");
+		if (!held) throw Error("test_source_missing");
+		expect(
+			db
+				.select()
+				.from(s.memoryActions)
+				.all()
+				.map(({ intentJson }) => JSON.parse(intentJson ?? "{}").sourceIds)
+				.filter((ids) => ids?.includes(held.id)),
+		).toEqual([[held.id]]);
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		expect(
+			[...f.facts.values()].find(({ document_id }) => document_id === held.id)
+				?.text,
+		).toBe("I keep it in the hall.");
+	},
+	60_000,
+);

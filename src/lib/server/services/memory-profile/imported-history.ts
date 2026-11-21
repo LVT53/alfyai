@@ -13,7 +13,10 @@ import {
 	type EnqueueMemoryDelivery,
 	enqueueMemoryMutation,
 } from "./delivery-job";
-import { inspectMemoryMigration } from "./migration-progress";
+import {
+	inspectMemoryMigration,
+	unlocatedCurationCovers,
+} from "./migration-progress";
 import {
 	ensureMemoryBank,
 	memoryScopeKey,
@@ -328,7 +331,8 @@ function takeUpBatch(
  * An imported message is taken up only when it has no source at all, or only
  * sources the Memory switch revoked (a deletion, a move or a withdrawal is
  * never undone here). One that a legacy removal or edit, a native correction
- * or an explicit edit touches is held for an operator's preparation
+ * or an explicit edit touches, or an older chat an approved unlocated removal
+ * must check by meaning, is held for an operator's preparation
  * (`scripts/memory-backfill.ts`), which replays those with it. With
  * conversation ids it takes up those chats; without, every imported chat
  * still owed (after a restart, or when Memory comes back on), chats imported
@@ -384,6 +388,11 @@ export async function recordImportedHistory(
 			source.eligibility === "eligible" &&
 			source.conversationId !== null &&
 			!replayed.has(source.id) &&
+			// Only a preparation records the forget step an approved unlocated
+			// removal needs for each older chat of its scope.
+			!inventory.actions.some((action) =>
+				unlocatedCurationCovers(action, source),
+			) &&
 			!source.replayActionIds?.length &&
 			!source.explicitEditAt,
 	);
