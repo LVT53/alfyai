@@ -111,6 +111,9 @@ async function importConversationBranches(
 			role: msg.role,
 			content: msg.content,
 			importSource: "chatgpt" as const,
+			// Marked in the same write as the copy, so Memory can tell it from
+			// the chat the person ended with even if its fork row is gone.
+			metadataJson: JSON.stringify({ importedBranchCopy: true }),
 			createdAt: msg.createdAt ?? new Date(),
 		}));
 

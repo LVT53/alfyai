@@ -222,7 +222,9 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 			// gave no time was stored at the import's own time, after its chat was
 			// made, and has no date to judge it by.
 			const reason =
-				meta.forkCopy || (m.importSource && importedBranches.has(chat.id))
+				meta.forkCopy ||
+				(m.importSource &&
+					(meta.importedBranchCopy === true || importedBranches.has(chat.id)))
 					? "fork_copy"
 					: m.importSource && m.createdAt.getTime() >= chat.createdAt.getTime()
 						? "missing_date"
