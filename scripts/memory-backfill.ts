@@ -68,7 +68,11 @@ export function parseMemoryBackfillArguments(args: string[]) {
 		throw Error("explicit_execution_acknowledgement_required");
 	return { values, mode, filename, userId, synthetic };
 }
-/** A small receipt file, by its exact absolute path, that only its owner can read. */
+/**
+ * A small receipt file, by its exact absolute path, that only its owner can
+ * read: opened without following a link, then checked and read through that
+ * one descriptor, so the file cannot change between the check and the read.
+ */
 export function readPrivateReceipt(
 	file: string | undefined,
 	error: string,
@@ -80,15 +84,28 @@ export function readPrivateReceipt(
 		canonical = undefined;
 	}
 	if (!file || canonical !== file) throw Error(error);
-	const info = lstatSync(file);
-	if (
-		!info.isFile() ||
-		info.uid !== process.getuid?.() ||
-		(info.mode & 0o077) !== 0 ||
-		info.size > 4096
-	)
+	let fd: number;
+	try {
+		fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+	} catch {
 		throw Error(error);
-	return JSON.parse(readFileSync(file, "utf8"));
+	}
+	let bytes: Buffer;
+	try {
+		const info = fstatSync(fd);
+		if (
+			!info.isFile() ||
+			info.uid !== process.getuid?.() ||
+			(info.mode & 0o077) !== 0 ||
+			info.size > 4096
+		)
+			throw Error(error);
+		bytes = readFileSync(fd);
+	} finally {
+		closeSync(fd);
+	}
+	if (bytes.length > 4096) throw Error(error);
+	return JSON.parse(bytes.toString("utf8"));
 }
 /** An approval to check unlocated removals by meaning, for one account's current manifest. */
 export function unlocatedCurationReceipt(

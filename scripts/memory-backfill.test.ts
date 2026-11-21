@@ -86,6 +86,13 @@ it("reads an operator receipt only from a private file of this account", () => {
 		expect(() => readPrivateReceipt(file, "receipt_refused")).toThrow(
 			"receipt_refused",
 		);
+		// Opened, checked and read through one descriptor that follows no link.
+		writeFileSync(file, '{"userId":"fixture"}');
+		chmodSync(file, 0o000);
+		expect(() => readPrivateReceipt(file, "receipt_refused")).toThrow(
+			"receipt_refused",
+		);
+		chmodSync(file, 0o600);
 		symlinkSync(file, link);
 		for (const path of [undefined, "receipt.private.json", dir, link])
 			expect(() => readPrivateReceipt(path, "receipt_refused")).toThrow(
