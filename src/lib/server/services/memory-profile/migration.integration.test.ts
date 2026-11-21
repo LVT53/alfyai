@@ -8143,3 +8143,37 @@ it("a covered chat's forget step does not excuse it from the new-assertion check
 		expect.anything(),
 	);
 }, 60_000);
+
+it("a refused final review of any other replay stays retryable", async () => {
+	// A located removal replayed on explicitly included history.
+	const { db, s } = await legacyItem();
+	const policy = await import("./migration-policy");
+	await policy.recordHistoryImportChoice(h.userId, {
+		choice: "include",
+		requestId: "yes",
+	});
+	await nativeFixture();
+	const curation = await import("./curation");
+	const fixtureModel = curation.createCurationModel(
+		new AbortController().signal,
+	);
+	vi.mocked(curation.createCurationModel).mockReturnValue(
+		async (prompt, input, schema, ...rest) =>
+			(schema.properties as Record<string, unknown>).valid &&
+			"displayed_observations" in (input as object)
+				? { valid: false, issues: [{ id: "x", problem: "Unsure." }] }
+				: fixtureModel(prompt, input, schema, ...rest),
+	);
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	await migration.prepareMemoryMigration(h.userId);
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(
+		JSON.parse(db.select().from(s.memoryActions).get()?.intentJson ?? "{}")
+			.meaningCheck,
+	).toBeUndefined();
+	expect(db.select().from(s.memoryDeliveryJobs).get()).toMatchObject({
+		status: "queued",
+		errorCode: "memory_dependency_check_rejected",
+	});
+});
