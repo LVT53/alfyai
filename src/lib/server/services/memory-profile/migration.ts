@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -849,7 +849,8 @@ export async function restartMemoryPreparation(
 				.get(),
 		);
 		// A quarantine review's decisions live in the epoch's own bank, and so
-		// does any other action that is not the migration's own.
+		// does any action the new epoch cannot rebuild from legacy Memory and
+		// the chats. The migration's own actions and a resent chat edit it can.
 		requireRestart(
 			!tx
 				.select({ userId: memoryQuarantineSessions.userId })
@@ -863,7 +864,11 @@ export async function restartMemoryPreparation(
 						and(
 							eq(memoryActions.userId, userId),
 							eq(memoryActions.epoch, account.epoch),
-							sql`${memoryActions.kind} NOT LIKE 'migration_%'`,
+							notInArray(memoryActions.kind, [
+								"migration_edit",
+								"migration_remove",
+								"source_edit",
+							]),
 						),
 					)
 					.get(),

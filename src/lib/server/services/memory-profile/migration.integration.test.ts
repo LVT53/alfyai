@@ -5107,6 +5107,17 @@ it("restarts a two-stage preparation in a fresh epoch, history first", async () 
 		() =>
 			db.delete(s.memoryActions).where(eq(s.memoryActions.id, "kept")).run(),
 	);
+	// A resent chat edit is rebuilt from the chat, so it does not block.
+	db.insert(s.memoryActions)
+		.values({
+			id: "resent-edit",
+			userId: h.userId,
+			bankId: oldBank.id,
+			epoch: 0,
+			requestId: "synthetic-source-edit",
+			kind: "source_edit",
+		})
+		.run();
 	// Not while a quarantine review keeps decisions in the old bank.
 	await refused(
 		() =>
