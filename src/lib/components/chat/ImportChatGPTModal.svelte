@@ -401,6 +401,7 @@ function handleRetry(): void {
 								<option value={project.id}>{project.name}</option>
 							{/each}
 						</select>
+						<p class="text-xs text-text-muted">{$t("chatgptImport.memoryNote")}</p>
 					</div>
 
 					<div class="rounded-lg border border-border-subtle bg-surface-elevated p-3">
