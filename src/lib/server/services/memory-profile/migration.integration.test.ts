@@ -6218,3 +6218,65 @@ it("sweeps chats published before an approval only through a restarted preparati
 		migration.verifyMemoryMigration(h.userId, restarted.manifestId),
 	).toMatchObject({ ready: false, curationSweepPending: true });
 });
+
+it("refuses an approval unless the account still prepares on that exact manifest", async () => {
+	const { db, s } = await unlocatedRemoval();
+	const migration = await import("./migration");
+	const { eq } = await import("drizzle-orm");
+	const first = await migration.prepareMemoryMigration(h.userId);
+	const setAccount = (values: Partial<typeof s.memoryAccounts.$inferInsert>) =>
+		db
+			.update(s.memoryAccounts)
+			.set(values)
+			.where(eq(s.memoryAccounts.userId, h.userId))
+			.run();
+	const setManifest = (
+		values: Partial<typeof s.memoryMigrationManifests.$inferInsert>,
+	) =>
+		db
+			.update(s.memoryMigrationManifests)
+			.set(values)
+			.where(eq(s.memoryMigrationManifests.id, first.id))
+			.run();
+	const saved = JSON.parse(
+		db.select().from(s.memoryMigrationManifests).get()?.checkpointJson ?? "{}",
+	);
+	const refusedWhile = async (setup: () => void, undo: () => void) => {
+		setup();
+		await expect(approveUnlocatedCuration()).rejects.toThrow(
+			"memory_migration_unlocated_curation_refused",
+		);
+		undo();
+	};
+	await refusedWhile(
+		() => setAccount({ lifecycleState: "erasing" }),
+		() => setAccount({ lifecycleState: "active" }),
+	);
+	await refusedWhile(
+		() => setAccount({ authority: "legacy" }),
+		() => setAccount({ authority: "preparing" }),
+	);
+	// A restart moved the account on and has not prepared its new epoch yet.
+	await refusedWhile(
+		() => setAccount({ epoch: 1 }),
+		() => setAccount({ epoch: 0 }),
+	);
+	await refusedWhile(
+		() => setManifest({ status: "restarted" }),
+		() => setManifest({ status: "preparing" }),
+	);
+	for (const recorded of [
+		{ migrationRewind: { bankId: "bank" } },
+		{ cutoverAt: "2026-11-21T00:00:00.000Z" },
+	])
+		await refusedWhile(
+			() =>
+				setManifest({
+					checkpointJson: JSON.stringify({ ...saved, ...recorded }),
+				}),
+			() => setManifest({ checkpointJson: JSON.stringify(saved) }),
+		);
+	await expect(approveUnlocatedCuration()).resolves.toMatchObject({
+		added: 1,
+	});
+});

@@ -1028,7 +1028,6 @@ export function approveUnlocatedMemoryCuration(
 				!checkpoint.cutoverAt &&
 				Array.isArray(ids) &&
 				ids.length > 0 &&
-				ids.length <= 64 &&
 				new Set(ids).size === ids.length,
 		);
 		const inventory = inspectMemoryMigration(userId);
