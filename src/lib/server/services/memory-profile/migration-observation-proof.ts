@@ -203,12 +203,16 @@ function plainAuthoredSource(
 
 /**
  * Older eligible history may corroborate a generated observation of a plain
- * authored statement without changing it. The published support must be the
- * statement's own facts only, so the wording came from the statement and not
- * from a chat. The observation keeps its native ID, wording, display, facts
- * and date. Every added fact comes from the incoming history source, which
- * is older than the statement, and also supports an ordinary observation of
- * its own, so it stays recallable. A row that already carries chat evidence
+ * authored statement without changing what it shows. The published support
+ * must be the statement's own facts only, so the wording came from the
+ * statement and not from a chat. The observation keeps its native ID, its
+ * shown wording and its facts; its native text may differ only by Hindsight's
+ * dated notes made from the facts the job adds. Every added fact comes from
+ * the incoming history source, which is older than the statement. It may also
+ * form an observation of its own, or appear only inside this row (the owner
+ * extended the rule to that on 21 November 2026). A note is Hindsight's record
+ * of an earlier state, kept only in the native text; it is never shown. A row
+ * that already carries chat evidence
  * (corroborated before, or mixed when history ran first) stays exact. Exact
  * edits, their companions, explicit edits and statements tied to an edit or
  * removal stay exact. Publication keeps the observation's native support;
@@ -243,15 +247,6 @@ function corroboratedAuthoredObservations(
 		bankId,
 		readPublishedMemory(userId, bankId, undefined, tx),
 	);
-	const protectedNative = new Set(protectedRows.map((row) => row.nativeId));
-	const recallableElsewhere = (id: string, owner: string) =>
-		observations.some(
-			(other) =>
-				other.id !== owner &&
-				!protectedNative.has(other.id) &&
-				!!other.source_memory_ids?.includes(id) &&
-				other.source_memory_ids.every((x) => !protectedFacts.has(x)),
-		);
 	const trimmed = new Map<string, NativeMemory>();
 	for (const old of protectedRows) {
 		const live = observations.find((row) => row.id === old.nativeId);
@@ -259,15 +254,24 @@ function corroboratedAuthoredObservations(
 			!live ||
 			samePriorObservation(old, live, raw) ||
 			approved.has(old.nativeId) ||
-			family?.rows.some((row) => row.id === old.id) ||
-			live.text !== old.nativeText
+			family?.rows.some((row) => row.id === old.id)
 		)
 			continue;
 		const original = readAcknowledgedFacts(old.sourceFingerprintsJson);
 		const originalIds = original.map((fact) => fact.id);
 		const support = live.source_memory_ids ?? [];
 		const added = support.filter((id) => !originalIds.includes(id));
+		const facts = (ids: string[]) =>
+			ids.flatMap((id) => {
+				const fact = raw.get(id);
+				return fact ? [fact] : [];
+			});
+		// Only the added facts' own dated notes may have been appended.
+		const notesOnly =
+			live.text === old.nativeText ||
+			splitNativeNotes(live, facts(added)) === old.nativeText;
 		if (
+			!notesOnly ||
 			!original.length ||
 			!added.length ||
 			new Set(support).size !== support.length ||
@@ -290,19 +294,16 @@ function corroboratedAuthoredObservations(
 				(id) =>
 					raw.get(id)?.document_id === incoming.id &&
 					!admitted.has(id) &&
-					!protectedFacts.has(id) &&
-					recallableElsewhere(id, live.id),
+					!protectedFacts.has(id),
 			) ||
-			splitNativeNotes(
-				live,
-				support.flatMap((id) => {
-					const fact = raw.get(id);
-					return fact ? [fact] : [];
-				}),
-			) !== old.text
+			splitNativeNotes(live, facts(support)) !== old.text
 		)
 			continue;
-		const view = { ...live, source_memory_ids: originalIds };
+		const view = {
+			...live,
+			text: old.nativeText,
+			source_memory_ids: originalIds,
+		};
 		if (samePriorObservation(old, view, raw)) trimmed.set(live.id, view);
 	}
 	return (

@@ -141,6 +141,8 @@ export async function getNativeMemoryCleanupStatus(userId: string) {
 		.where(eq(memoryAccounts.userId, userId))
 		.get();
 	if (!account) return { nativeCleanupPending: false, cleanupOperations: [] };
+	// A restart's cleanup of its retired banks is the operator's: the account
+	// is still in use, and verify waits for it.
 	const jobs = db
 		.select()
 		.from(memoryDeliveryJobs)
@@ -150,7 +152,8 @@ export async function getNativeMemoryCleanupStatus(userId: string) {
 				eq(memoryDeliveryJobs.kind, "cleanup"),
 			),
 		)
-		.all();
+		.all()
+		.filter((job) => !job.requestId.startsWith("restart-erase:"));
 	const cleanupOperations = jobs.map((job) => ({
 		id: job.id,
 		status: job.status,

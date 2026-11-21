@@ -256,8 +256,8 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				...(m.importSource ? { imported: true as const } : {}),
 			});
 		}
-		const previous = latestManifest(userId);
-		if (previous?.epoch === epoch) {
+		const previous = epochManifest(userId, epoch);
+		if (previous) {
 			const saved: MigrationInventory = JSON.parse(previous.manifestJson);
 			for (const source of result.sources) {
 				const old = saved.sources.find((s) => s.id === source.id);
@@ -638,7 +638,14 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 		// historical evidence. It needs current support before import.
 		if (result.holdHistory)
 			result.exceptions.push(...reviewEditsWithoutCurrentSupport);
-		const historyBoundary = latestManifest(userId)?.createdAt ?? new Date();
+		const boundaryManifest = latestManifest(userId);
+		const carriedBoundary = parseJsonRecord(
+			boundaryManifest?.checkpointJson ?? null,
+		).historyBoundaryAt;
+		const historyBoundary =
+			typeof carriedBoundary === "string"
+				? new Date(carriedBoundary)
+				: (boundaryManifest?.createdAt ?? new Date());
 		if (result.holdHistory)
 			for (const s of result.sources)
 				if (
@@ -648,9 +655,8 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					s.eligibility = "held";
 					s.reason = "unknown_exclusion_boundary";
 				}
-		const migration = latestManifest(userId);
 		const currentCheckpoint = parseJsonRecord(
-			migration?.epoch === epoch ? migration.checkpointJson : null,
+			epochManifest(userId, epoch)?.checkpointJson ?? null,
 		);
 		const authoredConflictHolds = Array.isArray(
 			currentCheckpoint.migrationCorrectionHolds,
@@ -748,6 +754,18 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 		);
 		return result;
 	});
+}
+
+/**
+ * The manifest whose holds and edit exceptions an epoch carries: its own, or
+ * the one a restart retired while the new epoch has none yet.
+ */
+function epochManifest(userId: string, epoch: number) {
+	const latest = latestManifest(userId);
+	return latest?.epoch === epoch ||
+		(latest?.status === "restarted" && latest.epoch === epoch - 1)
+		? latest
+		: undefined;
 }
 
 export function latestManifest(userId: string) {
@@ -879,12 +897,38 @@ export function verifyMemoryMigration(userId: string, id: string) {
 					typeof id === "string" &&
 					sources.some((s) => s.id === id && s.state === "accepted"),
 			) ?? false;
-		const ready = accounted && !changed && !pending;
+		// A restart's retired banks must be gone from Hindsight before cutover.
+		const tenantId = db
+			.select({ tenantId: memoryAccounts.tenantId })
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get()?.tenantId;
+		const retiredCleanup = tenantId
+			? db
+					.select()
+					.from(memoryDeliveryJobs)
+					.where(
+						and(
+							eq(memoryDeliveryJobs.userId, tenantId),
+							eq(memoryDeliveryJobs.kind, "cleanup"),
+							like(memoryDeliveryJobs.requestId, "restart-erase:%"),
+						),
+					)
+					.all()
+					.filter((job) => job.status !== "succeeded")
+			: [];
+		const ready =
+			accounted && !changed && !pending && retiredCleanup.length === 0;
 		return {
 			ready,
 			changed,
-			pending,
-			failed,
+			pending: pending + retiredCleanup.length,
+			failed:
+				failed +
+				retiredCleanup.filter(
+					(job) => job.status === "failed" || job.status === "cancelled",
+				).length,
+			retiredCleanupPending: retiredCleanup.length,
 			held: inventory.exceptions.length,
 			uncertain: inventory.sources.filter((s) => s.eligibility === "uncertain")
 				.length,

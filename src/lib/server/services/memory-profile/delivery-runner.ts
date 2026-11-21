@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -195,6 +195,27 @@ export async function runMemoryDelivery(
 		const tenant = row.kind === "cleanup" ? row.tenantId : account?.tenantId;
 		if (!tenant) throw new NativeMemoryError("memory_account_missing", false);
 		if (row.kind === "cleanup") {
+			// A restart and a later erasure can each queue a cleanup for the same
+			// retired bank. Once one has deleted it and confirmed it gone, the
+			// other has nothing left to settle there.
+			if (
+				db
+					.select({ id: memoryDeliveryJobs.id })
+					.from(memoryDeliveryJobs)
+					.where(
+						and(
+							eq(memoryDeliveryJobs.userId, row.userId),
+							eq(memoryDeliveryJobs.kind, "cleanup"),
+							eq(memoryDeliveryJobs.bankId, row.bankId),
+							eq(memoryDeliveryJobs.status, "succeeded"),
+							ne(memoryDeliveryJobs.id, row.id),
+						),
+					)
+					.get()
+			) {
+				await ctx.succeed();
+				return;
+			}
 			if (!row.nativeBaseUrl || !row.nativeCredentialHash)
 				throw new NativeMemoryError("memory_cleanup_corrupt", false);
 			const client = nativeMemoryClient(row.bankId, tenant, ctx.signal, {

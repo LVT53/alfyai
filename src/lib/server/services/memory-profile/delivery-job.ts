@@ -277,10 +277,16 @@ export async function prepareNativeMemoryErasure(
 	return token;
 }
 
-function bankCleanupInputs(
+/**
+ * The erasure's own cleanup jobs for retired banks. A restart passes its own
+ * prefix: the person's cleanup status leaves those out, and verify waits for
+ * them.
+ */
+export function bankCleanupInputs(
 	tx: Tx,
 	account: typeof memoryAccounts.$inferSelect,
 	banks: Array<typeof memoryBanks.$inferSelect>,
+	prefix: "erase" | "restart-erase" = "erase",
 ): import("../jobs/types").EnqueueInput<typeof memoryDeliveryJobs>[] {
 	return banks
 		.filter((bank) => bank.nativeBaseUrl && bank.nativeCredentialHash)
@@ -293,7 +299,7 @@ function bankCleanupInputs(
 						.where(
 							and(
 								eq(memoryDeliveryJobs.userId, account.tenantId),
-								eq(memoryDeliveryJobs.requestId, `erase:${bank.id}`),
+								eq(memoryDeliveryJobs.requestId, `${prefix}:${bank.id}`),
 							),
 						)
 						.get() ?? null,
@@ -305,7 +311,7 @@ function bankCleanupInputs(
 				bankId: bank.id,
 				epoch: bank.epoch,
 				kind: "cleanup",
-				requestId: `erase:${bank.id}`,
+				requestId: `${prefix}:${bank.id}`,
 				nativeBaseUrl: bank.nativeBaseUrl,
 				nativeCredentialHash: bank.nativeCredentialHash,
 				nativeOperationIdsJson: JSON.stringify([
