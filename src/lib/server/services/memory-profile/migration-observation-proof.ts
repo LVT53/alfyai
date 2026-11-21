@@ -208,9 +208,11 @@ function plainAuthoredSource(
  * statement and not from a chat. The observation keeps its native ID, its
  * shown wording and its facts; its native text may differ only by Hindsight's
  * dated notes made from the facts the job adds. Every added fact comes from
- * the incoming history source, which is older than the statement, and may be
- * presented only inside this row (the owner extended the rule on 21 November
- * 2026). A row that already carries chat evidence
+ * the incoming history source, which is older than the statement. It may also
+ * form an observation of its own, or appear only inside this row (the owner
+ * extended the rule to that on 21 November 2026). A note is Hindsight's record
+ * of an earlier state, kept only in the native text; it is never shown. A row
+ * that already carries chat evidence
  * (corroborated before, or mixed when history ran first) stays exact. Exact
  * edits, their companions, explicit edits and statements tied to an edit or
  * removal stay exact. Publication keeps the observation's native support;

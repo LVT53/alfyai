@@ -4452,6 +4452,9 @@ it.each([
 	"presented only by the statement",
 	"merged note",
 	"note from the statement itself",
+	"prior note kept",
+	"prior note dropped",
+	"statement link dropped",
 	"pinned",
 	"companion",
 	"reworded",
@@ -4465,11 +4468,22 @@ it.each([
 		const accepted =
 			variant === "accepted" ||
 			variant === "presented only by the statement" ||
-			variant === "merged note";
+			variant === "merged note" ||
+			variant === "prior note kept";
+		// The statement's own row already carried a dated note of its own fact.
+		const priorNote =
+			variant === "prior note kept" || variant === "prior note dropped";
 		const inside =
 			variant === "presented only by the statement" ||
-			variant === "merged note";
+			variant === "merged note" ||
+			priorNote;
 		const mentioned = "2020-01-01T09:30:00.000Z";
+		const noteFor = (id: string) => {
+			const fact = f.facts.get(id);
+			return fact?.mentioned_at
+				? ` (${fact.mentioned_at.slice(0, 16).replace("T", " ")}: ${fact.text.split(" | ")[0].trim()})`
+				: "";
+		};
 		const { db, s } = await seed();
 		const history = "Mila, my sister in Porto, works as a ferry pilot.";
 		const authored = "My sister Mila lives in Porto.";
@@ -4537,6 +4551,22 @@ it.each([
 		if (variant === "companion") f.extraObservations.push(companion);
 		if (variant === "note from the statement itself")
 			f.mentions.set(authority.id, mentioned);
+		let olderRan = false;
+		const priorRow = {
+			id: generated,
+			fact_type: "observation" as const,
+			source_memory_ids: [support],
+			get text() {
+				if (!olderRan) return `${authored}${noteFor(support)}`;
+				return variant === "prior note kept"
+					? `${authored}${noteFor(support)}${noteFor(`${older.id}:fact`)}`
+					: `${authored}${noteFor(`${older.id}:fact`)}`;
+			},
+		};
+		if (priorNote) {
+			f.mentions.set(authority.id, "2021-01-01T08:00:00.000Z");
+			f.extraObservations.push(priorRow);
+		}
 		await claim(jobFor(authority.id)?.id ?? "");
 		expect(jobFor(authority.id)?.status).toBe("succeeded");
 		if (variant === "companion")
@@ -4560,7 +4590,11 @@ it.each([
 		if (!targetBefore) throw Error("test_target_missing");
 		if (variant === "companion")
 			companion.source_memory_ids = [support, incoming];
-		else {
+		else if (priorNote) {
+			olderRan = true;
+			priorRow.source_memory_ids = [support, incoming];
+			f.mentions.set(older.id, mentioned);
+		} else {
 			const noteOf =
 				variant === "merged note"
 					? incoming
@@ -4580,7 +4614,11 @@ it.each([
 						: base;
 				},
 				fact_type: "observation",
-				source_memory_ids: [support, incoming],
+				// The row kept the statement's wording but lost the statement.
+				source_memory_ids:
+					variant === "statement link dropped"
+						? [incoming]
+						: [support, incoming],
 			});
 		}
 		if (variant === "merged note") f.mentions.set(older.id, mentioned);
@@ -4598,7 +4636,7 @@ it.each([
 		const after = readPublishedMemory(h.userId, bank.id);
 		const kept = after.find((row) => row.nativeId === generated);
 		expect(kept?.text).toBe(targetBefore.text);
-		if (variant === "merged note")
+		if (variant === "merged note" || variant === "prior note kept")
 			expect(kept?.nativeText).toBe(
 				`${targetBefore.nativeText} (2020-01-01 09:30: ${f.facts.get(incoming)?.text.split(" | ")[0].trim()})`,
 			);
