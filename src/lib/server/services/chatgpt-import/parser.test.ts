@@ -974,6 +974,58 @@ describe("parseConversationsJson", () => {
 		expect(result.errors[0].reason).toContain("Failed to parse");
 	});
 
+	it("reads every conversation file a newer export's manifest lists", async () => {
+		const buffer = await makeZipBuffer((zip) => {
+			zip.file(
+				"export_manifest.json",
+				JSON.stringify({
+					version: 1,
+					logical_files: {
+						"conversations.json": {
+							files: ["conversations-0001.json", "conversations-0002.json"],
+							sharded: true,
+							shard_count: 2,
+						},
+					},
+				}),
+			);
+			zip.file(
+				"conversations-0001.json",
+				JSON.stringify([makeConversation({ id: "a", conversation_id: "a" })]),
+			);
+			zip.file(
+				"conversations-0002.json",
+				JSON.stringify([makeConversation({ id: "b", conversation_id: "b" })]),
+			);
+		});
+		const result = await parseConversationsJson(buffer);
+		expect(result.errors).toEqual([]);
+		expect(result.conversations.map((c) => c.id)).toEqual(["a", "b"]);
+		const picked = await parseConversationsJson(buffer, {
+			conversationIds: ["b"],
+		});
+		expect(picked.conversations.map((c) => c.id)).toEqual(["b"]);
+	});
+
+	it("refuses an export whose manifest lists a file the ZIP does not hold", async () => {
+		const buffer = await makeZipBuffer((zip) => {
+			zip.file(
+				"export_manifest.json",
+				JSON.stringify({
+					logical_files: {
+						"conversations.json": {
+							files: ["conversations-0001.json", "conversations-0002.json"],
+						},
+					},
+				}),
+			);
+			zip.file("conversations-0001.json", JSON.stringify([makeConversation()]));
+		});
+		const result = await parseConversationsJson(buffer);
+		expect(result.conversations).toEqual([]);
+		expect(result.errors[0].reason).toContain("conversations-0002.json");
+	});
+
 	it("returns error when conversations.json is not an array", async () => {
 		const buffer = await makeZipBuffer((zip) => {
 			zip.file("conversations.json", JSON.stringify({ not: "an array" }));
