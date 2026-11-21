@@ -859,6 +859,12 @@ export async function runMemoryDelivery(
 							bank.scopeKey,
 							memories,
 							defaultHistory,
+							{
+								sourceId: source.id,
+								checkedActionIds: replayed.checks.map(
+									({ actionId }) => actionId,
+								),
+							},
 						);
 					if (defaultHistory)
 						assertHistoryPreservesAuthoredObservations(

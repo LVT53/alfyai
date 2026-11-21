@@ -5641,3 +5641,450 @@ it("approves checking an unlocated removal by meaning only for that kind of remo
 	}
 	expect(widened.sources).toEqual(approved.sources);
 });
+
+it("checks every older chat of an approved unlocated removal's scope by meaning before it publishes", async () => {
+	const { db, s } = await unlocatedRemoval();
+	// Memory was known to be on from 2022: later chats are not default history.
+	db.insert(s.memoryControlIntervals)
+		.values({
+			id: "known-on",
+			userId: h.userId,
+			enabled: true,
+			epoch: 0,
+			startedAt: new Date("2022-01-01"),
+		})
+		.run();
+	db.insert(s.projects)
+		.values({ id: "project", userId: h.userId, name: "Project" })
+		.run();
+	db.insert(s.conversations)
+		.values([
+			{ id: "later-chat", userId: h.userId, title: "Synthetic later" },
+			{
+				id: "project-chat",
+				userId: h.userId,
+				title: "Synthetic project",
+				projectId: "project",
+			},
+		])
+		.run();
+	const later = "My bicycle is blue. I ride it on Sundays.";
+	const paraphrase = "My bicycle is blue. My dog is Rex.";
+	db.insert(s.messages)
+		.values([
+			{
+				id: "later",
+				conversationId: "later-chat",
+				role: "user",
+				content: later,
+				createdAt: new Date("2023-01-01"),
+			},
+			{
+				id: "project-message",
+				conversationId: "project-chat",
+				role: "user",
+				content: paraphrase,
+				createdAt: new Date("2020-02-01"),
+			},
+		])
+		.run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { readPublishedMemory } = await import("./publication");
+	const first = await migration.prepareMemoryMigration(h.userId);
+	// The approval alone queues nothing: the next prepare records the checks.
+	await approveUnlocatedCuration();
+	expect(db.select().from(s.memoryActions).all()).toEqual([]);
+	expect((await migration.prepareMemoryMigration(h.userId)).id).toBe(first.id);
+	const sources = db.select().from(s.memorySourceRevisions).all();
+	const sourceOf = (messageId: string) => {
+		const source = sources.find((row) => row.messageId === messageId);
+		if (!source) throw Error("test_source_missing");
+		return source;
+	};
+	const chat = sourceOf("m");
+	// One forget step for the one default-history chat of the removal's scope,
+	// listing only that chat, so the model only ever sees its own facts.
+	const checks = db.select().from(s.memoryActions).all();
+	expect(checks).toHaveLength(1);
+	expect(checks[0]).toMatchObject({
+		bankId: chat.bankId,
+		kind: "migration_remove",
+		previousText: unlocatedStatement,
+		exclusionAcknowledged: true,
+	});
+	expect(JSON.parse(checks[0].intentJson ?? "{}")).toMatchObject({
+		request: {
+			kind: "remove",
+			ref: { scope: { kind: "personal" }, rowId: unlocatedRemovalId },
+		},
+		before: unlocatedStatement,
+		sourceIds: [chat.id],
+		facts: [],
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(
+		db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.all()
+			.map(({ status }) => status),
+	).toEqual(["succeeded", "succeeded", "succeeded"]);
+	// Plan, apply and both reviews ran for the chat, on its own facts only.
+	const inputs = f.curationInputs as Array<Record<string, unknown>>;
+	expect(inputs).toContainEqual({
+		displayed_before: unlocatedStatement,
+		user_saved_after: "",
+	});
+	const applied = inputs.filter((input) => "facts" in input);
+	expect(applied.map((input) => input.facts)).toEqual([
+		[{ id: `${chat.id}:fact`, text: paraphrase }],
+	]);
+	expect(inputs.some((input) => "displayed_observations" in input)).toBe(true);
+	const fact = (messageId: string) =>
+		[...f.facts.values()].find(
+			({ document_id }) => document_id === sourceOf(messageId).id,
+		)?.text;
+	expect(fact("m")).toBe("My dog is Rex.");
+	// A later chat restates nothing the removal covers, and the removal's scope
+	// is personal: neither goes through its forget step.
+	expect(fact("later")).toBe(later);
+	expect(fact("project-message")).toBe(paraphrase);
+	const published = (messageId: string) =>
+		readPublishedMemory(h.userId, sourceOf(messageId).bankId)
+			.map(({ text }) => text)
+			.sort();
+	expect(published("m")).toEqual([later, "My dog is Rex."].sort());
+	expect(published("project-message")).toEqual([paraphrase]);
+	expect(
+		db
+			.select()
+			.from(s.memoryRevocations)
+			.all()
+			.map(({ nativeFactId, actionId }) => ({ nativeFactId, actionId })),
+	).toEqual([{ nativeFactId: `${chat.id}:fact`, actionId: checks[0].id }]);
+});
+
+it.each([
+	["without an approval", "none"],
+	["once its own forget step ran", "approved"],
+	["when the chat was queued before the approval", "late"],
+	["when its delivery ran no forget step for it", "unchecked"],
+] as const)(
+	"an older chat merging into a published row past an unlocated removal, %s",
+	async (_, approval) => {
+		const { db, s } = await unlocatedRemoval();
+		db.update(s.messages)
+			.set({ content: "I prefer quiet meeting rooms." })
+			.run();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		const { readPublishedMemory } = await import("./publication");
+		const { eq } = await import("drizzle-orm");
+		await migration.prepareMemoryMigration(h.userId);
+		if (approval === "approved" || approval === "unchecked") {
+			await approveUnlocatedCuration();
+			await migration.prepareMemoryMigration(h.userId);
+		}
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		if (approval === "unchecked") {
+			// Its forget step is recorded, but this delivery reports none.
+			const runner = await import("./curation-runner");
+			const replay = runner.replaySourceCuration;
+			vi.spyOn(runner, "replaySourceCuration").mockImplementation(
+				async (...args) => ({ ...(await replay(...args)), checks: [] }),
+			);
+		}
+		const old = db.select().from(s.memorySourceRevisions).get();
+		if (old?.state !== "accepted") throw Error("old_source_not_accepted");
+		db.insert(s.messages)
+			.values({
+				id: "second",
+				conversationId: "chat",
+				role: "user",
+				content: "I usually close the door during meetings.",
+				createdAt: new Date("2020-01-02"),
+			})
+			.run();
+		await migration.prepareMemoryMigration(h.userId);
+		// Approved now, but this chat's delivery has no forget step of its own.
+		if (approval === "late") await approveUnlocatedCuration();
+		const next = db
+			.select()
+			.from(s.memorySourceRevisions)
+			.all()
+			.find((row) => row.messageId === "second");
+		if (!next) throw Error("new_source_missing");
+		const merged =
+			"I prefer quiet meeting rooms and usually close the door during meetings.";
+		f.extraObservations.push({
+			id: `${old.id}:fact:observation`,
+			text: merged,
+			fact_type: "observation",
+			source_memory_ids: [`${old.id}:fact`, `${next.id}:fact`],
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const job = db
+			.select()
+			.from(s.memoryDeliveryJobs)
+			.where(eq(s.memoryDeliveryJobs.sourceId, next.id))
+			.get();
+		const published = readPublishedMemory(h.userId, old.bankId).map(
+			({ text }) => text,
+		);
+		if (approval === "approved") {
+			expect(job?.status).toBe("succeeded");
+			expect(published).toContain(merged);
+		} else {
+			expect(job).toMatchObject({
+				status: "failed",
+				errorCode: "memory_preparation_failed",
+			});
+			expect(published).toEqual(["I prefer quiet meeting rooms."]);
+		}
+	},
+);
+
+it("still refuses the removed statement's own wording after an approval", async () => {
+	const { db, s } = await unlocatedRemoval();
+	db.update(s.messages).set({ content: "My dog is Rex." }).run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	await migration.prepareMemoryMigration(h.userId);
+	await approveUnlocatedCuration();
+	const manifest = await migration.prepareMemoryMigration(h.userId);
+	const source = db.select().from(s.memorySourceRevisions).get();
+	if (!source) throw Error("seeded_source_missing");
+	f.extraObservations.push({
+		id: "withdrawn-generated",
+		text: `${unlocatedStatement}.`,
+		fact_type: "observation",
+		source_memory_ids: [`${source.id}:fact`],
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	// The forget step and its reviews passed; the wording check still refused.
+	expect(f.curationInputs).toContainEqual({
+		displayed_before: unlocatedStatement,
+		user_saved_after: "",
+	});
+	expect(db.select().from(s.memoryDeliveryJobs).get()).toMatchObject({
+		status: "failed",
+		errorCode: "memory_preparation_failed",
+	});
+	expect(db.select().from(s.memoryPublishedRows).all()).toEqual([]);
+	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+		false,
+	);
+});
+
+it.each([
+	["the edit's own review", "apply"],
+	["the final review", "final"],
+] as const)(
+	"publishes nothing when %s of an approved forget step refuses",
+	async (_, refusing) => {
+		const { db, s } = await unlocatedRemoval();
+		await nativeFixture();
+		const curation = await import("./curation");
+		const fixtureModel = curation.createCurationModel(
+			new AbortController().signal,
+		);
+		vi.mocked(curation.createCurationModel).mockReturnValue(
+			async (prompt, input, schema, ...rest) => {
+				const final = "displayed_observations" in (input as object);
+				if (
+					(schema.properties as Record<string, unknown>).valid &&
+					final === (refusing === "final")
+				)
+					return {
+						valid: false,
+						issues: [{ id: "bicycle", problem: "A blue bicycle remains." }],
+					};
+				return fixtureModel(prompt, input, schema, ...rest);
+			},
+		);
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		await migration.prepareMemoryMigration(h.userId);
+		await approveUnlocatedCuration();
+		const manifest = await migration.prepareMemoryMigration(h.userId);
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const job = db.select().from(s.memoryDeliveryJobs).get();
+		expect(job?.status).not.toBe("succeeded");
+		expect(job?.errorCode).toBe(
+			refusing === "final"
+				? "memory_dependency_check_rejected"
+				: "memory_preparation_failed",
+		);
+		expect(db.select().from(s.memoryPublishedRows).all()).toEqual([]);
+		expect(db.select().from(s.memorySourceRevisions).get()?.state).not.toBe(
+			"accepted",
+		);
+		expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
+			false,
+		);
+	},
+);
+
+it.each([
+	["refuses", false],
+	["accepts", true],
+] as const)(
+	"%s an authored statement joining a published history row past an unlocated removal when approval is %s",
+	async (_, approved) => {
+		const { db, s } = await unlocatedRemoval();
+		const history = "Mila, my sister in Porto, works as a ferry pilot.";
+		db.update(s.messages).set({ content: history }).run();
+		db.insert(s.memoryProfileItems)
+			.values({
+				id: "authored",
+				userId: h.userId,
+				projectionStateId: "projection",
+				itemKey: "sister",
+				category: "about_you",
+				scopeType: "global",
+				scopeId: "global",
+				status: "active",
+				statement: "My sister Mila lives in Porto.",
+				metadataJson: JSON.stringify({ origin: "user_authored" }),
+				updatedAt: new Date("2021-06-01"),
+			})
+			.run();
+		const f = await nativeFixture();
+		const migration = await import("./migration");
+		const jobs = await import("./delivery-job");
+		const { eq } = await import("drizzle-orm");
+		const { claimNext } = await import("../jobs/ledger");
+		const { runAttempt } = await import("../jobs/runner");
+		const { readPublishedMemory } = await import("./publication");
+		const claim = async (id: string) => {
+			const job = claimNext(jobs.memoryDeliveryJob, {
+				workerId: "curation-test",
+				jobId: id,
+			});
+			if (!job) throw Error("test_claim_missing");
+			await runAttempt(jobs.memoryDeliveryJob, job, {
+				workerId: "curation-test",
+			});
+		};
+		const jobFor = (id: string) =>
+			db
+				.select()
+				.from(s.memoryDeliveryJobs)
+				.where(eq(s.memoryDeliveryJobs.sourceId, id))
+				.get();
+		await migration.prepareMemoryMigration(h.userId);
+		if (approved) {
+			await approveUnlocatedCuration();
+			await migration.prepareMemoryMigration(h.userId);
+		}
+		const sources = db.select().from(s.memorySourceRevisions).all();
+		const [chat] = sources.filter((row) => row.messageId === "m");
+		const [statement] = sources.filter((row) => row.messageId === null);
+		await claim(jobFor(chat.id)?.id ?? "");
+		expect(jobFor(chat.id)?.status).toBe("succeeded");
+		const chatFact = `${chat.id}:fact`;
+		const statementFact = `${statement.id}:fact`;
+		// Hindsight folds the statement into the chat's published observation.
+		f.extraObservations.push({
+			id: `${chatFact}:observation`,
+			text: history,
+			fact_type: "observation",
+			source_memory_ids: [chatFact, statementFact],
+		});
+		f.hideObservation.add(statementFact);
+		await claim(jobFor(statement.id)?.id ?? "");
+		const row = readPublishedMemory(h.userId, chat.bankId).find(
+			({ nativeId }) => nativeId === `${chatFact}:observation`,
+		);
+		if (approved) {
+			expect(jobFor(statement.id)?.status).toBe("succeeded");
+			expect(JSON.parse(row?.sourceIdsJson ?? "[]")).toEqual([
+				chatFact,
+				statementFact,
+			]);
+		} else {
+			expect(jobFor(statement.id)).toMatchObject({
+				status: "failed",
+				errorCode: "memory_preparation_failed",
+			});
+			expect(JSON.parse(row?.sourceIdsJson ?? "[]")).toEqual([chatFact]);
+		}
+	},
+);
+
+it("checks every scope's older chats for an approved review removal with no scope", async () => {
+	const { db, s } = await legacyItem("active");
+	db.update(s.memoryProfileItems).set({ statement: unlocatedStatement }).run();
+	db.update(s.memoryProfileItemProvenance)
+		.set({ sourceId: "unavailable-chat" })
+		.run();
+	// A review removed it; the review names no scope.
+	db.insert(s.memoryReviewItems)
+		.values({
+			id: "review",
+			userId: h.userId,
+			subjectKey: "bicycle",
+			subjectLabel: "Bicycle",
+			question: "Keep this?",
+			reason: "manual review",
+			affectedItemIdsJson: '["item"]',
+		})
+		.run();
+	db.insert(s.memoryReviewResolutions)
+		.values({
+			id: "resolution",
+			userId: h.userId,
+			reviewItemId: "review",
+			resolutionType: "do_not_remember",
+			createdAt: new Date("2021-06-01"),
+		})
+		.run();
+	db.insert(s.projects)
+		.values({ id: "project", userId: h.userId, name: "Project" })
+		.run();
+	db.insert(s.conversations)
+		.values({
+			id: "project-chat",
+			userId: h.userId,
+			title: "Synthetic project",
+			projectId: "project",
+		})
+		.run();
+	const paraphrase = "My bicycle is blue. My dog is Rex.";
+	db.insert(s.messages)
+		.values({
+			id: "project-message",
+			conversationId: "project-chat",
+			role: "user",
+			content: paraphrase,
+			createdAt: new Date("2020-02-01"),
+		})
+		.run();
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { readPublishedMemory } = await import("./publication");
+	expect(
+		migration
+			.inspectMemoryMigration(h.userId)
+			.actions.find(({ id }) => id === "review:resolution"),
+	).toMatchObject({ kind: "remove", scope: null, sourceIds: [] });
+	await migration.prepareMemoryMigration(h.userId);
+	await approveUnlocatedCuration(["review:resolution"]);
+	await migration.prepareMemoryMigration(h.userId);
+	expect(db.select().from(s.memoryActions).all()).toHaveLength(2);
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	for (const source of db.select().from(s.memorySourceRevisions).all()) {
+		expect(
+			[...f.facts.values()].find(({ document_id }) => document_id === source.id)
+				?.text,
+		).toBe("My dog is Rex.");
+		expect(
+			readPublishedMemory(h.userId, source.bankId).map(({ text }) => text),
+		).toEqual(["My dog is Rex."]);
+	}
+});

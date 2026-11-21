@@ -3,7 +3,10 @@ import { memoryActions, type memoryPublishedRows } from "$lib/server/db/schema";
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { parseJsonRecord } from "./internal-json";
-import { inspectMemoryMigration } from "./migration-progress";
+import {
+	inspectMemoryMigration,
+	unlocatedCurationRequestId,
+} from "./migration-progress";
 import { splitNativeNotes } from "./presentation";
 import {
 	admittedNativeFacts,
@@ -556,6 +559,40 @@ export function matchCorrectionHoldAuthoredRekey(
 	};
 }
 
+/**
+ * Whether an operator-approved unlocated removal stops holding this
+ * publication back. A delivery that is not default history (an authored
+ * statement or an explicitly included chat) is not the history the removal is
+ * checked against. A default-history chat qualifies only when this delivery
+ * ran the chat's own forget step for the removal.
+ */
+function meaningChecked(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	action: ReturnType<typeof unlocatedScopeActions>[number],
+	applyingDefault: boolean,
+	delivery: { sourceId: string; checkedActionIds: readonly string[] },
+) {
+	if (!action.curateAllHistory) return false;
+	if (!applyingDefault) return true;
+	const check = tx
+		.select({ id: memoryActions.id })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, userId),
+				eq(memoryActions.bankId, bankId),
+				eq(
+					memoryActions.requestId,
+					unlocatedCurationRequestId(action.id, delivery.sourceId),
+				),
+			),
+		)
+		.get();
+	return !!check && delivery.checkedActionIds.includes(check.id);
+}
+
 export function assertDefaultHistoryWithdrawalBoundary(
 	tx: Tx,
 	userId: string,
@@ -563,6 +600,7 @@ export function assertDefaultHistoryWithdrawalBoundary(
 	scopeKey: string,
 	memories: NativeMemory[],
 	applyingDefault = true,
+	delivery?: { sourceId: string; checkedActionIds: readonly string[] },
 ) {
 	const actions = unlocatedScopeActions(
 		inspectMemoryMigration(userId),
@@ -577,12 +615,24 @@ export function assertDefaultHistoryWithdrawalBoundary(
 		)
 	)
 		return;
-	const prior = readPublishedMemory(userId, bankId, undefined, tx);
+	// An approved removal's own wording stays refused whatever its check found.
 	if (
 		containsWithdrawnWording(
 			actions,
 			memories.map((row) => row.text),
-		) ||
+		)
+	)
+		throw Error("memory_migration_withdrawal_boundary");
+	// Only a delivery that says what it checked can be let through.
+	if (
+		delivery &&
+		actions.every((action) =>
+			meaningChecked(tx, userId, bankId, action, applyingDefault, delivery),
+		)
+	)
+		return;
+	const prior = readPublishedMemory(userId, bankId, undefined, tx);
+	if (
 		!reconnectVerifiedObservations(
 			prior,
 			memories,

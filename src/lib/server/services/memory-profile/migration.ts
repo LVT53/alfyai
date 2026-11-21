@@ -33,11 +33,14 @@ import { historicalMemoryExclusion } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
 import { assertMigratedHistoryWithdrawalBoundary } from "./migration-observation-proof";
 import {
+	deterministicId,
 	inspectMemoryMigration,
 	latestManifest,
 	readUnlocatedCurationApproval,
 	settleMemoryMigration,
 	unlocatedCurationApprovable,
+	unlocatedCurationCovers,
+	unlocatedCurationRequestId,
 	verifyMemoryMigration,
 } from "./migration-progress";
 import {
@@ -594,6 +597,48 @@ export async function prepareMemoryMigration(
 				});
 				continue;
 			}
+			if (action.curateAllHistory) {
+				// The operator approved checking this unlocated removal by meaning.
+				// Each default-history chat of its scope gets a forget step of its
+				// own: replay hands the model the facts of every chat an action
+				// lists, so one action per chat keeps each check to its own chat.
+				for (const [messageId, row] of recorded) {
+					const original = inventoryByMessage.get(messageId);
+					if (!original || !unlocatedCurationCovers(action, original)) continue;
+					const requestId = unlocatedCurationRequestId(action.id, row.id);
+					const intent: ActionIntentRecord = {
+						request: {
+							kind: "remove",
+							requestId,
+							ref: {
+								scope: original.scope,
+								generation: "migration",
+								rowId: action.id,
+							},
+						},
+						before: action.before,
+						sourceIds: [row.id],
+						facts: [],
+					};
+					tx.insert(memoryActions)
+						.values({
+							id: randomUUID(),
+							userId,
+							bankId: row.bankId,
+							epoch: inventory.epoch,
+							requestId,
+							kind: "migration_remove",
+							previousText: action.before,
+							intentJson: JSON.stringify(intent),
+							exclusionAcknowledged: true,
+							cleanupPending: true,
+							createdAt: new Date(action.at),
+						})
+						.onConflictDoNothing()
+						.run();
+				}
+				continue;
+			}
 			const sources = action.sourceIds
 				.map((id) => recorded.get(id))
 				.filter((x) => x !== undefined);
@@ -1091,10 +1136,6 @@ function rollbackFingerprint(userId: string) {
 	);
 }
 
-function deterministicId(value: string) {
-	const h = memoryTextHash(value);
-	return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
-}
 /** Only the new-user insertion transaction calls this: missing existing accounts stay legacy. */
 export function initializeNewMemoryAccount(tx: Tx, userId: string): void {
 	if (!getConfig().hindsightNewAccountsEnabled) return;

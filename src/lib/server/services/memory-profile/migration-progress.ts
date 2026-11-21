@@ -134,6 +134,34 @@ export function unlocatedCurationApprovable(
 			unlocatedRemoval(action, inventory.exceptions))
 	);
 }
+
+/**
+ * An eligible default-history chat in the scope of an approved unlocated
+ * removal (every scope when the removal has none): it goes through that
+ * removal's forget step before it publishes.
+ */
+export function unlocatedCurationCovers(
+	action: ReturnType<typeof inspectMemoryMigration>["actions"][number],
+	source: ReturnType<typeof inspectMemoryMigration>["sources"][number],
+) {
+	return (
+		action.curateAllHistory === true &&
+		source.defaultHistory === true &&
+		source.eligibility === "eligible" &&
+		(!action.scope ||
+			memoryScopeKey(action.scope) === memoryScopeKey(source.scope))
+	);
+}
+
+export function deterministicId(value: string) {
+	const h = memoryTextHash(value);
+	return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** One forget step per chat: replay sends the model every listed chat's facts. */
+export function unlocatedCurationRequestId(actionId: string, sourceId: string) {
+	return deterministicId(`migration-unlocated:${actionId}:${sourceId}`);
+}
 function records(userId: string) {
 	const user = db.select().from(users).where(eq(users.id, userId)).get();
 	if (!user) throw Error("memory_unauthorized");
