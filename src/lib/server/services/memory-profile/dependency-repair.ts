@@ -461,6 +461,17 @@ export async function runDependencyRepair(
 			};
 		}),
 	).map(({ step }) => step);
+	// Preparation gives default history no context, so it never depends on
+	// another source. A rebuild of one would carry no per-chat forget step of
+	// its own and stay in verify's `meaningCheckMissing` for good.
+	if (
+		steps.some(
+			({ originalId }) =>
+				parseJsonRecord(sourceById(originalId).context)
+					.migrationDefaultHistory === true,
+		)
+	)
+		throw new NativeMemoryError("memory_dependency_default_history", false);
 	function assertStepCurrent(tx: Tx, originalId: string, enabled = false) {
 		const result = assertMemoryDependencySourceCurrent(
 			tx,

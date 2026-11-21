@@ -3113,3 +3113,37 @@ it.each([
 		expect(published).not.toContain(oldName);
 	},
 );
+
+it("refuses to rebuild default history as a dependent, which no forget step could cover", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "I planted a maple tree.");
+	const dependent = f.source([root.id], "I keep a community seed library.");
+	// Preparation never gives default history a context; one that has one
+	// is not something a repair may rebuild.
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			context: JSON.stringify({
+				...JSON.parse(dependent.context),
+				migration: true,
+				migrationDefaultHistory: true,
+			}),
+		})
+		.where(awaitEq(f.s.memorySourceRevisions.id, dependent.id))
+		.run();
+	for (const source of [root, dependent]) f.seed(source);
+	const job = await f.remove(root);
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(
+		f.db
+			.select()
+			.from(f.s.memoryDeliveryJobs)
+			.where(awaitEq(f.s.memoryDeliveryJobs.id, job.row.id))
+			.get(),
+	).toMatchObject({
+		status: "failed",
+		retryable: false,
+		errorCode: "memory_dependency_default_history",
+	});
+	expect(f.retained).toEqual([]);
+});
