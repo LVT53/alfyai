@@ -7511,6 +7511,7 @@ it("sweeps chats published before an approval only through a restarted preparati
 	expect(migration.verifyMemoryMigration(h.userId, first.id)).toMatchObject({
 		ready: false,
 		curationSweepPending: true,
+		meaningCheckMissing: 1,
 	});
 	expect(() => migration.cutoverMemoryMigration(h.userId, first.id)).toThrow(
 		"memory_migration_not_ready",
@@ -7917,13 +7918,39 @@ it("recovery refuses a covered chat whose forget step never passed, so cutover s
 	const { recoverAcknowledgedHistoricalMigration } = await import(
 		"./migration-recovery"
 	);
-	await expect(
+	const recover = () =>
 		recoverAcknowledgedHistoricalMigration({
 			userId: h.userId,
 			manifestId: restarted.manifestId,
 			bankId: source.bankId,
-		}),
-	).rejects.toThrow("memory_migration_recovery_unverified");
+		});
+	await expect(recover()).rejects.toThrow(
+		"memory_migration_recovery_unverified",
+	);
+	// Without the approval in force, the step that lists the chat still refuses.
+	const manifest = () =>
+		db
+			.select()
+			.from(s.memoryMigrationManifests)
+			.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
+			.get();
+	const approved = manifest()?.checkpointJson ?? "{}";
+	db.update(s.memoryMigrationManifests)
+		.set({
+			checkpointJson: JSON.stringify({
+				...JSON.parse(approved),
+				migrationCurateUnlocated: [],
+			}),
+		})
+		.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
+		.run();
+	await expect(recover()).rejects.toThrow(
+		"memory_migration_recovery_unverified",
+	);
+	db.update(s.memoryMigrationManifests)
+		.set({ checkpointJson: approved })
+		.where(eq(s.memoryMigrationManifests.id, restarted.manifestId))
+		.run();
 	vi.mocked(config.getConfig).mockReturnValue({
 		...config.getConfig(),
 		hindsightWorkerEnabled: true,
@@ -8023,6 +8050,27 @@ it("counts per scope the unlocated actions no approval can lift, which keep merg
 			updatedAt: new Date("2021-01-05"),
 		})
 		.run();
+	db.insert(s.projects)
+		.values({ id: "project", userId: h.userId, name: "Project" })
+		.run();
+	db.insert(s.memoryProfileItems)
+		.values({
+			id: "endorsed-project",
+			userId: h.userId,
+			projectionStateId: "projection",
+			itemKey: "endorsed-project",
+			category: "about_you",
+			scopeType: "project",
+			scopeId: "project",
+			statement: "The project uses spreadsheets",
+			status: "active",
+			metadataJson: JSON.stringify({
+				endorsement: "user_accepted",
+				userConfirmedAt: "2021-01-05T00:00:00.000Z",
+			}),
+			updatedAt: new Date("2021-01-05"),
+		})
+		.run();
 	const f = await nativeFixture();
 	const migration = await import("./migration");
 	const jobs = await import("./delivery-job");
@@ -8031,11 +8079,12 @@ it("counts per scope the unlocated actions no approval can lift, which keep merg
 		migration.unliftableUnlocatedScopes(
 			migration.inspectMemoryMigration(h.userId),
 		);
-	expect(unliftable()).toEqual({ personal: 1 });
+	const both = { personal: 1, "project:project": 1 };
+	expect(unliftable()).toEqual(both);
 	await migration.prepareMemoryMigration(h.userId);
 	await approveUnlocatedCuration();
 	await migration.prepareMemoryMigration(h.userId);
-	expect(unliftable()).toEqual({ personal: 1 });
+	expect(unliftable()).toEqual(both);
 	await h.engine.drain(jobs.memoryDeliveryJob);
 	const old = db.select().from(s.memorySourceRevisions).get();
 	if (old?.state !== "accepted") throw Error("old_source_not_accepted");
@@ -8072,6 +8121,10 @@ it("counts per scope the unlocated actions no approval can lift, which keep merg
 	).toMatchObject({ status: "failed", errorCode: "memory_preparation_failed" });
 	db.delete(s.memoryProfileItems)
 		.where(eq(s.memoryProfileItems.id, "endorsed"))
+		.run();
+	expect(unliftable()).toEqual({ "project:project": 1 });
+	db.delete(s.memoryProfileItems)
+		.where(eq(s.memoryProfileItems.id, "endorsed-project"))
 		.run();
 	expect(unliftable()).toEqual({});
 });
