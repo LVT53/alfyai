@@ -35,6 +35,12 @@ export interface ActionIntentRecord {
 	observationResetFactId?: string;
 	rejectionCode?: string;
 	rollbackPending?: boolean;
+	/**
+	 * A per-chat forget step for an approved unlocated removal (migration.ts):
+	 * the chat revisions whose native facts it began to edit, and those whose
+	 * edit then passed the final review.
+	 */
+	meaningCheck?: { started: string[]; checked: string[] };
 }
 
 export function parseActionIntent(json: string | null): ActionIntentRecord {
@@ -66,7 +72,13 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 			(typeof value.observationResetFactId !== "string" ||
 				!value.observationResetFactId)) ||
 		(value.omissionEarlierFingerprint !== undefined &&
-			typeof value.omissionEarlierFingerprint !== "string")
+			typeof value.omissionEarlierFingerprint !== "string") ||
+		(value.meaningCheck !== undefined &&
+			(!isJsonRecord(value.meaningCheck) ||
+				[value.meaningCheck.started, value.meaningCheck.checked].some(
+					(ids) =>
+						!Array.isArray(ids) || ids.some((id) => typeof id !== "string"),
+				)))
 	)
 		throw Error("memory_action_corrupt");
 	parseMemoryAction(value.request);

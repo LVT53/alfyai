@@ -625,6 +625,7 @@ export async function prepareMemoryMigration(
 						before: action.before,
 						sourceIds: [row.id],
 						facts: [],
+						meaningCheck: { started: [], checked: [] },
 					};
 					tx.insert(memoryActions)
 						.values({

@@ -470,7 +470,10 @@ async function patch(
 	mentionedAt?: ReadonlyMap<string, string>,
 	expectedSources?: ReadonlyMap<string, string>,
 	verifyInputs?: (memories: NativeMemory[]) => void,
+	/** Runs once, before the first native edit, if there is one. */
+	beforeFirstEdit?: () => Promise<void>,
 ) {
+	let firstEdit = beforeFirstEdit;
 	const live = await client.list();
 	verifyInputs?.(live);
 	const current = new Map(
@@ -499,6 +502,8 @@ async function patch(
 			actionFence(tx, ctx);
 			checkSources?.(tx);
 		});
+		await firstEdit?.();
+		firstEdit = undefined;
 		await client.editFact(
 			fact.id,
 			fact.text.trim()
@@ -2465,6 +2470,14 @@ export async function replaySourceCuration(
 	for (const entry of actions) {
 		const { action } = entry;
 		let { intent } = entry;
+		// An earlier attempt already edited this chat's native facts and never
+		// passed its final review. Those edited facts would now read as the
+		// chat's own, so nothing could check the step again: stop for good.
+		if (
+			intent.meaningCheck?.started.includes(source.id) &&
+			!intent.meaningCheck.checked.includes(source.id)
+		)
+			throw new NativeMemoryError("memory_meaning_check_interrupted", false);
 		const recordedIds = recordedActionSources(intent);
 		const assertProvenance = (tx: Tx) => {
 			const bank = actionFence(tx, ctx);
@@ -2597,7 +2610,30 @@ export async function replaySourceCuration(
 				await saveIntent(ctx, action.id, intent);
 			}
 		}
-		await patch(ctx, client, proposal, assertProvenance, dates);
+		const meaningCheck = intent.meaningCheck;
+		await patch(
+			ctx,
+			client,
+			proposal,
+			assertProvenance,
+			dates,
+			undefined,
+			undefined,
+			meaningCheck && !meaningCheck.started.includes(source.id)
+				? async () => {
+						// Committed before the first native edit, so a failed attempt
+						// leaves it behind for the next one to find.
+						intent = {
+							...intent,
+							meaningCheck: {
+								...meaningCheck,
+								started: [...meaningCheck.started, source.id],
+							},
+						};
+						await saveIntent(ctx, action.id, intent);
+					}
+				: undefined,
+		);
 		const applied = await client.list();
 		verifyAppliedProposal(applied, proposal);
 		for (const [id, date] of dates)
@@ -2642,33 +2678,58 @@ export async function replaySourceCuration(
 			const last = updates.at(-1)?.intent;
 			const replays = [...checks, ...(result.replays ?? [])];
 			const model = guardedModel(ctx, modelOverride);
-			await checkCandidate(
-				ctx,
-				{
-					memories: result.memories,
-					sourceIds: [
-						...new Set([...checkedSources, ...result.sourceIds, source.id]),
-					],
-					originalFacts: result.originalFacts,
-					sourceAssertions: result.sourceAssertions,
-					assertContextCurrent: result.assertContextCurrent,
-					withdrawnSourceIds: result.withdrawnSourceIds,
-					replays,
-				},
-				{
-					before: first?.before ?? "",
-					after: last
-						? last.request.kind === "remove"
-							? ""
-							: last.request.text
-						: source.text,
-					intent: last
-						? requirePlan(last)
-						: { forget: [], replace: [], preserve: [] },
-					orderedEdits: replays.length ? orderedChecks(replays) : undefined,
-				},
-				model,
-			);
+			try {
+				await checkCandidate(
+					ctx,
+					{
+						memories: result.memories,
+						sourceIds: [
+							...new Set([...checkedSources, ...result.sourceIds, source.id]),
+						],
+						originalFacts: result.originalFacts,
+						sourceAssertions: result.sourceAssertions,
+						assertContextCurrent: result.assertContextCurrent,
+						withdrawnSourceIds: result.withdrawnSourceIds,
+						replays,
+					},
+					{
+						before: first?.before ?? "",
+						after: last
+							? last.request.kind === "remove"
+								? ""
+								: last.request.text
+							: source.text,
+						intent: last
+							? requirePlan(last)
+							: { forget: [], replace: [], preserve: [] },
+						orderedEdits: replays.length ? orderedChecks(replays) : undefined,
+					},
+					model,
+				);
+			} catch (error) {
+				// A per-chat forget step the review refuses is not tried again: a
+				// retry would compare against facts it may already have edited.
+				if (
+					error instanceof NativeMemoryError &&
+					error.code === "memory_dependency_check_rejected" &&
+					updates.some(({ intent }) => intent.meaningCheck)
+				)
+					throw new NativeMemoryError(error.code, false);
+				throw error;
+			}
+			// The review passed for this revision: record it before publication.
+			for (const update of updates) {
+				const meaningCheck = update.intent.meaningCheck;
+				if (!meaningCheck || meaningCheck.checked.includes(source.id)) continue;
+				update.intent = {
+					...update.intent,
+					meaningCheck: {
+						...meaningCheck,
+						checked: [...meaningCheck.checked, source.id],
+					},
+				};
+				await saveIntent(ctx, update.actionId, update.intent);
+			}
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
 			verifySourceResult(

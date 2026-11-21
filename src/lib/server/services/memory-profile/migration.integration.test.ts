@@ -200,9 +200,12 @@ async function nativeFixture(
 			text: string;
 			source_memory_ids: string[];
 		}) => void;
+		/** Retaining an operation ID again changes nothing, as in Hindsight. */
+		retainOnce?: boolean;
 	} = {},
 ) {
 	const fixtureOptions = options;
+	const retainedOperations = new Set<string>();
 	const client = await import("./hindsight-client");
 	const config = await import("$lib/server/config-store");
 	const contracts = await import("./contracts");
@@ -251,7 +254,11 @@ async function nativeFixture(
 				data = { config: contracts.NATIVE_BANK_CONFIG };
 			else if (path.endsWith("/memories") && options?.method === "POST") {
 				const body = JSON.parse(String(options.body));
-				for (const item of body.items) {
+				const again =
+					fixtureOptions.retainOnce &&
+					retainedOperations.has(body.operation_id);
+				retainedOperations.add(body.operation_id);
+				for (const item of again ? [] : body.items) {
 					retained.push(item.timestamp);
 					facts.set(`${item.document_id}:fact`, {
 						id: `${item.document_id}:fact`,
@@ -7708,3 +7715,132 @@ it.each([true, false])(
 	},
 	60_000,
 );
+
+/** A covered chat whose forget step is under test, with Hindsight's retain-once behaviour. */
+async function meaningCheckAttempts(
+	model?: (
+		input: Record<string, unknown>,
+		props: Record<string, unknown>,
+	) => unknown,
+) {
+	const { db, s } = await unlocatedRemoval();
+	const f = await nativeFixture({ retainOnce: true });
+	const curation = await import("./curation");
+	const fixtureModel = curation.createCurationModel(
+		new AbortController().signal,
+	);
+	vi.mocked(curation.createCurationModel).mockReturnValue(
+		async (prompt, input, schema, ...rest) =>
+			(await model?.(
+				input as Record<string, unknown>,
+				schema.properties as Record<string, unknown>,
+			)) ?? fixtureModel(prompt, input, schema, ...rest),
+	);
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { claimNext } = await import("../jobs/ledger");
+	const { runAttempt } = await import("../jobs/runner");
+	const { readPublishedMemory } = await import("./publication");
+	await migration.prepareMemoryMigration(h.userId);
+	await approveUnlocatedCuration();
+	await migration.prepareMemoryMigration(h.userId);
+	const job = () => db.select().from(s.memoryDeliveryJobs).get();
+	const source = () => db.select().from(s.memorySourceRevisions).get();
+	const meaningCheck = () =>
+		JSON.parse(db.select().from(s.memoryActions).get()?.intentJson ?? "{}")
+			.meaningCheck;
+	return {
+		db,
+		s,
+		f,
+		migration,
+		jobs,
+		job,
+		source,
+		meaningCheck,
+		published: () =>
+			readPublishedMemory(h.userId, source()?.bankId ?? "").map(
+				({ text }) => text,
+			),
+		/** The next attempt, whatever backoff the job is waiting out. */
+		retry: async () => {
+			const claimed = claimNext(jobs.memoryDeliveryJob, {
+				workerId: "meaning-check-test",
+				jobId: job()?.id ?? "",
+				now: new Date(Date.now() + 600_000),
+			});
+			if (claimed)
+				await runAttempt(jobs.memoryDeliveryJob, claimed, {
+					workerId: "meaning-check-test",
+				});
+			return !!claimed;
+		},
+	};
+}
+
+it.each([
+	["refuses", "memory_dependency_check_rejected"],
+	["cannot answer", "memory_meaning_check_interrupted"],
+] as const)(
+	"a forget step whose final review %s after it edited native facts stops for good",
+	async (outcome, code) => {
+		let finals = 0;
+		const t = await meaningCheckAttempts((input, props) => {
+			// The edit drops the whole chat, the dog included.
+			if (props.facts && Array.isArray(input.facts))
+				return {
+					facts: (input.facts as Array<{ id: string; text: string }>).map(
+						(fact) => ({ ...fact, text: "" }),
+					),
+				};
+			if (props.valid && "displayed_observations" in input && finals++ === 0) {
+				if (outcome === "cannot answer")
+					throw Error("synthetic_model_unavailable");
+				return {
+					valid: false,
+					issues: [{ id: "dog", problem: "My dog is Rex was lost." }],
+				};
+			}
+		});
+		await h.engine.drain(t.jobs.memoryDeliveryJob);
+		// The native edit happened before the review and stays: a retry would
+		// read the edited facts as the chat's own and find nothing to check.
+		expect(t.f.facts.get(`${t.source()?.id}:fact`)).toBeUndefined();
+		await t.retry();
+		await t.migration.prepareMemoryMigration(h.userId);
+		await t.retry();
+		expect(t.job()).toMatchObject({
+			status: "failed",
+			retryable: false,
+			errorCode: code,
+		});
+		expect(t.source()?.state).not.toBe("accepted");
+		expect(t.published()).toEqual([]);
+		expect(t.meaningCheck()).toEqual({
+			started: [t.source()?.id],
+			checked: [],
+		});
+	},
+	60_000,
+);
+
+it("a forget step that passed its final review goes on after its publication fails once", async () => {
+	const t = await meaningCheckAttempts();
+	const publication = await import("./publication");
+	const { NativeMemoryError } = await import("./hindsight-client");
+	const publish = publication.publishNativeSnapshot;
+	vi.spyOn(publication, "publishNativeSnapshot")
+		.mockImplementationOnce(() => {
+			throw new NativeMemoryError("memory_curation_publication_held", true);
+		})
+		.mockImplementation(publish);
+	await h.engine.drain(t.jobs.memoryDeliveryJob);
+	expect(t.job()).toMatchObject({ status: "queued" });
+	expect(t.meaningCheck()).toEqual({
+		started: [t.source()?.id],
+		checked: [t.source()?.id],
+	});
+	expect(await t.retry()).toBe(true);
+	expect(t.job()?.status).toBe("succeeded");
+	expect(t.published()).toEqual(["My dog is Rex."]);
+}, 60_000);
