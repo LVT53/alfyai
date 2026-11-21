@@ -221,8 +221,11 @@ async function nativeFixture(
 			fact_type: string;
 			document_id: string;
 			consolidated_at: string;
+			mentioned_at?: string;
 		}
 	>();
+	// Mention dates for the facts of the given documents, set when retained.
+	const mentions = new Map<string, string>();
 	const retained: string[] = [];
 	const archived = new Map(facts);
 	let interruptArchive = false;
@@ -251,6 +254,9 @@ async function nativeFixture(
 						fact_type: "world",
 						document_id: item.document_id,
 						consolidated_at: "2026-11-18T00:00:00Z",
+						...(mentions.has(item.document_id)
+							? { mentioned_at: mentions.get(item.document_id) }
+							: {}),
 					});
 				}
 				data = { operation_id: body.operation_id };
@@ -378,6 +384,7 @@ async function nativeFixture(
 		extraObservations,
 		archived,
 		hideObservation,
+		mentions,
 		interruptNextArchive: () => {
 			interruptArchive = true;
 		},
@@ -4442,14 +4449,27 @@ it.each([false, true])(
 
 it.each([
 	"accepted",
+	"presented only by the statement",
+	"merged note",
+	"note from the statement itself",
 	"pinned",
 	"companion",
 	"reworded",
-	"unrepresented",
 	"newer",
 ] as const)(
 	"older history that corroborates a generated authored observation: %s",
 	async (variant) => {
+		// The owner extended the rule on 21 November 2026: the chat's fact may
+		// be presented only inside the statement's row, and Hindsight may append
+		// a dated note made from it, as long as the shown wording stays.
+		const accepted =
+			variant === "accepted" ||
+			variant === "presented only by the statement" ||
+			variant === "merged note";
+		const inside =
+			variant === "presented only by the statement" ||
+			variant === "merged note";
+		const mentioned = "2020-01-01T09:30:00.000Z";
 		const { db, s } = await seed();
 		const history = "Mila, my sister in Porto, works as a ferry pilot.";
 		const authored = "My sister Mila lives in Porto.";
@@ -4515,6 +4535,8 @@ it.each([
 			source_memory_ids: [support],
 		};
 		if (variant === "companion") f.extraObservations.push(companion);
+		if (variant === "note from the statement itself")
+			f.mentions.set(authority.id, mentioned);
 		await claim(jobFor(authority.id)?.id ?? "");
 		expect(jobFor(authority.id)?.status).toBe("succeeded");
 		if (variant === "companion")
@@ -4538,17 +4560,33 @@ it.each([
 		if (!targetBefore) throw Error("test_target_missing");
 		if (variant === "companion")
 			companion.source_memory_ids = [support, incoming];
-		else
+		else {
+			const noteOf =
+				variant === "merged note"
+					? incoming
+					: variant === "note from the statement itself"
+						? support
+						: undefined;
+			const base =
+				variant === "reworded" ? "Mila lives in Porto, Portugal." : authored;
 			f.extraObservations.push({
 				id: generated,
-				text:
-					variant === "reworded" ? "Mila lives in Porto, Portugal." : authored,
+				// Hindsight's dated note, built when the bank is read from the fact
+				// as it was retained.
+				get text() {
+					const fact = noteOf ? f.facts.get(noteOf) : undefined;
+					return fact?.mentioned_at
+						? `${base} (${fact.mentioned_at.slice(0, 16).replace("T", " ")}: ${fact.text.split(" | ")[0].trim()})`
+						: base;
+				},
 				fact_type: "observation",
 				source_memory_ids: [support, incoming],
 			});
-		if (variant === "unrepresented") f.hideObservation.add(incoming);
+		}
+		if (variant === "merged note") f.mentions.set(older.id, mentioned);
+		if (inside) f.hideObservation.add(incoming);
 		await claim(jobFor(older.id)?.id ?? "");
-		if (variant !== "accepted") {
+		if (!accepted) {
 			expect(jobFor(older.id)).toMatchObject({
 				status: "failed",
 				errorCode: "memory_preparation_failed",
@@ -4559,11 +4597,16 @@ it.each([
 		expect(jobFor(older.id)?.status).toBe("succeeded");
 		const after = readPublishedMemory(h.userId, bank.id);
 		const kept = after.find((row) => row.nativeId === generated);
-		expect(kept).toMatchObject({
-			text: targetBefore.text,
-			nativeText: targetBefore.nativeText,
-			updatedAt: targetBefore.updatedAt,
-		});
+		expect(kept?.text).toBe(targetBefore.text);
+		if (variant === "merged note")
+			expect(kept?.nativeText).toBe(
+				`${targetBefore.nativeText} (2020-01-01 09:30: ${f.facts.get(incoming)?.text.split(" | ")[0].trim()})`,
+			);
+		else
+			expect(kept).toMatchObject({
+				nativeText: targetBefore.nativeText,
+				updatedAt: targetBefore.updatedAt,
+			});
 		expect(JSON.parse(kept?.sourceIdsJson ?? "[]")).toEqual([
 			support,
 			incoming,
@@ -4571,8 +4614,12 @@ it.each([
 		const independent = after.find(
 			(row) => row.nativeId === `${incoming}:observation`,
 		);
-		expect(JSON.parse(independent?.sourceIdsJson ?? "[]")).toEqual([incoming]);
-		expect(after).toHaveLength(2);
+		if (inside) expect(independent).toBeUndefined();
+		else
+			expect(JSON.parse(independent?.sourceIdsJson ?? "[]")).toEqual([
+				incoming,
+			]);
+		expect(after).toHaveLength(inside ? 1 : 2);
 		expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
 			true,
 		);
@@ -4584,7 +4631,7 @@ it.each([
 			tokenBudget: 4000,
 		});
 		expect(recalled.map((row) => row.ref.rowId).sort()).toEqual(
-			[generated, `${incoming}:observation`].sort(),
+			(inside ? [generated] : [generated, `${incoming}:observation`]).sort(),
 		);
 		// The owner accepted that the authored row now lists the older chat.
 		const read = await import("./native-read");
