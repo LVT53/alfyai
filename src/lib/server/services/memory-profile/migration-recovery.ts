@@ -23,7 +23,9 @@ import {
 	matchCorrectionHoldAuthoredRekey,
 	matchPlainMigrationRewind,
 	matchPriorMigrationRepresentation,
+	matchSelectiveSupportExpansion,
 	reconnectVerifiedObservations,
+	type SelectiveSupportExpansion,
 	samePriorObservation,
 } from "./migration-observation-proof";
 import {
@@ -93,7 +95,11 @@ function rawProof(rows: NativeMemory[]) {
 	);
 }
 
-function independentProof(rows: NativeMemory[], sourceId: string) {
+function independentProof(
+	rows: NativeMemory[],
+	sourceId: string,
+	expansion?: SelectiveSupportExpansion,
+) {
 	const own = new Set(
 		rows
 			.filter(
@@ -106,10 +112,13 @@ function independentProof(rows: NativeMemory[], sourceId: string) {
 		(row) =>
 			row.fact_type === "observation" &&
 			row.source_memory_ids?.length &&
-			row.source_memory_ids.every((id) => own.has(id)),
+			(row.id === expansion?.observationId ||
+				row.source_memory_ids.every((id) => own.has(id))),
 	);
 	const covered = new Set(
-		matches.flatMap((row) => row.source_memory_ids ?? []),
+		matches.flatMap((row) =>
+			(row.source_memory_ids ?? []).filter((id) => own.has(id)),
+		),
 	);
 	const signatures = matches
 		.map((row) =>
@@ -477,9 +486,44 @@ export async function recoverAcknowledgedHistoricalMigration(
 					true,
 				);
 				for (const group of companions) otherApproved.delete(group[0].nativeId);
-				requireRecovery(
-					reconnectVerifiedObservations(otherPrior, unaffected, otherApproved),
+				const exact = reconnectVerifiedObservations(
+					otherPrior,
+					unaffected,
+					otherApproved,
 				);
+				const expanded = exact
+					? null
+					: matchSelectiveSupportExpansion(
+							tx,
+							{
+								userId,
+								bankId,
+								scopeKey: bank.scopeKey,
+								sourceId: selectiveRepair.sourceId,
+							},
+							otherPrior,
+							unaffected,
+							otherApproved,
+						);
+				const prepared = exact ?? expanded?.prepared;
+				requireRecovery(prepared);
+				requireRecovery(
+					unaffected.every((row) => {
+						if (row.fact_type !== "observation") return true;
+						const support = row.source_memory_ids ?? [];
+						return (
+							support.length > 0 &&
+							new Set(support).size === support.length &&
+							support.every((id) => id !== target.id && matchRaw.has(id)) &&
+							(prepared.has(row.id) ||
+								support.every(
+									(id) =>
+										matchRaw.get(id)?.document_id === selectiveRepair.sourceId,
+								))
+						);
+					}),
+				);
+				const expansion = expanded?.expansion;
 				const snapshotHash = historicalMergeSnapshotHash(
 					{
 						userId,
@@ -503,10 +547,12 @@ export async function recoverAcknowledgedHistoricalMigration(
 					nativeFactId: target.id,
 					snapshotHash,
 					targetTextHash: memoryTextHash(target.text),
+					...(expansion ? { supportExpansion: expansion } : {}),
 					rawAfterHash: rawProof(unaffected),
 					independentAfterHash: independentProof(
 						unaffected,
 						selectiveRepair.sourceId,
+						expansion,
 					),
 				};
 				if ("snapshotHash" in selectiveRepair) {
@@ -673,8 +719,40 @@ export async function recoverAcknowledgedHistoricalMigration(
 				.where(eq(memorySourceRevisions.id, ownerSource.id))
 				.run();
 		}
+		const savedExpansion = parseJsonRecord(
+			JSON.stringify(current.selectiveMarker?.supportExpansion ?? {}),
+		);
+		const hasExpansion =
+			current.selectiveMarker?.supportExpansion !== undefined;
+		requireRecovery(
+			!hasExpansion ||
+				(typeof savedExpansion.observationId === "string" &&
+					typeof savedExpansion.appendId === "string"),
+		);
+		const expansion =
+			typeof savedExpansion.observationId === "string" &&
+			typeof savedExpansion.appendId === "string"
+				? {
+						observationId: savedExpansion.observationId,
+						appendId: savedExpansion.appendId,
+					}
+				: undefined;
 		const selectivePrepared = selectiveRepair
-			? reconnectVerifiedObservations(prior, memories, approved)
+			? expansion
+				? matchSelectiveSupportExpansion(
+						tx,
+						{
+							userId,
+							bankId,
+							scopeKey: bank.scopeKey,
+							sourceId: selectiveRepair.sourceId,
+						},
+						prior,
+						memories,
+						approved,
+						expansion,
+					)?.prepared
+				: reconnectVerifiedObservations(prior, memories, approved)
 			: null;
 		if (selectiveRepair) {
 			const marker = current.selectiveMarker;
@@ -682,7 +760,7 @@ export async function recoverAcknowledgedHistoricalMigration(
 				marker &&
 					selectivePrepared &&
 					rawProof(memories) === marker.rawAfterHash &&
-					independentProof(memories, selectiveRepair.sourceId) ===
+					independentProof(memories, selectiveRepair.sourceId, expansion) ===
 						marker.independentAfterHash &&
 					!memories.some(
 						(row) =>
@@ -836,6 +914,35 @@ export async function recoverAcknowledgedHistoricalMigration(
 				successor &&
 					supportProof(successor) ===
 						supportProof(representation.regenerated.prior),
+			);
+		}
+		if (expansion) {
+			const old = prior.find((row) => row.nativeId === expansion.observationId);
+			const successor = rows.find(
+				(row) => row.nativeId === expansion.observationId,
+			);
+			requireRecovery(
+				old &&
+					successor?.text === old.text &&
+					successor.nativeText === old.nativeText,
+			);
+			const previous = readAcknowledgedFacts(old.sourceFingerprintsJson).map(
+				(fact) => JSON.stringify(fact),
+			);
+			const next = readAcknowledgedFacts(successor.sourceFingerprintsJson);
+			requireRecovery(
+				next.length === previous.length + 1 &&
+					next.some(
+						(fact) =>
+							fact.id === expansion.appendId &&
+							fact.assertedAtMs ===
+								current.entries[0]?.source.assertedAt.getTime() &&
+							(fact.mentionedAt ?? null) ===
+								(rawById.get(expansion.appendId)?.mentioned_at ?? null),
+					) &&
+					previous.every((fact) =>
+						next.some((other) => JSON.stringify(other) === fact),
+					),
 			);
 		}
 		if (ordinaryApproval || reviewedMerge || selectiveRepair) {

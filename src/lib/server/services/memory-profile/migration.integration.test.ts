@@ -3809,14 +3809,29 @@ it("publishes only the exact reviewed ordinary merge without re-retaining", asyn
 	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
 });
 
-it.each([0, 1, 2])(
-	"resumes an interrupted selective archive with %i exact companions without re-retaining",
-	async (companionCount) => {
+it.each([
+	[0, false],
+	[1, false],
+	[2, false],
+	[2, true],
+])(
+	"resumes an interrupted selective archive with %i exact companions and support growth %s without re-retaining",
+	async (companionCount, growsSupport) => {
 		const { db, s } = await seed();
 		db.update(s.messages).set({ content: "My radio code is OLD." }).run();
 		db.insert(s.memoryProjectionState)
 			.values({ id: "projection", userId: h.userId, resetGeneration: 0 })
 			.run();
+		if (growsSupport)
+			db.insert(s.messages)
+				.values({
+					id: "prior-ordinary",
+					conversationId: "chat",
+					role: "user",
+					content: "My independent trail is Cedar.",
+					createdAt: new Date("2019-02-01"),
+				})
+				.run();
 		const authored = "The current radio code is NEW.";
 		db.insert(s.memoryProfileItems)
 			.values({
@@ -3868,6 +3883,15 @@ it.each([0, 1, 2])(
 			fact_type: "observation" as const,
 			source_memory_ids: [support],
 		}));
+		const historical = sources.find(
+			(row) => row.messageId === "prior-ordinary",
+		);
+		const oldIndependent = historical && `${historical.id}:fact`;
+		const historicalJob = historical && jobFor(historical.id);
+		if (historicalJob && historical) {
+			await claim(historicalJob.id);
+			expect(jobFor(historical.id)).toMatchObject({ status: "succeeded" });
+		}
 		f.extraObservations.push(...companions);
 		await claim(authoredJob.id);
 		const bank = db.select().from(s.memoryBanks).get();
@@ -3895,6 +3919,16 @@ it.each([0, 1, 2])(
 			fact_type: "observation",
 			source_memory_ids: [`${authority.id}:fact`, conflict],
 		});
+		if (oldIndependent) {
+			f.hideObservation.add(independent);
+			f.hideObservation.add(oldIndependent);
+			f.extraObservations.push({
+				id: `${oldIndependent}:observation`,
+				text: "My independent trail is Cedar.",
+				fact_type: "observation",
+				source_memory_ids: [oldIndependent, independent],
+			});
+		}
 		await claim(oldJob.id);
 		expect(jobFor(old.id)?.errorCode).toBe("memory_preparation_failed");
 		expect(
@@ -3952,6 +3986,33 @@ it.each([0, 1, 2])(
 			expect(f.archived.size).toBe(0);
 			companions[0].text = unchangedText;
 		}
+		if (growsSupport) {
+			const expanded = f.extraObservations.at(-1);
+			if (!expanded) throw Error("test_expected_expansion");
+			expanded.text = "Rephrased trail.";
+			await expect(inspect()).rejects.toThrow(
+				"memory_migration_recovery_unverified",
+			);
+			expect(f.archived.size).toBe(0);
+			expanded.text = "My independent trail is Cedar.";
+			for (const source_memory_ids of [
+				[independent],
+				["not-an-admitted-raw"],
+				[],
+			]) {
+				f.extraObservations.push({
+					id: "unsupported-new-presentation",
+					text: "A second unexpected observation.",
+					fact_type: "observation",
+					source_memory_ids,
+				});
+				await expect(inspect()).rejects.toThrow(
+					"memory_migration_recovery_unverified",
+				);
+				expect(f.archived.size).toBe(0);
+				f.extraObservations.pop();
+			}
+		}
 		const result = await inspect();
 		expect(result.snapshotHash).toMatch(/^[0-9a-f]{64}$/);
 		const apply = (hash = result.snapshotHash ?? "") =>
@@ -3995,12 +4056,13 @@ it.each([0, 1, 2])(
 		expect(jobFor(old.id)?.status).toBe("failed");
 		await expect(apply()).resolves.toMatchObject({ reopened: 1, sources: 1 });
 		f.hideObservation.add(independent);
-		f.extraObservations.push({
-			id: "rekeyed-independent",
-			text: "My independent trail is Cedar.",
-			fact_type: "observation",
-			source_memory_ids: [independent],
-		});
+		if (!growsSupport)
+			f.extraObservations.push({
+				id: "rekeyed-independent",
+				text: "My independent trail is Cedar.",
+				fact_type: "observation",
+				source_memory_ids: [independent],
+			});
 
 		vi.mocked(config.getConfig).mockReturnValue({
 			...config.getConfig(),
@@ -4022,7 +4084,7 @@ it.each([0, 1, 2])(
 			].sort(),
 		);
 		expect(visible.find((row) => row.text.includes("Cedar"))?.nativeId).toBe(
-			"rekeyed-independent",
+			growsSupport ? `${oldIndependent}:observation` : "rekeyed-independent",
 		);
 		migration.cutoverMemoryMigration(h.userId, manifest.id);
 		const { publishNativeSnapshot } = await import("./publication");

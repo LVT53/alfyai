@@ -459,6 +459,167 @@ export function assertMigratedHistoryWithdrawalBoundary(
 	}
 }
 
+function ordinaryMigrationInventory(
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+) {
+	return {
+		inventory,
+		originals: new Map(inventory.sources.map((source) => [source.id, source])),
+		linked: new Set(inventory.actions.flatMap((action) => action.sourceIds)),
+	};
+}
+
+function ordinaryMigrationSource(
+	source: ReturnType<typeof assertMemorySourceCurrent>,
+	scopeKey: string,
+	{
+		inventory,
+		originals,
+		linked,
+	}: ReturnType<typeof ordinaryMigrationInventory>,
+) {
+	const context = parseJsonRecord(source.context);
+	const original = originals.get(source.messageId ?? "");
+	return (
+		source.messageId &&
+		!source.explicitEditAt &&
+		!source.predecessorSourceId &&
+		context.migrationDefaultHistory === true &&
+		typeof context.migrationAuthoredId !== "string" &&
+		!linked.has(source.messageId) &&
+		!linked.has(source.lineageId) &&
+		!linked.has(source.id) &&
+		original?.defaultHistory &&
+		original.eligibility === "eligible" &&
+		!original.replayActionIds?.length &&
+		!knownQuarantineWithdrawal(inventory, original, source.text) &&
+		original.text === source.text &&
+		original.assertedAt === source.assertedAt.toISOString() &&
+		original.lineageId === source.lineageId &&
+		original.conversationId === source.conversationId &&
+		memoryScopeKey(original.scope) === scopeKey
+	);
+}
+
+function ordinaryMigrationFacts(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	scopeKey: string,
+	inventory: ReturnType<typeof ordinaryMigrationInventory>,
+) {
+	const ordinaryIds = new Map<string, number>();
+	const eligibility = new Map<string, boolean>();
+	for (const fact of admittedNativeFacts(userId, bankId, tx)) {
+		const source = fact.source;
+		if (!eligibility.has(source.id)) {
+			const eligible = Boolean(
+				ordinaryMigrationSource(source, scopeKey, inventory),
+			);
+			if (eligible) assertMemorySourceCurrent(tx, source.id, userId, bankId);
+			eligibility.set(source.id, eligible);
+		}
+		if (eligibility.get(source.id))
+			ordinaryIds.set(fact.id, source.assertedAt.getTime());
+	}
+	return ordinaryIds;
+}
+
+export type SelectiveSupportExpansion = {
+	observationId: string;
+	appendId: string;
+};
+
+/** Preserve one ordinary presentation when another eligible original supports it. */
+export function matchSelectiveSupportExpansion(
+	tx: Tx,
+	input: { userId: string; bankId: string; scopeKey: string; sourceId: string },
+	prior: PublishedRow[],
+	memories: NativeMemory[],
+	approved: ReadonlyMap<string, string>,
+	expected?: SelectiveSupportExpansion,
+) {
+	const { userId, bankId, scopeKey, sourceId } = input;
+	const inventory = inspectMemoryMigration(userId);
+	if (
+		unlocatedScopeActions(inventory, scopeKey).length ||
+		tx
+			.select({ id: memoryActions.id })
+			.from(memoryActions)
+			.where(
+				and(eq(memoryActions.userId, userId), eq(memoryActions.bankId, bankId)),
+			)
+			.get()
+	)
+		return null;
+	const indexed = ordinaryMigrationInventory(inventory);
+	const incoming = assertMemorySourceCurrent(tx, sourceId, userId, bankId);
+	if (!ordinaryMigrationSource(incoming, scopeKey, indexed)) return null;
+	const ordinary = ordinaryMigrationFacts(
+		tx,
+		userId,
+		bankId,
+		scopeKey,
+		indexed,
+	);
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	const candidates = prior.flatMap((old) => {
+		const live = memories.find((row) => row.id === old.nativeId);
+		if (live?.fact_type !== "observation" || live.text !== old.nativeText)
+			return [];
+		const original = readAcknowledgedFacts(old.sourceFingerprintsJson);
+		const originalIds = original.map((fact) => fact.id);
+		const support = live.source_memory_ids ?? [];
+		const added = support.filter((id) => !originalIds.includes(id));
+		if (
+			!originalIds.length ||
+			!original.every(
+				(fact) =>
+					typeof fact.assertedAtMs === "number" &&
+					ordinary.get(fact.id) === fact.assertedAtMs &&
+					support.includes(fact.id),
+			) ||
+			support.length !== originalIds.length + 1 ||
+			added.length !== 1 ||
+			raw.get(added[0])?.document_id !== sourceId ||
+			memories.filter(
+				(row) =>
+					row.fact_type === "observation" &&
+					row.source_memory_ids?.includes(added[0]),
+			).length !== 1
+		)
+			return [];
+		const trimmed = { ...live, source_memory_ids: originalIds };
+		return samePriorObservation(old, trimmed, raw)
+			? [
+					{
+						live,
+						trimmed,
+						expansion: { observationId: live.id, appendId: added[0] },
+					},
+				]
+			: [];
+	});
+	if (candidates.length !== 1) return null;
+	const [{ live, trimmed, expansion }] = candidates;
+	if (
+		expected &&
+		(expected.observationId !== expansion.observationId ||
+			expected.appendId !== expansion.appendId)
+	)
+		return null;
+	const prepared = reconnectVerifiedObservations(
+		prior,
+		memories.map((row) => (row === live ? trimmed : row)),
+		approved,
+	);
+	return prepared && { prepared, expansion };
+}
+
 /** Only current, unedited default-history originals may use the optional rule.
  * All other evidence and anything tied to an explicit action stay exact.
  */
@@ -499,12 +660,6 @@ export function matchPlainMigrationRewind(
 			and(eq(memoryActions.userId, userId), eq(memoryActions.bankId, bankId)),
 		)
 		.get();
-	const originals = new Map(
-		inventory.sources.map((source) => [source.id, source]),
-	);
-	const linked = new Set(
-		inventory.actions.flatMap((action) => action.sourceIds),
-	);
 	if (
 		unlocated.some(
 			(action) =>
@@ -524,34 +679,13 @@ export function matchPlainMigrationRewind(
 		return unlocated.length
 			? matchOrdinaryMigrationCompanions(prior, prior, memories)
 			: fallback();
-	const ordinaryIds = new Set<string>();
-	for (const fact of admittedNativeFacts(userId, bankId, tx)) {
-		const source = fact.source;
-		const context = parseJsonRecord(source.context);
-		const original = originals.get(source.messageId ?? "");
-		if (
-			source.messageId &&
-			!source.explicitEditAt &&
-			!source.predecessorSourceId &&
-			context.migrationDefaultHistory === true &&
-			typeof context.migrationAuthoredId !== "string" &&
-			!linked.has(source.messageId) &&
-			!linked.has(source.lineageId) &&
-			!linked.has(source.id) &&
-			original?.defaultHistory &&
-			original.eligibility === "eligible" &&
-			!original.replayActionIds?.length &&
-			!knownQuarantineWithdrawal(inventory, original, source.text) &&
-			original.text === source.text &&
-			original.assertedAt === source.assertedAt.toISOString() &&
-			original.lineageId === source.lineageId &&
-			original.conversationId === source.conversationId &&
-			memoryScopeKey(original.scope) === scopeKey
-		) {
-			assertMemorySourceCurrent(tx, source.id, userId, bankId);
-			ordinaryIds.add(fact.id);
-		}
-	}
+	const ordinaryIds = ordinaryMigrationFacts(
+		tx,
+		userId,
+		bankId,
+		scopeKey,
+		ordinaryMigrationInventory(inventory),
+	);
 	const strict = prior.filter((row) => {
 		const facts = readAcknowledgedFacts(row.sourceFingerprintsJson);
 		return !facts.length || !facts.every((fact) => ordinaryIds.has(fact.id));
