@@ -5,6 +5,7 @@ import { conversationForks, messages, projects } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
 import { markMemoryDirty } from "$lib/server/services/memory-profile/dirty-ledger";
 import { nativeMemoryBlocksLegacyIntake } from "../memory-profile/chat-delivery";
+import { catchUpImportedHistory } from "../memory-profile/imported-history";
 import { generateImportEmbeddings } from "./embeddings";
 import {
 	completeImportRow,
@@ -314,6 +315,12 @@ async function importIntoRow(
 		processedConversations: totalConversations,
 		errors,
 	});
+
+	// An account already on native Memory takes up exactly these chats
+	// (memory-profile/imported-history.ts). It never fails the import: what it
+	// misses is owed, and maintenance or Memory switched on catches it up.
+	if (conversationIds.length > 0)
+		await catchUpImportedHistory(userId, "import", conversationIds);
 
 	// The summaries: one model call per conversation, written in the background
 	// one at a time. What a restart cuts short is still owed, and memory

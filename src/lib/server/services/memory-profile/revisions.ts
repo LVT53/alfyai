@@ -477,7 +477,8 @@ export function assertMemorySourceCurrent(
 			message?.role !== "user" ||
 			parseJsonRecord(message.metadataJson).forkCopy ||
 			(context.migration === true &&
-				(message.importSource ||
+				(Boolean(message.importSource) !==
+					(context.migrationImported === true) ||
 					message.createdAt.toISOString() !==
 						(context.migrationMessageAt ?? source.assertedAt.toISOString()))) ||
 			memoryTextHash(message.content) !== source.textHash
@@ -914,7 +915,7 @@ export function resolveMemorySourceContext(
 				}
 				if (
 					parseJsonRecord(message.metadataJson).forkCopy ||
-					(historical && Boolean(message.importSource)) ||
+					message.importSource ||
 					message.messageSequence === null ||
 					(typeof raw.messageTextHash === "string" &&
 						raw.messageTextHash !== memoryTextHash(message.content))

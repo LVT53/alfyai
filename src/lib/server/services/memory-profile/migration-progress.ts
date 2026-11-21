@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import type { MemoryScope } from "$lib/memory-types";
 import { db } from "$lib/server/db";
 import {
+	conversationForks,
 	conversations,
 	memoryAccounts,
 	memoryControlIntervals,
@@ -42,6 +43,8 @@ interface MigrationSource {
 	lineageId: string;
 	replayActionIds?: string[];
 	defaultHistory?: true;
+	/** Brought in by an import (a ChatGPT export), not said in this app. */
+	imported?: true;
 }
 interface MigrationAction {
 	id: string;
@@ -184,6 +187,24 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 			resetAt: r.reset?.advancedAt,
 		};
 		const curation = nativeCurationForMigration(tx, userId, epoch);
+		// A ChatGPT import copies each branch of a chat into a fork of its own,
+		// shared history included; only the chat the person ended with counts.
+		const importedBranches = new Set(
+			tx
+				.select({ id: conversationForks.forkConversationId })
+				.from(conversationForks)
+				.where(
+					and(
+						eq(conversationForks.userId, userId),
+						like(
+							conversationForks.sourceAssistantMessageIdSnapshot,
+							"chatgpt:%",
+						),
+					),
+				)
+				.all()
+				.map(({ id }) => id),
+		);
 		for (const { message: m, chat } of r.msgs) {
 			if (m.role !== "user") continue;
 			const meta = parseJsonRecord(m.metadataJson);
@@ -196,14 +217,19 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 			const at = date(revision?.assertedAt ?? m.createdAt);
 			const permissionAt =
 				revision?.explicitEditAt ?? revision?.assertedAt ?? m.createdAt;
-			const reason = m.importSource
-				? "imported_message"
-				: meta.forkCopy
+			// An imported message is an earlier chat like any other, judged by its
+			// own date; only the person's own words are ever sources. One the export
+			// gave no time was stored at the import's own time, after its chat was
+			// made, and has no date to judge it by.
+			const reason =
+				meta.forkCopy || (m.importSource && importedBranches.has(chat.id))
 					? "fork_copy"
-					: historicalMemoryExclusion(controls, {
-							assertedAt: permissionAt,
-							incognito: chat.memoryIncognito,
-						});
+					: m.importSource && m.createdAt.getTime() >= chat.createdAt.getTime()
+						? "missing_date"
+						: historicalMemoryExclusion(controls, {
+								assertedAt: permissionAt,
+								incognito: chat.memoryIncognito,
+							});
 			result.sources.push({
 				id: m.id,
 				conversationId: chat.id,
@@ -225,6 +251,7 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				...(!reason && usesDefaultHistoricalMemory(controls, permissionAt)
 					? { defaultHistory: true as const }
 					: {}),
+				...(m.importSource ? { imported: true as const } : {}),
 			});
 		}
 		const previous = latestManifest(userId);

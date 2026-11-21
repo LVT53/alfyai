@@ -273,7 +273,11 @@ export async function deliverCompletedMemoryTurn(input: {
 	let precedingUserAllowed = false;
 	const permittedContext = preceding.filter((message) => {
 		if (message.role === "user") {
-			precedingUserAllowed = admittedContextIds.has(message.id);
+			// An imported message is never context, nor the ChatGPT reply after
+			// it: only the person's own words said here, and each imported one
+			// is a source of its own (imported-history.ts).
+			precedingUserAllowed =
+				!message.importSource && admittedContextIds.has(message.id);
 			return precedingUserAllowed;
 		}
 		return message.role === "assistant" && precedingUserAllowed;
