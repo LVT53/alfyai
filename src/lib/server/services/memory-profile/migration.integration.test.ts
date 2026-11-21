@@ -6088,3 +6088,133 @@ it("checks every scope's older chats for an approved review removal with no scop
 		).toEqual(["My dog is Rex."]);
 	}
 });
+
+it("sweeps chats published before an approval only through a restarted preparation", async () => {
+	const { db, s } = await unlocatedRemoval();
+	// A second unlocated removal, approved later.
+	db.insert(s.memoryProfileItems)
+		.values({
+			id: "maps",
+			userId: h.userId,
+			projectionStateId: "projection",
+			itemKey: "maps",
+			category: "about_you",
+			statement: "I collect old maps",
+			status: "suppressed",
+			suppressedAt: new Date("2021-03-01"),
+			updatedAt: new Date("2021-03-01"),
+		})
+		.run();
+	db.insert(s.memoryProfileItemProvenance)
+		.values({
+			id: "maps-provenance",
+			userId: h.userId,
+			itemId: "maps",
+			sourceType: "conversation",
+			sourceId: "deleted-maps-chat",
+			label: "Chat",
+		})
+		.run();
+	const mapsRemovalId = "item:maps:0:2021-03-01T00:00:00.000Z";
+	const f = await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const { readPublishedMemory } = await import("./publication");
+	const { latestManifest } = await import("./migration-progress");
+	const { createHash } = await import("node:crypto");
+	const { eq } = await import("drizzle-orm");
+	const paraphrase = "My bicycle is blue. My dog is Rex.";
+	const published = (bankId: string) =>
+		readPublishedMemory(h.userId, bankId).map(({ text }) => text);
+	const checkpoint = (id: string) =>
+		JSON.parse(
+			db
+				.select()
+				.from(s.memoryMigrationManifests)
+				.where(eq(s.memoryMigrationManifests.id, id))
+				.get()?.checkpointJson ?? "{}",
+		);
+	const first = await migration.prepareMemoryMigration(h.userId);
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const oldBank = db.select().from(s.memoryBanks).get();
+	if (!oldBank) throw Error("test_bank_missing");
+	// Under the wording check alone, the older chat published its paraphrase.
+	expect(published(oldBank.id)).toEqual([paraphrase]);
+	expect(migration.verifyMemoryMigration(h.userId, first.id)).toMatchObject({
+		ready: true,
+		curationSweepPending: false,
+	});
+	await approveUnlocatedCuration();
+	// That chat never went through the forget step, so no cutover yet.
+	expect(migration.verifyMemoryMigration(h.userId, first.id)).toMatchObject({
+		ready: false,
+		curationSweepPending: true,
+	});
+	expect(() => migration.cutoverMemoryMigration(h.userId, first.id)).toThrow(
+		"memory_migration_not_ready",
+	);
+	// A prepare records the chat's forget step but does not deliver it again.
+	await migration.prepareMemoryMigration(h.userId);
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(published(oldBank.id)).toEqual([paraphrase]);
+	expect(
+		migration.verifyMemoryMigration(h.userId, first.id).curationSweepPending,
+	).toBe(true);
+
+	const sealed = latestManifest(h.userId);
+	const restarted = await migration.restartMemoryPreparation(h.userId, {
+		manifestId: first.id,
+		manifestHash: createHash("sha256")
+			.update(sealed?.manifestJson ?? "")
+			.digest("hex"),
+	});
+	expect(restarted).toMatchObject({ retiredEpoch: 0, cleanupJobs: 1 });
+	expect(checkpoint(restarted.manifestId)).toMatchObject({
+		migrationCurateUnlocated: [unlocatedRemovalId],
+		migrationCurateUnlocatedEpoch: 0,
+	});
+	const chat = db
+		.select()
+		.from(s.memorySourceRevisions)
+		.where(eq(s.memorySourceRevisions.epoch, 1))
+		.all()
+		.find(({ messageId }) => messageId === "m");
+	if (!chat) throw Error("test_source_missing");
+	// The re-delivered chat has its own forget step in the new epoch.
+	expect(
+		db
+			.select()
+			.from(s.memoryActions)
+			.where(eq(s.memoryActions.epoch, 1))
+			.all()
+			.map(({ intentJson }) => JSON.parse(intentJson ?? "{}").sourceIds),
+	).toEqual([[chat.id]]);
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const cleanup = db
+		.select()
+		.from(s.memoryDeliveryJobs)
+		.all()
+		.find(({ kind }) => kind === "cleanup");
+	expect(cleanup?.status).toBe("succeeded");
+	expect(f.deletedBanks.has(oldBank.id)).toBe(true);
+	expect(
+		[...f.facts.values()].find(({ document_id }) => document_id === chat.id)
+			?.text,
+	).toBe("My dog is Rex.");
+	expect(published(chat.bankId)).toEqual(["My dog is Rex."]);
+	// The same approval again, for the new manifest, leaves nothing to sweep.
+	await expect(approveUnlocatedCuration()).resolves.toMatchObject({
+		added: 0,
+	});
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId),
+	).toMatchObject({ ready: true, curationSweepPending: false });
+	// Approving another removal in this epoch needs another restart.
+	await approveUnlocatedCuration([unlocatedRemovalId, mapsRemovalId]);
+	expect(checkpoint(restarted.manifestId).migrationCurateUnlocatedEpoch).toBe(
+		1,
+	);
+	expect(
+		migration.verifyMemoryMigration(h.userId, restarted.manifestId),
+	).toMatchObject({ ready: false, curationSweepPending: true });
+});

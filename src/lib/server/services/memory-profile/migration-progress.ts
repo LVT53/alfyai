@@ -986,8 +986,19 @@ export function verifyMemoryMigration(userId: string, id: string) {
 					.all()
 					.filter((job) => job.status !== "succeeded")
 			: [];
+		// Chats published before a meaning-check approval never went through
+		// its forget step. Only an epoch that began after the approval has
+		// re-delivered every one of them, so a restart must come first.
+		const approval = readUnlocatedCurationApproval(checkpoint);
+		const curationSweepPending =
+			approval.actionIds.length > 0 &&
+			!(approval.epoch !== undefined && approval.epoch < manifest.epoch);
 		const ready =
-			accounted && !changed && !pending && retiredCleanup.length === 0;
+			accounted &&
+			!changed &&
+			!pending &&
+			retiredCleanup.length === 0 &&
+			!curationSweepPending;
 		return {
 			ready,
 			changed,
@@ -998,6 +1009,7 @@ export function verifyMemoryMigration(userId: string, id: string) {
 					(job) => job.status === "failed" || job.status === "cancelled",
 				).length,
 			retiredCleanupPending: retiredCleanup.length,
+			curationSweepPending,
 			held: inventory.exceptions.length,
 			uncertain: inventory.sources.filter((s) => s.eligibility === "uncertain")
 				.length,
