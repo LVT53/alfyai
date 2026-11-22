@@ -780,9 +780,9 @@ export const imageJobAttempts = sqliteTable(
  * clock for display); every `mode: "timestamp"` column is unix seconds.
  *
  * There is no card here: a take makes a `video` artifact, or appends a version
- * to the one `artifact_id` names. `checkpoint_json` holds the segment being
- * rendered and every finished segment's saved clip, so a restart follows a
- * prompt instead of rendering it again.
+ * to the one `artifact_id` names. `checkpoint_json` holds the prompt being
+ * rendered and, once finished, its saved clip, so a restart follows a prompt
+ * instead of rendering it again.
  */
 export const videoJobs = sqliteTable(
 	"video_jobs",

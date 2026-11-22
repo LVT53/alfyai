@@ -243,7 +243,16 @@
 		"class_type": "ImageUpscaleWithModel",
 		"inputs": {
 			"upscale_model": ["40", 0],
-			"image": ["30", 0]
+			"image": ["42", 0]
+		}
+	},
+	"42": {
+		"class_type": "ImageSharpen",
+		"inputs": {
+			"image": ["30", 0],
+			"sharpen_radius": 1,
+			"sigma": 0.5,
+			"alpha": 1
 		}
 	},
 	"32": {

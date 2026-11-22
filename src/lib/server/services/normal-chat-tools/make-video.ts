@@ -61,10 +61,7 @@ import {
 	videoJob,
 } from "$lib/server/services/images/video/video-job";
 import { waitForVerdict } from "$lib/server/services/jobs";
-import {
-	buildVideoContinuationPrompt,
-	buildVideoPrompt,
-} from "$lib/server/services/video-caption";
+import { buildVideoPrompt } from "$lib/server/services/video-caption";
 import type { VideoErrorCode } from "$lib/shared/tool-reasons";
 
 export const makeVideoInputSchema = z.object({
@@ -489,7 +486,7 @@ async function planTake(params: {
 	}
 	// The exemption selects the second engine variant for the whole take. It
 	// also allows a take from text, but only for a call that named no picture.
-	// Read once here, so both captions, the size and the take's row agree.
+	// Read once here, so the caption, the size and the take's row agree.
 	const explicitVariant = await isExplicitVariantAllowedFor(userId);
 	const fromText = source === null && !name && explicitVariant;
 	if (!source && !fromText) {
@@ -534,16 +531,6 @@ async function planTake(params: {
 		variant,
 		fromText,
 	});
-	// A 10 s take's second segment follows the first: its caption goes on from
-	// there, never the first one's again (review C-2).
-	const continuationPrompt =
-		durationSeconds === 10 && !params.signal.aborted
-			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
-					signal: params.signal,
-					variant,
-					fromText,
-				})
-			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
 	// queued, because a render started here would run for minutes for nothing.
 	if (params.signal.aborted) return { ok: false, refused: stoppedRefusal() };
@@ -585,7 +572,6 @@ async function planTake(params: {
 			request: {
 				v: 1,
 				prompt,
-				...(continuationPrompt ? { continuationPrompt } : {}),
 				durationSeconds,
 				sourceFileId,
 				fromText,

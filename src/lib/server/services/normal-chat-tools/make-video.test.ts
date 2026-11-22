@@ -28,7 +28,6 @@ const queued = vi.hoisted(() => ({
 	explicit: vi.fn(),
 	variant: vi.fn(),
 	caption: vi.fn(),
-	continuation: vi.fn(),
 }));
 
 vi.mock("$lib/server/config-store", () => ({
@@ -69,7 +68,6 @@ vi.mock("$lib/server/services/images/picture-check/policy", () => ({
 
 vi.mock("$lib/server/services/video-caption", () => ({
 	buildVideoPrompt: queued.caption,
-	buildVideoContinuationPrompt: queued.continuation,
 }));
 
 vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
@@ -127,7 +125,6 @@ beforeEach(() => {
 	queued.explicit.mockReset();
 	queued.variant.mockReset();
 	queued.caption.mockReset();
-	queued.continuation.mockReset();
 
 	queued.named.mockResolvedValue({ ok: true, sources: [still()] });
 	// The real read echoes the source's own file; a source of another chat is null.
@@ -143,9 +140,6 @@ beforeEach(() => {
 	queued.explicit.mockResolvedValue(true);
 	queued.variant.mockResolvedValue(false);
 	queued.caption.mockImplementation(async (idea: string) => `caption: ${idea}`);
-	queued.continuation.mockImplementation(
-		async (idea: string, first: string) => `next after "${first}": ${idea}`,
-	);
 	queued.enqueue.mockResolvedValue({ takeId: "take-1" });
 	queued.cancel.mockResolvedValue(true);
 });
@@ -364,7 +358,7 @@ describe("make_video and a request that was not for a video", () => {
 });
 
 describe("make_video's take request", () => {
-	it("enqueues the still, the length, the words and the caption as LTX reads them", async () => {
+	it("enqueues the still, the length and the caption as LTX reads them", async () => {
 		queued.variant.mockResolvedValue(true);
 		const { outcome } = await run({
 			input: { durationSeconds: 10 },
@@ -381,12 +375,7 @@ describe("make_video's take request", () => {
 			"the tide comes in slowly",
 			expect.anything(),
 		);
-		expect(queued.continuation).toHaveBeenCalledWith(
-			expect.any(String),
-			expect.any(String),
-			expect.objectContaining({ variant: "alt" }),
-		);
-		// One exemption read for the whole take, however many captions it writes.
+		// One exemption read for the whole take.
 		expect(queued.variant).toHaveBeenCalledTimes(1);
 		expect(queued.enqueue).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -399,9 +388,6 @@ describe("make_video's take request", () => {
 				request: {
 					v: 1,
 					prompt: "caption: the tide comes in slowly",
-					// Segment 2 goes on from where segment 1 ends (review C-2).
-					continuationPrompt:
-						'next after "caption: the tide comes in slowly": the tide comes in slowly',
 					durationSeconds: 10,
 					sourceFileId: "file-1",
 					fromText: false,
@@ -461,10 +447,9 @@ describe("make_video's take request", () => {
 		expect(system?.content).not.toContain(actual.VIDEO_CAPTION_HOUSE_RULES);
 	});
 
-	it("defaults the take to 5 seconds, which has one segment and one caption", async () => {
+	it("defaults the take to 5 seconds with one caption", async () => {
 		await run();
 		expect(queued.enqueue.mock.calls[0][0].request.durationSeconds).toBe(5);
-		expect(queued.continuation).not.toHaveBeenCalled();
 		expect(queued.enqueue.mock.calls[0][0].request).not.toHaveProperty(
 			"continuationPrompt",
 		);
@@ -552,11 +537,6 @@ describe("make_video with no picture to animate", () => {
 		expect(queued.stored).not.toHaveBeenCalled();
 		expect(queued.caption).toHaveBeenCalledWith(
 			"the tide comes in slowly",
-			expect.objectContaining({ variant: "alt", fromText: true }),
-		);
-		expect(queued.continuation).toHaveBeenCalledWith(
-			expect.any(String),
-			expect.any(String),
 			expect.objectContaining({ variant: "alt", fromText: true }),
 		);
 		expect(queued.enqueue).toHaveBeenCalledTimes(1);

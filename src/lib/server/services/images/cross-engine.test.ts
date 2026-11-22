@@ -264,6 +264,7 @@ async function videoRequeuedMidRender(promptId: string): Promise<string> {
 				seed: 1,
 				width: 1280,
 				height: 960,
+				frames: 121,
 				image: `${videoId}-1.png`,
 				variant: "standard",
 			}),
