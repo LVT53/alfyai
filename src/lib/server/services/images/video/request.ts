@@ -24,8 +24,17 @@ export type VideoTakeRequest = {
 	continuationPrompt?: string;
 	/** 5 s by default; 10 s is two 5 s segments chained. */
 	durationSeconds: VideoDurationSeconds;
-	/** The still the clip is made from (an `image_files` id of the person). */
-	sourceFileId: string;
+	/**
+	 * The still the clip is made from (an `image_files` id of the person), or
+	 * null for a take that starts from text.
+	 */
+	sourceFileId: string | null;
+	/**
+	 * The take's input mode: true when it renders from the caption alone, false
+	 * when it renders from `sourceFileId`. Frozen when this row is written
+	 * because the renderer must not re-derive it.
+	 */
+	fromText: boolean;
 	/** The Video item's title. */
 	title: string;
 	/** The one-line version summary, when the caller has one. */
@@ -193,9 +202,14 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 		artifactId,
 		explicitVariant,
 	} = value;
+	const fromText = value.fromText === true;
 	if (typeof prompt !== "string" || prompt.trim() === "") return null;
 	if (!isDurationSeconds(durationSeconds)) return null;
-	if (!isNonEmptyString(sourceFileId)) return null;
+	let stillFileId: string | null = null;
+	if (!fromText) {
+		if (!isNonEmptyString(sourceFileId)) return null;
+		stillFileId = sourceFileId;
+	}
 	if (typeof title !== "string" || title.trim() === "") return null;
 	if (summary !== null && typeof summary !== "string") return null;
 	if (artifactId !== null && !isNonEmptyString(artifactId)) return null;
@@ -207,7 +221,8 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 			? { continuationPrompt }
 			: {}),
 		durationSeconds,
-		sourceFileId,
+		sourceFileId: stillFileId,
+		fromText,
 		title,
 		summary,
 		artifactId,

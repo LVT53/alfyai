@@ -422,6 +422,7 @@ describe("make_video's take request", () => {
 						'next after "caption: the tide comes in slowly": the tide comes in slowly',
 					durationSeconds: 10,
 					sourceFileId: "file-1",
+					fromText: false,
 					title: "Harbour at dawn",
 					summary: "Made the tide move",
 					artifactId: null,

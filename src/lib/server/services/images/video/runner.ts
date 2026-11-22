@@ -390,12 +390,13 @@ async function followSegment(
 }
 
 /** The source still, failed loudly when it is gone. */
-async function readStill(ctx: Ctx, fileId: string) {
+async function readStill(ctx: Ctx, fileId: string | null) {
 	const missing = new TakeError(
 		"video_input_missing",
 		"The picture this video is made from is gone.",
 		false,
 	);
+	if (!fileId) throw missing;
 	const file = await getImageFile({
 		userId: ctx.row.userId,
 		fileId,

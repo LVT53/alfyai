@@ -572,6 +572,7 @@ async function planTake(params: {
 				...(continuationPrompt ? { continuationPrompt } : {}),
 				durationSeconds,
 				sourceFileId,
+				fromText: false,
 				title,
 				summary,
 				artifactId: null,
