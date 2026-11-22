@@ -2,20 +2,14 @@
 // with its poster and thumbnail, and the `video` artifact version pointing at
 // them. Loaded lazily by `video-job.ts`.
 //
-// Shape of a run: read and fit the source still, upload it, then render each
-// segment (one at 5 s, two at 10 s). A text take has no still, so it skips both
-// and submits the same graph without the image path. A segment is submitted
-// under a prompt id written to the checkpoint BEFORE the POST, followed, and
-// its mp4 fetched; a picture take's segment 2 is guided by the LAST DECODED
-// FRAME of segment 1, which is what makes the chain a chain. The clips are
-// concatenated, every frame of the clip passes the explicit-picture filter
-// (never a sample: the owner's ruling), and only then is anything stored. A
-// later attempt finds the checkpointed prompt (and every finished segment's
+// Shape of a run: read and fit the source still, upload it, then submit one
+// graph (121 frames for five seconds, 241 for ten). A text take has no still,
+// so it skips both and submits the same graph without the image path. The
+// prompt id is written to the checkpoint BEFORE the POST, followed, and its mp4
+// fetched; every frame of the clip passes the explicit-picture filter, and only
+// then is anything stored. A later attempt finds the checkpointed prompt (or its
 // saved clip) and resumes instead of rendering it twice; a ComfyUI that forgot
-// the prompt is resubmitted once per segment.
-//
-// A 10 s take whose second segment fails FAILS THE WHOLE TAKE: one segment is
-// never stored and served as if it were ten seconds.
+// the prompt is resubmitted once.
 
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
@@ -56,10 +50,8 @@ import { discardStoredVideoFile, storeVideoFile } from "../video-files";
 import { createVideoComfyClient } from "./comfy-client";
 import { videoPlan } from "./eta";
 import {
-	concatClips,
 	decodeCheckFrames,
 	extractFrameAt,
-	extractLastFrame,
 	type MediaCallOptions,
 	mediaTimeoutMs,
 	stripClipMetadata,
@@ -70,11 +62,10 @@ import {
 	parseVideoTakeRequest,
 	VIDEO_TEXT_SIZE,
 	type VideoCheckpoint,
-	type VideoSegmentRecord,
 	type VideoTakeRequest,
 	videoDurationMs,
+	videoFramesFor,
 	videoRenderDeadlineMs,
-	videoSegmentCount,
 	videoSizeForSource,
 } from "./request";
 
@@ -447,35 +438,24 @@ function mediaOptions(ctx: Ctx, startedAt: number): MediaCallOptions {
 }
 
 /**
- * Renders one segment: frees the other engines once, writes the prompt id and
- * the dense segment list to the checkpoint, posts under it, follows it and
- * fetches the clip. Answers null when the take was stopped before posting.
- *
- * `segments` holds every finished segment of THIS attempt, in order and with no
- * hole: the checkpoint written for segment 2 is `[segment 1, segment 2]`, so a
- * later attempt can read it back and fetch segment 1 instead of re-rendering it.
+ * Renders the take's one graph: frees the other engines once, writes the prompt
+ * id to the checkpoint, posts under it, follows it and fetches the clip.
+ * Answers null when the take was stopped before posting.
  */
-async function renderSegment(
+async function renderOne(
 	ctx: Ctx,
 	client: ComfyUiClient,
 	input: {
 		request: VideoTakeRequest;
 		size: { width: number; height: number };
-		/** The uploaded guide's name in ComfyUI's input folder; null for a text take. */
+		/** The uploaded still's name in ComfyUI's input folder; null for a text take. */
 		imageName: string | null;
-		segment: 1 | 2;
-		/** The finished segments before this one; at segment n this is length n-1. */
-		segments: readonly VideoSegmentRecord[];
 		startedAt: number;
 		eta: TakeEta;
 		freedOthers: boolean;
 		setPromptId: (id: string) => void;
 	},
-): Promise<{
-	clip: Uint8Array;
-	record: VideoSegmentRecord;
-	checkpoint: VideoCheckpoint;
-} | null> {
+): Promise<Uint8Array | null> {
 	const { signal } = ctx;
 	if (!input.freedOthers) {
 		// The card holds one engine: free the picture servers BEFORE LTX loads.
@@ -483,31 +463,20 @@ async function renderSegment(
 	}
 	if (signal.aborted) return null;
 	const graph = buildLtxVideoGraph({
-		// Segment 2 goes on from where segment 1 ends: its own caption when the
-		// tool wrote one (review C-2), else the take's one prompt again.
-		prompt:
-			input.segment === 2
-				? (input.request.continuationPrompt ?? input.request.prompt)
-				: input.request.prompt,
-		// Segment 2 uses the next seed, so the chain does not repeat the noise.
-		seed: ctx.row.seed + (input.segment - 1),
+		prompt: input.request.prompt,
+		seed: ctx.row.seed,
 		width: input.size.width,
 		height: input.size.height,
 		// A text take's row has no image path; a picture take always has a name.
 		image: input.imageName ?? undefined,
 		fromText: input.request.fromText,
-		// The take's row decides the variant: a 10 s take is two renders
-		// minutes apart, so neither segment reads the exemption again.
+		frames: videoFramesFor(input.request.durationSeconds),
+		// The take's row decides the variant, so a resumed attempt cannot
+		// switch engines.
 		variant: input.request.explicitVariant ? "alt" : "standard",
 	});
-	const promptId = randomUUID();
-	const record: VideoSegmentRecord = { promptId, media: null };
-	const segments = [...input.segments, record];
-	const checkpoint: VideoCheckpoint = {
-		promptId,
-		segment: input.segment,
-		segments,
-	};
+	let promptId: string = randomUUID();
+	const checkpoint: VideoCheckpoint = { promptId, media: null };
 	const recorded = await ctx.progress({ checkpoint });
 	if (!recorded || signal.aborted) return null;
 	input.setPromptId(promptId);
@@ -519,9 +488,9 @@ async function renderSegment(
 			sent: promptId,
 			answered: answer.promptId,
 		});
-		record.promptId = answer.promptId;
-		checkpoint.promptId = answer.promptId;
-		input.setPromptId(answer.promptId);
+		promptId = answer.promptId;
+		checkpoint.promptId = promptId;
+		input.setPromptId(promptId);
 		await ctx.progress({ checkpoint });
 	}
 	await enterPhase(ctx, "submitted");
@@ -530,7 +499,7 @@ async function renderSegment(
 	const refs = await followWithGrace(
 		ctx,
 		client,
-		record.promptId,
+		promptId,
 		input.startedAt,
 		input.eta,
 	);
@@ -541,9 +510,10 @@ async function renderSegment(
 		throw new ComfyUiError("missing_result", "ComfyUI finished without a clip");
 	}
 	const clip = await client.fetchImage(ref);
-	record.media = ref;
-	await ctx.progress({ checkpoint });
-	return { clip, record, checkpoint };
+	await ctx.progress({
+		checkpoint: { promptId, media: ref } satisfies VideoCheckpoint,
+	});
+	return clip;
 }
 
 /** Whether a recorded prompt can still be followed, or ComfyUI forgot it. */
@@ -589,7 +559,7 @@ async function renderTake(
 	}
 	if (signal.aborted) return;
 	// The estimate's plan: LTX's staging (short while it is still warm from a
-	// clip a moment ago), both passes and the decode, segment by segment.
+	// clip a moment ago), both passes and the decode.
 	let eta = createTakeEta(
 		videoPlan(request.durationSeconds, await engineLooksWarm("ltx", row.id)),
 	);
@@ -612,178 +582,115 @@ async function renderTake(
 		imageName = uploaded.filename;
 	}
 
-	const segmentCount = videoSegmentCount(request.durationSeconds);
 	const saved = parseVideoCheckpoint(row.checkpoint);
-	// The checkpoint read once, then kept here and rewritten by every step: a
-	// segment list with no hole, so a restart at segment 2 can read it back.
-	let segments: VideoSegmentRecord[] = saved ? [...saved.segments] : [];
-	const resumedPromptId = saved?.promptId ?? null;
-	const resumedSegment = saved?.segment ?? 1;
-	const clips: Uint8Array[] = [];
+	let clip: Uint8Array | null = null;
 	// The card holds one engine: free the picture servers once, before the run's
 	// first submit, so LTX loads into memory they no longer hold. A resumed run
-	// that starts at segment 2 still owes that free.
+	// that has to render again still owes that free.
 	let freedOthers = false;
 
-	for (let segment = 1; segment <= segmentCount; segment += 1) {
-		const segmentNumber = segment as 1 | 2;
-		const done = segments[segmentNumber - 1];
-		let clip: Uint8Array | null = null;
-
-		// A finished segment's saved clip can be fetched again (a restart at
-		// segment 2 must not render segment 1 a second time).
-		if (done?.media) {
-			try {
-				clip = await client.fetchImage(done.media);
-			} catch {
-				// The clip is gone too: drop this segment and everything after it.
-				clip = null;
-				segments = segments.slice(0, segmentNumber - 1);
-			}
+	// A finished render's saved clip can be fetched again.
+	if (saved?.media) {
+		try {
+			clip = await client.fetchImage(saved.media);
+		} catch {
+			// The clip is gone too: follow the prompt below.
+			clip = null;
 		}
-		// A prompt recorded for this segment can be followed (an app restart
-		// mid-render). ComfyUI forgetting it means one clean re-render, with every
-		// later record dropped first so an old segment cannot be joined to a new
-		// one.
-		if (!clip) {
-			const recordedPrompt =
-				done?.promptId ??
-				(resumedSegment === segmentNumber ? resumedPromptId : null);
-			if (recordedPrompt) {
-				prompt.setPromptId(recordedPrompt);
-				try {
-					const refs = await followWithGrace(
-						ctx,
-						client,
-						recordedPrompt,
-						startedAt,
-						eta,
-					);
-					if (signal.aborted) return;
-					await enterPhase(ctx, "finishing", eta.enter("finish"));
-					const ref = refs[0];
-					if (!ref) {
-						throw new ComfyUiError(
-							"missing_result",
-							"ComfyUI finished without a clip",
-						);
-					}
-					clip = await client.fetchImage(ref);
-					segments[segmentNumber - 1] = {
-						promptId: recordedPrompt,
-						media: ref,
-					};
-					await ctx.progress({
-						checkpoint: {
-							promptId: recordedPrompt,
-							segment: segmentNumber,
-							segments: segments.slice(0, segmentNumber),
-						} satisfies VideoCheckpoint,
-					});
-				} catch (error) {
-					if (signal.aborted) return;
-					if (!isForgotten(error)) throw error;
-					// The server restarted and no longer knows the prompt; the chain
-					// from here is re-rendered.
-					segments = segments.slice(0, segmentNumber - 1);
-				}
-			}
-		}
-		if (!clip) {
-			mediaOptions(ctx, startedAt);
-			// A text take has no image path, so segment 2 has no guide to upload.
-			if (segmentNumber === 2 && !request.fromText) {
-				// The chain's guide: the FIRST clip's last decoded frame.
-				const first = clips[0];
-				if (!first) {
-					throw new TakeError(
-						"video_result_missing",
-						"The first segment produced no clip.",
-						true,
-					);
-				}
-				const lastFrame = await extractLastFrame(
-					first,
-					mediaOptions(ctx, startedAt),
+	}
+	// A prompt recorded for this render can be followed (an app restart
+	// mid-render). ComfyUI forgetting it means one clean re-render.
+	if (!clip && saved) {
+		prompt.setPromptId(saved.promptId);
+		try {
+			const refs = await followWithGrace(
+				ctx,
+				client,
+				saved.promptId,
+				startedAt,
+				eta,
+			);
+			if (signal.aborted) return;
+			await enterPhase(ctx, "finishing", eta.enter("finish"));
+			const ref = refs[0];
+			if (!ref) {
+				throw new ComfyUiError(
+					"missing_result",
+					"ComfyUI finished without a clip",
 				);
-				const guide = await client.uploadImage(lastFrame, `${row.id}-2.png`);
-				imageName = guide.filename;
 			}
-			let rendered: Awaited<ReturnType<typeof renderSegment>> = null;
-			for (let resubmitted = false; ; resubmitted = true) {
-				try {
-					rendered = await renderSegment(ctx, client, {
-						request,
-						size,
-						imageName,
-						segment: segmentNumber,
-						segments: segments.slice(0, segmentNumber - 1),
-						startedAt,
-						eta,
-						freedOthers,
-						setPromptId: prompt.setPromptId,
-					});
-					break;
-				} catch (error) {
-					if (signal.aborted || resubmitted || !isForgotten(error)) throw error;
-					// ComfyUI restarted mid-render and no longer knows the prompt:
-					// this segment once more, under a fresh prompt id, with a fresh
-					// estimate from a cold load (the one real reason the time left may
-					// go up), as the picture path does. A server that does still know
-					// the old prompt (its history answered garbage) has it deleted or
-					// interrupted first, so the GPU never renders the segment twice. A
-					// second miss fails the take.
-					await prompt.releasePrompt();
-					eta = createTakeEta(videoPlan(request.durationSeconds, false));
-				}
-			}
-			if (!rendered) return;
-			freedOthers = true;
-			segments[segmentNumber - 1] = rendered.record;
-			clip = rendered.clip;
+			clip = await client.fetchImage(ref);
+			await ctx.progress({
+				checkpoint: {
+					promptId: saved.promptId,
+					media: ref,
+				} satisfies VideoCheckpoint,
+			});
+		} catch (error) {
+			if (signal.aborted) return;
+			if (!isForgotten(error)) throw error;
+			// The server restarted and no longer knows the prompt.
 		}
-		if (signal.aborted) return;
-		clips.push(clip);
+	}
+	if (!clip) {
+		mediaOptions(ctx, startedAt);
+		for (let resubmitted = false; ; resubmitted = true) {
+			try {
+				clip = await renderOne(ctx, client, {
+					request,
+					size,
+					imageName,
+					startedAt,
+					eta,
+					freedOthers,
+					setPromptId: prompt.setPromptId,
+				});
+				break;
+			} catch (error) {
+				if (signal.aborted || resubmitted || !isForgotten(error)) throw error;
+				// ComfyUI restarted mid-render and no longer knows the prompt:
+				// this render once more, under a fresh prompt id, with a fresh
+				// estimate from a cold load (the one real reason the time left may
+				// go up), as the picture path does. A server that does still know
+				// the old prompt (its history answered garbage) has it deleted or
+				// interrupted first, so the GPU never renders it twice. A second
+				// miss fails the take.
+				await prompt.releasePrompt();
+				eta = createTakeEta(videoPlan(request.durationSeconds, false));
+			}
+		}
+		if (!clip) return;
+		freedOthers = true;
 	}
 	// The attempt's own check before every media phase: a take that burned its
-	// deadline fails here instead of starting another decode or the join.
+	// deadline fails here instead of starting another decode.
 	mediaOptions(ctx, startedAt);
-	if (signal.aborted || clips.length !== segmentCount) return;
-
-	const joined =
-		clips.length === 1
-			? (clips[0] as Uint8Array)
-			: await concatClips(clips, mediaOptions(ctx, startedAt));
 	if (signal.aborted) return;
 
 	const durationSeconds = request.durationSeconds;
 	const productMs = videoDurationMs(durationSeconds);
 
 	// The explicit-picture filter, on EVERY frame of the clip, before anything is
-	// stored. A picture is classified whole; a clip is too, so an explicit moment
-	// between old sample points cannot pass. The decision is made ONCE here: an
-	// exempt person needs only the poster, so the check stream is never decoded
-	// (no frame files, no scaling, no temp directory); a filtered person gets one
-	// ffmpeg pass producing the model's 224 x 224 raw input and the full-size
-	// poster together, and the classifier runs it in batches of 16 on ONE session
-	// (8 inference runs for 121 frames). `checkFinishedFrames` is still the
-	// authority and answers `not_filtered` first for the empty list. Its clock is
-	// the take's: a batch that cannot start before the deadline makes the clip
-	// unchecked, and the take keeps nothing.
+	// stored. A picture is classified whole; a clip is too. The decision is made
+	// ONCE here: an exempt person needs only the poster, so the check stream is
+	// never decoded (no frame files, no scaling, no temp directory); a filtered
+	// person gets one ffmpeg pass producing the model's 224 x 224 raw input and
+	// the full-size poster together, and the classifier runs it in batches of 16
+	// on ONE session. `checkFinishedFrames` is still the authority and answers
+	// `not_filtered` first for the empty list. Its clock is the take's: a batch
+	// that cannot start before the deadline makes the clip unchecked, and the
+	// take keeps nothing.
 	const filterOn = await isExplicitFilterOnFor(row.userId);
 	if (signal.aborted) return;
 	let poster: Uint8Array;
 	let checkFrames: Uint8Array[] = [];
 	if (filterOn) {
-		const decoded = await decodeCheckFrames(
-			joined,
-			mediaOptions(ctx, startedAt),
-		);
+		const decoded = await decodeCheckFrames(clip, mediaOptions(ctx, startedAt));
 		poster = decoded.poster;
 		checkFrames = decoded.frames;
 	} else {
 		poster = await extractFrameAt(
-			joined,
+			clip,
 			{ seconds: 0 },
 			mediaOptions(ctx, startedAt),
 		);
@@ -814,10 +721,10 @@ async function renderTake(
 
 	// ComfyUI writes its prompt and node graph into the mp4's tags; a 5 s take
 	// never touches ffmpeg otherwise, so every stored clip goes through this.
-	const storedBytes =
-		clips.length === 1
-			? await stripClipMetadata(joined, mediaOptions(ctx, startedAt))
-			: joined;
+	const storedBytes = await stripClipMetadata(
+		clip,
+		mediaOptions(ctx, startedAt),
+	);
 	mediaOptions(ctx, startedAt);
 	if (signal.aborted) return;
 

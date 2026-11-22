@@ -3,8 +3,8 @@
 // The video kind's handler through the engine's own `drain`, against a real
 // fake ComfyUI on a loopback port. The database is a migrated file; the clip
 // and the picture files go to a temp working directory. ffmpeg is the real
-// one: the chain, the poster and the sampled frames are decoded from the
-// fake's mp4 the same way production decodes LTX's.
+// one: the poster and the checked frames are decoded from the fake's mp4 the
+// same way production decodes LTX's.
 
 import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -38,11 +38,7 @@ import {
 	type FakeComfyUiOptions,
 } from "../comfyui/testing/fake-comfyui";
 import { createImageFixture, type ImageFixture } from "../testing/fixture";
-import {
-	extractLastFrame,
-	probeDurationMs,
-	setMediaTimeoutMsForTests,
-} from "./media";
+import { setMediaTimeoutMsForTests } from "./media";
 import { parseVideoCheckpoint, type VideoTakeRequest } from "./request";
 import {
 	makeTestClip,
@@ -335,7 +331,7 @@ function clipFilesAnyOnDisk(): string[] {
 	);
 }
 
-async function renderSegmentOne(
+async function renderCheckpointedPrompt(
 	server: FakeComfyUi,
 	takeId: string,
 	promptId: string,
@@ -364,8 +360,9 @@ async function renderSegmentOne(
 				prompt: "the harbour at dusk, a slow tide",
 				seed: 1001,
 				width: 1280,
-				height: 960,
+				height: 704,
 				image: ref.filename,
+				frames: 241,
 				variant: "standard",
 			}),
 			{ promptId },
@@ -381,7 +378,7 @@ async function renderSegmentOne(
 	}
 }
 
-/** Posts segment 1 the way an earlier attempt did, without following it. */
+/** Posts the take's prompt the way an earlier attempt did, without following it. */
 async function submitSegmentOne(
 	server: FakeComfyUi,
 	takeId: string,
@@ -410,6 +407,7 @@ async function submitSegmentOne(
 				width: 1280,
 				height: 704,
 				image: ref.filename,
+				frames: 121,
 				variant: "standard",
 			}),
 			{ promptId },
@@ -556,44 +554,6 @@ describe("a take from text", () => {
 		).toBeNull();
 	});
 
-	it("renders both segments of a 10 s text take with no image path and joins them", async () => {
-		const server = await startLtx();
-		const takeId = await queueTake({
-			fromText: true,
-			sourceFileId: null,
-			explicitVariant: true,
-			durationSeconds: 10,
-		});
-		await drainVideoTakes();
-
-		const take = await readTake(takeId);
-		expect(take.status).toBe("succeeded");
-		const posts = promptRequests(server);
-		expect(posts).toHaveLength(2);
-		for (const post of posts) {
-			const graph = graphOf(post);
-			expect(types(graph)).not.toContain("LoadImage");
-			expect(
-				types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
-			).toHaveLength(0);
-			expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
-				LTX_VIDEO_UNET_ALT,
-			);
-		}
-		expect(
-			server.requests.filter((request) => request.path === "/upload/image"),
-		).toHaveLength(0);
-
-		const clips = await storedClips();
-		expect(clips).toHaveLength(1);
-		const clip = clips[0];
-		if (!clip) throw new Error("The take stored no clip");
-		expect(clip.durationMs).toBe(10000);
-		expect(await probeDurationMs(await clipBytes(clip.id))).toBeGreaterThan(
-			9_500,
-		);
-	});
-
 	it("keeps the image path for a picture take", async () => {
 		const server = await startLtx();
 		await queueTake({ fromText: false });
@@ -611,49 +571,45 @@ describe("a take from text", () => {
 });
 
 describe("a 10 second take", () => {
-	it("chains a second segment from the last decoded frame and concatenates", async () => {
+	it("submits one 241-frame graph", async () => {
 		const server = await startLtx();
 		const takeId = await queueTake({ durationSeconds: 10 });
 		await drainVideoTakes();
 
-		const take = await readTake(takeId);
-		expect(take.status).toBe("succeeded");
+		expect((await readTake(takeId)).status).toBe("succeeded");
 		const posts = promptRequests(server);
-		expect(posts).toHaveLength(2);
+		expect(posts).toHaveLength(1);
+		for (const post of posts) {
+			const graph = graphOf(post);
+			expect(nodeOfType(graph, "EmptyLTXVLatentVideo").inputs).toMatchObject({
+				width: 640,
+				height: 352,
+				length: 241,
+			});
+			expect(
+				nodeOfType(graph, "LTXVEmptyLatentAudio").inputs.frames_number,
+			).toBe(241);
+		}
+	});
 
-		const first = graphOf(posts[0]);
-		const second = graphOf(posts[1]);
-		expect(nodeOfType(first, "CLIPTextEncode").inputs.text).toBe(
-			nodeOfType(second, "CLIPTextEncode").inputs.text,
-		);
-		const firstSource = nodeOfType(first, "LoadImage").inputs.image;
-		const secondSource = nodeOfType(second, "LoadImage").inputs.image;
-		expect(firstSource).not.toBe(secondSource);
+	it("stores one clip and never concatenates", async () => {
+		const server = await startLtx();
+		const media = await import("./media");
+		const concat = vi.spyOn(media, "concatClips");
+		const takeId = await queueTake({ durationSeconds: 10 });
+		await drainVideoTakes();
 
-		// The second upload is the last decoded frame of the first clip.
-		const secondFilename = `${takeId}-2.png`;
-		const uploaded = server.uploads.get(secondFilename);
-		expect(uploaded).toBeDefined();
-		expect(secondSource).toBe(secondFilename);
-		expect(Buffer.from(uploaded ?? [])).toEqual(
-			Buffer.from(await extractLastFrame(FAKE_VIDEO_BYTES)),
-		);
-
+		expect((await readTake(takeId)).status).toBe("succeeded");
+		expect(promptRequests(server)).toHaveLength(1);
+		expect(concat).not.toHaveBeenCalled();
 		const clips = await storedClips();
 		expect(clips).toHaveLength(1);
 		const clip = clips[0];
 		if (!clip) throw new Error("The take stored no clip");
 		expect(clip.durationMs).toBe(10000);
-		expect(await probeDurationMs(await clipBytes(clip.id))).toBeGreaterThan(
-			9_500,
-		);
-		const artifact = await artifactOf(clip.id);
-		expect(
-			parseVideoVersionBody(artifact?.newest?.body ?? null)?.durationMs,
-		).toBe(10000);
 	});
 
-	it("renders segment 2 from its own caption, never segment 1's again", async () => {
+	it("renders an old row's continuation prompt on its single prompt", async () => {
 		const server = await startLtx();
 		const takeId = await queueTake({
 			durationSeconds: 10,
@@ -663,26 +619,10 @@ describe("a 10 second take", () => {
 
 		expect((await readTake(takeId)).status).toBe("succeeded");
 		const posts = promptRequests(server);
-		expect(posts).toHaveLength(2);
+		expect(posts).toHaveLength(1);
 		expect(nodeOfType(graphOf(posts[0]), "CLIPTextEncode").inputs.text).toBe(
 			"the harbour at dusk, a slow tide",
 		);
-		expect(nodeOfType(graphOf(posts[1]), "CLIPTextEncode").inputs.text).toBe(
-			"The tide pulls back across the sand.",
-		);
-	});
-
-	it("fails the whole take when the second segment fails, never a one-segment clip", async () => {
-		const server = await startLtx({ failAfterPromptCount: 1 });
-		const takeId = await queueTake({ durationSeconds: 10 });
-		await drainVideoTakes();
-
-		expect(promptRequests(server)).toHaveLength(2);
-		const take = await readTake(takeId);
-		expect(take.status).toBe("failed");
-		expect(take.resultFileId).toBeNull();
-		expect(await storedClips()).toHaveLength(0);
-		expect(clipFilesAnyOnDisk()).toEqual([]);
 	});
 });
 
@@ -728,7 +668,7 @@ describe("the engine variant", () => {
 		);
 	});
 
-	it("renders both segments of a 10 s take from its stored row, never a fresh lookup", async () => {
+	it("renders a 10 s alt take in one 241-frame pass from the row", async () => {
 		// The server first: the runtime config is read when its module is first
 		// imported, and importing the policy pulls it in.
 		const server = await startLtx();
@@ -737,19 +677,26 @@ describe("the engine variant", () => {
 		await queueTake({ explicitVariant: true, durationSeconds: 10 });
 		await drainVideoTakes();
 		const posts = promptRequests(server);
-		expect(posts).toHaveLength(2);
-		for (const post of posts) {
-			const graph = graphOf(post);
-			expect(loras(graph)).toHaveLength(0);
-			expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
-				LTX_VIDEO_UNET_ALT,
-			);
-			for (const guider of guiders(graph)) {
-				expect(guider.inputs.model).toEqual(["1", 0]);
-			}
+		expect(posts).toHaveLength(1);
+		const graph = graphOf(posts[0]);
+		expect(loras(graph)).toHaveLength(0);
+		expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+			LTX_VIDEO_UNET_ALT,
+		);
+		expect(nodeOfType(graph, "CLIPLoader").inputs.clip_name).toBe(
+			LTX_TEXT_ENCODER_ALT,
+		);
+		expect(nodeOfType(graph, "EmptyLTXVLatentVideo").inputs).toMatchObject({
+			length: 241,
+		});
+		expect(nodeOfType(graph, "LTXVEmptyLatentAudio").inputs.frames_number).toBe(
+			241,
+		);
+		for (const guider of guiders(graph)) {
+			expect(guider.inputs.model).toEqual(["1", 0]);
 		}
-		// The row decides both segments: the fixture person's live value is the
-		// opposite, so a lookup here would build the other graph.
+		// The row decides the engine and the frame count: the fixture person's
+		// live value is the opposite, so a lookup here would build the other graph.
 		expect(variantLookup).not.toHaveBeenCalled();
 	});
 
@@ -782,41 +729,21 @@ describe("the engine variant", () => {
 });
 
 describe("resume", () => {
-	it("follows a checkpointed prompt id instead of submitting the first segment again", async () => {
+	it("follows a checkpointed prompt id instead of submitting the take again", async () => {
 		const server = await startLtx();
 		const takeId = await queueTake({ durationSeconds: 10 });
-		await renderSegmentOne(server, takeId, "checkpointed-segment-1");
+		await renderCheckpointedPrompt(server, takeId, "checkpointed-prompt");
 		await writeCheckpoint(takeId, {
-			promptId: "checkpointed-segment-1",
-			segment: 1,
-			segments: [{ promptId: "checkpointed-segment-1", media: null }],
+			promptId: "checkpointed-prompt",
+			media: null,
 		});
 
 		await drainVideoTakes();
 
 		expect((await readTake(takeId)).status).toBe("succeeded");
-		// One POST from the test, one from the runner (segment 2).
-		expect(promptRequests(server)).toHaveLength(2);
+		// The one POST is the test's: the runner followed it, never submitted.
+		expect(promptRequests(server)).toHaveLength(1);
 		expect((await storedClips())[0]?.durationMs).toBe(10000);
-	});
-
-	it("follows a finished first segment's recorded media and only renders the second", async () => {
-		const server = await startLtx();
-		const takeId = await queueTake({ durationSeconds: 10 });
-		const media = await renderSegmentOne(server, takeId, "finished-segment-1");
-		await writeCheckpoint(takeId, {
-			promptId: "finished-segment-1",
-			segment: 1,
-			segments: [{ promptId: "finished-segment-1", media }],
-		});
-
-		await drainVideoTakes();
-
-		expect((await readTake(takeId)).status).toBe("succeeded");
-		expect(promptRequests(server)).toHaveLength(2);
-		// The finished take's checkpoint is cleared by the engine; the proof that
-		// segment 1 was fetched rather than rendered is the single new prompt.
-		expect((await readTake(takeId)).checkpoint).toBeNull();
 	});
 
 	it("re-renders once when ComfyUI no longer knows the checkpointed prompt", async () => {
@@ -1150,80 +1077,6 @@ describe("the media phase's own deadline", () => {
 	});
 });
 
-describe("a restart mid-chain", () => {
-	it("keeps a readable checkpoint with segment 1's clip while segment 2 renders", async () => {
-		const server = await startLtx({ hangAfterPromptCount: 1 });
-		const takeId = await queueTake({ durationSeconds: 10 });
-		const draining = drainVideoTakes();
-		await until(
-			async () => promptRequests(server).length,
-			(count) => count === 2,
-		);
-		const raw = await until(
-			async () => (await readTake(takeId)).checkpoint,
-			(value) => value !== null,
-		);
-		const checkpoint = parseVideoCheckpoint(raw);
-		expect(checkpoint).not.toBeNull();
-		expect(checkpoint?.segment).toBe(2);
-		expect(checkpoint?.segments).toHaveLength(2);
-		expect(checkpoint?.segments[0]?.promptId).toBeTruthy();
-		expect(checkpoint?.segments[0]?.media).not.toBeNull();
-		expect(checkpoint?.segments[1]?.promptId).toBeTruthy();
-		expect(checkpoint?.segments[1]?.media).toBeNull();
-
-		const { videoJob } = await import("./video-job");
-		const { recover } = await import("$lib/server/services/jobs");
-		await recover(videoJob, {
-			staleBefore: new Date(Date.now() + 60_000),
-		});
-		server.releaseHanging();
-		await draining;
-		await drainVideoTakes();
-		await server.close();
-		fake = null;
-	});
-
-	it("resumes a mid-segment-2 take by following segment 2, never re-rendering segment 1", async () => {
-		const server = await startLtx({ hangAfterPromptCount: 1 });
-		const takeId = await queueTake({ durationSeconds: 10 });
-		const draining = drainVideoTakes();
-		await until(
-			async () => promptRequests(server).length,
-			(count) => count === 2,
-		);
-		await until(
-			async () => (await readTake(takeId)).checkpoint,
-			(value) => value !== null,
-		);
-		// The worker dies: the engine takes the attempt back (keeps the
-		// checkpoint) and aborts this run.
-		const { videoJob } = await import("./video-job");
-		const { recover } = await import("$lib/server/services/jobs");
-		await recover(videoJob, {
-			staleBefore: new Date(Date.now() + 60_000),
-		});
-		// ComfyUI kept rendering segment 2 after the app died; release it before
-		// the re-claimed job can follow it, so neither drain blocks on the hang.
-		server.releaseHanging();
-		await draining;
-
-		// `video_worker_lost` requeues with a 2 s delay: the retry is claimable then.
-		await new Promise((resolve) => setTimeout(resolve, 2_100));
-		await drainVideoTakes();
-
-		const take = await readTake(takeId);
-		expect(take.status).toBe("succeeded");
-		expect(take.resultFileId).not.toBeNull();
-		// Two prompts total: segment 1 was fetched from its recorded clip, never
-		// rendered again.
-		expect(promptRequests(server)).toHaveLength(2);
-		const clips = await storedClips();
-		expect(clips).toHaveLength(1);
-		expect(clips[0]?.durationMs).toBe(10000);
-	});
-});
-
 describe("the item a take was asked to append to", () => {
 	async function seedItem(): Promise<string> {
 		const { createArtifact } = await import("$lib/server/services/artifacts");
@@ -1370,51 +1223,6 @@ describe("the item a take was asked to append to", () => {
 			.where(eq(schema.artifactVersions.artifactId, artifactId))
 			.all();
 		expect(versions).toHaveLength(1);
-	});
-});
-
-describe("a re-rendered chain", () => {
-	it("drops the older segment 2 when segment 1 has to be rendered again", async () => {
-		const first = await startLtx();
-		await queueTake();
-		await drainVideoTakes();
-		if (first.prompts.size === 0) {
-			throw new Error("the first take recorded no prompt");
-		}
-		// The first take's own clip, where ComfyUI's SaveVideo saved it: still
-		// fetchable, so a runner that joined it would succeed.
-		const staleSegment2 = {
-			promptId: "stale-segment-2",
-			media: {
-				filename: "alfyai_00001_.mp4",
-				subfolder: "video",
-				type: "output" as const,
-			},
-		};
-		const takeId = await queueTake({ durationSeconds: 10 });
-		const { db } = await import("$lib/server/db");
-		db.update(schema.videoJobs)
-			.set({
-				checkpoint: JSON.stringify({
-					promptId: "forgotten-segment-1",
-					segment: 2,
-					segments: [
-						{ promptId: "forgotten-segment-1", media: null },
-						staleSegment2,
-					],
-				}),
-			})
-			.where(eq(schema.videoJobs.id, takeId))
-			.run();
-		await drainVideoTakes();
-		const take = await readTake(takeId);
-		expect(take.status).toBe("succeeded");
-		// One POST for the first take, then BOTH segments rendered again: the
-		// stale segment 2 must not be joined to a fresh segment 1.
-		expect(promptRequests(first)).toHaveLength(3);
-		expect(
-			(await storedClips()).some((clip) => clip.durationMs === 10000),
-		).toBe(true);
 	});
 });
 
