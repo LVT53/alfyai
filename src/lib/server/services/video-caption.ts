@@ -87,7 +87,7 @@ House rules for these clips, over the instruction above:
  * word; the sound belongs in the instruction's one paragraph, not a section of
  * its own. ASCII English (ruling 79).
  */
-export const VIDEO_CAPTION_ALT_RULES = `The user's own words set what to describe: when the request names a subject, a body, clothing, an action or a state, describe it as the request names it, and show what changes in it as the action unfolds. Stay with their request: do not add acts, participants, objects or events they did not ask for, and do not euphemise, soften or leave out what they did ask for. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
+export const VIDEO_CAPTION_ALT_RULES = `The user's own words set what to describe: describe the subject, clothing, action and state exactly as the request names them, and show what changes as the action unfolds. Stay with their request: do not add people, objects or events the request did not name, and leave out nothing it did name. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
 
 House rules for these clips, over the instruction above:
 - A single continuous take, no cuts.

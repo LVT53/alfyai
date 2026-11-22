@@ -145,8 +145,10 @@ describe("the caption request's instruction blocks", () => {
 		);
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/single continuous take/i);
 		// The faithful-expansion sentences the block carries.
-		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/do not add acts/i);
-		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/do not euphemise/i);
+		expect(VIDEO_CAPTION_ALT_RULES).toMatch(
+			/do not add people, objects or events/i,
+		);
+		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/leave out nothing it did name/i);
 	});
 });
 
