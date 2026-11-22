@@ -103,14 +103,15 @@ House rules for these clips, over the instruction above:
  * The alt block for a take that starts from text: the same block without the
  * rule that keeps what the opening already holds, which only a take starting on
  * a still can obey. In its place it corrects the vendored instruction's premise
- * — no reference image and no first frame — and asks the caption to establish
- * the scene from the person's own words, saying plainly that inventing that
- * detail is right here, unlike a picture take whose frame already fixes it.
- * Everything the alt block still asks for is kept: one continuous take, the
- * static camera, no on-screen text, five seconds, and no addition beyond the
- * request. ASCII English (ruling 79).
+ * — no reference image is attached — and asks the caption to establish the
+ * scene from the person's own words, saying plainly that inventing that detail
+ * is right here, unlike a picture take whose frame already fixes it. It never
+ * claims a frame cannot exist: a continuation's opening frame is the previous
+ * segment's last frame. Everything the alt block still asks for is kept: one
+ * continuous take, the static camera, no on-screen text, five seconds, and no
+ * addition beyond the request. ASCII English (ruling 79).
  */
-export const VIDEO_CAPTION_TEXT_RULES = `The user's own words set what to describe: describe the subject, clothing, action and state exactly as the request names them, and show what changes as the action unfolds. No reference image is attached and there is no first frame: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself. Inventing that detail is right here, unlike a picture take whose frame already fixes it. Stay with their request: do not add people, objects or events the request did not name, and leave out nothing it did name. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
+export const VIDEO_CAPTION_TEXT_RULES = `The user's own words set what to describe: describe the subject, clothing, action and state exactly as the request names them, and show what changes as the action unfolds. No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself. Inventing that detail is right here, unlike a picture take whose frame already fixes it. Stay with their request: do not add people, objects or events the request did not name, and leave out nothing it did name. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
 
 House rules for these clips, over the instruction above:
 - A single continuous take, no cuts.
