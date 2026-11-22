@@ -107,6 +107,10 @@ export type LtxVideoGraphInput = {
 	variant: LtxVideoVariant;
 };
 
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
 /**
  * The graph one segment renders. A deep copy every time: the JSON module is
  * shared, and a mutation would leak into the next take.
@@ -131,7 +135,7 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 	}
 	put(POSITIVE_PROMPT_NODE, "text", input.prompt);
 	if (!input.fromText) {
-		if (input.image === undefined) {
+		if (!isNonEmptyString(input.image)) {
 			throw new Error("A picture take needs an image");
 		}
 		put(LOAD_IMAGE_NODE, "image", input.image);

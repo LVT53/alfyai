@@ -173,6 +173,16 @@ describe("the LTX video graph", () => {
 		const graph = buildLtxVideoGraph({ ...base, variant: "standard" });
 		for (const id of ["8", "9", "11", "22"]) expect(graph[id]).toBeDefined();
 		expect(graph["13"].inputs.video_latent).toEqual(["11", 0]);
+		expect(graph["23"].inputs.video_latent).toEqual(["22", 0]);
+	});
+
+	it("refuses a picture take with no image", () => {
+		expect(() =>
+			buildLtxVideoGraph({ ...base, variant: "standard", image: undefined }),
+		).toThrow();
+		expect(() =>
+			buildLtxVideoGraph({ ...base, variant: "standard", image: "" }),
+		).toThrow();
 	});
 
 	it("keeps the text take's sampling and audio untouched", () => {
@@ -185,6 +195,19 @@ describe("the LTX video graph", () => {
 		for (const id of ["14", "16", "17", "18", "12", "30", "31", "32", "33"]) {
 			expect(b[id].inputs).toEqual(a[id].inputs);
 		}
+	});
+
+	it("projects the alt variant the same way for a text take", () => {
+		const graph = buildLtxVideoGraph({
+			...base,
+			variant: "alt",
+			fromText: true,
+		});
+		for (const id of ["8", "9", "11", "22"]) expect(graph[id]).toBeUndefined();
+		expect(graph["13"].inputs.video_latent).toEqual(["10", 0]);
+		expect(graph["23"].inputs.video_latent).toEqual(["21", 0]);
+		expect(graph["1"].inputs.unet_name).toBe(LTX_VIDEO_UNET_ALT);
+		expect(graph["2"].inputs.clip_name).toBe(LTX_TEXT_ENCODER_ALT);
 	});
 
 	it("leaves no link to a node a text take removed", () => {
