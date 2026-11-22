@@ -54,6 +54,7 @@ vi.mock("$lib/server/services/images/picture-making", () => ({
 }));
 vi.mock("$lib/server/services/images/picture-check/policy", () => ({
 	isExplicitFilterOnFor: async () => true,
+	isExplicitVariantAllowedFor: async () => false,
 }));
 
 vi.mock("$lib/server/services/instructions", () => ({
