@@ -91,6 +91,18 @@ describe("a video take request", () => {
 		expect(parsed?.sourceFileId).toBeNull();
 	});
 
+	it("drops a stale picture id on a text take", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({
+				...request(),
+				sourceFileId: "still-1",
+				fromText: true,
+			}),
+		);
+		expect(parsed?.fromText).toBe(true);
+		expect(parsed?.sourceFileId).toBeNull();
+	});
+
 	it("refuses a picture take with no picture", () => {
 		expect(
 			parseVideoTakeRequest(JSON.stringify({ ...request(), sourceFileId: "" })),
@@ -102,6 +114,14 @@ describe("a video take request", () => {
 			JSON.stringify({ ...request(), fromText: "yes" }),
 		);
 		expect(parsed?.fromText).toBe(false);
+	});
+
+	it("rejects a source-less row whose mode is malformed", () => {
+		expect(
+			parseVideoTakeRequest(
+				JSON.stringify({ ...request(), sourceFileId: "", fromText: "yes" }),
+			),
+		).toBeNull();
 	});
 
 	it("defaults an older row to the first variant", () => {
