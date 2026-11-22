@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from starlette.requests import ClientDisconnect
 
 
-EMBED_MODEL = "/qwen3-embedding-4b"
+EMBED_MODEL = "/qwen3-embedding-0.6b"
 RERANK_MODEL = "/bge-reranker-v2-m3"
 EMBED_DIMENSIONS = 1024
 MAX_BATCH = 8
