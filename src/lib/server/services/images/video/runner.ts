@@ -489,6 +489,7 @@ async function renderSegment(
 		width: input.size.width,
 		height: input.size.height,
 		image: input.imageName,
+		variant: "standard",
 	});
 	const promptId = randomUUID();
 	const record: VideoSegmentRecord = { promptId, media: null };

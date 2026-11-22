@@ -25,14 +25,21 @@
  * Sizes are baked by `buildLtxVideoGraph`: the caller hands the output size
  * (a multiple of 32 per side) and the first pass halves it, exactly as the
  * template's own divide-by-two primitives do.
+ *
+ * The second variant's LoRA is spliced rather than stored, so the file is not a
+ * load dependency of the first variant.
  */
 
 import ltxVideoGraph from "./graphs/ltx-image-to-video.api.json";
 import {
+	LTX_LORA_ALT,
+	LTX_LORA_ALT_STRENGTH,
 	LTX_SEGMENT_FRAMES,
 	LTX_TEXT_ENCODER,
+	LTX_TEXT_ENCODER_ALT,
 	LTX_VIDEO_FPS,
 	LTX_VIDEO_UNET,
+	type LtxVideoVariant,
 } from "./ltx-spec";
 import type { ComfyGraph } from "./types";
 
@@ -65,6 +72,9 @@ const NOISE_1_NODE = "14";
 const NOISE_2_NODE = "24";
 const CONDITIONING_NODE = "7";
 const CREATE_VIDEO_NODE = "32";
+const GUIDER_1_NODE = "17";
+const GUIDER_2_NODE = "27";
+const LORA_NODE = "34";
 
 export type LtxVideoGraphInput = {
 	/** The motion caption the app's model wrote, in LTX's caption style. */
@@ -75,6 +85,8 @@ export type LtxVideoGraphInput = {
 	height: number;
 	/** The uploaded still's name in ComfyUI's input folder. */
 	image: string;
+	/** Which variant's graph to build. */
+	variant: LtxVideoVariant;
 };
 
 /**
@@ -93,7 +105,21 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 		node.inputs[inputName] = value;
 	};
 	put(UNET_NODE, "unet_name", LTX_VIDEO_UNET);
-	put(CLIP_NODE, "clip_name", LTX_TEXT_ENCODER);
+	if (input.variant === "alt") {
+		put(CLIP_NODE, "clip_name", LTX_TEXT_ENCODER_ALT);
+		graph[LORA_NODE] = {
+			class_type: "LoraLoaderModelOnly",
+			inputs: {
+				model: [UNET_NODE, 0],
+				lora_name: LTX_LORA_ALT,
+				strength_model: LTX_LORA_ALT_STRENGTH,
+			},
+		};
+		put(GUIDER_1_NODE, "model", [LORA_NODE, 0]);
+		put(GUIDER_2_NODE, "model", [LORA_NODE, 0]);
+	} else {
+		put(CLIP_NODE, "clip_name", LTX_TEXT_ENCODER);
+	}
 	put(POSITIVE_PROMPT_NODE, "text", input.prompt);
 	put(LOAD_IMAGE_NODE, "image", input.image);
 	// The first pass runs at half the output size; the upscaler doubles it back.

@@ -5,6 +5,7 @@
 // the source still, the prompt and the seed.
 
 import { describe, expect, it } from "vitest";
+import { LTX_LORA_ALT, LTX_TEXT_ENCODER_ALT } from "../comfyui/ltx-spec";
 import {
 	buildLtxVideoGraph,
 	LTX_AUDIO_VAE,
@@ -16,13 +17,15 @@ import {
 	LTX_VIDEO_VAE,
 } from "../comfyui/ltx-templates";
 
-const built = buildLtxVideoGraph({
+const base = {
 	prompt: "the harbour at dusk, a slow tide",
 	seed: 1001,
 	width: 1280,
 	height: 704,
 	image: "take-1.png",
-});
+};
+
+const built = buildLtxVideoGraph({ ...base, variant: "standard" });
 
 function nodesOfType(graph: typeof built, type: string) {
 	return Object.entries(graph).filter(([, node]) => node.class_type === type);
@@ -180,6 +183,7 @@ describe("the LTX video graph", () => {
 			width: 704,
 			height: 1280,
 			image: "still.png",
+			variant: "standard",
 		});
 		expect(nodeOf(portrait, "EmptyLTXVLatentVideo").inputs).toMatchObject({
 			width: 352,
@@ -194,10 +198,36 @@ describe("the LTX video graph", () => {
 			width: 1280,
 			height: 704,
 			image: "x.png",
+			variant: "standard",
 		});
 		expect(second).not.toBe(built);
 		for (const id of Object.keys(built)) {
 			expect(second[id]).not.toBe(built[id]);
 		}
+	});
+
+	it("builds the standard variant with no LoRA and the stock encoder", () => {
+		const graph = buildLtxVideoGraph({ ...base, variant: "standard" });
+		expect(
+			Object.values(graph).some((n) => n.class_type === "LoraLoaderModelOnly"),
+		).toBe(false);
+		expect(graph["2"].inputs.clip_name).toBe(LTX_TEXT_ENCODER);
+	});
+
+	it("splices the LoRA between the UNET and both guiders", () => {
+		const graph = buildLtxVideoGraph({ ...base, variant: "alt" });
+		expect(graph["34"].class_type).toBe("LoraLoaderModelOnly");
+		expect(graph["34"].inputs.lora_name).toBe(LTX_LORA_ALT);
+		expect(graph["34"].inputs.strength_model).toBe(0.7);
+		expect(graph["34"].inputs.model).toEqual(["1", 0]);
+		expect(graph["17"].inputs.model).toEqual(["34", 0]);
+		expect(graph["27"].inputs.model).toEqual(["34", 0]);
+		expect(graph["2"].inputs.clip_name).toBe(LTX_TEXT_ENCODER_ALT);
+	});
+
+	it("does not mutate the shared JSON between builds", () => {
+		buildLtxVideoGraph({ ...base, variant: "alt" });
+		const graph = buildLtxVideoGraph({ ...base, variant: "standard" });
+		expect(graph["34"]).toBeUndefined();
 	});
 });

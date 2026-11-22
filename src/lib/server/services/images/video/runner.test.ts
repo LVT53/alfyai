@@ -359,6 +359,7 @@ async function renderSegmentOne(
 				width: 1280,
 				height: 960,
 				image: ref.filename,
+				variant: "standard",
 			}),
 			{ promptId },
 		);
@@ -402,6 +403,7 @@ async function submitSegmentOne(
 				width: 1280,
 				height: 704,
 				image: ref.filename,
+				variant: "standard",
 			}),
 			{ promptId },
 		);
