@@ -30,7 +30,10 @@ import {
 	loadPicture,
 	PictureUnreadableError,
 } from "$lib/server/services/images/inputs";
-import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
+import {
+	isExplicitFilterOnFor,
+	isExplicitVariantAllowedFor,
+} from "$lib/server/services/images/picture-check/policy";
 import { findExplicitRequestTerm } from "$lib/server/services/images/picture-check/request-terms";
 import { sourcesNamed } from "$lib/server/services/images/requests";
 import { freshSeed } from "$lib/server/services/images/seeds";
@@ -495,9 +498,13 @@ async function planTake(params: {
 	}
 
 	const durationSeconds = input.durationSeconds;
+	// The exemption selects the second engine variant for the whole take: read
+	// once here, so both captions and the take's row agree.
+	const explicitVariant = await isExplicitVariantAllowedFor(userId);
 	// The caption is a model call: it happens only for a take that will be made.
 	const prompt = await buildVideoPrompt(input.prompt.trim(), {
 		signal: params.signal,
+		variant: explicitVariant ? "alt" : "standard",
 	});
 	// A 10 s take's second segment starts on the first one's last frame: its
 	// caption goes on from there, never the first one's again (review C-2).
@@ -505,6 +512,7 @@ async function planTake(params: {
 		durationSeconds === 10 && !params.signal.aborted
 			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
 					signal: params.signal,
+					variant: explicitVariant ? "alt" : "standard",
 				})
 			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
@@ -549,7 +557,7 @@ async function planTake(params: {
 				title,
 				summary,
 				artifactId: null,
-				explicitVariant: false,
+				explicitVariant,
 			},
 		},
 	};

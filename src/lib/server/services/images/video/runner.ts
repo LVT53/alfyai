@@ -489,7 +489,9 @@ async function renderSegment(
 		width: input.size.width,
 		height: input.size.height,
 		image: input.imageName,
-		variant: "standard",
+		// The take's row decides the variant: a 10 s take is two renders
+		// minutes apart, so neither segment reads the exemption again.
+		variant: input.request.explicitVariant ? "alt" : "standard",
 	});
 	const promptId = randomUUID();
 	const record: VideoSegmentRecord = { promptId, media: null };
