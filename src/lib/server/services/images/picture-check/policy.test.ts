@@ -1,5 +1,6 @@
 import {
 	afterAll,
+	afterEach,
 	beforeAll,
 	beforeEach,
 	describe,
@@ -36,6 +37,10 @@ beforeEach(() => {
 	configStore.getConfig().imageExplicitFilterEnabled = true;
 });
 
+afterEach(() => {
+	vi.restoreAllMocks();
+});
+
 describe("whose pictures are checked", () => {
 	it("checks everyone by default", async () => {
 		expect(await policy.isExplicitFilterOnFor("filtered")).toBe(true);
@@ -64,21 +69,25 @@ describe("the second engine variant", () => {
 		expect(await policy.isExplicitFilterOnFor("exempt")).toBe(false);
 	});
 
-	it("keeps the second variant off when the install filter is disabled", async () => {
+	it("does not grant the second variant to a person who is not exempt when the install filter is off", async () => {
 		// imageExplicitFilterEnabled = false, person NOT exempt
 		configStore.getConfig().imageExplicitFilterEnabled = false;
 		expect(await policy.isExplicitVariantAllowedFor("filtered")).toBe(false);
 	});
 
+	it("grants the second variant to an exempt person even when the install filter is off", async () => {
+		// person IS exempt, imageExplicitFilterEnabled = false
+		configStore.getConfig().imageExplicitFilterEnabled = false;
+		expect(await policy.isExplicitVariantAllowedFor("exempt")).toBe(true);
+	});
+
 	it("fails closed to the first variant when the person cannot be read", async () => {
 		// force the db read to throw
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const unreadable = vi.spyOn(db, "select").mockImplementation(() => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.spyOn(db, "select").mockImplementation(() => {
 			throw new Error("read failed");
 		});
 		expect(await policy.isExplicitVariantAllowedFor("exempt")).toBe(false);
 		expect(await policy.isExplicitFilterOnFor("exempt")).toBe(true);
-		unreadable.mockRestore();
-		warn.mockRestore();
 	});
 });
