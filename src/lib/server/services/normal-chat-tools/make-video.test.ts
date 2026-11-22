@@ -513,6 +513,33 @@ describe("make_video's take request", () => {
 // With no source resolved, the exemption decides between a text take and the
 // unknown_picture refusal.
 describe("make_video with no picture to animate", () => {
+	it("refuses a named picture that does not resolve, even when the exemption covers the person", async () => {
+		queued.variant.mockResolvedValue(true);
+		queued.named.mockResolvedValue({
+			ok: false,
+			message: 'make_video has no picture "9".',
+		});
+		const { outcome } = await run({
+			input: { picture: "Cat in Birthday Hat" },
+			turnPictures: null,
+		});
+
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "unknown_picture",
+		});
+		const message =
+			"message" in outcome.modelPayload
+				? String(outcome.modelPayload.message)
+				: "";
+		expect(message).toContain(
+			'make_video has no picture "Cat in Birthday Hat"',
+		);
+		expect(queued.caption).not.toHaveBeenCalled();
+		expect(queued.enqueue).not.toHaveBeenCalled();
+		expect(outcome.metadata.videoTakeId).toBeUndefined();
+	});
+
 	it("makes a text take for a person the exemption covers", async () => {
 		queued.variant.mockResolvedValue(true);
 		const { outcome } = await run({

@@ -11,9 +11,10 @@
 // in the ways a model actually has: a number, an Image id, or the takeId
 // make_image just handed it. A call with NO picture animates the newest picture
 // THIS TURN made, else the picture open in the panel — "make me a picture and
-// animate it" works in one turn without the model knowing any id. When none of
-// those resolves, `isExplicitVariantAllowedFor` decides: true makes a text
-// take, false refuses with what the turn does offer.
+// animate it" works in one turn without the model knowing any id. A name that
+// resolves to nothing is always refused with what the turn does offer; with no
+// name, `isExplicitVariantAllowedFor` decides between a text take and the same
+// refusal.
 //
 // Everything the model reads from here is ASCII English (ruling 79); titles
 // and the person's motion idea ride inside it as their own data.
@@ -486,12 +487,12 @@ async function planTake(params: {
 			(await newestPictureThisTurn({ userId, conversationId, turnTakes }))
 				?.source ?? openPictureSource(turnPictures);
 	}
-	// The exemption selects the second engine variant for the whole take, and
-	// it is also what allows a take with no picture at all. Read once here, so
-	// both captions, the size and the take's row agree.
+	// The exemption selects the second engine variant for the whole take. It
+	// also allows a take from text, but only for a call that named no picture.
+	// Read once here, so both captions, the size and the take's row agree.
 	const explicitVariant = await isExplicitVariantAllowedFor(userId);
-	const fromText = source === null;
-	if (fromText && !explicitVariant) {
+	const fromText = source === null && !name && explicitVariant;
+	if (!source && !fromText) {
 		return {
 			ok: false,
 			refused: refusal(
