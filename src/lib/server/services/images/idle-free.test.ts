@@ -316,6 +316,7 @@ describe("the cross-engine gate", () => {
 				title: "Harbour",
 				summary: null,
 				artifactId: null,
+				explicitVariant: false,
 			},
 			seed: 1,
 		});

@@ -400,6 +400,7 @@ describe("make_video's take request", () => {
 					title: "Harbour at dawn",
 					summary: "Made the tide move",
 					artifactId: null,
+					explicitVariant: false,
 				},
 			}),
 		);

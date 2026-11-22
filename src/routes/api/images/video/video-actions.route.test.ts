@@ -80,6 +80,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,
+		explicitVariant: false,
 		...overrides,
 	};
 }

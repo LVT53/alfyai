@@ -179,6 +179,7 @@ async function queueVideo(): Promise<string> {
 			title: "Harbour",
 			summary: null,
 			artifactId: null,
+			explicitVariant: false,
 		},
 		seed: 1,
 	});

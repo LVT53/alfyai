@@ -549,6 +549,7 @@ async function planTake(params: {
 				title,
 				summary,
 				artifactId: null,
+				explicitVariant: false,
 			},
 		},
 	};

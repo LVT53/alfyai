@@ -26,6 +26,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,
+		explicitVariant: false,
 		...overrides,
 	};
 }
@@ -63,6 +64,37 @@ describe("a video take request", () => {
 				JSON.stringify(request({ durationSeconds: 10, artifactId: "a1" })),
 			),
 		).toEqual(request({ durationSeconds: 10, artifactId: "a1" }));
+	});
+
+	it("defaults an older row to the first variant", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({
+				v: 1,
+				prompt: "p",
+				durationSeconds: 5,
+				sourceFileId: "f",
+				title: "t",
+				summary: null,
+				artifactId: null,
+			}),
+		);
+		expect(parsed?.explicitVariant).toBe(false);
+	});
+
+	it("round-trips the second variant", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({
+				v: 1,
+				prompt: "p",
+				durationSeconds: 5,
+				sourceFileId: "f",
+				title: "t",
+				summary: null,
+				artifactId: null,
+				explicitVariant: true,
+			}),
+		);
+		expect(parsed?.explicitVariant).toBe(true);
 	});
 
 	it("refuses anything that cannot stand", () => {
