@@ -99,8 +99,7 @@ describe("the caption request's instruction blocks", () => {
 	it("sends the alt rules instead of the house rules", async () => {
 		const sent = await captureSystemMessage({ variant: "alt" });
 		expect(sent).toContain(VIDEO_CAPTION_ALT_RULES);
-		// Replaced, never appended: the standard block forbids describing the
-		// subject, which this variant must be able to do.
+		// Replaced, never appended: neither block goes beside the other.
 		expect(sent).not.toContain(VIDEO_CAPTION_HOUSE_RULES);
 		expect(sent).not.toContain("No image is attached to this request");
 	});
@@ -124,12 +123,11 @@ describe("the caption request's instruction blocks", () => {
 		);
 	});
 
-	it("keeps the renderability rules verbatim and drops the appearance suppression", () => {
+	it("keeps the renderability rules verbatim and leaves out the house rules' image sentence", () => {
 		// Our own block, ASCII English like everything the app writes into a
 		// model request (ruling 79), and no third-party text.
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/^[\x20-\x7E\n]+$/);
-		// The standard block's suppression is gone: this variant describes the
-		// body and what changes in it when the person's own words call for it.
+		// The house rules' image sentence is absent from this block.
 		expect(VIDEO_CAPTION_ALT_RULES).not.toMatch(/no image is attached/i);
 		expect(VIDEO_CAPTION_ALT_RULES).not.toMatch(/never invent/i);
 		// The renderability rules that still apply are kept word for word.
@@ -146,8 +144,7 @@ describe("the caption request's instruction blocks", () => {
 			"The caption covers five seconds of action.",
 		);
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/single continuous take/i);
-		// Faithful expansion: their request bounds the caption, and what it does
-		// ask for is not softened away.
+		// The faithful-expansion sentences the block carries.
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/do not add acts/i);
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/do not euphemise/i);
 	});

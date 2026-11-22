@@ -7,10 +7,9 @@
 // model's contract, not something this app may drift. What the app adds follows
 // it after a blank line, in the same system message (`VIDEO_CAPTION_HOUSE_RULES`:
 // the endpoint is never shown the still, and the feasibility study's house
-// rules; or `VIDEO_CAPTION_ALT_RULES` for the second engine variant, which
-// replaces the house rules because it must describe the subject). One system
-// message, first: a chat template may refuse a system message anywhere else
-// (`captionSystemMessage`).
+// rules; or `VIDEO_CAPTION_ALT_RULES`, which replaces them for the second engine
+// variant). One system message, first: a chat template may refuse a system
+// message anywhere else (`captionSystemMessage`).
 //
 // The endpoint is configuration (ADR-0068): an address the app calls without a
 // click comes from the admin's settings, never from anything a model wrote.
@@ -84,11 +83,9 @@ House rules for these clips, over the instruction above:
 
 /**
  * The second engine variant's app block, sent INSTEAD of the house rules and
- * never beside them: the house rules forbid describing the subject, and this
- * variant must describe the body the person's own words ask for. The
- * renderability rules that still apply are kept word for word; the sound
- * belongs in the instruction's one paragraph, not a section of its own.
- * ASCII English (ruling 79).
+ * never beside them. The renderability rules that still apply are kept word for
+ * word; the sound belongs in the instruction's one paragraph, not a section of
+ * its own. ASCII English (ruling 79).
  */
 export const VIDEO_CAPTION_ALT_RULES = `The user's own words set what to describe: when the request names a subject, a body, clothing, an action or a state, describe it as the request names it, and show what changes in it as the action unfolds. Stay with their request: do not add acts, participants, objects or events they did not ask for, and do not euphemise, soften or leave out what they did ask for. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
 
