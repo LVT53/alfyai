@@ -1336,7 +1336,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "make_video",
-      "description": "Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from \"In this chat\", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish something would move, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound. No explicit, sexual or nude videos: decline such a request in your reply, without calling make_video.",
+      "description": "Make a short video. A picture is optional. With no `picture` it animates the newest picture this turn made, else the open one; with neither it makes the clip from the words alone. `picture` may name a message picture number, an Image id from \"In this chat\", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish it moved, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, what stays. 5 seconds by default, 10 only when asked. Do not use it for stills (make_image), video edits or sound. No explicit, sexual or nude videos: decline such a request in your reply, without calling make_video.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1346,7 +1346,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "description": "The motion idea, in English: what moves in the clip, how the camera moves, and what stays as it is. This is the idea a caption is written from, not the final caption."
           },
           "picture": {
-            "description": "The still to animate, when the user named one: a picture number from this message (\"3\"), an Image id from \"In this chat\", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel.",
+            "description": "The still to animate, when the user named one: a picture number from this message (\"3\"), an Image id from \"In this chat\", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel; if neither exists, the clip is made from the words alone.",
             "type": "string",
             "maxLength": 64
           },

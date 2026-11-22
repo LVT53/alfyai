@@ -130,6 +130,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		prompt: "the harbour at dusk, a slow tide",
 		durationSeconds: 5,
 		sourceFileId: "still-1",
+		fromText: false,
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,
@@ -506,6 +507,106 @@ describe("a 5 second take", () => {
 			nodeOfType(graphOf(promptRequests(server)[0]), "EmptyLTXVLatentVideo")
 				.inputs,
 		).toMatchObject({ width: 352, height: 640 });
+	});
+});
+
+// A text take's row has no source still, and its graph has no image path.
+describe("a take from text", () => {
+	const types = (graph: Graph) =>
+		Object.values(graph).map((node) => node.class_type);
+
+	it("submits the alt graph with no image path and uploads no still", async () => {
+		const server = await startLtx();
+		const takeId = await queueTake({
+			fromText: true,
+			sourceFileId: null,
+			explicitVariant: true,
+		});
+		await drainVideoTakes();
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect(promptRequests(server)).toHaveLength(1);
+		const graph = graphOf(promptRequests(server)[0]);
+		expect(types(graph)).not.toContain("LoadImage");
+		expect(
+			types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
+		).toHaveLength(0);
+		// No still to take an aspect from: the 16:9 product size, halved.
+		expect(nodeOfType(graph, "EmptyLTXVLatentVideo").inputs).toMatchObject({
+			width: 640,
+			height: 352,
+			length: 121,
+		});
+		expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+			LTX_VIDEO_UNET_ALT,
+		);
+		expect(nodeOfType(graph, "CLIPLoader").inputs.clip_name).toBe(
+			LTX_TEXT_ENCODER_ALT,
+		);
+		expect(
+			server.requests.filter((request) => request.path === "/upload/image"),
+		).toHaveLength(0);
+
+		const clip = (await storedClips())[0];
+		if (!clip) throw new Error("The take stored no clip");
+		const artifact = await artifactOf(clip.id);
+		expect(
+			parseVideoVersionBody(artifact?.newest?.body ?? null)?.sourceFileId,
+		).toBeNull();
+	});
+
+	it("renders both segments of a 10 s text take with no image path and joins them", async () => {
+		const server = await startLtx();
+		const takeId = await queueTake({
+			fromText: true,
+			sourceFileId: null,
+			explicitVariant: true,
+			durationSeconds: 10,
+		});
+		await drainVideoTakes();
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		const posts = promptRequests(server);
+		expect(posts).toHaveLength(2);
+		for (const post of posts) {
+			const graph = graphOf(post);
+			expect(types(graph)).not.toContain("LoadImage");
+			expect(
+				types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
+			).toHaveLength(0);
+			expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+				LTX_VIDEO_UNET_ALT,
+			);
+		}
+		expect(
+			server.requests.filter((request) => request.path === "/upload/image"),
+		).toHaveLength(0);
+
+		const clips = await storedClips();
+		expect(clips).toHaveLength(1);
+		const clip = clips[0];
+		if (!clip) throw new Error("The take stored no clip");
+		expect(clip.durationMs).toBe(10000);
+		expect(await probeDurationMs(await clipBytes(clip.id))).toBeGreaterThan(
+			9_500,
+		);
+	});
+
+	it("keeps the image path for a picture take", async () => {
+		const server = await startLtx();
+		await queueTake({ fromText: false });
+		await drainVideoTakes();
+
+		const graph = graphOf(promptRequests(server)[0]);
+		expect(types(graph)).toContain("LoadImage");
+		expect(
+			types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
+		).toHaveLength(2);
+		expect(
+			server.requests.filter((request) => request.path === "/upload/image"),
+		).toHaveLength(1);
 	});
 });
 

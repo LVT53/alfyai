@@ -109,7 +109,7 @@ export async function listConversationVideoCards(
 				const request = requests.get(take.id);
 				return [
 					...(take.resultFileId ? [take.resultFileId] : []),
-					...(request ? [request.sourceFileId] : []),
+					...(request?.sourceFileId ? [request.sourceFileId] : []),
 				];
 			}),
 		),
@@ -144,7 +144,9 @@ export async function listConversationVideoCards(
 		const shown = group[group.length - 1];
 		if (!first || !shown) continue;
 		const request = requests.get(shown.id) ?? null;
-		const sourceFile = request ? fileById.get(request.sourceFileId) : null;
+		const sourceFile = request?.sourceFileId
+			? fileById.get(request.sourceFileId)
+			: null;
 		const clip = clipForTake(shown, request, fileById);
 		const box = sourceFile ? videoSizeForSource(sourceFile) : FALLBACK_BOX;
 		const productMs = request ? videoDurationMs(request.durationSeconds) : 5000;

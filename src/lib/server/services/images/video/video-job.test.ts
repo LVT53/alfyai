@@ -57,6 +57,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		prompt: "the harbour at dusk, a slow tide",
 		durationSeconds: 5,
 		sourceFileId: "still-1",
+		fromText: false,
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,

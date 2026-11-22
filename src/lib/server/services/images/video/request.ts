@@ -24,8 +24,17 @@ export type VideoTakeRequest = {
 	continuationPrompt?: string;
 	/** 5 s by default; 10 s is two 5 s segments chained. */
 	durationSeconds: VideoDurationSeconds;
-	/** The still the clip is made from (an `image_files` id of the person). */
-	sourceFileId: string;
+	/**
+	 * The still the clip is made from (an `image_files` id of the person), or
+	 * null for a take that starts from text.
+	 */
+	sourceFileId: string | null;
+	/**
+	 * The take's input mode: true when it renders from the caption alone, false
+	 * when it renders from `sourceFileId`. Frozen when this row is written
+	 * because the renderer must not re-derive it.
+	 */
+	fromText: boolean;
 	/** The Video item's title. */
 	title: string;
 	/** The one-line version summary, when the caller has one. */
@@ -113,6 +122,15 @@ export const VIDEO_SIZE_STEP = 32;
 export const VIDEO_MIN_SIDE = 256;
 
 /**
+ * A take made from text alone has no still to take an aspect from, so it
+ * renders at the 16:9 product size.
+ */
+export const VIDEO_TEXT_SIZE = {
+	width: VIDEO_LONG_EDGE,
+	height: 704,
+} as const;
+
+/**
  * The clip's size from the source still's aspect: the long edge is 1280 and
  * the short side is the same ratio, floored to a multiple of 32 so it never
  * rounds past the still's shape. A 16:9 still gives 1280 x 704 (the measured
@@ -127,7 +145,7 @@ export function videoSizeForSource(size: { width: number; height: number }): {
 	const width = Math.trunc(size.width);
 	const height = Math.trunc(size.height);
 	if (!(width > 0) || !(height > 0)) {
-		return { width: VIDEO_LONG_EDGE, height: 704 };
+		return { ...VIDEO_TEXT_SIZE };
 	}
 	const portrait = height > width;
 	const ratio = Math.min(width, height) / Math.max(width, height);
@@ -193,9 +211,14 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 		artifactId,
 		explicitVariant,
 	} = value;
+	const fromText = value.fromText === true;
 	if (typeof prompt !== "string" || prompt.trim() === "") return null;
 	if (!isDurationSeconds(durationSeconds)) return null;
-	if (!isNonEmptyString(sourceFileId)) return null;
+	let stillFileId: string | null = null;
+	if (!fromText) {
+		if (!isNonEmptyString(sourceFileId)) return null;
+		stillFileId = sourceFileId;
+	}
 	if (typeof title !== "string" || title.trim() === "") return null;
 	if (summary !== null && typeof summary !== "string") return null;
 	if (artifactId !== null && !isNonEmptyString(artifactId)) return null;
@@ -207,7 +230,8 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 			? { continuationPrompt }
 			: {}),
 		durationSeconds,
-		sourceFileId,
+		sourceFileId: stillFileId,
+		fromText,
 		title,
 		summary,
 		artifactId,

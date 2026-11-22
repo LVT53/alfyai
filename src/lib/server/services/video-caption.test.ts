@@ -30,6 +30,7 @@ import {
 	VIDEO_CAPTION_ALT_RULES,
 	VIDEO_CAPTION_HOUSE_RULES,
 	VIDEO_CAPTION_MAX_CHARS,
+	VIDEO_CAPTION_TEXT_RULES,
 	videoContinuationNote,
 } from "$lib/server/services/video-caption";
 
@@ -66,12 +67,17 @@ describe("the official LTX instruction", () => {
 
 /** The one system message a builder sends, through the endpoint stub. */
 async function captureSystemMessage(
-	options: { variant?: LtxVideoVariant; first?: string } = {},
+	options: {
+		variant?: LtxVideoVariant;
+		fromText?: boolean;
+		first?: string;
+	} = {},
 ): Promise<string> {
 	const fetchImpl = vi.fn(async () => jsonResponse("A caption."));
 	const buildOptions = {
 		fetchImpl: fetchImpl as unknown as typeof fetch,
 		...(options.variant ? { variant: options.variant } : {}),
+		...(options.fromText !== undefined ? { fromText: options.fromText } : {}),
 	};
 	if (options.first) {
 		await buildVideoContinuationPrompt("idea", options.first, buildOptions);
@@ -102,6 +108,126 @@ describe("the caption request's instruction blocks", () => {
 		// Replaced, never appended: neither block goes beside the other.
 		expect(sent).not.toContain(VIDEO_CAPTION_HOUSE_RULES);
 		expect(sent).not.toContain("No image is attached to this request");
+	});
+
+	it("does not keep a frame-preservation rule for a text take", async () => {
+		const sent = await captureSystemMessage({ variant: "alt", fromText: true });
+		// The vendored instruction stays first and byte for byte; the app's own
+		// block follows it, and that block is what this test reads.
+		expect(sent.startsWith(LTX24_I2V_INSTRUCTION)).toBe(true);
+		const rules = sent.slice(LTX24_I2V_INSTRUCTION.length).replace(/^\n\n/, "");
+		expect(rules).toBe(VIDEO_CAPTION_TEXT_RULES);
+		// The rule that only a take starting on a still can obey.
+		expect(rules).not.toMatch(/stays? in frame/i);
+		expect(rules).not.toContain(
+			"Everyone and everything in the first frame stays in frame.",
+		);
+		// The correction the vendored instruction needs for a take with no
+		// still: no reference image, the scene from the request alone. It may
+		// not deny a frame outright: a continuation's opening frame is the
+		// previous segment's last frame.
+		expect(rules).not.toMatch(/no first frame/i);
+		expect(rules).toContain(
+			"No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself.",
+		);
+		expect(rules).toContain(
+			"Inventing that detail is right here, unlike a picture take whose frame already fixes it.",
+		);
+		// The rest of the alt block's structure is still there.
+		expect(rules).toMatch(/single continuous take/i);
+		expect(rules).toMatch(/camera stays static/i);
+		expect(rules).toMatch(/on-screen text/i);
+		expect(rules).toMatch(/five seconds of action/i);
+		expect(rules).toMatch(/do not add people, objects or events/i);
+		expect(rules).toMatch(/leave out nothing it did name/i);
+	});
+
+	it("keeps the first-frame rules for a picture take", async () => {
+		const sent = await captureSystemMessage({ variant: "alt" });
+		// Read the app's block, not the vendored instruction that also names
+		// the first frame: this test proves the picture block still carries it.
+		const rules = sent.slice(LTX24_I2V_INSTRUCTION.length).replace(/^\n\n/, "");
+		expect(rules).toBe(VIDEO_CAPTION_ALT_RULES);
+		expect(rules).toContain(
+			"Everyone and everything in the first frame stays in frame.",
+		);
+		const explicit = await captureSystemMessage({
+			variant: "alt",
+			fromText: false,
+		});
+		expect(
+			explicit.slice(LTX24_I2V_INSTRUCTION.length).replace(/^\n\n/, ""),
+		).toBe(VIDEO_CAPTION_ALT_RULES);
+	});
+
+	it("leaves the house rules' own image sentence in place", () => {
+		expect(VIDEO_CAPTION_HOUSE_RULES).toContain(
+			"No image is attached to this request: you are not shown the reference image.",
+		);
+		expect(VIDEO_CAPTION_HOUSE_RULES).toContain(
+			"Everyone and everything in the first frame stays in frame.",
+		);
+	});
+
+	it("replaces the alt block for a text take, never sending both", async () => {
+		const sent = await captureSystemMessage({ variant: "alt", fromText: true });
+		expect(sent).not.toContain(VIDEO_CAPTION_ALT_RULES);
+		expect(sent).not.toContain(VIDEO_CAPTION_HOUSE_RULES);
+	});
+
+	it("keeps the house rules when a text take asks for the first variant", async () => {
+		const sent = await captureSystemMessage({
+			variant: "standard",
+			fromText: true,
+		});
+		expect(sent).toContain(VIDEO_CAPTION_HOUSE_RULES);
+		expect(sent).not.toContain(VIDEO_CAPTION_ALT_RULES);
+	});
+
+	it("writes the text-take block as our own, scene-establishing ASCII English", () => {
+		expect(VIDEO_CAPTION_TEXT_RULES).toMatch(/^[\x20-\x7E\n]+$/);
+		// The frame-preservation rule is gone; the no-image correction is not.
+		expect(VIDEO_CAPTION_TEXT_RULES).not.toMatch(/stays? in frame/i);
+		expect(VIDEO_CAPTION_TEXT_RULES).not.toContain(
+			"Everyone and everything in the first frame stays in frame.",
+		);
+		// The correction says what the vendored instruction assumes and a text
+		// take does not have, then where the scene comes from instead. It does
+		// not claim a frame cannot exist: a continuation opens on one.
+		expect(VIDEO_CAPTION_TEXT_RULES).not.toMatch(/no first frame/i);
+		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
+			"No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself.",
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
+			"Inventing that detail is right here, unlike a picture take whose frame already fixes it.",
+		);
+		// The alt block's requirements are kept.
+		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
+			"A single continuous take, no cuts.",
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
+			"The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.",
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
+			"No on-screen text, titles, captions or logos.",
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
+			"The caption covers five seconds of action.",
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toMatch(
+			/describe the subject, clothing, action and state exactly as the request names them/i,
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toMatch(
+			/do not add people, objects or events the request did not name/,
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toMatch(/leave out nothing it did name/);
+		// The scene is established from the request alone.
+		expect(VIDEO_CAPTION_TEXT_RULES).toMatch(
+			/the request alone supplies the scene/i,
+		);
+		expect(VIDEO_CAPTION_TEXT_RULES).toMatch(
+			/establish its subject, setting and light from the person's words/i,
+		);
 	});
 
 	it("defaults to the house rules", async () => {
@@ -391,6 +517,27 @@ describe("buildVideoContinuationPrompt: a 10 s clip's second five seconds", () =
 		expect(note).toMatch(/do not start the action over/i);
 		expect(note).toMatch(/do not repeat any dialogue/i);
 		expect(note.replace(first, "")).toMatch(/^[\x20-\x7E\n]+$/);
+	});
+
+	it("gives a text take's continuation the text-take block, note last", async () => {
+		const sent = await captureSystemMessage({
+			variant: "alt",
+			fromText: true,
+			first,
+		});
+		expect(sent).not.toContain(VIDEO_CAPTION_ALT_RULES);
+		const note = videoContinuationNote(first);
+		expect(sent).toBe(
+			[LTX24_I2V_INSTRUCTION, VIDEO_CAPTION_TEXT_RULES, note].join("\n\n"),
+		);
+		// The frame-preservation rule stays out; the no-image correction stays
+		// in. The note still names segment 2's own opening frame, and the block
+		// no longer denies that a frame exists.
+		expect(sent).not.toMatch(/stays? in frame/i);
+		expect(sent).not.toMatch(/no first frame/i);
+		expect(sent).toContain(
+			"No reference image is attached: the request alone supplies the scene",
+		);
 	});
 
 	it("has none without a caption endpoint, or when the endpoint gives nothing usable", async () => {

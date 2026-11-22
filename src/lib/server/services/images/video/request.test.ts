@@ -23,6 +23,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		prompt: "the harbour at dusk, a slow tide",
 		durationSeconds: 5,
 		sourceFileId: "still-1",
+		fromText: false,
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,
@@ -64,6 +65,63 @@ describe("a video take request", () => {
 				JSON.stringify(request({ durationSeconds: 10, artifactId: "a1" })),
 			),
 		).toEqual(request({ durationSeconds: 10, artifactId: "a1" }));
+	});
+
+	it("keeps an old row as a picture take", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({
+				v: 1,
+				prompt: "p",
+				durationSeconds: 5,
+				sourceFileId: "file-1",
+				title: "t",
+				summary: null,
+				artifactId: null,
+			}),
+		);
+		expect(parsed?.fromText).toBe(false);
+		expect(parsed?.sourceFileId).toBe("file-1");
+	});
+
+	it("parses a text take without a picture", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({ ...request(), sourceFileId: "", fromText: true }),
+		);
+		expect(parsed?.fromText).toBe(true);
+		expect(parsed?.sourceFileId).toBeNull();
+	});
+
+	it("drops a stale picture id on a text take", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({
+				...request(),
+				sourceFileId: "still-1",
+				fromText: true,
+			}),
+		);
+		expect(parsed?.fromText).toBe(true);
+		expect(parsed?.sourceFileId).toBeNull();
+	});
+
+	it("refuses a picture take with no picture", () => {
+		expect(
+			parseVideoTakeRequest(JSON.stringify({ ...request(), sourceFileId: "" })),
+		).toBeNull();
+	});
+
+	it("reads a malformed mode as a picture take", () => {
+		const parsed = parseVideoTakeRequest(
+			JSON.stringify({ ...request(), fromText: "yes" }),
+		);
+		expect(parsed?.fromText).toBe(false);
+	});
+
+	it("rejects a source-less row whose mode is malformed", () => {
+		expect(
+			parseVideoTakeRequest(
+				JSON.stringify({ ...request(), sourceFileId: "", fromText: "yes" }),
+			),
+		).toBeNull();
 	});
 
 	it("defaults an older row to the first variant", () => {

@@ -8,8 +8,9 @@
 // it after a blank line, in the same system message (`VIDEO_CAPTION_HOUSE_RULES`:
 // the endpoint is never shown the still, and the feasibility study's house
 // rules; or `VIDEO_CAPTION_ALT_RULES`, which replaces them for the second engine
-// variant). One system message, first: a chat template may refuse a system
-// message anywhere else (`captionSystemMessage`).
+// variant; or `VIDEO_CAPTION_TEXT_RULES`, the alt block for an alt take that
+// starts from text and has no still). One system message, first: a chat
+// template may refuse a system message anywhere else (`captionSystemMessage`).
 //
 // The endpoint is configuration (ADR-0068): an address the app calls without a
 // click comes from the admin's settings, never from anything a model wrote.
@@ -85,7 +86,9 @@ House rules for these clips, over the instruction above:
  * The second engine variant's app block, sent INSTEAD of the house rules and
  * never beside them. The renderability rules that still apply are kept word for
  * word; the sound belongs in the instruction's one paragraph, not a section of
- * its own. ASCII English (ruling 79).
+ * its own. A take that starts from text gets `VIDEO_CAPTION_TEXT_RULES`, this
+ * block with its frame rule replaced by a no-image correction. ASCII English
+ * (ruling 79).
  */
 export const VIDEO_CAPTION_ALT_RULES = `The user's own words set what to describe: describe the subject, clothing, action and state exactly as the request names them, and show what changes as the action unfolds. Stay with their request: do not add people, objects or events the request did not name, and leave out nothing it did name. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
 
@@ -93,6 +96,26 @@ House rules for these clips, over the instruction above:
 - A single continuous take, no cuts.
 - The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
 - Everyone and everything in the first frame stays in frame.
+- No on-screen text, titles, captions or logos.
+- The caption covers five seconds of action.`;
+
+/**
+ * The alt block for a take that starts from text: the same block without the
+ * rule that keeps what the opening already holds, which only a take starting on
+ * a still can obey. In its place it corrects the vendored instruction's premise
+ * — no reference image is attached — and asks the caption to establish the
+ * scene from the person's own words, saying plainly that inventing that detail
+ * is right here, unlike a picture take whose frame already fixes it. It never
+ * claims a frame cannot exist: a continuation's opening frame is the previous
+ * segment's last frame. Everything the alt block still asks for is kept: one
+ * continuous take, the static camera, no on-screen text, five seconds, and no
+ * addition beyond the request. ASCII English (ruling 79).
+ */
+export const VIDEO_CAPTION_TEXT_RULES = `The user's own words set what to describe: describe the subject, clothing, action and state exactly as the request names them, and show what changes as the action unfolds. No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself. Inventing that detail is right here, unlike a picture take whose frame already fixes it. Stay with their request: do not add people, objects or events the request did not name, and leave out nothing it did name. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
+
+House rules for these clips, over the instruction above:
+- A single continuous take, no cuts.
+- The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
 - No on-screen text, titles, captions or logos.
 - The caption covers five seconds of action.`;
 
@@ -123,16 +146,27 @@ function captionSystemMessage(rules: string, note?: string): string {
 	return [LTX24_I2V_INSTRUCTION, rules, ...(note ? [note] : [])].join("\n\n");
 }
 
-/** The app's block for a variant: the house rules, or the alt block in their place. */
-function captionRules(variant: LtxVideoVariant): string {
-	return variant === "alt"
-		? VIDEO_CAPTION_ALT_RULES
-		: VIDEO_CAPTION_HOUSE_RULES;
+/**
+ * The app's block for a variant: the house rules, the alt block, or, for an
+ * alt take that starts from text, the text-take block.
+ */
+function captionRules(variant: LtxVideoVariant, fromText: boolean): string {
+	if (variant !== "alt") return VIDEO_CAPTION_HOUSE_RULES;
+	return fromText ? VIDEO_CAPTION_TEXT_RULES : VIDEO_CAPTION_ALT_RULES;
 }
 
-/** What a caption call may be given: the engine variant and the caller's fetch. */
+/**
+ * What a caption call may be given: the engine variant, whether the take starts
+ * from text, and the caller's fetch.
+ */
 type VideoCaptionOptions = {
 	variant?: LtxVideoVariant;
+	/**
+	 * True when the take starts from the person's words alone: the alt block's
+	 * frame-bound rule is for a take that starts on a still, so an alt text
+	 * take gets the text-take block instead. Defaults to false.
+	 */
+	fromText?: boolean;
 	signal?: AbortSignal;
 	fetchImpl?: typeof fetch;
 };
@@ -233,7 +267,10 @@ async function requestCaption(
 				{
 					role: "system",
 					content: captionSystemMessage(
-						captionRules(options.variant ?? "standard"),
+						captionRules(
+							options.variant ?? "standard",
+							options.fromText === true,
+						),
 						note,
 					),
 				},

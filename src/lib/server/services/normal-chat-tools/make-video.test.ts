@@ -278,24 +278,6 @@ describe("make_video's refusals", () => {
 		);
 	});
 
-	it("refuses with how to make a picture when the turn has nothing to animate", async () => {
-		const { outcome } = await run({
-			input: { picture: undefined },
-			turnPictures: null,
-		});
-		expect(outcome.modelPayload).toMatchObject({
-			ok: false,
-			errorCode: "unknown_picture",
-		});
-		const message =
-			"message" in outcome.modelPayload
-				? String(outcome.modelPayload.message)
-				: "";
-		expect(message).toContain("no picture to animate yet");
-		expect(message).toContain("make one with make_image first");
-		expect(queued.enqueue).not.toHaveBeenCalled();
-	});
-
 	it("refuses a picture that cannot be read, before any take", async () => {
 		const { PictureUnreadableError } = await import(
 			"$lib/server/services/images/inputs"
@@ -422,6 +404,7 @@ describe("make_video's take request", () => {
 						'next after "caption: the tide comes in slowly": the tide comes in slowly',
 					durationSeconds: 10,
 					sourceFileId: "file-1",
+					fromText: false,
 					title: "Harbour at dawn",
 					summary: "Made the tide move",
 					artifactId: null,
@@ -524,6 +507,106 @@ describe("make_video's take request", () => {
 		expect(queued.enqueue.mock.calls[0][0].request.sourceFileId).toBe(
 			"stored-1",
 		);
+	});
+});
+
+// With no source resolved, the exemption decides between a text take and the
+// unknown_picture refusal.
+describe("make_video with no picture to animate", () => {
+	it("refuses a named picture that does not resolve, even when the exemption covers the person", async () => {
+		queued.variant.mockResolvedValue(true);
+		queued.named.mockResolvedValue({
+			ok: false,
+			message: 'make_video has no picture "9".',
+		});
+		const { outcome } = await run({
+			input: { picture: "Cat in Birthday Hat" },
+			turnPictures: null,
+		});
+
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "unknown_picture",
+		});
+		const message =
+			"message" in outcome.modelPayload
+				? String(outcome.modelPayload.message)
+				: "";
+		expect(message).toContain(
+			'make_video has no picture "Cat in Birthday Hat"',
+		);
+		expect(queued.caption).not.toHaveBeenCalled();
+		expect(queued.enqueue).not.toHaveBeenCalled();
+		expect(outcome.metadata.videoTakeId).toBeUndefined();
+	});
+
+	it("makes a text take for a person the exemption covers", async () => {
+		queued.variant.mockResolvedValue(true);
+		const { outcome } = await run({
+			input: { picture: undefined, durationSeconds: 10 },
+			turnPictures: null,
+		});
+
+		expect(outcome.modelPayload.ok).toBe(true);
+		expect(queued.loaded).not.toHaveBeenCalled();
+		expect(queued.stored).not.toHaveBeenCalled();
+		expect(queued.caption).toHaveBeenCalledWith(
+			"the tide comes in slowly",
+			expect.objectContaining({ variant: "alt", fromText: true }),
+		);
+		expect(queued.continuation).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.any(String),
+			expect.objectContaining({ variant: "alt", fromText: true }),
+		);
+		expect(queued.enqueue).toHaveBeenCalledTimes(1);
+		expect(queued.enqueue.mock.calls[0][0].request).toMatchObject({
+			fromText: true,
+			sourceFileId: null,
+			explicitVariant: true,
+			durationSeconds: 10,
+		});
+		expect(outcome.metadata).toMatchObject({
+			videoWidth: 1280,
+			videoHeight: 704,
+		});
+	});
+
+	it("refuses with how to make a picture when the exemption does not cover the person", async () => {
+		queued.variant.mockResolvedValue(false);
+		const { outcome } = await run({
+			input: { picture: undefined },
+			turnPictures: null,
+		});
+
+		expect(queued.variant).toHaveBeenCalledTimes(1);
+		expect(outcome.modelPayload).toMatchObject({
+			ok: false,
+			errorCode: "unknown_picture",
+		});
+		const message =
+			"message" in outcome.modelPayload
+				? String(outcome.modelPayload.message)
+				: "";
+		expect(message).toContain("no picture to animate yet");
+		expect(message).toContain("make one with make_image first");
+		expect(queued.caption).not.toHaveBeenCalled();
+		expect(queued.enqueue).not.toHaveBeenCalled();
+		expect(outcome.metadata.videoTakeId).toBeUndefined();
+	});
+
+	it("keeps a resolvable picture as a picture take, whichever variant the person gets", async () => {
+		for (const allowed of [true, false]) {
+			queued.enqueue.mockClear();
+			queued.variant.mockResolvedValue(allowed);
+			await run();
+			expect(queued.enqueue).toHaveBeenCalledTimes(1);
+			expect(queued.enqueue.mock.calls[0][0].request).toMatchObject({
+				fromText: false,
+				sourceFileId: "file-1",
+				explicitVariant: allowed,
+			});
+		}
 	});
 });
 

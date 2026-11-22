@@ -313,6 +313,7 @@ describe("the cross-engine gate", () => {
 				prompt: "the harbour at dusk",
 				durationSeconds: 5,
 				sourceFileId: "still-1",
+				fromText: false,
 				title: "Harbour",
 				summary: null,
 				artifactId: null,

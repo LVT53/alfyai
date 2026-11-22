@@ -176,6 +176,7 @@ async function queueVideo(): Promise<string> {
 			prompt: "the harbour at dusk",
 			durationSeconds: 5,
 			sourceFileId: still.id,
+			fromText: false,
 			title: "Harbour",
 			summary: null,
 			artifactId: null,
