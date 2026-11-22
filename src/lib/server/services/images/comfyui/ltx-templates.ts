@@ -29,6 +29,9 @@
  * The second variant swaps both the transformer and the text encoder, and
  * nothing else: the node set is identical to the first variant's, so neither
  * variant can carry a node the other lacks.
+ *
+ * A text take (`fromText`) is the same graph minus the image path, so the two
+ * cannot drift.
  */
 
 import ltxVideoGraph from "./graphs/ltx-image-to-video.api.json";
@@ -68,12 +71,26 @@ const UNET_NODE = "1";
 const CLIP_NODE = "2";
 const POSITIVE_PROMPT_NODE = "5";
 const LOAD_IMAGE_NODE = "8";
+const PREPROCESS_NODE = "9";
 const EMPTY_LATENT_NODE = "10";
+const INPLACE_1_NODE = "11";
 const AUDIO_LATENT_NODE = "12";
+const CONCAT_1_NODE = "13";
 const NOISE_1_NODE = "14";
+const UPSAMPLED_LATENT_NODE = "21";
+const INPLACE_2_NODE = "22";
+const CONCAT_2_NODE = "23";
 const NOISE_2_NODE = "24";
 const CONDITIONING_NODE = "7";
 const CREATE_VIDEO_NODE = "32";
+
+/** The nodes a text take removes: LoadImage, preprocess, both in-place guides. */
+const IMAGE_PATH_NODES = [
+	LOAD_IMAGE_NODE,
+	PREPROCESS_NODE,
+	INPLACE_1_NODE,
+	INPLACE_2_NODE,
+];
 
 export type LtxVideoGraphInput = {
 	/** The motion caption the app's model wrote, in LTX's caption style. */
@@ -82,8 +99,10 @@ export type LtxVideoGraphInput = {
 	/** The clip's size, both sides a multiple of 32. */
 	width: number;
 	height: number;
-	/** The uploaded still's name in ComfyUI's input folder. */
-	image: string;
+	/** The uploaded still's name in ComfyUI's input folder; a picture take only. */
+	image?: string;
+	/** True when the take starts from the prompt alone, with no image path. */
+	fromText?: boolean;
 	/** Which variant's graph to build. */
 	variant: LtxVideoVariant;
 };
@@ -111,7 +130,12 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 		put(CLIP_NODE, "clip_name", LTX_TEXT_ENCODER);
 	}
 	put(POSITIVE_PROMPT_NODE, "text", input.prompt);
-	put(LOAD_IMAGE_NODE, "image", input.image);
+	if (!input.fromText) {
+		if (input.image === undefined) {
+			throw new Error("A picture take needs an image");
+		}
+		put(LOAD_IMAGE_NODE, "image", input.image);
+	}
 	// The first pass runs at half the output size; the upscaler doubles it back.
 	// The latent's own `// 32` would silently floor a half like 176 to 160, so
 	// floor it here: both first-pass sides are multiples of 32, never an odd 16.
@@ -127,5 +151,12 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 	put(CREATE_VIDEO_NODE, "fps", LTX_VIDEO_FPS);
 	put(NOISE_1_NODE, "noise_seed", input.seed);
 	put(NOISE_2_NODE, "noise_seed", input.seed + 1);
+	if (input.fromText) {
+		// No still to guide either pass: the first pass starts from the empty
+		// latent, the second from the upscaler's own output.
+		for (const nodeId of IMAGE_PATH_NODES) delete graph[nodeId];
+		put(CONCAT_1_NODE, "video_latent", [EMPTY_LATENT_NODE, 0]);
+		put(CONCAT_2_NODE, "video_latent", [UPSAMPLED_LATENT_NODE, 0]);
+	}
 	return graph;
 }
