@@ -71,6 +71,10 @@ export async function prepareMemoryMigration(
 		assertCurrent: (tx: Tx) => void;
 		holdCorrectionConflict: boolean;
 	},
+	options: {
+		/** The owner accepted running forget steps on a live account with an approval. */
+		acceptApprovedCuration?: boolean;
+	} = {},
 ) {
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
@@ -91,6 +95,18 @@ export async function prepareMemoryMigration(
 			.get();
 		if (account?.lifecycleState !== "active")
 			throw Error("memory_account_unavailable");
+		// A forget step that fails for good on a live account would hold its
+		// bank with no remedy (restart and rewind need preparing), so a live
+		// account with an approved meaning check is not prepared again unless
+		// the owner accepts that for this run.
+		if (
+			account.authority === "hindsight" &&
+			options.acceptApprovedCuration !== true &&
+			readUnlocatedCurationApproval(
+				parseJsonRecord(latestManifest(userId)?.checkpointJson ?? null),
+			).actionIds.length
+		)
+			throw Error("memory_migration_live_curation_prepare_refused");
 		// Take only the legacy → preparing transition inside the same write barrier
 		// as the checkpoint. A concurrent cutover/rollback cannot be overwritten.
 		if (account.authority === "legacy")

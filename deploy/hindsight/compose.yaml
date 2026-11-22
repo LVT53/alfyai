@@ -32,7 +32,7 @@ services:
       HINDSIGHT_API_EMBEDDINGS_PROVIDER: onnx
       HINDSIGHT_API_RERANKER_PROVIDER: flashrank
       HINDSIGHT_API_RERANKER_FLASHRANK_MODEL: ms-marco-MultiBERT-L-12
-      # Match the admission budget (one unless overnight idle): over-budget calls get 429
+      # Never above one while admission refuses instead of queueing: over-budget calls get 429
       # and exhaust the engine's three quick LLM retries, failing the whole retain.
       HINDSIGHT_API_LLM_MAX_CONCURRENT: "1"
       # App curation calls share the same budget: wait them out (backoff 1 s up to 60 s)

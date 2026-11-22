@@ -389,7 +389,10 @@ async function main() {
 				throw Error("authorization_identity_mismatch");
 			summary = { mode, ...authorizeMemoryQuarantine(userId, authorization) };
 		} else if (mode === "prepare")
-			summary = await m.prepareMemoryMigration(userId);
+			summary = await m.prepareMemoryMigration(userId, undefined, {
+				acceptApprovedCuration:
+					values.get("--accept-approved-curation") === "yes",
+			});
 		else {
 			const id = values.get("--manifest");
 			if (!id) throw Error("manifest_required");

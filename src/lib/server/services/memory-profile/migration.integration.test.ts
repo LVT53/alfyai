@@ -7986,8 +7986,11 @@ it("recovery refuses a covered chat whose forget step never passed, so cutover s
 	expect(
 		migration.verifyMemoryMigration(h.userId, restarted.manifestId).ready,
 	).toBe(false);
+	// The owner's acceptance never skips readiness.
 	expect(() =>
-		migration.cutoverMemoryMigration(h.userId, restarted.manifestId),
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId, {
+			acceptApprovedCuration: true,
+		}),
 	).toThrow("memory_migration_not_ready");
 });
 
@@ -8022,7 +8025,9 @@ it("verify and a reopened delivery refuse a covered chat accepted without its re
 		.run();
 	expect(verify()).toMatchObject({ ready: false, meaningCheckMissing: 1 });
 	expect(() =>
-		migration.cutoverMemoryMigration(h.userId, restarted.manifestId),
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId, {
+			acceptApprovedCuration: true,
+		}),
 	).toThrow("memory_migration_not_ready");
 	// Delivering the accepted chat again does not verify it either.
 	const source = db
@@ -8388,4 +8393,14 @@ it("cutover goes live for an approved account only when the owner accepts the ri
 		acceptApprovedCuration: true,
 	});
 	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("hindsight");
+	// Live and approved: a prepare could start forget steps, so it needs the
+	// same acceptance.
+	await expect(migration.prepareMemoryMigration(h.userId)).rejects.toThrow(
+		"memory_migration_live_curation_prepare_refused",
+	);
+	await expect(
+		migration.prepareMemoryMigration(h.userId, undefined, {
+			acceptApprovedCuration: true,
+		}),
+	).resolves.toBeTruthy();
 });
