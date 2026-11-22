@@ -630,15 +630,12 @@ describe("the engine variant", () => {
 		);
 	});
 
-	it("renders both segments of a 10 s take from its row, never a fresh exemption read", async () => {
+	it("renders both segments of a 10 s take from its stored row, never a fresh lookup", async () => {
 		// The server first: the runtime config is read when its module is first
-		// imported, and the stubbed lookup pulls it in.
+		// imported, and importing the policy pulls it in.
 		const server = await startLtx();
 		const policy = await import("../picture-check/policy");
-		const variantLookup = vi
-			.spyOn(policy, "isExplicitVariantAllowedFor")
-			.mockResolvedValueOnce(false)
-			.mockResolvedValueOnce(true);
+		const variantLookup = vi.spyOn(policy, "isExplicitVariantAllowedFor");
 		await queueTake({ explicitVariant: true, durationSeconds: 10 });
 		await drainVideoTakes();
 		const posts = promptRequests(server);
@@ -650,7 +647,8 @@ describe("the engine variant", () => {
 				expect(guider.inputs.model).toEqual(["34", 0]);
 			}
 		}
-		// The row is the authority: the runner never asks the exemption itself.
+		// The row decides both segments: the fixture person's live value is the
+		// opposite, so a lookup here would build the other graph.
 		expect(variantLookup).not.toHaveBeenCalled();
 	});
 
@@ -754,37 +752,35 @@ describe("resume", () => {
 });
 
 describe("Stop", () => {
-	it.each([
-		"submitted",
-		"starting",
-		"rendering",
-		"finishing",
-	] as const)("settles a take stopped at %s and leaves no clip", async (phase) => {
-		const server = await startLtx({
-			steps: 30,
-			stepDelayMs: 40,
-			startDelayMs: phase === "submitted" ? 0 : 300,
-		});
-		if (phase === "submitted") server.holdRequests("/prompt", true);
-		if (phase === "finishing") server.holdRequests("/view", true);
-		const takeId = await queueTake();
-		const draining = drainVideoTakes();
-		await until(
-			async () => (await readTake(takeId)).phase,
-			(value) => value === phase,
-		);
-		const { cancelVideoTake } = await import("./video-job");
-		expect(await cancelVideoTake(userId, takeId)).toBe(true);
-		server.holdRequests("/prompt", false);
-		server.holdRequests("/view", false);
-		await draining;
+	it.each(["submitted", "starting", "rendering", "finishing"] as const)(
+		"settles a take stopped at %s and leaves no clip",
+		async (phase) => {
+			const server = await startLtx({
+				steps: 30,
+				stepDelayMs: 40,
+				startDelayMs: phase === "submitted" ? 0 : 300,
+			});
+			if (phase === "submitted") server.holdRequests("/prompt", true);
+			if (phase === "finishing") server.holdRequests("/view", true);
+			const takeId = await queueTake();
+			const draining = drainVideoTakes();
+			await until(
+				async () => (await readTake(takeId)).phase,
+				(value) => value === phase,
+			);
+			const { cancelVideoTake } = await import("./video-job");
+			expect(await cancelVideoTake(userId, takeId)).toBe(true);
+			server.holdRequests("/prompt", false);
+			server.holdRequests("/view", false);
+			await draining;
 
-		const take = await readTake(takeId);
-		expect(take.status).toBe("cancelled");
-		expect(take.resultFileId).toBeNull();
-		expect(clipFilesAnyOnDisk()).toEqual([]);
-		expect(await storedClips()).toHaveLength(0);
-	});
+			const take = await readTake(takeId);
+			expect(take.status).toBe("cancelled");
+			expect(take.resultFileId).toBeNull();
+			expect(clipFilesAnyOnDisk()).toEqual([]);
+			expect(await storedClips()).toHaveLength(0);
+		},
+	);
 });
 
 describe("Stop after a restart", () => {
@@ -1382,37 +1378,39 @@ describe("the estimate", () => {
 		expect((await readTake(takeId)).etaAt).toBeNull();
 	}, 20_000);
 
-	it.each([
-		5, 10,
-	] as const)("only ever moves earlier across a %i s take, even at a node reset", async (durationSeconds) => {
-		await startLtx({
-			startDelayMs: 50,
-			stepDelayMs: durationSeconds === 5 ? 250 : 150,
-			// Two nodes: the first ends at 8/8, the second starts at 1/4, so
-			// ComfyUI's own max drops mid-take.
-			progressPlan: [
-				{ value: 1, max: 8 },
-				{ value: 2, max: 8 },
-				{ value: 3, max: 8 },
-				{ value: 4, max: 8 },
-				{ value: 1, max: 4 },
-				{ value: 2, max: 4 },
-				{ value: 3, max: 4 },
-				{ value: 4, max: 4 },
-			],
-		});
-		const takeId = await queueTake({ durationSeconds });
-		const samples = await recordEta(takeId, drainVideoTakes);
-		expect(samples.length).toBeGreaterThanOrEqual(2);
-		for (let index = 1; index < samples.length; index += 1) {
-			const previous = samples[index - 1];
-			const current = samples[index];
-			expect(
-				current?.etaAt,
-				`the finish time moved later at sample ${index}: ${samples.map((sample) => sample.etaAt).join(", ")}`,
-			).toBeLessThanOrEqual(previous?.etaAt ?? 0);
-		}
-		// The fake is far faster than the plan: the finish time came down.
-		expect(samples.at(-1)?.etaAt).toBeLessThan(samples[0]?.etaAt ?? 0);
-	}, 30_000);
+	it.each([5, 10] as const)(
+		"only ever moves earlier across a %i s take, even at a node reset",
+		async (durationSeconds) => {
+			await startLtx({
+				startDelayMs: 50,
+				stepDelayMs: durationSeconds === 5 ? 250 : 150,
+				// Two nodes: the first ends at 8/8, the second starts at 1/4, so
+				// ComfyUI's own max drops mid-take.
+				progressPlan: [
+					{ value: 1, max: 8 },
+					{ value: 2, max: 8 },
+					{ value: 3, max: 8 },
+					{ value: 4, max: 8 },
+					{ value: 1, max: 4 },
+					{ value: 2, max: 4 },
+					{ value: 3, max: 4 },
+					{ value: 4, max: 4 },
+				],
+			});
+			const takeId = await queueTake({ durationSeconds });
+			const samples = await recordEta(takeId, drainVideoTakes);
+			expect(samples.length).toBeGreaterThanOrEqual(2);
+			for (let index = 1; index < samples.length; index += 1) {
+				const previous = samples[index - 1];
+				const current = samples[index];
+				expect(
+					current?.etaAt,
+					`the finish time moved later at sample ${index}: ${samples.map((sample) => sample.etaAt).join(", ")}`,
+				).toBeLessThanOrEqual(previous?.etaAt ?? 0);
+			}
+			// The fake is far faster than the plan: the finish time came down.
+			expect(samples.at(-1)?.etaAt).toBeLessThan(samples[0]?.etaAt ?? 0);
+		},
+		30_000,
+	);
 });
