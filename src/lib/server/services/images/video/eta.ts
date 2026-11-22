@@ -10,7 +10,11 @@
 // every frame (about 4 s per 5 s of clip) and stores the clip.
 
 import type { EtaPlan } from "../take-eta";
-import { type VideoDurationSeconds, videoSegmentCount } from "./request";
+import {
+	type VideoDurationSeconds,
+	videoFramesFor,
+	videoSegmentCount,
+} from "./request";
 
 /** Staging the encoder and the transformer from disk. */
 const COLD_LOAD_SECONDS = 22;
@@ -38,6 +42,13 @@ export function videoPlan(
 	warm: boolean,
 ): EtaPlan {
 	const segments = videoSegmentCount(durationSeconds);
+	// A take is one render at 121 frames for five seconds or 241 for ten, so the
+	// sampling and decode scale with the frame count. The constants themselves
+	// were measured at 121 frames WITHOUT the sharpen pass and the x2 upscale,
+	// so this keeps the countdown's shape right while its absolute numbers stay
+	// a known calibration gap.
+	const frames = videoFramesFor(durationSeconds);
+	const scale = frames / 121;
 	const plan: Array<EtaPlan[number]> = [];
 	for (let segment = 1; segment <= segments; segment += 1) {
 		const last = segment === segments;
@@ -46,15 +57,15 @@ export function videoPlan(
 				kind: "load",
 				seconds: segment === 1 && !warm ? COLD_LOAD_SECONDS : WARM_LOAD_SECONDS,
 			},
-			{ kind: "sample", seconds: FIRST_PASS_SECONDS },
-			{ kind: "sample", seconds: SECOND_PASS_SECONDS },
+			{ kind: "sample", seconds: FIRST_PASS_SECONDS * scale },
+			{ kind: "sample", seconds: SECOND_PASS_SECONDS * scale },
 			{
 				kind: "finish",
 				seconds: last
-					? DECODE_SECONDS +
+					? DECODE_SECONDS * scale +
 						CHECK_SECONDS_PER_SEGMENT * segments +
 						STORE_SECONDS
-					: DECODE_SECONDS + CHAIN_SECONDS,
+					: DECODE_SECONDS * scale + CHAIN_SECONDS,
 			},
 		);
 	}

@@ -260,27 +260,57 @@ describe("the video's own numbers", () => {
 });
 
 describe("the checkpoint", () => {
-	it("round-trips the prompt id, the segment and the media of finished segments", () => {
+	it("round-trips the prompt id and the saved clip", () => {
 		const checkpoint = {
-			promptId: "p2",
-			segment: 2 as const,
-			segments: [
-				{
-					promptId: "p1",
-					media: { filename: "a.mp4", subfolder: "", type: "output" as const },
-				},
-				{ promptId: "p2", media: null },
-			],
+			promptId: "p1",
+			media: {
+				filename: "a.mp4",
+				subfolder: "video",
+				type: "output" as const,
+			},
 		};
 		expect(parseVideoCheckpoint(JSON.stringify(checkpoint))).toEqual(
 			checkpoint,
 		);
+		expect(parseVideoCheckpoint('{"promptId":"p1","media":null}')).toEqual({
+			promptId: "p1",
+			media: null,
+		});
+	});
+
+	it("reads the old two-segment shape as its first segment", () => {
+		const old = {
+			promptId: "p2",
+			segment: 2,
+			segments: [
+				{
+					promptId: "p1",
+					media: {
+						filename: "a.mp4",
+						subfolder: "video",
+						type: "output",
+					},
+				},
+				{ promptId: "p2", media: null },
+			],
+		};
+		expect(parseVideoCheckpoint(JSON.stringify(old))).toEqual({
+			promptId: "p1",
+			media: {
+				filename: "a.mp4",
+				subfolder: "video",
+				type: "output",
+			},
+		});
 	});
 
 	it("answers null for anything unreadable", () => {
 		expect(parseVideoCheckpoint(null)).toBeNull();
 		expect(parseVideoCheckpoint("{}")).toBeNull();
 		expect(parseVideoCheckpoint('{"promptId":""}')).toBeNull();
-		expect(parseVideoCheckpoint('{"promptId":"p","segment":3}')).toBeNull();
+		expect(parseVideoCheckpoint('{"promptId":"p","media":{}}')).toBeNull();
+		expect(
+			parseVideoCheckpoint('{"segments":[{"promptId":""}],"promptId":""}'),
+		).toBeNull();
 	});
 });

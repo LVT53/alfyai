@@ -4,12 +4,11 @@
 // `../take-request.ts`). The tool builds a VideoTakeRequest; the runner reads
 // it back through `parseVideoTakeRequest`, which trusts nothing.
 //
-// A take is one 5 s segment; a 10 s take is two segments chained last-frame to
-// first-frame and concatenated (the runner's job, not this file's).
+// A take is one render: 121 frames for five seconds, 241 for ten.
 
 import type { ComfyImageRef } from "../comfyui/types";
 
-/** A take's product length: 5 s, or 10 s as two chained 5 s segments. */
+/** A take's product length: 5 s or 10 s, one render either way. */
 export type VideoDurationSeconds = 5 | 10;
 
 export type VideoTakeRequest = {
@@ -17,12 +16,11 @@ export type VideoTakeRequest = {
 	/** The motion caption, in the LTX caption style the tool wrote. */
 	prompt: string;
 	/**
-	 * A 10 s take's second segment's caption: what happens next, from where the
-	 * first five seconds end (review C-2). Absent when no caption endpoint wrote
-	 * one, and on rows from before it: segment 2 then renders `prompt` again.
+	 * The caption an older row wrote for a second segment. Kept in the type and
+	 * parsed so an old row still renders; nothing reads it.
 	 */
 	continuationPrompt?: string;
-	/** 5 s by default; 10 s is two 5 s segments chained. */
+	/** 5 s by default; 10 s renders 241 frames in the same one pass. */
 	durationSeconds: VideoDurationSeconds;
 	/**
 	 * The still the clip is made from (an `image_files` id of the person), or
@@ -45,19 +43,17 @@ export type VideoTakeRequest = {
 	 */
 	artifactId: string | null;
 	/**
-	 * The engine variant the take renders, frozen when this row is written
-	 * because a 10 s take is two renders minutes apart; a row written before
-	 * this field exists renders the first variant.
+	 * The engine variant the take renders, frozen when this row is written; a
+	 * row written before this field exists renders the first variant.
 	 */
 	explicitVariant: boolean;
 };
 
 /**
  * The video's own render deadline, in milliseconds. A cold 5 s render measured
- * 53 s on the production card and a 10 s take is two segments, each paying the
- * encoder staging on a cold server; 15 minutes also covers waiting in
- * ComfyUI's queue behind the other engine's free. Deliberately not the
- * picture's 10 minutes.
+ * 53 s on the production card and the 10 s pass is one longer render; 15
+ * minutes also covers waiting in ComfyUI's queue behind the other engine's
+ * free. Deliberately not the picture's 10 minutes.
  */
 export const VIDEO_RENDER_DEADLINE_MS = 900_000;
 
@@ -86,8 +82,8 @@ export function setVideoRenderDeadlineMsForTests(ms: number | undefined): void {
 
 /**
  * How long a `make_video` call waits inside the turn before leaving the take
- * on its card. Longer than the picture's 100 s because a 10 s take is two
- * renders; the take itself is detached and finishes either way.
+ * on its card. Longer than the picture's 100 s because a 10 s take is one
+ * 241-frame render; the take itself is detached and finishes either way.
  */
 export const VIDEO_TOOL_WAIT_MS = 240_000;
 
@@ -96,10 +92,16 @@ export const VIDEO_TOOL_WAIT_MS = 240_000;
  * in `comfyui/ltx-spec.ts` (which imports no JSON) and the graph builder writes
  * them into the graph, so these are the same numbers and not two copies of one.
  */
+import {
+	LTX_LONG_FRAMES,
+	LTX_SEGMENT_FRAMES,
+	LTX_VIDEO_FPS,
+} from "../comfyui/ltx-spec";
+
 export {
 	LTX_SEGMENT_FRAMES as VIDEO_SEGMENT_FRAMES,
 	LTX_VIDEO_FPS as VIDEO_FPS,
-} from "../comfyui/ltx-spec";
+};
 export const VIDEO_SEGMENT_DURATION_MS = 5_000;
 
 /** The product length of one segment, and of the whole take. */
@@ -107,11 +109,20 @@ export function videoDurationMs(durationSeconds: VideoDurationSeconds): number {
 	return durationSeconds === 10 ? 10_000 : VIDEO_SEGMENT_DURATION_MS;
 }
 
-/** How many LTX segments a take renders: one at 5 s, two at 10 s. */
-export function videoSegmentCount(
-	durationSeconds: VideoDurationSeconds,
-): 1 | 2 {
-	return durationSeconds === 10 ? 2 : 1;
+/**
+ * Every take is ONE render: 121 frames for five seconds, 241 for ten. A ten
+ * second take used to be two 121-frame segments chained last-frame to
+ * first-frame and concatenated; a single 241-frame pass fits the card
+ * (measured: 96.1 s at 37.8 GiB with the sharpen and the x2 upscale) and has no
+ * seam to hide, so the chain is gone.
+ */
+export function videoSegmentCount(_durationSeconds: VideoDurationSeconds): 1 {
+	return 1;
+}
+
+/** The frames the graph renders for a take: one pass at 24 fps. */
+export function videoFramesFor(durationSeconds: VideoDurationSeconds): number {
+	return durationSeconds === 10 ? LTX_LONG_FRAMES : LTX_SEGMENT_FRAMES;
 }
 
 /** The long edge of every clip: the measured 720p product size. */
@@ -161,23 +172,14 @@ export function videoSizeForSource(size: { width: number; height: number }): {
 		: { width: VIDEO_LONG_EDGE, height: shortSide };
 }
 
-/** One finished segment of a take, as the checkpoint remembers it. */
-export type VideoSegmentRecord = {
-	promptId: string;
-	/** ComfyUI's saved clip for the segment, once the follow reported it. */
-	media: ComfyImageRef | null;
-};
-
 /**
- * The take's checkpoint. `promptId` is the segment being rendered — the same
- * id `promptIdOf` reads, so a Stop finds the running prompt — and `segments`
- * is every segment's prompt and saved clip, so a restart at segment 2 fetches
- * segment 1 again instead of rendering it twice.
+ * The take's checkpoint: the prompt being rendered — the same id `promptIdOf`
+ * reads, so a Stop finds the running prompt — and, once the follow reported it,
+ * the saved clip.
  */
 export type VideoCheckpoint = {
 	promptId: string;
-	segment: 1 | 2;
-	segments: VideoSegmentRecord[];
+	media: ComfyImageRef | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -250,19 +252,6 @@ function parseMedia(value: unknown): ComfyImageRef | null | undefined {
 	return { filename, subfolder, type };
 }
 
-function parseSegments(value: unknown): VideoSegmentRecord[] | undefined {
-	if (value === undefined) return [];
-	if (!Array.isArray(value)) return undefined;
-	const segments: VideoSegmentRecord[] = [];
-	for (const entry of value) {
-		if (!isRecord(entry) || !isNonEmptyString(entry.promptId)) return undefined;
-		const media = parseMedia(entry.media);
-		if (media === undefined) return undefined;
-		segments.push({ promptId: entry.promptId, media });
-	}
-	return segments;
-}
-
 /** The checkpoint a row holds, or null. Never throws. */
 export function parseVideoCheckpoint(
 	json: string | null,
@@ -274,9 +263,20 @@ export function parseVideoCheckpoint(
 	} catch {
 		return null;
 	}
-	if (!isRecord(value) || !isNonEmptyString(value.promptId)) return null;
-	if (value.segment !== 1 && value.segment !== 2) return null;
-	const segments = parseSegments(value.segments);
-	if (!segments) return null;
-	return { promptId: value.promptId, segment: value.segment, segments };
+	if (!isRecord(value)) return null;
+	// A row written before a take was one render carries `segment` and
+	// `segments`: its first entry is what the take resolves to.
+	if (Array.isArray(value.segments)) {
+		const first: unknown = value.segments[0];
+		if (isRecord(first) && isNonEmptyString(first.promptId)) {
+			const media = parseMedia(first.media);
+			if (media !== undefined) {
+				return { promptId: first.promptId, media };
+			}
+		}
+	}
+	if (!isNonEmptyString(value.promptId)) return null;
+	const media = parseMedia(value.media);
+	if (media === undefined) return null;
+	return { promptId: value.promptId, media };
 }

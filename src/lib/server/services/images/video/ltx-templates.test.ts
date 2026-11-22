@@ -23,6 +23,7 @@ const base = {
 	width: 1280,
 	height: 704,
 	image: "take-1.png",
+	frames: 121,
 };
 
 const built = buildLtxVideoGraph({ ...base, variant: "standard" });
@@ -42,6 +43,7 @@ const NODE_TYPES = [
 	"CLIPTextEncode",
 	"CreateVideo",
 	"EmptyLTXVLatentVideo",
+	"ImageSharpen",
 	"ImageUpscaleWithModel",
 	"KSamplerSelect",
 	"LatentUpscaleModelLoader",
@@ -265,6 +267,7 @@ describe("the LTX video graph", () => {
 			width: 704,
 			height: 1280,
 			image: "still.png",
+			frames: 121,
 			variant: "standard",
 		});
 		expect(nodeOf(portrait, "EmptyLTXVLatentVideo").inputs).toMatchObject({
@@ -280,6 +283,7 @@ describe("the LTX video graph", () => {
 			width: 1280,
 			height: 704,
 			image: "x.png",
+			frames: 121,
 			variant: "standard",
 		});
 		expect(second).not.toBe(built);

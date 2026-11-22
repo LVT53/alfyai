@@ -19,7 +19,10 @@ describe("videoPlan", () => {
 			"sample",
 			"finish",
 		]);
-		expect(videoPlan(10, false)).toHaveLength(8);
+		// A ten second take is ONE render of 241 frames, not two 121-frame
+		// segments, so it plans the same four stages as five seconds and the
+		// difference lands in the per-stage seconds.
+		expect(videoPlan(10, false)).toHaveLength(4);
 	});
 
 	it("starts a cold 5 s clip near the 40 s a cold take shows, a warm one well under", () => {
@@ -29,16 +32,26 @@ describe("videoPlan", () => {
 		expect(total(videoPlan(5, true))).toBeLessThanOrEqual(28);
 	});
 
-	it("gives a 10 s clip a second, warm segment and the longer frame check", () => {
+	it("scales a 10 s clip's sampling and decode with its frame count", () => {
 		const five = videoPlan(5, false);
 		const ten = videoPlan(10, false);
-		expect(total(ten)).toBeGreaterThan(total(five) + 15);
-		// The second segment restages from memory, so it loads like a warm take.
-		expect(ten[4]?.seconds).toBe(videoPlan(5, true)[0]?.seconds);
+		// One render twice as long: the load is paid once, the rest doubles.
+		// The load is paid once and does not scale; both sample passes and the
+		// decode scale by 241/121.
+		expect(ten[0]?.seconds).toBe(five[0]?.seconds);
+		expect(ten[1]?.seconds).toBeCloseTo(
+			(five[1]?.seconds ?? 0) * (241 / 121),
+			5,
+		);
+		expect(ten[2]?.seconds).toBeCloseTo(
+			(five[2]?.seconds ?? 0) * (241 / 121),
+			5,
+		);
+		expect(total(ten)).toBeGreaterThan(total(five));
 		expect(ten.at(-1)?.seconds).toBeGreaterThan(five.at(-1)?.seconds ?? 0);
 	});
 
-	it("counts a 10 s take down through both segments without a jump up", () => {
+	it("counts a 10 s take down through its single render without a jump up", () => {
 		const eta = createTakeEta(videoPlan(10, false));
 		const at = (seconds: number) => T0 + seconds * 1000;
 		const published = [eta.start(at(0))];

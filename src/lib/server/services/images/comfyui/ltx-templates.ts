@@ -36,7 +36,6 @@
 
 import ltxVideoGraph from "./graphs/ltx-image-to-video.api.json";
 import {
-	LTX_SEGMENT_FRAMES,
 	LTX_TEXT_ENCODER,
 	LTX_TEXT_ENCODER_ALT,
 	LTX_VIDEO_FPS,
@@ -103,6 +102,8 @@ export type LtxVideoGraphInput = {
 	image?: string;
 	/** True when the take starts from the prompt alone, with no image path. */
 	fromText?: boolean;
+	/** Frames to render: 121 for five seconds, 241 for ten, one pass either way. */
+	frames: number;
 	/** Which variant's graph to build. */
 	variant: LtxVideoVariant;
 };
@@ -148,8 +149,8 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 	put(EMPTY_LATENT_NODE, "width", half(input.width));
 	put(EMPTY_LATENT_NODE, "height", half(input.height));
 	// One authority for the frame count and rate, written into both passes.
-	put(EMPTY_LATENT_NODE, "length", LTX_SEGMENT_FRAMES);
-	put(AUDIO_LATENT_NODE, "frames_number", LTX_SEGMENT_FRAMES);
+	put(EMPTY_LATENT_NODE, "length", input.frames);
+	put(AUDIO_LATENT_NODE, "frames_number", input.frames);
 	put(CONDITIONING_NODE, "frame_rate", LTX_VIDEO_FPS);
 	put(AUDIO_LATENT_NODE, "frame_rate", LTX_VIDEO_FPS);
 	put(CREATE_VIDEO_NODE, "fps", LTX_VIDEO_FPS);

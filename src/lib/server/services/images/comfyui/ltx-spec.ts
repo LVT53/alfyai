@@ -48,6 +48,12 @@ export const LTX_SIGMAS_PASS_2 = "0.85, 0.7250, 0.4219, 0.0";
 /** 121 frames at 24 fps: the template's own 5 s segment. */
 export const LTX_VIDEO_FPS = 24;
 export const LTX_SEGMENT_FRAMES = 121;
+/**
+ * 241 frames: the same 24 fps clock, ten seconds in one pass. Measured on the
+ * card at 1280x832 — 42.8 s bare, 96.1 s with the sharpen and the x2 upscale,
+ * 37.8 GiB peak — so a ten-second take is one render, not two stitched ones.
+ */
+export const LTX_LONG_FRAMES = 241;
 
 /** Which variant's graph a video take builds. */
 export type LtxVideoVariant = "standard" | "alt";
