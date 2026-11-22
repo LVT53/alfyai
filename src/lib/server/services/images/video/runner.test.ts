@@ -27,10 +27,9 @@ import {
 	serializeVideoVersionBody,
 } from "$lib/shared/artifacts/video-body";
 import {
-	LTX_LORA_ALT,
-	LTX_LORA_ALT_STRENGTH,
 	LTX_TEXT_ENCODER,
 	LTX_TEXT_ENCODER_ALT,
+	LTX_VIDEO_UNET_ALT,
 } from "../comfyui/ltx-spec";
 import {
 	createFakeComfyUi,
@@ -603,14 +602,12 @@ describe("the engine variant", () => {
 		const graph = graphOf(promptRequests(server)[0]);
 		expect(guiders(graph)).toHaveLength(2);
 		for (const guider of guiders(graph)) {
-			expect(guider.inputs.model).toEqual(["34", 0]);
+			expect(guider.inputs.model).toEqual(["1", 0]);
 		}
-		const [lora] = loras(graph);
-		expect(lora?.inputs).toMatchObject({
-			model: ["1", 0],
-			lora_name: LTX_LORA_ALT,
-			strength_model: LTX_LORA_ALT_STRENGTH,
-		});
+		expect(loras(graph)).toHaveLength(0);
+		expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+			LTX_VIDEO_UNET_ALT,
+		);
 		expect(nodeOfType(graph, "CLIPLoader").inputs.clip_name).toBe(
 			LTX_TEXT_ENCODER_ALT,
 		);
@@ -642,9 +639,12 @@ describe("the engine variant", () => {
 		expect(posts).toHaveLength(2);
 		for (const post of posts) {
 			const graph = graphOf(post);
-			expect(loras(graph)).toHaveLength(1);
+			expect(loras(graph)).toHaveLength(0);
+			expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+				LTX_VIDEO_UNET_ALT,
+			);
 			for (const guider of guiders(graph)) {
-				expect(guider.inputs.model).toEqual(["34", 0]);
+				expect(guider.inputs.model).toEqual(["1", 0]);
 			}
 		}
 		// The row decides both segments: the fixture person's live value is the

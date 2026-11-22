@@ -28,11 +28,11 @@ export const LTX_TEXT_ENCODER =
 export const LTX_TEXT_ENCODER_ALT =
 	"gemma4-12b-uncensored-heretic-ltx2.5-comfy-int8-convrot.safetensors";
 /**
- * The second variant's LoRA and its strength: that pack's model 2895730,
- * version 3273653, its `LoraLoaderModelOnly` node 416 at 0.7.
+ * The second variant's transformer: a 2.5 merge quantized locally to nvfp4
+ * with Comfy-Org's comfy-quants, `configs/ltx2_nvfp4.yaml` (17,579,788,296
+ * bytes, sha256 839a36d37cdf6234bc495e9cfb1ad97f08a12764c95fce5ea24ba9556c7aa3dc).
  */
-export const LTX_LORA_ALT = "LTX_10Eros-v15_LoRA_fro99-avgrank103.safetensors";
-export const LTX_LORA_ALT_STRENGTH = 0.7;
+export const LTX_VIDEO_UNET_ALT = "LTX2.5_10Eros15_SULPHUR_nvfp4.safetensors";
 /** The conv decoder: faster and crisper than the diffusion VAE (feasibility.md, "The VAE"). */
 export const LTX_VIDEO_VAE = "ltx-2.5-video-vae-conv-bf16.safetensors";
 /** Joint audio: the audio VAE lives in `checkpoints` and is read by its own loader. */

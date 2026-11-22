@@ -5,7 +5,7 @@
 // the source still, the prompt and the seed.
 
 import { describe, expect, it } from "vitest";
-import { LTX_LORA_ALT, LTX_TEXT_ENCODER_ALT } from "../comfyui/ltx-spec";
+import { LTX_TEXT_ENCODER_ALT, LTX_VIDEO_UNET_ALT } from "../comfyui/ltx-spec";
 import {
 	buildLtxVideoGraph,
 	LTX_AUDIO_VAE,
@@ -216,20 +216,21 @@ describe("the LTX video graph", () => {
 		expect(graph["27"].inputs.model).toEqual(["1", 0]);
 	});
 
-	it("splices the LoRA between the UNET and both guiders", () => {
+	it("builds the second variant on its own transformer and encoder", () => {
 		const graph = buildLtxVideoGraph({ ...base, variant: "alt" });
-		expect(graph["34"].class_type).toBe("LoraLoaderModelOnly");
-		expect(graph["34"].inputs.lora_name).toBe(LTX_LORA_ALT);
-		expect(graph["34"].inputs.strength_model).toBe(0.7);
-		expect(graph["34"].inputs.model).toEqual(["1", 0]);
-		expect(graph["17"].inputs.model).toEqual(["34", 0]);
-		expect(graph["27"].inputs.model).toEqual(["34", 0]);
+		expect(graph["1"].inputs.unet_name).toBe(LTX_VIDEO_UNET_ALT);
 		expect(graph["2"].inputs.clip_name).toBe(LTX_TEXT_ENCODER_ALT);
+		expect(
+			Object.values(graph).some((n) => n.class_type === "LoraLoaderModelOnly"),
+		).toBe(false);
+		expect(graph["17"].inputs.model).toEqual(["1", 0]);
+		expect(graph["27"].inputs.model).toEqual(["1", 0]);
 	});
 
 	it("does not mutate the shared JSON between builds", () => {
 		buildLtxVideoGraph({ ...base, variant: "alt" });
 		const graph = buildLtxVideoGraph({ ...base, variant: "standard" });
-		expect(graph["34"]).toBeUndefined();
+		expect(graph["1"].inputs.unet_name).toBe(LTX_VIDEO_UNET);
+		expect(graph["2"].inputs.clip_name).toBe(LTX_TEXT_ENCODER);
 	});
 });
