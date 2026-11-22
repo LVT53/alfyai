@@ -21,6 +21,18 @@ export const LTX_VIDEO_UNET =
 /** The int8 Gemma-4 encoder that ships beside it (15.37 GB). */
 export const LTX_TEXT_ENCODER =
 	"gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors";
+/**
+ * The second variant's text encoder: the linked Civitai pack, model 2895730,
+ * version 3273653, its `CLIPLoader` node 387.
+ */
+export const LTX_TEXT_ENCODER_ALT =
+	"gemma4-12b-uncensored-heretic-ltx2.5-comfy-int8-convrot.safetensors";
+/**
+ * The second variant's LoRA and its strength: that pack's model 2895730,
+ * version 3273653, its `LoraLoaderModelOnly` node 416 at 0.7.
+ */
+export const LTX_LORA_ALT = "LTX_10Eros-v15_LoRA_fro99-avgrank103.safetensors";
+export const LTX_LORA_ALT_STRENGTH = 0.7;
 /** The conv decoder: faster and crisper than the diffusion VAE (feasibility.md, "The VAE"). */
 export const LTX_VIDEO_VAE = "ltx-2.5-video-vae-conv-bf16.safetensors";
 /** Joint audio: the audio VAE lives in `checkpoints` and is read by its own loader. */
@@ -36,3 +48,6 @@ export const LTX_SIGMAS_PASS_2 = "0.85, 0.7250, 0.4219, 0.0";
 /** 121 frames at 24 fps: the template's own 5 s segment. */
 export const LTX_VIDEO_FPS = 24;
 export const LTX_SEGMENT_FRAMES = 121;
+
+/** Which variant's graph a video take builds. */
+export type LtxVideoVariant = "standard" | "alt";
