@@ -17,6 +17,7 @@ import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
 	type NativeMemory,
+	type NativeOperation,
 } from "./contracts";
 import { memoryResendTransitions } from "./curation-lineage";
 import { runDependencyRepair } from "./dependency-repair";
@@ -70,27 +71,40 @@ async function pause(signal: AbortSignal) {
 		signal.addEventListener("abort", abort, { once: true });
 	});
 }
-async function settle(
+const ENDED = ["completed", "failed", "cancelled"];
+const ENDED_BADLY = ["failed", "cancelled"];
+/**
+ * Polls until every operation has ended or, with `stopOnBadEnd`, until one has
+ * failed or been cancelled. Returns the statuses it read last.
+ */
+async function pollOperations(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
-	cleanup = false,
-) {
+	stopOnBadEnd: boolean,
+): Promise<NativeOperation[]> {
 	const deadline = Date.now() + 180000;
 	while (Date.now() < deadline) {
 		signal.throwIfAborted();
 		const ops = await Promise.all(ids.map((id) => client.operation(id)));
 		if (ops.some((o) => o.status === "not_found"))
 			throw new NativeMemoryError("native_acknowledgement_unknown", true);
-		if (!cleanup && ops.some((o) => ["failed", "cancelled"].includes(o.status)))
-			throw new NativeMemoryError("native_operation_failed", false);
-		if (
-			ops.every((o) => ["completed", "failed", "cancelled"].includes(o.status))
-		)
-			return;
+		if (stopOnBadEnd && ops.some((o) => ENDED_BADLY.includes(o.status)))
+			return ops;
+		if (ops.every((o) => ENDED.includes(o.status))) return ops;
 		await pause(signal);
 	}
 	throw new NativeMemoryError("native_operation_timeout", true);
+}
+async function settle(
+	client: HindsightClient,
+	ids: string[],
+	signal: AbortSignal,
+	cleanup = false,
+) {
+	const ops = await pollOperations(client, ids, signal, !cleanup);
+	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
+		throw new NativeMemoryError("native_operation_failed", false);
 }
 async function drainNative(client: HindsightClient, signal: AbortSignal) {
 	const deadline = Date.now() + 180000;
