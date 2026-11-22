@@ -134,47 +134,45 @@ it("does not retain a subscription for an already-cancelled observer", () => {
 	expect(vi.getTimerCount()).toBe(0);
 });
 
-it.each([
-	"missing",
-	"prefix-loss",
-	"vanished",
-	"subscription-race",
-] as const)("returns durable unsaved terminal truth after %s", async (mode) => {
-	const terminal = {
-		version: 1,
-		streamId: "s",
-		conversationId: "c",
-		state: "terminal",
-		assistantMessageId: null,
-		completion: {
+it.each(["missing", "prefix-loss", "vanished", "subscription-race"] as const)(
+	"returns durable unsaved terminal truth after %s",
+	async (mode) => {
+		const terminal = {
 			version: 1,
-			turnId: "t",
-			segmentId: "segment",
-			phase: "working",
-			outcome: "incomplete",
-			stopCause: "uncertain_execution",
-			workingStopCause: "uncertain_execution",
-			closingAttempted: false,
-		},
-	};
-	observation.mockResolvedValue(terminal);
-	const c = connect(
-		mode === "prefix-loss" ? [streamTextDeltaEvent("x".repeat(200001))] : [],
-		false,
-		mode === "missing",
-		mode !== "subscription-race",
-	);
-	if (mode === "vanished") {
-		c.getStreamBuffer.mockReturnValue(undefined);
-		await vi.advanceTimersByTimeAsync(2000);
-	} else await c.done;
-	expect(c.enqueueChunk).toHaveBeenCalledWith(
-		streamDataPartEvent("data-stream-metadata", { observation: terminal }),
-	);
-	expect(c.enqueueChunk.mock.calls.join("")).not.toContain("data-waiting");
-	expect(c.closeDownstream).toHaveBeenCalledOnce();
-	expect(vi.getTimerCount()).toBe(0);
-});
+			streamId: "s",
+			conversationId: "c",
+			state: "terminal",
+			assistantMessageId: null,
+			completion: {
+				version: 1,
+				turnId: "t",
+				segmentId: "segment",
+				phase: "working",
+				outcome: "incomplete",
+				stopCause: "uncertain_execution",
+				workingStopCause: "uncertain_execution",
+				closingAttempted: false,
+			},
+		};
+		observation.mockResolvedValue(terminal);
+		const c = connect(
+			mode === "prefix-loss" ? [streamTextDeltaEvent("x".repeat(200001))] : [],
+			false,
+			mode === "missing",
+			mode !== "subscription-race",
+		);
+		if (mode === "vanished") {
+			c.getStreamBuffer.mockReturnValue(undefined);
+			await vi.advanceTimersByTimeAsync(2000);
+		} else await c.done;
+		expect(c.enqueueChunk).toHaveBeenCalledWith(
+			streamDataPartEvent("data-stream-metadata", { observation: terminal }),
+		);
+		expect(c.enqueueChunk.mock.calls.join("")).not.toContain("data-waiting");
+		expect(c.closeDownstream).toHaveBeenCalledOnce();
+		expect(vi.getTimerCount()).toBe(0);
+	},
+);
 
 it("does not emit a late observation after downstream abort", async () => {
 	let resolve!: (value: unknown) => void;

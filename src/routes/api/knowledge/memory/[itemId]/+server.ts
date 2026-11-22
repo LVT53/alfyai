@@ -1,26 +1,34 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { getKnowledgeMemoryItemDetail } from "$lib/server/services/memory";
+import {
+	getMemoryDetail,
+	MemoryRequestError,
+	parseMemoryScope,
+} from "$lib/server/services/memory";
 import type { RequestHandler } from "./$types";
-
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user;
-	if (!user) {
-		return json({ error: "Unauthorized" }, { status: 401 });
-	}
-
 	try {
-		const detail = await getKnowledgeMemoryItemDetail(
-			user.id,
-			event.params.itemId,
+		return json(
+			getMemoryDetail(event.locals.user.id, {
+				scope: parseMemoryScope({
+					kind: event.url.searchParams.get("scope") ?? "personal",
+					projectId: event.url.searchParams.get("projectId"),
+				}),
+				generation: event.url.searchParams.get("generation") ?? "",
+				rowId: event.params.itemId,
+			}),
+			{ headers: { "Cache-Control": "no-store" } },
 		);
-		if (!detail) {
-			return json({ error: "Memory item not found" }, { status: 404 });
-		}
-		return json(detail);
 	} catch (error) {
-		console.error("[KNOWLEDGE_MEMORY] Failed to load memory item:", error);
-		return json({ error: "Failed to load memory item" }, { status: 500 });
+		return json(
+			{
+				error:
+					error instanceof MemoryRequestError
+						? error.code
+						: "memory_unavailable",
+			},
+			{ status: error instanceof MemoryRequestError ? error.status : 503 },
+		);
 	}
 };

@@ -34,19 +34,19 @@ test("a 10px jump on live activity growth fails the retained 1px bar", () => {
 	expect(metric.end).toBe(4);
 });
 
-test.each([
-	"answer",
-	"terminal",
-])("intentional fade after independently observed %s is excluded", (cause) => {
-	const frames = [
-		frame(0, 0),
-		frame(1, 0),
-		frame(2, 0, 40),
-		frame(3, 30, 40, cause === "answer", cause !== "terminal"),
-		frame(4, null, 0, true, false),
-	];
-	expect(measureLiveActivity(frames, 1)).toEqual({ end: 3, proseMovedPx: 0 });
-});
+test.each(["answer", "terminal"])(
+	"intentional fade after independently observed %s is excluded",
+	(cause) => {
+		const frames = [
+			frame(0, 0),
+			frame(1, 0),
+			frame(2, 0, 40),
+			frame(3, 30, 40, cause === "answer", cause !== "terminal"),
+			frame(4, null, 0, true, false),
+		];
+		expect(measureLiveActivity(frames, 1)).toEqual({ end: 3, proseMovedPx: 0 });
+	},
+);
 
 test("unexpected disappearance before known terminal fails rather than truncating", () => {
 	expect(() =>

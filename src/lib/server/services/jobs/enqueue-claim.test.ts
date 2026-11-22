@@ -691,3 +691,96 @@ describe("describeJob", () => {
 		expect(canRetry(3)).toBe(false);
 	});
 });
+
+it("rejects async atomic preparation before it can escape rollback", async () => {
+	let invoked = false;
+	await expect(
+		h.engine.enqueueAtomic(h.control.kind, (async (
+			tx: Parameters<Parameters<typeof h.engine.enqueueAtomic>[1]>[0],
+		) => {
+			invoked = true;
+			await Promise.resolve();
+			tx.insert(testJobs)
+				.values({ userId: h.userId, id: "escaped-async" })
+				.run();
+			return [];
+		}) as never),
+	).rejects.toThrow(/synchronous/);
+	await Promise.resolve();
+	expect(invoked).toBe(false);
+	expect(
+		h.fixture.sqlite.prepare("SELECT * FROM test_jobs").all(),
+	).toHaveLength(0);
+});
+it("revokes captured atomic builders when a synchronous callback returns a promise", async () => {
+	let lateError: unknown;
+	await expect(
+		h.engine.enqueueAtomic(h.control.kind, ((
+			tx: Parameters<Parameters<typeof h.engine.enqueueAtomic>[1]>[0],
+		) => {
+			const builder = tx
+				.insert(testJobs)
+				.values({ userId: h.userId, id: "escaped-builder" });
+			return Promise.resolve().then(() => {
+				try {
+					builder.run();
+				} catch (e) {
+					lateError = e;
+				}
+				return [];
+			});
+		}) as never),
+	).rejects.toThrow(/synchronous/);
+	await Promise.resolve();
+	expect(String(lateError)).toMatch(/expired/);
+	expect(
+		h.fixture.sqlite.prepare("SELECT * FROM test_jobs").all(),
+	).toHaveLength(0);
+});
+
+it("revokes a nested transaction capability captured by preparation", async () => {
+	let late: (() => void) | undefined;
+	await h.engine.enqueueAtomic(h.control.kind, (tx) => {
+		tx.transaction((inner) => {
+			late = () =>
+				inner
+					.insert(testJobs)
+					.values({ id: "nested-escape", userId: h.userId })
+					.run();
+		});
+		return [];
+	});
+	expect(late).toBeDefined();
+	expect(() => late?.()).toThrow(/expired/);
+	expect(
+		h.fixture.sqlite.prepare("SELECT * FROM test_jobs").all(),
+	).toHaveLength(0);
+});
+
+it("announces a job born settled only after the atomic batch commits", async () => {
+	const observed: Array<string | undefined> = [];
+	h.control.transitionHook = (_tx, row, to) => {
+		if (to !== "succeeded") return;
+		h.engine.subscribeToJobSettled(h.control.kind, row.id, () => {
+			observed.push(h.fixture.readJob(row.id)?.status);
+		});
+	};
+	const settled = {
+		values: { userId: h.userId },
+		born: { status: "succeeded" as const },
+	};
+	await expect(
+		h.engine.enqueueAtomic(h.control.kind, () => [
+			settled,
+			{ values: { userId: "" } },
+		]),
+	).rejects.toThrow(/userId/);
+	expect(observed).toEqual([]);
+	expect(h.fixture.sqlite.prepare("SELECT * FROM test_jobs").all()).toEqual([]);
+
+	await h.engine.enqueueAtomic(h.control.kind, () => [
+		settled,
+		{ values: { userId: h.userId } },
+	]);
+	expect(observed).toEqual(["succeeded"]);
+});

@@ -8,6 +8,7 @@ import {
 	announcementCampaigns,
 	artifacts,
 	campaignAssets,
+	memoryAccounts,
 	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
@@ -25,7 +26,7 @@ import {
 	hardDeleteArtifactsForUser,
 } from "../knowledge";
 import { quiesceUserMemoryMaintenance } from "../memory-maintenance";
-import { advanceMemoryResetGeneration } from "../memory-profile/reset-generation";
+import { prepareNativeMemoryErasure } from "../memory-profile/delivery-job";
 import { clearMessageEvidenceForUser } from "../messages";
 import {
 	explicitErasureTables,
@@ -58,12 +59,44 @@ export const DETACHED_SHARED_CONTENT_OWNER_EMAIL =
  * these deletes are explicit. Registry order is FK-safe (children before
  * parents, `conversations` last).
  */
-function deleteResetScopeRows(userId: string, scope: "memory" | "workspace") {
-	db.transaction((tx) => {
-		for (const entry of tablesForResetScope(scope)) {
-			tx.delete(entry.table).where(eq(entry.userColumn, userId)).run();
-		}
-	});
+function deleteResetScopeRows(
+	tx: AccountLifecycleTransaction,
+	userId: string,
+	scope: "memory" | "workspace",
+) {
+	for (const entry of tablesForResetScope(scope)) {
+		tx.delete(entry.table).where(eq(entry.userColumn, userId)).run();
+	}
+}
+
+function erasureOwner(userId: string, token: string) {
+	return and(
+		eq(memoryAccounts.userId, userId),
+		eq(memoryAccounts.erasureToken, token),
+	);
+}
+
+function ownsErasure(
+	userId: string,
+	token: string,
+	database: Pick<typeof db, "select"> = db,
+) {
+	return !!database
+		.select({ id: memoryAccounts.userId })
+		.from(memoryAccounts)
+		.where(erasureOwner(userId, token))
+		.get();
+}
+
+function finishReset(
+	tx: AccountLifecycleTransaction,
+	userId: string,
+	token: string,
+) {
+	tx.update(memoryAccounts)
+		.set({ lifecycleState: "active", erasureToken: null })
+		.where(erasureOwner(userId, token))
+		.run();
 }
 
 /**
@@ -73,24 +106,43 @@ function deleteResetScopeRows(userId: string, scope: "memory" | "workspace") {
  */
 export async function clearMemoryAndKnowledgeForUser(
 	userId: string,
+	options: { artifactScope?: "all-owned" } = {},
 ): Promise<string[]> {
-	await advanceMemoryResetGeneration(userId);
+	const token = await prepareNativeMemoryErasure(
+		userId,
+		options.artifactScope === "all-owned" ? "erasing_all_owned" : "erasing",
+	);
+	if (!token) return [];
 
-	const artifactRows = await db
+	const ownershipScope =
+		options.artifactScope === "all-owned"
+			? await getArtifactOwnershipScope(userId, { includeIncognito: true })
+			: null;
+	if (!ownsErasure(userId, token)) return [];
+	const artifactRows = db
 		.select({ id: artifacts.id })
 		.from(artifacts)
 		.where(
-			and(eq(artifacts.userId, userId), ne(artifacts.type, "generated_output")),
-		);
+			ownershipScope
+				? buildArtifactVisibilityCondition({ userId, ownershipScope })
+				: and(
+						eq(artifacts.userId, userId),
+						ne(artifacts.type, "generated_output"),
+					),
+		)
+		.all();
 	const deletedArtifactIds = artifactRows.map((row) => row.id).sort();
 
 	if (deletedArtifactIds.length > 0) {
 		await hardDeleteArtifactsForUser(userId, deletedArtifactIds);
 	}
 
-	deleteResetScopeRows(userId, "memory");
-
-	await clearMessageEvidenceForUser(userId);
+	db.transaction((tx) => {
+		if (!ownsErasure(userId, token, tx)) return;
+		deleteResetScopeRows(tx, userId, "memory");
+		clearMessageEvidenceForUser(userId, tx);
+		finishReset(tx, userId, token);
+	});
 	return deletedArtifactIds;
 }
 
@@ -100,32 +152,52 @@ export async function clearMemoryAndKnowledgeForUser(
  * shared DB-purge step of full Account Erasure (before the user row is deleted).
  */
 export async function purgeUserData(userId: string): Promise<void> {
+	const token = await prepareNativeMemoryErasure(userId, "erasing_workspace");
+	if (token) await purgeOwnedWorkspace(userId, token, false);
+}
+
+async function purgeOwnedWorkspace(
+	userId: string,
+	token: string,
+	keepErasing: boolean,
+) {
+	if (!ownsErasure(userId, token)) return;
 	await cancelActiveAtlasJobsForUser(userId);
 	// Clear Workspace does not quiesce first: stop the takes before their files go.
 	await cancelImageTakesForUser(userId);
 	await cancelVideoTakesForUser(userId);
+	if (!ownsErasure(userId, token)) return;
 	await deleteAllChatFilesForUser(userId);
+	if (!ownsErasure(userId, token)) return;
 	await deleteImageFilesForUser(userId);
+	if (!ownsErasure(userId, token)) return;
 	await deleteAtlasJobsForUser(userId);
 
 	const ownershipScope = await getArtifactOwnershipScope(userId, {
 		includeIncognito: true,
 	});
-	const artifactRows = await db
+	if (!ownsErasure(userId, token)) return;
+	const artifactRows = db
 		.select({ id: artifacts.id })
 		.from(artifacts)
-		.where(buildArtifactVisibilityCondition({ userId, ownershipScope }));
+		.where(buildArtifactVisibilityCondition({ userId, ownershipScope }))
+		.all();
 	const artifactIds = artifactRows.map((row) => row.id);
 	if (artifactIds.length > 0) {
 		await hardDeleteArtifactsForUser(userId, artifactIds);
 	}
 
+	if (!ownsErasure(userId, token)) return;
 	await rm(join(process.cwd(), "data", "knowledge", userId), {
 		recursive: true,
 		force: true,
 	});
 
-	deleteResetScopeRows(userId, "workspace");
+	db.transaction((tx) => {
+		if (!ownsErasure(userId, token, tx)) return;
+		deleteResetScopeRows(tx, userId, "workspace");
+		if (!keepErasing) finishReset(tx, userId, token);
+	});
 }
 
 /**
@@ -190,10 +262,13 @@ export async function eraseUserAccountData(
 	userId: string,
 	options: EraseUserAccountDataOptions = {},
 ): Promise<void> {
+	const token = await prepareNativeMemoryErasure(userId, "erasing_account");
+	if (!token || !ownsErasure(userId, token)) return;
 	await quiesceUserWorkspace(userId);
-	await purgeUserData(userId);
-	await detachSharedContentAuthorship(userId);
-	deleteUserRowAndExplicitAnalytics(userId, options);
+	await purgeOwnedWorkspace(userId, token, true);
+	if (!ownsErasure(userId, token)) return;
+	await detachSharedContentAuthorship(userId, token);
+	if (!deleteUserRowAndExplicitAnalytics(userId, token, options)) return;
 
 	await rm(join(process.cwd(), "data", "avatars", `${userId}.webp`), {
 		force: true,
@@ -209,9 +284,11 @@ export async function eraseUserAccountData(
  */
 function deleteUserRowAndExplicitAnalytics(
 	userId: string,
+	token: string,
 	options: EraseUserAccountDataOptions = {},
 ) {
-	db.transaction((tx) => {
+	return db.transaction((tx) => {
+		if (!ownsErasure(userId, token, tx)) return false;
 		if (options.refuseLastAdmin && isLastAdminAccountIn(tx, userId)) {
 			throw new LastAdminAccountError();
 		}
@@ -219,13 +296,18 @@ function deleteUserRowAndExplicitAnalytics(
 			tx.delete(entry.table).where(eq(entry.userColumn, userId)).run();
 		}
 		tx.delete(users).where(eq(users.id, userId)).run();
+		return true;
 	});
 }
 
-async function detachSharedContentAuthorship(userId: string): Promise<void> {
+async function detachSharedContentAuthorship(
+	userId: string,
+	token: string,
+): Promise<void> {
 	const detachedOwnerId = await resolveDetachedSharedContentOwnerId(userId);
 
 	db.transaction((tx) => {
+		if (!ownsErasure(userId, token, tx)) return;
 		if (detachedOwnerId) {
 			tx.update(campaignAssets)
 				.set({

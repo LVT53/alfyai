@@ -1,0 +1,64 @@
+[
+  {
+    "profile": "p01",
+    "index": 5,
+    "arm": "alfyai-passive",
+    "strictPass": false,
+    "lenientPass": true,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision."
+  },
+  {
+    "profile": "p01",
+    "index": 5,
+    "arm": "alfyai-tool",
+    "strictPass": false,
+    "lenientPass": true,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision."
+  },
+  {
+    "profile": "p02",
+    "index": 5,
+    "arm": "alfyai-passive",
+    "strictPass": false,
+    "lenientPass": true,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision."
+  },
+  {
+    "profile": "p02",
+    "index": 5,
+    "arm": "alfyai-tool",
+    "strictPass": false,
+    "lenientPass": true,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision."
+  },
+  {
+    "profile": "p03",
+    "index": 5,
+    "arm": "alfyai-passive",
+    "strictPass": false,
+    "lenientPass": true,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision."
+  },
+  {
+    "profile": "p03",
+    "index": 5,
+    "arm": "alfyai-tool",
+    "strictPass": false,
+    "lenientPass": true,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision."
+  },
+  {
+    "profile": "p03",
+    "index": 0,
+    "arm": "alfyai-tool",
+    "strictPass": true,
+    "reason": "This Friday anchored by explicit Thursday September 3 is equivalent to September 4; no date-format requirement."
+  },
+  {
+    "profile": "p02",
+    "index": 9,
+    "arm": "alfyai-tool",
+    "strictPass": true,
+    "reason": "Omelette and halloumi/avocado toast are reasonably under-20-minute lunches; no demand to recite duration when meals comply."
+  }
+]

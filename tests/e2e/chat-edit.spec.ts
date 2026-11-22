@@ -860,6 +860,7 @@ test.describe("Editing a message in the composer", () => {
 						reasoningDepth: "thorough",
 						personalityProfileId: null,
 						isEditResend: true,
+						editSourceMessageId: userIds[8],
 					};
 					const response = await page.request.post("/api/chat/stream", {
 						data: upstreamPayload,

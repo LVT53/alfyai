@@ -33,10 +33,10 @@ describe("the feature guide's content", () => {
 		]);
 	});
 
-	it("has thirty-four entries with unique ids, 8/7/6/4/5/4 per section", () => {
-		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(34);
+	it("has thirty-five entries with unique ids, 8/7/6/4/5/5 per section", () => {
+		expect(new Set(GUIDE_ENTRIES.map((e) => e.id)).size).toBe(35);
 		expect(GUIDE_SECTION_IDS.map((s) => guideEntriesFor(s).length)).toEqual([
-			8, 7, 6, 4, 5, 4,
+			8, 7, 6, 4, 5, 5,
 		]);
 	});
 
@@ -75,6 +75,47 @@ describe("the feature guide's content", () => {
 			expect(
 				words[lang]["guide.entry.picturesAndVideos.example"],
 			).toBeUndefined();
+		}
+	});
+
+	// The person's own Send with Enter switch (Settings > Profile, the last row of
+	// the Preferences card): Show me rings its row. The Your account drawing
+	// shows only that card's first two rows, so the entry lights nothing.
+	it("lists Send with Enter in Your account, after Language and look, with Show me on its Settings row", () => {
+		const account = guideEntriesFor("account");
+		expect(account.map((e) => e.id).slice(0, 2)).toEqual([
+			"languageAndLook",
+			"sendWithEnter",
+		]);
+		expect(account[1]).toEqual({
+			id: "sendWithEnter",
+			section: "account",
+			drawingSpot: null,
+			action: {
+				kind: "showMe",
+				place: "settings",
+				spotlight: "settings.sendWithEnter",
+			},
+			added: "2026-11-18",
+		});
+		const expected = {
+			en: {
+				"guide.entry.sendWithEnter.name": "Send with Enter",
+				"guide.entry.sendWithEnter.line":
+					"Enter sends your message and Shift+Enter starts a new line.",
+			},
+			hu: {
+				"guide.entry.sendWithEnter.name": "Küldés Enterrel",
+				"guide.entry.sendWithEnter.line":
+					"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd.",
+			},
+		} as const;
+		for (const lang of LANGUAGES) {
+			for (const [key, value] of Object.entries(expected[lang])) {
+				expect(words[lang][key], `${lang} ${key}`).toBe(value);
+			}
+			// A Show me has no example: only Try it has one.
+			expect(words[lang]["guide.entry.sendWithEnter.example"]).toBeUndefined();
 		}
 	});
 
@@ -259,6 +300,7 @@ describe("the feature guide's content", () => {
 			"videos",
 			"picturesAndVideos",
 			"yourVoices",
+			"sendWithEnter",
 		]);
 	});
 

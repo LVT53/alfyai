@@ -142,7 +142,7 @@ admin UI. The essentials:
   connection and provider credentials and for two-step sign-in secrets, so changing it makes those
   undecryptable. Outside production it falls back to an insecure built-in value and warns once.
 - `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, `MODEL_1_NAME` — the primary OpenAI-compatible chat model.
-- `PARALLEL_API_KEY` — enables web research (`research_web` / `fetch_url`) and Atlas.
+- `PARALLEL_API_KEY` — enables web research (`research_web` / `fetch_url`), image search (`image_search`, Fast mode) and Atlas.
 - `PARALLEL_FREE_MONTHLY_USD` — server-wide Parallel spend every calendar month is free for
   (default `5`). Calls past it are billed to the user who made them.
 - `DATABASE_PATH` — SQLite location (default `./data/chat.db`).
@@ -249,3 +249,23 @@ ADRs, is in [docs/architecture.md](docs/architecture.md).
 - [deploy/README.md](deploy/README.md) — deployment runbook and operations
 - [docs/adr/README.md](docs/adr/README.md) — architecture decision records
 - [AGENTS.md](AGENTS.md) — agent-facing codebase guide
+
+### Native Memory editing model
+
+The Hindsight replacement uses `HINDSIGHT_CURATION_MODEL` for deliberate edits and removals only. Set it to an existing enabled local model binding whose endpoint is `HINDSIGHT_URL/ext/alfyai/inference/v1` (the shared background admission gateway) (`provider:<provider-id>:<model-id>`, or an explicitly configured `model1`/`model2`); the admin Memory editing model setting overrides the environment. It defaults to unset, so missing/disabled configuration fails honestly instead of selecting a paid fallback. Both provider resolution and the outgoing transport enforce the gateway endpoint; redirects are prohibited. Native Hindsight extraction has its own service-side model configuration. Enabling a worker or configuring this field does not enroll or migrate real users.
+
+For a server-only curation binding, leave `HINDSIGHT_CURATION_MODEL` unset and load `HINDSIGHT_CURATION_GATEWAY_MODEL` with the gateway’s exact model name and `HINDSIGHT_API_HTTP_INFERENCE_KEY` with its paired inference key. The app derives the endpoint from the approved Hindsight URL and lists no additional chat model. An explicit admin Memory editing model takes precedence. Remove the gateway model setting to turn off the dedicated binding.
+
+### Native Memory replacement (gated)
+
+Review-only draft extraction additionally requires `HINDSIGHT_QUARANTINE_ENABLED=true` in the app and `HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT=true` on the private native deployment. Both default to off in the AlfyAI configuration. Draft extraction cannot enroll an account or publish a memory.
+
+The replacement uses a private, pinned Hindsight service for native extraction and consolidation. AlfyAI owns authenticated tenant/scope routing, immutable source revisions, deliberate edit/remove intent, job delivery and coherent published UI generations. Personal memories may be used in every chat; project facts stay inside their project. Project awareness outside it is an explicit minimal disclosure, not permission to recall the project's contents. Legacy memory tables remain for controlled migration/rollback; no account is enrolled by enabling a worker alone.
+
+When Memory is on, eligible earlier chats can contribute to Memory without a separate setting. Migration preserves recorded declines, periods when Memory was off, and reset, withdrawal and project boundaries. For earlier messages admitted by the default, the service receives only the eligible user-authored message. Chats imported from a ChatGPT export count as earlier chats, judged by their own dates under the same rules (a recorded decline, periods when Memory was off and a past Clear Memory apply by that date): only the person's own messages can reach Memory, never ChatGPT's replies, and neither a message the export gives no time nor the copies an import makes of ChatGPT's branches counts. An account already on native Memory takes up the chats just imported, queued behind the person's own Memory work, and memory maintenance or switching Memory back on catches up any it missed, chats imported before this rule included; a message a removal or an edit touches waits for an operator's preparation (`scripts/memory-backfill.ts`), and a deleted chat is never taken up again.
+
+`HINDSIGHT_NEW_ACCOUNTS_ENABLED` is an environment-only rollout switch, default false, read through runtime config. Enabling it makes newly created accounts native-authority with an opaque tenant and known memory interval in their account-creation transaction. Existing accounts stay legacy until explicit per-user migration. This switch is independent of worker pause; a native outage never silently switches users back to legacy. Enable it only with the authorized replacement rollout.
+
+See [private service setup and operational boundaries](deploy/hindsight/README.md). `HINDSIGHT_URL`, `HINDSIGHT_WORKER_ENABLED` (default false), and `HINDSIGHT_CONCURRENCY` (default 1, app job concurrency) pass through runtime config. The deployment's `HINDSIGHT_URL` and optional comma-separated `HINDSIGHT_ALLOWED_URLS` pin the permitted private destinations, including stored bank bindings. `HINDSIGHT_TENANT_MASTER_KEYS`, `HINDSIGHT_TENANT_ACTIVE_KEY`, `HINDSIGHT_TENANT_KEYS` (static compatibility), `HINDSIGHT_ADMISSION_KEY`, `HINDSIGHT_OVERNIGHT_IDLE` and `HINDSIGHT_RESTORE_HOLD` are environment-only. The restore hold blocks app HTTP and startup workers during isolated backup verification. The default tenant extension automatically provisions opaque authenticated tenant schemas. Keys never belong in browser/admin settings. Native inference and deliberate edit/remove calls share a bounded private proxy: daytime one, explicit healthy idle ceiling six. Job concurrency is not model concurrency. Already admitted background calls finish during a downshift, and failed activity tracking degrades chat gracefully.
+
+No native pipeline performs the legacy nightly persona rewrite. Existing legacy account scheduling/data remains only behind its authority gate until migration and rollback retirement are separately approved. The replacement does not import unreliable old extracted facts: per-user chat backfill follows the agreed opt-out/history policy and explicit migration plan. Service health alone does not prove local-model readiness or semantic acceptance.

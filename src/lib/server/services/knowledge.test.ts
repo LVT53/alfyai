@@ -26,6 +26,12 @@ vi.mock("./memory-maintenance", () => ({
 		mockRunUserMemoryMaintenance(...args),
 }));
 
+vi.mock("./memory-profile/revisions", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./memory-profile/revisions")>()),
+	// This fixture exercises relevance rules for a never-enrolled account.
+	hasNativeMemoryScopeBoundary: () => false,
+}));
+
 vi.mock("./knowledge/store", () => ({
 	getArtifactOwnershipScope: (...args: unknown[]) =>
 		mockGetArtifactOwnershipScope(...args),

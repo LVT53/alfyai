@@ -1170,51 +1170,54 @@ describe("prepareOutboundContext prefetch compatibility", () => {
 		{ modelName: "mimo-v2.5-pro", name: "gateway", want: "native" },
 		{ modelName: "MiniMax-M3", name: "gateway", want: "native" },
 		{ modelName: "kimi-k2.7", name: "gateway", want: "native" },
-	])("prepares $modelName prefetch as $want without flattening real history", async ({
-		modelName,
-		name,
-		want,
-	}) => {
-		mocks.prepareOutboundChatContext.mockResolvedValue({
-			inputValue: "prepared",
-			systemPrompt: "system",
-		});
-		const params = {
-			userId: "user-1",
-			runtimeConfig,
-			message: "Read https://example.com/source",
-			conversationId: "prefetch-test",
-			modelId: "model1" as const,
-		};
-		const runtime = await resolveProviderRuntime({
-			...params,
-			overrideProvider: {
-				id: "prefetch-provider",
-				name,
-				displayName: name,
-				baseUrl: "https://gateway.example/v1",
-				modelName,
-				apiKey: "synthetic",
-			},
-		});
-		await prepareOutboundContext(params, runtime, null, new Set());
-		expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0]).toMatchObject({
-			historyToolMessages: "native",
-			prefetchToolMessages: want,
-		});
-		await prepareOutboundContext(
-			params,
-			runtime,
-			null,
-			new Set(),
-			"completion canonical",
-			"native",
-		);
-		expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0]).toMatchObject({
-			historyToolMessages: "native",
-			prefetchToolMessages: "native",
-		});
-	});
+	])(
+		"prepares $modelName prefetch as $want without flattening real history",
+		async ({ modelName, name, want }) => {
+			mocks.prepareOutboundChatContext.mockResolvedValue({
+				inputValue: "prepared",
+				systemPrompt: "system",
+			});
+			const params = {
+				userId: "user-1",
+				runtimeConfig,
+				message: "Read https://example.com/source",
+				conversationId: "prefetch-test",
+				modelId: "model1" as const,
+			};
+			const runtime = await resolveProviderRuntime({
+				...params,
+				overrideProvider: {
+					id: "prefetch-provider",
+					name,
+					displayName: name,
+					baseUrl: "https://gateway.example/v1",
+					modelName,
+					apiKey: "synthetic",
+				},
+			});
+			await prepareOutboundContext(params, runtime, null, new Set());
+			expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0]).toMatchObject(
+				{
+					historyToolMessages: "native",
+					prefetchToolMessages: want,
+				},
+			);
+			await prepareOutboundContext(
+				params,
+				runtime,
+				null,
+				new Set(),
+				"completion canonical",
+				"native",
+			);
+			expect(mocks.prepareOutboundChatContext.mock.lastCall?.[0]).toMatchObject(
+				{
+					historyToolMessages: "native",
+					prefetchToolMessages: "native",
+				},
+			);
+		},
+	);
 });
 
 // The engine refuses a request when the context, the system prompt, the tool
@@ -1316,27 +1319,27 @@ describe("prepareOutboundContext and the room the request needs", () => {
 		).toBeUndefined();
 	});
 
-	it.each([
-		null,
-		0,
-	])("does not ask for the room, nor build anything for it, when the cap is %s", async (maxTokens) => {
-		const requestRoom = vi.fn();
+	it.each([null, 0])(
+		"does not ask for the room, nor build anything for it, when the cap is %s",
+		async (maxTokens) => {
+			const requestRoom = vi.fn();
 
-		await prepareOutboundContext(
-			params,
-			await runtimeWith(maxTokens),
-			null,
-			new Set(),
-			"provider request",
-			"native",
-			requestRoom,
-		);
+			await prepareOutboundContext(
+				params,
+				await runtimeWith(maxTokens),
+				null,
+				new Set(),
+				"provider request",
+				"native",
+				requestRoom,
+			);
 
-		expect(requestRoom).not.toHaveBeenCalled();
-		expect(
-			mocks.prepareOutboundChatContext.mock.lastCall?.[0].requestRoom,
-		).toBeUndefined();
-	});
+			expect(requestRoom).not.toHaveBeenCalled();
+			expect(
+				mocks.prepareOutboundChatContext.mock.lastCall?.[0].requestRoom,
+			).toBeUndefined();
+		},
+	);
 
 	it("prepares nothing once the turn is cancelled while the room is worked out", async () => {
 		const controller = new AbortController();

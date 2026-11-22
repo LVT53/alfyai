@@ -35,7 +35,7 @@ import {
 import { createStepImageQueue } from "$lib/server/services/vision/step-images";
 
 import { runPhotosTool, sanitizePhotosToolInput } from "./photos";
-import { TOOL_TIMEOUTS_MS } from "./shared";
+import { reasonCodeOf, TOOL_TIMEOUTS_MS } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -220,6 +220,21 @@ describe("runPhotosTool", () => {
 		expect(outcome.modelPayload.results).toEqual([]);
 		expect(outcome.modelPayload.citations).toEqual([]);
 		expect(immichSmartSearchMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "photos",
+				sourceType: "tool",
+				action: "search",
+				message:
+					"You don't have a Photos connection set up yet. Connect your Immich account in Settings to search your photos.",
+				results: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity but still executes against the first (sorted) connection", async () => {
@@ -282,6 +297,7 @@ describe("runPhotosTool", () => {
 		expect(outcome.modelPayload.message).toContain("Alice Photos");
 		expect(outcome.modelPayload.message).toContain("Bob Photos");
 		expect(immichSmartSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("search: requires a query", async () => {
@@ -297,6 +313,7 @@ describe("runPhotosTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("search query is required");
 		expect(immichSmartSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("search: returns results, citations, and Sources-tab candidates carrying the thumbnailPath", async () => {
@@ -376,6 +393,7 @@ describe("runPhotosTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("maps generic adapter failures to a graceful note without throwing", async () => {
@@ -393,6 +411,22 @@ describe("runPhotosTool", () => {
 		expect(outcome.modelPayload.message).toContain(
 			"couldn't reach your photos",
 		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
+	});
+
+	it("names an Immich connection that is gone", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		immichSmartSearchMock.mockRejectedValue(
+			new ImmichError("gone", "connection_not_found"),
+		);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "beach" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
 	});
 });
 
@@ -523,6 +557,9 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "hospital-visit.jpg" }),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serializedPayload).not.toContain("details_withheld");
 	});
 });
 
@@ -594,6 +631,7 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 		expect(outcome.modelPayload.message).toContain("turned off");
 		expect(outcome.modelPayload.message).toContain("settings");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("hasWriteSecret=false: returns a note asking to enable Immich writes, and creates NO pending row", async () => {
@@ -609,6 +647,10 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("Enable Immich writes");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		// A connection that was only ever set up to read: the person can turn changes
+		// on in Settings (re-enter the password), so it is a setting, not a limit of
+		// the account.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 	});
 
 	it("no assetIds: returns a note and creates NO pending row", async () => {
@@ -624,6 +666,7 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("At least one photo");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("no Photos connection: returns a note and creates NO pending row", async () => {
@@ -755,6 +798,7 @@ describe("runPhotosTool — search_by_date (B1 metadata search)", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("Zebediah");
 		expect(immichMetadataSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("item_not_found");
 	});
 
 	// Option A applies to metadata-search results exactly like smart search:
@@ -833,6 +877,7 @@ describe("runPhotosTool — list_albums / album / list_people (B1/B6 browse)", (
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("albumId");
 		expect(immichAlbumAssetsMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("album: fetches the album's assets and returns them as photo results", async () => {
@@ -902,6 +947,7 @@ describe("runPhotosTool — list_albums / album / list_people (B1/B6 browse)", (
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 });
 
@@ -1717,6 +1763,8 @@ describe("runPhotosTool — look (thumbnails when a question needs them)", () =>
 			const wire = JSON.stringify(outcome.modelPayload);
 			expect(wire).not.toContain("seen asset-");
 			expect(wire).not.toContain("IMG_0001.jpg");
+			// A look came before the gate; the tag is on the payload the gate made.
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
 		});
 
 		it("looks at nothing when no local model can see: not a download, not a description", async () => {

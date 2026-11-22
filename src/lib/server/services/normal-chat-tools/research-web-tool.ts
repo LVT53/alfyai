@@ -14,6 +14,7 @@ import type { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
@@ -24,6 +25,7 @@ import {
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
 	type GroundedWebPage,
+	hasUsableWebEvidence,
 	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
@@ -46,6 +48,7 @@ import {
 	asExecutableTool,
 	executeToolWithEnvelope,
 	modelSafeToolError,
+	reasonMetadata,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
@@ -247,6 +250,16 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 							...createGroundedWebCandidates(result),
 							...pageCandidates,
 						];
+						// A read with no usable source or evidence found nothing: its row
+						// says so instead of drawing an empty list. The code rides on the
+						// entry beside the payload; the model reads what it always did.
+						const foundNothing = !(selected
+							? selected.modelPayload.success
+							: hasUsableWebEvidence({
+									sources: result.sources,
+									evidence: result.evidence,
+									pages,
+								}));
 						return {
 							modelPayload,
 							entry: {
@@ -262,6 +275,9 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 								metadata: {
 									...(selected?.metadata ?? createGroundedWebMetadata(result)),
 									...(cached ? { cached: true as const } : {}),
+									...(foundNothing
+										? reasonMetadata("research_web", "nothing_found")
+										: {}),
 								},
 							},
 						};
@@ -289,6 +305,12 @@ export function createResearchWebTool(params: CreateResearchWebToolParams) {
 									ok: false,
 									evidenceReady: false,
 									error: modelPayload.error,
+									// A search service that answered with an error. A timeout and
+									// a Stop are the envelope's (`timed_out`, `stopped`); any other
+									// failure names nothing and the row says its own fallback.
+									...(error instanceof ParallelApiError
+										? reasonMetadata("research_web", "search_unavailable")
+										: {}),
 								},
 							},
 						};

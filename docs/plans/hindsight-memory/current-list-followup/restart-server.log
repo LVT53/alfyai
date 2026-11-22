@@ -1,0 +1,193 @@
+
+  [38;2;9;127;184m▄[0m[48;2;8;130;178m[38;2;5;133;186m▄[0m       [48;2;10;143;160m[38;2;10;143;165m▄[0m[38;2;7;140;156m▄[0m
+ [38;2;8;125;192m▄[0m [38;2;3;132;191m▀[0m[38;2;2;133;192m▄[0m [38;2;3;132;180m▄[0m[38;2;1;137;184m▄[0m[38;2;3;133;174m▄[0m [38;2;3;142;176m▄[0m[38;2;4;142;169m▀[0m [38;2;10;144;164m▄[0m
+[38;2;6;121;195m▀[0m[38;2;5;128;203m▀[0m[48;2;5;124;195m[38;2;3;125;200m▄[0m[38;2;2;126;196m▄[0m[48;2;3;128;188m[38;2;1;131;196m▄[0m[48;2;0;152;219m[38;2;2;131;191m▄[0m[38;2;1;141;196m▀[0m[38;2;1;135;183m▀[0m[38;2;1;148;198m▀[0m[48;2;1;156;202m[38;2;2;135;180m▄[0m[48;2;4;134;169m[38;2;1;137;177m▄[0m[38;2;3;138;173m▄[0m[48;2;6;137;165m[38;2;2;140;170m▄[0m[38;2;7;144;169m▀[0m[38;2;7;139;158m▀[0m
+   [48;2;2;128;202m[38;2;2;124;201m▄[0m[48;2;1;130;201m[38;2;0;135;212m▄[0m[38;2;2;128;196m▄[0m [48;2;2;142;204m[38;2;7;138;199m▄[0m [38;2;1;135;186m▄[0m[48;2;1;142;186m[38;2;2;144;194m▄[0m[48;2;3;138;176m[38;2;2;134;176m▄[0m
+ [48;2;8;118;200m[38;2;8;121;209m▄[0m[38;2;3;121;203m▀[0m [38;2;3;122;192m▀[0m[38;2;1;138;216m▀[0m[48;2;0;138;210m[38;2;3;128;198m▄[0m[48;2;0;126;188m[38;2;2;131;198m▄[0m[48;2;0;142;205m[38;2;3;132;193m▄[0m[38;2;1;140;196m▀[0m  [38;2;4;134;175m▀[0m[48;2;13;135;167m[38;2;8;136;174m▄[0m 
+
+  [38;2;0;116;217mH[38;2;0;116;215mi[38;2;0;117;213mn[38;2;0;118;211md[38;2;0;119;209ms[38;2;0;120;207mi[38;2;0;121;205mg[38;2;0;122;203mh[38;2;0;123;201mt[38;2;0;123;199m: [38;2;0;125;195mA[38;2;0;126;193mg[38;2;0;127;191me[38;2;0;128;189mn[38;2;0;129;187mt [38;2;0;131;183mM[38;2;0;131;181me[38;2;0;132;179mm[38;2;0;133;177mo[38;2;0;134;175mr[38;2;0;135;173my [38;2;0;137;169mT[38;2;0;138;167mh[38;2;0;138;165ma[38;2;0;139;163mt [38;2;0;141;159mL[38;2;0;142;157me[38;2;0;143;155ma[38;2;0;144;153mr[38;2;0;145;151mn[38;2;0;146;150ms[0m
+
+2026-11-18 18:57:10,000 - INFO - hindsight_api.config - Database: pg0://alfyai-eval (schema: public)
+2026-11-18 18:57:10,000 - INFO - hindsight_api.config - LLM: provider=openai, model=qwen3-6-27b
+2026-11-18 18:57:10,000 - INFO - hindsight_api.config - Embeddings: provider=onnx
+2026-11-18 18:57:10,000 - INFO - hindsight_api.config - Reranker: provider=flashrank
+2026-11-18 18:57:10,000 - INFO - hindsight_api.config - Native threads: 14 per pool (available CPUs=14, cgroup CPU quota=none found)
+2026-11-18 18:57:10,000 - INFO - hindsight_api.config - Graph retriever: link_expansion
+2026-11-18 18:57:10,527 - INFO - hindsight_api.extensions.loader - Loading extension from HINDSIGHT_API_TENANT_EXTENSION=hindsight_ext_static_keys_tenant:StaticKeysTenantExtension
+2026-11-18 18:57:10,528 - INFO - hindsight_api.extensions.loader - Loaded extension StaticKeysTenantExtension with config keys: ['users', 'schema_prefix']
+2026-11-18 18:57:10,528 - INFO - root - Loaded tenant extension: StaticKeysTenantExtension
+2026-11-18 18:57:10,753 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:57:10,753 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:57:10,754 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:57:10,754 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:57:10,755 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:57:11,184 - INFO - hindsight_api.api.mcp - MCP servers created (stateless_http=False)
+2026-11-18 18:57:11,185 - INFO - hindsight_api.extensions.loader - Loading extension from HINDSIGHT_API_HTTP_EXTENSION=native_delete:NativeDelete
+2026-11-18 18:57:11,185 - INFO - hindsight_api.extensions.loader - Loaded extension NativeDelete with config keys: []
+2026-11-18 18:57:11,185 - INFO - root - Loaded HTTP extension: NativeDelete
+2026-11-18 18:57:11,300 - INFO - root - HTTP extension router mounted at /ext/
+2026-11-18 18:57:11,300 - INFO - hindsight_api.api - HTTP REST API enabled
+2026-11-18 18:57:11,300 - INFO - hindsight_api.api - MCP server enabled at /mcp/
+uvloop available, will use for event loop
+[38;2;0;116;217mStarting Hindsight API...[0m
+  [38;2;128;128;128mVersion:[0m [38;2;0;119;210mv1.2.1[0m
+  [38;2;128;128;128mURL:[0m [38;2;0;122;203mhttp://127.0.0.1:18890[0m
+  [38;2;128;128;128mDatabase:[0m [38;2;0;128;190mpg0://alfyai-eval[0m
+  [38;2;128;128;128mLLM:[0m [38;2;0;134;176mopenai / qwen3-6-27b[0m
+  [38;2;128;128;128mEmbeddings:[0m [38;2;0;140;163monnx[0m
+  [38;2;128;128;128mReranker:[0m [38;2;0;146;150mflashrank[0m
+  [38;2;128;128;128mExtensions:[0m [38;2;0;128;190mpgvector (vector) / native (text)[0m
+  [38;2;128;128;128mMCP:[0m [38;2;0;146;150menabled at /mcp[0m
+
+INFO:     Started server process [28351]
+INFO:     Waiting for application startup.
+2026-11-18 18:57:11,322 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager started
+2026-11-18 18:57:11,322 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager started
+2026-11-18 18:57:11,322 - INFO - hindsight_api.api - MCP lifespans started (multi-bank and single-bank)
+2026-11-18 18:57:11,323 - INFO - root - Metrics initialized - available at /metrics endpoint
+[transformers] PyTorch was not found. Models won't be available and only tokenizers, configuration and file/data utilities can be used.
+Fetching 1 files:   0%|          | 0/1 [00:00<?, ?it/s]Fetching 1 files: 100%|██████████| 1/1 [00:00<00:00, 2922.86it/s]
+2026-11-18 18:57:12,643 - INFO - hindsight_api.engine.embeddings - Embeddings: initializing ONNX provider with model intfloat/multilingual-e5-small (/private/tmp/alfyai-hindsight-eval/hf/hub/models--intfloat--multilingual-e5-small/snapshots/614241f622f53c4eeff9890bdc4f31cfecc418b3/onnx/model.onnx)
+2026-11-18 18:57:12,643 - INFO - hindsight_api.engine.embeddings - Embeddings: ONNX query_prefix='query: ' passage_prefix='passage: ' pooling=mean normalize=True batch_size=32 cpu_mem_arena=False
+2026-11-18 18:57:14,324 - INFO - hindsight_api.engine.embeddings - Embeddings: ONNX provider initialized (dim: 384, device: cpu, cuda_device_id: None, providers: ['CPUExecutionProvider'])
+2026-11-18 18:57:14,370 - INFO - hindsight_api.engine.cross_encoder - Reranker: initializing FlashRank provider with model ms-marco-MultiBERT-L-12 (cpu_mem_arena=False)
+2026-11-18 18:57:14,748 - INFO - hindsight_api.engine.cross_encoder - Reranker: replaced FlashRank ONNX session (cpu_mem_arena=False, threads=14)
+2026-11-18 18:57:14,750 - INFO - hindsight_api.engine.cross_encoder - Reranker: FlashRank provider initialized (max_concurrent=4)
+2026-11-18 18:57:15,269 - INFO - hindsight_api.engine.providers.openai_compatible_llm - Verifying connection: openai/qwen3-6-27b
+2026-11-18 18:57:15,393 - INFO - hindsight_api.pg0 - Starting embedded PostgreSQL (name=alfyai-eval, port=auto)...
+2026-11-18 18:57:15,509 - INFO - httpx2 - HTTP Request: POST http://127.0.0.1:18891/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-18 18:57:15,513 - INFO - hindsight_api.engine.providers.openai_compatible_llm - Connection verified: openai/qwen3-6-27b
+2026-11-18 18:57:15,613 - INFO - hindsight_api.pg0 - PostgreSQL started: postgresql://hindsight:hindsight@127.0.0.1:5432/hindsight
+2026-11-18 18:57:15,613 - INFO - hindsight_api.engine.memory_engine - Running database migrations...
+2026-11-18 18:57:15,613 - INFO - hindsight_api.engine.memory_engine - Running migrations on 6 schema(s)...
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.schemas
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.tables
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.types
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.constraints
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.defaults
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.comments
+2026-11-18 18:57:15,656 - INFO - alembic.runtime.plugins - setup plugin alembic.ext.checkconstraint_byname
+2026-11-18 18:57:15,710 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p01'...
+2026-11-18 18:57:15,710 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:15,710 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:15,718 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:15,718 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:15,740 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p01'
+2026-11-18 18:57:15,751 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:15,768 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:15,804 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p02'...
+2026-11-18 18:57:15,804 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:15,804 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:15,811 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:15,811 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:15,824 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p02'
+2026-11-18 18:57:15,830 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:15,837 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:15,864 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p03'...
+2026-11-18 18:57:15,864 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:15,864 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:15,871 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:15,871 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:15,885 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p03'
+2026-11-18 18:57:15,891 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:15,897 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:15,922 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p04'...
+2026-11-18 18:57:15,922 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:15,922 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:15,927 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:15,927 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:15,940 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p04'
+2026-11-18 18:57:15,947 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:15,953 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:15,976 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p05'...
+2026-11-18 18:57:15,976 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:15,976 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:15,982 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:15,982 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:15,995 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p05'
+2026-11-18 18:57:16,001 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:16,009 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:16,053 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p06'...
+2026-11-18 18:57:16,053 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:16,053 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:16,059 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:16,059 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:16,073 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p06'
+2026-11-18 18:57:16,079 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:16,085 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:16,104 - INFO - hindsight_api.engine.memory_engine - Schema migrations completed
+2026-11-18 18:57:16,110 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'public'...
+2026-11-18 18:57:16,110 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:16,110 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:57:16,116 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:57:16,116 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:57:16,128 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'public'
+2026-11-18 18:57:16,134 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:57:16,141 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:57:16,161 - INFO - hindsight_api.engine.memory_engine - Base schema 'public' migrated (holds the cross-tenant maintenance routines)
+2026-11-18 18:57:16,162 - INFO - hindsight_api.engine.memory_engine - Connecting to database at postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:57:16,172 - INFO - hindsight_api.engine.db.postgresql - PostgreSQL pool created (min=5, max=100, cmd_timeout=60s, acquire_timeout=30s, session_setup_on_acquire=True)
+2026-11-18 18:57:16,178 - INFO - hindsight_api.engine.task_backend - BrokerTaskBackend initialized
+2026-11-18 18:57:16,178 - INFO - hindsight_api.engine.memory_engine - Memory system initialized (pool and task backend started)
+2026-11-18 18:57:16,179 - INFO - root - Memory system initialized
+2026-11-18 18:57:16,263 - INFO - root - DB pool metrics configured
+2026-11-18 18:57:16,264 - INFO - hindsight.loop_watchdog - Loop watchdog started (stall_threshold=1.00s, poll_interval=0.25s)
+2026-11-18 18:57:16,264 - INFO - root - Worker id: Leventes-MacBook-Pro.local (source: hostname (default))
+2026-11-18 18:57:16,265 - INFO - root - Worker poller started (worker_id=Leventes-MacBook-Pro.local)
+2026-11-18 18:57:16,265 - INFO - root - Tenant extension started
+2026-11-18 18:57:16,265 - INFO - root - HTTP extension started
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18890 (Press CTRL+C to quit)
+2026-11-18 18:57:16,266 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local starting polling loop (max_slots=10, reservations=[consolidation=2], shared_pool=8)
+2026-11-18 18:57:16,267 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local recovering stale tasks across 6 schemas
+2026-11-18 18:57:16,283 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local recovered 0 stale tasks from previous run (6 schemas in 0.0s)
+2026-11-18 18:57:16,786 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2353 | my_active: none
+2026-11-18 18:57:47,124 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2358 | my_active: none
+2026-11-18 18:58:06,813 - INFO - hindsight_api.engine.maintenance - Maintenance: retention took 0.038s
+2026-11-18 18:58:06,902 - INFO - hindsight_api.engine.maintenance - Maintenance: consolidation reconcile took 0.089s
+2026-11-18 18:58:06,921 - INFO - hindsight_api.engine.maintenance - Maintenance: scheduled mental model refresh took 0.019s
+2026-11-18 18:58:06,922 - INFO - hindsight_api.engine.maintenance - Maintenance: attachment sweep took 0.001s
+2026-11-18 18:58:17,488 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2358 | my_active: none
+2026-11-18 18:58:45,007 - INFO - hindsight_ext_static_keys_tenant.extension - Initializing schema: adoption_p05
+2026-11-18 18:58:45,014 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p05'...
+2026-11-18 18:58:45,014 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:58:45,014 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:58:45,020 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:58:45,021 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:58:45,033 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p05'
+2026-11-18 18:58:45,040 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:58:45,047 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:58:45,069 - INFO - hindsight_ext_static_keys_tenant.extension - Schema ready: adoption_p05
+2026-11-18 18:58:47,833 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2358 | my_active: none
+2026-11-18 18:59:18,165 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2358 | my_active: none
+2026-11-18 18:59:48,489 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2358 | my_active: none
+2026-11-18 18:59:48,651 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=clf-1118-baseline-en transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=38
+2026-11-18 18:59:48,669 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=clf-1118-current-en transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=12
+2026-11-18 18:59:48,685 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=clf-1118-current-hu transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=15
+2026-11-18 18:59:48,704 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=clf-1118-serial-en transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=16
+2026-11-18 18:59:48,718 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=clf-1118-serial-hu transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=12
+2026-11-18 18:59:48,729 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=clf-1118-serial-holdout transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=8
+2026-11-18 19:00:06,541 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local stopped claiming new tasks
+2026-11-18 19:00:06,542 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local polling loop stopped
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-11-18 19:00:06,646 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local initiating graceful shutdown
+2026-11-18 19:00:06,646 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local graceful shutdown complete
+2026-11-18 19:00:06,646 - INFO - root - Worker poller stopped
+2026-11-18 19:00:06,646 - INFO - root - Tenant extension stopped
+2026-11-18 19:00:06,647 - INFO - root - HTTP extension stopped
+2026-11-18 19:00:06,647 - INFO - hindsight_api.engine.memory_engine - close() started
+2026-11-18 19:00:06,647 - INFO - hindsight_api.engine.task_backend - BrokerTaskBackend shutdown
+2026-11-18 19:00:06,649 - INFO - hindsight_api.engine.db.postgresql - PostgreSQL pool closed
+2026-11-18 19:00:06,650 - INFO - hindsight_api.engine.memory_engine - Stopping pg0...
+2026-11-18 19:00:06,650 - INFO - hindsight_api.pg0 - Stopping embedded PostgreSQL (name: alfyai-eval)...
+2026-11-18 19:00:06,778 - INFO - hindsight_api.pg0 - Embedded PostgreSQL stopped
+2026-11-18 19:00:06,778 - INFO - hindsight_api.engine.memory_engine - pg0 stopped
+2026-11-18 19:00:06,778 - INFO - root - Memory system closed
+2026-11-18 19:00:06,778 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager shutting down
+2026-11-18 19:00:06,779 - INFO - hindsight_api.api - MCP lifespans stopped
+2026-11-18 19:00:06,779 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager shutting down
+INFO:     Application shutdown complete.
+INFO:     Finished server process [28351]
+
+Received signal 15, shutting down...

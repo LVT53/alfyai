@@ -1,0 +1,75 @@
+it("final lifecycle judge: cancelled Edit and root deletion omit dependent evidence needed to verify safe recovery", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "The kayak is green.");
+	const child = f.source([root.id], "Yes.");
+	f.seed(root);
+	f.seed(child, "The green kayak belongs to me.");
+	const { publishNativeSnapshot } = await import("./publication");
+	const initial = [...f.facts.values()];
+	const generation = f.db.transaction((tx) =>
+		publishNativeSnapshot(tx, {
+			userId: h.userId, bankId: f.bank.id, epoch: 0, expectedRevision: 0,
+			memories: [...initial, ...initial.map((fact) => ({
+				id: `observation:${fact.id}`, fact_type: "observation" as const,
+				text: fact.text, source_memory_ids: [fact.id],
+			}))],
+		}),
+	);
+	const { setMemoryEnabled } = await import("./migration-policy");
+	let disabledDuringDependent = false;
+	f.setBeforeRetain(async () => {
+		const item = f.retained.at(-1)?.items[0];
+		if (item?.content === "Yes." && !disabledDuringDependent) {
+			expect(item.context).toContain("The kayak is purple.");
+			disabledDuringDependent = true;
+			await setMemoryEnabled(h.userId, false);
+		}
+	});
+	const set = f.facts.set.bind(f.facts);
+	vi.spyOn(f.facts, "set").mockImplementation((key, fact) => {
+		if (fact.text === "Yes.") {
+			const context = f.retained.at(-1)?.items[0].context ?? "";
+			if (context.includes('"prior_memory":[]')) return f.facts;
+			return set(key, { ...fact, text: "The purple kayak belongs to me." });
+		}
+		if (fact.text.includes('"kind":"source_edit"'))
+			return set(key, { ...fact, text: "The kayak is purple." });
+		return set(key, fact);
+	});
+	const payloads: Array<Record<string, unknown>> = [];
+	const checker = vi.fn(async (_prompt, input: Record<string, unknown>) => {
+		payloads.push(input);
+		const hasDependentAssertion = Array.isArray(input.source_assertions) &&
+			input.source_assertions.some(({ assertion }) => assertion === "Yes.");
+		return hasDependentAssertion ? { valid: true, issues: [] } : {
+			valid: false,
+			issues: [{ id: "ambiguous", problem: "No evidence establishes why previously accepted child information disappeared." }],
+		};
+	})
+		.mockResolvedValueOnce({ forget: [], replace: ["green to purple"], preserve: [] })
+		.mockResolvedValueOnce({ facts: [{ id: `fact:${root.id}`, text: "The kayak is purple." }] })
+		.mockResolvedValueOnce({ valid: true, issues: [] });
+	vi.spyOn(await import("./curation"), "createCurationModel").mockReturnValue(checker);
+	const a = await import("./curation-actions");
+	const operation = await a.submitMemoryAction(h.userId, {
+		kind: "edit", text: "The kayak is purple.", requestId: crypto.randomUUID(),
+		ref: { scope: { kind: "personal" }, generation, rowId: `observation:fact:${root.id}` },
+	});
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(disabledDuringDependent).toBe(true);
+	await f.remove(root);
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(f.deleted).toContain(root.id);
+	await setMemoryEnabled(h.userId, true);
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(payloads.some((input) => Array.isArray(input.original_facts) &&
+		input.original_facts.some(({ text }) => text === "The green kayak belongs to me.") &&
+		!input.source_assertions && Array.isArray(input.proposed_facts) && input.proposed_facts.length === 0,
+	)).toBe(true);
+	expect(a.getMemoryOperation(h.userId, { id: operation.id })).toMatchObject({
+		cleanupPending: true, errorCode: "memory_dependency_check_rejected",
+	});
+	await expect(a.submitMemoryAction(h.userId, {
+		kind: "add", scope: { kind: "personal" }, text: "I play chess.", requestId: crypto.randomUUID(),
+	})).rejects.toMatchObject({ code: "memory_action_pending" });
+});

@@ -1,0 +1,864 @@
+[
+  {
+    "id": "correct_keep_new_details",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+    "action": "Correct the remembered colour of my bicycle from red to blue.",
+    "want": "blue bicycle; espresso and pottery preserved; no current red bicycle or decaf",
+    "heldOut": false,
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "blue",
+        "previous_span": "My bicycle is red."
+      },
+      "ms": 1026,
+      "usage": {
+        "prompt_tokens": 262,
+        "total_tokens": 419,
+        "completion_tokens": 157,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 97
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My bicycle is red.",
+            "current_value": "red",
+            "template": "My bicycle is {{value}}.",
+            "neutral": "",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 3414,
+      "usage": {
+        "prompt_tokens": 429,
+        "total_tokens": 1031,
+        "completion_tokens": 602,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 563
+        }
+      }
+    },
+    "text": "My bicycle is blue. I now prefer espresso. I started pottery.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "forget_keep_new_details",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+    "action": "Forget the colour of my bicycle. Keep my other information.",
+    "want": "no bicycle colour; espresso and pottery preserved",
+    "heldOut": false,
+    "anchor": {
+      "value": {
+        "mode": "forget",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "",
+        "previous_span": "My bicycle is red."
+      },
+      "ms": 1764,
+      "usage": {
+        "prompt_tokens": 262,
+        "total_tokens": 516,
+        "completion_tokens": 254,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 196
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My bicycle is red.",
+            "current_value": "red",
+            "template": "My bicycle is {{value}}.",
+            "neutral": "",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 4909,
+      "usage": {
+        "prompt_tokens": 429,
+        "total_tokens": 1008,
+        "completion_tokens": 579,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 540
+        }
+      }
+    },
+    "text": " I now prefer espresso. I started pottery.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "shared_subject_hu",
+    "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+    "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+    "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+    "want": "partner gluten sensitivity remains; user sensitivity absent; Szeged and user pottery preserved",
+    "heldOut": false,
+    "anchor": {
+      "value": {
+        "mode": "forget",
+        "subject": "user",
+        "attribute": "food sensitivity",
+        "old_value": "gluten intolerance",
+        "replacement_value": "",
+        "previous_span": "A párom és én is gluténérzékenyek vagyunk."
+      },
+      "ms": 4750,
+      "usage": {
+        "prompt_tokens": 277,
+        "total_tokens": 833,
+        "completion_tokens": 556,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 511
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "A párom és én is gluténérzékenyek vagyunk.",
+            "current_value": "gluten intolerance",
+            "template": "A párom és én is {{value}} vagyunk.",
+            "neutral": "A párom is gluténérzékeny.",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 42198,
+      "usage": {
+        "prompt_tokens": 462,
+        "total_tokens": 6429,
+        "completion_tokens": 5967,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 5900
+        }
+      }
+    },
+    "text": "A párom is gluténérzékeny. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "same_word_other_owner",
+    "previous": "My nickname is Raven. My client's project is also called Raven. I prefer short emails.",
+    "latest": "My nickname is Raven. My client's project is also called Raven. I prefer concise emails with a friendly greeting.",
+    "action": "Forget my nickname. Do not remove the client's project name.",
+    "want": "user nickname absent; client project Raven and full new email preference preserved",
+    "heldOut": false,
+    "anchor": {
+      "value": {
+        "mode": "forget",
+        "subject": "user",
+        "attribute": "nickname",
+        "old_value": "Raven",
+        "replacement_value": "",
+        "previous_span": "My nickname is Raven."
+      },
+      "ms": 1660,
+      "usage": {
+        "prompt_tokens": 271,
+        "total_tokens": 548,
+        "completion_tokens": 277,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 244
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My nickname is Raven.",
+            "current_value": "Raven",
+            "template": "My nickname is {{value}}.",
+            "neutral": "",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 4109,
+      "usage": {
+        "prompt_tokens": 438,
+        "total_tokens": 1124,
+        "completion_tokens": 686,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 646
+        }
+      }
+    },
+    "text": " My client's project is also called Raven. I prefer concise emails with a friendly greeting.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "new_explicit_life_event",
+    "previous": "I live in Rome. I work remotely.",
+    "latest": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+    "action": "Earlier correction: the old claim that I lived in Rome was wrong; I lived in Berlin. This corrects the old statement, not future moves.",
+    "want": "current Prague and office; historical Berlin; no forced current Berlin",
+    "heldOut": false,
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "user",
+        "attribute": "residence",
+        "old_value": "Rome",
+        "replacement_value": "Berlin",
+        "previous_span": "I live in Rome."
+      },
+      "ms": 2190,
+      "usage": {
+        "prompt_tokens": 278,
+        "total_tokens": 644,
+        "completion_tokens": 366,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 330
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "I previously lived in Berlin",
+            "current_value": "Berlin",
+            "template": "I previously lived in {{value}}",
+            "neutral": "I previously lived in",
+            "event_evidence": ""
+          },
+          {
+            "span": "yesterday I moved to Prague",
+            "current_value": "Prague",
+            "template": "yesterday I moved to {{value}}",
+            "neutral": "yesterday I moved to",
+            "event_evidence": "yesterday I moved to Prague"
+          }
+        ],
+        "absent": false
+      },
+      "ms": 17190,
+      "usage": {
+        "prompt_tokens": 436,
+        "total_tokens": 3227,
+        "completion_tokens": 2791,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 2639
+        }
+      }
+    },
+    "text": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "conflicting_target_edit",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is green. I prefer espresso.",
+    "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+    "want": "flag unresolved blue versus green conflict; preserve espresso; no silent chosen colour",
+    "heldOut": false,
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "blue",
+        "previous_span": "My bicycle is red."
+      },
+      "ms": 1642,
+      "usage": {
+        "prompt_tokens": 279,
+        "total_tokens": 543,
+        "completion_tokens": 264,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 204
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My bicycle is green.",
+            "current_value": "green",
+            "template": "My bicycle is {{value}}.",
+            "neutral": "My bicycle.",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 5476,
+      "usage": {
+        "prompt_tokens": 424,
+        "total_tokens": 1346,
+        "completion_tokens": 922,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 845
+        }
+      }
+    },
+    "text": "My bicycle. I prefer espresso.",
+    "conflicts": [
+      {
+        "subject": "bicycle",
+        "attribute": "colour",
+        "kind": "source changed corrected value",
+        "evidence": "My bicycle is green."
+      }
+    ],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "different_owner_same_number",
+    "previous": "My personal phone is 07700 900123.",
+    "latest": "My old personal number 07700 900123 is now my company's reception number. My personal number is now 07700 900789.",
+    "action": "Forget my previous personal telephone number as personal information. Do not ban this number for other owners or forget a genuinely new number I later explicitly give.",
+    "want": "company reception900123 and newpersonal900789 preserved; no current personal900123",
+    "heldOut": true,
+    "accepted": false,
+    "error": "Cannot read properties of null (reading 'matches')"
+  },
+  {
+    "id": "ambiguous_colour_hu",
+    "previous": "A kerékpárom piros. Kávét iszom.",
+    "latest": "A kerékpárom zöld. Most teát iszom.",
+    "action": "A memóriában kékre javítottam a kerékpárom színét. Egy eltérő forrásszerkesztés nem írhatja ezt felül észrevétlenül.",
+    "want": "conflict green versus blue; tea retained; ownership retained; no chosen colour",
+    "heldOut": true,
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "bicycle",
+        "attribute": "color",
+        "old_value": "red",
+        "replacement_value": "blue",
+        "previous_span": "A kerékpárom piros."
+      },
+      "ms": 2962,
+      "usage": {
+        "prompt_tokens": 293,
+        "total_tokens": 794,
+        "completion_tokens": 501,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 463
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "A kerékpárom zöld",
+            "current_value": "green",
+            "template": "A kerékpárom {{value}}",
+            "neutral": "A kerékpárom",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 3116,
+      "usage": {
+        "prompt_tokens": 432,
+        "total_tokens": 916,
+        "completion_tokens": 484,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 435
+        }
+      }
+    },
+    "text": "A kerékpárom. Most teát iszom.",
+    "conflicts": [
+      {
+        "subject": "bicycle",
+        "attribute": "color",
+        "kind": "source changed corrected value",
+        "evidence": "A kerékpárom zöld"
+      }
+    ],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "lamp_correction",
+    "previous": "My desk lamp is brass. I work mornings.",
+    "latest": "My desk lamp is brass. I now work evenings.",
+    "action": "Correct my desk lamp material from brass to steel.",
+    "want": "steel lamp; evenings; no conflict",
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "desk lamp",
+        "attribute": "material",
+        "old_value": "brass",
+        "replacement_value": "steel",
+        "previous_span": "My desk lamp is brass."
+      },
+      "ms": 1162,
+      "usage": {
+        "prompt_tokens": 259,
+        "total_tokens": 464,
+        "completion_tokens": 205,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 168
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My desk lamp is brass.",
+            "current_value": "brass",
+            "template": "My desk lamp is {{value}}.",
+            "neutral": "My desk lamp is",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 6284,
+      "usage": {
+        "prompt_tokens": 428,
+        "total_tokens": 1335,
+        "completion_tokens": 907,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 860
+        }
+      }
+    },
+    "text": "My desk lamp is steel. I now work evenings.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "lamp_conflict",
+    "previous": "My desk lamp is brass. I work mornings.",
+    "latest": "My desk lamp is wood. I now work evenings.",
+    "action": "I corrected the desk lamp material to steel. A later unexplained conflicting source edit must remain unresolved.",
+    "want": "lamp ownership and evenings; conflict wood versus steel; no chosen material",
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "desk lamp",
+        "attribute": "material",
+        "old_value": "brass",
+        "replacement_value": "steel",
+        "previous_span": "My desk lamp is brass."
+      },
+      "ms": 2006,
+      "usage": {
+        "prompt_tokens": 269,
+        "total_tokens": 630,
+        "completion_tokens": 361,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 324
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My desk lamp is wood",
+            "current_value": "wood",
+            "template": "My desk lamp is {{value}}",
+            "neutral": "My desk lamp",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 9553,
+      "usage": {
+        "prompt_tokens": 428,
+        "total_tokens": 2003,
+        "completion_tokens": 1575,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1530
+        }
+      }
+    },
+    "text": "My desk lamp. I now work evenings.",
+    "conflicts": [
+      {
+        "subject": "desk lamp",
+        "attribute": "material",
+        "kind": "source changed corrected value",
+        "evidence": "My desk lamp is wood"
+      }
+    ],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "other_owner",
+    "previous": "My bicycle is red. I prefer tea.",
+    "latest": "My brother's bicycle is red. I prefer coffee.",
+    "action": "Correct the colour of my own bicycle to blue. Do not change other people's bicycles.",
+    "want": "brother red; coffee; no invented userbike/blue; no conflict",
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "my bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "blue",
+        "previous_span": "My bicycle is red."
+      },
+      "ms": 1346,
+      "usage": {
+        "prompt_tokens": 266,
+        "total_tokens": 490,
+        "completion_tokens": 224,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 189
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [],
+        "absent": true
+      },
+      "ms": 2480,
+      "usage": {
+        "prompt_tokens": 426,
+        "total_tokens": 920,
+        "completion_tokens": 494,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 483
+        }
+      }
+    },
+    "text": "My brother's bicycle is red. I prefer coffee.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "paraphrase_owner",
+    "previous": "My bicycle is red. I prefer tea.",
+    "latest": "The red cycle that belongs to me is parked outdoors. I now prefer coffee.",
+    "action": "Correct my bicycle colour to blue.",
+    "want": "blue cycle ownership/outdoors/coffee; no conflict",
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "blue",
+        "previous_span": "My bicycle is red."
+      },
+      "ms": 1129,
+      "usage": {
+        "prompt_tokens": 255,
+        "total_tokens": 442,
+        "completion_tokens": 187,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 127
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "The red cycle that belongs to me is parked outdoors.",
+            "current_value": "red",
+            "template": "The {{value}} cycle that belongs to me is parked outdoors.",
+            "neutral": "The cycle that belongs to me is parked outdoors.",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 7478,
+      "usage": {
+        "prompt_tokens": 431,
+        "total_tokens": 1685,
+        "completion_tokens": 1254,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1193
+        }
+      }
+    },
+    "text": "The blue cycle that belongs to me is parked outdoors. I now prefer coffee.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "sale_negation",
+    "previous": "I own a red bicycle. I like jazz.",
+    "latest": "I no longer own that red bicycle. I still like jazz.",
+    "action": "Forget only the colour of my bicycle, including the old assertion.",
+    "want": "no longer owns bicycle; jazz; no red or renewed ownership",
+    "anchor": {
+      "value": {
+        "mode": "forget",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "",
+        "previous_span": "I own a red bicycle."
+      },
+      "ms": 1375,
+      "usage": {
+        "prompt_tokens": 262,
+        "total_tokens": 486,
+        "completion_tokens": 224,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 190
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "I no longer own that red bicycle.",
+            "current_value": "red",
+            "template": "I no longer own that {{value}} bicycle.",
+            "neutral": "I no longer own that bicycle.",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 13551,
+      "usage": {
+        "prompt_tokens": 429,
+        "total_tokens": 2547,
+        "completion_tokens": 2118,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 2066
+        }
+      }
+    },
+    "text": "I no longer own that bicycle. I still like jazz.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "price_clause",
+    "previous": "My red bicycle cost 250 euros.",
+    "latest": "My red bicycle cost 250 euros and I ride it daily.",
+    "action": "Forget only my bicycle colour.",
+    "want": "ownership/250euros/daily; no red",
+    "anchor": {
+      "value": {
+        "mode": "forget",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "",
+        "previous_span": "My red bicycle cost 250 euros."
+      },
+      "ms": 1874,
+      "usage": {
+        "prompt_tokens": 255,
+        "total_tokens": 577,
+        "completion_tokens": 322,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 259
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My red bicycle cost 250 euros and I ride it daily.",
+            "current_value": "red",
+            "template": "My {{value}} bicycle cost 250 euros and I ride it daily.",
+            "neutral": "My bicycle cost 250 euros and I ride it daily.",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 2523,
+      "usage": {
+        "prompt_tokens": 435,
+        "total_tokens": 867,
+        "completion_tokens": 432,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 327
+        }
+      }
+    },
+    "text": "My bicycle cost 250 euros and I ride it daily.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "hypothetical_change",
+    "previous": "My bicycle is red. I prefer tea.",
+    "latest": "My bicycle is red. I might repaint it green next summer. I prefer coffee.",
+    "action": "Correct the recorded current bicycle colour from red to blue.",
+    "want": "currentblue; hypotheticalfuturegreen remains hypothetical; coffee; no conflict",
+    "anchor": {
+      "value": {
+        "mode": "correct",
+        "subject": "bicycle",
+        "attribute": "colour",
+        "old_value": "red",
+        "replacement_value": "blue",
+        "previous_span": "My bicycle is red."
+      },
+      "ms": 1242,
+      "usage": {
+        "prompt_tokens": 259,
+        "total_tokens": 439,
+        "completion_tokens": 180,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 145
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "My bicycle is red.",
+            "current_value": "red",
+            "template": "My bicycle is {{value}}.",
+            "neutral": "My bicycle is .",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 13093,
+      "usage": {
+        "prompt_tokens": 432,
+        "total_tokens": 2545,
+        "completion_tokens": 2113,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 2034
+        }
+      }
+    },
+    "text": "My bicycle is blue. I might repaint it green next summer. I prefer coffee.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  },
+  {
+    "id": "shared_hu",
+    "previous": "Én és a húgom Debrecenben lakunk.",
+    "latest": "Én és a húgom Debrecenben lakunk. A húgom fut, én úszom.",
+    "action": "Forget only where I live. Preserve my sister's location and both hobbies.",
+    "want": "sisterDebrecen/runs; userswims; no userlocation",
+    "anchor": {
+      "value": {
+        "mode": "forget",
+        "subject": "user",
+        "attribute": "residence",
+        "old_value": "Debrecen",
+        "replacement_value": "",
+        "previous_span": "Én és a húgom Debrecenben lakunk."
+      },
+      "ms": 4054,
+      "usage": {
+        "prompt_tokens": 267,
+        "total_tokens": 842,
+        "completion_tokens": 575,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 532
+        }
+      }
+    },
+    "alignment": {
+      "value": {
+        "matches": [
+          {
+            "span": "Én és a húgom Debrecenben lakunk.",
+            "current_value": "Debrecen",
+            "template": "Én és a húgom {{value}}ben lakunk.",
+            "neutral": "Én és a húgom lakunk.",
+            "event_evidence": ""
+          }
+        ],
+        "absent": false
+      },
+      "ms": 17769,
+      "usage": {
+        "prompt_tokens": 448,
+        "total_tokens": 3056,
+        "completion_tokens": 2608,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 2544
+        }
+      }
+    },
+    "text": "Én és a húgom lakunk. A húgom fut, én úszom.",
+    "conflicts": [],
+    "errors": [],
+    "accepted": true
+  }
+]

@@ -1,0 +1,36 @@
+{
+  "cases": [
+    {
+      "id": "different_projects",
+      "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+      "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+      "action": "Correct only Atlas to use TypeScript.",
+      "want": "AtlasTypeScript; BeaconRust/mobile",
+      "fresh": true
+    },
+    {
+      "id": "quote_hu",
+      "previous": "Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\"",
+      "latest": "Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\" Egyébként rövid válaszokat kérek.",
+      "action": "Forget any recorded profession of mine if present.",
+      "want": "no personalnurse/children; briefpreference ifclearlyseparate"
+    },
+    {
+      "id": "phone_reassignment",
+      "previous": "My personal number is 07700 901111.",
+      "latest": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+      "action": "Forget my former personal phone number, preserving the company number and my new personal number.",
+      "want": "company901111/newpersonal902222; no formerpersonal901111"
+    },
+    {
+      "id": "shopping",
+      "previous": "I am comparing dishwashers.",
+      "latest": "I am comparing Bosch dishwashers. I have not bought one.",
+      "action": "Forget any remembered installed dishwasher model, if present.",
+      "want": "shopping/notbought; no ownedBosch or globalnoinstalledassertion"
+    }
+  ],
+  "strictSchema": true,
+  "reasoning": false,
+  "maxOutput": 3500
+}

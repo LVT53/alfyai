@@ -1,0 +1,752 @@
+[
+  {
+    "id": "different_projects",
+    "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+    "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+    "action": "Correct only Atlas to use TypeScript.",
+    "want": "AtlasTypeScript; BeaconRust/mobile",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "atlas",
+            "type": "project",
+            "name": "Atlas",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My Atlas project",
+            "status": "explicit"
+          },
+          {
+            "id": "beacon",
+            "type": "project",
+            "name": "Beacon",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My Beacon project",
+            "status": "explicit"
+          },
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "",
+            "possession": "unknown",
+            "evidence": "",
+            "status": "explicit",
+            "identityOnly": true
+          }
+        ],
+        "properties": [
+          {
+            "entity": "atlas",
+            "key": "technology",
+            "value": "Python",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My Atlas project uses Python",
+            "change": ""
+          },
+          {
+            "entity": "beacon",
+            "key": "technology",
+            "value": "Rust",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My Beacon project uses Rust",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1398,
+      "usage": {
+        "prompt_tokens": 542,
+        "total_tokens": 832,
+        "completion_tokens": 290,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "correct",
+        "targets": [
+          {
+            "entity": "atlas",
+            "key": "technology",
+            "replacement": "TypeScript"
+          }
+        ]
+      },
+      "ms": 351,
+      "usage": {
+        "prompt_tokens": 308,
+        "total_tokens": 361,
+        "completion_tokens": 53,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "atlas",
+            "type": "project",
+            "name": "Atlas",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My Atlas project",
+            "status": "explicit"
+          },
+          {
+            "id": "beacon",
+            "type": "project",
+            "name": "Beacon",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My Beacon project",
+            "status": "explicit"
+          },
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "atlas",
+            "key": "technology",
+            "value": "Python",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My Atlas project uses Python.",
+            "change": ""
+          },
+          {
+            "entity": "beacon",
+            "key": "technology",
+            "value": "Rust",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My Beacon project uses Rust.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1631,
+      "usage": {
+        "prompt_tokens": 615,
+        "total_tokens": 969,
+        "completion_tokens": 354,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "excluded": [],
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "atlas",
+          "type": "project",
+          "name": "Atlas",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My Atlas project",
+          "status": "explicit"
+        },
+        {
+          "id": "beacon",
+          "type": "project",
+          "name": "Beacon",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My Beacon project",
+          "status": "explicit"
+        },
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "atlas",
+          "key": "technology",
+          "value": "TypeScript",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "My Atlas project uses Python.",
+          "change": "",
+          "curated": true
+        },
+        {
+          "entity": "beacon",
+          "key": "technology",
+          "value": "Rust",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "My Beacon project uses Rust.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [],
+    "statements": [
+      "Atlas [atlas] — technology: TypeScript.",
+      "Beacon [beacon] — technology: Rust."
+    ]
+  },
+  {
+    "id": "quote_hu",
+    "previous": "Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\"",
+    "latest": "Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\" Egyébként rövid válaszokat kérek.",
+    "action": "Forget any recorded profession of mine if present.",
+    "want": "no personalnurse/children; briefpreference ifclearlyseparate",
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "Két gyermekem van",
+            "status": "quoted"
+          },
+          {
+            "id": "child_1",
+            "type": "person",
+            "name": "Child 1",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "Két gyermekem van",
+            "status": "quoted"
+          },
+          {
+            "id": "child_2",
+            "type": "person",
+            "name": "Child 2",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "Két gyermekem van",
+            "status": "quoted"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "occupation",
+            "value": "nurse",
+            "status": "quoted",
+            "time": "current",
+            "evidence": "ápolóként dolgozom",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "children_count",
+            "value": "2",
+            "status": "quoted",
+            "time": "current",
+            "evidence": "Két gyermekem van",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1777,
+      "usage": {
+        "prompt_tokens": 551,
+        "total_tokens": 919,
+        "completion_tokens": 368,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "occupation",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 336,
+      "usage": {
+        "prompt_tokens": 323,
+        "total_tokens": 372,
+        "completion_tokens": 49,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "Két gyermekem van, és ápolóként dolgozom.",
+            "status": "quoted"
+          },
+          {
+            "id": "child_1",
+            "type": "person",
+            "name": "Child 1",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "Két gyermekem van",
+            "status": "quoted"
+          },
+          {
+            "id": "child_2",
+            "type": "person",
+            "name": "Child 2",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "Két gyermekem van",
+            "status": "quoted"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "occupation",
+            "value": "nurse",
+            "status": "quoted",
+            "time": "current",
+            "evidence": "ápolóként dolgozom",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "children_count",
+            "value": "2",
+            "status": "quoted",
+            "time": "current",
+            "evidence": "Két gyermekem van",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1728,
+      "usage": {
+        "prompt_tokens": 631,
+        "total_tokens": 1008,
+        "completion_tokens": 377,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "excluded": [
+      {
+        "entity": "user",
+        "key": "occupation",
+        "value": "nurse",
+        "status": "quoted",
+        "time": "current",
+        "evidence": "ápolóként dolgozom",
+        "change": ""
+      },
+      {
+        "entity": "user",
+        "key": "children_count",
+        "value": "2",
+        "status": "quoted",
+        "time": "current",
+        "evidence": "Két gyermekem van",
+        "change": ""
+      }
+    ],
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "User",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "Két gyermekem van, és ápolóként dolgozom.",
+          "status": "quoted"
+        },
+        {
+          "id": "child_1",
+          "type": "person",
+          "name": "Child 1",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "Két gyermekem van",
+          "status": "quoted"
+        },
+        {
+          "id": "child_2",
+          "type": "person",
+          "name": "Child 2",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "Két gyermekem van",
+          "status": "quoted"
+        }
+      ],
+      "properties": []
+    },
+    "conflicts": [],
+    "removed": [],
+    "statements": []
+  },
+  {
+    "id": "phone_reassignment",
+    "previous": "My personal number is 07700 901111.",
+    "latest": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+    "action": "Forget my former personal phone number, preserving the company number and my new personal number.",
+    "want": "company901111/newpersonal902222; no formerpersonal901111",
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My personal number",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "phone",
+            "value": "07700 901111",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My personal number is 07700 901111.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 876,
+      "usage": {
+        "prompt_tokens": 548,
+        "total_tokens": 724,
+        "completion_tokens": 176,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "phone",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 336,
+      "usage": {
+        "prompt_tokens": 240,
+        "total_tokens": 289,
+        "completion_tokens": 49,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My new personal number is 07700 902222.",
+            "status": "explicit"
+          },
+          {
+            "id": "company",
+            "type": "organization",
+            "name": "Company",
+            "holder": "company",
+            "possession": "has",
+            "evidence": "My old personal number 07700 901111 is now my company reception number.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "phone",
+            "value": "07700 902222",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My new personal number is 07700 902222.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "phone",
+            "value": "07700 901111",
+            "status": "explicit",
+            "time": "past",
+            "evidence": "My old personal number 07700 901111",
+            "change": "is now my company reception number"
+          },
+          {
+            "entity": "company",
+            "key": "phone",
+            "value": "07700 901111",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My old personal number 07700 901111 is now my company reception number.",
+            "change": "is now my company reception number"
+          }
+        ]
+      },
+      "ms": 2156,
+      "usage": {
+        "prompt_tokens": 602,
+        "total_tokens": 1076,
+        "completion_tokens": 474,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "excluded": [],
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "User",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My new personal number is 07700 902222.",
+          "status": "explicit"
+        },
+        {
+          "id": "company",
+          "type": "organization",
+          "name": "Company",
+          "holder": "company",
+          "possession": "has",
+          "evidence": "My old personal number 07700 901111 is now my company reception number.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "company",
+          "key": "phone",
+          "value": "07700 901111",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "My old personal number 07700 901111 is now my company reception number.",
+          "change": "is now my company reception number"
+        }
+      ]
+    },
+    "conflicts": [
+      {
+        "entity": "user",
+        "key": "phone",
+        "value": "07700 902222",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "My new personal number is 07700 902222.",
+        "change": ""
+      }
+    ],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "phone",
+        "value": "07700 902222",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "My new personal number is 07700 902222.",
+        "change": ""
+      },
+      {
+        "entity": "user",
+        "key": "phone",
+        "value": "07700 901111",
+        "status": "explicit",
+        "time": "past",
+        "evidence": "My old personal number 07700 901111",
+        "change": "is now my company reception number"
+      }
+    ],
+    "statements": [
+      "The user's company — phone: 07700 901111."
+    ]
+  },
+  {
+    "id": "shopping",
+    "previous": "I am comparing dishwashers.",
+    "latest": "I am comparing Bosch dishwashers. I have not bought one.",
+    "action": "Forget any remembered installed dishwasher model, if present.",
+    "want": "shopping/notbought; no ownedBosch or globalnoinstalledassertion",
+    "before": {
+      "value": {
+        "entities": [],
+        "properties": []
+      },
+      "ms": 199,
+      "usage": {
+        "prompt_tokens": 537,
+        "total_tokens": 553,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": []
+      },
+      "ms": 203,
+      "usage": {
+        "prompt_tokens": 146,
+        "total_tokens": 164,
+        "completion_tokens": 18,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I am comparing Bosch dishwashers. I have not bought one.",
+            "status": "explicit"
+          },
+          {
+            "id": "dishwasher",
+            "type": "object",
+            "name": "Dishwasher",
+            "holder": "user",
+            "possession": "not_has",
+            "evidence": "I have not bought one.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "dishwasher",
+            "key": "brand",
+            "value": "Bosch",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I am comparing Bosch dishwashers.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1158,
+      "usage": {
+        "prompt_tokens": 553,
+        "total_tokens": 793,
+        "completion_tokens": 240,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "excluded": [],
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "User",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "I am comparing Bosch dishwashers. I have not bought one.",
+          "status": "explicit"
+        },
+        {
+          "id": "dishwasher",
+          "type": "object",
+          "name": "Dishwasher",
+          "holder": "user",
+          "possession": "not_has",
+          "evidence": "I have not bought one.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "dishwasher",
+          "key": "brand",
+          "value": "Bosch",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I am comparing Bosch dishwashers.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [],
+    "statements": [
+      "The user no longer has Dishwasher [dishwasher].",
+      "Dishwasher [dishwasher] — brand: Bosch."
+    ]
+  }
+]

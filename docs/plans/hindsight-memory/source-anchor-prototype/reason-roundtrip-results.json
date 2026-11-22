@@ -1,0 +1,973 @@
+[
+  {
+    "id": "shared_subject_hu",
+    "projection": {
+      "id": "shared_subject_hu",
+      "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+      "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+      "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+      "want": "partner gluten sensitivity remains; user sensitivity absent; Szeged and user pottery preserved",
+      "heldOut": false,
+      "anchor": {
+        "value": {
+          "mode": "forget",
+          "subject": "user",
+          "attribute": "food sensitivity",
+          "old_value": "gluten intolerance",
+          "replacement_value": "",
+          "previous_span": "A párom és én is gluténérzékenyek vagyunk."
+        },
+        "ms": 4750,
+        "usage": {
+          "prompt_tokens": 277,
+          "total_tokens": 833,
+          "completion_tokens": 556,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 511
+          }
+        }
+      },
+      "alignment": {
+        "value": {
+          "matches": [
+            {
+              "span": "A párom és én is gluténérzékenyek vagyunk.",
+              "current_value": "gluten intolerance",
+              "template": "A párom és én is {{value}} vagyunk.",
+              "neutral": "A párom is gluténérzékeny.",
+              "event_evidence": ""
+            }
+          ],
+          "absent": false
+        },
+        "ms": 42198,
+        "usage": {
+          "prompt_tokens": 462,
+          "total_tokens": 6429,
+          "completion_tokens": 5967,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 5900
+          }
+        }
+      },
+      "text": "A párom is gluténérzékeny. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+      "conflicts": [],
+      "errors": [],
+      "accepted": true
+    },
+    "items": {
+      "items": [
+        {
+          "id": "9354199b-5c92-48e6-88ba-254a95bbb6f2",
+          "text": "A felhasználó kerámiázást tanul.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:54:53.705045+00:00",
+          "source_memory_ids": [
+            "2a9e3db7-ba15-43e9-b465-853f0bfe8406"
+          ]
+        },
+        {
+          "id": "2a9e3db7-ba15-43e9-b465-853f0bfe8406",
+          "text": "A felhasználó kerámiázást tanul. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "kerámia, user",
+          "chunk_id": "anchors-reason-shared~5Fsubject~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:54:53.709594+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:54:52.284270+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "97b8f721-ae28-4523-8614-5469bc5221da",
+          "text": "A felhasználó és a párja Szegeden élnek.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:54:53.705045+00:00",
+          "source_memory_ids": [
+            "7d0e0965-7974-448b-82bc-2100d06f9380"
+          ]
+        },
+        {
+          "id": "7d0e0965-7974-448b-82bc-2100d06f9380",
+          "text": "A felhasználó és a párja Szegeden élnek. | Where: Szeged | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Szeged, user, user's partner",
+          "chunk_id": "anchors-reason-shared~5Fsubject~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:54:53.709594+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:54:52.284270+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "a3f0993b-1834-4cd1-84b8-1c8ba26a86f6",
+          "text": "A felhasználó párja gluténérzékeny.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:54:53.705045+00:00",
+          "source_memory_ids": [
+            "f4ccf2ea-54c9-4165-9263-5580a01e274d"
+          ]
+        },
+        {
+          "id": "f4ccf2ea-54c9-4165-9263-5580a01e274d",
+          "text": "A felhasználó párja gluténérzékeny. | Involving: user, user's partner",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "user, user's partner",
+          "chunk_id": "anchors-reason-shared~5Fsubject~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:54:53.709594+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:54:52.284270+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "Here is what is recorded about you and your partner:\n\n- **Your food sensitivity:** Unknown — the records do not state any food sensitivity for you. (The note that your partner is *also* gluten-sensitive suggests you might share it, but this is not explicitly recorded, so it remains unknown.)\n- **Your partner's food sensitivity:** Gluten-sensitive (gluténérzékeny).\n- **Where you live:** Szeged (you and your partner both live there).\n- **Your hobby:** You are learning ceramics (kerámiázás).\n\nIn short, your partner is gluten-sensitive, you both live in Szeged, and you take up ceramics — but your own food sensitivity is not on record.",
+      "based_on": {
+        "memories": [
+          {
+            "id": "f4ccf2ea-54c9-4165-9263-5580a01e274d",
+            "text": "A felhasználó párja gluténérzékeny. | Involving: user, user's partner",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "source",
+            "chunk_id": "anchors-reason-shared~5Fsubject~5Fhu_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "7d0e0965-7974-448b-82bc-2100d06f9380",
+            "text": "A felhasználó és a párja Szegeden élnek. | Where: Szeged | Involving: user, user's partner",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "source",
+            "chunk_id": "anchors-reason-shared~5Fsubject~5Fhu_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "2a9e3db7-ba15-43e9-b465-853f0bfe8406",
+            "text": "A felhasználó kerámiázást tanul. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": "source",
+            "chunk_id": "anchors-reason-shared~5Fsubject~5Fhu_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "9354199b-5c92-48e6-88ba-254a95bbb6f2",
+            "text": "A felhasználó kerámiázást tanul.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "97b8f721-ae28-4523-8614-5469bc5221da",
+            "text": "A felhasználó és a párja Szegeden élnek.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "a3f0993b-1834-4cd1-84b8-1c8ba26a86f6",
+            "text": "A felhasználó párja gluténérzékeny.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 23576,
+        "output_tokens": 423,
+        "total_tokens": 23999,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "food sensitivity allergy diet partner residence location hobby",
+              "max_tokens": 6000,
+              "reason": "Find consolidated info on user food sensitivity, partner sensitivity, residence, and hobby"
+            },
+            "output": {
+              "query": "food sensitivity allergy diet partner residence location hobby",
+              "count": 3,
+              "observations": [
+                {
+                  "id": "9354199b-5c92-48e6-88ba-254a95bbb6f2",
+                  "text": "A felhasználó kerámiázást tanul.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user",
+                    "kerámia"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                },
+                {
+                  "id": "97b8f721-ae28-4523-8614-5469bc5221da",
+                  "text": "A felhasználó és a párja Szegeden élnek.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user's partner",
+                    "user",
+                    "Szeged"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "a3f0993b-1834-4cd1-84b8-1c8ba26a86f6",
+                  "text": "A felhasználó párja gluténérzékeny.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user's partner",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 38,
+            "iteration": 1,
+            "started_at_ms": 1794999295186
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "user food sensitivity allergy gluten lactose intolerance",
+              "max_tokens": 3000,
+              "max_chunk_tokens": 1000,
+              "reason": "Find user's own food sensitivity, not stated in observations"
+            },
+            "output": {
+              "query": "user food sensitivity allergy gluten lactose intolerance",
+              "memories": [
+                {
+                  "id": "f4ccf2ea-54c9-4165-9263-5580a01e274d",
+                  "text": "A felhasználó párja gluténérzékeny. | Involving: user, user's partner",
+                  "fact_type": "world",
+                  "entities": [
+                    "user's partner",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "7d0e0965-7974-448b-82bc-2100d06f9380",
+                  "text": "A felhasználó és a párja Szegeden élnek. | Where: Szeged | Involving: user, user's partner",
+                  "fact_type": "world",
+                  "entities": [
+                    "user's partner",
+                    "user",
+                    "Szeged"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "2a9e3db7-ba15-43e9-b465-853f0bfe8406",
+                  "text": "A felhasználó kerámiázást tanul. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "user",
+                    "kerámia"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                }
+              ],
+              "chunks": {
+                "anchors-reason-shared~5Fsubject~5Fhu_source_0": {
+                  "chunk_text": "User: A párom is gluténérzékeny. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 43,
+            "iteration": 2,
+            "started_at_ms": 1794999295876
+          },
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "user diet intolerance sensitive to foods",
+              "max_tokens": 3000,
+              "reason": "Check for user's own food sensitivity"
+            },
+            "output": {
+              "query": "user diet intolerance sensitive to foods",
+              "count": 3,
+              "observations": [
+                {
+                  "id": "9354199b-5c92-48e6-88ba-254a95bbb6f2",
+                  "text": "A felhasználó kerámiázást tanul.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user",
+                    "kerámia"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                },
+                {
+                  "id": "97b8f721-ae28-4523-8614-5469bc5221da",
+                  "text": "A felhasználó és a párja Szegeden élnek.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user's partner",
+                    "user",
+                    "Szeged"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "a3f0993b-1834-4cd1-84b8-1c8ba26a86f6",
+                  "text": "A felhasználó párja gluténérzékeny.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user's partner",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 37,
+            "iteration": 3,
+            "started_at_ms": 1794999296587
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "én érzékeny vagyok étel laktóz glutén ételérzékenység",
+              "max_tokens": 2000,
+              "max_chunk_tokens": 1000,
+              "reason": "Find user's own food sensitivity specifically"
+            },
+            "output": {
+              "query": "én érzékeny vagyok étel laktóz glutén ételérzékenység",
+              "memories": [
+                {
+                  "id": "f4ccf2ea-54c9-4165-9263-5580a01e274d",
+                  "text": "A felhasználó párja gluténérzékeny. | Involving: user, user's partner",
+                  "fact_type": "world",
+                  "entities": [
+                    "user's partner",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "2a9e3db7-ba15-43e9-b465-853f0bfe8406",
+                  "text": "A felhasználó kerámiázást tanul. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "user",
+                    "kerámia"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                },
+                {
+                  "id": "7d0e0965-7974-448b-82bc-2100d06f9380",
+                  "text": "A felhasználó és a párja Szegeden élnek. | Where: Szeged | Involving: user, user's partner",
+                  "fact_type": "world",
+                  "entities": [
+                    "user's partner",
+                    "user",
+                    "Szeged"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "chunks": {
+                "anchors-reason-shared~5Fsubject~5Fhu_source_0": {
+                  "chunk_text": "User: A párom is gluténérzékeny. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 49,
+            "iteration": 4,
+            "started_at_ms": 1794999297453
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 653,
+            "started_at_ms": 1794999294533
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 650,
+            "started_at_ms": 1794999295226
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 666,
+            "started_at_ms": 1794999295921
+          },
+          {
+            "scope": "agent_4",
+            "duration_ms": 828,
+            "started_at_ms": 1794999296625
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 1556,
+            "started_at_ms": 1794999297504
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "forget_keep_new_details",
+    "projection": {
+      "id": "forget_keep_new_details",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+      "action": "Forget the colour of my bicycle. Keep my other information.",
+      "want": "no bicycle colour; espresso and pottery preserved",
+      "heldOut": false,
+      "anchor": {
+        "value": {
+          "mode": "forget",
+          "subject": "bicycle",
+          "attribute": "colour",
+          "old_value": "red",
+          "replacement_value": "",
+          "previous_span": "My bicycle is red."
+        },
+        "ms": 1764,
+        "usage": {
+          "prompt_tokens": 262,
+          "total_tokens": 516,
+          "completion_tokens": 254,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 196
+          }
+        }
+      },
+      "alignment": {
+        "value": {
+          "matches": [
+            {
+              "span": "My bicycle is red.",
+              "current_value": "red",
+              "template": "My bicycle is {{value}}.",
+              "neutral": "",
+              "event_evidence": ""
+            }
+          ],
+          "absent": false
+        },
+        "ms": 4909,
+        "usage": {
+          "prompt_tokens": 429,
+          "total_tokens": 1008,
+          "completion_tokens": 579,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 540
+          }
+        }
+      },
+      "text": " I now prefer espresso. I started pottery.",
+      "conflicts": [],
+      "errors": [],
+      "accepted": true
+    },
+    "items": {
+      "items": [
+        {
+          "id": "4393ed4b-2dd3-4351-b9b5-10989b6b5c79",
+          "text": "User started pottery.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:55:01.538649+00:00",
+          "source_memory_ids": [
+            "d1ccd989-dfa6-4978-b132-5007889de298"
+          ]
+        },
+        {
+          "id": "d1ccd989-dfa6-4978-b132-5007889de298",
+          "text": "User started pottery. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "pottery, user",
+          "chunk_id": "anchors-reason-forget~5Fkeep~5Fnew~5Fdetails_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:55:01.542697+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:55:00.626446+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "5e996dcf-35dd-4301-b0ef-2a6682b33c62",
+          "text": "User now prefers espresso.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:55:01.538649+00:00",
+          "source_memory_ids": [
+            "9e94492e-9bc3-46c2-be05-45f7a24ea200"
+          ]
+        },
+        {
+          "id": "9e94492e-9bc3-46c2-be05-45f7a24ea200",
+          "text": "User now prefers espresso. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "espresso, user",
+          "chunk_id": "anchors-reason-forget~5Fkeep~5Fnew~5Fdetails_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:55:01.542697+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:55:00.626446+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "Here are the answers based on the recorded information:\n\n| Question | Answer |\n| :--- | :--- |\n| **Bicycle Colour** | Unknown (not recorded) |\n| **Bicycle Ownership** | Unknown (not recorded) |\n| **Coffee Preference** | Espresso |\n| **Hobby** | Pottery |\n\n### Details\n\n- **Bicycle:** There is no information in the memory bank regarding whether you own a bicycle or what colour it might be.\n- **Coffee:** You currently prefer **espresso** (as of 2026-11-01).\n- **Hobby:** You have started **pottery** (as of 2026-11-01).",
+      "based_on": {
+        "memories": [
+          {
+            "id": "d1ccd989-dfa6-4978-b132-5007889de298",
+            "text": "User started pottery. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "source",
+            "chunk_id": "anchors-reason-forget~5Fkeep~5Fnew~5Fdetails_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "9e94492e-9bc3-46c2-be05-45f7a24ea200",
+            "text": "User now prefers espresso. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "source",
+            "chunk_id": "anchors-reason-forget~5Fkeep~5Fnew~5Fdetails_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "4393ed4b-2dd3-4351-b9b5-10989b6b5c79",
+            "text": "User started pottery.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "5e996dcf-35dd-4301-b0ef-2a6682b33c62",
+            "text": "User now prefers espresso.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 22748,
+        "output_tokens": 383,
+        "total_tokens": 23131,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "bicycle colour ownership coffee hobby",
+              "max_tokens": 5000,
+              "reason": "Searching for consolidated observations about bicycle, coffee, and hobby to answer the user's multi-part question"
+            },
+            "output": {
+              "query": "bicycle colour ownership coffee hobby",
+              "count": 2,
+              "observations": [
+                {
+                  "id": "4393ed4b-2dd3-4351-b9b5-10989b6b5c79",
+                  "text": "User started pottery.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user",
+                    "pottery"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "5e996dcf-35dd-4301-b0ef-2a6682b33c62",
+                  "text": "User now prefers espresso.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "user",
+                    "espresso"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 29,
+            "iteration": 1,
+            "started_at_ms": 1794999302775
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle colour own bike",
+              "max_tokens": 3000,
+              "max_chunk_tokens": 1000,
+              "reason": "Searching raw memories for bicycle ownership and colour details"
+            },
+            "output": {
+              "query": "bicycle colour own bike",
+              "memories": [
+                {
+                  "id": "d1ccd989-dfa6-4978-b132-5007889de298",
+                  "text": "User started pottery. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "user",
+                    "pottery"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "9e94492e-9bc3-46c2-be05-45f7a24ea200",
+                  "text": "User now prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "user",
+                    "espresso"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "anchors-reason-forget~5Fkeep~5Fnew~5Fdetails_source_0": {
+                  "chunk_text": "User:  I now prefer espresso. I started pottery.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              }
+            },
+            "duration_ms": 31,
+            "iteration": 2,
+            "started_at_ms": 1794999303436
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle bike vehicle ride",
+              "max_tokens": 3000,
+              "max_chunk_tokens": 1000,
+              "reason": "Broadening the search to ensure no bicycle ownership or colour details are missed"
+            },
+            "output": {
+              "query": "bicycle bike vehicle ride",
+              "memories": [
+                {
+                  "id": "d1ccd989-dfa6-4978-b132-5007889de298",
+                  "text": "User started pottery. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "user",
+                    "pottery"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "9e94492e-9bc3-46c2-be05-45f7a24ea200",
+                  "text": "User now prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "user",
+                    "espresso"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              ],
+              "chunks": {
+                "anchors-reason-forget~5Fkeep~5Fnew~5Fdetails_source_0": {
+                  "chunk_text": "User:  I now prefer espresso. I started pottery.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              }
+            },
+            "duration_ms": 32,
+            "iteration": 3,
+            "started_at_ms": 1794999304259
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 640,
+            "started_at_ms": 1794999302135
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 631,
+            "started_at_ms": 1794999302805
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 790,
+            "started_at_ms": 1794999303468
+          },
+          {
+            "scope": "agent_4",
+            "duration_ms": 452,
+            "started_at_ms": 1794999304291
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 1464,
+            "started_at_ms": 1794999304744
+          }
+        ]
+      }
+    }
+  }
+]

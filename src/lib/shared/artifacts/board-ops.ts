@@ -343,7 +343,7 @@ function growFramesAround(
 	let child = added;
 	for (let depth = 0; depth < 8 && child.parentId !== undefined; depth += 1) {
 		const frame = result.find((node) => node.id === child.parentId);
-		if (!frame || frame.data.kind !== "frame") break;
+		if (frame?.data.kind !== "frame") break;
 		const { width: childWidth, height: childHeight } = plannedNodeSize(child);
 		const inside = plannedNodeSize(frame);
 		const right = child.position.x + childWidth;
@@ -613,7 +613,7 @@ function stepAddNode(
 			);
 		}
 		const parent = findNode(body, spec.parentId);
-		if (!parent || parent.type !== "frame") {
+		if (parent?.type !== "frame") {
 			const frames = body.nodes
 				.filter((node) => node.type === "frame")
 				.map((node) => node.id);

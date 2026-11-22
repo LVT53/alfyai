@@ -25,11 +25,12 @@ import {
 	ChevronDown,
 	Globe,
 	LoaderCircle,
+	MessageSquare,
 	Minus,
 	X,
 } from "@lucide/svelte";
 import type { Snippet } from "svelte";
-import { t, type I18nKey } from "$lib/i18n";
+import { t } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
 import ArtifactCard, {
 	type ArtifactCardView,
@@ -58,10 +59,10 @@ import type {
 	ToolActivityBody,
 	ToolActivityItem,
 	ToolActivityStatus,
+	ToolThingIcon,
 } from "$lib/utils/tool-activity";
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
-import { describeToolCall, type ToolSummaryOutcome } from "./tool-call-summary";
 import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
 let {
@@ -454,77 +455,9 @@ const rowLabel = $derived(
 	[item.verb, item.object, item.objectSuffix].filter(Boolean).join(" ").trim(),
 );
 
-// W3: the opened body's plain-language account. `tool-call-summary.ts` returns
-// parts only (the row's label, the thing it named, how it ended, the raw detail
-// for the disclosure); the frames and outcome wording are the words above,
-// composed here in the reader's language.
-const SUMMARY_BODY_KINDS = new Set<ToolActivityBody["kind"]>([
-	"sources",
-	"page",
-	"python",
-	"map",
-	"text",
-	"bullets",
-	"error",
-	"generic",
-]);
-const SUMMARY_OUTCOME_KEYS = {
-	found: "chat.toolSummary.outcome.found",
-	read: "chat.toolSummary.outcome.read",
-	done: "chat.toolSummary.outcome.done",
-	running: "chat.toolSummary.outcome.running",
-	failed: "chat.toolSummary.outcome.failed",
-	unreachable: "chat.toolSummary.outcome.unreachable",
-	skipped: "chat.toolSummary.outcome.skipped",
-} as const satisfies Record<ToolSummaryOutcome["kind"], I18nKey>;
-const summary = $derived(
-	describeToolCall({
-		iconType: item.iconType,
-		status: item.status,
-		label: item.verb,
-		target: item.object,
-		count: item.summaryCount ?? null,
-		body: item.body,
-		genericLabel: $t("toolCalls.generic"),
-	}),
-);
-const showsSummary = $derived(
-	item.body !== null && SUMMARY_BODY_KINDS.has(item.body.kind),
-);
-// A failed create/edit label is a colon-introduced phrase in the row ("Nem
-// sikerült szerkeszteni:"); the summary's own frame supplies the colon, so it
-// must not arrive twice.
-const summaryActionLabel = $derived(item.verb.replace(/:\s*$/, ""));
-const summaryAction = $derived(
-	summary.actionKey === "generic"
-		? $t("chat.toolSummary.genericAction")
-		: summary.target
-			? $t("chat.toolSummary.action", {
-					action: summaryActionLabel,
-					target: summary.target,
-				})
-			: $t("chat.toolSummary.actionNoTarget", {
-					action: summaryActionLabel,
-				}),
-);
-const summaryOutcome = $derived(
-	$t(
-		SUMMARY_OUTCOME_KEYS[summary.outcome.kind],
-		summary.outcome.kind === "found"
-			? { count: summary.outcome.count }
-			: undefined,
-	),
-);
-// Failure is the one outcome a person opens a row to understand. The reason
-// stays in the account itself — "why" is not a second press away — while the
-// raw arguments and result JSON still wait behind Details.
-const summaryFailureReason = $derived(
-	(summary.outcome.kind === "failed" ||
-		summary.outcome.kind === "unreachable") &&
-		summary.detail?.result
-		? summary.detail.result
-		: null,
-);
+// A picture-search thumbnail that failed to load hides itself, by its address: the
+// row still counts the picture, and a broken box is no part of what it found.
+let brokenThumbs = $state<Record<string, true>>({});
 
 // The map body's MapLibre component is dynamic-imported the same way
 // MessageBubble used to lazy-load MapRouteCard — the library never touches
@@ -586,7 +519,7 @@ function handleToggle() {
 	{@render statusGlyph(item.status)}
 	<ToolActivityIcon iconType={item.iconType} />
 	<span class="act-label">
-		<span class="act-verb" class:act-verb-question={item.iconType === 'ask'}>{item.verb}</span>
+		<span class="act-verb" class:act-verb-question={item.iconType === 'ask'} data-testid="tool-activity-verb">{item.verb}</span>
 		{#if item.object}
 			<span class="act-object">{item.object}</span>
 		{/if}
@@ -595,11 +528,35 @@ function handleToggle() {
 		{/if}
 	</span>
 	{#if item.meta}
-		<span class="act-meta" class:act-meta-quiet={item.artifact?.failed}>{item.meta}</span>
+		<span class="act-meta">{item.meta}</span>
 	{/if}
 	{#if isInteractive}
 		<ChevronDown class="act-chevron" size={14} strokeWidth={2} aria-hidden="true" />
 	{/if}
+{/snippet}
+
+{#snippet thingList(icon: ToolThingIcon, items: { title: string; sub?: string }[], more: number)}
+	<!-- The things a tool found or touched, one line each by their own name, and how
+	     many more there were. A chat's glyph is a speech bubble; every other is the
+	     tool's own. -->
+	<div class="act-things" data-testid="tool-activity-things">
+		{#each items as thing, index (index)}
+			<div class="act-thing" data-testid="tool-activity-thing">
+				{#if icon === 'chat'}
+					<MessageSquare class="tool-activity-icon" size={14} strokeWidth={2} aria-hidden="true" />
+				{:else}
+					<ToolActivityIcon iconType={icon} />
+				{/if}
+				<span class="act-thing-title">{thing.title}</span>
+				{#if thing.sub}
+					<span class="act-thing-sub">{thing.sub}</span>
+				{/if}
+			</div>
+		{/each}
+		{#if more > 0}
+			<div class="act-more" data-testid="tool-activity-more">{$t('toolRows.more', { count: more })}</div>
+		{/if}
+	</div>
 {/snippet}
 
 {#snippet sourceRow(source: { title: string; url: string; status?: string; reason?: string; fromInput?: boolean })}
@@ -758,19 +715,6 @@ function handleToggle() {
 	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed' && item.body.kind !== 'image-card' && item.body.kind !== 'video-card'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
-			{#if showsSummary}
-				<!-- What happened and on what, then what came back: the account a
-				     person reads before any of the call's data. The row's own label is
-				     the action; a failure's reason belongs to that account, while the
-				     raw arguments and result wait below, closed. -->
-				<div class="act-summary" data-testid="tool-activity-summary-text">
-					<p class="act-summary-action">{summaryAction}</p>
-					<p class="act-summary-outcome">{summaryOutcome}</p>
-					{#if summaryFailureReason}
-						<p class="act-summary-reason" data-testid="tool-activity-summary-reason">{summaryFailureReason}</p>
-					{/if}
-				</div>
-			{/if}
 			{#if body.kind === 'sources'}
 				<div class="act-eyebrow">
 					{$t('toolActivity.sourcesEyebrow')}
@@ -788,13 +732,42 @@ function handleToggle() {
 				{#if body.excerpt}
 					<div class="act-excerpt">{body.excerpt}</div>
 				{/if}
-			{:else if body.kind === 'python'}
-				<div class="act-eyebrow">{$t('toolActivity.program')}</div>
-				<pre class="act-code">{body.program}</pre>
-				{#if body.output}
-					<div class="act-eyebrow">{$t('toolActivity.output')}</div>
-					<pre class="act-code">{body.output}</pre>
-				{/if}
+			{:else if body.kind === 'result'}
+				<!-- What the program printed, as plain text: no program, no heading. -->
+				<pre class="act-result" data-testid="tool-activity-result">{body.text}</pre>
+			{:else if body.kind === 'thumbs'}
+				<!-- The browser loads previews from this app. The source link also works if a preview fails. -->
+				<div class="act-thumbs" data-testid="tool-activity-thumbs">
+					{#each body.items as thumb (thumb.src ?? thumb.sourcePageUrl)}
+						{@const src = thumb.src}
+						{#if thumb.sourcePageUrl || (src && !brokenThumbs[src])}
+							<figure class="act-thumb" data-testid="tool-activity-thumb">
+								{#if src && !brokenThumbs[src]}
+									<img
+										class="act-thumb-img"
+										{src}
+										alt={thumb.title}
+										loading="lazy"
+										decoding="async"
+										referrerpolicy="no-referrer"
+										use:replayEarlyImageEvent
+										onerror={() => { brokenThumbs[src] = true; }}
+									/>
+								{/if}
+								<figcaption>
+									{#if thumb.sourcePageUrl}
+										<a href={thumb.sourcePageUrl} target="_blank" rel="noopener noreferrer" title={thumb.title}>{thumb.host}</a>
+									{:else}
+										{thumb.host}
+									{/if}
+								</figcaption>
+							</figure>
+						{/if}
+					{/each}
+				</div>
+			{:else if body.kind === 'things'}
+				<!-- The things a tool found or touched, by their own names. -->
+				{@render thingList(body.icon, body.items, body.more)}
 			{:else if body.kind === 'map'}
 				<!-- The whole route body — mode strip, summary, map, and the
 				     step-by-step directions or timeline — is RouteItinerary's.
@@ -833,8 +806,6 @@ function handleToggle() {
 						</div>
 					{/each}
 				</dl>
-			{:else if body.kind === 'text'}
-				<div class="act-excerpt">{body.text}</div>
 			{:else if body.kind === 'bullets'}
 				<ul class="act-bullets">
 					{#each body.items as bullet, index (index)}
@@ -842,44 +813,28 @@ function handleToggle() {
 					{/each}
 				</ul>
 			{:else if body.kind === 'actions'}
+				<!-- One run of an account's calls: each call in plain words, how it went,
+				     what it found beside it, then the things it found by name or one
+				     sentence about why it did not work. -->
 				{#each body.actions as action (action.key)}
 					<div class="act-action-row" data-testid="tool-activity-action">
 						{@render statusGlyph(action.status)}
 						<span class="act-src-title">{action.label}</span>
+						{#if action.sub}
+							<span class="act-action-sub">{action.sub}</span>
+						{/if}
 					</div>
+					{#if action.reason}
+						<p class="act-reason act-action-reason" data-testid="tool-activity-reason">{action.reason}</p>
+					{/if}
+					{#if action.things}
+						{@render thingList(body.icon, action.things.items, action.things.more)}
+					{/if}
 				{/each}
-			{:else if body.kind === 'error'}
-				<!-- The reason is also in the summary above, where the reader does not
-				     have to ask for it; this is the raw copy, one press away. -->
-				{#if summary.detail?.result}
-					<details class="act-details" data-testid="tool-activity-details">
-						<summary>{$t('chat.toolSummary.details')}</summary>
-						<div class="act-details-body">
-							<div class="act-error" data-testid="tool-activity-error">{summary.detail.result}</div>
-						</div>
-					</details>
-				{/if}
-			{:else if body.kind === 'generic'}
-				{#if summary.detail && (summary.detail.args.length > 0 || summary.detail.result)}
-					<details class="act-details" data-testid="tool-activity-details">
-						<summary>{$t('chat.toolSummary.details')}</summary>
-						<div class="act-details-body">
-							{#if summary.detail.args.length > 0}
-								<div class="act-eyebrow">{$t('toolCalls.detailArguments')}</div>
-								{#each summary.detail.args as arg (arg.key)}
-									<div class="act-kv">
-										<span class="act-kv-key">{arg.key}</span>
-										<span class="act-kv-value">{arg.value}</span>
-									</div>
-								{/each}
-							{/if}
-							{#if summary.detail.result}
-								<div class="act-eyebrow">{$t('toolCalls.detailResult')}</div>
-								<div class="act-excerpt">{summary.detail.result}</div>
-							{/if}
-						</div>
-					</details>
-				{/if}
+			{:else if body.kind === 'reason'}
+				<!-- What happened, once, in the person's words: the sentence a reason
+				     code stands for. The row's glyph says whether it broke. -->
+				<p class="act-reason" data-testid="tool-activity-reason">{body.text}</p>
 			{/if}
 		</div>
 	{/if}
@@ -1061,12 +1016,6 @@ function handleToggle() {
 		color: var(--danger);
 	}
 
-	/* A failed create/edit already says so in its words and its red glyph; what
-	   stands on the right is only "Details", the way to the model's own account. */
-	.act-row.is-failed .act-meta.act-meta-quiet {
-		color: var(--text-muted);
-	}
-
 	:global(.act-chevron) {
 		flex: 0 0 14px;
 		width: 14px;
@@ -1104,58 +1053,15 @@ function handleToggle() {
 		color: var(--text-muted);
 	}
 
-	.act-summary {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-	.act-summary p {
+	/* One sentence about what happened, the reading text of the body: the row's
+	   own size rather than the small body size, in the primary colour. The row's
+	   glyph says whether it broke; the sentence does not shout. */
+	.act-reason {
 		margin: 0;
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		color: var(--text-primary);
 		overflow-wrap: anywhere;
-	}
-	/* The account is the reading text, so it takes the row's own size rather
-	   than the small body size; its outcome line stays quiet beneath it. */
-	.act-summary-action {
-		font-size: var(--text-sm);
-		line-height: 1.45;
-		color: var(--text-primary);
-	}
-	.act-summary-outcome {
-		font-size: var(--text-xs);
-		line-height: 1.45;
-		color: var(--text-muted);
-	}
-	/* Why it failed is the account's third line, not a disclosure: the row is
-	   already red, and this is the sentence the reader opened it for. */
-	.act-summary-reason {
-		font-size: var(--text-sm);
-		line-height: 1.45;
-		color: var(--danger);
-	}
-
-	.act-details {
-		min-width: 0;
-	}
-	.act-details > summary {
-		width: fit-content;
-		border-radius: 4px;
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-		cursor: pointer;
-	}
-	.act-details > summary:hover {
-		color: var(--text-primary);
-	}
-	.act-details > summary:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-	.act-details-body {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		margin-top: 6px;
 	}
 
 	.act-eyebrow {
@@ -1314,18 +1220,105 @@ function handleToggle() {
 		overflow-wrap: anywhere;
 	}
 
-	.act-code {
+	/* What a calculation printed: plain text in the body's sans face, as the
+	   approved screen draws it (not a code box: it is an answer, not a program).
+	   Lines are kept and a long one wraps rather than widening the row. */
+	.act-result {
 		margin: 0;
-		padding: 8px 10px;
-		border: 1px solid var(--border-subtle);
-		border-radius: 5px;
-		background: var(--surface-code);
-		color: var(--text-primary);
-		font-family: var(--font-mono, monospace);
-		font-size: 0.72rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		line-height: 1.5;
-		white-space: pre;
-		overflow: auto;
+		color: var(--text-primary);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* The pictures a picture search found: small, wrapping, each with its site. */
+	.act-thumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.act-thumb {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		width: 72px;
+		margin: 0;
+	}
+
+	.act-thumb-img {
+		display: block;
+		width: 72px;
+		height: 54px;
+		object-fit: cover;
+		border-radius: 5px;
+		background: var(--surface-overlay);
+		box-shadow: 0 0 0 1px var(--border-default);
+	}
+
+	.act-thumb figcaption {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.66rem;
+		color: var(--text-muted);
+	}
+
+	/* The things a tool found or touched, one line each, by their own names. */
+	.act-things {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.act-thing {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		padding: 2px 0;
+	}
+
+	.act-thing-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+	}
+
+	.act-thing-sub {
+		flex: 0 0 auto;
+		margin-left: auto;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.act-more {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+	}
+
+	/* What one call of an account found, on the right of its words ("3 found"). */
+	.act-action-sub {
+		flex: 0 0 auto;
+		margin-left: auto;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Why a call did not work, under it and in line with its words. */
+	.act-action-reason {
+		padding-left: 22px;
 	}
 
 	/* Tailwind's preflight strips list markers app-wide, so the bullets are
@@ -1340,36 +1333,6 @@ function handleToggle() {
 
 	.act-bullets li::marker {
 		color: color-mix(in srgb, var(--text-muted) 60%, transparent);
-	}
-
-	.act-error {
-		color: var(--danger);
-		line-height: 1.45;
-		overflow-wrap: anywhere;
-	}
-
-	.act-kv {
-		display: flex;
-		gap: 6px;
-		min-width: 0;
-		font-family: var(--font-mono, monospace);
-		font-size: 0.72rem;
-	}
-
-	.act-kv-key {
-		flex: 0 0 auto;
-		color: var(--text-muted);
-	}
-
-	.act-kv-key::after {
-		content: ':';
-	}
-
-	.act-kv-value {
-		flex: 1 1 auto;
-		min-width: 0;
-		overflow-wrap: anywhere;
-		color: var(--text-primary);
 	}
 
 	/* A folded question's body: the mockup's `.rp` rows, each question muted with its

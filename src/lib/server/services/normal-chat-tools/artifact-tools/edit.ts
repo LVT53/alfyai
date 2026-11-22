@@ -34,7 +34,8 @@ import {
 	type PlacedNote,
 } from "$lib/shared/artifacts/board-ops";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
-import { truncateText } from "../shared";
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
+import { reasonMetadata, truncateText } from "../shared";
 import {
 	canvasEditFailureMessage,
 	canvasEditOutcome,
@@ -275,7 +276,15 @@ export type EditArtifactHandler = (
 	params: EditArtifactHandlerParams,
 ) => Promise<
 	| { ok: true; value: EditArtifactHandlerSuccess }
-	| { ok: false; error: string; refused?: ArtifactRefusal[] }
+	// `code` is the refusal's name on the chat row (the tool's closed list of
+	// reasons), given for a refusal the row can word and left out for any other.
+	// It rides beside `error`, never in it.
+	| {
+			ok: false;
+			error: string;
+			refused?: ArtifactRefusal[];
+			code?: ToolReasonCode<"edit_artifact">;
+	  }
 >;
 
 /**
@@ -327,16 +336,25 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 > = {
 	document: async (params) => {
 		if (params.abortSignal.aborted) {
-			return { ok: false, error: "The request was cancelled." };
+			return {
+				ok: false,
+				error: "The request was cancelled.",
+				code: "stopped",
+			};
 		}
 		if (params.ops) {
-			return { ok: false, error: "Documents use patches, not ops." };
+			return {
+				ok: false,
+				error: "Documents use patches, not ops.",
+				code: "request_adjusted",
+			};
 		}
 		const parsed = documentPatchOpsSchema.safeParse(params.patches ?? []);
 		if (!parsed.success) {
 			return {
 				ok: false,
 				error: `One or more patch ops were malformed. Documents use patches (not ops); each op's "op" must be one of: ${PATCH_OP_KINDS.join(", ")}. Re-read the document and try again with the exact shape edit_artifact's schema shows.`,
+				code: "request_adjusted",
 			};
 		}
 
@@ -367,7 +385,11 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		};
 
 		if (params.abortSignal.aborted) {
-			return { ok: false, error: "The request was cancelled." };
+			return {
+				ok: false,
+				error: "The request was cancelled.",
+				code: "stopped",
+			};
 		}
 
 		const result = await applyDocumentPatch({
@@ -416,13 +438,25 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 	},
 	canvas: async (params) => {
 		if (params.abortSignal.aborted) {
-			return { ok: false, error: "The request was cancelled." };
+			return {
+				ok: false,
+				error: "The request was cancelled.",
+				code: "stopped",
+			};
 		}
 		if (params.patches) {
-			return { ok: false, error: canvasOpsRequiredMessage(true) };
+			return {
+				ok: false,
+				error: canvasOpsRequiredMessage(true),
+				code: "request_adjusted",
+			};
 		}
 		if (!params.ops) {
-			return { ok: false, error: canvasOpsRequiredMessage(false) };
+			return {
+				ok: false,
+				error: canvasOpsRequiredMessage(false),
+				code: "request_adjusted",
+			};
 		}
 		const summary = (params.summary ?? "").trim() || VERSION_SUMMARY.alfyEdit;
 		const diff = { id: randomUUID(), summary, ops: params.ops };
@@ -461,10 +495,29 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		) {
 			tried = await attempt();
 		}
-		if (!tried) return { ok: false, error: "The request was cancelled." };
+		if (!tried) {
+			return {
+				ok: false,
+				error: "The request was cancelled.",
+				code: "stopped",
+			};
+		}
 		const { outcome, baseVersionId } = tried;
 		if (!outcome.ok) {
-			return { ok: false, error: canvasEditFailureMessage(outcome) };
+			// The board moved on under the edit (and again under its one retry), or
+			// the ops could not be read: the first protects what the reader wrote, the
+			// second is a request the model sent wrongly.
+			const code =
+				outcome.reason === "version_conflict"
+					? ("changed_since_read" as const)
+					: outcome.reason === "invalid_diff"
+						? ("request_adjusted" as const)
+						: undefined;
+			return {
+				ok: false,
+				error: canvasEditFailureMessage(outcome),
+				...(code ? { code } : {}),
+			};
 		}
 
 		const judged = canvasEditOutcome(outcome);
@@ -513,11 +566,19 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 	 */
 	app: async (params) => {
 		if (params.abortSignal.aborted) {
-			return { ok: false, error: "The request was cancelled." };
+			return {
+				ok: false,
+				error: "The request was cancelled.",
+				code: "stopped",
+			};
 		}
 		const instruction = params.instruction?.trim();
 		if (params.patches || params.ops || !instruction) {
-			return { ok: false, error: APP_NEEDS_INSTRUCTION_MESSAGE };
+			return {
+				ok: false,
+				error: APP_NEEDS_INSTRUCTION_MESSAGE,
+				code: "request_adjusted",
+			};
 		}
 		const budget = params.turnContext?.appRebuildBudget;
 		if (budget) {
@@ -525,6 +586,7 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 				return {
 					ok: false,
 					error: `This turn has already rebuilt an App ${budget.used} times, which is the limit. Stop rebuilding: tell the user what you changed and what is still open.`,
+					code: "rebuild_limit_reached",
 				};
 			}
 			// An attempt counts whether or not it lands: the model call was made.
@@ -538,7 +600,12 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			abortSignal: params.abortSignal,
 		});
 		if (!result.ok) {
-			return { ok: false, error: appRebuildFailureMessage(result) };
+			const code = appRebuildFailureCode(result);
+			return {
+				ok: false,
+				error: appRebuildFailureMessage(result),
+				...(code ? { code } : {}),
+			};
 		}
 		return {
 			ok: true,
@@ -572,6 +639,25 @@ function appRebuildFailureMessage(
 			return `The App changed while it was being rebuilt (it is at version ${result.version} now). Nothing was written. Tell the user, or call edit_artifact once more to rebuild from the current version.`;
 		default:
 			return `The App could not be rebuilt (${result.detail}). The current version is unchanged. Tell the user, and do not make a new App instead.`;
+	}
+}
+
+/**
+ * What a rebuild that did not land is called on its row: a cancelled one is a
+ * stop, and one the person's own change got in the way of (they saved while it
+ * was being built, nothing was written) is the conflict that protects their
+ * words. Any other failure names none.
+ */
+function appRebuildFailureCode(
+	result: Exclude<RegenerateAppResult, { ok: true }>,
+): ToolReasonCode<"edit_artifact"> | undefined {
+	switch (result.reason) {
+		case "aborted":
+			return "stopped";
+		case "version_conflict":
+			return "changed_since_read";
+		default:
+			return undefined;
 	}
 }
 
@@ -637,6 +723,28 @@ async function applyBoardOps(
 	return { outcome, baseVersionId: newest.id };
 }
 
+/** What an operation is refused for when the person's own words moved on after Alfy read them: a Document's block changed, a board's block was rewritten. */
+const STALE_REFUSAL_REASONS: ReadonlySet<string> = new Set([
+	"block_changed",
+	"stale",
+]);
+
+/**
+ * Whether an edit that changed nothing was turned back for the person's own
+ * changes: it applied nothing, and every operation it carried was refused as
+ * stale. One refused for any other reason, or one that applied, is not.
+ */
+function turnedBackForStaleness(
+	applied: number,
+	refused: readonly ArtifactRefusal[],
+): boolean {
+	return (
+		applied === 0 &&
+		refused.length > 0 &&
+		refused.every((item) => STALE_REFUSAL_REASONS.has(item.reason))
+	);
+}
+
 function unsupportedKindMessage(): string {
 	return "This item's edits are not supported yet. Say so, and offer the closest alternative you can actually do.";
 }
@@ -664,7 +772,11 @@ async function buildNotFoundResult(params: {
 			})),
 		},
 		outputSummary: "Not found",
-		metadata: { ok: false, found: false },
+		metadata: {
+			ok: false,
+			found: false,
+			...reasonMetadata("edit_artifact", "item_not_found"),
+		},
 	};
 }
 
@@ -689,7 +801,10 @@ export async function runEditArtifactTool(params: {
 		return {
 			modelPayload: { success: false, error },
 			outputSummary: error,
-			metadata: { ok: false },
+			metadata: {
+				ok: false,
+				...reasonMetadata("edit_artifact", "request_adjusted"),
+			},
 		};
 	}
 	if (params.instruction && (params.patches || params.ops)) {
@@ -698,7 +813,10 @@ export async function runEditArtifactTool(params: {
 		return {
 			modelPayload: { success: false, error },
 			outputSummary: error,
-			metadata: { ok: false },
+			metadata: {
+				ok: false,
+				...reasonMetadata("edit_artifact", "request_adjusted"),
+			},
 		};
 	}
 	if (!params.patches && !params.ops && !params.instruction) {
@@ -707,7 +825,10 @@ export async function runEditArtifactTool(params: {
 		return {
 			modelPayload: { success: false, error },
 			outputSummary: error,
-			metadata: { ok: false },
+			metadata: {
+				ok: false,
+				...reasonMetadata("edit_artifact", "request_adjusted"),
+			},
 		};
 	}
 
@@ -742,6 +863,7 @@ export async function runEditArtifactTool(params: {
 				artifactId: record.id,
 				artifactKind: "file",
 				artifactTitle: record.title,
+				...reasonMetadata("edit_artifact", "not_editable_as_text"),
 			},
 		};
 	}
@@ -760,6 +882,7 @@ export async function runEditArtifactTool(params: {
 				artifactId: record.id,
 				artifactKind: "image",
 				artifactTitle: record.title,
+				...reasonMetadata("edit_artifact", "not_editable_as_text"),
 			},
 		};
 	}
@@ -782,6 +905,7 @@ export async function runEditArtifactTool(params: {
 				artifactId: record.id,
 				artifactKind: "video",
 				artifactTitle: record.title,
+				...reasonMetadata("edit_artifact", "not_editable_as_text"),
 			},
 		};
 	}
@@ -801,6 +925,7 @@ export async function runEditArtifactTool(params: {
 				artifactId: record.id,
 				artifactKind: record.kind,
 				artifactTitle: record.title,
+				...reasonMetadata("edit_artifact", "request_adjusted"),
 			},
 		};
 	}
@@ -820,6 +945,7 @@ export async function runEditArtifactTool(params: {
 				artifactId: record.id,
 				artifactKind: record.kind,
 				artifactTitle: record.title,
+				...reasonMetadata("edit_artifact", "kind_not_editable"),
 			},
 		};
 	}
@@ -844,6 +970,13 @@ export async function runEditArtifactTool(params: {
 		const perOp = (result.refused ?? []).filter(
 			(item) => item.opIndex !== undefined,
 		);
+		// The code the handler gave, else the one a stale edit earns: every op of
+		// the call was turned back because what it was made from had moved on.
+		const code =
+			result.code ??
+			(turnedBackForStaleness(0, result.refused ?? [])
+				? ("changed_since_read" as const)
+				: undefined);
 		return {
 			modelPayload: {
 				success: false,
@@ -868,6 +1001,7 @@ export async function runEditArtifactTool(params: {
 							),
 						}
 					: {}),
+				...(code ? reasonMetadata("edit_artifact", code) : {}),
 			},
 		};
 	}
@@ -908,6 +1042,11 @@ export async function runEditArtifactTool(params: {
 			// localises the `code` itself, the same way the model-facing
 			// `refused` array above only ever carried a code).
 			appliedCount: result.value.applied,
+			// An edit that applied nothing because every op was stale left the
+			// person's words as they were: the row says so, beside `ok`.
+			...(turnedBackForStaleness(result.value.applied, result.value.refused)
+				? reasonMetadata("edit_artifact", "changed_since_read")
+				: {}),
 			// The version this edit wrote (ruling 76): History's "From the chat" finds
 			// the message behind an Alfy moment through it. A board's edit also says
 			// which version it landed on, so a later edit in the turn can tell its own

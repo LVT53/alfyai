@@ -55,6 +55,19 @@ function openSeedDatabase() {
 	return { sqlite, db };
 }
 
+function seedAuthorizedMemoryCaller() {
+	const { sqlite, db } = openSeedDatabase();
+	db.insert(schema.users)
+		.values({ id: "user-1", email: "memory@test.invalid", passwordHash: "x" })
+		.onConflictDoNothing()
+		.run();
+	db.insert(schema.conversations)
+		.values({ id: "conv-current", userId: "user-1", title: "Current" })
+		.onConflictDoNothing()
+		.run();
+	sqlite.close();
+}
+
 describe("memory context service", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-memory-context-${randomUUID()}.db`;
@@ -121,6 +134,7 @@ describe("memory context service", () => {
 	});
 
 	it("delegates project mode to project context and exposes a stable memory_context shape", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -176,6 +190,7 @@ describe("memory context service", () => {
 				includeEvidenceCandidates: true,
 			},
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -202,6 +217,7 @@ describe("memory context service", () => {
 	});
 
 	it("returns active projection persona facts with one evidence candidate per fact", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -250,6 +266,7 @@ describe("memory context service", () => {
 			links: [],
 			updatedAt: new Date("2026-06-02T00:00:00.000Z"),
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -284,6 +301,7 @@ describe("memory context service", () => {
 
 	it("includes project scope when loading active projection persona memory", async () => {
 		mockGetConversationProjectId.mockResolvedValueOnce("project-1");
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		await getMemoryContext({
@@ -327,6 +345,7 @@ describe("memory context service", () => {
 				},
 			],
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -373,6 +392,7 @@ describe("memory context service", () => {
 	});
 
 	it("defaults omitted mode to active projection persona memory", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -404,6 +424,7 @@ describe("memory context service", () => {
 			projectionRevision: 3,
 			items: [],
 		});
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -421,6 +442,10 @@ describe("memory context service", () => {
 			content: null,
 			evidenceCandidates: [],
 		});
+		// The same empty result of a person whose memory is on is not "memory is
+		// off": the tool's row says there was nothing, from the result's status.
+		const { reasonCodeOf } = await import("./normal-chat-tools/shared");
+		expect(reasonCodeOf(result)).toBeUndefined();
 	});
 
 	it("shortlists persona facts semantically only when a query is present and facts exceed twelve", async () => {
@@ -445,6 +470,7 @@ describe("memory context service", () => {
 				semanticScore: 0.9,
 			})),
 		);
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -472,6 +498,7 @@ describe("memory context service", () => {
 	});
 
 	it("omits evidence candidates when includeEvidenceCandidates is false", async () => {
+		seedAuthorizedMemoryCaller();
 		const { getMemoryContext } = await import("./memory-context");
 
 		const result = await getMemoryContext({
@@ -486,6 +513,139 @@ describe("memory context service", () => {
 			throw new Error(`Expected persona mode, got ${result.mode}`);
 		}
 		expect(result.evidenceCandidates).toEqual([]);
+	});
+
+	it("honors the authored exact chat title before looking up messages or an indicated detail ID", async () => {
+		seedAuthorizedMemoryCaller();
+		const { sqlite, db } = openSeedDatabase();
+		const title = "Earlier synthetic blue touring kayak discussion";
+		db.insert(schema.conversations)
+			.values([
+				{ id: "earlier", userId: "user-1", title },
+				{
+					id: "other",
+					userId: "user-1",
+					title: "Later touring kayak discussion",
+				},
+				{ id: "incognito", userId: "user-1", title, memoryIncognito: true },
+				{ id: "project", userId: "user-1", title, projectId: "not-this-scope" },
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "first",
+					conversationId: "earlier",
+					role: "user",
+					content: "I called the blue touring kayak EARLIER-NAME.",
+				},
+				{
+					id: "second",
+					conversationId: "other",
+					role: "assistant",
+					content: "You call the blue touring kayak CLEARED-CURRENT-NAME.",
+				},
+			])
+			.run();
+		const { getMemoryContext } = await import("./memory-context");
+		const input = {
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "blue touring kayak name",
+			authoredHistoryTitle: title,
+		};
+		const list = (await getMemoryContext(input)) as HistoryMemoryContextResult;
+		expect(
+			list.conversations.map(({ conversationId }) => conversationId),
+		).toEqual(["earlier"]);
+		expect(JSON.stringify(list)).toContain("EARLIER-NAME");
+		expect(JSON.stringify(list)).not.toContain("CLEARED-CURRENT-NAME");
+		for (const unauthorized of ["other", "incognito", "project"])
+			await expect(
+				getMemoryContext({ ...input, historyConversationId: unauthorized }),
+			).rejects.toThrow("outside memory_context history scope");
+		const selected = (await getMemoryContext({
+			...input,
+			mode: "project",
+			historyConversationId: "earlier",
+		})) as HistoryMemoryContextResult;
+		expect(selected.selectedConversation?.conversationId).toBe("earlier");
+		expect(mockGetProjectContext).not.toHaveBeenCalled();
+		await expect(
+			getMemoryContext({
+				...input,
+				mode: "project",
+				siblingConversationId: "other",
+			}),
+		).rejects.toThrow("outside memory_context history scope");
+		await expect(
+			getMemoryContext({
+				...input,
+				authoredHistoryTitle: "Unknown discussion",
+			}),
+		).rejects.toThrow("title");
+		db.insert(schema.conversations)
+			.values({ id: "duplicate", userId: "user-1", title })
+			.run();
+		await expect(getMemoryContext(input)).rejects.toThrow("title");
+		sqlite.close();
+	});
+
+	it("opens a named current-project chat without searching other projects", async () => {
+		seedAuthorizedMemoryCaller();
+		const { sqlite, db } = openSeedDatabase();
+		const title = "Design room";
+		mockGetConversationProjectId.mockResolvedValue("current-project");
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "sibling",
+					userId: "user-1",
+					title,
+					projectId: "current-project",
+				},
+				{
+					id: "other",
+					userId: "user-1",
+					title,
+					projectId: "different-project",
+				},
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "allowed",
+					conversationId: "sibling",
+					role: "user",
+					content: "Historical design decision",
+				},
+				{
+					id: "disallowed",
+					conversationId: "other",
+					role: "user",
+					content: "Cross-project design secret",
+				},
+			])
+			.run();
+		const { getMemoryContext } = await import("./memory-context");
+		const result = (await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "project",
+			query: "design",
+			authoredHistoryTitle: title,
+			siblingConversationId: "sibling",
+		})) as HistoryMemoryContextResult;
+		expect(result.selectedConversation?.messages[0]?.content).toBe(
+			"Historical design decision",
+		);
+		expect(
+			result.conversations.map(({ conversationId }) => conversationId),
+		).toEqual(["sibling"]);
+		expect(JSON.stringify(result)).not.toContain("Cross-project design secret");
+		sqlite.close();
 	});
 
 	it("returns multiple older non-project history hits for a topic without leaking other users or projects", async () => {
@@ -1461,6 +1621,40 @@ describe("memory context service", () => {
 		});
 		// The master gate short-circuits before any retrieval work runs.
 		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
+		expect(mockGetProjectContext).not.toHaveBeenCalled();
+		// The result says memory is off beside its payload, never in it: what the
+		// model reads is the same empty persona result it always was. (The module
+		// registry is reset for every test, so the side table is read from the same
+		// instance that wrote it.)
+		const { reasonCodeOf } = await import("./normal-chat-tools/shared");
+		expect(reasonCodeOf(result)).toBe("memory_off");
+		expect(JSON.stringify(result)).not.toContain("memory_off");
+		expect(Object.keys(result)).not.toContain("reasonCode");
+	});
+
+	it("withholds memory when its controls cannot be read", async () => {
+		seedAuthorizedMemoryCaller();
+		const { getMemoryContext } = await import("./memory-context");
+		const { sqlite } = await import("$lib/server/db");
+		const { reasonCodeOf } = await import("./normal-chat-tools/shared");
+		const { createMemoryContextMetadata } = await import(
+			"./normal-chat-tools/memory-context"
+		);
+		sqlite.close();
+
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "project",
+			query: "project pricing",
+		});
+
+		expect(result).toMatchObject({ status: "empty", evidenceCandidates: [] });
+		expect(reasonCodeOf(result)).toBe("memory_unavailable");
+		expect(createMemoryContextMetadata(result)?.reasonCode).toBe(
+			"memory_unavailable",
+		);
+		expect(JSON.stringify(result)).not.toContain("memory_unavailable");
 		expect(mockGetProjectContext).not.toHaveBeenCalled();
 	});
 

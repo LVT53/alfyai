@@ -1,0 +1,23 @@
+{
+  "loopbackModelAlias": "qwen3-6-27b",
+  "systemFingerprints": [
+    "vllm-0.34.0-a3da6d34"
+  ],
+  "allTracedStatuses": {
+    "200": 319
+  },
+  "requests": {
+    "preflight": 1,
+    "nativeRetain": 102,
+    "nativeConsolidation": 144,
+    "frozenAnswer": 72
+  },
+  "answerEnvelopeMatchesAllFrozenCurrentQuestions": true,
+  "finalGatewayCounters": {
+    "active": 0,
+    "peak": 6,
+    "rejected": 0,
+    "completed": 246,
+    "duration_ms": 1236763
+  }
+}

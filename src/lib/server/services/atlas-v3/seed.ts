@@ -236,8 +236,7 @@ export async function loadAtlasV3ParentSeed(input: {
 		parentAtlasJobId: job.parentAtlasJobId,
 	});
 	if (
-		!parent ||
-		parent.status !== "succeeded" ||
+		parent?.status !== "succeeded" ||
 		parent.conversationId !== job.conversationId
 	) {
 		console.warn("[ATLAS v3] Lifecycle parent cannot seed this job", {

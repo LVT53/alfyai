@@ -1,5 +1,7 @@
 # Memory v2: judge-gated local memory replaces the Honcho substrate
 
+[ADR-0071](0071-native-memory-with-small-app-owned-control-boundaries.md) supersedes this decision for native-authority accounts. This decision records behavior retained for legacy-authority accounts during migration and rollback.
+
 Accepted. AlfyAI memory is now a single app-owned store gated by an LLM **Memory Judge** and maintained by a nightly **Consolidation** pass. Honcho is removed entirely: there is no memory authority substrate behind the app, no message mirroring, and no asynchronous reconcile-later path. This ADR **supersedes ADR-0011 (Honcho-led Memory Context)** and **ADR-0039 (Deferred Memory Extraction restores Honcho as substrate)**, and **amends ADR-0033 (Guided Memory Review)** by removing every clause that treats Honcho as a background substrate. The design intent is recorded in `docs/superpowers/specs/2026-07-06-memory-v2-design.md`.
 
 > **Recorded 2026-07-10, retroactively.** The work landed across 2026-07-06…08 (merge "Memory v2: judge-gated local memory, Honcho removal") without an ADR at the time. This document records the decision after the fact so the reversal of ADR-0011/0039 is not silently re-litigated.

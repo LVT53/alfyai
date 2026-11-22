@@ -1,3 +1,8 @@
+// Native source deletion is covered with a real migrated database in chat-delivery.test.ts.
+vi.mock("./memory-profile/chat-delivery", () => ({
+	revokeDeletedMemoryMessages: vi.fn(async () => undefined),
+}));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Metadata projection is isolated here; ledger accounting crosses the real
@@ -1142,16 +1147,21 @@ describe("messages metadata", () => {
 				"the id belongs to a segment that is not a call",
 				JSON.stringify([{ type: "text", callId: "call-ask", content: "x" }]),
 			],
-		])("changes nothing and answers false when %s", async (_name, toolCalls) => {
-			pushAskingRow(toolCalls);
+		])(
+			"changes nothing and answers false when %s",
+			async (_name, toolCalls) => {
+				pushAskingRow(toolCalls);
 
-			const { updateAssistantToolCallResult } = await import("./messages");
+				const { updateAssistantToolCallResult } = await import("./messages");
 
-			await expect(updateAssistantToolCallResult(answer)).resolves.toBe(false);
+				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(
+					false,
+				);
 
-			expect(mockUpdate).not.toHaveBeenCalled();
-			expect(mockRows[0]?.toolCalls).toBe(toolCalls);
-		});
+				expect(mockUpdate).not.toHaveBeenCalled();
+				expect(mockRows[0]?.toolCalls).toBe(toolCalls);
+			},
+		);
 
 		it("answers false for a message that does not exist", async () => {
 			const { updateAssistantToolCallResult } = await import("./messages");
@@ -1256,18 +1266,21 @@ describe("messages metadata", () => {
 					"the ask_user call under the id asked another question",
 					[{ ...asked, metadata: { paused: true, questionId: "question-0" } }],
 				],
-			])("changes nothing and answers false when %s", async (_name, timeline) => {
-				const toolCalls = JSON.stringify(timeline);
-				pushAskingRow(toolCalls);
-				const { updateAssistantToolCallResult } = await import("./messages");
+			])(
+				"changes nothing and answers false when %s",
+				async (_name, timeline) => {
+					const toolCalls = JSON.stringify(timeline);
+					pushAskingRow(toolCalls);
+					const { updateAssistantToolCallResult } = await import("./messages");
 
-				await expect(updateAssistantToolCallResult(answer)).resolves.toBe(
-					false,
-				);
+					await expect(updateAssistantToolCallResult(answer)).resolves.toBe(
+						false,
+					);
 
-				expect(mockUpdate).not.toHaveBeenCalled();
-				expect(mockRows[0]?.toolCalls).toBe(toolCalls);
-			});
+					expect(mockUpdate).not.toHaveBeenCalled();
+					expect(mockRows[0]?.toolCalls).toBe(toolCalls);
+				},
+			);
 		});
 	});
 

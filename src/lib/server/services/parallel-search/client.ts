@@ -79,9 +79,15 @@ export interface ParallelExtractResponse {
 // is a short human-readable cause (404 / paywall / timeout / …). Surfaced so the
 // consuming model can tell the user WHICH url failed and WHY, instead of a bare
 // aggregate count.
+//
+// `status` and `errorType` are what the API's error item said about the failure
+// itself (`http_status_code`, `error_type`), kept for the reason a tool row names
+// (`classifyReadFailure`). They never enter the brief the model reads.
 export interface ParallelExtractUrlError {
 	url: string | null;
 	reason: string;
+	status?: number;
+	errorType?: string;
 }
 
 // Detailed result of an Extract call: the successful page results plus the
@@ -142,10 +148,26 @@ function clampQueries(queries: string[]): string[] {
 	return queries.map((q) => q.slice(0, MAX_QUERY_CHARS)).slice(0, MAX_QUERIES);
 }
 
+/**
+ * A non-2xx answer from Parallel. The message is what the model has always
+ * read for it; the class is how a tool row tells a service that did not answer
+ * from any other failure, without reading the words of the message.
+ */
+export class ParallelApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+		this.name = "ParallelApiError";
+	}
+}
+
 async function throwForStatus(res: Response, label: string): Promise<never> {
 	const text = await res.text().catch(() => "");
-	throw new Error(
+	throw new ParallelApiError(
 		`Parallel ${label} failed: ${res.status} ${res.statusText} ${text.slice(0, ERROR_BODY_CHARS)}`.trim(),
+		res.status,
 	);
 }
 
@@ -182,6 +204,54 @@ export async function parallelSearch(
 
 	const body = (await res.json()) as ParallelSearchResponse;
 	return Array.isArray(body.results) ? body.results : [];
+}
+
+/** Parallel images default to the more expensive Advanced mode unless Fast is explicit. */
+export async function parallelImageSearch(
+	request: { query: string; additionalQueries?: string[]; objective?: string },
+	deps: ParallelClientDeps,
+): Promise<Record<string, unknown>[]> {
+	const primary = request.query.trim();
+	const queries = [primary, ...(request.additionalQueries ?? [])]
+		.map((query) => Array.from(query.trim()).slice(0, MAX_QUERY_CHARS).join(""))
+		.filter(Boolean);
+	if (!queries.length) throw new Error("Image search requires a query");
+	// Older tool calls put the entire visual brief in the one query field.
+	const brief =
+		request.objective?.trim() || (primary !== queries[0] ? primary : "");
+	const objective = Array.from(brief).slice(0, MAX_OBJECTIVE_CHARS).join("");
+	const response = await deps.fetch(
+		`${resolveBaseUrl(deps.config)}/v1/images/search`,
+		{
+			method: "POST",
+			redirect: "error",
+			headers: {
+				"content-type": "application/json",
+				"x-api-key": deps.config.parallelApiKey,
+			},
+			body: JSON.stringify({
+				mode: "fast",
+				search_queries: [...new Set(queries)].slice(0, 3),
+				...(objective ? { objective } : {}),
+				advanced_settings: { max_results: 5 },
+			}),
+			signal: deps.signal,
+		},
+	);
+	if (!response.ok) {
+		await response.body?.cancel().catch(() => {});
+		throw new ParallelApiError(
+			`Parallel image search failed: ${response.status}`,
+			response.status,
+		);
+	}
+	const body = await response.json();
+	if (!Array.isArray(body?.results)) {
+		throw new Error("Parallel image search returned an invalid response");
+	}
+	return body.results
+		.slice(0, 5)
+		.filter((item: unknown) => item && typeof item === "object");
 }
 
 // Collapse all interior whitespace (newlines, tabs, runs of spaces) into single
@@ -222,7 +292,18 @@ function parseExtractErrors(raw: unknown): ParallelExtractUrlError[] {
 				collapseWhitespace(reasonCandidate)
 					? collapseWhitespace(reasonCandidate)
 					: "unknown error";
-			out.push({ url, reason });
+			const statusCandidate = record.http_status_code ?? record.status;
+			const typeCandidate = record.error_type ?? record.errorType;
+			out.push({
+				url,
+				reason,
+				...(Number.isInteger(statusCandidate)
+					? { status: statusCandidate as number }
+					: {}),
+				...(typeof typeCandidate === "string" && typeCandidate.trim()
+					? { errorType: collapseWhitespace(typeCandidate) }
+					: {}),
+			});
 		}
 	}
 	return out;

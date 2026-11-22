@@ -352,21 +352,6 @@ const chatDict = {
 		// compact step list.
 		"chat.thoughtStep.hideFullReasoning": "Hide full reasoning",
 		"chat.thoughtStep.showFullReasoning": "Show full reasoning",
-		// W3: the plain-language account at the top of a tool row's opened body.
-		// The action comes from the row's own label; these keys only frame it,
-		// word the outcome, and name the closed Details disclosure.
-		"chat.toolSummary.action": "{action} “{target}”.",
-		"chat.toolSummary.actionNoTarget": "{action}.",
-		"chat.toolSummary.details": "Details",
-		"chat.toolSummary.genericAction": "Alfy used a tool.",
-		"chat.toolSummary.outcome.done": "Finished.",
-		"chat.toolSummary.outcome.failed": "Could not complete it.",
-		"chat.toolSummary.outcome.found":
-			"Found {count} result{count, plural, one {} other {s}}.",
-		"chat.toolSummary.outcome.read": "The page came back.",
-		"chat.toolSummary.outcome.running": "Still working.",
-		"chat.toolSummary.outcome.skipped": "Nothing was done.",
-		"chat.toolSummary.outcome.unreachable": "Could not reach it.",
 		// A conversation nothing has named yet (F5): the stored default is one
 		// English sentence, and a reader sees this one in their own language.
 		"chat.untitledConversation": "New Conversation",
@@ -528,6 +513,8 @@ const chatDict = {
 		"chatgptImport.messages":
 			"{count} {count, plural, one {message} other {messages}}",
 		"chatgptImport.next": "Next",
+		"chatgptImport.memoryNote":
+			"Your own messages in these chats can also shape your Memory.",
 		"chatgptImport.noConversations": "No conversations found in this ZIP file.",
 		"chatgptImport.noProject": "No folder",
 		"chatgptImport.parseError":
@@ -603,6 +590,9 @@ const chatDict = {
 		"composerCommands.remember.missingArgument":
 			"Type what you want me to remember after /remember.",
 		"composerCommands.remember.saved": "Saved to memory.",
+		"composerCommands.remember.pending": "Saving to memory…",
+		"composerCommands.remember.unknown":
+			"Memory save is not confirmed yet. You can keep chatting while Alfy checks.",
 		"composerCommands.settings.description": "Open app settings.",
 		"composerCommands.settings.label": "Settings",
 		"composerCommands.skill.description": "Browse skills with $ discovery.",
@@ -778,48 +768,65 @@ const chatDict = {
 		"fileProduction.open": "Open",
 		"fileProduction.stop": "Stop",
 		"fileProduction.error.chart_limit_exceeded":
-			"A chart exceeds the configured limit.",
+			"A chart is too big to put in a file.",
 		"fileProduction.error.document_render_failed":
-			"The document could not be rendered.",
+			"The document couldn't be turned into a file.",
 		"fileProduction.error.image_limit_exceeded":
-			"Images exceed the configured limit.",
+			"The file would have too many or too large pictures.",
 		"fileProduction.error.invalid_document_source":
-			"The generated document source is invalid.",
+			"The document couldn't be read.",
 		"fileProduction.error.job_outputs_too_large":
-			"The produced files are too large.",
+			"The files together would be too large.",
+		// The file maker or its storage broke while making the file: the program's
+		// own crash, the files it could not store, the document it could not write.
+		"fileProduction.error.maker_problem": "The file maker ran into a problem.",
 		"fileProduction.error.missing_program_output_type":
 			"The file request did not say which file type to produce.",
+		// A program that ran and wrote nothing into its output folder.
+		"fileProduction.error.no_file_made": "The program made no file.",
 		"fileProduction.error.output_file_too_large":
-			"A produced file is too large.",
+			"The file would be too large.",
 		"fileProduction.error.page_limit_exceeded":
-			"The document would exceed the page limit.",
+			"The document would run to too many pages.",
+		// A change to an earlier file: no earlier version, or one the change does
+		// not fit.
+		"fileProduction.error.patch_not_applied":
+			"The change couldn't be applied to the file.",
 		"fileProduction.error.pdf_font_missing":
-			"The PDF renderer is missing its Unicode font.",
+			"The file needs a font that isn't installed.",
 		"fileProduction.error.projection_too_large":
-			"The document text projection is too large.",
-		"fileProduction.error.renderer_timeout": "Document rendering timed out.",
-		"fileProduction.error.sandbox_timeout": "Program execution timed out.",
+			"The document's text is too long.",
+		"fileProduction.error.renderer_timeout": "Making the file took too long.",
+		// One reply may make only so many files, and so many tries at one file.
+		"fileProduction.error.reply_file_limit":
+			"Alfy has made as many files as one reply allows.",
+		// The request itself is not one the file maker can read: a missing title,
+		// output type or program, a body that is no JSON, a mix of file families.
+		"fileProduction.error.request_unreadable":
+			"The file request couldn't be read.",
+		"fileProduction.error.sandbox_timeout": "Making the file took too long.",
 		"fileProduction.error.source_too_large":
-			"The file production source is too large.",
+			"The source is too large to turn into a file.",
 		"fileProduction.error.table_limit_exceeded":
-			"A table exceeds the configured limit.",
-		"fileProduction.error.too_many_outputs": "Too many outputs were requested.",
+			"A table is too big to put in a file.",
+		"fileProduction.error.too_many_outputs":
+			"That's more files than one request can make.",
 		"fileProduction.error.tool_failed":
 			"The file request failed before it could start.",
 		"fileProduction.error.unsupported_chart_data":
-			"The chart data is not supported.",
+			"A chart in the document can't be made from that data.",
 		"fileProduction.error.unsupported_chart_type":
-			"The document contains an unsupported chart type.",
+			"That kind of chart can't be made here.",
 		"fileProduction.error.unsupported_document_block":
-			"The document contains an unsupported block.",
+			"Part of the document can't be put in a file here.",
 		"fileProduction.error.unsupported_output_type":
-			"That output type is not supported for this document yet.",
+			"That kind of file can't be made here.",
 		"fileProduction.error.unsupported_pdf_block":
-			"This PDF renderer does not support that block yet.",
+			"Part of the document can't be put in a PDF yet.",
 		"fileProduction.error.unsupported_program_output_type":
-			"That file type cannot be produced.",
+			"That kind of file can't be made here.",
 		"fileProduction.error.unsupported_table_structure":
-			"The document contains an unsupported table structure.",
+			"That kind of table can't be made here.",
 		// A job reclaimed after the worker never sent another heartbeat — most
 		// often a server restart mid-job. `worker_heartbeat_timeout` is also
 		// used by the boot-time dead-worker sweep, so the wording stays general
@@ -834,8 +841,13 @@ const chatDict = {
 		// timeout.
 		"fileProduction.error.worker_queue_timeout":
 			"The file waited too long in the queue and could not be finished.",
+		// A program's file that is not the one the request named: the wrong type,
+		// name or count of files, or a spreadsheet or text that cannot be read.
+		"fileProduction.error.wrong_file_made":
+			"The program didn't make the file that was asked for.",
 		"fileProduction.failed": "Error",
-		"fileProduction.failedDescription": "File production did not finish.",
+		// Anything the card has no sentence for: never the server's own message.
+		"fileProduction.failedDescription": "The file couldn't be made.",
 		"fileProduction.placeholderTitle": "Preparing your file…",
 		"fileProduction.previewLabel": "Preview {filename}",
 		"fileProduction.queued": "Queued",
@@ -1065,8 +1077,6 @@ const chatDict = {
 			"Read {count} page{count, plural, one {} other {s}}",
 		"toolCalls.actionsCount": "{count} action{count, plural, one {} other {s}}",
 		"toolCalls.agendaUpcoming": "Upcoming",
-		"toolCalls.detailArguments": "Arguments",
-		"toolCalls.detailResult": "Result",
 		"toolActivity.searched": "Searched",
 		"toolActivity.searching": "Searching",
 		"toolActivity.searchedImages": "Searched images",
@@ -1095,7 +1105,7 @@ const chatDict = {
 		"toolActivity.pictureReason.explicitRequest":
 			"Explicit pictures are not made here.",
 		"toolActivity.pictureReason.transparentUnavailable":
-			"H3 cannot make transparent pictures. Switch the Admin “Picture model” to Qwen.",
+			"The current picture model can't make transparent pictures.",
 		"toolActivity.pictureReason.unreadable": "This picture could not be read.",
 		"toolActivity.pictureReason.unreachable":
 			"The picture server could not be reached.",
@@ -1119,7 +1129,6 @@ const chatDict = {
 		"toolActivity.editing": "Editing",
 		"toolActivity.editFailed": "Couldn't edit",
 		"toolActivity.createFailed": "Couldn't create",
-		"toolActivity.failureDetails": "Details",
 		"toolActivity.usedSkill": "Used skill",
 		"toolActivity.usingSkill": "Using skill",
 		"toolActivity.recalled": "Recalled",
@@ -1145,8 +1154,6 @@ const chatDict = {
 		"toolActivity.summaryFailedCount": "{verb} {count} failed",
 		"toolActivity.summaryMemories": "{verb} memories",
 		"toolActivity.sourcesEyebrow": "Sources",
-		"toolActivity.program": "Program",
-		"toolActivity.output": "Output",
 		"toolActivity.expandActivity": "Show what was done",
 		// The way from the compact strip's single card and its list rows to the
 		// file itself (FilesStrip.svelte).
@@ -1631,17 +1638,6 @@ const chatDict = {
 		"chat.thoughtStep.viewInTrace": "Megtekintés a gondolkodási folyamatban",
 		"chat.thoughtStep.hideFullReasoning": "Teljes gondolatmenet elrejtése",
 		"chat.thoughtStep.showFullReasoning": "Teljes gondolatmenet megjelenítése",
-		"chat.toolSummary.action": "{action}: „{target}”.",
-		"chat.toolSummary.actionNoTarget": "{action}.",
-		"chat.toolSummary.details": "Részletek",
-		"chat.toolSummary.genericAction": "Az AlfyAI egy eszközt használt.",
-		"chat.toolSummary.outcome.done": "Befejeződött.",
-		"chat.toolSummary.outcome.failed": "Nem sikerült befejezni.",
-		"chat.toolSummary.outcome.found": "{count} találatot hozott.",
-		"chat.toolSummary.outcome.read": "Az oldal megérkezett.",
-		"chat.toolSummary.outcome.running": "Még dolgozik.",
-		"chat.toolSummary.outcome.skipped": "Nem történt semmi.",
-		"chat.toolSummary.outcome.unreachable": "Nem sikerült elérni.",
 		"chat.untitledConversation": "Új beszélgetés",
 		"chat.updateCutReply":
 			"A válasz írása közben frissült az AlfyAI, ezért megszakadt. Az Újrapróbálom gombbal újra elküldheted az üzenetedet.",
@@ -1790,6 +1786,8 @@ const chatDict = {
 		"chatgptImport.invalidFile": "Kérjük, válasszon érvényes ZIP fájlt.",
 		"chatgptImport.messages": "{count} üzenet",
 		"chatgptImport.next": "Tovább",
+		"chatgptImport.memoryNote":
+			"A beszélgetésekben írt saját üzeneteid a Memóriádat is alakíthatják.",
 		"chatgptImport.noConversations":
 			"Nem található beszélgetés ebben a ZIP fájlban.",
 		"chatgptImport.noProject": "Nincs mappa",
@@ -1868,6 +1866,9 @@ const chatDict = {
 		"composerCommands.remember.missingArgument":
 			"Írd le a /remember után, mire emlékezzek.",
 		"composerCommands.remember.saved": "Elmentve a memóriába.",
+		"composerCommands.remember.pending": "Mentés a memóriába…",
+		"composerCommands.remember.unknown":
+			"A mentés még nincs visszaigazolva. Folytathatod a beszélgetést, amíg Alfy ellenőrzi.",
 		"composerCommands.settings.description":
 			"Megnyitja az alkalmazás beállításait.",
 		"composerCommands.settings.label": "Beállítások",
@@ -2044,57 +2045,65 @@ const chatDict = {
 		"fileProduction.open": "Megnyitás",
 		"fileProduction.stop": "Leállítás",
 		"fileProduction.error.chart_limit_exceeded":
-			"Egy diagram túllépi a beállított korlátot.",
+			"Egy diagram túl nagy ahhoz, hogy fájlba kerüljön.",
 		"fileProduction.error.document_render_failed":
-			"A dokumentumot nem sikerült renderelni.",
+			"A dokumentumból nem sikerült fájlt készíteni.",
 		"fileProduction.error.image_limit_exceeded":
-			"A képek túllépik a beállított korlátot.",
+			"A fájlban túl sok vagy túl nagy kép lenne.",
 		"fileProduction.error.invalid_document_source":
-			"A generált dokumentum forrása érvénytelen.",
+			"A dokumentumot nem sikerült beolvasni.",
 		"fileProduction.error.job_outputs_too_large":
-			"Az előállított fájlok túl nagyok.",
+			"A fájlok együtt túl nagyok lennének.",
+		"fileProduction.error.maker_problem": "A fájlkészítő hibába ütközött.",
 		"fileProduction.error.missing_program_output_type":
 			"A fájlkérés nem adta meg, milyen típusú fájl készüljön.",
-		"fileProduction.error.output_file_too_large":
-			"Egy előállított fájl túl nagy.",
+		"fileProduction.error.no_file_made": "A program nem készített fájlt.",
+		"fileProduction.error.output_file_too_large": "A fájl túl nagy lenne.",
 		"fileProduction.error.page_limit_exceeded":
-			"A dokumentum túllépné az oldalkorlátot.",
+			"A dokumentumnak túl sok oldala lenne.",
+		"fileProduction.error.patch_not_applied":
+			"A fájlt nem sikerült a kért módon módosítani.",
 		"fileProduction.error.pdf_font_missing":
-			"A PDF-renderelőből hiányzik a Unicode betűkészlet.",
+			"A fájlhoz hiányzik egy betűtípus.",
 		"fileProduction.error.projection_too_large":
-			"A dokumentum szöveges vetülete túl nagy.",
-		"fileProduction.error.renderer_timeout":
-			"A dokumentum renderelése időtúllépés miatt leállt.",
-		"fileProduction.error.sandbox_timeout":
-			"A program futása időtúllépés miatt leállt.",
-		"fileProduction.error.source_too_large": "A fájlkészítés forrása túl nagy.",
+			"A dokumentum szövege túl hosszú.",
+		"fileProduction.error.renderer_timeout": "A fájl túl sokáig készült.",
+		"fileProduction.error.reply_file_limit":
+			"Alfy ebben a válaszban már annyi fájlt készített, amennyit lehet.",
+		"fileProduction.error.request_unreadable": "A fájlkérés nem olvasható.",
+		"fileProduction.error.sandbox_timeout": "A fájl túl sokáig készült.",
+		"fileProduction.error.source_too_large":
+			"A forrás túl nagy ahhoz, hogy fájl készüljön belőle.",
 		"fileProduction.error.table_limit_exceeded":
-			"Egy tábla túllépi a beállított korlátot.",
-		"fileProduction.error.too_many_outputs": "Túl sok kimenet lett kérve.",
+			"Egy táblázat túl nagy ahhoz, hogy fájlba kerüljön.",
+		"fileProduction.error.too_many_outputs":
+			"Ez több fájl, mint amennyi egy kérésre elkészülhet.",
 		"fileProduction.error.tool_failed":
 			"A fájlkérés nem sikerült, mielőtt elindulhatott volna.",
 		"fileProduction.error.unsupported_chart_data":
-			"A diagram adatai nem támogatottak.",
+			"A dokumentum egyik diagramja nem készíthető el ezekből az adatokból.",
 		"fileProduction.error.unsupported_chart_type":
-			"A dokumentum nem támogatott diagramtípust tartalmaz.",
+			"Ilyen diagram itt nem készíthető.",
 		"fileProduction.error.unsupported_document_block":
-			"A dokumentum nem támogatott blokkot tartalmaz.",
+			"A dokumentum egy része itt nem kerülhet fájlba.",
 		"fileProduction.error.unsupported_output_type":
-			"Ez a kimeneti típus még nem támogatott ennél a dokumentumnál.",
+			"Ilyen fájl itt nem készíthető.",
 		"fileProduction.error.unsupported_pdf_block":
-			"Ez a PDF-renderelő még nem támogatja ezt a blokkot.",
+			"A dokumentum egy része még nem kerülhet PDF-be.",
 		"fileProduction.error.unsupported_program_output_type":
-			"Ez a fájltípus nem készíthető el.",
+			"Ilyen fájl itt nem készíthető.",
 		"fileProduction.error.unsupported_table_structure":
-			"A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
+			"Ilyen táblázat itt nem készíthető.",
 		"fileProduction.error.worker_heartbeat_timeout":
 			"A fájlt nem sikerült elkészíteni, mert a szerver újraindult közben.",
 		"fileProduction.error.worker_state_lost":
 			"A fájlt nem sikerült elkészíteni, mert a szerver elvesztette a feladat nyomát.",
 		"fileProduction.error.worker_queue_timeout":
 			"A fájl túl sokáig várakozott a sorban, ezért nem készült el.",
+		"fileProduction.error.wrong_file_made":
+			"A program nem a kért fájlt készítette el.",
 		"fileProduction.failed": "Hiba",
-		"fileProduction.failedDescription": "A fájlkészítés nem fejeződött be.",
+		"fileProduction.failedDescription": "A fájlt nem sikerült elkészíteni.",
 		"fileProduction.placeholderTitle": "A fájl előkészítése…",
 		"fileProduction.previewLabel": "{filename} előnézete",
 		"fileProduction.queued": "Várakozik",
@@ -2312,10 +2321,10 @@ const chatDict = {
 		"toolCalls.search": "Keresés",
 		"toolCalls.webSearch": "Webes keresés",
 		"toolCalls.calendar": "Naptár",
-		"toolCalls.contacts": "Kapcsolatok",
+		"toolCalls.contacts": "Névjegyek",
 		"toolCalls.email": "E-mail",
 		"toolCalls.files": "Fájlok",
-		"toolCalls.location": "Helyzet",
+		"toolCalls.location": "Helymeghatározás",
 		"toolCalls.media": "Média",
 		"toolCalls.photos": "Fényképek",
 		"toolCalls.repos": "Tárolók",
@@ -2325,8 +2334,6 @@ const chatDict = {
 		"toolCalls.readPagesCount": "{count} oldal elolvasva",
 		"toolCalls.actionsCount": "{count} művelet",
 		"toolCalls.agendaUpcoming": "Következő",
-		"toolCalls.detailArguments": "Paraméterek",
-		"toolCalls.detailResult": "Eredmény",
 		"toolActivity.searched": "Keresés",
 		"toolActivity.searching": "Keresés folyamatban",
 		"toolActivity.searchedImages": "Képkeresés",
@@ -2354,7 +2361,7 @@ const chatDict = {
 		"toolActivity.pictureReason.explicitRequest":
 			"Szexuális tartalmú képek itt nem készülnek.",
 		"toolActivity.pictureReason.transparentUnavailable":
-			"A H3 nem tud átlátszó képet készíteni. Az Admin „Képmodell” beállításban válts Qwenre.",
+			"A mostani képmodell nem tud átlátszó képet készíteni.",
 		"toolActivity.pictureReason.unreadable": "A kép nem olvasható.",
 		"toolActivity.pictureReason.unreachable": "A képkészítő nem érhető el.",
 		"toolActivity.pictureReason.rejected":
@@ -2373,7 +2380,6 @@ const chatDict = {
 		"toolActivity.editing": "Szerkesztés",
 		"toolActivity.editFailed": "Nem sikerült szerkeszteni",
 		"toolActivity.createFailed": "Nem sikerült létrehozni",
-		"toolActivity.failureDetails": "Részletek",
 		"toolActivity.usedSkill": "Használt készség",
 		"toolActivity.usingSkill": "Készség betöltése",
 		"toolActivity.recalled": "Felidézve",
@@ -2402,8 +2408,6 @@ const chatDict = {
 		// survive: "Felidézés: emlékek" / "Felidézve: emlékek".
 		"toolActivity.summaryMemories": "{verb}: emlékek",
 		"toolActivity.sourcesEyebrow": "Források",
-		"toolActivity.program": "Program",
-		"toolActivity.output": "Kimenet",
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		// A kompakt sáv kártyájáról és listasorairól a fájlra magára.
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
@@ -2417,7 +2421,7 @@ const chatDict = {
 		"toolActivity.journey": "Útiterv",
 		"toolActivity.planningJourney": "Útiterv készítése",
 		// A number takes the singular after it, so there is no plural to split.
-		"toolActivity.photosViewed": "{count} fotót megnézett",
+		"toolActivity.photosViewed": "{count} fényképet megnézett",
 		// A térképkártya lépésről lépésre törzse (RouteItinerary.svelte).
 		"routeItinerary.directions": "Útbaigazítás",
 		"routeItinerary.showAllSteps": "Mind a(z) {count} lépés",

@@ -16,7 +16,6 @@ import { Download, FileText, RotateCw, Square, X } from "@lucide/svelte";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import { handleDownloadAnchorClick } from "$lib/client/downloads";
 import { t } from "$lib/i18n";
-import type { I18nKey } from "$lib/i18n";
 import type {
 	FileProductionJob,
 	FileProductionJobFile,
@@ -24,53 +23,11 @@ import type {
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { formatByteSize } from "$lib/utils/format";
 import {
+	fileProductionErrorKey,
 	formatElapsed,
 	isPendingFileProductionJobId,
 	isStaleJob,
 } from "./file-production-helpers";
-
-const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
-	too_many_outputs: "fileProduction.error.too_many_outputs",
-	source_too_large: "fileProduction.error.source_too_large",
-	projection_too_large: "fileProduction.error.projection_too_large",
-	page_limit_exceeded: "fileProduction.error.page_limit_exceeded",
-	table_limit_exceeded: "fileProduction.error.table_limit_exceeded",
-	chart_limit_exceeded: "fileProduction.error.chart_limit_exceeded",
-	image_limit_exceeded: "fileProduction.error.image_limit_exceeded",
-	renderer_timeout: "fileProduction.error.renderer_timeout",
-	sandbox_timeout: "fileProduction.error.sandbox_timeout",
-	invalid_document_source: "fileProduction.error.invalid_document_source",
-	// Intake refuses a program-mode request that names no output type, or an
-	// output type the pipeline cannot produce. Both write a failed job, so both
-	// reach this card and need a localized line instead of the raw English
-	// server message.
-	missing_program_output_type:
-		"fileProduction.error.missing_program_output_type",
-	unsupported_program_output_type:
-		"fileProduction.error.unsupported_program_output_type",
-	unsupported_document_block: "fileProduction.error.unsupported_document_block",
-	unsupported_table_structure:
-		"fileProduction.error.unsupported_table_structure",
-	unsupported_chart_type: "fileProduction.error.unsupported_chart_type",
-	unsupported_chart_data: "fileProduction.error.unsupported_chart_data",
-	unsupported_pdf_block: "fileProduction.error.unsupported_pdf_block",
-	unsupported_output_type: "fileProduction.error.unsupported_output_type",
-	pdf_font_missing: "fileProduction.error.pdf_font_missing",
-	document_render_failed: "fileProduction.error.document_render_failed",
-	output_file_too_large: "fileProduction.error.output_file_too_large",
-	job_outputs_too_large: "fileProduction.error.job_outputs_too_large",
-	// A job the ledger reclaimed after a restart or a lost worker, or one that
-	// never got picked up before its queue timeout. All three are retryable —
-	// the card still offers Retry, same as any other retryable failure.
-	worker_heartbeat_timeout: "fileProduction.error.worker_heartbeat_timeout",
-	worker_state_lost: "fileProduction.error.worker_state_lost",
-	worker_queue_timeout: "fileProduction.error.worker_queue_timeout",
-	// Item 6 (UX-speed plan) — set on a placeholder card when its
-	// produce_file tool call fails before a real job ever gets queued (see
-	// buildPendingFileProductionJobPlaceholder / failPendingFileProduction-
-	// JobPlaceholder in ../../../routes/(app)/chat/[conversationId]/_helpers).
-	tool_failed: "fileProduction.error.tool_failed",
-};
 
 let {
 	job,
@@ -117,10 +74,12 @@ let canDismiss = $derived(
 	isError && onDismiss && !errorIsRetryable && !isPlaceholder,
 );
 
+// A job that carries an error says that code's sentence, or the card's fallback
+// for a code it has no sentence for. `job.error.message` is the server's English
+// note for the model and the log: it never reaches the card.
 function statusDescription(job: FileProductionJob): string | null {
-	if (job.error?.message) {
-		const key = ERROR_MESSAGE_KEYS[job.error.code];
-		return key ? $t(key) : job.error.message;
+	if (job.error) {
+		return $t(fileProductionErrorKey(job.error.code));
 	}
 	switch (job.status) {
 		case "queued":

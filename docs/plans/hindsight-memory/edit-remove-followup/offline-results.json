@@ -1,0 +1,508 @@
+[
+  {
+    "name": "en-mixed-edit",
+    "input": {
+      "displayed_before": "I own an amber hiking backpack and a white canoe. I store both in my garage.",
+      "user_saved_after": "I own a hiking backpack and a blue canoe. I store both in my garage.",
+      "facts": [
+        {
+          "id": "cec9d9f7-9e0e-4574-9941-ea0331645596",
+          "text": "User's hiking backpack is amber and their canoe is white; both are in the user's garage. | Where: user's garage | Involving: user"
+        },
+        {
+          "id": "eed33bf4-7ee3-4467-9826-b22c9ff968ed",
+          "text": "User owns an amber hiking backpack and a white canoe, and stores both in their garage. | Where: garage | Involving: user"
+        }
+      ]
+    },
+    "response": {
+      "text": "{\n\"facts\": [\n{\n\"id\": \"cec9d9f7-9e0e-4574-9941-ea0331645596\",\n\"text\": \"User's hiking backpack is amber and their canoe is blue; both are in the user's garage. | Where: user's garage | Involving: user\"\n},\n{\n\"id\": \"eed33bf4-7ee3-4467-9826-b22c9ff968ed\",\n\"text\": \"User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user\"\n}\n]\n}",
+      "response": {
+        "id": "chatcmpl-b9c2f52596055dbe",
+        "object": "chat.completion",
+        "created": 1795026473,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n\"facts\": [\n{\n\"id\": \"cec9d9f7-9e0e-4574-9941-ea0331645596\",\n\"text\": \"User's hiking backpack is amber and their canoe is blue; both are in the user's garage. | Where: user's garage | Involving: user\"\n},\n{\n\"id\": \"eed33bf4-7ee3-4467-9826-b22c9ff968ed\",\n\"text\": \"User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user\"\n}\n]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 395,
+          "total_tokens": 555,
+          "completion_tokens": 160,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "facts": [
+      {
+        "id": "cec9d9f7-9e0e-4574-9941-ea0331645596",
+        "text": "User's hiking backpack is amber and their canoe is blue; both are in the user's garage. | Where: user's garage | Involving: user"
+      },
+      {
+        "id": "eed33bf4-7ee3-4467-9826-b22c9ff968ed",
+        "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user"
+      }
+    ]
+  },
+  {
+    "name": "en-old-source-replay",
+    "input": {
+      "displayed_before": "I own an amber hiking backpack and a white canoe. I store both in my garage.",
+      "user_saved_after": "I own a hiking backpack and a blue canoe. I store both in my garage.",
+      "facts": [
+        {
+          "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+          "text": "The user's canoe is white and is in the user's garage. | Where: the user's garage | Involving: user"
+        },
+        {
+          "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+          "text": "The user's hiking backpack is amber and is in the user's garage. | Where: the user's garage | Involving: user"
+        },
+        {
+          "id": "eed33bf4-7ee3-4467-9826-b22c9ff968ed",
+          "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user"
+        }
+      ]
+    },
+    "response": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"abf7f69a-7bef-4d92-a09b-05c9701113c7\",\n      \"text\": \"The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"4576f151-aa28-43cb-8e65-3151b33d2fd3\",\n      \"text\": \"The user's hiking backpack is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"eed33bf4-7ee3-4467-9826-b22c9ff968ed\",\n      \"text\": \"User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-a16299555c412a8d",
+        "object": "chat.completion",
+        "created": 1795026474,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"abf7f69a-7bef-4d92-a09b-05c9701113c7\",\n      \"text\": \"The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"4576f151-aa28-43cb-8e65-3151b33d2fd3\",\n      \"text\": \"The user's hiking backpack is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"eed33bf4-7ee3-4467-9826-b22c9ff968ed\",\n      \"text\": \"User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 455,
+          "total_tokens": 701,
+          "completion_tokens": 246,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "facts": [
+      {
+        "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+        "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user"
+      },
+      {
+        "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+        "text": "The user's hiking backpack is in the user's garage. | Where: the user's garage | Involving: user"
+      },
+      {
+        "id": "eed33bf4-7ee3-4467-9826-b22c9ff968ed",
+        "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user"
+      }
+    ]
+  },
+  {
+    "name": "en-forced-reprocess",
+    "input": {
+      "displayed_before": "I own an amber hiking backpack and a white canoe. I store both in my garage.",
+      "user_saved_after": "I own a hiking backpack and a blue canoe. I store both in my garage.",
+      "facts": [
+        {
+          "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+          "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user"
+        },
+        {
+          "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+          "text": "The user's hiking backpack is is in the user's garage. | Where: the user's garage | Involving: user"
+        },
+        {
+          "id": "731280a5-efd1-42cd-8d03-44a714f499a4",
+          "text": "User owns an amber hiking backpack and a white canoe, and stores both in their garage. | Where: garage | Involving: user"
+        }
+      ]
+    },
+    "response": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"abf7f69a-7bef-4d92-a09b-05c9701113c7\",\n      \"text\": \"The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"4576f151-aa28-43cb-8e65-3151b33d2fd3\",\n      \"text\": \"The user's hiking backpack is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"731280a5-efd1-42cd-8d03-44a714f499a4\",\n      \"text\": \"User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-a13be6b5e4e62cab",
+        "object": "chat.completion",
+        "created": 1795026475,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"abf7f69a-7bef-4d92-a09b-05c9701113c7\",\n      \"text\": \"The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"4576f151-aa28-43cb-8e65-3151b33d2fd3\",\n      \"text\": \"The user's hiking backpack is in the user's garage. | Where: the user's garage | Involving: user\"\n    },\n    {\n      \"id\": \"731280a5-efd1-42cd-8d03-44a714f499a4\",\n      \"text\": \"User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 458,
+          "total_tokens": 708,
+          "completion_tokens": 250,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "facts": [
+      {
+        "id": "abf7f69a-7bef-4d92-a09b-05c9701113c7",
+        "text": "The user's canoe is blue and is in the user's garage. | Where: the user's garage | Involving: user"
+      },
+      {
+        "id": "4576f151-aa28-43cb-8e65-3151b33d2fd3",
+        "text": "The user's hiking backpack is in the user's garage. | Where: the user's garage | Involving: user"
+      },
+      {
+        "id": "731280a5-efd1-42cd-8d03-44a714f499a4",
+        "text": "User owns a hiking backpack and a blue canoe, and stores both in their garage. | Where: garage | Involving: user"
+      }
+    ]
+  },
+  {
+    "name": "hu-mixed-edit",
+    "input": {
+      "displayed_before": "Én és a húgom, Luca, gluténmentesen étkezünk. Két macskám van: Mák fekete, Bodza fehér.",
+      "user_saved_after": "Luca gluténmentesen étkezik. Két macskám van: Mák, és Bodza, aki szürke.",
+      "facts": [
+        {
+          "id": "f3dc931c-b542-4126-894d-d88ef6e08fc6",
+          "text": "A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák (macska), Bodza (macska)"
+        },
+        {
+          "id": "24f683c5-98ce-4bd6-ac8d-972374c5f58d",
+          "text": "A felhasználó gluténmentes étrendet követ, és Luca is gluténmentes étrendet követ. | Involving: user, Luca"
+        },
+        {
+          "id": "b8b9855e-b98e-444f-88a4-07c101314ed3",
+          "text": "A felhasználónak két macskája van: Mák fekete, Bodza fehér. | Involving: user"
+        },
+        {
+          "id": "dbff78a9-d37d-4795-8c5f-29015f51e3fb",
+          "text": "A felhasználó és a húga, Luca gluténmentesen étkeznek. | Involving: user, Luca (a felhasználó húga)"
+        }
+      ]
+    },
+    "response": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"f3dc931c-b542-4126-894d-d88ef6e08fc6\",\n      \"text\": \"A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (macska), Bodza (macska)\"\n    },\n    {\n      \"id\": \"24f683c5-98ce-4bd6-ac8d-972374c5f58d\",\n      \"text\": \"Luca gluténmentes étrendet követ. | Involving: Luca\"\n    },\n    {\n      \"id\": \"b8b9855e-b98e-444f-88a4-07c101314ed3\",\n      \"text\": \"A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user\"\n    },\n    {\n      \"id\": \"dbff78a9-d37d-4795-8c5f-29015f51e3fb\",\n      \"text\": \"Luca gluténmentesen étkezik. | Involving: Luca (a felhasználó húga)\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-895128fb21e9ff75",
+        "object": "chat.completion",
+        "created": 1795026476,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"f3dc931c-b542-4126-894d-d88ef6e08fc6\",\n      \"text\": \"A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (macska), Bodza (macska)\"\n    },\n    {\n      \"id\": \"24f683c5-98ce-4bd6-ac8d-972374c5f58d\",\n      \"text\": \"Luca gluténmentes étrendet követ. | Involving: Luca\"\n    },\n    {\n      \"id\": \"b8b9855e-b98e-444f-88a4-07c101314ed3\",\n      \"text\": \"A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user\"\n    },\n    {\n      \"id\": \"dbff78a9-d37d-4795-8c5f-29015f51e3fb\",\n      \"text\": \"Luca gluténmentesen étkezik. | Involving: Luca (a felhasználó húga)\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 562,
+          "total_tokens": 887,
+          "completion_tokens": 325,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "facts": [
+      {
+        "id": "f3dc931c-b542-4126-894d-d88ef6e08fc6",
+        "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (macska), Bodza (macska)"
+      },
+      {
+        "id": "24f683c5-98ce-4bd6-ac8d-972374c5f58d",
+        "text": "Luca gluténmentes étrendet követ. | Involving: Luca"
+      },
+      {
+        "id": "b8b9855e-b98e-444f-88a4-07c101314ed3",
+        "text": "A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user"
+      },
+      {
+        "id": "dbff78a9-d37d-4795-8c5f-29015f51e3fb",
+        "text": "Luca gluténmentesen étkezik. | Involving: Luca (a felhasználó húga)"
+      }
+    ]
+  },
+  {
+    "name": "hu-old-source-replay",
+    "input": {
+      "displayed_before": "Én és a húgom, Luca, gluténmentesen étkezünk. Két macskám van: Mák fekete, Bodza fehér.",
+      "user_saved_after": "Luca gluténmentesen étkezik. Két macskám van: Mák, és Bodza, aki szürke.",
+      "facts": [
+        {
+          "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+          "text": "A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák (user's cat), Bodza (user's cat)"
+        },
+        {
+          "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+          "text": "Luca is gluténmentes étrendet követ. | Involving: Luca"
+        },
+        {
+          "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+          "text": "A felhasználó gluténmentes étrendet követ. | Involving: user"
+        },
+        {
+          "id": "b8b9855e-b98e-444f-88a4-07c101314ed3",
+          "text": "A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user"
+        },
+        {
+          "id": "dbff78a9-d37d-4795-8c5f-29015f51e3fb",
+          "text": "Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)"
+        }
+      ]
+    },
+    "response": {
+      "text": "{\n  \"facts\": [\n    {\n      \"id\": \"822bab29-7704-4875-a60c-2e33a1bfe74a\",\n      \"text\": \"A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)\"\n    },\n    {\n      \"id\": \"ab304565-e6ae-4b59-9e3a-f65a7d702270\",\n      \"text\": \"Luca is gluténmentes étrendet követ. | Involving: Luca\"\n    },\n    {\n      \"id\": \"c8a144a8-6741-4f94-92b1-9ee896dbd93e\",\n      \"text\": \"\"\n    },\n    {\n      \"id\": \"b8b9855e-b98e-444f-88a4-07c101314ed3\",\n      \"text\": \"A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user\"\n    },\n    {\n      \"id\": \"dbff78a9-d37d-4795-8c5f-29015f51e3fb\",\n      \"text\": \"Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-939af8f70d3c2952",
+        "object": "chat.completion",
+        "created": 1795026477,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"822bab29-7704-4875-a60c-2e33a1bfe74a\",\n      \"text\": \"A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)\"\n    },\n    {\n      \"id\": \"ab304565-e6ae-4b59-9e3a-f65a7d702270\",\n      \"text\": \"Luca is gluténmentes étrendet követ. | Involving: Luca\"\n    },\n    {\n      \"id\": \"c8a144a8-6741-4f94-92b1-9ee896dbd93e\",\n      \"text\": \"\"\n    },\n    {\n      \"id\": \"b8b9855e-b98e-444f-88a4-07c101314ed3\",\n      \"text\": \"A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user\"\n    },\n    {\n      \"id\": \"dbff78a9-d37d-4795-8c5f-29015f51e3fb\",\n      \"text\": \"Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 604,
+          "total_tokens": 985,
+          "completion_tokens": 381,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "facts": [
+      {
+        "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+        "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)"
+      },
+      {
+        "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+        "text": "Luca is gluténmentes étrendet követ. | Involving: Luca"
+      },
+      {
+        "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+        "text": ""
+      },
+      {
+        "id": "b8b9855e-b98e-444f-88a4-07c101314ed3",
+        "text": "A felhasználónak két macskája van: Mák fekete, Bodza szürke. | Involving: user"
+      },
+      {
+        "id": "dbff78a9-d37d-4795-8c5f-29015f51e3fb",
+        "text": "Luca gluténmentesen étkezik. | Involving: user, Luca (a felhasználó húga)"
+      }
+    ]
+  },
+  {
+    "name": "hu-forced-reprocess",
+    "input": {
+      "displayed_before": "Én és a húgom, Luca, gluténmentesen étkezünk. Két macskám van: Mák fekete, Bodza fehér.",
+      "user_saved_after": "Luca gluténmentesen étkezik. Két macskám van: Mák, és Bodza, aki szürke.",
+      "facts": [
+        {
+          "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+          "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)"
+        },
+        {
+          "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+          "text": "Luca is gluténmentes étrendet követ. | Involving: Luca"
+        },
+        {
+          "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+          "text": "| Involving: user"
+        },
+        {
+          "id": "52b78269-bd34-4301-94ff-85a2bff3edd8",
+          "text": "A felhasználónak két macskája van: Mák fekete, Bodza fehér. | Involving: user"
+        },
+        {
+          "id": "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+          "text": "A felhasználó és a húga, Luca gluténmentesen étkeznek. | Involving: user, Luca (a felhasználó húga)"
+        }
+      ]
+    },
+    "response": {
+      "text": "{\n\"facts\": [\n{\n\"id\": \"822bab29-7704-4875-a60c-2e33a1bfe74a\",\n\"text\": \"A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)\"\n},\n{\n\"id\": \"ab304565-e6ae-4b59-9e3a-f65a7d702270\",\n\"text\": \"Luca is gluténmentes étrendet követ. | Involving: Luca\"\n},\n{\n\"id\": \"c8a144a8-6741-4f94-92b1-9ee896dbd93e\",\n\"text\": \"\"\n},\n{\n\"id\": \"52b78269-bd34-4301-94ff-85a2bff3edd8\",\n\"text\": \"A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user\"\n},\n{\n\"id\": \"1bec4902-eb82-4c4e-ba17-03ab3904d1eb\",\n\"text\": \"Luca gluténmentesen étkezik. | Involving: Luca\"\n}\n]\n}",
+      "response": {
+        "id": "chatcmpl-a42884c5d9d4efe2",
+        "object": "chat.completion",
+        "created": 1795026479,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n\"facts\": [\n{\n\"id\": \"822bab29-7704-4875-a60c-2e33a1bfe74a\",\n\"text\": \"A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)\"\n},\n{\n\"id\": \"ab304565-e6ae-4b59-9e3a-f65a7d702270\",\n\"text\": \"Luca is gluténmentes étrendet követ. | Involving: Luca\"\n},\n{\n\"id\": \"c8a144a8-6741-4f94-92b1-9ee896dbd93e\",\n\"text\": \"\"\n},\n{\n\"id\": \"52b78269-bd34-4301-94ff-85a2bff3edd8\",\n\"text\": \"A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user\"\n},\n{\n\"id\": \"1bec4902-eb82-4c4e-ba17-03ab3904d1eb\",\n\"text\": \"Luca gluténmentesen étkezik. | Involving: Luca\"\n}\n]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 593,
+          "total_tokens": 930,
+          "completion_tokens": 337,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "facts": [
+      {
+        "id": "822bab29-7704-4875-a60c-2e33a1bfe74a",
+        "text": "A felhasználó macskái közül Mák fekete, Bodza szürke. | Involving: user, Mák (user's cat), Bodza (user's cat)"
+      },
+      {
+        "id": "ab304565-e6ae-4b59-9e3a-f65a7d702270",
+        "text": "Luca is gluténmentes étrendet követ. | Involving: Luca"
+      },
+      {
+        "id": "c8a144a8-6741-4f94-92b1-9ee896dbd93e",
+        "text": ""
+      },
+      {
+        "id": "52b78269-bd34-4301-94ff-85a2bff3edd8",
+        "text": "A felhasználónak két macskája van: Mák, és Bodza, aki szürke. | Involving: user"
+      },
+      {
+        "id": "1bec4902-eb82-4c4e-ba17-03ab3904d1eb",
+        "text": "Luca gluténmentesen étkezik. | Involving: Luca"
+      }
+    ]
+  }
+]

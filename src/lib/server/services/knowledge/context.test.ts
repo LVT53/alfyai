@@ -147,6 +147,10 @@ vi.mock("../memory-behavior-log", () => ({
 	countRecentMemoryBehaviorEventsBySubject: vi.fn(async () => new Map()),
 }));
 
+vi.mock("../memory-profile/revisions", () => ({
+	hasNativeMemoryScopeBoundary: () => false,
+}));
+
 vi.mock("../document-resolution", () => ({
 	getGeneratedDocumentBehaviorKey: vi.fn(
 		(artifact: { id: string }) => artifact.id,

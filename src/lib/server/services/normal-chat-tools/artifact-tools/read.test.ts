@@ -80,6 +80,15 @@ describe("runReadArtifactTool", () => {
 				{ artifactId: "a1", title: "Other plan" },
 			]);
 		}
+		// The row says the item is not there from a code on the entry's metadata;
+		// the summary and the payload the model reads are what they were.
+		expect(result.outputSummary).toBe("Not found");
+		expect(result.metadata).toEqual({
+			ok: false,
+			found: false,
+			reasonCode: "item_not_found",
+		});
+		expect(JSON.stringify(result.modelPayload)).not.toContain("item_not_found");
 	});
 
 	it("reads a File-type id from this conversation and says the type, with a short summary", async () => {
@@ -106,6 +115,7 @@ describe("runReadArtifactTool", () => {
 		if (result.modelPayload.success) {
 			expect(result.modelPayload.body?.length).toBeLessThan(1000);
 		}
+		expect(result.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("never returns a body belonging to another user (delegates ownership to getArtifact)", async () => {
@@ -340,22 +350,25 @@ describe("runReadArtifactTool — what the turn keeps of a read", () => {
 			"a document with no reader of its own",
 			{ kind: "app" as const, title: "Tip calculator" },
 		],
-	])("puts the item's title on the call's record for %s", async (_name, overrides) => {
-		getArtifactMock.mockResolvedValue(detail(overrides));
+	])(
+		"puts the item's title on the call's record for %s",
+		async (_name, overrides) => {
+			getArtifactMock.mockResolvedValue(detail(overrides));
 
-		const result = await runReadArtifactTool({
-			userId: "user-1",
-			conversationId: "conv-1",
-			artifactId: "artifact-1",
-			abortSignal: new AbortController().signal,
-		});
+			const result = await runReadArtifactTool({
+				userId: "user-1",
+				conversationId: "conv-1",
+				artifactId: "artifact-1",
+				abortSignal: new AbortController().signal,
+			});
 
-		expect(result.metadata).toMatchObject({
-			ok: true,
-			artifactId: "artifact-1",
-			artifactTitle: overrides.title,
-		});
-	});
+			expect(result.metadata).toMatchObject({
+				ok: true,
+				artifactId: "artifact-1",
+				artifactTitle: overrides.title,
+			});
+		},
+	);
 
 	it("puts the title on the record of a read a kind's own reader answered", async () => {
 		READ_ARTIFACT_HANDLERS.document = async () => ({

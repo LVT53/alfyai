@@ -1,0 +1,17 @@
+[
+  {
+    "id": "historical_duplicate",
+    "previous": "I own a red bicycle. I like jazz.",
+    "latest": "The red cycle I own is in the shed. I like jazz and started piano.",
+    "action": "Forget the colour of my bicycle. Preserve ownership, location and unrelated preferences.",
+    "want": "bicycle ownership/shed; jazz/piano; no colour",
+    "heldOut": true
+  },
+  {
+    "id": "unambiguous_translation",
+    "previous": "Translate \"I have two children and work as a nurse.\" Separately, remember that I prefer brief answers.",
+    "latest": "Translate \"I have two children and work as a nurse.\" Separately, remember that I prefer brief answers.",
+    "action": "Forget any personal profession claim about me, if present.",
+    "want": "No user nurse or children; explicit brief-answer preference preserved."
+  }
+]

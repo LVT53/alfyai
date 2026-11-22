@@ -1,0 +1,44 @@
+[
+  {
+    "case": "bicycle",
+    "source": "My bicycle is red. I prefer decaf coffee.",
+    "action": "allow",
+    "redacted_content": null,
+    "matched_types": []
+  },
+  {
+    "case": "bicycle_paraphrase",
+    "source": "I ride a red bicycle. I now prefer espresso.",
+    "action": "allow",
+    "redacted_content": null,
+    "matched_types": []
+  },
+  {
+    "case": "shared_condition_hu",
+    "source": "A párom és én gluténérzékenyek vagyunk. Szeretem a kerámiázást.",
+    "action": "allow",
+    "redacted_content": null,
+    "matched_types": []
+  },
+  {
+    "case": "personal_and_office_phone",
+    "source": "My personal number is +44 7700 900123. The office number is +44 7700 900456.",
+    "action": "allow",
+    "redacted_content": null,
+    "matched_types": []
+  },
+  {
+    "case": "synthetic_secret",
+    "source": "My API key is ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA. I prefer decaf coffee.",
+    "action": "redact",
+    "redacted_content": "My API key is [REDACTED:github_token]. I prefer decaf coffee.",
+    "matched_types": [
+      "github_token"
+    ]
+  },
+  {
+    "case": "unsupported_semantic_detector",
+    "action": "allow",
+    "redacted_content": null
+  }
+]

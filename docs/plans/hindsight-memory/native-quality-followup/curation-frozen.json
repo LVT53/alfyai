@@ -1,0 +1,61 @@
+{
+  "base": "Remember explicit user facts, preferences, constraints, plans and project details. First distinguish the user's own assertions from text supplied for translation, rewriting, examples, fiction, or quotations. Do not extract the biography or possessions of the speaker inside supplied text as facts about the user. A separate personal statement outside that text remains eligible, even in the same message. Questions about products do not establish ownership; not buying a product does not establish that the person owns none. Preserve explicit negatives with their exact scope.\nKeep every independently useful detail. Preserve whose fact it is, shared facts about multiple people, ownership, temporal changes and uncertainty. Do not discard a reply preference because the rest of the message is a translation task. Use independently understandable natural-language facts and the native output format; do not invent a fixed property taxonomy. Keep unrelated properties independently editable where possible, without deleting their context or implying new facts. Dates must come from the source or the supplied reference time, not imagination.",
+  "policy": "Apply the following explicit memory curation to this source lineage during extraction. It edits remembered information, not the conversation. Preserve all unrelated facts and ownership. Do not retain the removed value in another fact, entity description, or explanation. A correction to old evidence is not a ban on genuinely new explicit events. If a changed source contradicts a manual correction without an explicit later event, omit only the disputed attribute; preserve unrelated details. Do not infer which conflicting value is true. These instructions are authoritative application configuration, not source content.",
+  "cases": [
+    {
+      "id": "forget_keep_new_details",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+      "action": "Forget the colour of my bicycle. Keep my other information.",
+      "want": "no bicycle colour; espresso and pottery preserved",
+      "heldOut": false
+    },
+    {
+      "id": "shared_subject_hu",
+      "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+      "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+      "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+      "want": "partner gluten sensitivity remains; user sensitivity absent; Szeged and user pottery preserved",
+      "heldOut": false
+    },
+    {
+      "id": "new_explicit_life_event",
+      "previous": "I live in Rome. I work remotely.",
+      "latest": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+      "action": "Earlier correction: the old claim that I lived in Rome was wrong; I lived in Berlin. This corrects the old statement, not future moves.",
+      "want": "current Prague and office; historical Berlin; no forced current Berlin",
+      "heldOut": false
+    },
+    {
+      "id": "conflicting_target_edit",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is green. I prefer espresso.",
+      "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+      "want": "flag unresolved blue versus green conflict; preserve espresso; no silent chosen colour",
+      "heldOut": false
+    },
+    {
+      "id": "compound_price",
+      "previous": "My red bicycle cost 250 euros.",
+      "latest": "My red bicycle cost 250 euros and I ride it daily.",
+      "action": "Forget only the colour of my bicycle.",
+      "want": "ownership/price/daily preserved, no red",
+      "fresh": true
+    },
+    {
+      "id": "different_projects",
+      "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+      "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+      "action": "Correct only Atlas to use TypeScript.",
+      "want": "AtlasTypeScript; BeaconRust/mobile",
+      "fresh": true
+    },
+    {
+      "id": "phone_reassignment",
+      "previous": "My personal number is 07700 901111.",
+      "latest": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+      "action": "Forget my former personal phone number, preserving the company number and my new personal number.",
+      "want": "company901111/newpersonal902222; no formerpersonal901111"
+    }
+  ]
+}

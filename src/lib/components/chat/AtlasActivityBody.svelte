@@ -42,6 +42,7 @@ import {
 	atlasPlanProgress,
 	atlasReportTitle,
 } from "$lib/utils/tool-activity";
+import { resolveToolReason } from "$lib/utils/tool-reason-words";
 import {
 	isPhoneViewport,
 	watchPhoneViewport,
@@ -186,8 +187,11 @@ const hiddenSourceCount = $derived(
 		? Math.max(0, job.sourceCounts.accepted - evidence.sources.length)
 		: 0,
 );
+// A failed job says its code's sentence, or the tool's fallback for a code with no
+// sentence of its own (the legacy codes, a newer server's, none). `job.error.message`
+// is the exception the pipeline passed on, for the log: it never reaches the row.
 const failureReason = $derived(
-	job.error?.message?.trim() || $t("atlas.failed"),
+	$t(resolveToolReason("atlas", job.error?.code ?? null).key ?? "atlas.failed"),
 );
 const lifecyclePanelLabel = $derived(
 	activePanel ? lifecycleActionLabel(activePanel) : "",

@@ -99,9 +99,11 @@ function toolsOfferedFor(text: string): {
 				Array.isArray(body?.tools) && JSON.stringify(body).includes(text),
 		);
 	expect(turn, `a chat request carried "${text}"`).toBeTruthy();
-	const tools = (
-		turn?.tools as Array<{ function?: { name?: string } }>
-	).flatMap((tool) => (tool.function?.name ? [tool.function.name] : []));
+	const tools =
+		(
+			turn?.tools as Array<{ function?: { name?: string } }> | undefined
+		)?.flatMap((tool) => (tool.function?.name ? [tool.function.name] : [])) ??
+		[];
 	const messages = (turn?.messages ?? []) as Array<{
 		role: string;
 		content: unknown;

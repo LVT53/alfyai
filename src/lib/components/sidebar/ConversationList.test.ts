@@ -2697,18 +2697,19 @@ describe("ConversationList — the guide's Show me", () => {
 		).not.toHaveClass("spotlight-ring");
 	});
 
-	it.each(
-		lists,
-	)("rings the header when the section is folded, %s", (_name, initialProjects) => {
-		projects.set([...initialProjects]);
-		sidebarProjectsExpanded.set(false);
-		render(ConversationList, { initialProjects: [...initialProjects] });
+	it.each(lists)(
+		"rings the header when the section is folded, %s",
+		(_name, initialProjects) => {
+			projects.set([...initialProjects]);
+			sidebarProjectsExpanded.set(false);
+			render(ConversationList, { initialProjects: [...initialProjects] });
 
-		requestSpotlight("sidebar.projects");
-		vi.advanceTimersToNextFrame();
+			requestSpotlight("sidebar.projects");
+			vi.advanceTimersToNextFrame();
 
-		expect(header()).toHaveClass("spotlight-ring");
-	});
+			expect(header()).toHaveClass("spotlight-ring");
+		},
+	);
 
 	it("rings a header drawn after the request was made", () => {
 		// Show me asks first, and the list may be drawn a moment later (the

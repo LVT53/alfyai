@@ -45,45 +45,46 @@ describe("OpenAI-compatible stream normalizer", () => {
 		);
 	});
 
-	it.each(
-		normalizerProviderStreamFixtureCatalog,
-	)("normalizes provider fixture $id", async (fixture) => {
-		const fetch = createOpenAICompatibleStreamNormalizingFetch(
-			vi.fn(async () =>
-				createFixtureEventStreamResponse(fixture, {
-					chunkBoundaries: [2, 11, 37, 101],
-				}),
-			),
-		);
-
-		const response = await fetch(
-			"https://provider.example/v1/chat/completions",
-		);
-		const rawEventStream = await response.text();
-		const dataFrames = parseFixtureEventStreamData(rawEventStream);
-		const frames = parseFixtureEventStreamJson(rawEventStream);
-
-		expect(dataFrames.at(-1)).toBe("[DONE]");
-		expect(collectFixtureTextDeltas(frames)).toEqual(
-			fixture.expected.textDeltas,
-		);
-		expect(collectFixtureReasoningDeltas(frames)).toEqual(
-			fixture.expected.reasoningDeltas,
-		);
-		expect(collectFixtureToolCalls(frames)).toEqual(
-			fixture.expected.toolCalls.map(({ id, name, argumentsText }) => ({
-				id,
-				name,
-				argumentsText,
-			})),
-		);
-		expect(collectFixtureUsage(frames)).toEqual(fixture.expected.usage);
-		if (fixture.expected.finishReason) {
-			expect(collectFixtureFinishReasons(frames)).toContain(
-				fixture.expected.finishReason,
+	it.each(normalizerProviderStreamFixtureCatalog)(
+		"normalizes provider fixture $id",
+		async (fixture) => {
+			const fetch = createOpenAICompatibleStreamNormalizingFetch(
+				vi.fn(async () =>
+					createFixtureEventStreamResponse(fixture, {
+						chunkBoundaries: [2, 11, 37, 101],
+					}),
+				),
 			);
-		}
-	});
+
+			const response = await fetch(
+				"https://provider.example/v1/chat/completions",
+			);
+			const rawEventStream = await response.text();
+			const dataFrames = parseFixtureEventStreamData(rawEventStream);
+			const frames = parseFixtureEventStreamJson(rawEventStream);
+
+			expect(dataFrames.at(-1)).toBe("[DONE]");
+			expect(collectFixtureTextDeltas(frames)).toEqual(
+				fixture.expected.textDeltas,
+			);
+			expect(collectFixtureReasoningDeltas(frames)).toEqual(
+				fixture.expected.reasoningDeltas,
+			);
+			expect(collectFixtureToolCalls(frames)).toEqual(
+				fixture.expected.toolCalls.map(({ id, name, argumentsText }) => ({
+					id,
+					name,
+					argumentsText,
+				})),
+			);
+			expect(collectFixtureUsage(frames)).toEqual(fixture.expected.usage);
+			if (fixture.expected.finishReason) {
+				expect(collectFixtureFinishReasons(frames)).toContain(
+					fixture.expected.finishReason,
+				);
+			}
+		},
+	);
 
 	it("fixtures model provider-specific usage frame topology", () => {
 		for (const fixture of normalizerProviderStreamFixtureCatalog) {
@@ -552,52 +553,55 @@ describe("OpenAI-compatible stream normalizer", () => {
 		expect(frames.at(-1)).toBe("[DONE]");
 	});
 
-	it.each(
-		normalizerProviderStreamFixtureCatalog,
-	)("normalizes provider fixture $id through the adapter-composed fetch", async (fixture) => {
-		const openaiCompatibleProvider =
-			createOpenAICompatibleProviderForNormalChatModelRun({
-				provider: providerConfigFromFixture(fixture),
-				fetch: vi.fn(async () =>
-					createFixtureEventStreamResponse(fixture, {
-						chunkBoundaries: [2, 11, 37, 101],
-					}),
-				),
-				includeUsage: true,
-			});
+	it.each(normalizerProviderStreamFixtureCatalog)(
+		"normalizes provider fixture $id through the adapter-composed fetch",
+		async (fixture) => {
+			const openaiCompatibleProvider =
+				createOpenAICompatibleProviderForNormalChatModelRun({
+					provider: providerConfigFromFixture(fixture),
+					fetch: vi.fn(async () =>
+						createFixtureEventStreamResponse(fixture, {
+							chunkBoundaries: [2, 11, 37, 101],
+						}),
+					),
+					includeUsage: true,
+				});
 
-		const parts = [];
-		for await (const part of streamText({
-			model: openaiCompatibleProvider(fixture.model),
-			prompt: "Exercise provider stream fixture.",
-			tools: fixtureTools,
-			maxRetries: 0,
-		}).fullStream) {
-			parts.push(part);
-		}
+			const parts = [];
+			for await (const part of streamText({
+				model: openaiCompatibleProvider(fixture.model),
+				prompt: "Exercise provider stream fixture.",
+				tools: fixtureTools,
+				maxRetries: 0,
+			}).fullStream) {
+				parts.push(part);
+			}
 
-		expect(collectAiSdkTextDeltas(parts)).toEqual(fixture.expected.textDeltas);
-		expect(collectAiSdkReasoningDeltas(parts)).toEqual(
-			fixture.expected.reasoningDeltas,
-		);
-		expect(collectAiSdkToolCalls(parts)).toEqual(
-			fixture.expected.toolCalls.map(({ id, name, input }) => ({
-				id,
-				name,
-				input,
-			})),
-		);
-		expect(collectAiSdkUsage(parts)).toEqual(
-			mapExpectedUsageToAiSdkUsage(fixture.expected.usage),
-		);
-		if (fixture.expected.finishReason) {
-			expect(collectAiSdkFinishReasons(parts)).toContain(
-				mapExpectedFinishReasonToAiSdkFinishReason(
-					fixture.expected.finishReason,
-				),
+			expect(collectAiSdkTextDeltas(parts)).toEqual(
+				fixture.expected.textDeltas,
 			);
-		}
-	});
+			expect(collectAiSdkReasoningDeltas(parts)).toEqual(
+				fixture.expected.reasoningDeltas,
+			);
+			expect(collectAiSdkToolCalls(parts)).toEqual(
+				fixture.expected.toolCalls.map(({ id, name, input }) => ({
+					id,
+					name,
+					input,
+				})),
+			);
+			expect(collectAiSdkUsage(parts)).toEqual(
+				mapExpectedUsageToAiSdkUsage(fixture.expected.usage),
+			);
+			if (fixture.expected.finishReason) {
+				expect(collectAiSdkFinishReasons(parts)).toContain(
+					mapExpectedFinishReasonToAiSdkFinishReason(
+						fixture.expected.finishReason,
+					),
+				);
+			}
+		},
+	);
 
 	it("leaves provider stream fixtures raw when normalization is disabled", async () => {
 		const fixture = providerStreamFixtures.xiaomiMiMoArgumentsBeforeName;

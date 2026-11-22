@@ -72,6 +72,7 @@ import type {
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
+import { sharedReasonForToolError } from "$lib/server/services/normal-chat-tools/shared";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import {
 	attachContinuityToTaskState,
@@ -96,8 +97,10 @@ import type { UserPicturesMetadata } from "$lib/shared/artifacts/image-body";
 import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+import { REASON_CODE_KEY } from "$lib/shared/tool-reasons";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
+import { captureMemoryTurnAcceptance } from "../memory-profile/chat-delivery";
 import {
 	createFileProductionCapture,
 	looksLikeFileProductionLeak,
@@ -106,6 +109,7 @@ import {
 	createCanonicalOutputRelay,
 	createOutputEventWriter,
 } from "./output-event-writer";
+import { beginForegroundRequest } from "./request-activity";
 import type {
 	StreamingNormalChatPreparedContext,
 	StreamingNormalChatSendModelResult,
@@ -257,6 +261,9 @@ export function runChatStreamOrchestrator(
 					results: resume.capturedResults,
 					keepConnectorDataLocal: resume.keepConnectorDataLocal,
 				}),
+				priorImageSearchCalls: resume.priorSegmentToolCalls.filter(
+					(call) => call.name === "image_search",
+				),
 				resumeProvenance: {
 					userTexts: resume.userTexts,
 					priorResults: capturedProvenanceResults({
@@ -268,6 +275,7 @@ export function runChatStreamOrchestrator(
 			}
 		: {};
 	const conversationId = turn.conversationId;
+	const memoryAcceptance = captureMemoryTurnAcceptance(user.id, conversationId);
 	const normalizedMessage = turn.normalizedMessage;
 	const streamId = turn.streamId;
 	const modelId = turn.modelId;
@@ -368,6 +376,7 @@ export function runChatStreamOrchestrator(
 			) => Promise<void>,
 		) =>
 		async (controller: ReadableStreamDefaultController<Uint8Array>) => {
+			const releaseActivity = beginForegroundRequest();
 			try {
 				await run(controller);
 			} catch (error) {
@@ -376,8 +385,17 @@ export function runChatStreamOrchestrator(
 			} finally {
 				releaseOwnedStream();
 				if (deferredFinalization) {
-					void deferredFinalization.catch(() => {}).then(releaseResumeClaim);
-				} else await releaseResumeClaim();
+					void deferredFinalization
+						.catch(() => {})
+						.then(releaseResumeClaim)
+						.finally(releaseActivity);
+				} else {
+					try {
+						await releaseResumeClaim();
+					} finally {
+						releaseActivity();
+					}
+				}
 			}
 		};
 
@@ -868,10 +886,12 @@ export function runChatStreamOrchestrator(
 					depthMetadata: latestDepthMetadata,
 					userId: user.id,
 					startedResetGeneration,
+					memoryAcceptance,
 					normalizedMessage,
 					upstreamMessage,
 					skipPersistUserMessage,
 					turnOrigin,
+					editSourceMessageId: turn.editSourceMessageId,
 					isReconnect,
 					thinkingContent: chunkRuntime.thinkingContent,
 					fullResponse: chunkRuntime.fullResponse,
@@ -1321,7 +1341,11 @@ export function runChatStreamOrchestrator(
 							// vocabulary `data-stream-error` uses, via the shared
 							// cause -> code seam (classifyStreamErrorCause), so a
 							// failed tool call is never represented as having
-							// succeeded.
+							// succeeded. `errorCode` is that bucket (any message with
+							// "abort" in it is filed under timeout), so the row's reason
+							// is a code of its own, from the message: a tool's time
+							// limit, the engine's Stop and its deadline.
+							const reasonCode = sharedReasonForToolError(upstreamEvent.error);
 							emitToolCallEventWithDebug(
 								upstreamEvent.toolName,
 								matchingToolCall?.input ?? {},
@@ -1338,6 +1362,7 @@ export function runChatStreamOrchestrator(
 										errorCode: classifyStreamErrorCause(
 											new Error(upstreamEvent.error),
 										),
+										...(reasonCode ? { [REASON_CODE_KEY]: reasonCode } : {}),
 									},
 								},
 							);

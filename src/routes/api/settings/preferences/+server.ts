@@ -9,6 +9,7 @@ import {
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
 import { invalidateHomeSummary } from "$lib/server/services/home-summary";
+import { setMemoryEnabled } from "$lib/server/services/memory-profile/migration-policy";
 import {
 	modelPreferenceStorageForExplicitChoice,
 	modelPreferenceStorageForSystemDefault,
@@ -36,6 +37,7 @@ export const PATCH: RequestHandler = async (event) => {
 		sidebarChatsExpanded?: unknown;
 		memoryEnabled?: unknown;
 		picturesAndVideosEnabled?: unknown;
+		sendWithEnter?: unknown;
 		personalInstructions?: unknown;
 	};
 	try {
@@ -117,7 +119,8 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 
 	if (body.memoryEnabled !== undefined) {
-		updates.memoryEnabled = Boolean(body.memoryEnabled);
+		if (typeof body.memoryEnabled !== "boolean")
+			return json({ error: "Invalid memoryEnabled" }, { status: 400 });
 	}
 
 	// The person's own "Pictures and videos" switch, on their own row: the
@@ -132,6 +135,16 @@ export const PATCH: RequestHandler = async (event) => {
 			);
 		}
 		updates.picturesAndVideosEnabled = body.picturesAndVideosEnabled;
+	}
+
+	// The person's own "Send with Enter" switch, on their own row: the message
+	// box reads it to send on Enter (components/chat/composer-keys.ts). Only a
+	// boolean, for the same reason as the switch above.
+	if (body.sendWithEnter !== undefined) {
+		if (typeof body.sendWithEnter !== "boolean") {
+			return json({ error: "Invalid sendWithEnter" }, { status: 400 });
+		}
+		updates.sendWithEnter = body.sendWithEnter;
 	}
 
 	if (body.personalInstructions !== undefined) {
@@ -153,6 +166,8 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 
 	await db.update(users).set(updates).where(eq(users.id, userId));
+	if (typeof body.memoryEnabled === "boolean")
+		await setMemoryEnabled(userId, body.memoryEnabled);
 
 	// The home screen's figures and running-job labels are written in the UI
 	// language and cached per user for 30 seconds: a person who switches

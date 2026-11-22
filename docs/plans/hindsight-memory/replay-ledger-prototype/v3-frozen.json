@@ -1,0 +1,361 @@
+{
+  "cases": [
+    {
+      "id": "forget_keep_new_details",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+      "action": "Forget the colour of my bicycle. Keep my other information.",
+      "facts": [
+        {
+          "id": "4364c0d1-1454-474f-9ace-eea9035694b2",
+          "text": "User started pottery. | Involving: user"
+        },
+        {
+          "id": "1307809d-1563-4a74-94c6-54d7737d4c8b",
+          "text": "User now prefers espresso as of November 18, 2026. | When: November 18, 2026 | Involving: user"
+        },
+        {
+          "id": "50b8cce7-827b-4113-84b5-999097daac37",
+          "text": "User owns a red bicycle. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red bicycle.",
+        "accepted": "User owns a bicycle.",
+        "safeRemainder": "User owns a bicycle."
+      }
+    },
+    {
+      "id": "shared_subject_hu",
+      "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+      "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+      "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+      "facts": [
+        {
+          "id": "c78baf26-d8a4-4e0d-b75c-28c85afd867d",
+          "text": "A felhasználó 2026. november 18-án kerámiázni tanul. | When: 2026. november 18. | Involving: user"
+        },
+        {
+          "id": "d56b1bd6-3123-4e0d-85a1-c9ef090709b3",
+          "text": "A felhasználó és a párja Szegeden él. | Where: Szeged | Involving: user, a felhasználó párja"
+        },
+        {
+          "id": "481509f6-ffd2-4c16-8c56-02ffca1838fa",
+          "text": "A felhasználó és a párja gluténérzékenyek. | Involving: user, a felhasználó párja"
+        }
+      ],
+      "ledger": {
+        "original": "A felhasználó és a párja gluténérzékeny.",
+        "accepted": "A felhasználó párja gluténérzékeny.",
+        "safeRemainder": "A felhasználó párja gluténérzékeny."
+      }
+    },
+    {
+      "id": "new_explicit_life_event",
+      "previous": "I live in Rome. I work remotely.",
+      "latest": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+      "action": "Earlier correction: the old claim that I lived in Rome was wrong; I lived in Berlin. This corrects the old statement, not future moves.",
+      "facts": [
+        {
+          "id": "74a9bc02-417d-4de4-8862-dd412f5a4718",
+          "text": "User currently works in an office. | When: as of November 18, 2026 | Involving: user"
+        },
+        {
+          "id": "d4929667-70c1-4c3e-b2c8-328141926321",
+          "text": "User moved to Prague on Tuesday, November 17, 2026. | When: Tuesday, November 17, 2026 | Where: Prague | Involving: user"
+        },
+        {
+          "id": "cdd706eb-48f8-4d80-ac08-0ad2c6ef148c",
+          "text": "User previously lived in Berlin. | Where: Berlin | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User lives in Rome.",
+        "accepted": "User lived in Berlin at the time of the original statement.",
+        "safeRemainder": ""
+      }
+    },
+    {
+      "id": "conflicting_target_edit",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is green. I prefer espresso.",
+      "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+      "facts": [
+        {
+          "id": "1907b4a7-735d-4ed3-ba7a-7c1af90596c4",
+          "text": "The user prefers espresso. | Involving: user"
+        },
+        {
+          "id": "2d6f3e86-1ff1-4d5f-9a0d-ff8696bde9a3",
+          "text": "The user's bicycle is green. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red bicycle.",
+        "accepted": "User owns a blue bicycle.",
+        "safeRemainder": "User owns a bicycle."
+      }
+    },
+    {
+      "id": "compound_price",
+      "previous": "My red bicycle cost 250 euros.",
+      "latest": "My red bicycle cost 250 euros and I ride it daily.",
+      "action": "Forget only the colour of my bicycle.",
+      "facts": [
+        {
+          "id": "3bdff82b-4353-452a-abe2-289b89a25806",
+          "text": "The user owns a red bicycle that cost 250 euros and rides it daily. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red bicycle that cost 250 euros.",
+        "accepted": "User owns a bicycle that cost 250 euros.",
+        "safeRemainder": "User owns a bicycle that cost 250 euros."
+      }
+    },
+    {
+      "id": "different_projects",
+      "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+      "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+      "action": "Correct only Atlas to use TypeScript.",
+      "facts": [
+        {
+          "id": "3ba6c172-c7e3-4e39-a177-3414a67a30c3",
+          "text": "The user's Beacon project now has a mobile app. | When: as of Wednesday, November 18, 2026 | Involving: user"
+        },
+        {
+          "id": "01ca43b5-91d8-4ea6-bdd1-cd74c5dd7fe1",
+          "text": "The user's Beacon project uses Rust. | Involving: user"
+        },
+        {
+          "id": "7d9ed4f7-9672-46f1-89d0-7f4dd945907c",
+          "text": "The user's Atlas project uses Python. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User’s Atlas project uses Python.",
+        "accepted": "User’s Atlas project uses TypeScript.",
+        "safeRemainder": "User has the Atlas project."
+      }
+    },
+    {
+      "id": "two_bikes",
+      "previous": "My road bicycle is red. My mountain bicycle is blue.",
+      "latest": "My road bicycle is red. My mountain bicycle is blue. I ride the mountain bicycle on Sundays.",
+      "action": "Correct only my road bicycle colour to yellow.",
+      "facts": [
+        {
+          "id": "2480f413-81ec-4bc2-bc54-4acbbeadbb8b",
+          "text": "The user rides the mountain bicycle on Sundays. | When: Sundays | Involving: user"
+        },
+        {
+          "id": "48677ae6-2021-4bbf-94dd-1d5c31b7afb2",
+          "text": "The user's mountain bicycle is blue. | Involving: user"
+        },
+        {
+          "id": "88a6d905-41ee-40d7-a9ae-580902654b10",
+          "text": "The user's road bicycle is red. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User’s road bicycle is red.",
+        "accepted": "User’s road bicycle is yellow.",
+        "safeRemainder": "User owns a road bicycle."
+      }
+    },
+    {
+      "id": "sibling_hu",
+      "previous": "Én és a nővérem Győrben élünk.",
+      "latest": "Én és a nővérem Győrben élünk. Én teniszezem, ő fut.",
+      "action": "Forget only my city.",
+      "facts": [
+        {
+          "id": "1fa28871-d97c-4a60-b354-f4c6cda4b5c5",
+          "text": "A user teniszezik, a nővére pedig fut. | Involving: user, user nővére"
+        },
+        {
+          "id": "f4c3f5df-700a-4781-a886-7c8b54fadab0",
+          "text": "A user és a nővére Győrben élnek. | Where: Győr | Involving: user, user nővére"
+        }
+      ],
+      "ledger": {
+        "original": "A felhasználó és a nővére Győrben él.",
+        "accepted": "A felhasználó nővére Győrben él.",
+        "safeRemainder": "A felhasználó nővére Győrben él."
+      }
+    },
+    {
+      "id": "phone_reassignment",
+      "previous": "My personal number is 07700 901111.",
+      "latest": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+      "action": "Forget my former personal phone number, preserving the company number and my new personal number.",
+      "facts": [
+        {
+          "id": "59da75e7-8f3f-4ef2-8deb-b805fd1714bf",
+          "text": "The user's new personal number is 07700 902222. | Involving: user"
+        },
+        {
+          "id": "e5576a0a-a702-47e5-af5c-294508d698bb",
+          "text": "The user's old personal number 07700 901111 is now their company reception number. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User’s personal number is 07700 901111.",
+        "accepted": "",
+        "safeRemainder": ""
+      }
+    },
+    {
+      "id": "fresh_shared_tea",
+      "previous": "A húgom és én szeretjük a teát.",
+      "latest": "A húgom és én szeretjük a teát. A húgom Pécsen él, én Szegeden. A régi telefonszámom a cégünk ügyfélszolgálatáé lett; az új személyes számom 07700 903333.",
+      "action": "Forget only my preference for tea; preserve my sister’s preference and all other details.",
+      "facts": [
+        {
+          "id": "521eb763-203f-4a8f-8547-7a005acc2029",
+          "text": "A felhasználó régi telefonszáma a cégük ügyfélszolgálatáé lett; az új személyes telefonszáma 07700 903333. | Involving: user"
+        },
+        {
+          "id": "183c05bd-bb3f-46c2-b94a-6e05b4379d59",
+          "text": "A felhasználó Szegeden él, a húga pedig Pécsen él. | Where: Szeged, Pécs | Involving: user, húga"
+        },
+        {
+          "id": "8294d1b5-bf05-48a3-b39e-e2136f1ac0d9",
+          "text": "A felhasználó és a húga szeretik a teát. | Involving: user, húga"
+        }
+      ],
+      "ledger": {
+        "original": "A felhasználó és a húga szeretik a teát.",
+        "accepted": "A felhasználó húga szereti a teát.",
+        "safeRemainder": "A felhasználó húga szereti a teát."
+      }
+    },
+    {
+      "id": "fresh_camera",
+      "previous": "I own a Nikon Z6.",
+      "latest": "I own a Nikon Z6. Which lens should I buy for bird photography? My partner prefers landscape photography.",
+      "action": "Forget my camera ownership statement, preserving my partner’s interests and the lens-shopping context.",
+      "facts": [
+        {
+          "id": "09cfd3d9-099d-4408-9097-a46a35b29a7a",
+          "text": "User's partner prefers landscape photography. | Involving: user's partner"
+        },
+        {
+          "id": "e3fb22f0-4e37-482f-b2c3-74a2ff5335d2",
+          "text": "User is considering buying a lens for bird photography. | Involving: user"
+        },
+        {
+          "id": "0b8350b9-f177-4fc1-84d0-c48919ee1b17",
+          "text": "User owns a Nikon Z6. | Involving: user"
+        }
+      ],
+      "ledger": {
+        "original": "User owns a Nikon Z6.",
+        "accepted": "",
+        "safeRemainder": ""
+      }
+    },
+    {
+      "id": "conflict_new_basket",
+      "previous": "My bicycle is red.",
+      "latest": "My bicycle is green and now has a front basket.",
+      "action": "I corrected my bicycle colour to blue; do not silently choose a conflicting edited-source colour. Preserve other new details.",
+      "facts": [
+        {
+          "id": "basket",
+          "text": "The user owns a green bicycle that now has a front basket."
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red bicycle.",
+        "accepted": "User owns a blue bicycle.",
+        "safeRemainder": "User owns a bicycle."
+      }
+    },
+    {
+      "id": "conflict_shared_city_hu",
+      "previous": "Én és a húgom Győrben élünk.",
+      "latest": "Én Pécsen élek és kerékpározni kezdtem. A húgom továbbra is Győrben él.",
+      "action": "I corrected only my own city to Szeged. A changed source city without an explicit move must remain unresolved; keep my sister and new activity.",
+      "facts": [
+        {
+          "id": "cities",
+          "text": "A felhasználó Pécsen él és kerékpározni kezdett, a húga pedig Győrben él."
+        }
+      ],
+      "ledger": {
+        "original": "A felhasználó és a húga Győrben él.",
+        "accepted": "A felhasználó Szegeden él, a húga Győrben él.",
+        "safeRemainder": "A felhasználó húga Győrben él."
+      }
+    },
+    {
+      "id": "conflict_two_bikes",
+      "previous": "My road bicycle is red. My mountain bicycle is green.",
+      "latest": "My road bicycle is green and I ride it on Tuesdays; my mountain bicycle is still green.",
+      "action": "Earlier I corrected only the road bicycle colour to yellow; conflicting edited-source colour must not silently win. Preserve other details.",
+      "facts": [
+        {
+          "id": "bikes",
+          "text": "The user owns a green road bicycle ridden on Tuesdays and a green mountain bicycle."
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red road bicycle.",
+        "accepted": "User owns a yellow road bicycle.",
+        "safeRemainder": "User owns a road bicycle."
+      }
+    }
+  ],
+  "prompt": "A user has already approved a memory edit. You are reconciling native facts extracted from a changed version of the SAME source. The ledger is trusted user intent, not a suggested extraction. Classify every supplied fact ID exactly once; do not write or rewrite any facts.\nkeep: unrelated fact, already compatible with the accepted edit, or a genuinely NEW explicit event that supersedes the old statement (move, replacement, reassignment). An edit to historical evidence is not a ban on future changes.\nreplay: this fact restates the original targeted claim, without new independent information beyond that original claim. The application will substitute the accepted text verbatim (or omit if empty).\nconflict: the source changed the targeted value in contradiction to the accepted edit, with NO explicit new event. The application will use the trusted safe remainder, flag the conflict, and not choose either value.\nmerge: the fact mixes the targeted old claim or attribution with independently useful NEW/other information that the accepted text would lose. It needs a local edit. This includes a former personal number now assigned to a company: the company/new number stays, but do not keep the forgotten former personal attribution.\nconflict_merge: the target conflicts without a new event AND this same fact contains new independent information or another owner/object absent from the trusted safe remainder. Use this instead of conflict or merge. The application will remove only the disputed aspect and preserve that new remainder, never choose the accepted or source value.\nClassify only the targeted entity/relationship; same words belonging to a different person or object are not the target. Returning an exact old value is replay, not conflict, even if it differs from the accepted correction. Changed unrelated statements are keep. Do not treat all changed wording as a conflict.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "decisions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "keep",
+                "replay",
+                "conflict",
+                "merge",
+                "conflict_merge"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "decisions"
+    ],
+    "additionalProperties": false
+  },
+  "mergePrompt": "Apply only the user's approved memory edit to this ONE native fact. Preserve every independent current detail and its person/object/time. Use the original and accepted statements as the edit before/after example; do not copy the accepted statement if it loses newly added useful details. Remove forgotten attribution even from historical clauses; retain new owners and facts. Return one complete grammatical factual statement, or empty only if nothing unrelated remains. Do not add a fact not supported by the native fact or the approved user edit. This is not a request to resolve a conflict; that was handled separately.",
+  "mergeSchema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "conflictPrompt": "Remove the disputed relationship from this one native fact. This is a deletion, never a correction to another value. The original and neutral remainder identify the relationship to remove, not just the original wording: remove ANY value of that relationship for the targeted person/object, including a different value in the new fact. Preserve every other relationship, new detail, other person/object and time. Return a grammatical factual statement containing only the remainder, or empty if none. Do not explain the conflict. Output must not assert any value of the disputed relationship.",
+  "note": "Ledger replacement/remainder are synthetic user-approved edits, not claimed automatic extraction or successful first-edit generation. Actual native facts reused from previous recorded runs."
+}

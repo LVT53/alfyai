@@ -1,6 +1,7 @@
 import { asSchema } from "@ai-sdk/provider-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
@@ -9,11 +10,16 @@ import { bindReadResultGrant } from "./model-payload-budget";
 import {
 	compactModelPayload,
 	compactToolInputSchema,
+	connectorReasonForAdapterError,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
 	isInsideToolCall,
 	markCallLocallyDistilled,
+	reasonCodeOf,
+	reasonMetadata,
+	reasonMetadataOf,
 	type ToolCallRecorder,
+	withReasonCode,
 	withToolExecutionFact,
 } from "./shared";
 import { stableStringify } from "./stable-stringify";
@@ -110,6 +116,99 @@ describe("compactModelPayload", () => {
 // need holding: the trimmed schema must not drop anything the model needs in
 // order to call the tool correctly, and validation must still reject exactly
 // what zod rejected before it was trimmed.
+describe("withReasonCode", () => {
+	it("serializes a tagged payload exactly as before and gives its code back", () => {
+		const payload = { success: false, message: "Calendar is not connected." };
+		const before = JSON.stringify(payload);
+		const tagged = withReasonCode(payload, "not_connected");
+		expect(tagged).toBe(payload);
+		expect(JSON.stringify(tagged)).toBe(before);
+		expect(stableStringify(tagged)).toBe(stableStringify({ ...payload }));
+		expect(Object.keys(tagged)).toEqual(["success", "message"]);
+		expect(reasonCodeOf(payload)).toBe("not_connected");
+		expect(reasonCodeOf({})).toBeUndefined();
+	});
+
+	it("tags the one object it was given, not an equal copy", () => {
+		const payload = { ok: false };
+		withReasonCode(payload, "item_not_found");
+		expect(reasonCodeOf({ ok: false })).toBeUndefined();
+		expect(reasonCodeOf({ ...payload })).toBeUndefined();
+	});
+
+	it("reads nothing from a value that is not an object", () => {
+		expect(reasonCodeOf(undefined)).toBeUndefined();
+		expect(reasonCodeOf(null)).toBeUndefined();
+		expect(reasonCodeOf("not_connected")).toBeUndefined();
+		expect(reasonCodeOf(7)).toBeUndefined();
+	});
+});
+
+describe("reasonMetadata and reasonMetadataOf", () => {
+	it("gives an entry's metadata the code, held to the tool's list by the compiler", () => {
+		expect(reasonMetadata("research_web", "nothing_found")).toEqual({
+			reasonCode: "nothing_found",
+		});
+		// A shared outcome is on every tool's list.
+		expect(reasonMetadata("calendar", "stopped")).toEqual({
+			reasonCode: "stopped",
+		});
+	});
+
+	it("reads the code a payload was tagged with, or gives nothing to spread", () => {
+		const tagged = withReasonCode({ success: false }, "not_connected");
+		expect(reasonMetadataOf(tagged)).toEqual({ reasonCode: "not_connected" });
+		expect(reasonMetadataOf({ success: false })).toEqual({});
+		expect(reasonMetadataOf(undefined)).toEqual({});
+	});
+});
+
+describe("connectorReasonForAdapterError", () => {
+	class ProviderError extends Error {
+		constructor(readonly code: string) {
+			super(code);
+		}
+	}
+
+	it.each([
+		["needs_reauth", "needs_reconnect"],
+		["invalid_grant", "needs_reconnect"],
+		["invalid_credentials", "needs_reconnect"],
+		["invalid_token", "needs_reconnect"],
+		["connection_not_found", "not_connected"],
+		["message_not_found", "item_not_found"],
+		["not_found", "item_not_found"],
+		["folder_not_found", "item_not_found"],
+		["too_large", "too_large"],
+		["invalid_path", "request_adjusted"],
+		["invalid_config", "not_set_up"],
+		["not_configured", "not_set_up"],
+		["writes_disabled", "writes_turned_off"],
+		["request_failed", "account_unreachable"],
+		["connection_failed", "account_unreachable"],
+		["etag_mismatch", "account_unreachable"],
+	] as const)("reads a provider's %s as %s", (providerCode, reason) => {
+		expect(
+			connectorReasonForAdapterError(new ProviderError(providerCode)),
+		).toBe(reason);
+	});
+
+	it("is the account not answering for anything that is not a provider's error", () => {
+		expect(connectorReasonForAdapterError(new Error("boom"))).toBe(
+			"account_unreachable",
+		);
+		expect(connectorReasonForAdapterError("boom")).toBe("account_unreachable");
+		expect(connectorReasonForAdapterError(undefined)).toBe(
+			"account_unreachable",
+		);
+		expect(
+			connectorReasonForAdapterError(
+				Object.assign(new Error("socket"), { code: "ECONNREFUSED" }),
+			),
+		).toBe("account_unreachable");
+	});
+});
+
 describe("compactToolInputSchema", () => {
 	const schema = z.object({
 		query: z.string().min(1),
@@ -546,51 +645,48 @@ describe("executeToolWithEnvelope and a local model's summary", () => {
 	});
 });
 
-it.each([
-	"returned",
-	"unproven",
-	"thrown",
-	"aborted",
-	"timeout",
-] as const)("distinguishes a returned failure from uncertain envelope exits: %s", async (mode) => {
-	const recorder = createToolCallRecorder();
-	const controller = new AbortController();
-	if (mode === "aborted") controller.abort();
-	const failure = () => ({
-		modelPayload: { ok: false, status: "failed" },
-		entry: {
-			name: "produce_file",
-			callId: "same",
-			input: {},
-			status: "failed" as const,
-		},
-	});
-	const output = await executeToolWithEnvelope({
-		toolName: "produce_file",
-		timeoutMs: mode === "timeout" ? 1 : 1000,
-		options: { toolCallId: "same", abortSignal: controller.signal },
-		recorder,
-		run: async () => {
-			if (mode === "thrown") throw new Error("unknown outcome");
-			if (mode === "timeout") await new Promise(() => {});
-			const result = failure();
-			if (mode === "returned") withToolExecutionFact(result.entry, "failed");
-			return result;
-		},
-		onError: failure,
-	});
-	expect(recorder.getExecutionCertainty?.(output)).toBe(
-		mode === "returned"
-			? "failed"
-			: mode === "unproven"
-				? undefined
-				: "uncertain",
-	);
-	expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
-	expect(
-		createToolCallRecorder().getExecutionCertainty?.(output),
-	).toBeUndefined();
-});
+it.each(["returned", "unproven", "thrown", "aborted", "timeout"] as const)(
+	"distinguishes a returned failure from uncertain envelope exits: %s",
+	async (mode) => {
+		const recorder = createToolCallRecorder();
+		const controller = new AbortController();
+		if (mode === "aborted") controller.abort();
+		const failure = () => ({
+			modelPayload: { ok: false, status: "failed" },
+			entry: {
+				name: "produce_file",
+				callId: "same",
+				input: {},
+				status: "failed" as const,
+			},
+		});
+		const output = await executeToolWithEnvelope({
+			toolName: "produce_file",
+			timeoutMs: mode === "timeout" ? 1 : 1000,
+			options: { toolCallId: "same", abortSignal: controller.signal },
+			recorder,
+			run: async () => {
+				if (mode === "thrown") throw new Error("unknown outcome");
+				if (mode === "timeout") await new Promise(() => {});
+				const result = failure();
+				if (mode === "returned") withToolExecutionFact(result.entry, "failed");
+				return result;
+			},
+			onError: failure,
+		});
+		expect(recorder.getExecutionCertainty?.(output)).toBe(
+			mode === "returned"
+				? "failed"
+				: mode === "unproven"
+					? undefined
+					: "uncertain",
+		);
+		expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+		expect(
+			createToolCallRecorder().getExecutionCertainty?.(output),
+		).toBeUndefined();
+	},
+);
 
 it("treats an error a tool threw to refuse a call before dispatching anything as a proven non-execution", async () => {
 	// A refusal subclass, as FetchUrlRefusedError is: the envelope asks the class.
@@ -640,32 +736,32 @@ describe("a tool that says it only reads", () => {
 		},
 	});
 
-	it.each([
-		"thrown",
-		"timeout",
-	] as const)("records what it threw as a settled failure, not an uncertain one: %s", async (mode) => {
-		const recorder = createToolCallRecorder();
-		const output = await executeToolWithEnvelope<{
-			success: boolean;
-			error: string;
-		}>({
-			toolName: "research_web",
-			timeoutMs: mode === "timeout" ? 1 : 1000,
-			options: { toolCallId: "reads", abortSignal: undefined },
-			recorder,
-			readOnly: true,
-			run: async () => {
-				if (mode === "timeout") await new Promise(() => {});
-				throw new Error("upstream 502");
-			},
-			onError: failure,
-		});
+	it.each(["thrown", "timeout"] as const)(
+		"records what it threw as a settled failure, not an uncertain one: %s",
+		async (mode) => {
+			const recorder = createToolCallRecorder();
+			const output = await executeToolWithEnvelope<{
+				success: boolean;
+				error: string;
+			}>({
+				toolName: "research_web",
+				timeoutMs: mode === "timeout" ? 1 : 1000,
+				options: { toolCallId: "reads", abortSignal: undefined },
+				recorder,
+				readOnly: true,
+				run: async () => {
+					if (mode === "timeout") await new Promise(() => {});
+					throw new Error("upstream 502");
+				},
+				onError: failure,
+			});
 
-		// Running it again changes nothing, so the call is settled: the engine goes
-		// on and the model reads the error. It is not a refusal, the call did go out.
-		expect(recorder.getExecutionCertainty?.(output)).toBe("failed");
-		expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
-	});
+			// Running it again changes nothing, so the call is settled: the engine goes
+			// on and the model reads the error. It is not a refusal, the call did go out.
+			expect(recorder.getExecutionCertainty?.(output)).toBe("failed");
+			expect(recorder.getExecutionCertainty?.({ ...output })).toBeUndefined();
+		},
+	);
 
 	it("still records a refusal it threw before reading anything as a proven non-execution", async () => {
 		const recorder = createToolCallRecorder();
@@ -779,9 +875,12 @@ describe("a tool that says it only reads", () => {
 		],
 		["a signal aborted with no reason of its own", undefined],
 		["a reason that is not an error", "deadline"],
-	])("keeps what %s cut off uncertain: only the engine's own deadline settles it", async (_who, reason) => {
-		expect(await certaintyWhenAbortedWith(reason)).toBe("uncertain");
-	});
+	])(
+		"keeps what %s cut off uncertain: only the engine's own deadline settles it",
+		async (_who, reason) => {
+			expect(await certaintyWhenAbortedWith(reason)).toBe("uncertain");
+		},
+	);
 
 	it("keeps a call uncertain when something else aborted the signal before the deadline did", async () => {
 		const stop = new AbortController();
@@ -1022,65 +1121,64 @@ describe("Task 2 granted web envelope commit", () => {
 		expect(recorder.getEntries()).toHaveLength(1);
 	});
 
-	it.each([
-		"invalid-success",
-		"returned-failure",
-		"onError",
-	] as const)("replaces %s before observation/recording without stale citation support", async (path) => {
-		const options = bound();
-		let reads = 0;
-		const base = createToolCallRecorder();
-		const observed: unknown[] = [];
-		const recorder: ToolCallRecorder = {
-			...base,
-			observeResult: ({ payload }) => {
-				observed.push(payload);
-			},
-		};
-		const payload = {
-			success: path === "invalid-success",
-			name: "research_web",
-			bounded: true,
-			coverage: "full",
-			message: "uncommitted content ".repeat(10_000),
-		};
-		const returned = await executeToolWithEnvelope({
-			toolName: "research_web",
-			timeoutMs: 5_000,
-			readOnly: true,
-			options,
-			recorder,
-			run: async () => {
-				reads++;
-				if (path === "onError") throw new Error("upstream failed");
-				return { modelPayload: payload, entry: entry() };
-			},
-			onError: () => ({
-				modelPayload: { ...payload, success: false },
-				entry: entry(),
-			}),
-		});
-		expect(reads).toBe(1);
-		expect(returned).toMatchObject({
-			success: false,
-			bounded: true,
-			coverage: "none",
-		});
-		expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
-			256,
-		);
-		expect(base.getExecutionCertainty?.(returned)).toBe("failed");
-		expect(observed).toEqual([returned]);
-		expect(base.getEntries()).toHaveLength(1);
-		const committed = base.getEntries()[0];
-		expect(committed.callId).toBe("call");
-		expect(committed.candidates ?? []).toEqual([]);
-		expect(committed.metadata?.evidenceReady).toBe(false);
-		expect(JSON.stringify(committed)).not.toContain(stale);
-		// Real SDK/capture/wire equality follows after GO; this holds the actual
-		// envelope result equal to its observation and JSON semantic view now.
-		expect(JSON.parse(JSON.stringify(returned))).toEqual(observed[0]);
-	});
+	it.each(["invalid-success", "returned-failure", "onError"] as const)(
+		"replaces %s before observation/recording without stale citation support",
+		async (path) => {
+			const options = bound();
+			let reads = 0;
+			const base = createToolCallRecorder();
+			const observed: unknown[] = [];
+			const recorder: ToolCallRecorder = {
+				...base,
+				observeResult: ({ payload }) => {
+					observed.push(payload);
+				},
+			};
+			const payload = {
+				success: path === "invalid-success",
+				name: "research_web",
+				bounded: true,
+				coverage: "full",
+				message: "uncommitted content ".repeat(10_000),
+			};
+			const returned = await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options,
+				recorder,
+				run: async () => {
+					reads++;
+					if (path === "onError") throw new Error("upstream failed");
+					return { modelPayload: payload, entry: entry() };
+				},
+				onError: () => ({
+					modelPayload: { ...payload, success: false },
+					entry: entry(),
+				}),
+			});
+			expect(reads).toBe(1);
+			expect(returned).toMatchObject({
+				success: false,
+				bounded: true,
+				coverage: "none",
+			});
+			expect(estimateTokenCount(stableStringify(returned))).toBeLessThanOrEqual(
+				256,
+			);
+			expect(base.getExecutionCertainty?.(returned)).toBe("failed");
+			expect(observed).toEqual([returned]);
+			expect(base.getEntries()).toHaveLength(1);
+			const committed = base.getEntries()[0];
+			expect(committed.callId).toBe("call");
+			expect(committed.candidates ?? []).toEqual([]);
+			expect(committed.metadata?.evidenceReady).toBe(false);
+			expect(JSON.stringify(committed)).not.toContain(stale);
+			// Real SDK/capture/wire equality follows after GO; this holds the actual
+			// envelope result equal to its observation and JSON semantic view now.
+			expect(JSON.parse(JSON.stringify(returned))).toEqual(observed[0]);
+		},
+	);
 });
 
 it("Task 2 replaces a throwing onError with a known failed exact result", async () => {
@@ -1167,4 +1265,452 @@ it("Task 2 commits no unchecked payload when its denial has no failure allowance
 	).rejects.toThrow("Web read result capacity exhausted");
 	expect(reads).toBe(0);
 	expect(base.getEntries()).toEqual([]);
+});
+
+// The tool rows say why a call failed from a code, never from the English the
+// tool wrote for the model. The envelope names the three outcomes every tool
+// can have (a Stop, its own time limit, the turn's working time running out),
+// puts the code on `metadata.reasonCode`, and logs the raw cause once, without
+// content.
+describe("reason codes", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	const MODEL_PAYLOAD = {
+		success: false,
+		message: "Model-facing failure text.",
+	};
+
+	function stoppedSignal(reason: Error): AbortSignal {
+		const controller = new AbortController();
+		controller.abort(reason);
+		return controller.signal;
+	}
+
+	async function failingCall(
+		params: {
+			abortSignal?: AbortSignal;
+			timeoutMs?: number;
+			ownCode?: string;
+			throws?: unknown;
+			run?: () => Promise<never>;
+		} = {},
+	) {
+		const recorder = createToolCallRecorder();
+		const returned = await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: params.timeoutMs ?? 5_000,
+			options: { toolCallId: "1", abortSignal: params.abortSignal },
+			recorder,
+			run:
+				params.run ??
+				(async () => {
+					throw params.throws ?? new Error("boom");
+				}),
+			onError: () => ({
+				modelPayload: MODEL_PAYLOAD,
+				entry: {
+					name: "test_tool",
+					input: { query: "INPUT-SENTINEL" },
+					status: "failed" as const,
+					outputSummary: "OUTPUT-SENTINEL",
+					metadata: {
+						ok: false,
+						...(params.ownCode ? { reasonCode: params.ownCode } : {}),
+					},
+				},
+			}),
+		});
+		const [entry] = recorder.getEntries();
+		return { returned, entry };
+	}
+
+	it("records stopped for a call the person stopped, and the model payload stays as it was", async () => {
+		const { returned, entry } = await failingCall({
+			abortSignal: stoppedSignal(new UserStopReason()),
+		});
+		expect(entry.metadata?.reasonCode).toBe("stopped");
+		expect(returned).toBe(MODEL_PAYLOAD);
+		expect(entry.status).toBe("failed");
+	});
+
+	it("records timed_out for a call past its own timeout", async () => {
+		const { entry } = await failingCall({
+			timeoutMs: 15,
+			run: () => new Promise<never>(() => {}),
+		});
+		expect(entry.metadata?.reasonCode).toBe("timed_out");
+	});
+
+	it("records out_of_time for a call the working deadline cut", async () => {
+		const { entry } = await failingCall({
+			abortSignal: stoppedSignal(new TurnDeadlineReason()),
+		});
+		expect(entry.metadata?.reasonCode).toBe("out_of_time");
+	});
+
+	it("records no code for a plain failure, and none for an abort nobody named", async () => {
+		const plain = await failingCall();
+		expect(plain.entry.metadata).not.toHaveProperty("reasonCode");
+		// The stream watchdog, a storage failure and the first-output timer abort
+		// with reasons of their own: not a Stop, not the deadline.
+		const watchdog = await failingCall({
+			abortSignal: stoppedSignal(new Error("watchdog")),
+		});
+		expect(watchdog.entry.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("lets a Stop and the deadline override the tool's own code", async () => {
+		// A Stop must never fall to a tool's catch-all, such as memory_context's
+		// memory_unavailable.
+		const stopped = await failingCall({
+			abortSignal: stoppedSignal(new UserStopReason()),
+			ownCode: "memory_unavailable",
+		});
+		expect(stopped.entry.metadata?.reasonCode).toBe("stopped");
+		const outOfTime = await failingCall({
+			abortSignal: stoppedSignal(new TurnDeadlineReason()),
+			ownCode: "memory_unavailable",
+		});
+		expect(outOfTime.entry.metadata?.reasonCode).toBe("out_of_time");
+	});
+
+	it("keeps a tool's own code over timed_out", async () => {
+		const { entry } = await failingCall({
+			timeoutMs: 15,
+			run: () => new Promise<never>(() => {}),
+			ownCode: "search_unavailable",
+		});
+		expect(entry.metadata?.reasonCode).toBe("search_unavailable");
+	});
+
+	it("keeps the tool's own code on a plain failure", async () => {
+		const { entry } = await failingCall({ ownCode: "site_refused" });
+		expect(entry.metadata?.reasonCode).toBe("site_refused");
+	});
+
+	describe("on the grant path", () => {
+		const grant = {
+			kind: "admitted" as const,
+			turnId: "t",
+			segmentId: "s",
+			attemptId: "a",
+			stepId: "step",
+			executionId: "e",
+			proposalOrdinal: 0,
+			maxPayloadTokens: 1_200,
+			maxFailurePayloadTokens: 256,
+		};
+
+		async function grantedFailure(params: {
+			abortSignal?: AbortSignal;
+			ownCode?: string;
+			timeoutMs?: number;
+			run?: () => Promise<never>;
+		}) {
+			const base = createToolCallRecorder();
+			const returned = await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: params.timeoutMs ?? 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{
+						toolCallId: "call",
+						messages: [],
+						abortSignal: params.abortSignal,
+					},
+					grant,
+				),
+				recorder: base,
+				run:
+					params.run ??
+					(async () => {
+						throw new Error("Parallel search failed");
+					}),
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: { query: "INPUT-SENTINEL" },
+						status: "failed" as const,
+						metadata: {
+							ok: false,
+							...(params.ownCode ? { reasonCode: params.ownCode } : {}),
+						},
+					},
+				}),
+			});
+			const [entry] = base.getEntries();
+			return { returned, entry };
+		}
+
+		it("keeps the reason code it was given when the commit rebuilds the metadata", async () => {
+			const { entry } = await grantedFailure({ ownCode: "search_unavailable" });
+			expect(entry.status).toBe("failed");
+			expect(entry.metadata?.bounded).toBe(true);
+			expect(entry.metadata?.reasonCode).toBe("search_unavailable");
+		});
+
+		it("gives a Stop, the deadline and a timeout their shared codes", async () => {
+			const stopped = await grantedFailure({
+				abortSignal: stoppedSignal(new UserStopReason()),
+				ownCode: "search_unavailable",
+			});
+			expect(stopped.entry.metadata?.reasonCode).toBe("stopped");
+			const outOfTime = await grantedFailure({
+				abortSignal: stoppedSignal(new TurnDeadlineReason()),
+			});
+			expect(outOfTime.entry.metadata?.reasonCode).toBe("out_of_time");
+			const timedOut = await grantedFailure({
+				timeoutMs: 15,
+				run: () => new Promise<never>(() => {}),
+			});
+			expect(timedOut.entry.metadata?.reasonCode).toBe("timed_out");
+		});
+
+		it("records no code when nothing names one", async () => {
+			const { entry } = await grantedFailure({});
+			expect(entry.metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it("records reading_budget_used for a read the turn's reading budget refused before it began", async () => {
+			let ran = false;
+			const base = createToolCallRecorder();
+			const returned = await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{ toolCallId: "call", messages: [] },
+					{ ...grant, kind: "denied" as const, maxPayloadTokens: 0 },
+				),
+				recorder: base,
+				run: async () => {
+					ran = true;
+					throw new Error("never runs");
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: {},
+						status: "failed" as const,
+						metadata: { ok: false },
+					},
+				}),
+			});
+			expect(ran).toBe(false);
+			expect(returned).toMatchObject({ success: false, bounded: true });
+			const [entry] = base.getEntries();
+			expect(entry.status).toBe("failed");
+			expect(entry.metadata?.reasonCode).toBe("reading_budget_used");
+		});
+
+		it("lets a Stop win over a spent reading budget", async () => {
+			const base = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{
+						toolCallId: "call",
+						messages: [],
+						abortSignal: stoppedSignal(new UserStopReason()),
+					},
+					{ ...grant, kind: "denied" as const, maxPayloadTokens: 0 },
+				),
+				recorder: base,
+				run: async () => {
+					throw new Error("never runs");
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: {},
+						status: "failed" as const,
+					},
+				}),
+			});
+			expect(base.getEntries()[0]?.metadata?.reasonCode).toBe("stopped");
+		});
+	});
+
+	describe("the failure log", () => {
+		it("logs a thrown failure once, redacted", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			class ProviderFailure extends Error {}
+			await failingCall({
+				ownCode: "site_refused",
+				throws: new ProviderFailure(
+					"Upstream rejected \"RAW-SENTINEL-7f3a\" at https://example.com/x?token=abc and 'quoted-two' `quoted-three`",
+				),
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+			expect(line).toContain("[CHAT_STREAM] tool_failure");
+			expect(line).toContain("tool=test_tool");
+			expect(line).toContain("code=site_refused");
+			expect(line).toContain("status=failed");
+			expect(line).toContain("error=ProviderFailure: ");
+			expect(line).toContain("<url>");
+			expect(line).toContain("<text>");
+			for (const secret of [
+				"RAW-SENTINEL-7f3a",
+				"example.com",
+				"token=abc",
+				"quoted-two",
+				"quoted-three",
+				// What the call itself carried, and what it told the model.
+				"INPUT-SENTINEL",
+				"OUTPUT-SENTINEL",
+				"Model-facing failure text",
+			]) {
+				expect(line, secret).not.toContain(secret);
+			}
+		});
+
+		it("puts a message on one line and cuts it at 200 characters", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			await failingCall({
+				throws: new Error(`first line\nsecond line ${"x".repeat(400)}`),
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = String(warn.mock.calls[0]?.[0]);
+			expect(line).not.toContain("\n");
+			const message = line.slice(line.indexOf("error=Error: ") + 13);
+			expect(message.startsWith("first line second line xxx")).toBe(true);
+			expect(message.length).toBe(200);
+		});
+
+		it("logs the code a Stop gives, not the tool's own", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			await failingCall({
+				abortSignal: stoppedSignal(new UserStopReason()),
+				ownCode: "memory_unavailable",
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(String(warn.mock.calls[0]?.[0])).toContain("code=stopped");
+		});
+
+		it("logs a failure on the grant path once", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const base = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "research_web",
+				timeoutMs: 5_000,
+				readOnly: true,
+				options: bindReadResultGrant(
+					{ toolCallId: "call", messages: [] },
+					{
+						kind: "admitted" as const,
+						turnId: "t",
+						segmentId: "s",
+						attemptId: "a",
+						stepId: "step",
+						executionId: "e",
+						proposalOrdinal: 0,
+						maxPayloadTokens: 1_200,
+						maxFailurePayloadTokens: 256,
+					},
+				),
+				recorder: base,
+				run: async () => {
+					throw new Error("Parallel search failed");
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: {
+						name: "research_web",
+						input: { query: "INPUT-SENTINEL" },
+						status: "failed" as const,
+						metadata: { ok: false, reasonCode: "search_unavailable" },
+					},
+				}),
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = String(warn.mock.calls[0]?.[0]);
+			expect(line).toContain("tool=research_web");
+			expect(line).toContain("code=search_unavailable");
+			expect(line).toContain("error=Error: Parallel search failed");
+			expect(line).not.toContain("INPUT-SENTINEL");
+		});
+
+		it("logs an in-band failure once, with its code and no message", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const recorder = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "calendar",
+				timeoutMs: 5_000,
+				options: { toolCallId: "1", abortSignal: undefined },
+				recorder,
+				run: async () => ({
+					modelPayload: {
+						success: false,
+						message: "Calendar is not connected. MODEL-NOTE",
+					},
+					entry: {
+						name: "calendar",
+						input: { query: "INPUT-SENTINEL" },
+						status: "done" as const,
+						outputSummary: "OUTPUT-SENTINEL",
+						metadata: { ok: false, reasonCode: "not_connected" },
+					},
+				}),
+				onError: () => {
+					throw new Error("not used");
+				},
+			});
+			expect(warn).toHaveBeenCalledTimes(1);
+			const line = String(warn.mock.calls[0]?.[0]);
+			expect(line).toContain("[CHAT_STREAM] tool_failure");
+			expect(line).toContain("tool=calendar");
+			expect(line).toContain("code=not_connected");
+			expect(line).toContain("status=done");
+			expect(line).not.toContain("error=");
+			for (const secret of [
+				"MODEL-NOTE",
+				"INPUT-SENTINEL",
+				"OUTPUT-SENTINEL",
+			]) {
+				expect(line, secret).not.toContain(secret);
+			}
+		});
+
+		it("logs a failed status with no code as code=none", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const recorder = createToolCallRecorder();
+			recorder.record({ name: "produce_file", input: {}, status: "failed" });
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(String(warn.mock.calls[0]?.[0])).toContain(
+				"tool=produce_file code=none status=failed",
+			);
+		});
+
+		it("logs nothing for a success", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const recorder = createToolCallRecorder();
+			await executeToolWithEnvelope({
+				toolName: "test_tool",
+				timeoutMs: 5_000,
+				options: { toolCallId: "1", abortSignal: undefined },
+				recorder,
+				run: async () => ({
+					modelPayload: { success: true },
+					entry: {
+						name: "test_tool",
+						input: {},
+						status: "done" as const,
+						metadata: { ok: true },
+					},
+				}),
+				onError: () => {
+					throw new Error("not used");
+				},
+			});
+			expect(warn).not.toHaveBeenCalled();
+		});
+	});
 });

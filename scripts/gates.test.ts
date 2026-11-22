@@ -813,24 +813,23 @@ describe("the schedule", () => {
 		describe(`(${schedule})`, () => {
 			const steps = defineSteps(options(schedule));
 
-			it.each([
-				"check",
-				"vitest",
-			])("%s waits for the build: it syncs .svelte-kit/, which the build reads", (name) => {
-				expect(steps[name].after).toContain("build");
-			});
+			it.each(["check", "vitest"])(
+				"%s waits for the build: it syncs .svelte-kit/, which the build reads",
+				(name) => {
+					expect(steps[name].after).toContain("build");
+				},
+			);
 
 			it("lets the end-to-end run wait for the build it serves", () => {
 				expect(steps.playwright.after).toContain("build");
 			});
 
-			it.each([
-				"biome",
-				"migrations",
-				"fallow",
-			])("starts %s with the build: it never touches .svelte-kit/", (name) => {
-				expect(steps[name].after ?? []).toEqual([]);
-			});
+			it.each(["biome", "migrations", "fallow"])(
+				"starts %s with the build: it never touches .svelte-kit/",
+				(name) => {
+					expect(steps[name].after ?? []).toEqual([]);
+				},
+			);
 		});
 	}
 });
@@ -1037,22 +1036,23 @@ describe("running the steps", () => {
 	// step waits for, so with check, vitest, chunks and playwright all skipped nothing asked for
 	// it: it never ran and its line was missing from the screen (Fallow alone showed no `build`
 	// line at all), and a run that skipped everything ran nothing and printed ALL GATES PASSED.
-	it.each(
-		everyStep,
-	)("runs %s, and only it, when every other step is skipped", async (name) => {
-		const others = everyStep.filter((other) => other !== name);
-		const { started, results, lines, passed } = await gate([
-			"--skip",
-			others.join(","),
-		]);
-		expect(started).toEqual([name]);
-		expect(passed).toBe(true);
-		// Every step has a result, skipped or run, and so a line on the screen.
-		expect(Object.keys(results).sort()).toEqual([...everyStep].sort());
-		for (const other of others) {
-			expect(lines).toContain(`${other.padEnd(10)} skip`);
-		}
-	});
+	it.each(everyStep)(
+		"runs %s, and only it, when every other step is skipped",
+		async (name) => {
+			const others = everyStep.filter((other) => other !== name);
+			const { started, results, lines, passed } = await gate([
+				"--skip",
+				others.join(","),
+			]);
+			expect(started).toEqual([name]);
+			expect(passed).toBe(true);
+			// Every step has a result, skipped or run, and so a line on the screen.
+			expect(Object.keys(results).sort()).toEqual([...everyStep].sort());
+			for (const other of others) {
+				expect(lines).toContain(`${other.padEnd(10)} skip`);
+			}
+		},
+	);
 
 	it("fails a run that skipped every step, and says that nothing ran", async () => {
 		const { started, lines, passed } = await gate([

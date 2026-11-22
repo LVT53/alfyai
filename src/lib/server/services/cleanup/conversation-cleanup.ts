@@ -20,6 +20,7 @@ import {
 	hardDeleteArtifactsForUser,
 	listConversationOwnedArtifacts,
 } from "../knowledge";
+import { revokeConversationMemory } from "../memory-profile/chat-delivery";
 
 export async function deleteConversationWithCleanup(
 	userId: string,
@@ -42,6 +43,8 @@ export async function deleteConversationWithCleanup(
 	if (!conversation) {
 		return null;
 	}
+
+	await revokeConversationMemory(userId, [conversationId]);
 
 	// A reply that is still streaming into this chat is stopped first, the way
 	// the Stop button stops it. Without this the server keeps generating into a
@@ -149,6 +152,10 @@ export async function deleteConversationWithCleanup(
 				eq(conversations.userId, userId),
 			),
 		);
+	// A writer that took the chat up while this delete ran (the imported-history
+	// catch-up, say) recorded its sources after the first revocation. Sources
+	// keep the chat's id, so one more sweep withdraws those, and only those.
+	await revokeConversationMemory(userId, [conversationId], { liveOnly: true });
 
 	return {
 		deletedArtifactIds,

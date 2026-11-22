@@ -3,34 +3,27 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/services/image-search", () => ({
-	fetchBraveThumbnail: vi.fn(),
+	fetchPublisherThumbnail: vi.fn(),
 }));
 
-import { fetchBraveThumbnail } from "$lib/server/services/image-search";
+import { fetchPublisherThumbnail } from "$lib/server/services/image-search";
 import {
+	noteMessageSources,
 	noteToolEntrySources,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
 import {
-	BRAVE_THUMBNAIL_HOST,
 	IMAGE_THUMBNAIL_ROUTE,
 	imageThumbnailRouteUrl,
 } from "$lib/shared/url-provenance";
 import { GET } from "./+server";
 
-// The chat shows an image_search picture as Brave's 500 px thumbnail, fetched by
-// THIS server and handed to the page from its own origin, so the page itself
-// never calls a host a search result named (docs/plans/exfil-channels). The route
-// is a narrow door: only an address a search returned to this user, and only on
-// Brave's image proxy. What the fetch itself refuses (a redirect, a long wait, a
-// large body, anything but a raster image) is `fetchBraveThumbnail`'s, held by its
-// own tests in image-search.test.ts; the fetch is mocked here, so nothing in this
-// file can reach the network.
-
-const THUMB = `https://${BRAVE_THUMBNAIL_HOST}/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn`;
+// The signed-in route authorizes the original in a recorded search result.
+const THUMB = "https://images.example.com/cat.jpg";
+const SAVED_ALIAS = "https://archive.example.com/thumbnail/abc";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-const fetchThumbnailMock = vi.mocked(fetchBraveThumbnail);
+const fetchThumbnailMock = vi.mocked(fetchPublisherThumbnail);
 type ThumbnailEvent = Parameters<typeof GET>[0];
 
 function eventFor(
@@ -46,7 +39,7 @@ function eventFor(
 	} as unknown as ThumbnailEvent;
 }
 
-function listThumbnail(userId = "user-1", thumbnail = THUMB) {
+function listThumbnail(userId = "user-1", thumbnail = SAVED_ALIAS) {
 	noteToolEntrySources(userId, {
 		name: "image_search",
 		input: { query: "cat" },
@@ -55,7 +48,7 @@ function listThumbnail(userId = "user-1", thumbnail = THUMB) {
 			{
 				id: "c1",
 				title: "Cat",
-				url: "https://example.com/cat.jpg",
+				url: THUMB,
 				sourceType: "web",
 				metadata: { thumbnail },
 			},
@@ -115,6 +108,8 @@ describe("GET /api/image-search/thumbnail", () => {
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
 		expect(response.headers.get("content-type")).toBe("image/png");
 		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+		// A second account in this browser must make its own authenticated request.
+		expect(response.headers.get("vary")).toBe("Cookie");
 		expect(response.headers.get("cache-control")).toBe(
 			"private, max-age=86400",
 		);
@@ -145,14 +140,10 @@ describe("GET /api/image-search/thumbnail", () => {
 		}
 	});
 
-	it("never asks for an address that is not on Brave's image proxy, even when a tool returned it", async () => {
+	it("rejects saved thumbnail aliases and forged addresses even when a stored result names them as thumbnail metadata", async () => {
 		const others = [
-			"https://example.com/cat.jpg",
+			SAVED_ALIAS,
 			"https://evil.example/collect?d=secret",
-			"http://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/abc",
-			"https://imgs.search.brave.com:8443/Zq3s9x/abc",
-			"https://imgs.search.brave.com.evil.example/Zq3s9x/abc",
-			"https://user@imgs.search.brave.com/Zq3s9x/abc",
 			"/api/image-search/thumbnail?url=x",
 			"javascript:alert(1)",
 			"",
@@ -166,9 +157,9 @@ describe("GET /api/image-search/thumbnail", () => {
 		expect(fetchThumbnailMock).not.toHaveBeenCalled();
 	});
 
-	it("never asks for a Brave address no search returned to this user, whatever it wraps", async () => {
+	it("never fetches a variation on the original publisher address", async () => {
 		listThumbnail();
-		const forged = `${THUMB.slice(0, THUMB.lastIndexOf("/"))}/aHR0cHM6Ly9ldmlsLmV4YW1wbGUvP2Q9c2VjcmV0`;
+		const forged = THUMB.replace("cat.jpg", "dog.jpg");
 
 		await expectNotFound(await GET(eventFor(forged)));
 		await expectNotFound(await GET(eventFor(`${THUMB}?x=1`)));
@@ -190,6 +181,42 @@ describe("GET /api/image-search/thumbnail", () => {
 
 		await expectNotFound(await GET(eventFor(THUMB, { id: "user-1" })));
 		expect(fetchThumbnailMock).not.toHaveBeenCalled();
+	});
+
+	it("serves only the exact publisher image returned to this user after a conversation reload", async () => {
+		const image = "https://www.example.com/cat.jpg?size=large";
+		vi.mocked(fetchPublisherThumbnail).mockResolvedValue({
+			bytes: PNG,
+			contentType: "image/png",
+		});
+		noteMessageSources("user-1", [
+			{
+				role: "assistant",
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						name: "image_search",
+						input: {},
+						status: "done",
+						candidates: [
+							{
+								id: "cat",
+								sourceType: "web",
+								title: "Cat",
+								url: image,
+								metadata: { provider: "parallel", thumbnail: image },
+							},
+						],
+					},
+				],
+			},
+		]);
+		await expectNotFound(await GET(eventFor(image, { id: "other" })));
+		await expectNotFound(await GET(eventFor(image.replace("www.", ""))));
+		await expectNotFound(await GET(eventFor(image.replace("large", "small"))));
+		expect(fetchPublisherThumbnail).not.toHaveBeenCalled();
+		expect((await GET(eventFor(image))).status).toBe(200);
+		expect(fetchPublisherThumbnail).toHaveBeenCalledExactlyOnceWith(image);
 	});
 
 	it("is refused without a session", async () => {
@@ -224,7 +251,7 @@ describe("GET /api/image-search/thumbnail", () => {
 		);
 
 		for (const log of logs) {
-			expect(JSON.stringify(log.mock.calls)).not.toContain("brave");
+			expect(JSON.stringify(log.mock.calls)).not.toContain(THUMB);
 			expect(JSON.stringify(log.mock.calls)).not.toContain("evil");
 		}
 	});

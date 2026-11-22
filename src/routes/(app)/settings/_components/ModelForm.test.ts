@@ -327,26 +327,27 @@ describe("ModelForm can see images", () => {
 			ticked: false,
 			saved: { tools: "detected" },
 		},
-	])("keeps an unsaved $edit when an icon is saved while the form is open", async ({
-		stored,
-		ticked,
-		saved,
-	}) => {
-		const model = modelFixture({ capabilitiesJson: stored });
-		const { getByRole, onSave, rerender } = renderForm(model);
-		const box = () => getByRole("checkbox", { name: /Can see images/ });
+	])(
+		"keeps an unsaved $edit when an icon is saved while the form is open",
+		async ({ stored, ticked, saved }) => {
+			const model = modelFixture({ capabilitiesJson: stored });
+			const { getByRole, onSave, rerender } = renderForm(model);
+			const box = () => getByRole("checkbox", { name: /Can see images/ });
 
-		await fireEvent.click(box());
-		await rerender({ model: { ...model, iconAssetId: "x" } });
+			await fireEvent.click(box());
+			await rerender({ model: { ...model, iconAssetId: "x" } });
 
-		if (ticked) expect(box()).toBeChecked();
-		else expect(box()).not.toBeChecked();
+			if (ticked) expect(box()).toBeChecked();
+			else expect(box()).not.toBeChecked();
 
-		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+			await fireEvent.click(getByRole("button", { name: "Save Changes" }));
 
-		expect(onSave).toHaveBeenCalledTimes(1);
-		expect(JSON.parse(onSave.mock.calls[0][0].capabilitiesJson)).toEqual(saved);
-	});
+			expect(onSave).toHaveBeenCalledTimes(1);
+			expect(JSON.parse(onSave.mock.calls[0][0].capabilitiesJson)).toEqual(
+				saved,
+			);
+		},
+	);
 
 	// A different model, or the same model with other stored capabilities, is a
 	// real change of subject: the box follows the stored value and drops what was
@@ -373,22 +374,24 @@ describe("ModelForm can see images", () => {
 			},
 			ticked: false,
 		},
-	])("follows the stored capabilities of $change", async ({
-		tickFirst,
-		next,
-		ticked,
-	}) => {
-		const { getByRole, rerender } = renderForm(
-			modelFixture({ id: "model-1", capabilitiesJson: '{"tools":"detected"}' }),
-		);
-		const box = () => getByRole("checkbox", { name: /Can see images/ });
-		if (tickFirst) await fireEvent.click(box());
+	])(
+		"follows the stored capabilities of $change",
+		async ({ tickFirst, next, ticked }) => {
+			const { getByRole, rerender } = renderForm(
+				modelFixture({
+					id: "model-1",
+					capabilitiesJson: '{"tools":"detected"}',
+				}),
+			);
+			const box = () => getByRole("checkbox", { name: /Can see images/ });
+			if (tickFirst) await fireEvent.click(box());
 
-		await rerender({ model: modelFixture(next) });
+			await rerender({ model: modelFixture(next) });
 
-		if (ticked) expect(box()).toBeChecked();
-		else expect(box()).not.toBeChecked();
-	});
+			if (ticked) expect(box()).toBeChecked();
+			else expect(box()).not.toBeChecked();
+		},
+	);
 
 	it("compares against the model it last followed, not the one it opened with", async () => {
 		const { getByRole, rerender } = renderForm(

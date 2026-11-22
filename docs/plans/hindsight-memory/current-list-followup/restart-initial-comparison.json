@@ -1,0 +1,2147 @@
+{
+  "banks": {
+    "clf-1118-serial-en": {
+      "native": {
+        "items": [
+          {
+            "id": "40d60d6d-e6b2-49c7-b102-57b69c317cc6",
+            "text": "The user owns a copper kettle.",
+            "context": "",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:40.496930+00:00",
+            "source_memory_ids": [
+              "695e7d8b-ee98-453a-bc7b-104804e77cff"
+            ]
+          },
+          {
+            "id": "695e7d8b-ee98-453a-bc7b-104804e77cff",
+            "text": "User owns a copper kettle. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "insert",
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "copper kettle, user",
+            "chunk_id": "clf-1118-serial-en_insert_0",
+            "proof_count": 1,
+            "tags": [
+              "insert"
+            ],
+            "metadata": {
+              "chat_id": "chat-insert",
+              "message_id": "message-insert"
+            },
+            "consolidated_at": "2026-11-18T18:53:40.501288+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:39.420362+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "9118c3a0-a9e8-4c58-8c85-474a05ff0bff",
+            "text": "The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": "2026-11-12T12:00:00+00:00",
+            "occurred_end": "2026-11-12T12:00:00+00:00",
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 4,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:36.960317+00:00",
+            "source_memory_ids": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+              "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+              "cb53ac55-5997-4c00-84f5-ee222c637229"
+            ]
+          },
+          {
+            "id": "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+            "text": "User corrected that their hiking backpack is green, not teal, and that it has not changed colour. | When: Thursday, November 12, 2026 | Involving: user | Correction of an earlier incorrect teal description.",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-12T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "correction",
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": "2026-11-12T12:00:00+00:00",
+            "occurred_end": "2026-11-12T12:00:00+00:00",
+            "entities": "hiking backpack, user",
+            "chunk_id": "clf-1118-serial-en_correction_0",
+            "proof_count": 1,
+            "tags": [
+              "correction"
+            ],
+            "metadata": {
+              "chat_id": "chat-correction",
+              "message_id": "message-correction"
+            },
+            "consolidated_at": "2026-11-18T18:53:33.198542+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:52:58.443355+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "272d20af-8de5-4aac-bc1f-06582e13df17",
+            "text": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-10T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:35.074945+00:00",
+            "source_memory_ids": [
+              "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "77f10486-b814-4d73-b5bf-9e6767575dfb",
+              "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+            ]
+          },
+          {
+            "id": "77f10486-b814-4d73-b5bf-9e6767575dfb",
+            "text": "User prefers espresso as of November 10, 2026. | When: November 10, 2026 | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-10T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-10T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "espresso, user",
+            "chunk_id": "clf-1118-serial-en_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:53:31.157995+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:52:42.457621+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+            "text": "User's hiking backpack is teal. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-10T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "hiking backpack, teal, user",
+            "chunk_id": "clf-1118-serial-en_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:53:32.150150+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:52:42.457621+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "f7e4ca17-62b3-4427-9ec2-d91093beef05",
+            "text": "The user's sister prefers green tea.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.030000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:34.160901+00:00",
+            "source_memory_ids": [
+              "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+              "713561f3-6935-409c-b2f1-5a2561eb7a13"
+            ]
+          },
+          {
+            "id": "713561f3-6935-409c-b2f1-5a2561eb7a13",
+            "text": "User's sister prefers green tea. | Involving: User's sister",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.030000+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00.030000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "green tea, sister",
+            "chunk_id": "clf-1118-serial-en_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:34.168516+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:08.556250+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "bcbe0713-b996-47f7-bc50-b1cd966d9ab2",
+            "text": "User prefers decaf coffee. | Involving: User",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "decaf coffee, user",
+            "chunk_id": "clf-1118-serial-en_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:35.080221+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:08.556250+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+            "text": "User's sister prefers green tea. | Involving: user's sister",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "old",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "green tea, sister, user",
+            "chunk_id": "clf-1118-serial-en_old_0",
+            "proof_count": 1,
+            "tags": [
+              "old"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:28.639753+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:52:33.933068+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "457c8e6e-caf5-44a1-bc64-66e2534499f7",
+            "text": "The user owns a white canoe.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:36.017584+00:00",
+            "source_memory_ids": [
+              "9944ddce-6417-4c79-82c1-409340d5eb36",
+              "628a1007-a373-4b27-9273-f226f5a4d3e2"
+            ]
+          },
+          {
+            "id": "628a1007-a373-4b27-9273-f226f5a4d3e2",
+            "text": "User owns a white canoe. | Involving: User",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "user, white canoe",
+            "chunk_id": "clf-1118-serial-en_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:36.024714+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:08.556250+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+            "text": "User prefers decaf coffee. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "old",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "decaf coffee, user",
+            "chunk_id": "clf-1118-serial-en_old_0",
+            "proof_count": 1,
+            "tags": [
+              "old"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:29.320436+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:52:33.933068+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+            "text": "User owns an amber hiking backpack. | Involving: User",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "amber hiking backpack, user",
+            "chunk_id": "clf-1118-serial-en_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:36.966472+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:08.556250+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "9944ddce-6417-4c79-82c1-409340d5eb36",
+            "text": "User owns an amber hiking backpack and a white canoe. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "old",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "amber hiking backpack, user, white canoe",
+            "chunk_id": "clf-1118-serial-en_old_0",
+            "proof_count": 1,
+            "tags": [
+              "old"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:53:30.131621+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:52:33.933068+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 16,
+        "limit": 100,
+        "offset": 0
+      },
+      "config": {
+        "bank_id": "clf-1118-serial-en",
+        "config": {
+          "retain_max_attachments_per_chunk": 8,
+          "disposition_literalism": null,
+          "disposition_skepticism": null,
+          "reflect_kb_search_apply_tags": true,
+          "consolidation_strategies": null,
+          "mental_model_refresh_use_decision_model": true,
+          "recall_include_chunks": true,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "consolidation_use_decision_model": true,
+          "observation_scope_limits": null,
+          "default_timezone": "UTC",
+          "disposition_empathy": null,
+          "recall_budget_fixed_mid": 300,
+          "knowledge_banks": null,
+          "memory_defense": null,
+          "recall_chunks_max_tokens": 1000,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_max": 2000,
+          "audit_log_enabled": false,
+          "enable_graph_retrieval": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1,
+          "recall_budget_adaptive_low": 0.025,
+          "mental_model_delta_use_decision_model": true,
+          "enable_observations": true,
+          "recall_budget_min": 20,
+          "retain_default_strategy": null,
+          "llm_gemini_safety_settings": null,
+          "entities_allow_free_form": true,
+          "recall_decision_model_prune": false,
+          "reflect_source_facts_max_tokens": -1,
+          "consolidation_source_facts_max_tokens": 4096,
+          "retain_strategies": null,
+          "retain_structured_chunk_size": null,
+          "retain_chunk_size": 3000,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_budget_function": "fixed",
+          "reflect_kb_search_media_types": null,
+          "enable_reranking": true,
+          "recall_decision_model_dedup": false,
+          "recall_budget_fixed_low": 100,
+          "recall_budget_adaptive_high": 0.25,
+          "recall_budget_adaptive_mid": 0.075,
+          "entity_labels": null,
+          "recall_prefer_observations": false,
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "page_default_trigger": null,
+          "mcp_enabled_tools": null,
+          "enable_text_search": true,
+          "recall_budget_fixed_high": 1000,
+          "enable_temporal_retrieval": true,
+          "consolidation_llm_parallelism": 4,
+          "reflect_mission": null,
+          "retain_custom_instructions": null,
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "reflect_default_options": null,
+          "max_observations_per_scope": -1,
+          "store_document_text": true,
+          "recall_max_tokens": 2048,
+          "retain_extraction_mode": "concise",
+          "reflect_use_decision_model": true,
+          "retain_chunk_batch_size": 100,
+          "enable_auto_consolidation": true,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "enable_auto_consolidation": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      },
+      "rows": [
+        {
+          "id": "40d60d6d-e6b2-49c7-b102-57b69c317cc6",
+          "current": "The user owns a copper kettle.",
+          "nativeNotes": [],
+          "original": "The user owns a copper kettle.",
+          "sourceIds": [
+            "695e7d8b-ee98-453a-bc7b-104804e77cff"
+          ]
+        },
+        {
+          "id": "9118c3a0-a9e8-4c58-8c85-474a05ff0bff",
+          "current": "The user owns a green hiking backpack.",
+          "nativeNotes": [
+            {
+              "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+            }
+          ],
+          "original": "The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+          "sourceIds": [
+            "9944ddce-6417-4c79-82c1-409340d5eb36",
+            "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+            "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+            "cb53ac55-5997-4c00-84f5-ee222c637229"
+          ]
+        },
+        {
+          "id": "272d20af-8de5-4aac-bc1f-06582e13df17",
+          "current": "The user prefers espresso.",
+          "nativeNotes": [
+            {
+              "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+            }
+          ],
+          "original": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+          "sourceIds": [
+            "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+            "77f10486-b814-4d73-b5bf-9e6767575dfb",
+            "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+          ]
+        },
+        {
+          "id": "f7e4ca17-62b3-4427-9ec2-d91093beef05",
+          "current": "The user's sister prefers green tea.",
+          "nativeNotes": [],
+          "original": "The user's sister prefers green tea.",
+          "sourceIds": [
+            "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+            "713561f3-6935-409c-b2f1-5a2561eb7a13"
+          ]
+        },
+        {
+          "id": "457c8e6e-caf5-44a1-bc64-66e2534499f7",
+          "current": "The user owns a white canoe.",
+          "nativeNotes": [],
+          "original": "The user owns a white canoe.",
+          "sourceIds": [
+            "9944ddce-6417-4c79-82c1-409340d5eb36",
+            "628a1007-a373-4b27-9273-f226f5a4d3e2"
+          ]
+        }
+      ]
+    },
+    "clf-1118-serial-hu": {
+      "native": {
+        "items": [
+          {
+            "id": "8d8041c1-23a7-4ee8-a36c-3118de2eb0ed",
+            "text": "A felhasználónak van egy réz vízforralója.",
+            "context": "",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:47.589171+00:00",
+            "source_memory_ids": [
+              "48b80e25-da2d-462d-a1a3-52badc1ea03b"
+            ]
+          },
+          {
+            "id": "48b80e25-da2d-462d-a1a3-52badc1ea03b",
+            "text": "User owns a copper kettle. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-22T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "insert",
+            "mentioned_at": "2026-11-22T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "copper kettle, user",
+            "chunk_id": "clf-1118-serial-hu_insert_0",
+            "proof_count": 1,
+            "tags": [
+              "insert"
+            ],
+            "metadata": {
+              "chat_id": "chat-insert",
+              "message_id": "message-insert"
+            },
+            "consolidated_at": "2026-11-18T18:54:47.593141+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:46.471199+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "507deac9-ca81-49ac-9cef-21cfd8fa8b5f",
+            "text": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 4,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:40.885589+00:00",
+            "source_memory_ids": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+              "d008d76e-70a8-4a21-8db9-25b5b5782934",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "d008d76e-70a8-4a21-8db9-25b5b5782934",
+            "text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a szín nem változott meg. | When: 2026-11-12 | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-12T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "correction",
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "kerékpár, user",
+            "chunk_id": "clf-1118-serial-hu_correction_0",
+            "proof_count": 1,
+            "tags": [
+              "correction"
+            ],
+            "metadata": {
+              "chat_id": "chat-correction",
+              "message_id": "message-correction"
+            },
+            "consolidated_at": "2026-11-18T18:54:37.277738+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:04.775392+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "26df9091-da77-4178-bcd3-3e4449d450fe",
+            "text": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+            "context": "",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-10T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 3,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:39.252768+00:00",
+            "source_memory_ids": [
+              "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+              "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+            ]
+          },
+          {
+            "id": "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+            "text": "A felhasználó 2026. november 10-én részletes válaszokat kér. | When: 2026-11-10 | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-10T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-10T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "user",
+            "chunk_id": "clf-1118-serial-hu_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:54:34.971552+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:56.773732+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+            "text": "A felhasználó kerékpárja kék. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-10T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-10T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "kerékpár, user",
+            "chunk_id": "clf-1118-serial-hu_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:54:36.115071+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:56.773732+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "86ce91b3-f28a-45d2-88f9-9c53f21a1e1f",
+            "text": "A felhasználó húga Győrben él.",
+            "context": "",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:38.272229+00:00",
+            "source_memory_ids": [
+              "e406295c-2a53-4b81-bac8-58510fec4b35",
+              "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+            ]
+          },
+          {
+            "id": "3b31f878-d8d8-4b20-af2a-0b965c0c85e6",
+            "text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user, user's sister",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Győr, húg, user",
+            "chunk_id": "clf-1118-serial-hu_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:54:38.278557+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:11.319768+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "e406295c-2a53-4b81-bac8-58510fec4b35",
+            "text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user, user's sister",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.020000+00:00",
+            "fact_type": "world",
+            "document_id": "old",
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Győr, húg, user",
+            "chunk_id": "clf-1118-serial-hu_old_0",
+            "proof_count": 1,
+            "tags": [
+              "old"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:54:32.373400+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:46.614078+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "68130552-bfec-4545-b5cf-7fbe02e9c58f",
+            "text": "A felhasználó rövid válaszokat kér. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "rövid válaszok, user",
+            "chunk_id": "clf-1118-serial-hu_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:54:39.259681+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:11.319768+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+            "text": "A felhasználó rövid válaszokat kér. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "old",
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "user",
+            "chunk_id": "clf-1118-serial-hu_old_0",
+            "proof_count": 1,
+            "tags": [
+              "old"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:54:33.042206+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:46.614078+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "034e39b5-6629-4783-b411-398183d7757b",
+            "text": "A felhasználónak van egy fehér kajakja.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:40.885589+00:00",
+            "source_memory_ids": [
+              "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+            ]
+          },
+          {
+            "id": "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c",
+            "text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "old-replay",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "fehér kajak, piros kerékpár, user",
+            "chunk_id": "clf-1118-serial-hu_old-replay_0",
+            "proof_count": 1,
+            "tags": [
+              "old-replay"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:54:40.893328+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:54:11.319768+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+            "text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+            "context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "old",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "fehér kajak, piros kerékpár, user",
+            "chunk_id": "clf-1118-serial-hu_old_0",
+            "proof_count": 1,
+            "tags": [
+              "old"
+            ],
+            "metadata": {
+              "chat_id": "chat-old",
+              "message_id": "message-old"
+            },
+            "consolidated_at": "2026-11-18T18:54:33.955417+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:53:46.614078+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 15,
+        "limit": 100,
+        "offset": 0
+      },
+      "config": {
+        "bank_id": "clf-1118-serial-hu",
+        "config": {
+          "retain_max_attachments_per_chunk": 8,
+          "disposition_literalism": null,
+          "disposition_skepticism": null,
+          "reflect_kb_search_apply_tags": true,
+          "consolidation_strategies": null,
+          "mental_model_refresh_use_decision_model": true,
+          "recall_include_chunks": true,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "consolidation_use_decision_model": true,
+          "observation_scope_limits": null,
+          "default_timezone": "UTC",
+          "disposition_empathy": null,
+          "recall_budget_fixed_mid": 300,
+          "knowledge_banks": null,
+          "memory_defense": null,
+          "recall_chunks_max_tokens": 1000,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_max": 2000,
+          "audit_log_enabled": false,
+          "enable_graph_retrieval": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1,
+          "recall_budget_adaptive_low": 0.025,
+          "mental_model_delta_use_decision_model": true,
+          "enable_observations": true,
+          "recall_budget_min": 20,
+          "retain_default_strategy": null,
+          "llm_gemini_safety_settings": null,
+          "entities_allow_free_form": true,
+          "recall_decision_model_prune": false,
+          "reflect_source_facts_max_tokens": -1,
+          "consolidation_source_facts_max_tokens": 4096,
+          "retain_strategies": null,
+          "retain_structured_chunk_size": null,
+          "retain_chunk_size": 3000,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_budget_function": "fixed",
+          "reflect_kb_search_media_types": null,
+          "enable_reranking": true,
+          "recall_decision_model_dedup": false,
+          "recall_budget_fixed_low": 100,
+          "recall_budget_adaptive_high": 0.25,
+          "recall_budget_adaptive_mid": 0.075,
+          "entity_labels": null,
+          "recall_prefer_observations": false,
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "page_default_trigger": null,
+          "mcp_enabled_tools": null,
+          "enable_text_search": true,
+          "recall_budget_fixed_high": 1000,
+          "enable_temporal_retrieval": true,
+          "consolidation_llm_parallelism": 4,
+          "reflect_mission": null,
+          "retain_custom_instructions": null,
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "reflect_default_options": null,
+          "max_observations_per_scope": -1,
+          "store_document_text": true,
+          "recall_max_tokens": 2048,
+          "retain_extraction_mode": "concise",
+          "reflect_use_decision_model": true,
+          "retain_chunk_batch_size": 100,
+          "enable_auto_consolidation": true,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "enable_auto_consolidation": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      },
+      "rows": [
+        {
+          "id": "8d8041c1-23a7-4ee8-a36c-3118de2eb0ed",
+          "current": "A felhasználónak van egy réz vízforralója.",
+          "nativeNotes": [],
+          "original": "A felhasználónak van egy réz vízforralója.",
+          "sourceIds": [
+            "48b80e25-da2d-462d-a1a3-52badc1ea03b"
+          ]
+        },
+        {
+          "id": "507deac9-ca81-49ac-9cef-21cfd8fa8b5f",
+          "current": "A felhasználónak van egy zöld kerékpárja.",
+          "nativeNotes": [
+            {
+              "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+            }
+          ],
+          "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+          "sourceIds": [
+            "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+            "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+            "d008d76e-70a8-4a21-8db9-25b5b5782934",
+            "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+          ]
+        },
+        {
+          "id": "26df9091-da77-4178-bcd3-3e4449d450fe",
+          "current": "A felhasználó részletes válaszokat kér.",
+          "nativeNotes": [
+            {
+              "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+            }
+          ],
+          "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+          "sourceIds": [
+            "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+            "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+            "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+          ]
+        },
+        {
+          "id": "86ce91b3-f28a-45d2-88f9-9c53f21a1e1f",
+          "current": "A felhasználó húga Győrben él.",
+          "nativeNotes": [],
+          "original": "A felhasználó húga Győrben él.",
+          "sourceIds": [
+            "e406295c-2a53-4b81-bac8-58510fec4b35",
+            "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+          ]
+        },
+        {
+          "id": "034e39b5-6629-4783-b411-398183d7757b",
+          "current": "A felhasználónak van egy fehér kajakja.",
+          "nativeNotes": [],
+          "original": "A felhasználónak van egy fehér kajakja.",
+          "sourceIds": [
+            "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+            "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+          ]
+        }
+      ]
+    },
+    "clf-1118-serial-holdout": {
+      "native": {
+        "items": [
+          {
+            "id": "0e61f24f-8eae-4404-bc3a-f0d153b45322",
+            "text": "Nora is the user's colleague.",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:20.868485+00:00",
+            "source_memory_ids": [
+              "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+            ]
+          },
+          {
+            "id": "18b833c2-20e7-4db8-bd45-cd109b17459a",
+            "text": "Nora owns a drill.",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:20.868485+00:00",
+            "source_memory_ids": [
+              "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+            ]
+          },
+          {
+            "id": "c080c842-fd71-47ea-a444-efc8b4fe57f9",
+            "text": "User's colleague Nora owns a drill. | Involving: user, Nora (user's colleague)",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "question",
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Nora, drill, user",
+            "chunk_id": "clf-1118-serial-holdout_question_0",
+            "proof_count": 1,
+            "tags": [
+              "question"
+            ],
+            "metadata": {
+              "chat_id": "chat-question",
+              "message_id": "message-question"
+            },
+            "consolidated_at": "2026-11-18T18:55:20.873317+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:07.749496+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "0d553b51-995e-4176-807a-4a061b3d3709",
+            "text": "User does not own a drill.",
+            "context": "",
+            "date": "2026-11-14T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:22.077857+00:00",
+            "source_memory_ids": [
+              "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+            ]
+          },
+          {
+            "id": "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb",
+            "text": "User does not own a drill. | Involving: user",
+            "context": "",
+            "date": "2026-11-14T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "question",
+            "mentioned_at": "2026-11-14T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "drill, user",
+            "chunk_id": "clf-1118-serial-holdout_question_0",
+            "proof_count": 1,
+            "tags": [
+              "question"
+            ],
+            "metadata": {
+              "chat_id": "chat-question",
+              "message_id": "message-question"
+            },
+            "consolidated_at": "2026-11-18T18:55:22.081919+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:07.749496+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "b02dd02a-f4e7-4c23-aace-c0c1f42b6518",
+            "text": "User has not decided whether to move to Belfast in summer 2027.",
+            "context": "",
+            "date": "2026-11-13T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-13T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:24.437211+00:00",
+            "source_memory_ids": [
+              "a908710a-aac6-4a77-a3cc-4ad330a36929"
+            ]
+          },
+          {
+            "id": "a908710a-aac6-4a77-a3cc-4ad330a36929",
+            "text": "User has not decided whether to move to Belfast in summer 2027. | When: summer 2027 | Where: Belfast | Involving: user | The move is only a possibility and the user has not decided.",
+            "context": "",
+            "date": "2026-11-13T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "past",
+            "mentioned_at": "2026-11-13T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Belfast, move, user",
+            "chunk_id": "clf-1118-serial-holdout_past_0",
+            "proof_count": 1,
+            "tags": [
+              "past"
+            ],
+            "metadata": {
+              "chat_id": "chat-past",
+              "message_id": "message-past"
+            },
+            "consolidated_at": "2026-11-18T18:55:24.441708+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:12.632771+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1bd7cd1a-a79b-4447-b18c-ec08fb7c702e",
+            "text": "User lived in Galway in 2020.",
+            "context": "",
+            "date": "2020-01-01T00:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-13T12:00:00+00:00",
+            "occurred_start": "2020-01-01T00:00:00+00:00",
+            "occurred_end": "2020-12-31T23:59:59+00:00",
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:25.371445+00:00",
+            "source_memory_ids": [
+              "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+            ]
+          },
+          {
+            "id": "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1",
+            "text": "User lived in Galway in 2020. | When: 2020 | Where: Galway | Involving: user",
+            "context": "",
+            "date": "2020-01-01T00:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "past",
+            "mentioned_at": "2026-11-13T12:00:00+00:00",
+            "occurred_start": "2020-01-01T00:00:00+00:00",
+            "occurred_end": "2020-12-31T23:59:59+00:00",
+            "entities": "Galway, user",
+            "chunk_id": "clf-1118-serial-holdout_past_0",
+            "proof_count": 1,
+            "tags": [
+              "past"
+            ],
+            "metadata": {
+              "chat_id": "chat-past",
+              "message_id": "message-past"
+            },
+            "consolidated_at": "2026-11-18T18:55:25.376147+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:12.632771+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "14408e5b-7b3a-4612-b79f-bb5a8d9d4da3",
+            "text": "User commutes by train.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:23.129282+00:00",
+            "source_memory_ids": [
+              "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+              "2a8d4161-40ea-426f-ad14-e6923131b913"
+            ]
+          },
+          {
+            "id": "d9c6d753-8f53-4ded-a193-223edecb5846",
+            "text": "User lives in Cork.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:23.129282+00:00",
+            "source_memory_ids": [
+              "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+              "2a8d4161-40ea-426f-ad14-e6923131b913"
+            ]
+          },
+          {
+            "id": "2a8d4161-40ea-426f-ad14-e6923131b913",
+            "text": "As of November 12, 2026, user lives in Cork and still commutes by train. | When: November 12, 2026 | Where: Cork | Involving: user",
+            "context": "",
+            "date": "2026-11-12T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Cork, train, user",
+            "chunk_id": "clf-1118-serial-holdout_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:55:23.138240+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:09.445262+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "text": "User lives in Dublin and commutes by train. | Where: Dublin | Involving: user",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "older",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Dublin, train, user",
+            "chunk_id": "clf-1118-serial-holdout_older_0",
+            "proof_count": 1,
+            "tags": [
+              "older"
+            ],
+            "metadata": {
+              "chat_id": "chat-older",
+              "message_id": "message-older"
+            },
+            "consolidated_at": "2026-11-18T18:55:20.065091+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:03.256463+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 13,
+        "limit": 100,
+        "offset": 0
+      },
+      "config": {
+        "bank_id": "clf-1118-serial-holdout",
+        "config": {
+          "retain_max_attachments_per_chunk": 8,
+          "disposition_literalism": null,
+          "disposition_skepticism": null,
+          "reflect_kb_search_apply_tags": true,
+          "consolidation_strategies": null,
+          "mental_model_refresh_use_decision_model": true,
+          "recall_include_chunks": true,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "consolidation_use_decision_model": true,
+          "observation_scope_limits": null,
+          "default_timezone": "UTC",
+          "disposition_empathy": null,
+          "recall_budget_fixed_mid": 300,
+          "knowledge_banks": null,
+          "memory_defense": null,
+          "recall_chunks_max_tokens": 1000,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_max": 2000,
+          "audit_log_enabled": false,
+          "enable_graph_retrieval": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1,
+          "recall_budget_adaptive_low": 0.025,
+          "mental_model_delta_use_decision_model": true,
+          "enable_observations": true,
+          "recall_budget_min": 20,
+          "retain_default_strategy": null,
+          "llm_gemini_safety_settings": null,
+          "entities_allow_free_form": true,
+          "recall_decision_model_prune": false,
+          "reflect_source_facts_max_tokens": -1,
+          "consolidation_source_facts_max_tokens": 4096,
+          "retain_strategies": null,
+          "retain_structured_chunk_size": null,
+          "retain_chunk_size": 3000,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_budget_function": "fixed",
+          "reflect_kb_search_media_types": null,
+          "enable_reranking": true,
+          "recall_decision_model_dedup": false,
+          "recall_budget_fixed_low": 100,
+          "recall_budget_adaptive_high": 0.25,
+          "recall_budget_adaptive_mid": 0.075,
+          "entity_labels": null,
+          "recall_prefer_observations": false,
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "page_default_trigger": null,
+          "mcp_enabled_tools": null,
+          "enable_text_search": true,
+          "recall_budget_fixed_high": 1000,
+          "enable_temporal_retrieval": true,
+          "consolidation_llm_parallelism": 4,
+          "reflect_mission": null,
+          "retain_custom_instructions": null,
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "reflect_default_options": null,
+          "max_observations_per_scope": -1,
+          "store_document_text": true,
+          "recall_max_tokens": 2048,
+          "retain_extraction_mode": "concise",
+          "reflect_use_decision_model": true,
+          "retain_chunk_batch_size": 100,
+          "enable_auto_consolidation": false,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "enable_auto_consolidation": false,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      },
+      "rows": [
+        {
+          "id": "0e61f24f-8eae-4404-bc3a-f0d153b45322",
+          "current": "Nora is the user's colleague.",
+          "nativeNotes": [],
+          "original": "Nora is the user's colleague.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "18b833c2-20e7-4db8-bd45-cd109b17459a",
+          "current": "Nora owns a drill.",
+          "nativeNotes": [],
+          "original": "Nora owns a drill.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "0d553b51-995e-4176-807a-4a061b3d3709",
+          "current": "User does not own a drill.",
+          "nativeNotes": [],
+          "original": "User does not own a drill.",
+          "sourceIds": [
+            "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+          ]
+        },
+        {
+          "id": "b02dd02a-f4e7-4c23-aace-c0c1f42b6518",
+          "current": "User has not decided whether to move to Belfast in summer 2027.",
+          "nativeNotes": [],
+          "original": "User has not decided whether to move to Belfast in summer 2027.",
+          "sourceIds": [
+            "a908710a-aac6-4a77-a3cc-4ad330a36929"
+          ]
+        },
+        {
+          "id": "1bd7cd1a-a79b-4447-b18c-ec08fb7c702e",
+          "current": "User lived in Galway in 2020.",
+          "nativeNotes": [],
+          "original": "User lived in Galway in 2020.",
+          "sourceIds": [
+            "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+          ]
+        },
+        {
+          "id": "14408e5b-7b3a-4612-b79f-bb5a8d9d4da3",
+          "current": "User commutes by train.",
+          "nativeNotes": [],
+          "original": "User commutes by train.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        },
+        {
+          "id": "d9c6d753-8f53-4ded-a193-223edecb5846",
+          "current": "User lives in Cork.",
+          "nativeNotes": [],
+          "original": "User lives in Cork.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        }
+      ]
+    }
+  },
+  "checks": [
+    {
+      "bank": "clf-1118-serial-en",
+      "rowsStable": true,
+      "configStable": false,
+      "rows": [
+        {
+          "id": "40d60d6d-e6b2-49c7-b102-57b69c317cc6",
+          "current": "The user owns a copper kettle.",
+          "nativeNotes": [],
+          "original": "The user owns a copper kettle.",
+          "sourceIds": [
+            "695e7d8b-ee98-453a-bc7b-104804e77cff"
+          ]
+        },
+        {
+          "id": "9118c3a0-a9e8-4c58-8c85-474a05ff0bff",
+          "current": "The user owns a green hiking backpack.",
+          "nativeNotes": [
+            {
+              "id": "cb53ac55-5997-4c00-84f5-ee222c637229",
+              "text": "(2026-11-01 12:00: User owns an amber hiking backpack.)"
+            }
+          ],
+          "original": "The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+          "sourceIds": [
+            "9944ddce-6417-4c79-82c1-409340d5eb36",
+            "76d469a4-3a15-45ef-94da-8415e9a01fd9",
+            "35d85e5b-f77b-4810-858c-a69bdd1a1f9a",
+            "cb53ac55-5997-4c00-84f5-ee222c637229"
+          ]
+        },
+        {
+          "id": "272d20af-8de5-4aac-bc1f-06582e13df17",
+          "current": "The user prefers espresso.",
+          "nativeNotes": [
+            {
+              "id": "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+              "text": "(2026-11-01 12:00: User prefers decaf coffee.)"
+            }
+          ],
+          "original": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+          "sourceIds": [
+            "19af0ff8-f5ad-446d-bd66-ef6e3e18d0f8",
+            "77f10486-b814-4d73-b5bf-9e6767575dfb",
+            "bcbe0713-b996-47f7-bc50-b1cd966d9ab2"
+          ]
+        },
+        {
+          "id": "f7e4ca17-62b3-4427-9ec2-d91093beef05",
+          "current": "The user's sister prefers green tea.",
+          "nativeNotes": [],
+          "original": "The user's sister prefers green tea.",
+          "sourceIds": [
+            "aeca2c5b-24f9-419c-a7c5-fc7ede5d8aea",
+            "713561f3-6935-409c-b2f1-5a2561eb7a13"
+          ]
+        },
+        {
+          "id": "457c8e6e-caf5-44a1-bc64-66e2534499f7",
+          "current": "The user owns a white canoe.",
+          "nativeNotes": [],
+          "original": "The user owns a white canoe.",
+          "sourceIds": [
+            "9944ddce-6417-4c79-82c1-409340d5eb36",
+            "628a1007-a373-4b27-9273-f226f5a4d3e2"
+          ]
+        }
+      ],
+      "config": {
+        "bank_id": "clf-1118-serial-en",
+        "config": {
+          "default_observation_scopes": "shared",
+          "default_timezone": "UTC",
+          "audit_log_enabled": false,
+          "recall_budget_adaptive_low": 0.025,
+          "enable_auto_consolidation": true,
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "retain_default_strategy": null,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_function": "fixed",
+          "disposition_empathy": null,
+          "page_default_trigger": null,
+          "entity_labels": null,
+          "mental_model_delta_use_decision_model": true,
+          "reflect_use_decision_model": true,
+          "retain_chunk_size": 3000,
+          "enable_graph_retrieval": true,
+          "knowledge_banks": null,
+          "recall_max_tokens": 2048,
+          "store_document_text": true,
+          "enable_reranking": true,
+          "recall_budget_fixed_low": 100,
+          "recall_prefer_observations": false,
+          "observation_scope_limits": null,
+          "memory_defense": null,
+          "llm_gemini_safety_settings": null,
+          "consolidation_use_decision_model": true,
+          "reflect_default_options": null,
+          "consolidation_llm_parallelism": 4,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "enable_temporal_retrieval": true,
+          "disposition_skepticism": null,
+          "retain_structured_chunk_size": null,
+          "recall_budget_max": 2000,
+          "reflect_kb_search_media_types": null,
+          "retain_max_attachments_per_chunk": 8,
+          "mcp_enabled_tools": null,
+          "consolidation_source_facts_max_tokens": 4096,
+          "recall_budget_min": 20,
+          "reflect_mission": null,
+          "disposition_literalism": null,
+          "entities_allow_free_form": true,
+          "recall_budget_fixed_mid": 300,
+          "max_observations_per_scope": -1,
+          "recall_budget_adaptive_mid": 0.075,
+          "enable_observations": true,
+          "recall_budget_fixed_high": 1000,
+          "consolidation_strategies": null,
+          "consolidation_llm_batch_size": 1,
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "mental_model_refresh_use_decision_model": true,
+          "enable_text_search": true,
+          "retain_chunk_batch_size": 100,
+          "retain_custom_instructions": null,
+          "recall_include_chunks": true,
+          "reflect_kb_search_apply_tags": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_chunks_max_tokens": 1000,
+          "retain_strategies": null,
+          "recall_decision_model_dedup": false,
+          "recall_budget_adaptive_high": 0.25,
+          "retain_extraction_mode": "concise",
+          "reflect_source_facts_max_tokens": -1,
+          "recall_decision_model_prune": false,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "enable_auto_consolidation": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      }
+    },
+    {
+      "bank": "clf-1118-serial-hu",
+      "rowsStable": true,
+      "configStable": false,
+      "rows": [
+        {
+          "id": "8d8041c1-23a7-4ee8-a36c-3118de2eb0ed",
+          "current": "A felhasználónak van egy réz vízforralója.",
+          "nativeNotes": [],
+          "original": "A felhasználónak van egy réz vízforralója.",
+          "sourceIds": [
+            "48b80e25-da2d-462d-a1a3-52badc1ea03b"
+          ]
+        },
+        {
+          "id": "507deac9-ca81-49ac-9cef-21cfd8fa8b5f",
+          "current": "A felhasználónak van egy zöld kerékpárja.",
+          "nativeNotes": [
+            {
+              "id": "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+              "text": "(2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+            }
+          ],
+          "original": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+          "sourceIds": [
+            "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+            "a9618cc1-980a-4d8b-b411-336cc796ab1e",
+            "d008d76e-70a8-4a21-8db9-25b5b5782934",
+            "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+          ]
+        },
+        {
+          "id": "26df9091-da77-4178-bcd3-3e4449d450fe",
+          "current": "A felhasználó részletes válaszokat kér.",
+          "nativeNotes": [
+            {
+              "id": "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+              "text": "(2026-11-01 12:00: A felhasználó rövid válaszokat kér.)"
+            }
+          ],
+          "original": "A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+          "sourceIds": [
+            "6da00251-77cc-43e7-9a5f-f2076ddcba9c",
+            "540b6ab0-28b8-4502-b08d-501ba61d5abb",
+            "68130552-bfec-4545-b5cf-7fbe02e9c58f"
+          ]
+        },
+        {
+          "id": "86ce91b3-f28a-45d2-88f9-9c53f21a1e1f",
+          "current": "A felhasználó húga Győrben él.",
+          "nativeNotes": [],
+          "original": "A felhasználó húga Győrben él.",
+          "sourceIds": [
+            "e406295c-2a53-4b81-bac8-58510fec4b35",
+            "3b31f878-d8d8-4b20-af2a-0b965c0c85e6"
+          ]
+        },
+        {
+          "id": "034e39b5-6629-4783-b411-398183d7757b",
+          "current": "A felhasználónak van egy fehér kajakja.",
+          "nativeNotes": [],
+          "original": "A felhasználónak van egy fehér kajakja.",
+          "sourceIds": [
+            "d4e2c3ef-add4-4d75-9e6a-7ab65648a682",
+            "d91c1275-42b5-4cd9-9449-79e2e2a8fc3c"
+          ]
+        }
+      ],
+      "config": {
+        "bank_id": "clf-1118-serial-hu",
+        "config": {
+          "default_observation_scopes": "shared",
+          "default_timezone": "UTC",
+          "audit_log_enabled": false,
+          "recall_budget_adaptive_low": 0.025,
+          "enable_auto_consolidation": true,
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "retain_default_strategy": null,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_function": "fixed",
+          "disposition_empathy": null,
+          "page_default_trigger": null,
+          "entity_labels": null,
+          "mental_model_delta_use_decision_model": true,
+          "reflect_use_decision_model": true,
+          "retain_chunk_size": 3000,
+          "enable_graph_retrieval": true,
+          "knowledge_banks": null,
+          "recall_max_tokens": 2048,
+          "store_document_text": true,
+          "enable_reranking": true,
+          "recall_budget_fixed_low": 100,
+          "recall_prefer_observations": false,
+          "observation_scope_limits": null,
+          "memory_defense": null,
+          "llm_gemini_safety_settings": null,
+          "consolidation_use_decision_model": true,
+          "reflect_default_options": null,
+          "consolidation_llm_parallelism": 4,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "enable_temporal_retrieval": true,
+          "disposition_skepticism": null,
+          "retain_structured_chunk_size": null,
+          "recall_budget_max": 2000,
+          "reflect_kb_search_media_types": null,
+          "retain_max_attachments_per_chunk": 8,
+          "mcp_enabled_tools": null,
+          "consolidation_source_facts_max_tokens": 4096,
+          "recall_budget_min": 20,
+          "reflect_mission": null,
+          "disposition_literalism": null,
+          "entities_allow_free_form": true,
+          "recall_budget_fixed_mid": 300,
+          "max_observations_per_scope": -1,
+          "recall_budget_adaptive_mid": 0.075,
+          "enable_observations": true,
+          "recall_budget_fixed_high": 1000,
+          "consolidation_strategies": null,
+          "consolidation_llm_batch_size": 1,
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "mental_model_refresh_use_decision_model": true,
+          "enable_text_search": true,
+          "retain_chunk_batch_size": 100,
+          "retain_custom_instructions": null,
+          "recall_include_chunks": true,
+          "reflect_kb_search_apply_tags": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_chunks_max_tokens": 1000,
+          "retain_strategies": null,
+          "recall_decision_model_dedup": false,
+          "recall_budget_adaptive_high": 0.25,
+          "retain_extraction_mode": "concise",
+          "reflect_source_facts_max_tokens": -1,
+          "recall_decision_model_prune": false,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "enable_auto_consolidation": true,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      }
+    },
+    {
+      "bank": "clf-1118-serial-holdout",
+      "rowsStable": true,
+      "configStable": false,
+      "rows": [
+        {
+          "id": "0e61f24f-8eae-4404-bc3a-f0d153b45322",
+          "current": "Nora is the user's colleague.",
+          "nativeNotes": [],
+          "original": "Nora is the user's colleague.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "18b833c2-20e7-4db8-bd45-cd109b17459a",
+          "current": "Nora owns a drill.",
+          "nativeNotes": [],
+          "original": "Nora owns a drill.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "0d553b51-995e-4176-807a-4a061b3d3709",
+          "current": "User does not own a drill.",
+          "nativeNotes": [],
+          "original": "User does not own a drill.",
+          "sourceIds": [
+            "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+          ]
+        },
+        {
+          "id": "b02dd02a-f4e7-4c23-aace-c0c1f42b6518",
+          "current": "User has not decided whether to move to Belfast in summer 2027.",
+          "nativeNotes": [],
+          "original": "User has not decided whether to move to Belfast in summer 2027.",
+          "sourceIds": [
+            "a908710a-aac6-4a77-a3cc-4ad330a36929"
+          ]
+        },
+        {
+          "id": "1bd7cd1a-a79b-4447-b18c-ec08fb7c702e",
+          "current": "User lived in Galway in 2020.",
+          "nativeNotes": [],
+          "original": "User lived in Galway in 2020.",
+          "sourceIds": [
+            "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+          ]
+        },
+        {
+          "id": "14408e5b-7b3a-4612-b79f-bb5a8d9d4da3",
+          "current": "User commutes by train.",
+          "nativeNotes": [],
+          "original": "User commutes by train.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        },
+        {
+          "id": "d9c6d753-8f53-4ded-a193-223edecb5846",
+          "current": "User lives in Cork.",
+          "nativeNotes": [],
+          "original": "User lives in Cork.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        }
+      ],
+      "config": {
+        "bank_id": "clf-1118-serial-holdout",
+        "config": {
+          "default_observation_scopes": "shared",
+          "default_timezone": "UTC",
+          "audit_log_enabled": false,
+          "recall_budget_adaptive_low": 0.025,
+          "enable_auto_consolidation": false,
+          "consolidation_source_facts_max_tokens_per_observation": 256,
+          "retain_default_strategy": null,
+          "consolidation_max_memories_per_round": 100,
+          "recall_budget_function": "fixed",
+          "disposition_empathy": null,
+          "page_default_trigger": null,
+          "entity_labels": null,
+          "mental_model_delta_use_decision_model": true,
+          "reflect_use_decision_model": true,
+          "retain_chunk_size": 3000,
+          "enable_graph_retrieval": true,
+          "knowledge_banks": null,
+          "recall_max_tokens": 2048,
+          "store_document_text": true,
+          "enable_reranking": true,
+          "recall_budget_fixed_low": 100,
+          "recall_prefer_observations": false,
+          "observation_scope_limits": null,
+          "memory_defense": null,
+          "llm_gemini_safety_settings": null,
+          "consolidation_use_decision_model": true,
+          "reflect_default_options": null,
+          "consolidation_llm_parallelism": 4,
+          "mental_model_min_refresh_interval_seconds": 0,
+          "enable_temporal_retrieval": true,
+          "disposition_skepticism": null,
+          "retain_structured_chunk_size": null,
+          "recall_budget_max": 2000,
+          "reflect_kb_search_media_types": null,
+          "retain_max_attachments_per_chunk": 8,
+          "mcp_enabled_tools": null,
+          "consolidation_source_facts_max_tokens": 4096,
+          "recall_budget_min": 20,
+          "reflect_mission": null,
+          "disposition_literalism": null,
+          "entities_allow_free_form": true,
+          "recall_budget_fixed_mid": 300,
+          "max_observations_per_scope": -1,
+          "recall_budget_adaptive_mid": 0.075,
+          "enable_observations": true,
+          "recall_budget_fixed_high": 1000,
+          "consolidation_strategies": null,
+          "consolidation_llm_batch_size": 1,
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "mental_model_refresh_use_decision_model": true,
+          "enable_text_search": true,
+          "retain_chunk_batch_size": 100,
+          "retain_custom_instructions": null,
+          "recall_include_chunks": true,
+          "reflect_kb_search_apply_tags": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "recall_chunks_max_tokens": 1000,
+          "retain_strategies": null,
+          "recall_decision_model_dedup": false,
+          "recall_budget_adaptive_high": 0.25,
+          "retain_extraction_mode": "concise",
+          "reflect_source_facts_max_tokens": -1,
+          "recall_decision_model_prune": false,
+          "knowledge_page_default_trigger": null
+        },
+        "overrides": {
+          "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+          "enable_observations": true,
+          "observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph.",
+          "retain_extraction_mode": "concise",
+          "enable_auto_consolidation": false,
+          "default_observation_scopes": "shared",
+          "consolidation_llm_batch_size": 1
+        }
+      }
+    }
+  ]
+}

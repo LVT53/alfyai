@@ -119,6 +119,44 @@ describe("deleteProject", () => {
 		}
 	});
 
+	it("retires a project bank containing manual-only memories with durable opaque cleanup", async () => {
+		seedProjectDeletionScenario();
+		const { db, sqlite } = openSeedDatabase();
+		db.insert(schema.memoryAccounts)
+			.values({
+				userId: "owner-user",
+				tenantId: "tenant",
+				authority: "hindsight",
+			})
+			.run();
+		db.insert(schema.memoryBanks)
+			.values({
+				id: "manual-bank",
+				userId: "owner-user",
+				scopeKey: "project:folder-1",
+				epoch: 0,
+				nativeBaseUrl: "http://synthetic",
+				nativeCredentialHash: "hash",
+			})
+			.run();
+		sqlite.close();
+		const { deleteProject } = await import("./projects");
+		expect(await deleteProject("owner-user", "folder-1")).toBe(true);
+		const check = openSeedDatabase();
+		expect(check.db.select().from(schema.memoryBanks).get()?.status).toBe(
+			"retired",
+		);
+		expect(
+			check.db.select().from(schema.memoryDeliveryJobs).get(),
+		).toMatchObject({
+			userId: "tenant",
+			bankId: "manual-bank",
+			kind: "cleanup",
+			status: "queued",
+		});
+		check.sqlite.close();
+	});
+
 	it("does not unassign conversations when the folder belongs to another user", async () => {
 		seedProjectDeletionScenario();
 		const { deleteProject } = await import("./projects");

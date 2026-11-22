@@ -1,3 +1,13 @@
+# Native replacement boundary (ADR-0071)
+
+The authorized Hindsight replacement supersedes the local-only architecture below **for accounts whose authority is Hindsight**. Keep extraction/consolidation native. New implementation belongs in this folder: `hindsight-client.ts` owns private tenant-bound transport and observed pin/config checks; `revisions.ts` owns source/epoch fences; `delivery-job.ts` uses the existing job engine; curation modules own deliberate user actions; `publication.ts` owns coherent published generations; `native-read.ts` owns the UI read contract. No new scheduler or semantic extraction pipeline. Tenant/admission extensions live under `deploy/hindsight/`; runtime config remains in config-store. Personal recall may accompany any scope; project recall must never escape that project.
+
+The job registration and recovery interface lives in `delivery-job.ts`. Its handler uses `dependency-plan.ts` for bounded discovery and holds, and `dependency-repair.ts` for native execution under the existing attempt. Use `curation-intent.ts` to read persisted action intent. The worker reads history eligibility and settles manifest progress through `history-eligibility.ts` and `migration-progress.ts`. Preparation and authority transitions live in `migration.ts`.
+
+Legacy tables and code below remain only for per-user authority-gated migration/rollback; do not remove user data or revive legacy extraction for migrated accounts. No nightly persona rewrite or legacy portrait is introduced into native Memory. See ADR-0071 and the approved replacement plan for explicit supersessions.
+
+## Legacy boundary (only while legacy authority is active)
+
 # Profile Memory
 
 Task/document continuity and profile memory are separate subsystems. Continuity lives on `task-state.ts`; durable profile memory (facts about the user) is owned by the local Memory Profile Projection plus the LLM intake judge and nightly consolidation. There is no external memory service.

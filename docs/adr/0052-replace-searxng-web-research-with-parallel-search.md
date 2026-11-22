@@ -1,5 +1,7 @@
 # Replace SearXNG web-research pipeline with Parallel Search/Extract
 
+> Image provider update, 19 November 2026. The retained image provider described in this decision was subsequently replaced. Normal Chat now uses Parallel Fast. [Publisher image amendment](0068-model-output-never-picks-an-address-fetched-without-a-click.md#19-november-2026-amendment-for-parallel-image-search)
+
 Accepted. The self-hosted SearXNG web-research pipeline is **removed entirely** and replaced by the **Parallel Search API** (Turbo tier) for web search, with **Parallel Extract** exposed as a separate on-demand page-read tool. The model/citation contract (`research_web`, grounded web candidates/metadata, `sourceType:"web"`) is preserved; only the backend swapped. Atlas migrates its text search and page fetch to Parallel while keeping Brave for image search (Parallel has no image API).
 
 > **Recorded 2026-07-13.** Shipped on `main`, deployed to prod, and verified the same day. This ADR documents the completed change so future agents treat it as intentional.

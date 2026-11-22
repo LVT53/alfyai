@@ -1,0 +1,68 @@
+[
+  {
+    "id": "uiq-1118-current",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-current' and all associated data deleted successfully\",\"deleted_count\":30}"
+  },
+  {
+    "id": "uiq-1118-edit-en",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-edit-en' and all associated data deleted successfully\",\"deleted_count\":18}"
+  },
+  {
+    "id": "uiq-1118-edit-hu",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-edit-hu' and all associated data deleted successfully\",\"deleted_count\":19}"
+  },
+  {
+    "id": "uiq-1118-scope-personal",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-scope-personal' and all associated data deleted successfully\",\"deleted_count\":8}"
+  },
+  {
+    "id": "uiq-1118-scope-juniper",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-scope-juniper' and all associated data deleted successfully\",\"deleted_count\":0}"
+  },
+  {
+    "id": "uiq-1118-scope-harbor",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-scope-harbor' and all associated data deleted successfully\",\"deleted_count\":11}"
+  },
+  {
+    "id": "uiq-1118-scope-personal",
+    "tenant": "p06",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-scope-personal' and all associated data deleted successfully\",\"deleted_count\":8}"
+  },
+  {
+    "id": "uiq-1118-scope-juniper",
+    "tenant": "p06",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-scope-juniper' and all associated data deleted successfully\",\"deleted_count\":17}"
+  },
+  {
+    "id": "uiq-1118-scope-harbor",
+    "tenant": "p06",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-scope-harbor' and all associated data deleted successfully\",\"deleted_count\":10}"
+  },
+  {
+    "id": "uiq-1118-bounded-edit-hu",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-bounded-edit-hu' and all associated data deleted successfully\",\"deleted_count\":24}"
+  },
+  {
+    "id": "uiq-1118-backfill",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'uiq-1118-backfill' and all associated data deleted successfully\",\"deleted_count\":18}"
+  }
+]

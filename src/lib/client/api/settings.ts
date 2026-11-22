@@ -1,5 +1,6 @@
 import type { UserModelPreference } from "$lib/model-types";
 import type { UserSettings } from "$lib/server/services/auth-types";
+import type { PictureSearchMonth } from "$lib/server/services/image-search-analytics/monthly";
 import {
 	ApiError,
 	type FetchLike,
@@ -150,14 +151,18 @@ interface SystemAnalytics {
 	byProvider: AnalyticsByProviderRow[];
 	monthly?: MonthlyAnalyticsRow[];
 	parallel?: {
+		pictureMonths?: PictureSearchMonth[];
+		pictureTrackingSince?: string;
 		monthly: {
 			month: string;
 			turboCalls: number;
 			extractCalls: number;
+			imageCalls: number;
 			costUsd: number;
 		}[];
 		totalTurboCalls: number;
 		totalExtractCalls: number;
+		totalImageCalls: number;
 		totalCostUsd: number;
 		/** The server-wide free monthly allowance, and where this month stands. */
 		allowance: {
@@ -256,6 +261,8 @@ export async function updateUserPreferences(params: {
 	memoryEnabled?: boolean;
 	/** "Pictures and videos" (Settings > Profile); the server takes only true or false. */
 	picturesAndVideosEnabled?: boolean;
+	/** "Send with Enter" (Settings > Profile); the server takes only true or false. */
+	sendWithEnter?: boolean;
 	/** Pass "" to clear; the server stores both "" and null as NULL. */
 	personalInstructions?: string | null;
 }): Promise<void> {
@@ -529,11 +536,15 @@ export async function downloadAccountDataArchive(
 	};
 }
 
+export interface MemoryCleanupStatus {
+	nativeCleanupPending: boolean;
+	cleanupOperations: { id: string; status: string; retryable: boolean }[];
+}
 export async function clearMemoryAndKnowledge(
 	password: string,
 	fetchImpl: FetchLike = fetch,
-): Promise<void> {
-	await requestJson<{ success?: boolean }>(
+): Promise<MemoryCleanupStatus> {
+	const result = await requestJson<MemoryCleanupStatus>(
 		"/api/settings/account/clear-memory",
 		{
 			method: "POST",
@@ -542,6 +553,32 @@ export async function clearMemoryAndKnowledge(
 		},
 		"Failed to clear memory and knowledge",
 		fetchImpl,
+	);
+	if (
+		typeof result.nativeCleanupPending !== "boolean" ||
+		!Array.isArray(result.cleanupOperations)
+	)
+		throw new Error("Invalid memory cleanup response");
+	return result;
+}
+export async function fetchMemoryCleanupStatus(): Promise<MemoryCleanupStatus> {
+	return requestJson<MemoryCleanupStatus>(
+		"/api/knowledge/memory/cleanup",
+		undefined,
+		"Unable to check memory cleanup",
+	);
+}
+export async function retryMemoryCleanup(
+	operationId: string,
+): Promise<MemoryCleanupStatus> {
+	return requestJson<MemoryCleanupStatus>(
+		"/api/knowledge/memory/cleanup",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ operationId }),
+		},
+		"Unable to retry memory cleanup",
 	);
 }
 

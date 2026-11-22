@@ -1,0 +1,106 @@
+{
+  "states": [
+    {
+      "cleanupSettled": false,
+      "nativeOperationIdsJson": "[]",
+      "nativeBaseUrl": null,
+      "nativeCredentialHash": null,
+      "controlRevision": 0,
+      "id": "9bf53f82-7bcf-4a8e-bce4-0ee84e070128",
+      "userId": "user-1",
+      "status": "failed",
+      "phase": "prepare",
+      "priority": 0,
+      "runAfter": null,
+      "attemptCount": 2,
+      "currentAttemptId": "f397a740-57c5-438f-a53e-531356f2dfa0",
+      "retryable": false,
+      "errorCode": "memory_preparation_failed",
+      "errorMessage": "Memory preparation could not complete.",
+      "checkpoint": null,
+      "retryState": null,
+      "cancelRequestedAt": null,
+      "startedAt": "2026-11-19T02:59:57.000Z",
+      "completedAt": "2026-11-19T03:04:15.000Z",
+      "createdAt": "2026-11-19T02:59:57.000Z",
+      "updatedAt": "2026-11-19T03:04:15.000Z",
+      "bankId": "a9c5fc93-0eee-4116-8b9a-4e99fdaf2246",
+      "tenantId": null,
+      "epoch": 0,
+      "kind": "source",
+      "sourceId": "0586c0e5-ca69-4c74-b567-34e5189139df",
+      "actionId": null,
+      "requestId": "request-0"
+    },
+    {
+      "cleanupSettled": false,
+      "nativeOperationIdsJson": "[]",
+      "nativeBaseUrl": null,
+      "nativeCredentialHash": null,
+      "controlRevision": 0,
+      "id": "80df05a4-1fb2-4eb7-9b80-cd38c6196da7",
+      "userId": "user-1",
+      "status": "failed",
+      "phase": "prepare",
+      "priority": 0,
+      "runAfter": null,
+      "attemptCount": 1,
+      "currentAttemptId": "228c0f43-5250-40d4-9c72-8a82539003d8",
+      "retryable": false,
+      "errorCode": "memory_preparation_failed",
+      "errorMessage": "Memory preparation could not complete.",
+      "checkpoint": null,
+      "retryState": null,
+      "cancelRequestedAt": null,
+      "startedAt": "2026-11-19T03:02:58.000Z",
+      "completedAt": "2026-11-19T03:04:14.000Z",
+      "createdAt": "2026-11-19T03:02:58.000Z",
+      "updatedAt": "2026-11-19T03:04:14.000Z",
+      "bankId": "a9c5fc93-0eee-4116-8b9a-4e99fdaf2246",
+      "tenantId": null,
+      "epoch": 0,
+      "kind": "source",
+      "sourceId": "a9bbfd93-5629-4bac-907d-48f4369e82e2",
+      "actionId": null,
+      "requestId": "request-1"
+    }
+  ],
+  "published": {
+    "authority": "hindsight",
+    "scope": {
+      "kind": "personal"
+    },
+    "generation": "",
+    "rows": [],
+    "nextCursor": null,
+    "status": "failed",
+    "total": 0
+  },
+  "recalled": [
+    {
+      "id": "39cb946a-b56a-4d02-9710-0faa296b17e2",
+      "text": "The user's kayak is purple.",
+      "fact_type": "observation",
+      "source_memory_ids": [
+        "8db63f1d-aee3-4516-bd77-d6f667648c22"
+      ]
+    },
+    {
+      "id": "699438ba-06c1-4084-b873-62ae8de906f7",
+      "text": "The user's kayak is kept in the garage.",
+      "fact_type": "observation",
+      "source_memory_ids": [
+        "8db63f1d-aee3-4516-bd77-d6f667648c22"
+      ]
+    },
+    {
+      "id": "a7cf21c0-c0e0-4287-82f6-e8e9ff131bcf",
+      "text": "A felhasználónak van egy Mák nevű fekete macskája.",
+      "fact_type": "observation",
+      "source_memory_ids": [
+        "8fa0e258-19bb-45d3-9aa9-e156b2815cd9"
+      ]
+    }
+  ],
+  "admitted": []
+}

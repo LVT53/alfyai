@@ -1,0 +1,509 @@
+{
+  "wires": [
+    {
+      "phase": "after",
+      "index": 1,
+      "probe": "current-en",
+      "sha256": "d1c26e0df67f91098e742c5e600811f2bfc80700823972e5eb3beeb3e853370b",
+      "model": "qwen3-6-27b",
+      "raw_markers": [],
+      "calls": [],
+      "result": []
+    },
+    {
+      "phase": "after",
+      "index": 2,
+      "probe": "current-en",
+      "sha256": "b1db80d6c3862ed3940be44ea00c3ed81e9eec5017cdc77877cce142fb642d48",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old_title"
+      ],
+      "calls": [
+        {
+          "tool": "memory_context",
+          "mode": "persona",
+          "targeted": false,
+          "args_markers": []
+        }
+      ],
+      "result": [
+        {
+          "markers": [
+            "old_title"
+          ],
+          "original_chat_id_present": false,
+          "past_chat_only": false,
+          "success": true
+        }
+      ]
+    },
+    {
+      "phase": "after",
+      "index": 3,
+      "probe": "current-en",
+      "sha256": "d961d13e22f8dd43d99a2bf4d748f3123dbfc6a6e4accae9208729538a8c6348",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old_title"
+      ],
+      "calls": [
+        {
+          "tool": "memory_context",
+          "mode": "persona",
+          "targeted": false,
+          "args_markers": []
+        },
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "targeted": false,
+          "args_markers": [
+            "old_title"
+          ]
+        }
+      ],
+      "result": [
+        {
+          "markers": [
+            "old_title"
+          ],
+          "original_chat_id_present": false,
+          "past_chat_only": false,
+          "success": true
+        },
+        {
+          "markers": [],
+          "original_chat_id_present": false,
+          "past_chat_only": false,
+          "success": false
+        }
+      ]
+    },
+    {
+      "phase": "after",
+      "index": 4,
+      "probe": "current-hu",
+      "sha256": "cb075988462bafb02d2bf62c0a7c94137bb2ce5db309a0d533384f1790555e42",
+      "model": "qwen3-6-27b",
+      "raw_markers": [],
+      "calls": [],
+      "result": []
+    },
+    {
+      "phase": "after",
+      "index": 5,
+      "probe": "history-en",
+      "sha256": "739bc83aad981bd98d8fdf9b6ed40bde4b89a2c620deb3e8e3f115313afcfa67",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old_title"
+      ],
+      "calls": [],
+      "result": []
+    },
+    {
+      "phase": "after",
+      "index": 6,
+      "probe": "history-en",
+      "sha256": "eae72d7a84357510f20b3d5b43d55a8e8f68084e8669e24d8a517e50d78d811f",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old",
+        "old_title"
+      ],
+      "calls": [
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "targeted": false,
+          "args_markers": [
+            "old_title"
+          ]
+        }
+      ],
+      "result": [
+        {
+          "markers": [
+            "old",
+            "old_title"
+          ],
+          "original_chat_id_present": true,
+          "past_chat_only": true,
+          "success": true
+        }
+      ]
+    },
+    {
+      "phase": "after",
+      "index": 7,
+      "probe": "history-hu",
+      "sha256": "31de3c917e3c76da9daa9d753f45fd28e335268b070d0e0ab46a94fd07628c38",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old_title"
+      ],
+      "calls": [],
+      "result": []
+    },
+    {
+      "phase": "after",
+      "index": 8,
+      "probe": "history-hu",
+      "sha256": "9994625d94726a0583fa36057d3e09d0b75279616c97d19ad356b30d77ca6b64",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old",
+        "old_title"
+      ],
+      "calls": [
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "targeted": false,
+          "args_markers": [
+            "old_title"
+          ]
+        }
+      ],
+      "result": [
+        {
+          "markers": [
+            "old",
+            "old_title"
+          ],
+          "original_chat_id_present": true,
+          "past_chat_only": true,
+          "success": true
+        }
+      ]
+    },
+    {
+      "phase": "after",
+      "index": 9,
+      "probe": "current-en",
+      "sha256": "7f4df5d30abde73f790a39d1d9d53ee75fb668dc12c5117757484a40c29e0a82",
+      "model": "qwen3-6-27b",
+      "raw_markers": [],
+      "calls": [],
+      "result": []
+    },
+    {
+      "phase": "after",
+      "index": 10,
+      "probe": "history-hu",
+      "sha256": "cbfd50b0d43d2e9405ba1d916f1bc2f450789426baf46809c6d2f18b898e5d0a",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old_title"
+      ],
+      "calls": [],
+      "result": []
+    },
+    {
+      "phase": "after",
+      "index": 11,
+      "probe": "history-hu",
+      "sha256": "2fbbd9219458863a3c1a65997e8d3079e514abfab4e0f24b9f7ed22e71d28cad",
+      "model": "qwen3-6-27b",
+      "raw_markers": [
+        "old",
+        "old_title"
+      ],
+      "calls": [
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "targeted": false,
+          "args_markers": [
+            "old_title"
+          ]
+        }
+      ],
+      "result": [
+        {
+          "markers": [
+            "old",
+            "old_title"
+          ],
+          "original_chat_id_present": true,
+          "past_chat_only": true,
+          "success": true
+        }
+      ]
+    }
+  ],
+  "assistant_ledgers": [
+    {
+      "probe": "after current-en",
+      "answer_markers": [
+        "old_title"
+      ],
+      "answer_length": 369,
+      "unknown_answer": true,
+      "lanes": [
+        {
+          "tool": "memory_context",
+          "mode": "persona",
+          "refused": false,
+          "candidate_marker_sets": [
+            [],
+            [],
+            [
+              "old_title"
+            ],
+            []
+          ],
+          "candidate_origins": [
+            "other-synthetic-chat",
+            "other-synthetic-chat",
+            "other-synthetic-chat",
+            "other-synthetic-chat"
+          ],
+          "original_candidate": false
+        },
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "refused": true,
+          "candidate_marker_sets": [],
+          "candidate_origins": [],
+          "original_candidate": false
+        }
+      ]
+    },
+    {
+      "probe": "after current-hu",
+      "answer_markers": [],
+      "answer_length": 166,
+      "unknown_answer": true,
+      "lanes": []
+    },
+    {
+      "probe": "after history-en",
+      "answer_markers": [
+        "old",
+        "old_title"
+      ],
+      "answer_length": 522,
+      "unknown_answer": true,
+      "lanes": [
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "refused": false,
+          "candidate_marker_sets": [
+            [
+              "old",
+              "old_title"
+            ]
+          ],
+          "candidate_origins": [
+            "original-author-chat"
+          ],
+          "original_candidate": true
+        }
+      ]
+    },
+    {
+      "probe": "after history-hu",
+      "answer_markers": [
+        "old",
+        "old_title"
+      ],
+      "answer_length": 353,
+      "unknown_answer": false,
+      "lanes": [
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "refused": false,
+          "candidate_marker_sets": [
+            [
+              "old",
+              "old_title"
+            ]
+          ],
+          "candidate_origins": [
+            "original-author-chat"
+          ],
+          "original_candidate": true
+        }
+      ]
+    },
+    {
+      "probe": "stream-after current-en",
+      "answer_markers": [],
+      "answer_length": 175,
+      "unknown_answer": true,
+      "lanes": []
+    },
+    {
+      "probe": "stream-after history-hu",
+      "answer_markers": [
+        "old",
+        "old_title"
+      ],
+      "answer_length": 372,
+      "unknown_answer": false,
+      "lanes": [
+        {
+          "tool": "memory_context",
+          "mode": "history",
+          "refused": false,
+          "candidate_marker_sets": [
+            [
+              "old",
+              "old_title"
+            ]
+          ],
+          "candidate_origins": [
+            "original-author-chat"
+          ],
+          "original_candidate": true
+        }
+      ]
+    }
+  ],
+  "scenarios": {
+    "old-seed": {
+      "published": true
+    },
+    "named-baseline": {
+      "originalChatPreserved": true,
+      "knownCurrentAndOldMarkersAbsent": true
+    },
+    "after": [
+      {
+        "kind": "current-en",
+        "oldMarker": false,
+        "currentMarker": false,
+        "historyAttributed": true
+      },
+      {
+        "kind": "current-hu",
+        "oldMarker": false,
+        "currentMarker": false,
+        "historyAttributed": false
+      },
+      {
+        "kind": "history-en",
+        "oldMarker": true,
+        "currentMarker": false,
+        "historyAttributed": true
+      },
+      {
+        "kind": "history-hu",
+        "oldMarker": true,
+        "currentMarker": false,
+        "historyAttributed": true
+      }
+    ],
+    "stream-after": [
+      {
+        "kind": "current-en",
+        "oldMarker": false,
+        "currentMarker": false,
+        "historyAttributed": false
+      },
+      {
+        "kind": "history-hu",
+        "oldMarker": true,
+        "currentMarker": false,
+        "historyAttributed": true
+      }
+    ],
+    "stream-projected-events-current-en": {
+      "status": 200,
+      "completed": true,
+      "counts": {
+        "data-response-activity": 24,
+        "data-normal-chat-output": 61,
+        "reasoning-end": 1,
+        "text-end": 1,
+        "data-stream-metadata": 1,
+        "finish": 1
+      },
+      "textLength": 175
+    },
+    "stream-projected-events-history-hu": {
+      "status": 200,
+      "completed": true,
+      "counts": {
+        "data-response-activity": 24,
+        "data-normal-chat-output": 55,
+        "data-tool-call": 2,
+        "reasoning-end": 1,
+        "text-end": 1,
+        "data-stream-metadata": 1,
+        "finish": 1
+      },
+      "textLength": 374
+    }
+  },
+  "historicalAttribution": [
+    {
+      "probe": "after history-en",
+      "marker_windows": [
+        {
+          "historical_in_marker_sentence": false,
+          "historical_in_neighboring_context": true,
+          "current_assertion_in_marker_sentence": false,
+          "unknown_current_in_neighboring_context": false
+        },
+        {
+          "historical_in_marker_sentence": false,
+          "historical_in_neighboring_context": false,
+          "current_assertion_in_marker_sentence": false,
+          "unknown_current_in_neighboring_context": false
+        },
+        {
+          "historical_in_marker_sentence": true,
+          "historical_in_neighboring_context": true,
+          "current_assertion_in_marker_sentence": false,
+          "unknown_current_in_neighboring_context": false
+        }
+      ]
+    },
+    {
+      "probe": "after history-hu",
+      "marker_windows": [
+        {
+          "historical_in_marker_sentence": false,
+          "historical_in_neighboring_context": false,
+          "current_assertion_in_marker_sentence": false,
+          "unknown_current_in_neighboring_context": false
+        }
+      ]
+    },
+    {
+      "probe": "stream-after history-hu",
+      "marker_windows": [
+        {
+          "historical_in_marker_sentence": false,
+          "historical_in_neighboring_context": false,
+          "current_assertion_in_marker_sentence": false,
+          "unknown_current_in_neighboring_context": false
+        },
+        {
+          "historical_in_marker_sentence": true,
+          "historical_in_neighboring_context": true,
+          "current_assertion_in_marker_sentence": false,
+          "unknown_current_in_neighboring_context": false
+        }
+      ]
+    }
+  ],
+  "runtimeCommit": "447cde74bea65e12addb17e4f9d593d5466e08ed",
+  "runtimeTree": "d60ec8ae0b815a859c1a7266c64f2110a7a5f325",
+  "overlaySha256": "a76646987eb5c1ad92773d830969c43cc0c241b1ae1d44496b64aa7660f099bc",
+  "buildTreeSha256": "c4139a83b6d1b60c56845b216b6b5d42be581320717d8b11a8624b55156b7769",
+  "teardown": {
+    "syntheticCandidateStopped": true,
+    "temporaryRelayClosed": true,
+    "priorIsolatedDirectAppHealthy": true,
+    "canonical3001Healthy": true,
+    "canonical3002Healthy": true,
+    "nativeRunning": true
+  }
+}

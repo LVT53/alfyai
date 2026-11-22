@@ -1,4 +1,6 @@
 <script lang="ts">
+import { prefersReducedMotion } from "$lib/utils/motion";
+import { loadLinkedMessage } from "$lib/client/linked-message-navigation";
 import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
 import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
@@ -994,7 +996,7 @@ let returnToDockedOnExpandedClose = $derived.by(() => {
 		workspaceDocuments.find(
 			(document) => document.id === activeWorkspaceDocumentId,
 		) ?? null;
-	if (!activeDocument || activeDocument.mimeType !== "text/html") return true;
+	if (activeDocument?.mimeType !== "text/html") return true;
 	return !atlasJobs.some(
 		(job) => job.outputs.htmlChatGeneratedFileId === activeDocument.id,
 	);
@@ -2602,7 +2604,10 @@ function jumpInputFor(target: HTMLElement, scroller: HTMLElement) {
 /** Aims the one thread scroller; smooth, as a linked message has always been. */
 function scrollThreadBy(scroller: HTMLElement, offset: number) {
 	if (typeof scroller.scrollBy === "function") {
-		scroller.scrollBy({ top: offset, behavior: "smooth" });
+		scroller.scrollBy({
+			top: offset,
+			behavior: prefersReducedMotion() ? "instant" : "smooth",
+		});
 	} else {
 		scroller.scrollTop += offset;
 	}
@@ -2996,27 +3001,72 @@ $effect(() => {
 // messages — each streamed token — would scroll back to the linked message.
 let focusedFromUrl: URL | null = null;
 
+async function navigateToSourceMessage(
+	url: URL,
+	messageId: string,
+	conversationId: string,
+) {
+	const isCurrent = () =>
+		page.url === url && data.conversation.id === conversationId;
+	const result = await loadLinkedMessage({
+		targetId: messageId,
+		isCurrent,
+		messageIds: () => get(messages).map((message) => message.id),
+		hasMore: () => hasMoreMessages,
+		loadOlder: async () => {
+			await handleLoadOlderMessages();
+			if (isCurrent() && olderMessagesFailed)
+				throw new Error("Source pagination failed");
+		},
+	});
+	if (!isCurrent() || result === "cancelled") return;
+	if (result === "retryable") {
+		focusedFromUrl = null;
+		showToast({
+			type: "error",
+			message: get(t)("memoryNew.loadFailed"),
+			actionLabel: get(t)("common.retry"),
+			onAction: () => {
+				if (isCurrent()) {
+					focusedFromUrl = url;
+					void navigateToSourceMessage(url, messageId, conversationId);
+				}
+			},
+		});
+		return;
+	}
+	if (result === "unavailable") {
+		showToast({
+			type: "error",
+			message: get(t)("memoryNew.sourceUnavailable"),
+		});
+		return;
+	}
+	await handleShowChatMessage(messageId);
+	if (!isCurrent()) return;
+	requestAnimationFrame(() => {
+		if (isCurrent()) replaceState(clearChatFocusMessageParam(url), page.state);
+	});
+}
 $effect(() => {
 	const url = page.url;
-	const focusMessageId = getChatFocusMessageIdFromUrl(url);
-	if (!focusMessageId || url === focusedFromUrl) return;
-	if (!$messages.some((message) => message.id === focusMessageId)) return;
+	const conversationId = data.conversation.id;
+	const messageId = getChatFocusMessageIdFromUrl(url);
+	if (!messageId || url === focusedFromUrl) return;
 	focusedFromUrl = url;
-
-	void focusMessage(focusMessageId);
-	// Drop the parameter so a reload does not jump again. Not from inside
-	// this effect: on a direct load it runs while the page hydrates, before
-	// the router has started, and replaceState throws until it has. The next
-	// frame is after that (the same deferral as the bootstrap parameter).
-	requestAnimationFrame(() => {
-		if (page.url !== url) return;
-		replaceState(clearChatFocusMessageParam(url), page.state);
+	untrack(() => {
+		void navigateToSourceMessage(url, messageId, conversationId);
 	});
 });
 
 function recoverVisiblePageActivity() {
 	if (document.visibilityState !== "visible") return;
 	normalChatRuntime.handleVisibilityVisible();
+	const target = getChatFocusMessageIdFromUrl(page.url);
+	if (target && focusedFromUrl !== page.url) {
+		focusedFromUrl = page.url;
+		void navigateToSourceMessage(page.url, target, data.conversation.id);
+	}
 
 	// Recover evidence for any messages with pending status
 	recoverPendingEvidence();
@@ -3326,8 +3376,25 @@ async function pollForCompletion(
  * The page's control state is the only source of truth: the thread reads it as
  * props and its scroll owner puts the reader's view back by the height added.
  */
-async function handleLoadOlderMessages() {
-	if (loadingOlderMessages || !hasMoreMessages) return;
+let olderMessagesRead: {
+	conversationId: string;
+	promise: Promise<void>;
+} | null = null;
+function handleLoadOlderMessages(): Promise<void> {
+	const conversationId = data.conversation.id;
+	if (olderMessagesRead?.conversationId === conversationId)
+		return olderMessagesRead.promise;
+	const read = {
+		conversationId,
+		promise: loadOlderMessagesPage().finally(() => {
+			if (olderMessagesRead === read) olderMessagesRead = null;
+		}),
+	};
+	olderMessagesRead = read;
+	return read.promise;
+}
+async function loadOlderMessagesPage() {
+	if (!hasMoreMessages) return;
 	const conversationId = data.conversation.id;
 	const offset = get(messages).length;
 	loadingOlderMessages = true;
@@ -4927,7 +4994,7 @@ function handleStartEdit(payload: { messageId: string }) {
 		return;
 	}
 	const target = $messages.find((m) => m.id === payload.messageId);
-	if (!target || target.role !== "user") return;
+	if (target?.role !== "user") return;
 	editingMessage = { id: target.id, text: target.content };
 }
 
@@ -5106,6 +5173,7 @@ async function handleEdit(
 	let deleteError: unknown = null;
 	try {
 		await deleteConversationMessages(conversationId, idsToDelete, {
+			editSourceMessageId: messageId,
 			confirmForkedSourceHistoryMutation:
 				confirmForkedSourceHistoryMutation || hasKnownForks,
 		});
@@ -5186,6 +5254,7 @@ async function handleEdit(
 		// drops a picture deleted since instead of refusing it: the message
 		// is gone by now, so a refusal would leave the person with neither.
 		isEditResend: true,
+		editSourceMessageId: messageId,
 	};
 	// The delete and the tick above are awaits too: a turn can have started in
 	// them (a recovered stream reconnecting), or the chat been sealed. handleSend

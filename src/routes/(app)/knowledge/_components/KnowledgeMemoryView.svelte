@@ -1,1343 +1,757 @@
 <script lang="ts">
-import type {
-	MemoryDirtyReason,
-	MemoryProfileActionPayload,
-	MemoryProfileCategory,
-	MemoryProfilePublicItem,
-	MemoryProfilePublicItemDetail,
-	MemoryProfilePublicPayload,
-	MemoryProfileReviewItem,
-	MemoryProfileScope,
-	MemoryTimelineReport,
-} from "$lib/memory-profile-types";
-import { fade, scale } from "svelte/transition";
-import { focusTrap } from "$lib/utils/focus-trap";
-import { reducedMotionAware } from "$lib/utils/motion";
+import { onMount, tick } from "svelte";
+import { fly } from "svelte/transition";
+import { ArrowLeft, Check, Info } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
-import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
+import { projects } from "$lib/stores/projects";
 import {
-	Archive,
-	Check,
-	CirclePause,
-	EyeOff,
-	HelpCircle,
-	Pencil,
-	Trash2,
-	X,
-} from "@lucide/svelte";
-import KnowledgeMemoryModal from "./KnowledgeMemoryModal.svelte";
-import MemoryTimeline from "./MemoryTimeline.svelte";
-import MemoryPortraitCard from "./MemoryPortraitCard.svelte";
-import MemoryRailCards from "./MemoryRailCards.svelte";
-import Spinner from "$lib/components/ui/Spinner.svelte";
+	fetchMemoryPage,
+	fetchMemoryDetail,
+	fetchMemoryOperation,
+	fetchMemoryOperationByRequest,
+	submitMemoryAction,
+} from "$lib/client/api/memory";
+import { ApiError } from "$lib/client/api/http";
+import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
+import type {
+	MemoryAction,
+	MemoryDetail as Detail,
+	MemoryOperation,
+	MemoryPage,
+	MemoryRef,
+	MemoryRow,
+	MemoryScope,
+} from "$lib/memory-types";
 import {
-	countActiveMemories,
-	type MemoryCategorySelection,
-	toggleExpandedCategory,
-} from "./memory-categories";
-
-// Opens AND closes: `transition:` plays both directions, and the wrapper
-// collapses both to nothing under prefers-reduced-motion (the app.css reset
-// cannot reach a JS-driven Svelte transition — see motion.ts).
-const backdropFade = reducedMotionAware(fade);
-const panelScale = reducedMotionAware(scale);
-
-type CategoryDefinition = {
-	category: MemoryProfileCategory;
-	label: I18nKey;
-	empty: I18nKey;
-};
-
-const categoryDefinitions: CategoryDefinition[] = [
-	{
-		category: "about_you",
-		label: "memoryProfile.aboutYou",
-		empty: "memoryProfile.aboutYouEmpty",
-	},
-	{
-		category: "preferences",
-		label: "memoryProfile.preferences",
-		empty: "memoryProfile.preferencesEmpty",
-	},
-	{
-		category: "goals_ongoing_work",
-		label: "memoryProfile.goals",
-		empty: "memoryProfile.goalsEmpty",
-	},
-	{
-		category: "constraints_boundaries",
-		label: "memoryProfile.constraints",
-		empty: "memoryProfile.constraintsEmpty",
-	},
-];
-
-let {
-	profile,
-	memoryEnabled = null,
-	memoryLoading,
-	memoryLoaded,
-	memoryLoadError,
-	pendingActionKey,
-	actionError,
-	onRetryLoadMemory,
-	onAction,
-	summary = null,
-	summaryBusy = false,
-	processing = null,
-	onEditSummary = undefined,
-	timelineReports = [],
-	onUndoConsolidation = undefined,
-	onRetire = undefined,
-}: {
-	profile: MemoryProfilePublicPayload | null;
-	/** The person's Memory switch in Settings; `null` until it is known. */
-	memoryEnabled?: boolean | null;
-	memoryLoading: boolean;
-	memoryLoaded: boolean;
-	memoryLoadError: string;
-	pendingActionKey: string | null;
-	actionError: string;
-	onRetryLoadMemory: () => void | Promise<void>;
-	onAction: (
-		payload: MemoryProfileActionPayload,
-	) => boolean | Promise<boolean | undefined>;
-	summary?: {
-		text: string;
-		links?: Array<{ text: string; factIds: string[] }>;
-		updatedAt: string;
-	} | null;
-	summaryBusy?: boolean;
-	processing?: {
-		active: boolean;
-		pendingCount: number;
-		operations?: Array<{
-			reason: MemoryDirtyReason;
-			scope: MemoryProfileScope;
-			count: number;
-		}>;
-	} | null;
-	onEditSummary?:
-		| ((text: string) => boolean | undefined | Promise<boolean | undefined>)
-		| undefined;
-	timelineReports?: MemoryTimelineReport[];
-	onUndoConsolidation?:
-		| ((reportId: string, actionIndex: number) => void | Promise<void>)
-		| undefined;
-	onRetire?:
-		| ((itemId: string) => boolean | undefined | Promise<boolean | undefined>)
-		| undefined;
-} = $props();
-
-let selectedItem = $state<
-	MemoryProfilePublicItem | MemoryProfilePublicItemDetail | null
->(null);
-// Filter + inline disclosure state. Both live here rather than in the portrait
-// card so that a profile reload (an edit, a retire) keeps the reader exactly
-// where they were instead of snapping every category shut.
-let memoryFilterText = $state("");
-let memorySelection = $state<MemoryCategorySelection>("all");
-let expandedCategories = $state<Set<MemoryProfileCategory>>(
-	new Set<MemoryProfileCategory>(),
+	reducedMotionAware,
+	prefersReducedMotion,
+	MOTION_DURATION,
+	MOTION_EASE,
+} from "$lib/utils/motion";
+import type { MemoryVisit } from "./memory-visit";
+import MemoryList from "./MemoryList.svelte";
+import MemoryQuarantineReview from "./MemoryQuarantineReview.svelte";
+import MemoryDetail from "./MemoryDetail.svelte";
+import MemoryEditor from "./MemoryEditor.svelte";
+import MemoryRemoveDialog from "./MemoryRemoveDialog.svelte";
+import "./memory-replacement.css";
+let { memoryEnabled }: { memoryEnabled: boolean | null } = $props();
+let view = $state<"list" | "detail" | "edit" | "add" | "remove">("list");
+let scopeValue = $state("personal");
+let query = $state("");
+let draft = $state("");
+const scope = $derived<MemoryScope>(
+	scopeValue === "personal"
+		? { kind: "personal" }
+		: { kind: "project", projectId: scopeValue },
 );
-let reviewOverflowOpen = $state(false);
-let editingReviewItem = $state<MemoryProfileReviewItem | null>(null);
-let reviewStatement = $state("");
-let reviewEditTextarea = $state<HTMLTextAreaElement | null>(null);
-
-type RemoveTarget =
-	| {
-			kind: "profile_item";
-			item: MemoryProfilePublicItem;
-	  }
-	| {
-			kind: "review_item";
-			item: MemoryProfileReviewItem;
-	  };
-let removeTarget = $state<RemoveTarget | null>(null);
-
-let removeCanDelete = $derived(
-	removeTarget?.kind === "profile_item" && removeTarget.item.canDelete,
+const scopeLabel = $derived(
+	scopeValue === "personal"
+		? $t("memoryNew.personal")
+		: ($projects.find((p) => p.id === scopeValue)?.name ??
+				$t("memoryNew.project")),
 );
-let removeStatement = $derived.by(() => {
-	if (!removeTarget) return "";
-	if (removeTarget.kind === "profile_item") return removeTarget.item.statement;
-	return removeTarget.item.subject;
-});
-
-let activeItemCount = $derived(countActiveMemories(profile));
-let reviewItems = $derived(
-	profile?.review.items ?? profile?.review.visibleItems ?? [],
+let page = $state<MemoryPage | null>(null);
+let detail = $state<Detail | null>(null);
+let loading = $state(true);
+let detailLoading = $state(false);
+let operation = $state<MemoryOperation | null>(null);
+let action = $state<MemoryAction | null>(null);
+let pending = $state<MemoryVisit["pending"]>(null);
+let submitting = $state(false);
+let unknownAcknowledgement = $state(false);
+let polling = $state(false);
+let staleRef = $state<MemoryRef | null>(null);
+let latestDetail = $state<Detail | null>(null);
+let missingLatest = $state(false);
+let error = $state("");
+let errorRetry = $state<(() => void) | null>(null);
+let errorOwner = "";
+let notice = $state("");
+let backgroundErrorDismissed = $state("");
+let root: HTMLElement | undefined = $state();
+let alive = false;
+let navigationEpoch = 0;
+let submissionEpoch = -1;
+let detached = $state<NonNullable<MemoryVisit["pending"]>[]>([]);
+let reconcilingDetached = false;
+let detachedTimer: ReturnType<typeof setTimeout> | undefined;
+let loadSequence = 0;
+let detailSequence = 0;
+let reviewSequence = 0;
+let pagesLoaded = 1;
+let rememberedRow = "";
+let listScroll = 0;
+let listAbort: AbortController | undefined;
+let detailAbort: AbortController | undefined;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
+const change = reducedMotionAware(fly);
+const scopeKey = (value: MemoryScope) =>
+	value.kind === "personal" ? "personal" : value.projectId;
+const refKey = (ref: MemoryRef) => `${scopeKey(ref.scope)}:${ref.rowId}`;
+const pendingHere = $derived(
+	pending !== null &&
+		scopeKey(pending.scope) === scopeValue &&
+		(view === "list" ||
+			pending.rowId === detail?.row.ref.rowId ||
+			(pending.kind === "add" && view === "add")),
 );
-let visibleReviewItems = $derived(
-	(profile?.review.visibleItems ?? reviewItems).slice(0, 3),
+const busy = $derived(
+	submitting ||
+		unknownAcknowledgement ||
+		operation?.status === "queued" ||
+		operation?.status === "working",
 );
-let additionalReviewItems = $derived.by(() => {
-	const visibleIds = new Set(visibleReviewItems.map((item) => item.id));
-	return reviewItems.filter((item) => !visibleIds.has(item.id));
-});
-let reviewOverflowCount = $derived(Math.max(0, additionalReviewItems.length));
-
-function handleToggleCategory(category: MemoryProfileCategory) {
-	expandedCategories = toggleExpandedCategory(expandedCategories, category);
+const editorBusy = $derived(pendingHere && busy);
+const stale = $derived(
+	staleRef !== null &&
+		detail !== null &&
+		refKey(staleRef) === refKey(detail.row.ref) &&
+		view !== "list",
+);
+const excludedHere = $derived(
+	pendingHere && Boolean(operation?.exclusionAcknowledged),
+);
+const memoryOff = $derived(memoryEnabled === false || page?.status === "off");
+const disabled = $derived(
+	!page || memoryOff || page.authority !== "hindsight" || busy,
+);
+const retryMutation = () => void send(true);
+function fail(key: I18nKey, retry: (() => void) | null, owner = "view") {
+	error = $t(key);
+	errorRetry = retry;
+	errorOwner = owner;
 }
-
-function autoExpireDays(expiresAt: string): number {
-	return Math.max(
-		0,
-		Math.ceil((Date.parse(expiresAt) - Date.now()) / 86_400_000),
+function clearError(owner?: string) {
+	if (!owner || owner === errorOwner) {
+		error = "";
+		errorRetry = null;
+		errorOwner = "";
+	}
+}
+function isAbort(value: unknown) {
+	return value instanceof Error && value.name === "AbortError";
+}
+function scroller() {
+	return (
+		root?.closest<HTMLElement>('[data-testid="knowledge-scroller"]') ?? null
 	);
 }
-
-async function confirmRetire() {
-	if (!removeTarget || removeTarget.kind !== "profile_item" || !onRetire) {
-		return;
-	}
-	const success = await onRetire(removeTarget.item.id);
-	// Same contract as Forget/Delete: an explicit `false` keeps the modal open
-	// so the user can retry or pick another option.
-	if (success === false) return;
-	closeRemove();
+function invalidateNavigation() {
+	navigationEpoch++;
+	detailSequence++;
+	reviewSequence++;
+	detailAbort?.abort();
+	detailLoading = false;
+	latestDetail = null;
+	missingLatest = false;
 }
-
-function retireKey(itemId: string): string {
-	return `${itemId}:retire`;
-}
-
-// Privacy-safe friendly copy for the "updating your memory" notice: derived
-// only from the operation's reason (never raw fact text — the server never
-// sends any). Reasons without a mapped key here fall back to a generic line
-// rather than rendering blank/unknown text.
-const processingReasonI18nKeys: Partial<Record<MemoryDirtyReason, I18nKey>> = {
-	deferred_intake: "memoryProfile.processingReasonDeferredIntake",
-	possible_conflict: "memoryProfile.processingReasonPossibleConflict",
-	possible_duplicate: "memoryProfile.processingReasonPossibleDuplicate",
-	review_generation: "memoryProfile.processingReasonReviewGeneration",
-	projection_reconciliation:
-		"memoryProfile.processingReasonProjectionReconciliation",
-	profile_action_reconciliation:
-		"memoryProfile.processingReasonProfileActionReconciliation",
-};
-
-function processingReasonLabel(reason: MemoryDirtyReason): string {
-	const key = processingReasonI18nKeys[reason];
-	return $t(key ?? "memoryProfile.processingReasonFallback");
-}
-
-// The one short line the pill prints, and the head of its tooltip.
-let processingLine = $derived(
-	!processing?.active
-		? ""
-		: processing.pendingCount > 1
-			? $t("memoryProfile.processingNoticeCount", {
-					count: processing.pendingCount,
-				})
-			: $t("memoryProfile.processingNotice"),
-);
-
-let processingDetailOpen = $state(false);
-
-function handleProcessingKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape" && processingDetailOpen) {
-		event.stopPropagation();
-		processingDetailOpen = false;
-	}
-}
-
-function processingOperationKey(operation: {
-	reason: MemoryDirtyReason;
-	scope: MemoryProfileScope;
-}): string {
-	const scopeId =
-		operation.scope.type === "global" ? "global" : operation.scope.id;
-	return `${operation.reason}:${operation.scope.type}:${scopeId}`;
-}
-
-function actionKey(
-	itemId: string,
-	action: MemoryProfileActionPayload["action"],
-): string {
-	return `${itemId}:${action}`;
-}
-
-function openMemoryItem(item: MemoryProfilePublicItem) {
-	selectedItem = item;
-	void fetchMemoryProfileItemDetail(item.id)
-		.then((detail) => {
-			if (selectedItem?.id === item.id) {
-				selectedItem = detail;
-			}
-		})
-		.catch((error) => {
-			console.warn("[KNOWLEDGE_MEMORY] Failed to load memory item detail", {
-				itemId: item.id,
-				error,
-			});
+async function setView(next: typeof view, focus = true) {
+	invalidateNavigation();
+	view = next;
+	clearError();
+	await tick();
+	if (!alive || !focus) return;
+	const target =
+		root?.querySelector<HTMLElement>("[data-memory-heading]") ??
+		root?.querySelector<HTMLElement>("textarea,.memory-back");
+	target?.focus({ preventScroll: true });
+	if (next !== "list")
+		root?.scrollIntoView?.({
+			block: "start",
+			behavior: prefersReducedMotion() ? "instant" : "smooth",
 		});
 }
-
-function useReviewItem(item: MemoryProfileReviewItem) {
-	if (!item.canAccept) return;
-	void onAction({
-		target: "review_item",
-		action: "accept",
-		itemId: item.id,
-		expectedProjectionRevision: profile?.projectionRevision ?? 0,
-	});
+function resetRecordFeedback() {
+	staleRef = null;
+	latestDetail = null;
+	missingLatest = false;
+	clearError();
 }
-
-function openReviewEditor(item: MemoryProfileReviewItem) {
-	reviewOverflowOpen = false;
-	editingReviewItem = item;
-	reviewStatement = item.subject;
+function activeRead(epoch: number, key: string) {
+	return alive && epoch === navigationEpoch && key === scopeValue;
 }
-
-function closeReviewOverflow() {
-	reviewOverflowOpen = false;
+function accessLost(cause: unknown) {
+	return cause instanceof ApiError && [401, 403, 404].includes(cause.status);
 }
-
-function closeReviewEditor() {
-	editingReviewItem = null;
-	reviewStatement = "";
+function discardScopeContent() {
+	invalidateNavigation();
+	page = null;
+	detail = null;
+	draft = "";
+	view = "list";
+	resetRecordFeedback();
 }
-
-function openRemoveForProfileItem(item: MemoryProfilePublicItem) {
-	removeTarget = { kind: "profile_item", item };
+function scheduleBackground() {
+	clearTimeout(backgroundTimer);
+	if (
+		page?.status === "queued" ||
+		page?.status === "working" ||
+		page?.status === "failed"
+	)
+		backgroundTimer = setTimeout(() => {
+			if (alive) void load("refresh");
+		}, 3000);
 }
-
-function openRemoveForReviewItem(item: MemoryProfileReviewItem) {
-	removeTarget = { kind: "review_item", item };
+async function load(mode: "replace" | "more" | "refresh" = "replace") {
+	const seq = ++loadSequence;
+	const requestedScope = scope;
+	const requestedQuery = query;
+	const requestedKey = scopeValue;
+	listAbort?.abort();
+	listAbort = new AbortController();
+	loading = true;
+	const wanted = mode === "refresh" ? pagesLoaded : 1;
+	const base = mode === "more" ? page : null;
+	const firstCursor = base?.nextCursor;
+	try {
+		let result = await fetchMemoryPage(
+			{
+				scope: requestedScope,
+				query: requestedQuery,
+				...(firstCursor ? { cursor: firstCursor } : {}),
+			},
+			listAbort.signal,
+		);
+		if (
+			!alive ||
+			seq !== loadSequence ||
+			requestedKey !== scopeValue ||
+			requestedQuery !== query
+		)
+			return;
+		if (base && base.generation !== result.generation) {
+			void load("refresh");
+			return;
+		}
+		let rows = base ? [...base.rows, ...result.rows] : result.rows;
+		let count = mode === "more" ? pagesLoaded + 1 : 1;
+		while (mode === "refresh" && count < wanted && result.nextCursor) {
+			const next = await fetchMemoryPage(
+				{
+					scope: requestedScope,
+					query: requestedQuery,
+					cursor: result.nextCursor,
+				},
+				listAbort.signal,
+			);
+			if (!alive || seq !== loadSequence) return;
+			if (next.generation !== result.generation)
+				throw new Error("Memory changed while paging");
+			rows = [...rows, ...next.rows];
+			result = next;
+			count++;
+		}
+		if (!alive || seq !== loadSequence) return;
+		page = { ...result, rows };
+		pagesLoaded = count;
+		clearError("list");
+		scheduleBackground();
+	} catch (cause) {
+		if (!isAbort(cause) && alive && seq === loadSequence) {
+			if (accessLost(cause)) discardScopeContent();
+			scheduleBackground();
+			fail("memoryNew.loadFailed", () => void load(mode), "list");
+		}
+	} finally {
+		if (seq === loadSequence) loading = false;
+	}
 }
-
-function closeRemove() {
-	removeTarget = null;
+function search() {
+	clearTimeout(searchTimer);
+	searchTimer = setTimeout(() => void load(), 180);
 }
-
-async function confirmRemove(action: "delete" | "suppress") {
-	if (!removeTarget) return;
-	const { kind, item } = removeTarget;
-	const revision = profile?.projectionRevision ?? 0;
-	const success =
-		kind === "profile_item"
-			? await onAction({
-					target: "profile_item",
-					action,
-					itemId: item.id,
-					expectedProjectionRevision: revision,
-				})
-			: await onAction({
-					target: "review_item",
-					action: "suppress",
-					itemId: item.id,
-					expectedProjectionRevision: revision,
-				});
-	if (success === false) return;
-	closeRemove();
+function selectScope(value: string) {
+	invalidateNavigation();
+	scopeValue = value;
+	query = "";
+	page = null;
+	pagesLoaded = 1;
+	notice = "";
+	resetRecordFeedback();
+	void load();
 }
-
-async function submitReviewEdit() {
-	if (!editingReviewItem) return;
-	const statement = reviewStatement.trim();
-	if (!statement) return;
-	const success = await onAction({
-		target: "review_item",
-		action: "edit",
-		itemId: editingReviewItem.id,
-		statement,
-		expectedProjectionRevision: profile?.projectionRevision ?? 0,
-	});
-	if (success === false) return;
-	closeReviewEditor();
+async function open(
+	row: MemoryRow,
+	button?: HTMLButtonElement,
+	refresh = false,
+) {
+	if (button) {
+		rememberedRow = row.ref.rowId;
+		listScroll = scroller()?.scrollTop ?? 0;
+	}
+	const epoch = navigationEpoch;
+	const key = scopeValue;
+	const seq = ++detailSequence;
+	detailAbort?.abort();
+	detailAbort = new AbortController();
+	detailLoading = true;
+	try {
+		const result = await fetchMemoryDetail(row.ref, detailAbort.signal);
+		if (!activeRead(epoch, key) || seq !== detailSequence) return;
+		detail = result;
+		if (!refresh) {
+			resetRecordFeedback();
+			await setView("detail");
+		}
+	} catch (cause) {
+		if (isAbort(cause) || !activeRead(epoch, key) || seq !== detailSequence)
+			return;
+		if (accessLost(cause)) {
+			discardScopeContent();
+			fail("memoryNew.unavailable", () => void load("refresh"));
+			return;
+		}
+		if (
+			cause instanceof ApiError &&
+			(cause.status === 404 || cause.status === 409)
+		) {
+			if (refresh && detail) {
+				staleRef = detail.row.ref;
+				if (cause.status === 404) {
+					detail = null;
+					await setView("list");
+				}
+			}
+			fail(
+				cause.status === 409 ? "memoryNew.stale" : "memoryNew.unavailable",
+				() => void load("refresh"),
+			);
+			void load("refresh");
+		} else
+			fail("memoryNew.loadFailed", () => void open(row, undefined, refresh));
+	} finally {
+		if (seq === detailSequence) detailLoading = false;
+	}
 }
-
-// Tab/Shift+Tab wrapping and the "focus escaped -> pull back to the first
-// element" rule now live in the shared utility (the same algorithm this file
-// hand-rolled three times over). Each of the three dialogs below is its own
-// `{#if}` block, so attaching focusTrap() directly to its container gets the
-// install-on-mount/restore-on-unmount timing for free — which is also why the
-// old priority-order dispatch (remove > reviewEdit > reviewOverflow) in a
-// single window keydown handler is gone: only one of the three containers is
-// ever mounted at a time, so only its own attachment's listener is live.
-const removeFocusTrap = focusTrap({
-	onEscape: (event) => {
-		event.preventDefault();
-		closeRemove();
-	},
-	focus: {},
-	restoreFocusOnCleanup: true,
-});
-
-const reviewEditFocusTrap = focusTrap({
-	onEscape: (event) => {
-		event.preventDefault();
-		closeReviewEditor();
-	},
-	focus: { target: () => reviewEditTextarea },
-	restoreFocusOnCleanup: true,
-});
-
-const reviewOverflowFocusTrap = focusTrap({
-	onEscape: (event) => {
-		event.preventDefault();
-		closeReviewOverflow();
-	},
-	focus: {},
-	restoreFocusOnCleanup: true,
+function restoreListFocus(preferred: "row" | "add" | "search" = "row") {
+	const scrollContainer = scroller();
+	if (scrollContainer) scrollContainer.scrollTop = listScroll;
+	const target =
+		preferred === "row" && rememberedRow
+			? root?.querySelector<HTMLButtonElement>(
+					`[data-memory-row="${CSS.escape(rememberedRow)}"]`,
+				)
+			: preferred === "add"
+				? root?.querySelector<HTMLButtonElement>("[data-memory-add]:enabled")
+				: null;
+	if (target) target.focus({ preventScroll: true });
+	else root?.querySelector<HTMLInputElement>("[data-memory-search]")?.focus();
+}
+async function back(preferred: "row" | "search" = "row") {
+	const target = view === "add" ? "add" : missingLatest ? "search" : preferred;
+	const switching = setView("list", false);
+	const epoch = navigationEpoch;
+	resetRecordFeedback();
+	await switching;
+	if (alive && epoch === navigationEpoch) restoreListFocus(target);
+}
+function clearSettledIntent() {
+	if (!busy) {
+		operation = null;
+		action = null;
+		pending = null;
+		unknownAcknowledgement = false;
+	}
+}
+function startEdit() {
+	if (!detail || disabled || excludedHere) return;
+	clearSettledIntent();
+	draft = detail.row.text;
+	resetRecordFeedback();
+	void setView("edit");
+}
+function startAdd() {
+	if (disabled) return;
+	listScroll = scroller()?.scrollTop ?? 0;
+	clearSettledIntent();
+	draft = "";
+	detail = null;
+	resetRecordFeedback();
+	void setView("add");
+}
+function startRemove() {
+	if (disabled || excludedHere) return;
+	clearSettledIntent();
+	resetRecordFeedback();
+	void setView("remove");
+}
+function draftChanged(value: string) {
+	if (
+		!busy &&
+		action &&
+		action.kind !== "remove" &&
+		action.text !== value.trim()
+	) {
+		clearSettledIntent();
+		clearError();
+	}
+}
+async function findCurrentRow(
+	ref: MemoryRef,
+	valid: () => boolean,
+): Promise<MemoryRow | null> {
+	let cursor: string | undefined;
+	let generation: string | undefined;
+	const seen = new Set<string>();
+	do {
+		const result = await fetchMemoryPage({
+			scope: ref.scope,
+			...(cursor ? { cursor } : {}),
+		});
+		if (!valid()) return null;
+		if (generation && generation !== result.generation)
+			throw new Error("Memory changed while paging");
+		generation = result.generation;
+		const found = result.rows.find((row) => row.ref.rowId === ref.rowId);
+		if (found) return found;
+		cursor = result.nextCursor ?? undefined;
+		if (cursor && seen.has(cursor)) throw new Error("Invalid memory cursor");
+		if (cursor) seen.add(cursor);
+	} while (cursor);
+	return null;
+}
+async function checkLatest() {
+	if (!staleRef || !detail) return;
+	const ref = staleRef;
+	const epoch = navigationEpoch;
+	const key = scopeValue;
+	const seq = ++reviewSequence;
+	const valid = () =>
+		activeRead(epoch, key) &&
+		seq === reviewSequence &&
+		staleRef !== null &&
+		refKey(staleRef) === refKey(ref);
+	detailLoading = true;
+	missingLatest = false;
+	try {
+		const row = await findCurrentRow(ref, valid);
+		if (!valid()) return;
+		if (!row) {
+			missingLatest = true;
+			return;
+		}
+		const next = await fetchMemoryDetail(row.ref);
+		if (!valid()) return;
+		latestDetail = next;
+		clearError();
+	} catch {
+		if (valid()) fail("memoryNew.loadFailed", () => void checkLatest());
+	} finally {
+		if (valid()) detailLoading = false;
+	}
+}
+function continueEditing() {
+	if (!latestDetail) return;
+	detail = latestDetail;
+	staleRef = null;
+	latestDetail = null;
+	clearSettledIntent();
+	clearError();
+}
+function schedulePoll() {
+	clearTimeout(pollTimer);
+	if (alive && pending && (busy || operation?.cleanupPending))
+		pollTimer = setTimeout(() => void poll(), 2000);
+}
+async function settle(result: MemoryOperation, showCompletion = true) {
+	if (!alive) return;
+	unknownAcknowledgement = false;
+	operation = result;
+	if (pending) pending = { ...pending, operationId: result.id };
+	clearError("operation");
+	if (result.status === "queued" || result.status === "working") {
+		schedulePoll();
+		return;
+	}
+	if (result.status === "stale") {
+		if (action && action.kind !== "add") staleRef = action.ref;
+		fail("memoryNew.stale", null, "operation");
+		return;
+	}
+	if (result.status === "failed") {
+		if (pendingHere)
+			fail(
+				pending?.kind === "remove"
+					? result.exclusionAcknowledged
+						? "memoryNew.excluded"
+						: "memoryNew.removeFailed"
+					: "memoryNew.saveFailed",
+				result.retryable && action ? retryMutation : null,
+				"operation",
+			);
+		if (result.exclusionAcknowledged) void load("refresh");
+		schedulePoll();
+		return;
+	}
+	const completed = pending;
+	const relevant = pendingHere && submissionEpoch === navigationEpoch;
+	if (!result.cleanupPending) {
+		pending = null;
+		action = null;
+		operation = null;
+		clearTimeout(pollTimer);
+	}
+	notice = relevant
+		? $t(completed?.kind === "remove" ? "memoryNew.removed" : "memoryNew.saved")
+		: notice;
+	const epoch = navigationEpoch;
+	void load("refresh");
+	if (!showCompletion || !relevant || !activeRead(epoch, scopeValue)) return;
+	// Leave the editor before fetching the accepted detail: a failed refresh must
+	// never leave Save pointing at an already completed action.
+	if (completed?.kind === "remove") {
+		detail = null;
+		await back("search");
+	} else {
+		await back();
+		if (result.ref)
+			await open({ ref: result.ref, text: "", updatedAt: "", sourceCount: 0 });
+	}
+	schedulePoll();
+}
+async function poll() {
+	if (!pending || !alive || polling) return;
+	polling = true;
+	const identity = pending.requestId;
+	try {
+		const result = pending.operationId
+			? await fetchMemoryOperation(pending.operationId)
+			: await fetchMemoryOperationByRequest(identity);
+		if (!alive || pending?.requestId !== identity) return;
+		await settle(result);
+	} catch (cause) {
+		if (!alive || pending?.requestId !== identity) return;
+		fail("memoryNew.statusUnknown", () => void recheck(), "operation");
+		if (
+			cause instanceof ApiError &&
+			cause.status === 404 &&
+			action &&
+			unknownAcknowledgement
+		) {
+			/* Not accepted yet: replay is explicit, with the same request id. */
+		}
+	} finally {
+		polling = false;
+		schedulePoll();
+	}
+}
+async function recheck() {
+	if (unknownAcknowledgement && action && !memoryOff) await send(true);
+	else await poll();
+}
+async function send(retry = false) {
+	if (submitting || memoryOff) return;
+	if (!retry) {
+		if (disabled || stale) return;
+		const same =
+			action && (action.kind === "remove" || action.text === draft.trim());
+		if (!same) {
+			action =
+				view === "add"
+					? {
+							kind: "add",
+							scope,
+							text: draft.trim(),
+							requestId: crypto.randomUUID(),
+						}
+					: detail
+						? view === "remove"
+							? {
+									kind: "remove",
+									ref: detail.row.ref,
+									requestId: crypto.randomUUID(),
+								}
+							: {
+									kind: "edit",
+									ref: detail.row.ref,
+									text: draft.trim(),
+									requestId: crypto.randomUUID(),
+								}
+						: null;
+		}
+	}
+	if (!action) return;
+	const submitted = action;
+	pending = {
+		requestId: submitted.requestId,
+		operationId: null,
+		kind: submitted.kind,
+		scope: submitted.kind === "add" ? submitted.scope : submitted.ref.scope,
+		rowId: submitted.kind === "add" ? null : submitted.ref.rowId,
+	};
+	submitting = true;
+	submissionEpoch = navigationEpoch;
+	clearError();
+	try {
+		const result = await submitMemoryAction(submitted);
+		if (!alive) return;
+		submitting = false;
+		await settle(result);
+	} catch (cause) {
+		if (!alive) return;
+		submitting = false;
+		if (
+			cause instanceof ApiError &&
+			cause.status >= 400 &&
+			cause.status < 500 &&
+			cause.status !== 408 &&
+			cause.status !== 429
+		) {
+			unknownAcknowledgement = false;
+			if (cause.status === 409 && submitted.kind !== "add") {
+				staleRef = submitted.ref;
+				fail("memoryNew.stale", null, "operation");
+			} else {
+				operation = null;
+				pending = null;
+				action = null;
+				fail(
+					submitted.kind === "remove"
+						? "memoryNew.removeFailed"
+						: "memoryNew.saveFailed",
+					null,
+					"operation",
+				);
+			}
+		} else {
+			unknownAcknowledgement = true;
+			fail("memoryNew.statusUnknown", () => void recheck(), "operation");
+			schedulePoll();
+		}
+	} finally {
+		submitting = false;
+	}
+}
+async function reconcileDetached() {
+	if (reconcilingDetached) return;
+	reconcilingDetached = true;
+	clearTimeout(detachedTimer);
+	try {
+		for (const request of [...detached]) {
+			try {
+				const result = request.operationId
+					? await fetchMemoryOperation(request.operationId)
+					: await fetchMemoryOperationByRequest(request.requestId);
+				if (!alive) return;
+				if (
+					result.status !== "queued" &&
+					result.status !== "working" &&
+					!result.cleanupPending
+				) {
+					detached = detached.filter(
+						(item) => item.requestId !== request.requestId,
+					);
+					if (scopeKey(request.scope) === scopeValue) void load("refresh");
+				} else
+					detached = detached.map((item) =>
+						item.requestId === request.requestId
+							? { ...item, operationId: result.id }
+							: item,
+					);
+			} catch {
+				/* Lookup failure, including 404, is not proof of nonapplication. */
+			}
+		}
+	} finally {
+		reconcilingDetached = false;
+		if (alive && detached.length)
+			detachedTimer = setTimeout(() => void reconcileDetached(), 3000);
+	}
+}
+export function capture(): MemoryVisit {
+	return {
+		scopeValue,
+		detached: [...detached],
+		query,
+		pages: pagesLoaded,
+		rowId: rememberedRow,
+		scrollTop:
+			view === "list" ? (scroller()?.scrollTop ?? listScroll) : listScroll,
+		pending:
+			pending && (busy || operation?.cleanupPending) ? { ...pending } : null,
+	};
+}
+export async function restore(value: MemoryVisit) {
+	invalidateNavigation();
+	const epoch = navigationEpoch;
+	page = null;
+	detail = null;
+	draft = "";
+	resetRecordFeedback();
+	scopeValue = value.scopeValue;
+	query = value.query;
+	pagesLoaded = Math.max(1, value.pages);
+	rememberedRow = value.rowId;
+	listScroll = value.scrollTop;
+	detached = [
+		...(value.detached ?? []),
+		...(value.pending ? [value.pending] : []),
+	];
+	pending = null;
+	operation = null;
+	action = null;
+	unknownAcknowledgement = Boolean(pending);
+	view = "list";
+	if (!alive) return;
+	await load("refresh");
+	await tick();
+	if (!alive || epoch !== navigationEpoch) return;
+	if (rememberedRow) restoreListFocus();
+	else {
+		const scrollContainer = scroller();
+		if (scrollContainer) scrollContainer.scrollTop = listScroll;
+	}
+	if (pending) void poll();
+	if (detached.length) void reconcileDetached();
+}
+onMount(() => {
+	alive = true;
+	void load();
+	if (pending) void poll();
+	if (detached.length) void reconcileDetached();
+	const refresh = () => {
+		void load("refresh");
+		if (pending) void poll();
+		if (detached.length) void reconcileDetached();
+		if (view === "detail" && detail) void open(detail.row, undefined, true);
+	};
+	window.addEventListener("focus", refresh);
+	return () => {
+		alive = false;
+		invalidateNavigation();
+		loadSequence++;
+		listAbort?.abort();
+		clearTimeout(searchTimer);
+		clearTimeout(pollTimer);
+		clearTimeout(backgroundTimer);
+		clearTimeout(detachedTimer);
+		window.removeEventListener("focus", refresh);
+	};
 });
 </script>
-
-{#if memoryLoading && !memoryLoaded}
-	<section class="rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5">
-		<div class="grid gap-3 md:grid-cols-2">
-			{#each categoryDefinitions as category (category.category)}
-				<div class="rounded-[0.75rem] border border-border bg-surface-page px-4 py-4">
-					<div class="h-4 w-36 animate-pulse rounded-full bg-surface-elevated"></div>
-					<div class="mt-4 h-12 w-full animate-pulse rounded-[0.5rem] bg-surface-elevated"></div>
-				</div>
-			{/each}
-		</div>
-	</section>
-{:else if memoryLoadError && !memoryLoaded}
-	<section class="rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5">
-		<div class="rounded-[0.75rem] border border-danger bg-surface-page px-4 py-5">
-			<div class="text-sm font-sans font-medium text-danger">{$t("memoryProfile.failedLoad")}</div>
-			<p class="mt-2 text-sm font-sans leading-[1.6] text-text-secondary">{memoryLoadError}</p>
-			<button
-				type="button"
-				class="mt-4 cursor-pointer rounded-full border border-border px-4 py-2 text-sm font-sans font-medium text-text-primary transition hover:bg-surface-elevated"
-				onclick={onRetryLoadMemory}
-			>
-				{$t("memory.tryAgain")}
-			</button>
-		</div>
-	</section>
-{:else}
-	<section class="memory-profile-section" aria-labelledby="memory-profile-title">
-		<!-- Memory off pauses all learning and all use of the profile; what is kept
-		     stays listed below, since this is where a person looks at it. -->
-		{#if memoryEnabled === false}
-			<div class="memory-off-notice" data-testid="memory-off-notice">
-				<CirclePause
-					class="memory-off-icon"
-					size={16}
-					strokeWidth={2}
-					aria-hidden="true"
-				/>
-				<div class="memory-off-text">
-					<p class="memory-off-title">{$t("memoryProfile.offTitle")}</p>
-					<p class="memory-off-body">{$t("memoryProfile.offBody")}</p>
-				</div>
-				<a class="memory-off-link" href="/settings?section=memory">
-					{$t("memoryProfile.offAction")}
-				</a>
-			</div>
-		{/if}
-		<div class="memory-profile-head">
-			<h2 id="memory-profile-title" class="memory-profile-eyebrow">
-				{$t("memoryProfile.eyebrow")}
-			</h2>
-			<span class="memory-profile-active">
-				{$t("memoryProfile.activeChip", { count: activeItemCount })}
-			</span>
-			{#if processing?.active}
-				<!-- Inline, on the eyebrow line, and no taller than the chip
-				     beside it — so the head is the same one line high whether or
-				     not this is here, and the cards below never move when
-				     processing starts or finishes. The per-operation detail that
-				     used to push the rail down is a tooltip now, absolutely
-				     positioned, costing the layout nothing either. -->
-				<span class="memory-processing" role="status" aria-live="polite">
-					<button
-						type="button"
-						class="memory-processing-pill"
-						aria-describedby={processingDetailOpen
-							? "memory-processing-detail"
-							: undefined}
-						aria-expanded={processingDetailOpen}
-						data-testid="memory-processing-pill"
-						onmouseenter={() => (processingDetailOpen = true)}
-						onmouseleave={() => (processingDetailOpen = false)}
-						onfocus={() => (processingDetailOpen = true)}
-						onblur={() => (processingDetailOpen = false)}
-						onkeydown={handleProcessingKeydown}
-					>
-						<Spinner class="shrink-0" size={11} />
-						<span class="memory-processing-text">{processingLine}</span>
-					</button>
-					{#if processingDetailOpen}
-						<span
-							id="memory-processing-detail"
-							role="tooltip"
-							class="memory-processing-detail"
-						>
-							<span class="memory-processing-detail-head">{processingLine}</span>
-							{#if processing.operations && processing.operations.length > 0}
-								{#each processing.operations as operation (processingOperationKey(operation))}
-									<span class="memory-processing-detail-item">
-										{processingReasonLabel(operation.reason)}
-										{#if operation.scope.type === "project"}
-											<span> · {$t("memoryProfile.processingReasonProjectHint")}</span>
-										{/if}
-										{#if operation.count > 1}
-											<span>
-												· {$t("memoryProfile.processingReasonCount", {
-													count: operation.count,
-												})}
-											</span>
-										{/if}
-									</span>
-								{/each}
-							{/if}
-						</span>
-					{/if}
-				</span>
-			{/if}
-			<span class="memory-profile-spacer"></span>
-		</div>
-
-		<div class="memory-profile-layout">
-			<div class="memory-profile-main">
-				<MemoryPortraitCard
-					{profile}
-					{categoryDefinitions}
-					activeCount={activeItemCount}
-					{summary}
-					{summaryBusy}
-					{pendingActionKey}
-					expanded={expandedCategories}
-					filterText={memoryFilterText}
-					selection={memorySelection}
-					onEditSummary={(text) => onEditSummary?.(text)}
-					onFilterTextChange={(value) => (memoryFilterText = value)}
-					onSelectionChange={(value) => (memorySelection = value)}
-					onToggleCategory={handleToggleCategory}
-					onEditItem={openMemoryItem}
-					onRemoveItem={openRemoveForProfileItem}
-				/>
-			</div>
-
-			<aside class="memory-profile-rail" aria-label={$t("memoryProfile.eyebrow")}>
-				{#if profile && profile.review.openCount > 0}
-					<!-- id + tabindex give the home "memories need review" notice a
-					     deep-link target (/knowledge?tab=memory#memory-review) to
-					     scroll to and focus; see the scroll effect in +page.svelte. -->
-					<section
-						id="memory-review"
-						class="memory-review-section"
-						aria-labelledby="memory-review-title"
-						tabindex="-1"
-					>
-						<div class="memory-review-head">
-							<HelpCircle size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
-							<h3 id="memory-review-title" class="memory-review-title">{$t("memoryProfile.needsReview")}</h3>
-							<span class="memory-review-count">{profile.review.openCount}</span>
-							<span class="memory-profile-spacer"></span>
-							{#if reviewOverflowCount > 0}
-								<button
-									type="button"
-									class="memory-review-more"
-									onclick={() => (reviewOverflowOpen = true)}
-								>
-									{$t("memoryProfile.more", { count: reviewOverflowCount })}
-								</button>
-							{/if}
-						</div>
-						<div class="memory-review-list">
-							{#each visibleReviewItems as item (item.id)}
-								<div class="memory-review-card">
-									<div class="min-w-0 flex-1">
-										{#if item.question}
-											<p class="break-words text-[0.78rem] font-sans leading-[1.5] text-text-primary">{item.question}</p>
-										{/if}
-										<p class="mt-1 break-words text-[0.68rem] font-sans leading-[1.45] text-text-muted">{item.subject}</p>
-										{#if item.reason}
-											<p class="memory-review-reason mt-0.5 break-words text-[0.68rem] font-sans leading-[1.45]">{item.reason}</p>
-										{/if}
-										{#if item.expiresAt}
-											<p class="mt-0.5 break-words text-[0.68rem] font-sans leading-[1.45] text-text-muted">
-												{$t("memoryProfile.autoExpiresInDays", {
-													count: autoExpireDays(item.expiresAt),
-												})}
-											</p>
-										{/if}
-									</div>
-									<div class="memory-card-actions flex shrink-0 items-center gap-1">
-										{#if item.canAccept}
-											<button
-												type="button"
-												class="btn-primary memory-review-accept h-7 w-7 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
-												onclick={() => useReviewItem(item)}
-												disabled={pendingActionKey === actionKey(item.id, "accept")}
-												aria-label={$t("memoryProfile.accept")}
-												title={$t("memoryProfile.accept")}
-												data-testid="memory-review-accept"
-											>
-												{#if pendingActionKey === actionKey(item.id, "accept")}
-													<Spinner size={13} />
-												{:else}
-													<Check size={13} strokeWidth={2.1} aria-hidden="true" />
-												{/if}
-											</button>
-										{/if}
-										<button
-											type="button"
-											class="btn-icon-bare h-7 w-7 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-											onclick={() => openReviewEditor(item)}
-											aria-label={$t("memoryProfile.editReviewItem")}
-											title={$t("memoryProfile.edit")}
-										>
-											<Pencil size={13} strokeWidth={2.1} aria-hidden="true" />
-										</button>
-										<button
-											type="button"
-											class="btn-icon-bare memory-remove h-7 w-7 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
-											onclick={() => openRemoveForReviewItem(item)}
-											disabled={pendingActionKey === actionKey(item.id, "suppress")}
-											aria-label={$t("memoryProfile.removeThisMemory")}
-											title={$t("memoryProfile.removeThisMemory")}
-										>
-											<Trash2 size={13} strokeWidth={2.1} aria-hidden="true" />
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</section>
-				{/if}
-
-				<MemoryTimeline
-					reports={timelineReports}
-					{pendingActionKey}
-					onUndo={(reportId, actionIndex) =>
-						void onUndoConsolidation?.(reportId, actionIndex)}
-				/>
-
-				<MemoryRailCards />
-			</aside>
-		</div>
-	</section>
-{/if}
-
-{#if selectedItem && profile}
-	<KnowledgeMemoryModal
-		item={selectedItem}
-		projectionRevision={profile.projectionRevision}
-		{pendingActionKey}
-		{actionError}
-		onClose={() => (selectedItem = null)}
-		onAction={async (payload) => {
-			const success = await onAction(payload);
-			if (success === false) return;
-			selectedItem = null;
-		}}
-	/>
-{/if}
-
-{#if reviewOverflowOpen && profile}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-[120] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
-		role="presentation"
-		onclick={closeReviewOverflow}
-		transition:backdropFade={{ duration: 150 }}
-	>
-		<div
-			{@attach reviewOverflowFocusTrap}
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="memory-review-overflow-title"
-			tabindex={-1}
-			class="max-h-[88vh] w-full max-w-[720px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
-			onclick={(event) => event.stopPropagation()}
-			transition:panelScale={{ duration: 150, start: 0.96 }}
-		>
-			<div class="flex items-center justify-between border-b border-border px-5 py-4">
-				<h3 id="memory-review-overflow-title" class="text-xl font-sans text-text-primary">{$t("memoryProfile.needsReview")}</h3>
-				<button
-					type="button"
-					class="btn-icon-bare h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-					onclick={closeReviewOverflow}
-					aria-label={$t("memoryProfile.closeNeedsReview")}
-					title={$t("memoryProfile.close")}
-				>
-					<X size={18} strokeWidth={2.1} aria-hidden="true" />
-				</button>
-			</div>
-				<div class="max-h-[calc(88vh-80px)] overflow-y-auto px-5 py-5">
-					<div class="grid gap-2">
-						{#each additionalReviewItems as item (item.id)}
-					<div class="memory-review-card flex items-start justify-between gap-3 bg-surface-page px-3 py-3">
-								<div class="min-w-0">
-									{#if item.question}
-										<p class="break-words text-sm font-sans leading-[1.55] text-text-primary">{item.question}</p>
-									{/if}
-									<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
-									{#if item.reason}
-										<p class="memory-review-reason mt-1 break-words text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
-									{/if}
-								</div>
-								<div class="memory-card-actions flex shrink-0 items-center gap-1">
-								{#if item.canAccept}
-									<button
-										type="button"
-										class="btn-primary btn-icon-sm memory-review-accept h-11 w-11 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
-										onclick={() => useReviewItem(item)}
-										disabled={pendingActionKey === actionKey(item.id, "accept")}
-										aria-label={$t("memoryProfile.accept")}
-										title={$t("memoryProfile.accept")}
-									>
-										{#if pendingActionKey === actionKey(item.id, "accept")}
-											<Spinner size={17} />
-										{:else}
-											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
-										{/if}
-									</button>
-								{/if}
-								<button
-									type="button"
-									class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-									onclick={() => openReviewEditor(item)}
-									aria-label={$t("memoryProfile.editReviewItem")}
-									title={$t("memoryProfile.edit")}
-								>
-									<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
-								</button>
-								<button
-									type="button"
-									class="btn-icon-bare btn-icon-sm memory-remove h-11 w-11 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() => openRemoveForReviewItem(item)}
-									disabled={pendingActionKey === actionKey(item.id, "suppress")}
-									aria-label={$t("memoryProfile.removeThisMemory")}
-									title={$t("memoryProfile.removeThisMemory")}
-								>
-									<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
-								</button>
-							</div>
-						</div>
-					{/each}
-				</div>
-				</div>
-			</div>
-		</div>
-	{/if}
-
-{#if removeTarget}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<!-- A panel taller than the window (a phone on its side) is scrolled to,
-	     never cut off: the layer scrolls, and the panel's auto margins centre it
-	     only while it fits. -->
-	<div
-		class="fixed inset-0 z-[140] flex items-center justify-center overflow-y-auto overflow-x-hidden overscroll-contain bg-surface-overlay/65 p-4 backdrop-blur-sm"
-		role="presentation"
-		onclick={closeRemove}
-		transition:backdropFade={{ duration: 150 }}
-	>
-		<div
-			{@attach removeFocusTrap}
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="memory-remove-title"
-			tabindex={-1}
-			class="my-auto w-full max-w-[420px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
-			onclick={(event) => event.stopPropagation()}
-			transition:panelScale={{ duration: 150, start: 0.96 }}
-		>
-			<div class="flex items-center justify-between border-b border-border px-4 py-3.5">
-				<h3 id="memory-remove-title" class="text-sm font-sans font-semibold text-text-primary">{$t("memoryProfile.removeTitle")}</h3>
-				<button
-					type="button"
-					class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-					onclick={closeRemove}
-					aria-label={$t("memoryProfile.close")}
-					title={$t("memoryProfile.close")}
-				>
-					<X size={16} strokeWidth={2.1} aria-hidden="true" />
-				</button>
-			</div>
-			<div class="memory-remove-quote border-b border-border px-4 py-3">
-				<p class="break-words font-sans text-xs leading-[1.5] text-text-primary">&ldquo;{removeStatement}&rdquo;</p>
-			</div>
-			<p class="px-4 py-3 text-xs font-sans leading-[1.5] text-text-muted border-b border-border">{$t("memoryProfile.removeFraming")}</p>
-			<div class="flex flex-col gap-1.5 p-2">
-				<button
-					type="button"
-					class="memory-remove-option memory-remove-forget cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2.5 text-left transition hover:border-primary"
-					onclick={() => confirmRemove("suppress")}
-					disabled={pendingActionKey === actionKey(removeTarget.item.id, "suppress")}
-				>
-					<span class="flex items-center gap-2">
-						<EyeOff size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
-						<span class="text-xs font-sans font-semibold text-text-primary">{$t("memoryProfile.forget")}</span>
-					</span>
-					<span class="mt-1 block pl-[22px] text-xs font-sans leading-[1.4] text-text-muted">{$t("memoryProfile.forgetDescription")}</span>
-				</button>
-				{#if removeTarget.kind === "profile_item" && onRetire}
-					<button
-						type="button"
-						class="memory-remove-option memory-remove-retire cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2.5 text-left transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
-						onclick={() => void confirmRetire()}
-						disabled={pendingActionKey === retireKey(removeTarget.item.id)}
-					>
-						<span class="flex items-center gap-2">
-							<Archive size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
-							<span class="text-xs font-sans font-semibold text-text-primary">{$t("memoryProfile.retire")}</span>
-						</span>
-						<span class="mt-1 block pl-[22px] text-xs font-sans leading-[1.4] text-text-muted">{$t("memoryProfile.retireDescription")}</span>
-					</button>
-				{/if}
-				{#if removeCanDelete}
-					<button
-						type="button"
-						class="memory-remove-option memory-remove-delete cursor-pointer rounded-[0.5rem] border bg-transparent px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50"
-						style="border-color: color-mix(in srgb, var(--danger) 25%, var(--border-default) 75%);"
-						onclick={() => confirmRemove("delete")}
-						disabled={pendingActionKey === actionKey(removeTarget.item.id, "delete")}
-					>
-						<span class="flex items-center gap-2">
-							<Trash2 size={14} strokeWidth={2.1} class="text-danger shrink-0" aria-hidden="true" />
-							<span class="text-xs font-sans font-semibold text-danger">{$t("memoryProfile.deletePermanently")}</span>
-						</span>
-						<span class="mt-1 block pl-[22px] text-xs font-sans leading-[1.4] text-text-muted">{$t("memoryProfile.deletePermanentlyDescription")}</span>
-					</button>
-				{/if}
-				<button
-					type="button"
-					class="memory-remove-cancel mt-0.5 cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2 text-center text-xs font-sans font-medium text-text-muted transition hover:text-text-primary"
-					onclick={closeRemove}
-				>
-					{$t("memoryProfile.cancel")}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<style>
-	/* ---- the page's own head row -------------------------------------- */
-	/* One line, always: `nowrap` plus a min-height equal to the tallest thing
-	   on it (the 1.4rem active chip, which the processing pill matches). The
-	   pill can therefore appear and disappear without the head growing a
-	   second row and shunting every card below it down. */
-	.memory-off-notice {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-start;
-		gap: 0.5rem 0.75rem;
-		margin-bottom: 0.9rem;
-		padding: 0.7rem 0.85rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-elevated);
-	}
-
-	.memory-off-notice :global(.memory-off-icon) {
-		flex: 0 0 auto;
-		margin-top: 0.1rem;
-		color: var(--text-muted);
-	}
-
-	.memory-off-text {
-		flex: 1 1 14rem;
-		min-width: 0;
-	}
-
-	.memory-off-title {
-		margin: 0;
-		font-family: var(--font-sans);
-		font-size: 0.8125rem;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-
-	.memory-off-body {
-		margin: 0.15rem 0 0;
-		font-family: var(--font-sans);
-		font-size: 0.75rem;
-		line-height: 1.5;
-		color: var(--text-secondary);
-	}
-
-	.memory-off-link {
-		flex: 0 0 auto;
-		align-self: center;
-		font-family: var(--font-sans);
-		font-size: 0.75rem;
-		font-weight: 500;
-		color: var(--accent);
-		text-decoration: none;
-	}
-
-	.memory-off-link:hover {
-		text-decoration: underline;
-	}
-
-	.memory-off-link:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-		border-radius: var(--radius-sm);
-	}
-
-	@media (max-width: 767px) {
-		.memory-off-link {
-			display: inline-flex;
-			align-items: center;
-			min-height: 2.75rem;
-		}
-	}
-
-	.memory-profile-head {
-		display: flex;
-		flex-wrap: nowrap;
-		align-items: center;
-		gap: 0.5rem 0.6rem;
-		min-height: 1.4rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.memory-profile-eyebrow {
-		flex: 0 0 auto;
-		white-space: nowrap;
-		margin: 0;
-		font-family: var(--font-sans);
-		font-size: 0.66rem;
-		font-weight: 600;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		color: var(--text-muted);
-	}
-
-	.memory-profile-active {
-		display: inline-flex;
-		flex: 0 0 auto;
-		align-items: center;
-		height: 1.4rem;
-		padding: 0 0.5rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-full);
-		font-family: var(--font-sans);
-		font-size: 0.66rem;
-		color: var(--text-muted);
-	}
-
-	.memory-profile-spacer {
-		flex: 1 1 auto;
-	}
-
-	/* The pill and its tooltip. The tooltip is absolutely positioned, so the
-	   detail costs the layout nothing either. */
-	.memory-processing {
-		position: relative;
-		display: inline-flex;
-		flex: 0 1 auto;
-		align-items: center;
-		min-width: 0;
-	}
-
-	.memory-processing-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		height: 1.4rem;
-		max-width: 100%;
-		min-width: 0;
-		min-height: 0;
-		padding: 0 0.5rem;
-		border: 1px solid
-			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
-		border-radius: var(--radius-full);
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
-		color: var(--accent);
-		font-family: var(--font-sans);
-		font-size: 0.66rem;
-		line-height: 1;
-		cursor: help;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
-	}
-
-	.memory-processing-pill:hover,
-	.memory-processing-pill:focus-visible {
-		background: color-mix(in srgb, var(--accent) 15%, var(--surface-elevated) 85%);
-		border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-	}
-
-	.memory-processing-pill:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.memory-processing-text {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.memory-processing-detail {
-		position: absolute;
-		top: calc(100% + 0.4rem);
-		left: 0;
-		z-index: 60;
-		display: flex;
-		flex-direction: column;
-		gap: 0.2rem;
-		width: max-content;
-		max-width: min(18rem, 78vw);
-		padding: 0.5rem 0.65rem;
-		border: 1px solid var(--border-default);
-		border-radius: 0.5rem;
-		background: var(--surface-overlay);
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.7rem;
-		line-height: 1.45;
-		text-align: left;
-		white-space: normal;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-		pointer-events: none;
-	}
-
-	.memory-processing-detail-head {
-		color: var(--text-primary);
-		font-weight: 500;
-	}
-
-	.memory-processing-detail-item {
-		padding-left: 0.7rem;
-		text-indent: -0.7rem;
-	}
-
-	.memory-processing-detail-item::before {
-		content: "· ";
-	}
-
-	/* ---- portrait + rail ---------------------------------------------- */
-	.memory-profile-layout {
-		display: flex;
-		align-items: flex-start;
-		gap: 1.15rem;
-		min-width: 0;
-	}
-
-	.memory-profile-main {
-		flex: 1 1 auto;
-		min-width: 0;
-	}
-
-	.memory-profile-rail {
-		display: flex;
-		flex: 0 0 20rem;
-		width: 20rem;
-		flex-direction: column;
-		gap: 0.8rem;
-		min-width: 0;
-	}
-
-	/* Declared on the layout so the rail's own components and the portrait
-	   beside them read one value rather than four hand-typed ones. */
-	.memory-profile-layout {
-		--knowledge-card-radius: 1rem;
-		--knowledge-card-padding-x: 0.95rem;
-		--knowledge-card-padding-y: 0.85rem;
-	}
-
-	@media (max-width: 1023px) {
-		.memory-profile-layout {
-			flex-direction: column;
-		}
-
-		.memory-profile-rail {
-			flex: 1 1 auto;
-			width: 100%;
-		}
-	}
-
-	/* ---- needs review -------------------------------------------------- */
-	.memory-review-section {
-		border: 1px solid
-			color-mix(in srgb, var(--accent) 28%, var(--border-default) 72%);
-		border-radius: var(--knowledge-card-radius, 1rem);
-		background: var(--surface-elevated);
-		overflow: hidden;
-		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
-		/* Deep-linked from the home notice (#memory-review): keeps the card
-		   clear of the scroll container's own top padding when scrolled into
-		   view, and the programmatic focus below draws no visible ring. */
-		scroll-margin-top: 1.5rem;
-		outline: none;
-	}
-
-	.memory-review-head {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		padding: var(--knowledge-card-padding-y, 0.85rem)
-			var(--knowledge-card-padding-x, 0.95rem) 0.6rem;
-	}
-
-	.memory-review-title {
-		margin: 0;
-		color: var(--accent);
-		font-family: var(--font-sans);
-		font-size: 0.82rem;
-		font-weight: 600;
-		line-height: 1.35;
-	}
-
-	.memory-review-count {
-		display: inline-flex;
-		align-items: center;
-		height: 1.15rem;
-		padding: 0 0.4rem;
-		border: 1px solid
-			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
-		border-radius: var(--radius-full);
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
-		color: var(--accent);
-		font-family: var(--font-sans);
-		font-size: 0.64rem;
-	}
-
-	.memory-review-more {
-		color: var(--accent);
-		background: none;
-		border: none;
-		cursor: pointer;
-		font-family: var(--font-sans);
-		font-size: 0.68rem;
-		font-weight: 500;
-		text-decoration: underline;
-		text-underline-offset: 0.18em;
-		transition: color var(--duration-standard) var(--ease-out);
-		border-radius: var(--radius-sm);
-	}
-
-	.memory-review-more:hover {
-		color: var(--accent-hover);
-	}
-
-	.memory-review-more:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.memory-review-list {
-		display: grid;
-		gap: 1px;
-		background: color-mix(in srgb, var(--border-default) 55%, transparent 45%);
-	}
-
-	.memory-review-card {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.6rem;
-		border-left: 3px solid var(--accent);
-		padding: 0.6rem var(--knowledge-card-padding-x, 0.95rem) 0.6rem
-			calc(var(--knowledge-card-padding-x, 0.95rem) - 3px);
-		background: color-mix(in srgb, var(--accent) 5%, var(--surface-page) 95%);
-		transition: background-color var(--duration-standard) var(--ease-out);
-	}
-
-	.memory-review-card:hover,
-	.memory-review-card:focus-within {
-		background: color-mix(in srgb, var(--accent) 13%, var(--surface-page) 87%);
-	}
-
-	:global(.dark) .memory-review-card {
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page) 92%);
-	}
-
-	:global(.dark) .memory-review-card:hover,
-	:global(.dark) .memory-review-card:focus-within {
-		background: color-mix(in srgb, var(--accent) 18%, var(--surface-page) 82%);
-	}
-
-	.memory-review-reason {
-		color: var(--text-muted);
-	}
-
-	/* Accept and Reject are the app's `.btn-primary` / `.btn-danger` pair —
-	   a 12% tint behind a 38% border — and Edit is the ghost between them.
-	   All three at one size, so the card reads as a decision with a footnote
-	   rather than as three unrelated controls. */
-	/* `.btn-icon-bare` asks for a 40px box. Three of those plus their gaps ate
-	   132px of a 320px rail and wrapped every question into a four-line
-	   column. The trio is sized to the 28px the markup asks for here; the
-	   mobile touch-target override in app.css still puts them back to 44px on
-	   a phone, where the rail is full width and can afford it. */
-	.memory-card-actions .btn-icon-bare {
-		min-width: 1.75rem;
-		min-height: 1.75rem;
-		padding: 0;
-		border: 1px solid transparent;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
-	}
-
-	.memory-card-actions .btn-icon-bare:hover:not(:disabled) {
-		opacity: 1;
-		background: color-mix(in srgb, var(--text-primary) 8%, transparent 92%);
-	}
-
-	/* Accept is the app's `.btn-primary`, squeezed into the 28px box the rail
-	   can afford. It carries the primary tint and its hover step from
-	   app.css; only the geometry is local. Mixed against the card's surface
-	   rather than against transparency: the card is ALREADY a 5% accent wash,
-	   so a flat 12% tint over it was a 7% step and the button disappeared
-	   into the thing it sits on. */
-	.memory-card-actions .memory-review-accept,
-	.memory-card-actions .memory-remove {
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
-	}
-
-	.memory-card-actions .memory-review-accept {
-		min-width: 1.75rem;
-		min-height: 1.75rem;
-		padding: 0;
-		background: color-mix(in srgb, var(--accent) 20%, var(--surface-elevated));
-		border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-		color: var(--accent);
-	}
-
-	.memory-card-actions .memory-review-accept:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--accent) 30%, var(--surface-elevated));
-		border-color: color-mix(in srgb, var(--accent) 62%, transparent);
-		color: var(--accent);
-	}
-
-	/* app.css pushes every `.btn-primary` to 48px on a phone. Accept sits in a
-	   row with two 44px icon buttons, so it takes their size, not the
-	   full-width-button size that rule was written for. */
-	@media (max-width: 767px) {
-		.memory-card-actions .memory-review-accept {
-			min-width: 2.75rem !important;
-			min-height: 2.75rem !important;
-		}
-	}
-
-	.memory-card-actions .memory-remove:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
-		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
-		color: var(--danger);
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.memory-review-card,
-		.memory-processing-pill,
-		.memory-card-actions .btn-icon-bare {
-			transition: none !important;
-		}
-	}
-
-	/* ---- dialogs (unchanged behaviour, kept styling) -------------------- */
-	.memory-remove-quote {
-		background: color-mix(in srgb, var(--surface-page) 92%, var(--accent) 8%);
-	}
-
-	.memory-profile-section {
-		width: 100%;
-		min-width: 0;
-		max-width: 100%;
-		overflow-x: hidden;
-	}
-
-	.memory-profile-section :global(*) {
-		box-sizing: border-box;
-	}
-
-	@media (max-width: 640px) {
-		.memory-review-card {
-			display: grid;
-			grid-template-columns: minmax(0, 1fr);
-			gap: 0.75rem;
-			width: 100%;
-			min-width: 0;
-		}
-
-		.memory-card-actions {
-			display: flex;
-			flex-wrap: wrap;
-			justify-content: flex-end;
-			width: 100%;
-			min-width: 0;
-		}
-
-		.memory-profile-section p,
-		.memory-profile-section span,
-		.memory-profile-section div {
-			overflow-wrap: anywhere;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.memory-review-more {
-			transition: none !important;
-		}
-	}
-</style>
-
-{#if editingReviewItem && profile}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-[130] flex items-center justify-center overflow-y-auto overflow-x-hidden overscroll-contain bg-surface-overlay/65 p-4 backdrop-blur-sm"
-		role="presentation"
-		onclick={closeReviewEditor}
-	>
-		<div
-			{@attach reviewEditFocusTrap}
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="memory-review-edit-title"
-			tabindex={-1}
-			class="my-auto w-full max-w-[560px] rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
-			onclick={(event) => event.stopPropagation()}
-		>
-			<div class="border-b border-border px-5 py-4">
-				<h3 id="memory-review-edit-title" class="text-xl font-sans text-text-primary">{$t("memoryProfile.editReviewItem")}</h3>
-			</div>
-			<div class="px-5 py-5">
-				<label class="block text-sm font-sans font-medium text-text-primary" for="memory-review-statement">
-					{$t("memoryProfile.statement")}
-				</label>
-				<textarea
-					bind:this={reviewEditTextarea}
-					id="memory-review-statement"
-					class="mt-2 min-h-32 w-full resize-y rounded-[0.75rem] border border-border bg-surface-page px-3 py-3 text-sm font-sans text-text-primary outline-none transition focus:border-primary"
-					bind:value={reviewStatement}
-				></textarea>
-				{#if actionError}
-					<div class="mt-3 rounded-[0.75rem] border border-danger bg-surface-page px-3 py-2 text-sm font-sans text-danger" role="alert">
-						{actionError}
-					</div>
-				{/if}
-				<div class="mt-4 flex justify-end gap-2">
-					<button
-						type="button"
-						class="btn-icon-bare h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-						onclick={closeReviewEditor}
-						aria-label={$t("memoryProfile.cancelReviewEdit")}
-						title={$t("memoryProfile.cancel")}
-					>
-						<X size={18} strokeWidth={2.1} aria-hidden="true" />
-					</button>
-					<button
-						type="button"
-						class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
-						onclick={submitReviewEdit}
-						disabled={reviewStatement.trim().length === 0}
-						aria-label={$t("memoryProfile.saveReviewItem")}
-						title={$t("memoryProfile.save")}
-					>
-						<Check size={18} strokeWidth={2.1} aria-hidden="true" />
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
+<section class="memory-replacement" bind:this={root} data-testid="memory-replacement">
+ <div class="sr-only" role="status" aria-live="polite">{notice}</div>
+ {#if error}<ErrorMessage {error} canRetry={errorRetry!==null&&(!memoryOff||errorRetry!==retryMutation)} onRetry={()=>errorRetry?.()} onClose={()=>clearError()}/>{/if}
+ {#if memoryOff}<div class="memory-notice" data-testid="memory-off-notice" role="status"><Info size={18} strokeWidth={1.8} aria-hidden="true"/><div><strong>{$t('memoryNew.off')}</strong><p>{$t('memoryNew.offHelp')}</p></div></div>{/if}
+ {#if page?.authority==='legacy'||page?.authority==='preparing'}<div class="memory-notice"><Info size={18} strokeWidth={1.8} aria-hidden="true"/><div><strong>{$t('memoryNew.preparing')}</strong><p>{$t('memoryNew.preparingHelp')}</p></div></div>{/if}
+ {#if detached.length}<p class="memory-status" role="status">{$t("memoryNew.statusUnknown")}<button class="btn-ghost memory-button" onclick={()=>void reconcileDetached()}>{$t("memoryNew.checkStatus")}</button></p>{/if}
+ {#if pendingHere&&busy}<p class="memory-status" role="status">{$t('memoryNew.pending')}<button type="button" class="btn-ghost memory-button" onclick={()=>void recheck()} disabled={polling||submitting}>{$t('memoryNew.checkStatus')}</button></p>{:else if pendingHere&&operation?.exclusionAcknowledged&&operation.cleanupPending}<p class="memory-status" role="status">{$t('memoryNew.excluded')}</p>{/if}
+ {#if detailLoading}<p class="memory-status" role="status">{$t('memoryNew.loading')}</p>{/if}
+ {#if stale}<div class="memory-notice"><Info size={18} strokeWidth={1.8} aria-hidden="true"/><div><p>{$t('memoryNew.stale')}</p>{#if latestDetail}<blockquote>{latestDetail.row.text}</blockquote><button type="button" class="btn-secondary memory-button" onclick={continueEditing}>{$t('memoryNew.continueEditing')}</button>{:else if missingLatest}<p>{$t("memoryNew.identityChanged")}</p><button type="button" class="btn-secondary memory-button" onclick={()=>void back()}>{$t("memoryNew.back")}</button>{:else}<button type="button" class="btn-secondary memory-button" onclick={()=>void checkLatest()} disabled={detailLoading}>{$t('memoryNew.reviewLatest')}</button>{/if}</div></div>{/if}
+ {#key view}<div in:change={{x:view==='list'?-8:8,duration:MOTION_DURATION.standard,easing:MOTION_EASE.out}}>
+ {#if view==='list'}
+  <header class="memory-heading"><h2 tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2><p class="memory-description">{$t('memoryNew.intro')}</p></header>
+  {#if page?.status==='queued'||page?.status==='working'}<p class="memory-status" role="status">{$t('memoryNew.updating')} {$t('memoryNew.updatingHelp')}</p>{:else if page?.status==='failed'&&backgroundErrorDismissed!==`${scopeValue}:${page.generation}`}<ErrorMessage error={$t('memoryNew.backgroundFailed')} canRetry={false} onRetry={()=>{}} onClose={()=>backgroundErrorDismissed=`${scopeValue}:${page?.generation}`}/>{/if}
+  <MemoryQuarantineReview projects={$projects} {memoryOff} preparing={page?.authority === "preparing"} onKeep={() => void load("refresh")}/>
+  <MemoryList {page} bind:query {scopeValue} projects={$projects} {loading} {disabled} busy={false} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")}/>
+  {#if notice}<p class="memory-status"><Check size={15} strokeWidth={1.8} aria-hidden="true"/>{notice}</p>{/if}
+ {:else}
+  <button type="button" class="btn-ghost memory-back memory-button" onclick={()=>void back()}><ArrowLeft size={16} strokeWidth={1.8} aria-hidden="true"/>{$t('memoryNew.back')}</button>
+  {#if view==='detail'&&detail}<MemoryDetail {detail} {scopeLabel} disabled={disabled||stale||excludedHere} onEdit={startEdit} onRemove={startRemove}/>
+  {:else if view==='edit'||view==='add'}<MemoryEditor bind:draft savedText={view==='edit'?(detail?.row.text??null):null} {scopeLabel} busy={editorBusy} disabled={disabled||stale} onDraftChange={draftChanged} onSave={()=>void send()} onCancel={()=>{if(view==='add')void back();else void setView('detail');}}/>
+  {:else if view==='remove'&&detail}<MemoryRemoveDialog text={detail.row.text} {scopeLabel} busy={editorBusy} disabled={disabled||stale||excludedHere} onRemove={()=>void send()} onCancel={()=>void setView('detail')}/>{/if}
+ {/if}</div>{/key}
+</section>

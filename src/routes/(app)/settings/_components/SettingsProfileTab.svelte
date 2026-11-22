@@ -39,6 +39,7 @@ import {
 } from "@lucide/svelte";
 import { spotlightTarget } from "$lib/actions/spotlight";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
+import MemoryCleanupStatus from "$lib/components/ui/MemoryCleanupStatus.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { type I18nKey, t } from "$lib/i18n";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";
@@ -136,6 +137,9 @@ let {
 	onChangeTitleLanguage,
 	onChangeUiLanguage,
 	onChangeTimeZone = undefined,
+	sendWithEnter = false,
+	sendWithEnterSaving = false,
+	onChangeSendWithEnter = undefined,
 	memoryEnabled = true,
 	memorySaving = false,
 	onChangeMemoryEnabled = undefined,
@@ -212,6 +216,12 @@ let {
 	onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
 	onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
 	onChangeTimeZone?: ((zone: string) => void | Promise<void>) | undefined;
+	/** "Send with Enter": Enter sends and Shift+Enter writes a new line. */
+	sendWithEnter?: boolean;
+	sendWithEnterSaving?: boolean;
+	onChangeSendWithEnter?:
+		| ((enabled: boolean) => void | Promise<void>)
+		| undefined;
 	memoryEnabled?: boolean;
 	memorySaving?: boolean;
 	onChangeMemoryEnabled?:
@@ -823,6 +833,31 @@ function handlePersonalitySelect(event: Event) {
 						</select>
 					</div>
 				</div>
+
+				<!-- The person's own Send with Enter switch: on, Enter sends and
+				     Shift+Enter writes a new line in the message box; off, Enter writes
+				     the new line and Ctrl/Cmd+Enter sends. A touch-only screen keeps
+				     Enter for new lines either way (chat/composer-keys.ts). The guide's
+				     Show me rings this row (settings.sendWithEnter). -->
+				<div class="settings-row" use:spotlightTarget={"settings.sendWithEnter"}>
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('profileTab.sendWithEnter')}</p>
+						<p class="settings-row-help">{$t('profileTab.sendWithEnterHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<Toggle
+							checked={sendWithEnter}
+							disabled={sendWithEnterSaving}
+							ariaLabel={$t('profileTab.sendWithEnter')}
+							onChange={(next) => onChangeSendWithEnter?.(next)}
+						/>
+						<span class="settings-row-hint">
+							{sendWithEnter
+								? $t('profileTab.sendWithEnterOn')
+								: $t('profileTab.sendWithEnterOff')}
+						</span>
+					</div>
+				</div>
 			</div>
 		</section>
 
@@ -897,6 +932,7 @@ function handlePersonalitySelect(event: Event) {
 						</span>
 					</div>
 				</div>
+
 
 				<!-- The person's own Pictures and videos switch. Off, their chats are
 				     not offered make_image or make_video (images/picture-making.ts);
@@ -983,6 +1019,7 @@ function handlePersonalitySelect(event: Event) {
 					<p class="settings-card-desc">{$t('profileTab.dataPrivacyDesc')}</p>
 				</div>
 			</div>
+			<MemoryCleanupStatus />
 			<!-- Outcome of a privacy action (archive prepared, memory cleared).
 			     One strip, here, rather than one per card. -->
 			{#if privacyControlsError}

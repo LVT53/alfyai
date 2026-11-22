@@ -7,7 +7,9 @@ import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import { createArtifact } from "$lib/server/services/artifacts";
+import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
 import { recordAskQuestion } from "$lib/server/services/chat-turn/ask-questions";
+import { buildHistoryToolDigest } from "$lib/server/services/chat-turn/conversation-history";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -34,11 +36,17 @@ import {
 	submitFileProductionIntake,
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { searchImages } from "$lib/server/services/image-search";
+import {
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "$lib/server/services/image-search";
 import {
 	getMemoryContext,
 	type HistoryMemoryContextResult,
+	type PersonaMemoryContextResult,
+	type ProjectMemoryContextResult,
 } from "$lib/server/services/memory-context";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import {
@@ -51,6 +59,8 @@ import {
 	SKILLS_AVAILABLE_HEADING,
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
+import { TurnDeadlineReason } from "$lib/server/utils/turn-deadline-reason";
 import { PATCH_OP_KINDS } from "$lib/shared/artifact-document/patch";
 import { ASK_LIMITS } from "$lib/shared/ask-user";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
@@ -76,7 +86,11 @@ import {
 	type ReadGeneratedFileResult,
 	readGeneratedFileForTool,
 } from "./read-generated-file";
-import { createToolCallRecorder, TOOL_TIMEOUTS_MS } from "./shared";
+import {
+	createToolCallRecorder,
+	TOOL_TIMEOUTS_MS,
+	withReasonCode,
+} from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // The ledger lookup is mocked (it is the DB), but the polling loop around it
@@ -110,7 +124,12 @@ vi.mock("$lib/server/services/sandbox-execution", () => ({
 vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
 }));
-vi.mock("$lib/server/services/image-search", () => ({
+// The search is the network; its error classes stay real, since the tool tells a
+// search that was never set up from one the provider refused by the class.
+vi.mock("$lib/server/services/image-search", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/image-search")
+	>()),
 	searchImages: vi.fn(),
 }));
 // The question store is the database. ask-user.test.ts holds what the tool
@@ -1521,33 +1540,36 @@ describe("createNormalChatTools", () => {
 				"too_many_outputs",
 				"A job may produce at most 5 files; this one produced 9.",
 			],
-		])("invites a corrected resubmission for %s (%s)", async (errorCode, errorMessage) => {
-			queueIntake("job-wait-retryable");
-			getConversationFileProductionJobMock.mockResolvedValue(
-				makeFileProductionJob({
-					id: "job-wait-retryable",
+		])(
+			"invites a corrected resubmission for %s (%s)",
+			async (errorCode, errorMessage) => {
+				queueIntake("job-wait-retryable");
+				getConversationFileProductionJobMock.mockResolvedValue(
+					makeFileProductionJob({
+						id: "job-wait-retryable",
+						status: "failed",
+						error: { code: errorCode, message: errorMessage, retryable: false },
+					}),
+				);
+
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+				const result = await tools.produce_file.execute(programCall(), {
+					toolCallId: "call-wait-retryable",
+					messages: [],
+				});
+
+				expect(result).toMatchObject({
+					ok: false,
 					status: "failed",
-					error: { code: errorCode, message: errorMessage, retryable: false },
-				}),
-			);
-
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-			});
-			const result = await tools.produce_file.execute(programCall(), {
-				toolCallId: "call-wait-retryable",
-				messages: [],
-			});
-
-			expect(result).toMatchObject({
-				ok: false,
-				status: "failed",
-				errorCode,
-				retryable: true,
-			});
-		});
+					errorCode,
+					retryable: true,
+				});
+			},
+		);
 
 		it.each([
 			[
@@ -1558,33 +1580,36 @@ describe("createNormalChatTools", () => {
 			],
 			["program_execution_failed", "Execution timed out"],
 			["program_execution_failed", "Execution failed: sandbox runtime error"],
-		])("does not invite a retry for %s (%s)", async (errorCode, errorMessage) => {
-			queueIntake("job-wait-noretry");
-			getConversationFileProductionJobMock.mockResolvedValue(
-				makeFileProductionJob({
-					id: "job-wait-noretry",
+		])(
+			"does not invite a retry for %s (%s)",
+			async (errorCode, errorMessage) => {
+				queueIntake("job-wait-noretry");
+				getConversationFileProductionJobMock.mockResolvedValue(
+					makeFileProductionJob({
+						id: "job-wait-noretry",
+						status: "failed",
+						error: { code: errorCode, message: errorMessage, retryable: true },
+					}),
+				);
+
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+				const result = await tools.produce_file.execute(programCall(), {
+					toolCallId: "call-wait-noretry",
+					messages: [],
+				});
+
+				expect(result).toMatchObject({
+					ok: false,
 					status: "failed",
-					error: { code: errorCode, message: errorMessage, retryable: true },
-				}),
-			);
-
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-			});
-			const result = await tools.produce_file.execute(programCall(), {
-				toolCallId: "call-wait-noretry",
-				messages: [],
-			});
-
-			expect(result).toMatchObject({
-				ok: false,
-				status: "failed",
-				errorCode,
-				retryable: false,
-			});
-		});
+					errorCode,
+					retryable: false,
+				});
+			},
+		);
 
 		it("reports a job that has not settled as still running, never as ready", async () => {
 			queueIntake("job-wait-running");
@@ -2010,6 +2035,7 @@ describe("createNormalChatTools", () => {
 						exitCode: 0,
 						timedOut: false,
 						truncated: false,
+						displayOutput: "42",
 					},
 				}),
 			]);
@@ -2098,6 +2124,184 @@ describe("createNormalChatTools", () => {
 			expect(getToolCalls()[0]?.metadata).toMatchObject({ timedOut: true });
 		});
 
+		it("keeps a short copy of what the program printed on the entry, and the model's payload is as it was", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "hi\n",
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: 'print("hi")' },
+				{ toolCallId: "call-run-python-display", messages: [] },
+			);
+
+			// What the model reads is exactly what it always was: the copy is beside it.
+			expect(result).toEqual({
+				success: true,
+				name: "run_python",
+				sourceType: "tool",
+				stdout: "hi\n",
+				exitCode: 0,
+				timedOut: false,
+				truncated: false,
+			});
+			expect(JSON.stringify(result)).not.toContain("displayOutput");
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+					status: "done",
+					metadata: {
+						ok: true,
+						evidenceReady: false,
+						exitCode: 0,
+						timedOut: false,
+						truncated: false,
+						displayOutput: "hi",
+					},
+				}),
+			]);
+		});
+
+		it("keeps only the first 12 lines in the copy while the model still gets all of the output", async () => {
+			const stdout = `${Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout,
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "for i in range(20): print('line', i + 1)" },
+				{ toolCallId: "call-run-python-display-long", messages: [] },
+			);
+
+			expect((result as { stdout: string }).stdout).toBe(stdout);
+			const shown = getToolCalls()[0]?.metadata?.displayOutput;
+			expect(typeof shown).toBe("string");
+			expect((shown as string).split("\n")).toHaveLength(12);
+			expect((shown as string).endsWith("line 12")).toBe(true);
+		});
+
+		it("writes no copy for a run that printed nothing, and no code for a run that worked", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "DeprecationWarning: something old",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.run_python).execute(
+				{ code: "import warnings" },
+				{ toolCallId: "call-run-python-silent", messages: [] },
+			);
+
+			// Only what the program printed is copied, never what it complained of.
+			const metadata = getToolCalls()[0]?.metadata;
+			expect(metadata).toMatchObject({ ok: true, exitCode: 0 });
+			expect(metadata).not.toHaveProperty("displayOutput");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it.each([
+			[
+				"the sandbox's own time limit",
+				{ files: [], stdout: "", stderr: "", error: "Execution timed out" },
+				"timed_out",
+			],
+			[
+				"a run the sandbox cancelled",
+				{ files: [], stdout: "", stderr: "", error: "Execution cancelled" },
+				"stopped",
+			],
+			[
+				"a sandbox that gave no exit code",
+				{
+					files: [],
+					stdout: "",
+					stderr: "",
+					error: "Execution failed: docker daemon unreachable",
+				},
+				"sandbox_unavailable",
+			],
+			[
+				"a program that exited with an error",
+				{
+					files: [],
+					stdout: "",
+					stderr: "Traceback...\nZeroDivisionError: division by zero",
+					exitCode: 1,
+					error: "Execution failed with exit code 1: stderr: ZeroDivisionError",
+				},
+				"program_error",
+			],
+		] as const)(
+			"names %s on the entry, beside a payload that does not say so",
+			async (_label, execution, reasonCode) => {
+				executeSandboxCodeMock.mockResolvedValue({ ...execution, files: [] });
+
+				const { tools, getToolCalls } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+
+				const result = await requireTool(tools.run_python).execute(
+					{ code: "1 / 0" },
+					{ toolCallId: "call-run-python-reason", messages: [] },
+				);
+
+				expect(JSON.stringify(result)).not.toContain("reasonCode");
+				expect(JSON.stringify(result)).not.toContain(reasonCode);
+				const [entry] = getToolCalls();
+				// A program that did not work is still a tool that did: the entry stays "ok".
+				expect(entry?.status).toBe("done");
+				expect(entry?.metadata).toMatchObject({ ok: true, reasonCode });
+			},
+		);
+
+		it("leaves a tool timeout to the envelope's timed_out instead of calling it an unavailable sandbox", async () => {
+			executeSandboxCodeMock.mockRejectedValueOnce(
+				new Error("run_python timed out after 120000ms"),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.run_python).execute(
+				{ code: "while True: pass" },
+				{ toolCallId: "call-run-python-tool-timeout", messages: [] },
+			);
+
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "timed_out",
+			});
+		});
+
 		it("uses a timeout above the sandbox's own hard exec cutoff, so the sandbox's own timeout wins first", () => {
 			expect(TOOL_TIMEOUTS_MS.run_python).toBeGreaterThan(SANDBOX_TIMEOUT_MS);
 		});
@@ -2133,6 +2337,7 @@ describe("createNormalChatTools", () => {
 						ok: false,
 						evidenceReady: false,
 						error: "docker daemon unreachable",
+						reasonCode: "sandbox_unavailable",
 					},
 				}),
 			]);
@@ -3509,6 +3714,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 		});
 
 		const result = await tools.memory_context.execute(
@@ -3600,16 +3806,14 @@ describe("createNormalChatTools", () => {
 	});
 
 	it("image_search calls image search directly and records stable web candidates", async () => {
-		// A thumbnail is kept only as an address on Brave's image proxy (the one the
-		// chat shows, through the app's own route); that is what a search returns.
-		const BRAVE_CAT_THUMBNAIL =
-			"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZXMvY2F0LnBuZw";
 		searchImagesMock.mockResolvedValue([
 			{
 				url: "https://example.com/images/cat.png",
 				title: "Reference cat",
 				source: "example.com",
-				thumbnail: BRAVE_CAT_THUMBNAIL,
+				provider: "parallel",
+				sourcePageUrl: "https://example.com/pets",
+				thumbnail: "https://example.com/images/cat.png",
 				width: 1200,
 				height: 800,
 			},
@@ -3617,6 +3821,9 @@ describe("createNormalChatTools", () => {
 				url: "https://cdn.example.net/dog.jpg",
 				title: "Reference dog",
 				source: "cdn.example.net",
+				provider: "parallel",
+				sourcePageUrl: "https://cdn.example.net/pets",
+				thumbnail: "https://cdn.example.net/dog.jpg",
 			},
 		]);
 
@@ -3634,19 +3841,30 @@ describe("createNormalChatTools", () => {
 			},
 		);
 
-		expect(searchImagesMock).toHaveBeenCalledWith("visual references for pets");
+		expect(searchImagesMock).toHaveBeenCalledWith(
+			{ query: "visual references for pets" },
+			expect.any(AbortSignal),
+		);
+		expect(recordParallelUsageMock).toHaveBeenCalledExactlyOnceWith({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			tool: "image_search",
+		});
 		expect(result).toEqual({
 			success: true,
 			name: "image_search",
 			sourceType: "web",
 			message: "Found 2 images",
+			guidance: expect.stringContaining("Check the actual pixels"),
 			results: [
 				{
 					id: "image-search:4eebfc739407",
 					url: "https://example.com/images/cat.png",
 					title: "Reference cat",
 					source: "example.com",
-					thumbnail: BRAVE_CAT_THUMBNAIL,
+					provider: "parallel",
+					sourcePageUrl: "https://example.com/pets",
+					thumbnail: "https://example.com/images/cat.png",
 					width: 1200,
 					height: 800,
 				},
@@ -3655,6 +3873,9 @@ describe("createNormalChatTools", () => {
 					url: "https://cdn.example.net/dog.jpg",
 					title: "Reference dog",
 					source: "cdn.example.net",
+					provider: "parallel",
+					sourcePageUrl: "https://cdn.example.net/pets",
+					thumbnail: "https://cdn.example.net/dog.jpg",
 				},
 			],
 		});
@@ -3677,7 +3898,9 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						metadata: {
 							source: "example.com",
-							thumbnail: BRAVE_CAT_THUMBNAIL,
+							provider: "parallel",
+							sourcePageUrl: "https://example.com/pets",
+							thumbnail: "https://example.com/images/cat.png",
 							width: 1200,
 							height: 800,
 						},
@@ -3690,6 +3913,9 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						metadata: {
 							source: "cdn.example.net",
+							provider: "parallel",
+							sourcePageUrl: "https://cdn.example.net/pets",
+							thumbnail: "https://cdn.example.net/dog.jpg",
 						},
 					},
 				],
@@ -3700,6 +3926,58 @@ describe("createNormalChatTools", () => {
 				},
 			},
 		]);
+	});
+
+	it("inspects only results from this tool turn without issuing or charging a second search", async () => {
+		const result = {
+			provider: "parallel" as const,
+			url: "https://images.example/cat.jpg",
+			title: "Cat",
+			source: "example.com",
+			sourcePageUrl: "https://example.com/cats",
+			thumbnail: "https://images.example/cat.jpg",
+		};
+		searchImagesMock.mockResolvedValue([result]);
+		const context = {
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		};
+		const set = createNormalChatTools(context);
+		const options = { toolCallId: "search-1", messages: [] };
+		await set.tools.image_search.execute({ query: "cat" }, options);
+		const id = set.getToolCalls()[0]?.candidates?.[0]?.id;
+		if (!id) throw new Error("missing search result");
+		const inspect = { action: "inspect" as const, resultIds: [id] };
+		await expect(
+			set.tools.image_search.execute(inspect, {
+				...options,
+				toolCallId: "inspect-1",
+			}),
+		).resolves.toMatchObject({
+			success: false,
+			action: "inspect",
+			message: expect.stringContaining("No pixels"),
+		});
+		expect(set.getToolCalls()[1]).toMatchObject({
+			candidates: [],
+			metadata: {
+				action: "inspect",
+				queuedCount: 0,
+				requestedCount: 1,
+				reasonCode: "inspection_unavailable",
+			},
+		});
+		const later = createNormalChatTools({ ...context, turnId: "turn-2" });
+		await later.tools.image_search.execute(inspect, {
+			...options,
+			toolCallId: "inspect-2",
+		});
+		expect(later.getToolCalls()[0]?.metadata?.reasonCode).toBe(
+			"inspection_unknown_result",
+		);
+		expect(searchImagesMock).toHaveBeenCalledTimes(1);
+		expect(recordParallelUsageMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("records new tool service failures without evidence-ready candidates", async () => {
@@ -3715,6 +3993,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 		});
 
 		await expect(
@@ -3766,6 +4045,9 @@ describe("createNormalChatTools", () => {
 					ok: false,
 					evidenceReady: false,
 					error: "memory unavailable",
+					// Any failure of the lookup that is not a scope refusal, a timeout
+					// or a Stop reads "memory couldn't be read".
+					reasonCode: "memory_unavailable",
 				},
 			}),
 			expect.objectContaining({
@@ -3782,6 +4064,109 @@ describe("createNormalChatTools", () => {
 		]);
 	});
 
+	// The picture search's rows say what happened from a code on the entry's
+	// metadata, beside the payload the model reads (which is what it always was).
+	describe("image_search names what happened", () => {
+		function imageTools() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+		}
+		function search(set: ReturnType<typeof imageTools>) {
+			return set.tools.image_search.execute(
+				{ query: "reference image" },
+				{ toolCallId: "call-image", messages: [] },
+			);
+		}
+
+		it("names a search that was never set up", async () => {
+			searchImagesMock.mockRejectedValueOnce(
+				new ImageSearchNotConfiguredError(),
+			);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: false,
+				error: "PARALLEL_API_KEY is not configured",
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.outputSummary).toBe("PARALLEL_API_KEY is not configured");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "not_set_up",
+			});
+		});
+
+		it("names a search the provider refused (its plan ran out)", async () => {
+			const message = "Parallel image search failed: 402";
+			searchImagesMock.mockRejectedValueOnce(
+				new ParallelApiError(message, 402),
+			);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: false,
+				error: message,
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.outputSummary).toBe(message);
+			expect(recordParallelUsageMock).not.toHaveBeenCalled();
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "search_unavailable",
+			});
+		});
+
+		it("names a search that found nothing: still a success, with the payload it always had", async () => {
+			searchImagesMock.mockResolvedValueOnce([]);
+			const set = imageTools();
+
+			await expect(search(set)).resolves.toEqual({
+				success: true,
+				name: "image_search",
+				sourceType: "web",
+				message: "Found 0 images",
+			});
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.status).toBe("done");
+			expect(entry?.outputSummary).toBe("Found 0 images.");
+			expect(recordParallelUsageMock).toHaveBeenCalledExactlyOnceWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "image_search",
+			});
+			expect(entry?.metadata).toMatchObject({
+				ok: true,
+				resultCount: 0,
+				reasonCode: "nothing_found",
+			});
+		});
+
+		it("names nothing for a search that found pictures", async () => {
+			searchImagesMock.mockResolvedValueOnce([
+				{
+					url: "https://pics.example/cat.jpg",
+					title: "Cat",
+					source: "pics.example",
+					provider: "parallel",
+					sourcePageUrl: "https://pics.example/cats",
+					thumbnail: "https://pics.example/cat.jpg",
+				},
+			]);
+			const set = imageTools();
+
+			await search(set);
+
+			const [entry] = set.getToolCalls();
+			expect(entry?.metadata).not.toHaveProperty("reasonCode");
+		});
+	});
+
 	it("tells the recorder that a failure of a tool that only reads is settled, so the turn goes on", async () => {
 		researchWebViaParallelMock.mockRejectedValueOnce(
 			new Error("research unavailable"),
@@ -3795,6 +4180,7 @@ describe("createNormalChatTools", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 			recorder,
 		});
 
@@ -3851,6 +4237,8 @@ describe("createNormalChatTools", () => {
 						ok: false,
 						evidenceReady: false,
 						error: "research_web timed out after 60000ms",
+						// The envelope names the tool's own time limit for its row.
+						reasonCode: "timed_out",
 					},
 				}),
 			]);
@@ -3926,6 +4314,106 @@ describe("createNormalChatTools", () => {
 				},
 			}),
 		]);
+	});
+
+	// Every account tool says why a call did not work from a reason code on its
+	// entry's metadata, read from the tag the tool put beside its payload before
+	// the envelope compacts the payload into a new object. What the model reads,
+	// the entry's outputSummary and its stored status are what they always were.
+	describe("the nine account tools name why a call did not work", () => {
+		const CALLS = [
+			["files", { action: "search", query: "x" }],
+			["calendar", { action: "list_events" }],
+			["email", { action: "recent" }],
+			["photos", { action: "search", query: "x" }],
+			["media", { action: "watch_history" }],
+			["location", { action: "last" }],
+			["contacts", { action: "lookup", query: "x" }],
+			["repos", { action: "list_repos" }],
+			["tasks", { action: "list_tasks" }],
+		] as const;
+
+		it.each(CALLS)("%s: not connected", async (name, input) => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set([
+					"files",
+					"calendar",
+					"email",
+					"photos",
+					"media",
+					"location",
+					"contacts",
+					"repos",
+					"tasks",
+				]),
+			});
+
+			const tool = tools[name] as unknown as {
+				execute: (
+					input: unknown,
+					options: { toolCallId: string; messages: never[] },
+				) => Promise<{ success: boolean; message: string }>;
+			};
+			const result = await tool.execute(input, {
+				toolCallId: `call-${name}`,
+				messages: [],
+			});
+
+			expect(result.success).toBe(false);
+			// The code is beside the payload, never in it.
+			expect(JSON.stringify(result)).not.toContain("reasonCode");
+			expect(JSON.stringify(result)).not.toContain("not_connected");
+			const [entry] = getToolCalls();
+			expect(entry?.name).toBe(name);
+			expect(entry?.status).toBe("done");
+			expect(entry?.outputSummary).toBe(result.message);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "not_connected",
+			});
+		});
+
+		it("names a call whose details the cloud model was not given", async () => {
+			const conn = makeNextcloudConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudReadFileMock.mockResolvedValue({
+				bytes: new TextEncoder().encode("Total owed: 4,120 EUR"),
+				etag: "etag-1",
+				contentType: "text/plain",
+				mtime: null,
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			const { distillConnectorPayload } = await import(
+				"$lib/server/services/connections/locality"
+			);
+			vi.mocked(distillConnectorPayload).mockResolvedValue({
+				unavailable: true,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				modelId: "provider:cloud:chat",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+			const result = await tools.files?.execute?.(
+				{ action: "read", path: "/Documents/taxes.txt" },
+				{ toolCallId: "call-files-withheld", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: true });
+			expect(JSON.stringify(result)).not.toContain("4,120");
+			expect(JSON.stringify(result)).not.toContain("details_withheld");
+			const [entry] = getToolCalls();
+			expect(entry?.metadata).toMatchObject({ reasonCode: "details_withheld" });
+		});
 	});
 
 	describe("files tool gating", () => {
@@ -4771,31 +5259,31 @@ describe("createNormalChatTools", () => {
 				confirmSubstring: "propos",
 				enableSubstring: "enabled writes",
 			},
-		])("$tool description mentions its write action, confirm-required proposal, and enable-writes gating", ({
-			tool,
-			writeSubstring,
-			confirmSubstring,
-			enableSubstring,
-		}) => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-				enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
-			});
+		])(
+			"$tool description mentions its write action, confirm-required proposal, and enable-writes gating",
+			({ tool, writeSubstring, confirmSubstring, enableSubstring }) => {
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+					enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
+				});
 
-			const description = (
-				tools as unknown as Record<string, { description: string }>
-			)[tool].description;
+				const description = (
+					tools as unknown as Record<string, { description: string }>
+				)[tool].description;
 
-			expect(description.toLowerCase()).toContain(writeSubstring.toLowerCase());
-			expect(description.toLowerCase()).toContain(
-				confirmSubstring.toLowerCase(),
-			);
-			expect(description.toLowerCase()).toContain(
-				enableSubstring.toLowerCase(),
-			);
-		});
+				expect(description.toLowerCase()).toContain(
+					writeSubstring.toLowerCase(),
+				);
+				expect(description.toLowerCase()).toContain(
+					confirmSubstring.toLowerCase(),
+				);
+				expect(description.toLowerCase()).toContain(
+					enableSubstring.toLowerCase(),
+				);
+			},
+		);
 
 		it("email description warns a sent email cannot be unsent ", () => {
 			const { tools } = createNormalChatTools({
@@ -4850,7 +5338,13 @@ describe("createNormalChatTools", () => {
 			research_web: ["objective", "searchQueries", "[title](url)"],
 			fetch_url: ["objective", "[title](url)"],
 			memory_context: ["`persona`", "`history`", "`project`", "conversationId"],
-			image_search: ["![alt text](url)", "invisible"],
+			image_search: [
+				"For recipes",
+				"key stage",
+				"facts alone",
+				"![alt text](url)",
+				"invisible",
+			],
 			produce_file: ["patches", "read_generated_file", "requestTitle"],
 		};
 
@@ -4860,24 +5354,25 @@ describe("createNormalChatTools", () => {
 					keyof typeof USAGE_RULE_FRAGMENTS
 				>
 			).map((toolName) => ({ toolName })),
-		)("$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour)", ({
-			toolName,
-		}) => {
-			const { tools } = createNormalChatTools({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				turnId: "turn-1",
-			});
-			const description = requireTool(
-				(tools as Record<string, { description: string } | undefined>)[
-					toolName
-				],
-			).description;
+		)(
+			"$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour)",
+			({ toolName }) => {
+				const { tools } = createNormalChatTools({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					turnId: "turn-1",
+				});
+				const description = requireTool(
+					(tools as Record<string, { description: string } | undefined>)[
+						toolName
+					],
+				).description;
 
-			for (const fragment of USAGE_RULE_FRAGMENTS[toolName]) {
-				expect(description).toContain(fragment);
-			}
-		});
+				for (const fragment of USAGE_RULE_FRAGMENTS[toolName]) {
+					expect(description).toContain(fragment);
+				}
+			},
+		);
 
 		it("image_search carries the markdown-embed-or-invisible rule at real length (not ~6 words)", () => {
 			const { tools } = createNormalChatTools({
@@ -4919,7 +5414,12 @@ describe("createNormalChatTools", () => {
 // throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
 // exactly the "an id this conversation does not have" case.
 describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
-	function artifactTools(overrides: { requestText?: string } = {}) {
+	function artifactTools(
+		overrides: {
+			requestText?: string;
+			recorder?: ReturnType<typeof createToolCallRecorder>;
+		} = {},
+	) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
@@ -5251,6 +5751,156 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 			await pending;
 
 			expect(observedAborted).toBe(true);
+		});
+	});
+
+	// A call that did not work names why from the tool's closed list of reasons, on
+	// the entry's metadata: the model reads what it always read.
+	describe("names why a call did not work", () => {
+		it("names the call past the per-turn cap reply_limit_reached, and only that one", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+			const { tools, getToolCalls } = artifactTools();
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				);
+			}
+
+			const over = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "One too many", body: "content" },
+				{ toolCallId: "call-over", messages: [] },
+			);
+
+			expect(over).toMatchObject({ success: false });
+			expect(JSON.stringify(over)).not.toContain("reply_limit_reached");
+			const entry = getToolCalls().find((item) => item.callId === "call-over");
+			expect(entry?.status).toBe("done");
+			// The refusal's card names the kind and the item it was for, as the
+			// handlers' own refusals do: in the metadata, never in the payload.
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "reply_limit_reached",
+				artifactKind: "document",
+				artifactTitle: "One too many",
+			});
+			expect(JSON.stringify(over)).not.toContain("artifactKind");
+			expect(
+				getToolCalls().filter((item) => item.metadata?.reasonCode),
+			).toHaveLength(1);
+		});
+
+		it("records a create call whose input did not fit, so its row can say the call was adjusted, and the history digest stays what it was", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "x".repeat(201), body: "b" },
+				{ toolCallId: "call-bad-create", messages: [] },
+			);
+
+			expect(result).toEqual({ success: false, error: expect.any(String) });
+			expect(JSON.stringify(result)).not.toContain("request_adjusted");
+			const entries = getToolCalls();
+			expect(entries).toHaveLength(1);
+			const [entry] = entries;
+			expect(entry).toEqual({
+				callId: "call-bad-create",
+				name: "create_artifact",
+				input: {},
+				status: "done",
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			// No summary, no digest and no candidates: the digest a later turn replays
+			// is the "Completed." of a call that left no entry.
+			expect(buildHistoryToolDigest(entry)).toEqual(
+				buildHistoryToolDigest({ status: "done" }),
+			);
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("holds a call whose input did not fit as a refusal before the tool ran: nothing ran, so the turn goes on", async () => {
+			// A call with no row is `uncertain` and the engine ends the turn at it, and
+			// the row it records for the tool row's sake says only "done": the call says
+			// what it is, a proven non-execution, bound to the payload the model is
+			// answered with (2026-11-19, the owner: "Yes, fix it here").
+			const recorder = createToolCallRecorder();
+			const { tools } = artifactTools({ recorder });
+
+			const create = await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "x".repeat(201), body: "b" },
+				{ toolCallId: "call-bad-create-fact", messages: [] },
+			);
+			const edit = await tools.edit_artifact.execute?.(
+				{
+					artifactId: "unseeded-id",
+					ops: Array.from({ length: 41 }, () => ({})),
+				},
+				{ toolCallId: "call-bad-edit-fact", messages: [] },
+			);
+
+			expect(create).toEqual({ success: false, error: expect.any(String) });
+			expect(edit).toEqual({ success: false, error: expect.any(String) });
+			expect(recorder.getExecutionCertainty?.(create)).toBe(
+				"definitely_not_executed",
+			);
+			expect(recorder.getExecutionCertainty?.(edit)).toBe(
+				"definitely_not_executed",
+			);
+		});
+
+		it("records an edit call whose input did not fit, likewise", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.edit_artifact.execute?.(
+				{
+					artifactId: "unseeded-id",
+					ops: Array.from({ length: 41 }, () => ({})),
+				},
+				{ toolCallId: "call-bad-edit", messages: [] },
+			);
+
+			expect(result).toEqual({ success: false, error: expect.any(String) });
+			expect(JSON.stringify(result)).not.toContain("request_adjusted");
+			const [entry] = getToolCalls();
+			expect(getToolCalls()).toHaveLength(1);
+			expect(entry).toEqual({
+				callId: "call-bad-edit",
+				name: "edit_artifact",
+				input: {},
+				status: "done",
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("names an edit that sent patches and ops together request_adjusted, through the real tool", async () => {
+			const { tools, getToolCalls } = artifactTools();
+
+			const result = await tools.edit_artifact.execute?.(
+				{ artifactId: "unseeded-id", patches: [{}], ops: [{}] },
+				{ toolCallId: "call-both", messages: [] },
+			);
+
+			expect(result).toEqual({
+				success: false,
+				error: "Send patches or ops, never both in the same call.",
+			});
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "request_adjusted",
+			});
 		});
 	});
 
@@ -6386,6 +7036,145 @@ describe("read_generated_file tool — what a call records it read", () => {
 		expect(entry.metadata).toMatchObject({ ok: false, found: false });
 		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
 	});
+
+	describe("names why a read found nothing", () => {
+		it("names a file that was not found, and the payload says what it always said", async () => {
+			readGeneratedFileForToolMock.mockResolvedValue({
+				result: readResult({
+					contentText: null,
+					notFound: true,
+					source: null,
+					conversation: null,
+				}),
+				readArtifactId: null,
+			});
+			const { execute, getToolCalls } = readTool();
+
+			const payload = await execute("call-miss-reason");
+
+			expect(payload).toMatchObject({
+				found: false,
+				error:
+					"No file matching the requested filename or title was found in this conversation or the user's documents.",
+			});
+			expect(JSON.stringify(payload)).not.toContain("file_not_found");
+			const [entry] = getToolCalls();
+			expect(entry.status).toBe("done");
+			expect(entry.metadata).toMatchObject({
+				ok: false,
+				found: false,
+				reasonCode: "file_not_found",
+			});
+		});
+
+		it("names several files that match ambiguous, and the payload says what it always said", async () => {
+			readGeneratedFileForToolMock.mockResolvedValue({
+				result: readResult({
+					contentText: null,
+					ambiguous: true,
+					source: null,
+					conversation: null,
+				}),
+				readArtifactId: null,
+			});
+			const { execute, getToolCalls } = readTool();
+
+			const payload = await execute("call-ambiguous-reason");
+
+			expect(payload).toMatchObject({
+				found: false,
+				ambiguous: true,
+				error:
+					"Several files match; call again with one exact filename from candidates.",
+			});
+			expect(JSON.stringify(payload)).not.toContain('"ambiguous":"ambiguous"');
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				ok: false,
+				found: false,
+				ambiguous: true,
+				reasonCode: "ambiguous",
+			});
+		});
+
+		it("names nothing for a file that was read", async () => {
+			readGeneratedFileForToolMock.mockResolvedValue({
+				result: readResult(),
+				readArtifactId: READ_ID,
+			});
+			const { execute, getToolCalls } = readTool();
+
+			await execute("call-found-reason");
+
+			expect(getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it("records a call whose input did not fit, so its row can say the call was adjusted, and the history digest stays what it was", async () => {
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			// An empty `query` is the kind of input the schema turns down.
+			const payload = await tools.read_generated_file.execute(
+				{ query: "" } as never,
+				{ toolCallId: "call-bad-input", messages: [] },
+			);
+
+			// The model still gets the one-line schema message, as before.
+			expect(payload).toEqual({ found: false, error: expect.any(String) });
+			expect(JSON.stringify(payload)).not.toContain("request_adjusted");
+			expect(readGeneratedFileForToolMock).not.toHaveBeenCalled();
+
+			// The call recorded no entry before. Its entry has no summary, no digest
+			// and no candidates, so the digest a later turn replays is still
+			// "Completed.", with `ok` true, exactly as for a call that left no entry.
+			const entries = getToolCalls();
+			expect(entries).toHaveLength(1);
+			const [entry] = entries;
+			expect(entry).toEqual({
+				callId: "call-bad-input",
+				name: "read_generated_file",
+				input: {},
+				status: "done",
+				// The recorder files a missing summary as null; there is no digest.
+				outputSummary: null,
+				metadata: { ok: false, reasonCode: "request_adjusted" },
+			});
+			expect(entry).not.toHaveProperty("resultDigest");
+			expect(entry).not.toHaveProperty("candidates");
+			expect(buildHistoryToolDigest(entry)).toEqual(
+				buildHistoryToolDigest({ status: "done" }),
+			);
+			expect(buildHistoryToolDigest(entry)).toEqual({
+				ok: true,
+				summary: "Completed.",
+			});
+		});
+
+		it("holds a call whose input did not fit as a refusal before the tool ran: nothing ran, so the turn goes on", async () => {
+			const recorder = createToolCallRecorder();
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				recorder,
+			});
+
+			const payload = await tools.read_generated_file.execute(
+				{ query: "" } as never,
+				{ toolCallId: "call-bad-input-fact", messages: [] },
+			);
+
+			expect(payload).toEqual({ found: false, error: expect.any(String) });
+			// The engine ends a turn at its first uncertain call, and the row says only
+			// "done": the fact that nothing ran is recorded beside it, for this very
+			// payload.
+			expect(recorder.getExecutionCertainty?.(payload)).toBe(
+				"definitely_not_executed",
+			);
+		});
+	});
 });
 
 // With `includeAttachments`, memory_context hands the model the full text of
@@ -6447,6 +7236,7 @@ describe("memory_context tool — what a call records it read", () => {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			requestText: "Search my old chats for the decision.",
 		});
 		const payload = await tools.memory_context.execute(
 			{
@@ -6490,9 +7280,556 @@ describe("memory_context tool — what a call records it read", () => {
 	});
 });
 
+// A memory lookup's row says what happened from a reason code on the entry's
+// metadata, beside the payload the model reads (which is what it always was).
+describe("memory_context names what happened", () => {
+	beforeEach(() => {
+		getMemoryContextMock.mockReset();
+		resetToolResultCacheForTests();
+	});
+
+	const audit = { conversationId: "conversation-1", query: "" };
+
+	function personaResult(
+		overrides: Partial<PersonaMemoryContextResult> = {},
+	): PersonaMemoryContextResult {
+		return {
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "active_memory_profile",
+			content: "Likes trains.",
+			evidenceCandidates: [],
+			audit,
+			...overrides,
+		};
+	}
+
+	function historyOf(
+		overrides: Partial<HistoryMemoryContextResult> = {},
+	): HistoryMemoryContextResult {
+		return {
+			success: true,
+			mode: "history",
+			status: "available",
+			source: "conversation_summaries",
+			query: "vienna",
+			conversations: [],
+			omittedConversationCount: 0,
+			selectedConversation: null,
+			evidenceCandidates: [],
+			audit: {
+				...audit,
+				requestedMaxHistoryConversations: null,
+				appliedMaxHistoryConversations: 5,
+				historyConversationId: null,
+				requestedMaxMessages: null,
+				appliedMaxMessages: 10,
+			},
+			...overrides,
+		};
+	}
+
+	function projectOf(hasProjectContext: boolean): ProjectMemoryContextResult {
+		return {
+			success: true,
+			mode: "project",
+			projectMode: "summary",
+			hasProjectContext,
+			source: "none",
+			project: null,
+			siblings: [],
+			omittedSiblingCount: 0,
+			evidenceCandidates: [],
+			audit: {
+				...audit,
+				scope: "conversation",
+				requestedMaxSiblings: null,
+				appliedMaxSiblings: 8,
+				includeEvidenceCandidates: true,
+			},
+		};
+	}
+
+	async function recall(
+		input: Parameters<
+			NonNullable<
+				ReturnType<
+					typeof createNormalChatTools
+				>["tools"]["memory_context"]["execute"]
+			>
+		>[0] = {},
+		options: {
+			abortSignal?: AbortSignal;
+			requestText?: string;
+			resumeUserText?: string;
+		} = {},
+	) {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			requestText:
+				options.requestText ?? "Search my old chats for the decision.",
+			...(options.resumeUserText
+				? {
+						resumeProvenance: {
+							userTexts: [options.resumeUserText],
+							priorResults: [],
+						},
+					}
+				: {}),
+		});
+		const payload = await tools.memory_context.execute(input, {
+			toolCallId: "call-memory",
+			messages: [],
+			abortSignal: options.abortSignal,
+		});
+		return { payload, entry: getToolCalls()[0] };
+	}
+
+	it.each([
+		[
+			{ mode: "history" as const, query: "Search old chats about the lamp" },
+			"What kind of lamp do I prefer?",
+		],
+		[
+			{ mode: "history" as const, historyConversationId: "past" },
+			"Emlékszel a lámpámra?",
+		],
+		[
+			{ mode: "history" as const, selectedConversationId: "past" },
+			"Translate this: “Search our earlier chats for my lamp.”",
+		],
+		[
+			{
+				mode: "project" as const,
+				query: "Lamp project report",
+				siblingConversationId: "past",
+			},
+			"Write about the Lamp project.",
+		],
+	])(
+		"won’t reopen another chat using the tool arguments %#",
+		async (input, requestText) => {
+			getMemoryContextMock.mockResolvedValueOnce(historyOf());
+			const { payload, entry } = await recall(input, { requestText });
+			expect(getMemoryContextMock).not.toHaveBeenCalled();
+			expect(payload).toMatchObject({ success: false });
+			expect(entry?.metadata).toMatchObject({
+				reasonCode: "history_request_required",
+			});
+		},
+	);
+
+	it.each([
+		[
+			"What did I say about the lamp in a previous chat?",
+			{ mode: "history" as const },
+		],
+		[
+			"Mit mondtam a lámpáról egy korábbi beszélgetésben?",
+			{
+				mode: "history" as const,
+				historyConversationId: "returned-chat",
+			},
+		],
+		[
+			"Összefoglalnád a projekt korábbi beszélgetéseit?",
+			{ mode: "project" as const },
+		],
+	])(
+		"runs an explicitly requested lookup through the scoped Memory service for %s",
+		async (requestText, input) => {
+			getMemoryContextMock.mockResolvedValueOnce(
+				input.mode === "project" ? projectOf(true) : historyOf(),
+			);
+			const { payload } = await recall(input, { requestText });
+			expect(getMemoryContextMock).toHaveBeenCalledExactlyOnceWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				...input,
+			});
+			expect(payload).toMatchObject({ success: true, mode: input.mode });
+		},
+	);
+
+	it.each([
+		["Search my old chats for the lamp.", "Don’t look in the earlier chats."],
+		["What lamp do I prefer?", "Search my old chats for the lamp."],
+	])(
+		"does not expand past-chat permission on pause (%s / %s)",
+		async (requestText, resumeUserText) => {
+			getMemoryContextMock.mockResolvedValueOnce(historyOf());
+			const { entry } = await recall(
+				{ mode: "history" },
+				{ requestText, resumeUserText },
+			);
+			expect(getMemoryContextMock).not.toHaveBeenCalled();
+			expect(entry?.metadata).toMatchObject({
+				reasonCode: "history_request_required",
+			});
+		},
+	);
+
+	it("names a lookup that found nothing: persona, past chats and project alike", async () => {
+		getMemoryContextMock.mockResolvedValueOnce(
+			personaResult({ status: "empty", content: null }),
+		);
+		expect((await recall()).entry?.metadata).toMatchObject({
+			ok: true,
+			mode: "persona",
+			reasonCode: "nothing_found",
+		});
+
+		getMemoryContextMock.mockResolvedValueOnce(historyOf({ status: "empty" }));
+		expect((await recall({ mode: "history" })).entry?.metadata).toMatchObject({
+			mode: "history",
+			reasonCode: "nothing_found",
+		});
+
+		getMemoryContextMock.mockResolvedValueOnce(projectOf(false));
+		expect((await recall({ mode: "project" })).entry?.metadata).toMatchObject({
+			mode: "project",
+			reasonCode: "nothing_found",
+		});
+	});
+
+	it.each([
+		"Please search our past chats for the conversation titled Earlier synthetic blue touring kayak discussion. What name did I give it at the time?",
+		"Keresd meg a korábbi beszélgetéseinkben az Earlier synthetic blue touring kayak discussion című chatet. Milyen nevet mondtam akkor a kajakomra?",
+	])(
+		"attaches the authored title and historical attribution for %s",
+		async (requestText) => {
+			getMemoryContextMock.mockResolvedValueOnce(historyOf());
+			const { payload } = await recall(
+				{ mode: "history", query: "blue touring kayak name" },
+				{ requestText },
+			);
+			expect(getMemoryContextMock).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				mode: "history",
+				query: "blue touring kayak name",
+				authoredHistoryTitle: "Earlier synthetic blue touring kayak discussion",
+			});
+			expect(payload).toMatchObject({
+				evidenceScope: "past_chat_only",
+				attribution: expect.stringContaining(
+					"cannot establish what is true now",
+				),
+			});
+		},
+	);
+
+	it("names nothing for a lookup that found something", async () => {
+		getMemoryContextMock.mockResolvedValueOnce(personaResult());
+		expect((await recall()).entry?.metadata).not.toHaveProperty("reasonCode");
+		getMemoryContextMock.mockResolvedValueOnce(historyOf());
+		expect(
+			(await recall({ mode: "history" })).entry?.metadata,
+		).not.toHaveProperty("reasonCode");
+		getMemoryContextMock.mockResolvedValueOnce(projectOf(true));
+		expect(
+			(await recall({ mode: "project" })).entry?.metadata,
+		).not.toHaveProperty("reasonCode");
+	});
+
+	it("names a persona read that could not be done, and the payload is what it was", async () => {
+		const failed = personaResult({
+			status: "error",
+			content: null,
+			error: "projection offline",
+		});
+		getMemoryContextMock.mockResolvedValueOnce(failed);
+
+		const { payload, entry } = await recall();
+
+		expect(payload).toMatchObject({ status: "error", mode: "persona" });
+		expect(entry?.outputSummary).toBe("Persona memory status: error");
+		expect(entry?.metadata).toMatchObject({
+			status: "error",
+			reasonCode: "memory_unavailable",
+		});
+	});
+
+	it("names a lookup memory being off turned into an inert empty result, and the payload is what it was", async () => {
+		const inert = withReasonCode(
+			personaResult({ status: "empty", content: null }),
+			"memory_off",
+		);
+		const plain = personaResult({ status: "empty", content: null });
+		getMemoryContextMock.mockResolvedValueOnce(inert);
+		const off = await recall();
+		getMemoryContextMock.mockResolvedValueOnce(plain);
+		const empty = await recall();
+
+		expect(off.payload).toEqual(empty.payload);
+		expect(off.entry?.outputSummary).toBe(empty.entry?.outputSummary);
+		expect(off.entry?.metadata).toMatchObject({ reasonCode: "memory_off" });
+		// The same empty result of a person whose memory is on is a plain "nothing found".
+		expect(empty.entry?.metadata).toMatchObject({
+			reasonCode: "nothing_found",
+		});
+	});
+
+	it("names a chat Alfy may not look into, on purpose", async () => {
+		getMemoryContextMock.mockRejectedValueOnce(
+			new ToolCallRefusedError(
+				"historyConversationId is outside memory_context history scope",
+			),
+		);
+
+		const { payload, entry } = await recall({
+			mode: "history",
+			historyConversationId: "someone-elses",
+		});
+
+		expect(payload).toEqual({
+			success: false,
+			error: "historyConversationId is outside memory_context history scope",
+		});
+		expect(entry?.outputSummary).toBe(
+			"historyConversationId is outside memory_context history scope",
+		);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "chat_out_of_reach",
+		});
+	});
+
+	it("names any other failure of the lookup memory_unavailable, a bad mode included", async () => {
+		getMemoryContextMock.mockRejectedValueOnce(
+			new Error("Unsupported memory_context mode: bogus"),
+		);
+		const bad = await recall({ mode: "persona" });
+		expect(bad.payload).toEqual({
+			success: false,
+			error: "Unsupported memory_context mode: bogus",
+		});
+		expect(bad.entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "memory_unavailable",
+		});
+
+		getMemoryContextMock.mockRejectedValueOnce(new Error("database is locked"));
+		expect((await recall()).entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "memory_unavailable",
+		});
+	});
+
+	it("leaves a Stop, the deadline and the tool's own time limit to the envelope's codes", async () => {
+		// A call that begins on a signal already aborted throws before it runs, so
+		// the lookup is never asked; the envelope names why.
+		const stopped = new AbortController();
+		stopped.abort(new UserStopReason());
+		expect(
+			(await recall({}, { abortSignal: stopped.signal })).entry?.metadata,
+		).toMatchObject({ reasonCode: "stopped" });
+
+		const late = new AbortController();
+		late.abort(new TurnDeadlineReason());
+		expect(
+			(await recall({}, { abortSignal: late.signal })).entry?.metadata,
+		).toMatchObject({ reasonCode: "out_of_time" });
+		expect(getMemoryContextMock).not.toHaveBeenCalled();
+
+		getMemoryContextMock.mockRejectedValueOnce(
+			new Error("memory_context timed out after 15000ms"),
+		);
+		expect((await recall()).entry?.metadata).toMatchObject({
+			reasonCode: "timed_out",
+		});
+	});
+});
+
+// A call that did not work names why from map_route's closed list of reasons,
+// on the entry's metadata; the model reads what it always read.
+describe("map_route tool names why a call did not work", () => {
+	const ORS_CONFIG = {
+		parallelApiKey: "parallel-key",
+		parallelBaseUrl: "https://api.parallel.ai",
+		orsBaseUrl: "http://127.0.0.1:8080/ors",
+		geocoderBaseUrl: "http://127.0.0.1:2322",
+		model1MaxModelContext: 64_000,
+		model2MaxModelContext: 200_000,
+	} as unknown as ReturnType<typeof getConfig>;
+
+	afterEach(() => {
+		getConfigMock.mockReset();
+		vi.unstubAllGlobals();
+	});
+
+	function routeTools() {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+	}
+
+	it("names a place that did not resolve, with the words that did not", async () => {
+		getConfigMock.mockReturnValue(ORS_CONFIG);
+		// A geocoder that answers, with nothing for the place.
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response("[]", {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+			),
+		);
+		const { tools, getToolCalls } = routeTools();
+
+		const result = await requireTool(tools.map_route).execute(
+			{
+				action: "route",
+				origin: "Atlantis",
+				destination: { lat: 48.85, lng: 2.35 },
+			},
+			{ toolCallId: "call-route-place", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			success: false,
+			message: 'I couldn\'t find a place matching "Atlantis".',
+		});
+		expect(JSON.stringify(result)).not.toContain("place_not_found");
+		const [entry] = getToolCalls();
+		expect(entry?.status).toBe("done");
+		expect(entry?.outputSummary).toBe(
+			'I couldn\'t find a place matching "Atlantis".',
+		);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "place_not_found",
+			reasonPlace: "Atlantis",
+		});
+	});
+
+	it("names a server with no geocoder not_set_up, and says no place", async () => {
+		getConfigMock.mockReturnValue({ ...ORS_CONFIG, geocoderBaseUrl: "" });
+		const { tools, getToolCalls } = routeTools();
+
+		const result = await requireTool(tools.map_route).execute(
+			{ action: "geocode", query: "Berlin" },
+			{ toolCallId: "call-route-geocoder-off", messages: [] },
+		);
+
+		expect(result).toMatchObject({ success: false });
+		expect(JSON.stringify(result)).not.toContain("not_set_up");
+		const metadata = getToolCalls()[0]?.metadata;
+		expect(metadata).toMatchObject({ ok: false, reasonCode: "not_set_up" });
+		expect(metadata).not.toHaveProperty("reasonPlace");
+	});
+
+	it("names a call the model left something out of request_adjusted", async () => {
+		getConfigMock.mockReturnValue(ORS_CONFIG);
+		const { tools, getToolCalls } = routeTools();
+
+		await requireTool(tools.map_route).execute(
+			{ action: "route", origin: { lat: 1, lng: 2 } },
+			{ toolCallId: "call-route-missing", messages: [] },
+		);
+
+		expect(getToolCalls()[0]?.metadata).toMatchObject({
+			ok: false,
+			reasonCode: "request_adjusted",
+		});
+	});
+
+	it("names no code for a route call that threw, so the row says the route's own fallback", async () => {
+		let armed = false;
+		getConfigMock.mockImplementation(() => {
+			if (armed) throw new Error("config store is down");
+			return ORS_CONFIG;
+		});
+		const { tools, getToolCalls } = routeTools();
+		armed = true;
+
+		const result = await requireTool(tools.map_route).execute(
+			{ action: "geocode", query: "Berlin" },
+			{ toolCallId: "call-route-threw", messages: [] },
+		);
+
+		expect(result).toMatchObject({ success: false });
+		// An error thrown on the way carries no cause the app can name: only the
+		// provider saying so (`provider_error`) is "the route service didn't answer".
+		// The row falls back to "The route couldn't be planned."
+		expect(getToolCalls()[0]?.metadata).toMatchObject({ ok: false });
+		expect(getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
+	});
+});
+
 describe("use_skill tool", () => {
 	beforeEach(() => {
 		resolveSkillInstructionsForUseMock.mockReset();
+	});
+
+	it.each([
+		[
+			"not_found",
+			"skill_not_found",
+			'No skill named "Plan Critic" was found. Only call use_skill with a name from "## Skills available".',
+		],
+		[
+			"disabled",
+			"skill_turned_off",
+			'Skill "Plan Critic" is not currently enabled.',
+		],
+	] as const)(
+		"names a lookup that failed as %s %s on the entry, and the payload says what it always said",
+		async (reason, code, error) => {
+			resolveSkillInstructionsForUseMock.mockResolvedValue({
+				ok: false,
+				reason,
+			});
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await tools.use_skill.execute(
+				{ name: "Plan Critic" },
+				{ toolCallId: "tool-call-skill-reason", messages: [] },
+			);
+
+			expect(result).toEqual({ found: false, error });
+			expect(JSON.stringify(result)).not.toContain(code);
+			const [entry] = getToolCalls();
+			expect(entry?.outputSummary).toBe(error);
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				found: false,
+				reasonCode: code,
+			});
+		},
+	);
+
+	it("names nothing for a skill that loaded", async () => {
+		resolveSkillInstructionsForUseMock.mockResolvedValue({
+			ok: true,
+			skillId: "system:grill-with-docs",
+			skillOwnership: "system",
+			skillKind: "skill_pack",
+			displayName: "Plan Critic",
+			envelope: "Skill instructions.",
+		});
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.use_skill.execute(
+			{ name: "Plan Critic" },
+			{ toolCallId: "tool-call-skill-ok", messages: [] },
+		);
+
+		expect(getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
 	});
 
 	it("names the real catalogue heading", () => {
@@ -6756,6 +8093,66 @@ describe("suggest_instruction tool", () => {
 		});
 	});
 
+	it("names each refusal on the entry with the reason the model was told, and an offer with nothing", async () => {
+		const { tools, getToolCalls } = buildTools();
+		const call = (text: string, id: string) =>
+			tools.suggest_instruction.execute(
+				{ text },
+				{ toolCallId: id, messages: [] },
+			);
+
+		const empty = await call("   ", "tool-call-suggest-r1");
+		const tooLong = await call(
+			"a".repeat(INSTRUCTIONS_MAX_CHARS + 1),
+			"tool-call-suggest-r2",
+		);
+		await call("Be brief.", "tool-call-suggest-r3");
+		const again = await call("Be shorter.", "tool-call-suggest-r4");
+
+		// What the model was told is as it was: its `reason` is the same word.
+		expect(empty).toMatchObject({ reason: "empty_text" });
+		expect(tooLong).toMatchObject({ reason: "text_too_long" });
+		expect(again).toMatchObject({ reason: "already_offered" });
+		for (const payload of [empty, tooLong, again]) {
+			expect(JSON.stringify(payload)).not.toContain("reasonCode");
+		}
+		const entries = getToolCalls();
+		expect(entries.map((entry) => entry.metadata?.reasonCode)).toEqual([
+			"empty_text",
+			"text_too_long",
+			undefined,
+			"already_offered",
+		]);
+		expect(entries.map((entry) => entry.metadata?.reason)).toEqual([
+			"empty_text",
+			"text_too_long",
+			undefined,
+			"already_offered",
+		]);
+		expect(entries[2]?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names no code for a failure of the tool itself", async () => {
+		getConversationProjectIdMock.mockRejectedValueOnce(
+			new Error("database is locked"),
+		);
+		const { tools, getToolCalls } = buildTools();
+
+		const result = await tools.suggest_instruction.execute(
+			{ text: "Only suggest trains.", scope: "project" },
+			{ toolCallId: "tool-call-suggest-r5", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: false,
+			offered: false,
+			errorCode: "suggest_instruction_failed",
+		});
+		const [entry] = getToolCalls();
+		expect(entry?.status).toBe("failed");
+		expect(entry?.metadata).not.toHaveProperty("reasonCode");
+	});
+
 	it("describes the offer the user will see, and that nothing is saved until they look", () => {
 		const { tools } = createNormalChatTools({
 			userId: "user-1",
@@ -6878,24 +8275,33 @@ describe("shouldForceProduceFileTool", () => {
 		"Summarize this in chat, no file needed.",
 		"Tell me whether a spreadsheet would help.",
 		"Create a brief answer about quarterly planning.",
-	])("does not force file production for informational requests: %s", (message) => {
-		expect(shouldForceProduceFileTool(message)).toBe(false);
-	});
+	])(
+		"does not force file production for informational requests: %s",
+		(message) => {
+			expect(shouldForceProduceFileTool(message)).toBe(false);
+		},
+	);
 
 	it.each([
 		"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
 		"Create a PDF report from the current project folder.",
 		"Generate a DOCX using the uploaded documents.",
 		"Make a report based on our memory context.",
-	])("leaves tool choice automatic for context-dependent file requests: %s", (message) => {
-		expect(shouldForceProduceFileTool(message)).toBe(false);
-	});
+	])(
+		"leaves tool choice automatic for context-dependent file requests: %s",
+		(message) => {
+			expect(shouldForceProduceFileTool(message)).toBe(false);
+		},
+	);
 
 	it.each([
 		"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
 		"Create a PDF report from the current project folder.",
 		"Generate a DOCX using the uploaded documents.",
-	])("still recognizes context-dependent requests with explicit file targets: %s", (message) => {
-		expect(isProduceFileRequest(message)).toBe(true);
-	});
+	])(
+		"still recognizes context-dependent requests with explicit file targets: %s",
+		(message) => {
+			expect(isProduceFileRequest(message)).toBe(true);
+		},
+	);
 });

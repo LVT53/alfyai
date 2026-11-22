@@ -23,6 +23,7 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runEmailTool, sanitizeEmailToolInput } from "./email";
+import { reasonCodeOf } from "./shared";
 
 // These tests drive the tool's core directly, outside the envelope a real call
 // runs in, to look at what a summary does to the payload. The mark the envelope
@@ -174,6 +175,21 @@ describe("runEmailTool", () => {
 		expect(outcome.modelPayload.messages).toEqual([]);
 		expect(outcome.modelPayload.citations).toEqual([]);
 		expect(imapListRecentMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "email",
+				sourceType: "tool",
+				action: "recent",
+				message:
+					"You don't have an Email connection set up yet. Connect your mailbox in Settings to check your email.",
+				messages: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity but still executes against the first (sorted) connection", async () => {
@@ -236,6 +252,7 @@ describe("runEmailTool", () => {
 		expect(outcome.modelPayload.message).toContain("Alice Mail");
 		expect(outcome.modelPayload.message).toContain("Bob Mail");
 		expect(imapListRecentMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("recent: returns messages and citations with an empty (non-linking) url", async () => {
@@ -295,6 +312,7 @@ describe("runEmailTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("search query is required");
 		expect(imapSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("search: forwards the query and returns matching messages", async () => {
@@ -390,6 +408,7 @@ describe("runEmailTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("search query is required");
 		expect(imapSearchMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("A4 count: counts unread by default and reports the FULL number (not the list cap)", async () => {
@@ -467,6 +486,7 @@ describe("runEmailTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("read: requires a uid", async () => {
@@ -482,6 +502,7 @@ describe("runEmailTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("uid is required");
 		expect(imapReadMessageMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("read: returns the header and body text", async () => {
@@ -539,6 +560,7 @@ describe("runEmailTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
 	it("maps generic adapter failures to a graceful note without throwing", async () => {
@@ -554,6 +576,31 @@ describe("runEmailTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("couldn't reach your email");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("account_unreachable");
+	});
+
+	it("names a message that is not there, and a mailbox that is gone", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		imapReadMessageMock.mockRejectedValueOnce(
+			new ImapError("Message not found", "message_not_found"),
+		);
+		const missing = await runEmailTool(
+			"user-1",
+			{ action: "read", uid: 9 },
+			LOCAL_MODEL_ID,
+		);
+		expect(missing.modelPayload.message).toContain("couldn't be found");
+		expect(reasonCodeOf(missing.modelPayload)).toBe("item_not_found");
+
+		imapListRecentMock.mockRejectedValueOnce(
+			new ImapError("gone", "connection_not_found"),
+		);
+		const gone = await runEmailTool(
+			"user-1",
+			{ action: "recent" },
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(gone.modelPayload)).toBe("not_connected");
 	});
 });
 
@@ -665,6 +712,9 @@ describe("runEmailTool — locality Option A distillation gate", () => {
 				title: "Your lab results — follow up needed",
 			}),
 		]);
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(serializedPayload).not.toContain("details_withheld");
 	});
 
 	it("Option A on + cloud model, read action: the message body text is dropped from the model payload entirely", async () => {
@@ -762,6 +812,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(outcome.modelPayload.message).toContain("turned off");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 			expect(imapReadMessageMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 		});
 
 		it("requires to/subject/body", async () => {
@@ -779,6 +830,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 				"recipient, subject, and body",
 			);
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it("allowWrites=true: creates a PENDING row (never sends inline) and returns pendingWriteId + preview; the message states sending cannot be undone", async () => {
@@ -909,12 +961,54 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			// The user's own compose input this turn (to/subject/body) legitimately
 			// appears — Option A only ever gates connector-READ data.
 			expect(outcome.modelPayload.message).toContain("Following up");
+			// A summary a local model wrote is not a withheld one: no code for it
+			// (the envelope's localDistilled mark says it).
+			expect(reasonCodeOf(outcome.modelPayload)).toBeUndefined();
 			// The pending write itself still carries the real to/subject/body —
 			// those are the user's own compose input this turn, not redacted.
 			const call = createPendingWriteMock.mock.calls[0]?.[1];
 			expect(JSON.parse(call?.content ?? "{}")).toMatchObject({
 				subject: "Following up",
 			});
+		});
+
+		it("reply (uid given), Option A on + cloud + no summary: the details of the original are withheld, and the row says so beside the payload", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeWritableConn(),
+			]);
+			imapReadMessageMock.mockResolvedValue({
+				header: {
+					uid: 7,
+					from: "therapist@clinic.example",
+					subject: "Your therapy session recap — anxiety treatment plan",
+					date: "2026-07-01T00:00:00.000Z",
+					seen: true,
+				},
+				text: "irrelevant",
+				attachments: [],
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					uid: 7,
+					to: "therapist@clinic.example",
+					subject: "Following up",
+					body: "Thanks, see you then.",
+				},
+				"whichever-model",
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.message).toContain("were withheld");
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+			expect(JSON.stringify(outcome.modelPayload)).not.toContain(
+				"details_withheld",
+			);
 		});
 
 		it("payloadFingerprint: same subject+to but DIFFERENT bodies produce DIFFERENT idempotencyKeys (and Message-IDs), fixing the collision that would otherwise silently drop the second send", async () => {
@@ -999,6 +1093,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(outcome.modelPayload.message).toContain("turned off");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 			expect(imapReadMessageMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 		});
 
 		it("requires a uid", async () => {
@@ -1014,6 +1109,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("uid is required");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		it("allowWrites=true: reads the message header for the preview, creates a PENDING row (never moves the message inline)", async () => {
@@ -1083,6 +1179,38 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("couldn't be found");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("item_not_found");
+		});
+
+		it("Option A on + cloud + no summary: the details are withheld, and the row says so beside the payload", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeWritableConn(),
+			]);
+			imapReadMessageMock.mockResolvedValue({
+				header: {
+					uid: 5,
+					from: "clinic@example.com",
+					subject: "Your lab results are ready",
+					date: "2026-07-01T00:00:00.000Z",
+					seen: false,
+				},
+				text: "irrelevant",
+				attachments: [],
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "trash", uid: 5 },
+				"whichever-model",
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.message).toContain("were withheld");
+			expect(JSON.stringify(outcome.modelPayload)).not.toContain("lab results");
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
 		});
 
 		it("Option A on + cloud: the whole model-facing payload (message + preview) never contains the raw subject read off the connector; the DB row still does", async () => {
@@ -1154,6 +1282,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("request_adjusted");
 		});
 
 		const flaggedMessage = {
@@ -1232,6 +1361,33 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("couldn't be found");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("item_not_found");
+		});
+
+		it("Option A on + cloud + no summary: the details are withheld, and the row says so beside the payload", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeWritableConn(),
+			]);
+			imapReadMessageMock.mockResolvedValue({
+				...flaggedMessage,
+				header: {
+					...flaggedMessage.header,
+					subject: "Your lab results are ready",
+				},
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "flag", uid: 42, flag: "seen", value: true },
+				"whichever-model",
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+			expect(JSON.stringify(outcome.modelPayload)).not.toContain("lab results");
 		});
 
 		it("Option A on + cloud: the model-facing payload never names the message; the DB row does", async () => {

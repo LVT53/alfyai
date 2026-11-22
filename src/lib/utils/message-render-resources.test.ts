@@ -11,8 +11,7 @@ import {
 // calls has changed: the segment array is replaced by a refreshed copy of the
 // message, and a redraw of every block must follow a real change only.
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://saved-thumbnails.example/previews/pet";
 
 function toolCall(
 	name: string,
@@ -65,7 +64,11 @@ describe("messageRenderResourcesKey / messageRenderResourcesFromKey", () => {
 		const resources = messageRenderResourcesFromKey(key);
 
 		expect(resources?.toolImages).toEqual([
-			{ url: "https://example.com/cat.jpg", thumbnail: THUMB },
+			{
+				url: "https://example.com/cat.jpg",
+				thumbnail: "https://example.com/cat.jpg",
+				savedThumbnailUrl: THUMB,
+			},
 			{ url: "https://www.pets.example.org/dog.jpg", thumbnail: null },
 		]);
 		expect([...(resources?.toolSourceHosts ?? [])].sort()).toEqual([

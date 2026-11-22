@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { conversations, messages, projects } from "$lib/server/db/schema";
+import {
+	conversations,
+	memoryAccounts,
+	messages,
+	projects,
+} from "$lib/server/db/schema";
 import { normalizeInstructionText } from "$lib/shared/instructions";
+import { recordMemoryScopeMove } from "./memory-behavior-log";
+import { retireProjectMemory } from "./memory-profile/delivery-job";
 
 // Relocated out of the former src/lib/types.ts god-module
 // (architecture-deepening T1); this type carries no behavior change, only
@@ -399,7 +406,10 @@ export async function deleteProject(
 	userId: string,
 	projectId: string,
 ): Promise<boolean> {
-	return db.transaction((tx) => {
+	const owned = await getProject(userId, projectId);
+	if (!owned) return false;
+
+	return retireProjectMemory(userId, projectId, (tx) => {
 		const result = tx
 			.delete(projects)
 			.where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
@@ -408,7 +418,8 @@ export async function deleteProject(
 			return false;
 		}
 
-		tx.update(conversations)
+		const detached = tx
+			.update(conversations)
 			.set({ projectId: null })
 			.where(
 				and(
@@ -416,7 +427,26 @@ export async function deleteProject(
 					eq(conversations.userId, userId),
 				),
 			)
-			.run();
+			.returning({
+				id: conversations.id,
+				incognito: conversations.memoryIncognito,
+			})
+			.all();
+		const account = tx
+			.select({ epoch: memoryAccounts.epoch })
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		// History can be imported later even if this project never had a Memory bank.
+		for (const chat of detached)
+			if (!chat.incognito)
+				recordMemoryScopeMove(tx, {
+					userId,
+					conversationId: chat.id,
+					epoch: account?.epoch ?? 0,
+					from: `project:${projectId}`,
+					to: "personal",
+				});
 
 		return true;
 	});

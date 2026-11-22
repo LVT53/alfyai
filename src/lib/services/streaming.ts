@@ -769,6 +769,7 @@ export type StreamChatOptions = {
 	// for the plain (non-retry) request below; regenerate turns go through the
 	// retryAssistantMessageId branch instead.
 	isEditResend?: boolean;
+	editSourceMessageId?: string;
 	// Gap 2 — which retry-route caller this is (retry requests only; see
 	// $lib/chat-turn-origin.ts), so the server counts only a plain Regenerate
 	// as the "answer was wrong" signal.
@@ -811,6 +812,7 @@ export function streamChat(
 		reconnectToStreamId,
 		reconnectUserMessage,
 		isEditResend,
+		editSourceMessageId,
 		retryOrigin,
 		retryUserIntent,
 		questionAnswer,
@@ -1063,6 +1065,9 @@ export function streamChat(
 							reconnectToStreamId,
 							userMessage: reconnectUserMessage,
 							isEditResend: isEditResend === true ? true : undefined,
+							editSourceMessageId: isEditResend
+								? editSourceMessageId
+								: undefined,
 						});
 			const generation = captureSessionRequest();
 			const res = await fetch(url, {

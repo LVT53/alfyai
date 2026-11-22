@@ -40,6 +40,8 @@ import type {
 } from "$lib/shared/normal-chat-completion";
 import { compactNormalChatOutputEvents } from "$lib/shared/normal-chat-output";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
+import type { MemoryTurnAcceptance } from "../memory-profile/chat-delivery";
+import { deliverCompletedMemoryTurn } from "../memory-profile/chat-delivery";
 import { wasActiveChatStreamStopRequested } from "./active-streams";
 import type { AskResumeInput } from "./ask-capture";
 import {
@@ -203,6 +205,7 @@ export type FinalizeChatTurnParams = {
 	assistantMirrorContent: string;
 	maintenanceReason: RunPostTurnTasksParams["maintenanceReason"];
 	startedResetGeneration?: number;
+	memoryAcceptance?: MemoryTurnAcceptance | null;
 	toolCalls?: PersistAssistantEvidenceParams["toolCalls"];
 	contextTraceSections?: PersistAssistantEvidenceParams["contextTraceSections"];
 	webCitationAudit?: PersistAssistantEvidenceParams["webCitationAudit"];
@@ -219,6 +222,7 @@ export type FinalizeChatTurnParams = {
 	// "edit_resend" are recorded as activity_events rows alongside this turn's
 	// tool calls; omitted (the /api/chat/send path) means an ordinary send.
 	turnOrigin?: ChatTurnOrigin;
+	editSourceMessageId?: string;
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	// A reply that stopped to ask the person ("Ask me first", `ask_user`): the
@@ -715,6 +719,29 @@ export async function finalizeChatTurn(
 		createMessage,
 	);
 
+	if (
+		assistantMessage &&
+		params.serverSegments?.some(
+			(segment) =>
+				segment.type === "tool_call" && segment.name === "image_search",
+		)
+	) {
+		// Register the finalized selection before the browser learns the durable message id.
+		// A telemetry failure must never prevent delivery of the reply.
+		try {
+			const { recordReplyImages } = await import(
+				"../image-search-analytics/display"
+			);
+			await recordReplyImages(
+				assistantMessage.id,
+				params.assistantResponse,
+				params.serverSegments,
+			);
+		} catch {
+			console.warn("[ANALYTICS] Could not record inline image selection");
+		}
+	}
+
 	if (assistantMessage && params.generatedOutputReconciliation) {
 		await reconcilePendingWritesForAssistantMessage({
 			turnKind: params.turnKind,
@@ -1013,6 +1040,8 @@ export async function finalizeChatTurn(
 		if (!assistantMessage || !turnState) return Promise.resolve();
 		const runTask = () =>
 			runPostTurnTasks({
+				turnOrigin: params.turnOrigin,
+				editSourceMessageId: params.editSourceMessageId,
 				turnKind: params.turnKind,
 				userId: params.userId,
 				conversationId: params.conversationId,
@@ -1025,6 +1054,7 @@ export async function finalizeChatTurn(
 				workCapsule: turnState.workCapsule,
 				maintenanceReason: params.maintenanceReason,
 				startedResetGeneration: params.startedResetGeneration,
+				memoryAcceptance: params.memoryAcceptance,
 				skipAssistantProseMemoryIntake: params.skipAssistantProseMemoryIntake,
 				responseLanguage: params.responseLanguage,
 				// Fix 1 (data-loss race) — hand the in-flight evidence write to the
@@ -1041,6 +1071,25 @@ export async function finalizeChatTurn(
 		void evidenceTask;
 		return runTask();
 	};
+
+	// Persist only the native source + engine intent before acknowledging completion.
+	// Model extraction remains asynchronous; no native network request is made here.
+	if (
+		params.memoryAcceptance &&
+		shouldPersistTurnState &&
+		!params.skipAssistantProseMemoryIntake
+	) {
+		await deliverCompletedMemoryTurn({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			userMessageId: userMessage?.id,
+			assistantMessageId: assistantMessage?.id,
+			startedResetGeneration: params.startedResetGeneration,
+			memoryAcceptance: params.memoryAcceptance,
+			turnOrigin: params.turnOrigin,
+			editSourceMessageId: params.editSourceMessageId,
+		});
+	}
 
 	if (isStream) {
 		// Stream path: finalize owns scheduling the background projection

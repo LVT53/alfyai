@@ -661,6 +661,11 @@ export async function* runNormalChatCompletion(
 			snapshot.closingSegments.push(policy.segmentId);
 		}
 		const attemptId = `${policy.segmentId}:attempt:${snapshot.nextAttempt++}`;
+		if (params.stepImages) {
+			params.stepImages.visionAttempt = {
+				canSee: providerCanSeeImages(params.provider),
+			};
+		}
 		const toolsAllowed =
 			phase === "working" &&
 			(!policy.continuation || resumed || !hasToolOccurrence());

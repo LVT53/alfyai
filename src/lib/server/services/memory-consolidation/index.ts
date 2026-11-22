@@ -8,6 +8,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import { createIntervalJob } from "../interval-job";
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import { listPendingMemoryDirtyEntries } from "../memory-profile/dirty-ledger";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
@@ -173,7 +174,7 @@ export async function runUserMemoryConsolidation(
 	// Master memory toggle: a user who turned memory off gets no consolidation
 	// (no reorganization, no summary regeneration, no model spend).
 	const { isUserMemoryEnabled } = await import("../memory-controls");
-	if (!(await isUserMemoryEnabled(userId))) {
+	if (usesNativeMemory(userId) || !(await isUserMemoryEnabled(userId))) {
 		return { status: "skipped" };
 	}
 	if (await shouldSkipConsolidation(userId)) {

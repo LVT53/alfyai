@@ -1,0 +1,116 @@
+{
+  "strict": {
+    "passive": 32,
+    "tool": 37
+  },
+  "lenientEnglishConditional": {
+    "passive": 35,
+    "tool": 40
+  },
+  "total": 72,
+  "byCategory": {
+    "future_plan": {
+      "passive": 3,
+      "tool": 3,
+      "total": 6
+    },
+    "current_plan": {
+      "passive": 4,
+      "tool": 4,
+      "total": 6
+    },
+    "past_plan": {
+      "passive": 0,
+      "tool": 1,
+      "total": 6
+    },
+    "ownership": {
+      "passive": 0,
+      "tool": 0,
+      "total": 6
+    },
+    "fiction_attribution": {
+      "passive": 2,
+      "tool": 2,
+      "total": 6
+    },
+    "conditional_change": {
+      "passive": 0,
+      "tool": 0,
+      "total": 6
+    },
+    "project_preference": {
+      "passive": 6,
+      "tool": 6,
+      "total": 6
+    },
+    "project_continuity": {
+      "passive": 2,
+      "tool": 6,
+      "total": 6
+    },
+    "preference_correction": {
+      "passive": 0,
+      "tool": 0,
+      "total": 6
+    },
+    "personalization": {
+      "passive": 6,
+      "tool": 6,
+      "total": 6
+    },
+    "cross_project_personal_fact": {
+      "passive": 6,
+      "tool": 6,
+      "total": 6
+    },
+    "identity_continuity": {
+      "passive": 3,
+      "tool": 3,
+      "total": 6
+    }
+  },
+  "byProfile": {
+    "p01": {
+      "passive": 4,
+      "tool": 5
+    },
+    "p02": {
+      "passive": 6,
+      "tool": 7
+    },
+    "p03": {
+      "passive": 6,
+      "tool": 7
+    },
+    "p04": {
+      "passive": 6,
+      "tool": 6
+    },
+    "p05": {
+      "passive": 6,
+      "tool": 7
+    },
+    "p06": {
+      "passive": 4,
+      "tool": 5
+    }
+  },
+  "execution": {
+    "sessions": 102,
+    "questions": 72,
+    "answers": 144,
+    "unjudged": 0,
+    "errors": 0
+  },
+  "answerMetrics": {
+    "passive": {
+      "medianMs": 573.5,
+      "meanPromptTokens": 460.31944444444446
+    },
+    "tool": {
+      "medianMs": 602.5,
+      "meanPromptTokens": 1883.3194444444443
+    }
+  }
+}

@@ -79,7 +79,6 @@ describe("Environment Configuration", () => {
 		delete process.env.PARALLEL_API_KEY;
 		delete process.env.PARALLEL_BASE_URL;
 		delete process.env.PARALLEL_FREE_MONTHLY_USD;
-		delete process.env.BRAVE_SEARCH_API_KEY;
 		delete process.env.WEBHOOK_PORT;
 		delete process.env.REQUEST_TIMEOUT_MS;
 		delete process.env.MAX_MESSAGE_LENGTH;
@@ -109,7 +108,6 @@ describe("Environment Configuration", () => {
 		expect(config.parallelApiKey).toBe("");
 		expect(config.parallelBaseUrl).toBe("https://api.parallel.ai");
 		expect(config.parallelFreeMonthlyUsd).toBe(5);
-		expect(config.braveSearchApiKey).toBe("");
 		expect(config.requestTimeoutMs).toBe(300000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
@@ -319,7 +317,6 @@ describe("Environment Configuration", () => {
 		process.env.TEI_TIMEOUT_MS = "4000";
 		process.env.PARALLEL_API_KEY = "parallel-key";
 		process.env.PARALLEL_BASE_URL = "http://127.0.0.1:9999";
-		process.env.BRAVE_SEARCH_API_KEY = "brave-key";
 		process.env.REQUEST_TIMEOUT_MS = "5000";
 		process.env.MODEL_TIMEOUT_FAILOVER_ENABLED = "true";
 		process.env.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS = "2500";
@@ -356,7 +353,6 @@ describe("Environment Configuration", () => {
 		expect(config.teiTimeoutMs).toBe(4000);
 		expect(config.parallelApiKey).toBe("parallel-key");
 		expect(config.parallelBaseUrl).toBe("http://127.0.0.1:9999");
-		expect(config.braveSearchApiKey).toBe("brave-key");
 		expect(config.requestTimeoutMs).toBe(5000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(true);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(2500);

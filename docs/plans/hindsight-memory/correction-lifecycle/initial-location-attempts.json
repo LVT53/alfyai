@@ -1,0 +1,368 @@
+[
+  {
+    "request": {
+      "model": "qwen3-6-27b",
+      "temperature": 0,
+      "max_tokens": 5000,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts. Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves all untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace a whole fact with empty text only if ALL its information is targeted.\nThe user action is durable intent about the original statement, and must survive reprocessing of that statement. Removing an attribution also removes historical/former wording of that attribution. Keep a new owner, new unrelated details and explicit later life events. Match only the target person/object/project/relationship. Shared subjects may need a minimal subject replacement to retain the other person's fact. Never invent the opposite of a forgotten fact. Corrections change the original claim, not an explicitly new event. If an edited source changes the target to a third conflicting value without an explicit new event, remove only the disputed aspect (any value), preserve ALL independent details and mark conflict true. Do not delete an entire multi-claim clause just to remove one property. Use the supplied original source to distinguish replay from a new event. Return no commentary."
+        },
+        {
+          "role": "user",
+          "content": "{\"action\":\"Correct where I lived at the time of this statement to Galway, not Cork. This is a correction of the old statement, not a ban on future moves.\",\"originalSource\":\"I live in Cork and work remotely. My sister lives in Limerick.\",\"currentSource\":\"I live in Cork and work remotely. My sister lives in Limerick.\",\"facts\":[{\"id\":\"31348380-2034-41b7-bcea-2f176fe05c19\",\"text\":\"User's sister lives in Limerick. | Where: Limerick | Involving: user's sister\"},{\"id\":\"17340d2e-e778-41dd-92ed-538c6cca7f56\",\"text\":\"User works remotely. | Involving: user\"},{\"id\":\"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\",\"text\":\"User lives in Cork. | Where: Cork | Involving: user\"}]}"
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "edit",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "conflict": {
+                      "type": "boolean"
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "find": {
+                            "type": "string"
+                          },
+                          "replace": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "find",
+                          "replace"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "conflict",
+                    "edits"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "facts"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "response": {
+      "id": 59,
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-9f5854f9c12ae731",
+        "object": "chat.completion",
+        "created": 1795016937,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"31348380-2034-41b7-bcea-2f176fe05c19\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"17340d2e-e778-41dd-92ed-538c6cca7f56\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Cork\",\n          \"replace\": \"Galway\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 510,
+          "total_tokens": 728,
+          "completion_tokens": 218,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      },
+      "ms": 983
+    }
+  },
+  {
+    "request": {
+      "model": "qwen3-6-27b",
+      "temperature": 0,
+      "max_tokens": 5000,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts. Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves all untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace a whole fact with empty text only if ALL its information is targeted.\nThe user action is durable intent about the original statement, and must survive reprocessing of that statement. Removing an attribution also removes historical/former wording of that attribution. Keep a new owner, new unrelated details and explicit later life events. Match only the target person/object/project/relationship. Shared subjects may need a minimal subject replacement to retain the other person's fact. Never invent the opposite of a forgotten fact. Corrections change the original claim, not an explicitly new event. If an edited source changes the target to a third conflicting value without an explicit new event, remove only the disputed aspect (any value), preserve ALL independent details and mark conflict true. Do not delete an entire multi-claim clause just to remove one property. Use the supplied original source to distinguish replay from a new event. Return no commentary."
+        },
+        {
+          "role": "user",
+          "content": "{\"action\":\"Correct where I lived at the time of this statement to Galway, not Cork. This is a correction of the old statement, not a ban on future moves.\",\"originalSource\":\"I live in Cork and work remotely. My sister lives in Limerick.\",\"currentSource\":\"I live in Cork and work remotely. My sister lives in Limerick.\",\"facts\":[{\"id\":\"31348380-2034-41b7-bcea-2f176fe05c19\",\"text\":\"User's sister lives in Limerick. | Where: Limerick | Involving: user's sister\"},{\"id\":\"17340d2e-e778-41dd-92ed-538c6cca7f56\",\"text\":\"User works remotely. | Involving: user\"},{\"id\":\"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\",\"text\":\"User lives in Cork. | Where: Cork | Involving: user\"}]}"
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "edit",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "conflict": {
+                      "type": "boolean"
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "find": {
+                            "type": "string"
+                          },
+                          "replace": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "find",
+                          "replace"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "conflict",
+                    "edits"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "facts"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "response": {
+      "id": 60,
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-bb624dcfc378e796",
+        "object": "chat.completion",
+        "created": 1795016982,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"31348380-2034-41b7-bcea-2f176fe05c19\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"17340d2e-e778-41dd-92ed-538c6cca7f56\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"Cork\",\n          \"replace\": \"Galway\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 510,
+          "total_tokens": 728,
+          "completion_tokens": 218,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      },
+      "ms": 1755
+    }
+  },
+  {
+    "request": {
+      "model": "qwen3-6-27b",
+      "temperature": 0,
+      "max_tokens": 5000,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts. Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves all untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace a whole fact with empty text only if ALL its information is targeted.\nThe user action is durable intent about the original statement, and must survive reprocessing of that statement. Removing an attribution also removes historical/former wording of that attribution. Keep a new owner, new unrelated details and explicit later life events. Match only the target person/object/project/relationship. Shared subjects may need a minimal subject replacement to retain the other person's fact. Never invent the opposite of a forgotten fact. Corrections change the original claim, not an explicitly new event. If an edited source changes the target to a third conflicting value without an explicit new event, remove only the disputed aspect (any value), preserve ALL independent details and mark conflict true. Do not delete an entire multi-claim clause just to remove one property. Use the supplied original source to distinguish replay from a new event. Return no commentary."
+        },
+        {
+          "role": "user",
+          "content": "{\"action\":\"Correct where I lived at the time of this statement to Galway, not Cork. This is a correction of the old statement, not a ban on future moves.\",\"originalSource\":\"I live in Cork and work remotely. My sister lives in Limerick.\",\"currentSource\":\"I live in Cork and work remotely. My sister lives in Limerick.\",\"facts\":[{\"id\":\"31348380-2034-41b7-bcea-2f176fe05c19\",\"text\":\"User's sister lives in Limerick. | Where: Limerick | Involving: user's sister\"},{\"id\":\"17340d2e-e778-41dd-92ed-538c6cca7f56\",\"text\":\"User works remotely. | Involving: user\"},{\"id\":\"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\",\"text\":\"User lives in Cork. | Where: Cork | Involving: user\"}],\"validationError\":\"nonunique/missing span\",\"previousOutput\":\"{\\n  \\\"facts\\\": [\\n    {\\n      \\\"id\\\": \\\"31348380-2034-41b7-bcea-2f176fe05c19\\\",\\n      \\\"conflict\\\": false,\\n      \\\"edits\\\": []\\n    },\\n    {\\n      \\\"id\\\": \\\"17340d2e-e778-41dd-92ed-538c6cca7f56\\\",\\n      \\\"conflict\\\": false,\\n      \\\"edits\\\": []\\n    },\\n    {\\n      \\\"id\\\": \\\"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\\\",\\n      \\\"conflict\\\": false,\\n      \\\"edits\\\": [\\n        {\\n          \\\"find\\\": \\\"Cork\\\",\\n          \\\"replace\\\": \\\"Galway\\\"\\n        }\\n      ]\\n    }\\n  ]\\n}\",\"instruction\":\"Repair only invalid edit locations: expand each find to enough exact surrounding text to identify its occurrence uniquely. If the same targeted value appears twice, specify both occurrences separately. Preserve the intended semantic edit.\"}"
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "edit",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "conflict": {
+                      "type": "boolean"
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "find": {
+                            "type": "string"
+                          },
+                          "replace": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "find",
+                          "replace"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "conflict",
+                    "edits"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "facts"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "response": {
+      "id": 61,
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-829e80e9e35b9b1c",
+        "object": "chat.completion",
+        "created": 1795016984,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"facts\": [\n    {\n      \"id\": \"31348380-2034-41b7-bcea-2f176fe05c19\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"17340d2e-e778-41dd-92ed-538c6cca7f56\",\n      \"conflict\": false,\n      \"edits\": []\n    },\n    {\n      \"id\": \"2c0c4947-03ae-4e43-84ed-9adc50a1cbea\",\n      \"conflict\": false,\n      \"edits\": [\n        {\n          \"find\": \"User lives in Cork.\",\n          \"replace\": \"User lives in Galway.\"\n        }\n      ]\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 788,
+          "total_tokens": 1011,
+          "completion_tokens": 223,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      },
+      "ms": 1044
+    }
+  }
+]

@@ -57,44 +57,47 @@ describe("takeCardState, one rule for a picture's take and a clip's", () => {
 		).toEqual({ kind: "waiting", ahead: 2 });
 	});
 
-	it.each(
-		KINDS,
-	)("%s: starting is making for 2 s and starting from 3 s", (kind) => {
-		const s = take({ status: "running", phase: "starting", phaseAt: 10_000 });
-		expect(takeCardState(s, 12_000, kind).kind).toBe("making");
-		expect(takeCardState(s, 13_000, kind)).toEqual({ kind: "starting" });
-	});
+	it.each(KINDS)(
+		"%s: starting is making for 2 s and starting from 3 s",
+		(kind) => {
+			const s = take({ status: "running", phase: "starting", phaseAt: 10_000 });
+			expect(takeCardState(s, 12_000, kind).kind).toBe("making");
+			expect(takeCardState(s, 13_000, kind)).toEqual({ kind: "starting" });
+		},
+	);
 
-	it.each(
-		KINDS,
-	)("%s: rendering is making, and finishing is its last step", (kind) => {
-		expect(
-			takeCardState(
-				take({ status: "running", phase: "rendering", etaSeconds: 8 }),
-				0,
-				kind,
-			),
-		).toEqual({ kind: "making", finishing: false });
-		expect(
-			takeCardState(
-				take({ status: "running", phase: "finishing", etaSeconds: 1 }),
-				0,
-				kind,
-			),
-		).toEqual({ kind: "making", finishing: true });
-	});
+	it.each(KINDS)(
+		"%s: rendering is making, and finishing is its last step",
+		(kind) => {
+			expect(
+				takeCardState(
+					take({ status: "running", phase: "rendering", etaSeconds: 8 }),
+					0,
+					kind,
+				),
+			).toEqual({ kind: "making", finishing: false });
+			expect(
+				takeCardState(
+					take({ status: "running", phase: "finishing", etaSeconds: 1 }),
+					0,
+					kind,
+				),
+			).toEqual({ kind: "making", finishing: true });
+		},
+	);
 
-	it.each(
-		KINDS,
-	)("%s: a take with an estimate is on its way, not waiting (posted again, or a clip's second segment)", (kind) => {
-		expect(
-			takeCardState(
-				take({ status: "running", phase: "submitted", etaSeconds: 30 }),
-				0,
-				kind,
-			),
-		).toEqual({ kind: "making", finishing: false });
-	});
+	it.each(KINDS)(
+		"%s: a take with an estimate is on its way, not waiting (posted again, or a clip's second segment)",
+		(kind) => {
+			expect(
+				takeCardState(
+					take({ status: "running", phase: "submitted", etaSeconds: 30 }),
+					0,
+					kind,
+				),
+			).toEqual({ kind: "making", finishing: false });
+		},
+	);
 
 	it.each(KINDS)("%s: succeeded is ready and cancelled is stopped", (kind) => {
 		expect(takeCardState(take(), 0, kind)).toEqual({ kind: "ready" });
@@ -103,62 +106,76 @@ describe("takeCardState, one rule for a picture's take and a clip's", () => {
 		});
 	});
 
-	it.each(
-		KINDS,
-	)("%s: a succeeded take whose result cannot be read is a failure, never an empty box", (kind) => {
-		expect(takeCardState(take(), 0, kind, false)).toEqual({
-			kind: "failed",
-			unavailable: false,
-			retryable: true,
-		});
-	});
+	it.each(KINDS)(
+		"%s: a succeeded take whose result cannot be read is a failure, never an empty box",
+		(kind) => {
+			expect(takeCardState(take(), 0, kind, false)).toEqual({
+				kind: "failed",
+				unavailable: false,
+				retryable: true,
+				errorCode: null,
+			});
+		},
+	);
 
-	it.each(
-		KINDS,
-	)("%s: every way of not reaching its server is 'unavailable'", (kind) => {
-		for (const errorCode of [
-			`${kind}_server_unreachable`,
-			`${kind}_server_not_configured`,
-		]) {
+	it.each(KINDS)(
+		"%s: every way of not reaching its server is 'unavailable'",
+		(kind) => {
+			for (const errorCode of [
+				`${kind}_server_unreachable`,
+				`${kind}_server_not_configured`,
+			]) {
+				expect(
+					takeCardState(
+						take({ status: "failed", errorCode, retryable: true }),
+						0,
+						kind,
+					),
+				).toEqual({
+					kind: "failed",
+					unavailable: true,
+					retryable: true,
+					errorCode,
+				});
+			}
 			expect(
 				takeCardState(
-					take({ status: "failed", errorCode, retryable: true }),
+					take({ status: "failed", errorCode: `${kind}_render_failed` }),
 					0,
 					kind,
 				),
-			).toEqual({ kind: "failed", unavailable: true, retryable: true });
-		}
-		expect(
-			takeCardState(
-				take({ status: "failed", errorCode: `${kind}_render_failed` }),
-				0,
-				kind,
-			),
-		).toEqual({ kind: "failed", unavailable: false, retryable: false });
-	});
+			).toEqual({
+				kind: "failed",
+				unavailable: false,
+				retryable: false,
+				errorCode: `${kind}_render_failed`,
+			});
+		},
+	);
 
-	it.each(
-		KINDS,
-	)("%s: a result the explicit-picture filter kept back is blocked, never a failure", (kind) => {
-		expect(
-			takeCardState(
-				take({ status: "failed", errorCode: `${kind}_blocked` }),
-				0,
-				kind,
-			),
-		).toEqual({ kind: "blocked", unchecked: false });
-		expect(
-			takeCardState(
-				take({
-					status: "failed",
-					errorCode: `${kind}_unchecked`,
-					retryable: true,
-				}),
-				0,
-				kind,
-			),
-		).toEqual({ kind: "blocked", unchecked: true });
-	});
+	it.each(KINDS)(
+		"%s: a result the explicit-picture filter kept back is blocked, never a failure",
+		(kind) => {
+			expect(
+				takeCardState(
+					take({ status: "failed", errorCode: `${kind}_blocked` }),
+					0,
+					kind,
+				),
+			).toEqual({ kind: "blocked", unchecked: false });
+			expect(
+				takeCardState(
+					take({
+						status: "failed",
+						errorCode: `${kind}_unchecked`,
+						retryable: true,
+					}),
+					0,
+					kind,
+				),
+			).toEqual({ kind: "blocked", unchecked: true });
+		},
+	);
 
 	it("reads only its own kind's codes", () => {
 		expect(
@@ -201,7 +218,12 @@ describe("takeStateWords", () => {
 		const translate = get(t);
 		expect(
 			takeStateWords(
-				{ kind: "failed", unavailable: true, retryable: true },
+				{
+					kind: "failed",
+					unavailable: true,
+					retryable: true,
+					errorCode: "video_server_unreachable",
+				},
 				"video",
 				translate,
 			),
@@ -209,9 +231,15 @@ describe("takeStateWords", () => {
 			line: "Videos can't be made right now.",
 			detail: "Nothing was saved.",
 		});
+		// A failure with no code (a result that cannot be read) keeps the card's own line.
 		expect(
 			takeStateWords(
-				{ kind: "failed", unavailable: false, retryable: true },
+				{
+					kind: "failed",
+					unavailable: false,
+					retryable: true,
+					errorCode: null,
+				},
 				"image",
 				translate,
 			),
@@ -236,8 +264,92 @@ describe("takeStateWords", () => {
 		});
 	});
 
+	// A failed take's card says its code's own sentence, the one its tool row says
+	// (the registry), for a picture and a clip alike, and never the model's words.
+	it("a failed take's card gives its code's sentence", () => {
+		const translate = get(t);
+		const failed = (errorCode: string | null) =>
+			({
+				kind: "failed",
+				unavailable: false,
+				retryable: true,
+				errorCode,
+			}) as const;
+		expect(
+			takeStateWords(failed("image_render_timeout"), "image", translate),
+		).toEqual({
+			line: "The picture took too long to render.",
+			detail: "Nothing was saved.",
+		});
+		expect(
+			takeStateWords(failed("video_render_failed"), "video", translate),
+		).toEqual({
+			line: "The video server couldn't make the clip.",
+			detail: "Nothing was saved.",
+		});
+		expect(
+			takeStateWords(failed("video_render_timeout"), "video", translate).line,
+		).toBe("The clip took too long to make.");
+		// Every code a take can end with has a sentence of its own, never a code.
+		for (const code of [
+			"image_graph_rejected",
+			"image_result_missing",
+			"image_input_missing",
+			"image_worker_lost",
+			"image_error",
+		]) {
+			const line = takeStateWords(failed(code), "image", translate).line;
+			expect(line, code).not.toContain("image_");
+			expect(line, code).not.toBe("Couldn't make this one.");
+		}
+		for (const code of [
+			"video_graph_rejected",
+			"video_result_missing",
+			"video_item_deleted",
+			"video_media_failed",
+			"video_artifact_failed",
+			"video_take_missing",
+			"video_error",
+		]) {
+			const line = takeStateWords(failed(code), "video", translate).line;
+			expect(line, code).not.toContain("video_");
+			expect(line, code).not.toBe("Couldn't make this one.");
+		}
+		// A code this version does not know reads as the kind's fallback, never as the code.
+		expect(
+			takeStateWords(failed("a_newer_code"), "video", translate).line,
+		).toBe("The video couldn't be made.");
+		expect(
+			takeStateWords(failed("a_newer_code"), "image", translate).line,
+		).toBe("The picture could not be made.");
+	});
+
 	it("speaks Hungarian", () => {
 		uiLanguage.set("hu");
+		expect(
+			takeStateWords(
+				{
+					kind: "failed",
+					unavailable: false,
+					retryable: true,
+					errorCode: "video_render_timeout",
+				},
+				"video",
+				get(t),
+			).line,
+		).toBe("A klip túl sokáig készült.");
+		expect(
+			takeStateWords(
+				{
+					kind: "failed",
+					unavailable: false,
+					retryable: true,
+					errorCode: "image_render_timeout",
+				},
+				"image",
+				get(t),
+			).line,
+		).toBe("A kép túl sokáig készült.");
 		expect(
 			takeStateWords({ kind: "making", finishing: false }, "video", get(t))
 				.line,

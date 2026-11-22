@@ -1,0 +1,245 @@
+[
+  {
+    "case": {
+      "id": "correct",
+      "expected": true,
+      "text": "The user owns a bicycle and a blue canoe.",
+      "sister": "The user's sister owns a white canoe."
+    },
+    "response": {
+      "text": "{\n  \"valid\": true,\n  \"issues\": []\n}",
+      "response": {
+        "id": "chatcmpl-a736a4d75734b1ff",
+        "object": "chat.completion",
+        "created": 1795026805,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"valid\": true,\n  \"issues\": []\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 312,
+          "total_tokens": 329,
+          "completion_tokens": 17,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "check": {
+      "valid": true,
+      "issues": []
+    },
+    "pass": true
+  },
+  {
+    "case": {
+      "id": "missed-omission",
+      "expected": false,
+      "text": "The user owns a red bicycle and a blue canoe.",
+      "sister": "The user's sister owns a white canoe."
+    },
+    "response": {
+      "text": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"a\",\n      \"problem\": \"The proposed fact retains 'red bicycle' but the user edit removed the color 'red' from the bicycle, implying it should be unspecified or removed.\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-8eef911d1a34e5da",
+        "object": "chat.completion",
+        "created": 1795026805,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"a\",\n      \"problem\": \"The proposed fact retains 'red bicycle' but the user edit removed the color 'red' from the bicycle, implying it should be unspecified or removed.\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 313,
+          "total_tokens": 383,
+          "completion_tokens": 70,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "check": {
+      "valid": false,
+      "issues": [
+        {
+          "id": "a",
+          "problem": "The proposed fact retains 'red bicycle' but the user edit removed the color 'red' from the bicycle, implying it should be unspecified or removed."
+        }
+      ]
+    },
+    "pass": true
+  },
+  {
+    "case": {
+      "id": "wrong-subject",
+      "expected": false,
+      "text": "The user owns a blue bicycle and a blue canoe.",
+      "sister": "The user's sister owns a white canoe."
+    },
+    "response": {
+      "text": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"a\",\n      \"problem\": \"The proposed fact states the user owns a 'blue bicycle', but the user's edit specifies they own a 'bicycle' (color unspecified/removed) and a 'blue canoe'.\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-a822078fcd493ee7",
+        "object": "chat.completion",
+        "created": 1795026806,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"a\",\n      \"problem\": \"The proposed fact states the user owns a 'blue bicycle', but the user's edit specifies they own a 'bicycle' (color unspecified/removed) and a 'blue canoe'.\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 313,
+          "total_tokens": 391,
+          "completion_tokens": 78,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "check": {
+      "valid": false,
+      "issues": [
+        {
+          "id": "a",
+          "problem": "The proposed fact states the user owns a 'blue bicycle', but the user's edit specifies they own a 'bicycle' (color unspecified/removed) and a 'blue canoe'."
+        }
+      ]
+    },
+    "pass": true
+  },
+  {
+    "case": {
+      "id": "collateral-loss",
+      "expected": false,
+      "text": "The user owns a bicycle and a blue canoe.",
+      "sister": ""
+    },
+    "response": {
+      "text": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"b\",\n      \"problem\": \"The fact 'The user's sister owns a white canoe.' was removed from the proposed records, but the user did not request its removal.\"\n    }\n  ]\n}",
+      "response": {
+        "id": "chatcmpl-aeb169909c1169af",
+        "object": "chat.completion",
+        "created": 1795026806,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"valid\": false,\n  \"issues\": [\n    {\n      \"id\": \"b\",\n      \"problem\": \"The fact 'The user's sister owns a white canoe.' was removed from the proposed records, but the user did not request its removal.\"\n    }\n  ]\n}",
+              "refusal": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null,
+            "weight_versions": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.34.0-a3da6d34",
+        "usage": {
+          "prompt_tokens": 303,
+          "total_tokens": 371,
+          "completion_tokens": 68,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "check": {
+      "valid": false,
+      "issues": [
+        {
+          "id": "b",
+          "problem": "The fact 'The user's sister owns a white canoe.' was removed from the proposed records, but the user did not request its removal."
+        }
+      ]
+    },
+    "pass": true
+  }
+]

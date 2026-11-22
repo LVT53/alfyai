@@ -66,6 +66,21 @@ interface Config {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
+	hindsightUrl: string;
+	hindsightAllowedUrls: string[];
+	hindsightTenantKeys: string;
+	hindsightTenantMasterKeys: string;
+	hindsightTenantActiveKey: string;
+	hindsightAdmissionKey: string;
+	hindsightOvernightIdle: boolean;
+	hindsightRestoreHold: boolean;
+	hindsightWorkerEnabled: boolean;
+	hindsightQuarantineEnabled: boolean;
+	hindsightNewAccountsEnabled: boolean;
+	hindsightConcurrency: number;
+	hindsightCurationModel: ModelId | null;
+	hindsightCurationGatewayModel: string;
+	hindsightInferenceKey: string;
 	memoryJudgeModel: ModelId;
 	memoryConsolidationModel: ModelId;
 	memoryJudgeIdleMinutes: number;
@@ -248,7 +263,6 @@ interface Config {
 	// Log the outbound message shape (roles, part types, token estimates —
 	// never content) for each model call. Verification aid; off by default.
 	normalChatDebugOutbound: boolean;
-	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
 	onedriveClientId: string;
@@ -682,6 +696,40 @@ function readConfig(): Config {
 		defaultNewUserModel: normalizeConfiguredModelId(
 			process.env.DEFAULT_NEW_USER_MODEL || "model1",
 		),
+		hindsightCurationModel: /^(model[12]|provider:[^:]+:[^:]+)$/.test(
+			process.env.HINDSIGHT_CURATION_MODEL?.trim() ?? "",
+		)
+			? normalizeConfiguredModelId(process.env.HINDSIGHT_CURATION_MODEL)
+			: null,
+		hindsightCurationGatewayModel: process.env.HINDSIGHT_CURATION_MODEL?.trim()
+			? ""
+			: (process.env.HINDSIGHT_CURATION_GATEWAY_MODEL?.trim() ?? ""),
+		hindsightInferenceKey: process.env.HINDSIGHT_API_HTTP_INFERENCE_KEY ?? "",
+		hindsightUrl: process.env.HINDSIGHT_URL || "http://127.0.0.1:8888",
+		hindsightAllowedUrls: [
+			process.env.HINDSIGHT_URL || "http://127.0.0.1:8888",
+			...(process.env.HINDSIGHT_ALLOWED_URLS?.split(",")
+				.map((url) => url.trim())
+				.filter(Boolean) ?? []),
+		],
+		hindsightTenantKeys: process.env.HINDSIGHT_TENANT_KEYS || "{}",
+		hindsightTenantMasterKeys: process.env.HINDSIGHT_TENANT_MASTER_KEYS || "{}",
+		hindsightTenantActiveKey: process.env.HINDSIGHT_TENANT_ACTIVE_KEY || "",
+		hindsightAdmissionKey: process.env.HINDSIGHT_ADMISSION_KEY || "",
+		hindsightOvernightIdle: process.env.HINDSIGHT_OVERNIGHT_IDLE === "true",
+		// A malformed explicit restore setting keeps the quarantined app offline.
+		hindsightRestoreHold:
+			process.env.HINDSIGHT_RESTORE_HOLD !== undefined &&
+			process.env.HINDSIGHT_RESTORE_HOLD !== "false",
+		hindsightWorkerEnabled: process.env.HINDSIGHT_WORKER_ENABLED === "true",
+		hindsightQuarantineEnabled:
+			process.env.HINDSIGHT_QUARANTINE_ENABLED === "true",
+		hindsightNewAccountsEnabled:
+			process.env.HINDSIGHT_NEW_ACCOUNTS_ENABLED === "true",
+		hindsightConcurrency: Math.max(
+			1,
+			Math.min(6, parseIntegerEnv(process.env.HINDSIGHT_CONCURRENCY, 1)),
+		),
 		memoryJudgeModel: validateConfiguredModelIdEnv(
 			process.env.MEMORY_JUDGE_MODEL,
 			"MEMORY_JUDGE_MODEL",
@@ -979,7 +1027,6 @@ function readConfig(): Config {
 		normalChatDebugOutbound: process.env.NORMAL_CHAT_DEBUG_OUTBOUND === "1",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
-		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
 		googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
 		googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
 		onedriveClientId: process.env.ONEDRIVE_CLIENT_ID || "",

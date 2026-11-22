@@ -1,0 +1,926 @@
+{
+  "bank": "clf-1118-serial-holdout",
+  "stages": [
+    {
+      "stage": "batch",
+      "native": {
+        "items": [
+          {
+            "id": "2152e097-2b31-431e-978d-1ba413b5176c",
+            "text": "Nora is the user's colleague.",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:15.022607+00:00",
+            "source_memory_ids": [
+              "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+            ]
+          },
+          {
+            "id": "f998c6c0-a0a0-490a-969c-c7b5427ae451",
+            "text": "Nora owns a drill.",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:15.022607+00:00",
+            "source_memory_ids": [
+              "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+            ]
+          },
+          {
+            "id": "c080c842-fd71-47ea-a444-efc8b4fe57f9",
+            "text": "User's colleague Nora owns a drill. | Involving: user, Nora (user's colleague)",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "question",
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Nora, drill, user",
+            "chunk_id": "clf-1118-serial-holdout_question_0",
+            "proof_count": 1,
+            "tags": [
+              "question"
+            ],
+            "metadata": {
+              "chat_id": "chat-question",
+              "message_id": "message-question"
+            },
+            "consolidated_at": "2026-11-18T18:55:15.026961+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:07.749496+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "810ccbf1-413a-4192-8eb7-7cee41f3a307",
+            "text": "The user does not own a drill.",
+            "context": "",
+            "date": "2026-11-14T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:14.120138+00:00",
+            "source_memory_ids": [
+              "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+            ]
+          },
+          {
+            "id": "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb",
+            "text": "User does not own a drill. | Involving: user",
+            "context": "",
+            "date": "2026-11-14T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "question",
+            "mentioned_at": "2026-11-14T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "drill, user",
+            "chunk_id": "clf-1118-serial-holdout_question_0",
+            "proof_count": 1,
+            "tags": [
+              "question"
+            ],
+            "metadata": {
+              "chat_id": "chat-question",
+              "message_id": "message-question"
+            },
+            "consolidated_at": "2026-11-18T18:55:14.124150+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:07.749496+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "a7eda873-c48f-4996-85c4-dfac508777c5",
+            "text": "The user has not decided whether to move to Belfast in summer 2027.",
+            "context": "",
+            "date": "2026-11-13T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-13T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:17.972771+00:00",
+            "source_memory_ids": [
+              "a908710a-aac6-4a77-a3cc-4ad330a36929"
+            ]
+          },
+          {
+            "id": "a908710a-aac6-4a77-a3cc-4ad330a36929",
+            "text": "User has not decided whether to move to Belfast in summer 2027. | When: summer 2027 | Where: Belfast | Involving: user | The move is only a possibility and the user has not decided.",
+            "context": "",
+            "date": "2026-11-13T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "past",
+            "mentioned_at": "2026-11-13T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Belfast, move, user",
+            "chunk_id": "clf-1118-serial-holdout_past_0",
+            "proof_count": 1,
+            "tags": [
+              "past"
+            ],
+            "metadata": {
+              "chat_id": "chat-past",
+              "message_id": "message-past"
+            },
+            "consolidated_at": "2026-11-18T18:55:17.977256+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:12.632771+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "834c89c9-ec24-4350-97a2-92d77cc8a251",
+            "text": "The user lived in Galway in 2020.",
+            "context": "",
+            "date": "2020-01-01T00:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-13T12:00:00+00:00",
+            "occurred_start": "2020-01-01T00:00:00+00:00",
+            "occurred_end": "2020-12-31T23:59:59+00:00",
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:16.966224+00:00",
+            "source_memory_ids": [
+              "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+            ]
+          },
+          {
+            "id": "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1",
+            "text": "User lived in Galway in 2020. | When: 2020 | Where: Galway | Involving: user",
+            "context": "",
+            "date": "2020-01-01T00:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "past",
+            "mentioned_at": "2026-11-13T12:00:00+00:00",
+            "occurred_start": "2020-01-01T00:00:00+00:00",
+            "occurred_end": "2020-12-31T23:59:59+00:00",
+            "entities": "Galway, user",
+            "chunk_id": "clf-1118-serial-holdout_past_0",
+            "proof_count": 1,
+            "tags": [
+              "past"
+            ],
+            "metadata": {
+              "chat_id": "chat-past",
+              "message_id": "message-past"
+            },
+            "consolidated_at": "2026-11-18T18:55:16.970725+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:12.632771+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "3296f798-a1d2-4f9a-8e7a-22eaed808056",
+            "text": "The user lives in Cork.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:16.043220+00:00",
+            "source_memory_ids": [
+              "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+              "2a8d4161-40ea-426f-ad14-e6923131b913"
+            ]
+          },
+          {
+            "id": "7ee92f22-9794-42ac-aabf-b7358e101234",
+            "text": "The user commutes by train.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:16.043220+00:00",
+            "source_memory_ids": [
+              "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+              "2a8d4161-40ea-426f-ad14-e6923131b913"
+            ]
+          },
+          {
+            "id": "2a8d4161-40ea-426f-ad14-e6923131b913",
+            "text": "As of November 12, 2026, user lives in Cork and still commutes by train. | When: November 12, 2026 | Where: Cork | Involving: user",
+            "context": "",
+            "date": "2026-11-12T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Cork, train, user",
+            "chunk_id": "clf-1118-serial-holdout_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:55:16.054938+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:09.445262+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "text": "User lives in Dublin and commutes by train. | Where: Dublin | Involving: user",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "older",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Dublin, train, user",
+            "chunk_id": "clf-1118-serial-holdout_older_0",
+            "proof_count": 1,
+            "tags": [
+              "older"
+            ],
+            "metadata": {
+              "chat_id": "chat-older",
+              "message_id": "message-older"
+            },
+            "consolidated_at": "2026-11-18T18:55:13.359352+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:03.256463+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 13,
+        "limit": 100,
+        "offset": 0
+      },
+      "rows": [
+        {
+          "id": "2152e097-2b31-431e-978d-1ba413b5176c",
+          "current": "Nora is the user's colleague.",
+          "nativeNotes": [],
+          "original": "Nora is the user's colleague.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "f998c6c0-a0a0-490a-969c-c7b5427ae451",
+          "current": "Nora owns a drill.",
+          "nativeNotes": [],
+          "original": "Nora owns a drill.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "810ccbf1-413a-4192-8eb7-7cee41f3a307",
+          "current": "The user does not own a drill.",
+          "nativeNotes": [],
+          "original": "The user does not own a drill.",
+          "sourceIds": [
+            "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+          ]
+        },
+        {
+          "id": "a7eda873-c48f-4996-85c4-dfac508777c5",
+          "current": "The user has not decided whether to move to Belfast in summer 2027.",
+          "nativeNotes": [],
+          "original": "The user has not decided whether to move to Belfast in summer 2027.",
+          "sourceIds": [
+            "a908710a-aac6-4a77-a3cc-4ad330a36929"
+          ]
+        },
+        {
+          "id": "834c89c9-ec24-4350-97a2-92d77cc8a251",
+          "current": "The user lived in Galway in 2020.",
+          "nativeNotes": [],
+          "original": "The user lived in Galway in 2020.",
+          "sourceIds": [
+            "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+          ]
+        },
+        {
+          "id": "3296f798-a1d2-4f9a-8e7a-22eaed808056",
+          "current": "The user lives in Cork.",
+          "nativeNotes": [],
+          "original": "The user lives in Cork.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        },
+        {
+          "id": "7ee92f22-9794-42ac-aabf-b7358e101234",
+          "current": "The user commutes by train.",
+          "nativeNotes": [],
+          "original": "The user commutes by train.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        }
+      ]
+    },
+    {
+      "stage": "rebuild",
+      "native": {
+        "items": [
+          {
+            "id": "0e61f24f-8eae-4404-bc3a-f0d153b45322",
+            "text": "Nora is the user's colleague.",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:20.868485+00:00",
+            "source_memory_ids": [
+              "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+            ]
+          },
+          {
+            "id": "18b833c2-20e7-4db8-bd45-cd109b17459a",
+            "text": "Nora owns a drill.",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:20.868485+00:00",
+            "source_memory_ids": [
+              "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+            ]
+          },
+          {
+            "id": "c080c842-fd71-47ea-a444-efc8b4fe57f9",
+            "text": "User's colleague Nora owns a drill. | Involving: user, Nora (user's colleague)",
+            "context": "",
+            "date": "2026-11-14T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "question",
+            "mentioned_at": "2026-11-14T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Nora, drill, user",
+            "chunk_id": "clf-1118-serial-holdout_question_0",
+            "proof_count": 1,
+            "tags": [
+              "question"
+            ],
+            "metadata": {
+              "chat_id": "chat-question",
+              "message_id": "message-question"
+            },
+            "consolidated_at": "2026-11-18T18:55:20.873317+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:07.749496+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "0d553b51-995e-4176-807a-4a061b3d3709",
+            "text": "User does not own a drill.",
+            "context": "",
+            "date": "2026-11-14T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-14T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:22.077857+00:00",
+            "source_memory_ids": [
+              "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+            ]
+          },
+          {
+            "id": "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb",
+            "text": "User does not own a drill. | Involving: user",
+            "context": "",
+            "date": "2026-11-14T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "question",
+            "mentioned_at": "2026-11-14T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "drill, user",
+            "chunk_id": "clf-1118-serial-holdout_question_0",
+            "proof_count": 1,
+            "tags": [
+              "question"
+            ],
+            "metadata": {
+              "chat_id": "chat-question",
+              "message_id": "message-question"
+            },
+            "consolidated_at": "2026-11-18T18:55:22.081919+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:07.749496+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "b02dd02a-f4e7-4c23-aace-c0c1f42b6518",
+            "text": "User has not decided whether to move to Belfast in summer 2027.",
+            "context": "",
+            "date": "2026-11-13T12:00:00.010000+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-13T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:24.437211+00:00",
+            "source_memory_ids": [
+              "a908710a-aac6-4a77-a3cc-4ad330a36929"
+            ]
+          },
+          {
+            "id": "a908710a-aac6-4a77-a3cc-4ad330a36929",
+            "text": "User has not decided whether to move to Belfast in summer 2027. | When: summer 2027 | Where: Belfast | Involving: user | The move is only a possibility and the user has not decided.",
+            "context": "",
+            "date": "2026-11-13T12:00:00.010000+00:00",
+            "fact_type": "world",
+            "document_id": "past",
+            "mentioned_at": "2026-11-13T12:00:00.010000+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Belfast, move, user",
+            "chunk_id": "clf-1118-serial-holdout_past_0",
+            "proof_count": 1,
+            "tags": [
+              "past"
+            ],
+            "metadata": {
+              "chat_id": "chat-past",
+              "message_id": "message-past"
+            },
+            "consolidated_at": "2026-11-18T18:55:24.441708+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:12.632771+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "1bd7cd1a-a79b-4447-b18c-ec08fb7c702e",
+            "text": "User lived in Galway in 2020.",
+            "context": "",
+            "date": "2020-01-01T00:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-13T12:00:00+00:00",
+            "occurred_start": "2020-01-01T00:00:00+00:00",
+            "occurred_end": "2020-12-31T23:59:59+00:00",
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 1,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:25.371445+00:00",
+            "source_memory_ids": [
+              "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+            ]
+          },
+          {
+            "id": "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1",
+            "text": "User lived in Galway in 2020. | When: 2020 | Where: Galway | Involving: user",
+            "context": "",
+            "date": "2020-01-01T00:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "past",
+            "mentioned_at": "2026-11-13T12:00:00+00:00",
+            "occurred_start": "2020-01-01T00:00:00+00:00",
+            "occurred_end": "2020-12-31T23:59:59+00:00",
+            "entities": "Galway, user",
+            "chunk_id": "clf-1118-serial-holdout_past_0",
+            "proof_count": 1,
+            "tags": [
+              "past"
+            ],
+            "metadata": {
+              "chat_id": "chat-past",
+              "message_id": "message-past"
+            },
+            "consolidated_at": "2026-11-18T18:55:25.376147+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:12.632771+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "14408e5b-7b3a-4612-b79f-bb5a8d9d4da3",
+            "text": "User commutes by train.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:23.129282+00:00",
+            "source_memory_ids": [
+              "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+              "2a8d4161-40ea-426f-ad14-e6923131b913"
+            ]
+          },
+          {
+            "id": "d9c6d753-8f53-4ded-a193-223edecb5846",
+            "text": "User lives in Cork.",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "observation",
+            "document_id": null,
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "",
+            "chunk_id": null,
+            "proof_count": 2,
+            "tags": [],
+            "metadata": {},
+            "consolidated_at": null,
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:23.129282+00:00",
+            "source_memory_ids": [
+              "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+              "2a8d4161-40ea-426f-ad14-e6923131b913"
+            ]
+          },
+          {
+            "id": "2a8d4161-40ea-426f-ad14-e6923131b913",
+            "text": "As of November 12, 2026, user lives in Cork and still commutes by train. | When: November 12, 2026 | Where: Cork | Involving: user",
+            "context": "",
+            "date": "2026-11-12T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "newer",
+            "mentioned_at": "2026-11-12T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Cork, train, user",
+            "chunk_id": "clf-1118-serial-holdout_newer_0",
+            "proof_count": 1,
+            "tags": [
+              "newer"
+            ],
+            "metadata": {
+              "chat_id": "chat-newer",
+              "message_id": "message-newer"
+            },
+            "consolidated_at": "2026-11-18T18:55:23.138240+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:09.445262+00:00",
+            "source_memory_ids": []
+          },
+          {
+            "id": "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "text": "User lives in Dublin and commutes by train. | Where: Dublin | Involving: user",
+            "context": "",
+            "date": "2026-11-01T12:00:00+00:00",
+            "fact_type": "world",
+            "document_id": "older",
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "occurred_start": null,
+            "occurred_end": null,
+            "entities": "Dublin, train, user",
+            "chunk_id": "clf-1118-serial-holdout_older_0",
+            "proof_count": 1,
+            "tags": [
+              "older"
+            ],
+            "metadata": {
+              "chat_id": "chat-older",
+              "message_id": "message-older"
+            },
+            "consolidated_at": "2026-11-18T18:55:20.065091+00:00",
+            "consolidation_failed_at": null,
+            "state": "valid",
+            "invalidation_reason": null,
+            "invalidated_at": null,
+            "edited_at": null,
+            "updated_at": "2026-11-18T18:55:03.256463+00:00",
+            "source_memory_ids": []
+          }
+        ],
+        "total": 13,
+        "limit": 100,
+        "offset": 0
+      },
+      "rows": [
+        {
+          "id": "0e61f24f-8eae-4404-bc3a-f0d153b45322",
+          "current": "Nora is the user's colleague.",
+          "nativeNotes": [],
+          "original": "Nora is the user's colleague.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "18b833c2-20e7-4db8-bd45-cd109b17459a",
+          "current": "Nora owns a drill.",
+          "nativeNotes": [],
+          "original": "Nora owns a drill.",
+          "sourceIds": [
+            "c080c842-fd71-47ea-a444-efc8b4fe57f9"
+          ]
+        },
+        {
+          "id": "0d553b51-995e-4176-807a-4a061b3d3709",
+          "current": "User does not own a drill.",
+          "nativeNotes": [],
+          "original": "User does not own a drill.",
+          "sourceIds": [
+            "6b3e3fb8-ac0d-440e-aad1-91c77f20d2fb"
+          ]
+        },
+        {
+          "id": "b02dd02a-f4e7-4c23-aace-c0c1f42b6518",
+          "current": "User has not decided whether to move to Belfast in summer 2027.",
+          "nativeNotes": [],
+          "original": "User has not decided whether to move to Belfast in summer 2027.",
+          "sourceIds": [
+            "a908710a-aac6-4a77-a3cc-4ad330a36929"
+          ]
+        },
+        {
+          "id": "1bd7cd1a-a79b-4447-b18c-ec08fb7c702e",
+          "current": "User lived in Galway in 2020.",
+          "nativeNotes": [],
+          "original": "User lived in Galway in 2020.",
+          "sourceIds": [
+            "9e48ec2b-5fb5-4186-a6e7-5ee61266e0d1"
+          ]
+        },
+        {
+          "id": "14408e5b-7b3a-4612-b79f-bb5a8d9d4da3",
+          "current": "User commutes by train.",
+          "nativeNotes": [],
+          "original": "User commutes by train.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        },
+        {
+          "id": "d9c6d753-8f53-4ded-a193-223edecb5846",
+          "current": "User lives in Cork.",
+          "nativeNotes": [],
+          "original": "User lives in Cork.",
+          "sourceIds": [
+            "22d6dd04-2cf4-4890-a007-5e8a9923bf50",
+            "2a8d4161-40ea-426f-ad14-e6923131b913"
+          ]
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "document_id": "newer",
+      "timestamp": "2026-11-12T12:00:00Z",
+      "content": "User: I now live in Cork. I still commute by train.",
+      "tags": [
+        "newer"
+      ],
+      "metadata": {
+        "chat_id": "chat-newer",
+        "message_id": "message-newer"
+      }
+    },
+    {
+      "document_id": "past",
+      "timestamp": "2026-11-13T12:00:00Z",
+      "content": "User: I lived in Galway in 2020. I might move to Belfast next summer, but I have not decided.",
+      "tags": [
+        "past"
+      ],
+      "metadata": {
+        "chat_id": "chat-past",
+        "message_id": "message-past"
+      }
+    },
+    {
+      "document_id": "older",
+      "timestamp": "2026-11-01T12:00:00Z",
+      "content": "User: I live in Dublin and commute by train.",
+      "tags": [
+        "older"
+      ],
+      "metadata": {
+        "chat_id": "chat-older",
+        "message_id": "message-older"
+      }
+    },
+    {
+      "document_id": "question",
+      "timestamp": "2026-11-14T12:00:00Z",
+      "content": "User: Would a cordless drill help with this shelf? I do not own a drill. My colleague Nora owns one.",
+      "tags": [
+        "question"
+      ],
+      "metadata": {
+        "chat_id": "chat-question",
+        "message_id": "message-question"
+      }
+    }
+  ],
+  "finished": "2026-11-18T18:55:26.100Z"
+}

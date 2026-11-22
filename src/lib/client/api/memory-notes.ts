@@ -1,9 +1,14 @@
+import type { MemoryOperation } from "$lib/memory-types";
 import { type FetchLike, requestJson } from "./http";
 
-export interface MemoryNoteResult {
+interface LegacyMemoryNoteResult {
 	id: string;
 	statement: string;
 }
+
+export type MemoryNoteResult =
+	| LegacyMemoryNoteResult
+	| { operation: MemoryOperation };
 
 /**
  * Saves a durable memory note straight from the composer's `/remember`
@@ -12,6 +17,7 @@ export interface MemoryNoteResult {
  */
 export async function addMemoryNote(
 	text: string,
+	context: { conversationId: string | null; requestId: string },
 	fetchImpl: FetchLike = fetch,
 ): Promise<MemoryNoteResult> {
 	return requestJson<MemoryNoteResult>(
@@ -19,7 +25,7 @@ export async function addMemoryNote(
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text }),
+			body: JSON.stringify({ text, ...context }),
 		},
 		"Failed to save memory note.",
 		fetchImpl,

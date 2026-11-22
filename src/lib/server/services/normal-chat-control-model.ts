@@ -10,7 +10,7 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig } from "../config-store";
 import { getSystemPrompt } from "../prompts";
 
-import { buildOutboundSystemPrompt } from "./normal-chat-context";
+import { buildOutboundSystemPrompt } from "./chat-turn/outbound-system-prompt";
 import {
 	buildNormalChatModelRunProviderOptions,
 	createOpenAICompatibleProviderForNormalChatModelRun,
@@ -70,6 +70,7 @@ export type JsonControlMessageOptions = {
 	profilelessTemperature?: number;
 	signal?: AbortSignal;
 	jsonSchema?: JsonControlResponseSchema;
+	allowStructuredOutputFallback?: boolean;
 	allowReasoningFallback?: boolean;
 	allowEmptyTextOnLengthFinish?: boolean;
 	skipStructuredOutputs?: boolean;
@@ -193,7 +194,7 @@ function extractReasoningFallbackText(rawResponse: unknown): string | null {
 	return null;
 }
 
-function hasLengthFinishReason(rawResponse: unknown): boolean {
+export function hasLengthFinishReason(rawResponse: unknown): boolean {
 	const record =
 		rawResponse && typeof rawResponse === "object"
 			? (rawResponse as Record<string, unknown>)
@@ -357,6 +358,24 @@ export async function sendJsonControlMessage(
 		selectedModelId,
 		config,
 	);
+	return {
+		...(await sendJsonControlMessageViaProvider(
+			message,
+			provider,
+			options,
+			config.requestTimeoutMs,
+		)),
+		modelId: selectedModelId,
+	};
+}
+
+/** Use an explicitly bound server-side provider without registering a chat model. */
+export async function sendJsonControlMessageViaProvider(
+	message: string,
+	provider: NormalChatModelRunProvider,
+	options: JsonControlMessageOptions,
+	requestTimeoutMs: number,
+): Promise<Omit<JsonControlMessageResult, "modelId">> {
 	if (!provider.baseUrl || !provider.modelName) {
 		throw new Error("Selected control model is not configured");
 	}
@@ -406,7 +425,7 @@ export async function sendJsonControlMessage(
 					: CONTROL_MODEL_DEFAULT_MAX_TOKENS),
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 			abortSignal: options.signal,
-			timeout: config.requestTimeoutMs,
+			timeout: requestTimeoutMs,
 			providerOptions: buildProviderOptions({
 				provider,
 				thinkingMode: options.thinkingMode,
@@ -428,12 +447,15 @@ export async function sendJsonControlMessage(
 				allowEmptyTextOnLengthFinish: options.allowEmptyTextOnLengthFinish,
 			}),
 			rawResponse,
-			modelId: selectedModelId,
 			modelDisplayName: provider.displayName,
 			usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 		};
 	} catch (error) {
-		if (options.jsonSchema && isUnsupportedStructuredOutputError(error)) {
+		if (
+			options.allowStructuredOutputFallback !== false &&
+			options.jsonSchema &&
+			isUnsupportedStructuredOutputError(error)
+		) {
 			const result = await generate({ useJsonFallbackOutput: true });
 			const rawResponse = result.response.body;
 			return {
@@ -446,7 +468,6 @@ export async function sendJsonControlMessage(
 					allowEmptyTextOnLengthFinish: options.allowEmptyTextOnLengthFinish,
 				}),
 				rawResponse,
-				modelId: selectedModelId,
 				modelDisplayName: provider.displayName,
 				usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 			};
@@ -460,7 +481,6 @@ export async function sendJsonControlMessage(
 				return {
 					text: fallbackText,
 					rawResponse,
-					modelId: selectedModelId,
 					modelDisplayName: provider.displayName,
 					usage: extractControlModelUsage({
 						usage: undefined,

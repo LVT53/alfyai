@@ -63,24 +63,24 @@ afterEach(() => {
 });
 
 describe("memory-controls gates", () => {
-	it("isUserMemoryEnabled reflects the flag and fails open for unknown users", async () => {
+	it("isUserMemoryEnabled reflects the flag and fails closed for unknown users", async () => {
 		const { isUserMemoryEnabled } = await import("./memory-controls");
 		seedUser("on", true);
 		seedUser("off", false);
 		expect(await isUserMemoryEnabled("on")).toBe(true);
 		expect(await isUserMemoryEnabled("off")).toBe(false);
-		// Missing user → fail open (do not silently drop memory for a valid id).
-		expect(await isUserMemoryEnabled("ghost")).toBe(true);
+		// A stale session must not authorize memory for a missing account.
+		expect(await isUserMemoryEnabled("ghost")).toBe(false);
 	});
 
-	it("isConversationIncognito reflects the flag and defaults false for unknown conversations", async () => {
+	it("isConversationIncognito reflects the flag and fails closed for unknown conversations", async () => {
 		const { isConversationIncognito } = await import("./memory-controls");
 		seedUser("u", true);
 		seedConversation("normal", "u", false);
 		seedConversation("secret", "u", true);
 		expect(await isConversationIncognito("normal")).toBe(false);
 		expect(await isConversationIncognito("secret")).toBe(true);
-		expect(await isConversationIncognito("missing")).toBe(false);
+		expect(await isConversationIncognito("missing")).toBe(true);
 	});
 
 	it("isMemoryActiveForConversation requires memory on AND not incognito", async () => {
@@ -109,6 +109,27 @@ describe("memory-controls gates", () => {
 			await isMemoryActiveForConversation({
 				userId: "off",
 				conversationId: "c-off-normal",
+			}),
+		).toBe(false);
+	});
+});
+
+describe("ownership", () => {
+	it("does not authorize another user's normal chat or a missing chat", async () => {
+		const { isMemoryActiveForConversation } = await import("./memory-controls");
+		seedUser("a", true);
+		seedUser("b", true);
+		seedConversation("b-chat", "b", false);
+		expect(
+			await isMemoryActiveForConversation({
+				userId: "a",
+				conversationId: "b-chat",
+			}),
+		).toBe(false);
+		expect(
+			await isMemoryActiveForConversation({
+				userId: "a",
+				conversationId: "missing",
 			}),
 		).toBe(false);
 	});

@@ -1185,6 +1185,136 @@ describe("prepareAskResumeTurn", () => {
 			});
 		});
 
+		it.each(["without a request", "with a request"])(
+			"closes a past-chat capture whose source can no longer be verified %s",
+			async (scenario) => {
+				const claimed = await oneSegmentReply(pick(1));
+				if (scenario === "with a request")
+					memory.db
+						.update(schema.messages)
+						.set({ content: "Search my old chats for the lamp." })
+						.where(eq(schema.messages.id, "user-m"))
+						.run();
+				const captured = JSON.parse(claimed.row.resumeJson ?? "{}");
+				captured.messages.unshift({
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolName: "memory_context",
+							toolCallId: "old-read",
+							output: {
+								type: "json",
+								value: {
+									success: true,
+									mode: "history",
+									conversations: ["PRIVATE_OLD_CHAT"],
+								},
+							},
+						},
+					],
+				});
+				expect(
+					await prepare({
+						...claimed,
+						row: { ...claimed.row, resumeJson: JSON.stringify(captured) },
+					}),
+				).toEqual(NOT_WAITING);
+				await expectClosedForGood(claimed, {
+					messageId: "asst-1",
+					callId: "call-ask-1",
+				});
+			},
+		);
+
+		it.each(["unchanged", "cleared", "revoked", "turned off", "moved"])(
+			"checks whether a paused private Memory result can be replayed after Memory is %s",
+			async (scenario) => {
+				const claimed = await oneSegmentReply(pick(1));
+				const captured = JSON.parse(claimed.row.resumeJson ?? "{}");
+				captured.messages.unshift({
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolName: "memory_context",
+							toolCallId: "prior-persona",
+							output: {
+								type: "json",
+								value: {
+									success: true,
+									mode: "persona",
+									status: "available",
+									content: "PRIVATE_MEMORY_FACT",
+								},
+							},
+						},
+					],
+				});
+				if (scenario === "cleared")
+					memory.db
+						.insert(schema.memoryResetGenerations)
+						.values({
+							userId: USER,
+							resetGeneration: 1,
+							advancedAt: NOW,
+						})
+						.run();
+				if (scenario === "revoked") {
+					memory.db
+						.insert(schema.memoryBanks)
+						.values({
+							id: "bank-1",
+							userId: USER,
+							scopeKey: "personal",
+							epoch: 0,
+						})
+						.run();
+					memory.db
+						.insert(schema.memoryRevocations)
+						.values({
+							id: "revocation-1",
+							userId: USER,
+							bankId: "bank-1",
+							epoch: 0,
+							createdAt: NOW,
+						})
+						.run();
+				}
+				if (scenario === "moved")
+					memory.db
+						.insert(schema.memoryEvents)
+						.values({
+							id: "move-1",
+							eventKey: "scope-move-1",
+							userId: USER,
+							conversationId: CHAT,
+							domain: "conversation",
+							eventType: "memory_scope_moved",
+							observedAt: NOW,
+						})
+						.run();
+				if (scenario === "turned off")
+					memory.db
+						.update(schema.users)
+						.set({ memoryEnabled: false })
+						.where(eq(schema.users.id, USER))
+						.run();
+				const result = await prepare({
+					...claimed,
+					row: { ...claimed.row, resumeJson: JSON.stringify(captured) },
+				});
+				if (scenario === "unchanged") expect(result.ok).toBe(true);
+				else {
+					expect(result).toEqual(NOT_WAITING);
+					await expectClosedForGood(claimed, {
+						messageId: "asst-1",
+						callId: "call-ask-1",
+					});
+				}
+			},
+		);
+
 		it("finds that the capture cannot be read", async () => {
 			seedMessages({
 				segments: [

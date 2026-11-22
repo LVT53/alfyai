@@ -1,0 +1,138 @@
+{
+  "checks": {
+    "pendingNoRed": true,
+    "pendingKeepsOwnership": true,
+    "pendingKeepsCoffee": true,
+    "pendingKeepsHobby": true,
+    "resetEmpty": true,
+    "racedReadEmpty": true,
+    "oldColourAfterRecoveryRejected": true,
+    "newColourVisible": true,
+    "unknownProvenanceRejected": true,
+    "sameIdMutationRejected": true,
+    "truncatedObservationsRejected": true,
+    "truncatedKeepsVerifiedRaw": true
+  },
+  "pending": [
+    {
+      "id": "4ff91965-f70b-47fc-bb06-7cdd4e4d17b1",
+      "type": "observation",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "d28e8777-5ad8-4055-b32a-c7a8be6ec6fa",
+      "type": "world",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "129ad262-da88-4a97-a8db-3fdb3572d444",
+      "type": "observation",
+      "text": "The user prefers espresso coffee."
+    },
+    {
+      "id": "ba266548-690e-4722-a18c-81fb96033104",
+      "type": "world",
+      "text": "The user prefers espresso coffee."
+    },
+    {
+      "id": "a3b4f3b7-9746-4af7-80da-54a6384319f8",
+      "type": "world",
+      "text": "The user practises pottery."
+    },
+    {
+      "id": "fbd729cf-5385-4bdf-bff5-b25d23aaf78c",
+      "type": "observation",
+      "text": "The user practises pottery."
+    }
+  ],
+  "reset": [],
+  "racedRead": [],
+  "oldResponseAfterRecovery": [
+    {
+      "id": "4ff91965-f70b-47fc-bb06-7cdd4e4d17b1",
+      "type": "observation",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "d28e8777-5ad8-4055-b32a-c7a8be6ec6fa",
+      "type": "world",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "a3b4f3b7-9746-4af7-80da-54a6384319f8",
+      "type": "world",
+      "text": "The user practises pottery."
+    },
+    {
+      "id": "fbd729cf-5385-4bdf-bff5-b25d23aaf78c",
+      "type": "observation",
+      "text": "The user practises pottery."
+    }
+  ],
+  "currentResponse": [
+    {
+      "id": "fc3426ae-bea9-4c0a-8380-91d16187f113",
+      "type": "world",
+      "text": "The user bicycle is blue."
+    },
+    {
+      "id": "4ff91965-f70b-47fc-bb06-7cdd4e4d17b1",
+      "type": "observation",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "d28e8777-5ad8-4055-b32a-c7a8be6ec6fa",
+      "type": "world",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "df2b1e94-31f0-4d4c-9a8d-7a7c67ca3fc0",
+      "type": "observation",
+      "text": "The user's bicycle is blue."
+    },
+    {
+      "id": "f25081b2-8f44-45d0-a077-8860ed3a3f74",
+      "type": "observation",
+      "text": "The user prefers decaf coffee."
+    },
+    {
+      "id": "9e51a14d-50b2-4e58-801f-5ed9895d8e5b",
+      "type": "world",
+      "text": "The user prefers decaf coffee."
+    },
+    {
+      "id": "a3b4f3b7-9746-4af7-80da-54a6384319f8",
+      "type": "world",
+      "text": "The user practises pottery."
+    },
+    {
+      "id": "fbd729cf-5385-4bdf-bff5-b25d23aaf78c",
+      "type": "observation",
+      "text": "The user practises pottery."
+    }
+  ],
+  "bad": [],
+  "tampered": [],
+  "truncatedResult": [
+    {
+      "id": "fc3426ae-bea9-4c0a-8380-91d16187f113",
+      "type": "world",
+      "text": "The user bicycle is blue."
+    },
+    {
+      "id": "d28e8777-5ad8-4055-b32a-c7a8be6ec6fa",
+      "type": "world",
+      "text": "The user owns a bicycle."
+    },
+    {
+      "id": "9e51a14d-50b2-4e58-801f-5ed9895d8e5b",
+      "type": "world",
+      "text": "The user prefers decaf coffee."
+    },
+    {
+      "id": "a3b4f3b7-9746-4af7-80da-54a6384319f8",
+      "type": "world",
+      "text": "The user practises pottery."
+    }
+  ]
+}

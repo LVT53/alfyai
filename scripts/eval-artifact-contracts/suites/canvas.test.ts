@@ -453,13 +453,14 @@ describe("the request a live case sends (ruling 62)", () => {
 });
 
 describe("scoring — an edit a careful model would make", () => {
-	it.each(
-		Object.keys(HONEST_EDITS),
-	)("scores the honest answer good: %s", (id) => {
-		const result = score(id, editAnswer(HONEST_EDITS[id]));
-		expect(result.reasons, id).toEqual([expect.stringMatching(/^ok:/)]);
-		expect(result.verdict).toBe("good");
-	});
+	it.each(Object.keys(HONEST_EDITS))(
+		"scores the honest answer good: %s",
+		(id) => {
+			const result = score(id, editAnswer(HONEST_EDITS[id]));
+			expect(result.reasons, id).toEqual([expect.stringMatching(/^ok:/)]);
+			expect(result.verdict).toBe("good");
+		},
+	);
 
 	it("says what it checked, and that the model read the board first", () => {
 		const result = score(
@@ -751,14 +752,15 @@ describe("scoring — the rubric on the board an edit leaves", () => {
 });
 
 describe("scoring — a board made through create_artifact", () => {
-	it.each(
-		Object.keys(HONEST_CREATES),
-	)("scores an honest board good: %s", (id) => {
-		const result = score(id, createAnswer(HONEST_CREATES[id]));
-		expect(result.reasons, id).toEqual([
-			expect.stringMatching(/^ok: a board of 7 nodes/),
-		]);
-	});
+	it.each(Object.keys(HONEST_CREATES))(
+		"scores an honest board good: %s",
+		(id) => {
+			const result = score(id, createAnswer(HONEST_CREATES[id]));
+			expect(result.reasons, id).toEqual([
+				expect.stringMatching(/^ok: a board of 7 nodes/),
+			]);
+		},
+	);
 
 	it("fails a body that is not JSON, the way the model's escaping can go wrong, and one the tool would refuse, naming the fix", () => {
 		const notJson = score(
@@ -1447,25 +1449,26 @@ describe("the known-bad answers (ruling 59: hand-written, never a model call)", 
 		["canvas-known-bad-removes-more", "removed:"],
 	];
 
-	it.each(
-		KNOWN_BAD,
-	)("%s is committed, and the scorer fails it for the reason it exists", (id, tag) => {
-		const committed = loadCommittedResponseFromDisk(
-			FIXTURES_ROOT,
-			"canvas",
-			id,
-		);
-		expect(committed).not.toBeNull();
-		const result = score(id, committed?.response ?? "");
-		expect(result.verdict).toBe("bad");
-		expect(result.reasons.some((r) => r.startsWith(tag))).toBe(true);
-		// And only for that reason: nothing else is wrong with it.
-		expect(
-			result.reasons.filter(
-				(r) => !r.startsWith(tag) && !r.startsWith("note:"),
-			),
-		).toEqual([]);
-	});
+	it.each(KNOWN_BAD)(
+		"%s is committed, and the scorer fails it for the reason it exists",
+		(id, tag) => {
+			const committed = loadCommittedResponseFromDisk(
+				FIXTURES_ROOT,
+				"canvas",
+				id,
+			);
+			expect(committed).not.toBeNull();
+			const result = score(id, committed?.response ?? "");
+			expect(result.verdict).toBe("bad");
+			expect(result.reasons.some((r) => r.startsWith(tag))).toBe(true);
+			// And only for that reason: nothing else is wrong with it.
+			expect(
+				result.reasons.filter(
+					(r) => !r.startsWith(tag) && !r.startsWith("note:"),
+				),
+			).toEqual([]);
+		},
+	);
 
 	function deps(
 		scoreImpl = (c: EvalCase, a: EvalAttempt) => scoreCanvasEval(c, a),

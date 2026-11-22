@@ -890,6 +890,49 @@ const modelGroups = $derived(
 	}),
 );
 
+// Curation shares the native service's bounded background inference admission.
+const curationModelGroups = $derived(
+	modelGroups
+		.map((group) => ({
+			...group,
+			options: group.options.filter((option) => {
+				const parts = option.id.split(":");
+				const provider =
+					parts[0] === "provider"
+						? providerConfigs.find(
+								(p) => p.id === parts[1] && parts.length === 3,
+							)
+						: providerConfigs.find((p) => p.name === option.id);
+				const endpoint =
+					provider?.baseUrl ??
+					(option.id === "model1" || option.id === "model2"
+						? (draft[
+								option.id === "model1" ? "MODEL_1_BASE_URL" : "MODEL_2_BASE_URL"
+							] ??
+							envDefaults[
+								option.id === "model1" ? "MODEL_1_BASE_URL" : "MODEL_2_BASE_URL"
+							])
+						: "");
+				try {
+					const target = new URL(endpoint ?? "");
+					const gateway = new URL(
+						`${(draft.HINDSIGHT_URL ?? envDefaults.HINDSIGHT_URL ?? "").replace(/\/+$/, "")}/ext/alfyai/inference/v1`,
+					);
+					return (
+						target.origin === gateway.origin &&
+						[gateway.pathname, `${gateway.pathname}/chat/completions`].includes(
+							target.pathname.replace(/\/+$/, ""),
+						) &&
+						!target.search
+					);
+				} catch {
+					return false;
+				}
+			}),
+		}))
+		.filter((group) => group.options.length),
+);
+
 // The failover target and the memory models must name a concrete model, not a
 // provider — the same rule the old `timeoutFailoverTargetModelOptions` had.
 const failoverModelGroups = $derived(
@@ -925,6 +968,7 @@ const NAMED_KEY_LABEL: Record<string, I18nKey> = {
 	ATLAS_GLOBAL_ACTIVE_LIMIT: "admin.atlasGlobalActiveLimit",
 	ATLAS_SYNTHESIS_MODEL: "admin.atlasSynthesisModel",
 	ATLAS_AUDIT_MODEL: "admin.atlasAuditModel",
+	HINDSIGHT_CURATION_MODEL: "admin.hindsightCurationModel",
 	MEMORY_JUDGE_MODEL: "admin.memoryJudgeModel",
 	MEMORY_CONSOLIDATION_MODEL: "admin.memoryConsolidationModel",
 	TITLE_GEN_MODEL: "admin.titleGenModel",
@@ -935,7 +979,6 @@ const NAMED_KEY_LABEL: Record<string, I18nKey> = {
 	CONTEXT_SUMMARIZER_MODEL: "admin.contextSummarizerModel",
 	SYSTEM_PROMPT: "admin.systemPromptLabel",
 	PARALLEL_API_KEY: "admin.parallelApiKey",
-	BRAVE_SEARCH_API_KEY: "admin.braveSearchApiKey",
 	MINERU_API_URL: "admin.mineruApiUrl",
 	MINERU_API_KEY: "admin.mineruApiKey",
 	MINERU_DEFAULT_TIER: "admin.mineruDefaultTier",
@@ -1085,6 +1128,7 @@ function highlight(key: string) {
 			</ModelsPage>
 		{:else if activePage === 'aiTasks'}
 			<AiTasksPage
+				{curationModelGroups}
 				adminConfig={draft}
 				{envDefaults}
 				{modelGroups}

@@ -73,14 +73,12 @@ import {
 	requestSearchModalOpen,
 } from "$lib/stores/ui";
 import { get } from "svelte/store";
-import {
-	dismissMemoryReviewNotice,
-	type HomeProjectCard,
-	type HomeRecentConversation,
-	type HomeRunningJob,
-	type HomeWeeklyBucket,
+import type {
+	HomeProjectCard,
+	HomeRecentConversation,
+	HomeRunningJob,
+	HomeWeeklyBucket,
 } from "$lib/client/api/home";
-import HomeMemoryReviewNotice from "$lib/components/home/HomeMemoryReviewNotice.svelte";
 import HomeProjects from "$lib/components/home/HomeProjects.svelte";
 import HomeRecent from "$lib/components/home/HomeRecent.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
@@ -211,8 +209,6 @@ let {
 	sendStarted = $bindable(false),
 	running = null,
 	projects = [],
-	memoryReviewCount = 0,
-	memoryReviewNoticeDismissed = false,
 	summaryLoaded = false,
 	displayName = null,
 	userId = null,
@@ -688,23 +684,6 @@ $effect(() => {
 	});
 });
 
-function handleMemoryReviewDismiss({
-	restoreFocus,
-}: {
-	restoreFocus: boolean;
-}) {
-	// Fire and forget: the row already hid itself locally
-	// (HomeMemoryReviewNotice's own optimistic state), and a failed write only
-	// means it may show again next load.
-	void dismissMemoryReviewNotice().catch(() => undefined);
-	// A keyboard dismissal removes the focused button; hand focus to the
-	// composer, the next thing on this screen, instead of dropping it on body.
-	if (restoreFocus) {
-		void tick().then(() =>
-			homeComposerLayer?.querySelector("textarea")?.focus(),
-		);
-	}
-}
 let fileDragActive = $state(false);
 let fileDragRejected = $state(false);
 let personalityProfiles: Array<{
@@ -997,6 +976,24 @@ async function createPreparedConversationForScope(): Promise<string> {
 	}
 	preparedConversationId = id;
 	setLandingDraftConversationId(id);
+	return id;
+}
+
+/** Memory words belong to the project where the command began. Unlike a draft
+ * preparer, this barrier must never adopt a replacement project's chat. */
+async function prepareMemoryNote(): Promise<string> {
+	const epoch = preparedConversationEpoch;
+	const originProject = projectId;
+	if ($landingIncognitoArmed)
+		throw new Error("Incognito does not accept memory notes");
+	const id = await ensurePreparedConversation();
+	if (incognitoArmReconciliation) await incognitoArmReconciliation;
+	if (
+		epoch !== preparedConversationEpoch ||
+		originProject !== projectId ||
+		$landingIncognitoArmed
+	)
+		throw new Error("Memory command context changed");
 	return id;
 }
 
@@ -1376,21 +1373,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						{/if}
 					</div>
 
-					{#if !isProjectMode && !$landingIncognitoArmed && summaryLoaded}
-						<!-- Directly under the greeting band, above the composer. Keyed
-						     by the server's own dismissed flag: when a NEW review item
-						     makes it flip from dismissed back to not-dismissed, the key
-						     changes and Svelte remounts the row, clearing its local
-						     optimistic-hide state rather than leaving it stuck hidden
-						     from an earlier dismissal (see HomeMemoryReviewNotice). -->
-						{#key memoryReviewNoticeDismissed}
-							<HomeMemoryReviewNotice
-								count={memoryReviewNoticeDismissed ? 0 : memoryReviewCount}
-								href="/knowledge?tab=memory#memory-review"
-								onDismiss={handleMemoryReviewDismiss}
-							/>
-						{/key}
-					{/if}
+
 				{/if}
 
 				{#if creating && pendingMessagePreview}
@@ -1437,6 +1420,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					draftVersion={conversationDraft?.updatedAt ?? 0}
 					attachmentsEnabled={true}
 					ensureConversation={ensurePreparedConversation}
+ prepareMemoryNote={prepareMemoryNote}
 					onOpenAttachment={(artifact) => (markingPhoto = artifact)}
 					imageMarks={heldMarks}
 					onClearMarks={() => (heldMarks = null)}

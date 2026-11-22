@@ -343,14 +343,14 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		probe: probeParallel,
 		probeKey: PARALLEL_PROBE_KEY,
 	},
-	// Not probed: every Brave call counts against the plan's monthly quota,
-	// and a probe on each five-minute refresh used it up within days. A real
-	// call that fails reports its own error.
+	// Share the credential check. A real image request would consume the allowance.
 	{
 		id: "image_search",
 		name: "image_search",
-		backend: "Brave Search",
-		configured: (config) => hasValue(config.braveSearchApiKey),
+		backend: "Parallel API",
+		configured: (config) => hasValue(config.parallelApiKey),
+		probe: probeParallel,
+		probeKey: PARALLEL_PROBE_KEY,
 	},
 	{
 		id: "memory_context",

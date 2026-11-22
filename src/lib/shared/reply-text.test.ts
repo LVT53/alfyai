@@ -60,14 +60,13 @@ describe("status-aware outward replies", () => {
 		outcome: "answered" | "incomplete" | "stopped" | "failed",
 		content: string,
 	) => ({ content, normalChatOutputView: { completion: { outcome } } });
-	it.each([
-		"incomplete",
-		"stopped",
-		"failed",
-	] as const)("preserves %s canonical answer bytes without a status prefix", (outcome) => {
-		const content = "  The checked result is 42\n";
-		expect(joinReplyText([row(outcome, content)])).toBe(content);
-	});
+	it.each(["incomplete", "stopped", "failed"] as const)(
+		"preserves %s canonical answer bytes without a status prefix",
+		(outcome) => {
+			const content = "  The checked result is 42\n";
+			expect(joinReplyText([row(outcome, content)])).toBe(content);
+		},
+	);
 	it("keeps completed canonical bytes, legacy compatibility and empty activity separate", () => {
 		expect(joinReplyText([row("answered", "  Exact\n")])).toBe("  Exact\n");
 		expect(joinReplyText([{ content: "  Legacy words.\n" }])).toBe(
@@ -87,100 +86,100 @@ describe("status-aware outward replies", () => {
 });
 
 describe("durable finalization outward status", () => {
-	it.each([
-		false,
-		true,
-	])("Copy and markdown preserve canonical bytes with stopped=%s", (wasStopped) => {
-		const scope = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			attemptId: "a",
-			stepId: "c",
-			phase: "closing",
-		} as const;
+	it.each([false, true])(
+		"Copy and markdown preserve canonical bytes with stopped=%s",
+		(wasStopped) => {
+			const scope = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				attemptId: "a",
+				stepId: "c",
+				phase: "closing",
+			} as const;
+			const row = {
+				content: "  Canonical answer\n",
+				normalChatFinalization: {
+					version: 1,
+					status: "failed",
+					cause: "file_association_failed",
+					wasStopped,
+				} as const,
+				normalChatOutput: {
+					version: 1,
+					events: [
+						{
+							...scope,
+							sequence: 1,
+							type: "completion",
+							completion: {
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								phase: "closing",
+								outcome: wasStopped ? "stopped" : "answered",
+								stopCause: wasStopped ? "user_stop" : "natural_stop",
+								workingStopCause: "tool_budget",
+								closingAttempted: true,
+							},
+						},
+					],
+				},
+			} as const;
+			expect(getClipboardText(row)).toBe("  Canonical answer\n");
+			expect(joinReplyText([row], { legacy: "markdown" })).toBe(
+				getClipboardText(row),
+			);
+		},
+	);
+});
+
+it.each([false, true])(
+	"marker-only outward failure preserves canonical bytes without model IDs, stopped=%s",
+	(wasStopped) => {
 		const row = {
-			content: "  Canonical answer\n",
+			content: "  Canonical untracked answer\n",
 			normalChatFinalization: {
 				version: 1,
 				status: "failed",
 				cause: "file_association_failed",
 				wasStopped,
-			} as const,
-			normalChatOutput: {
-				version: 1,
-				events: [
-					{
-						...scope,
-						sequence: 1,
-						type: "completion",
-						completion: {
-							version: 1,
-							turnId: "t",
-							segmentId: "s",
-							phase: "closing",
-							outcome: wasStopped ? "stopped" : "answered",
-							stopCause: wasStopped ? "user_stop" : "natural_stop",
-							workingStopCause: "tool_budget",
-							closingAttempted: true,
-						},
-					},
-				],
 			},
 		} as const;
-		expect(getClipboardText(row)).toBe("  Canonical answer\n");
+		expect(getClipboardText(row)).toBe("  Canonical untracked answer\n");
 		expect(joinReplyText([row], { legacy: "markdown" })).toBe(
 			getClipboardText(row),
 		);
-	});
-});
-
-it.each([
-	false,
-	true,
-])("marker-only outward failure preserves canonical bytes without model IDs, stopped=%s", (wasStopped) => {
-	const row = {
-		content: "  Canonical untracked answer\n",
-		normalChatFinalization: {
-			version: 1,
-			status: "failed",
-			cause: "file_association_failed",
-			wasStopped,
-		},
-	} as const;
-	expect(getClipboardText(row)).toBe("  Canonical untracked answer\n");
-	expect(joinReplyText([row], { legacy: "markdown" })).toBe(
-		getClipboardText(row),
-	);
-	expect(
-		getClipboardText({
-			content: "Stopped",
-			normalChatOutputView: { completion: { outcome: "stopped" } },
-		}),
-	).toBe("Stopped");
-});
+		expect(
+			getClipboardText({
+				content: "Stopped",
+				normalChatOutputView: { completion: { outcome: "stopped" } },
+			}),
+		).toBe("Stopped");
+	},
+);
 
 it.each(
 	[false, true].flatMap((wasStopped) =>
 		["", " \n\t"].map((content) => ({ wasStopped, content })),
 	),
-)("keeps marker-only status out of empty outward content: $wasStopped/$content", ({
-	wasStopped,
-	content,
-}) => {
-	const row = {
-		content,
-		normalChatFinalization: {
-			version: 1,
-			status: "failed",
-			cause: "file_association_failed",
-			wasStopped,
-		},
-	} as const;
-	const expected = "";
-	expect(getClipboardText(row)).toBe(expected);
-	expect(joinReplyText([row], { legacy: "markdown" })).toBe(expected);
-	expect(row.content).toBe(content);
-	expect(getClipboardText({ content })).toBe("");
-	expect(joinReplyText([{ content }], { legacy: "markdown" })).toBe("");
-});
+)(
+	"keeps marker-only status out of empty outward content: $wasStopped/$content",
+	({ wasStopped, content }) => {
+		const row = {
+			content,
+			normalChatFinalization: {
+				version: 1,
+				status: "failed",
+				cause: "file_association_failed",
+				wasStopped,
+			},
+		} as const;
+		const expected = "";
+		expect(getClipboardText(row)).toBe(expected);
+		expect(joinReplyText([row], { legacy: "markdown" })).toBe(expected);
+		expect(row.content).toBe(content);
+		expect(getClipboardText({ content })).toBe("");
+		expect(joinReplyText([{ content }], { legacy: "markdown" })).toBe("");
+	},
+);

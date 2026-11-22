@@ -4,13 +4,10 @@ import { imageThumbnailRouteUrl } from "$lib/shared/url-provenance";
 import { uiLanguage } from "$lib/stores/settings";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 
-// image_search's own result: a picture's address and Brave's resized copy of it. A
-// reply may show a picture from the web only when a tool of its own message returned it.
+// A reply may show a picture from the web only when a tool of its own message returned it.
 const PHOTO = "https://example.com/photo.png";
-const PHOTO_THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9waG90by5wbmc";
 const PHOTO_RESULTS = {
-	toolImages: [{ url: PHOTO, thumbnail: PHOTO_THUMB }],
+	toolImages: [{ url: PHOTO, thumbnail: PHOTO }],
 	toolSourceHosts: new Set<string>(),
 };
 
@@ -267,9 +264,7 @@ describe("MarkdownRenderer — image loading skeleton (C4)", () => {
 				expect(img).toBeTruthy();
 				// Shown from the app's own thumbnail route, never from the address the
 				// reply wrote.
-				expect(img?.getAttribute("src")).toBe(
-					imageThumbnailRouteUrl(PHOTO_THUMB),
-				);
+				expect(img?.getAttribute("src")).toBe(imageThumbnailRouteUrl(PHOTO));
 			},
 			{ timeout: 15000 },
 		);
@@ -471,7 +466,7 @@ describe("MarkdownRenderer: what a reply may make the browser fetch on its own",
 			() => {
 				expect(
 					container.querySelector("img.markdown-image")?.getAttribute("src"),
-				).toBe(imageThumbnailRouteUrl(PHOTO_THUMB));
+				).toBe(imageThumbnailRouteUrl(PHOTO));
 				expect(container.querySelector("a.source-link-chip--image")).toBeNull();
 			},
 			{ timeout: 15000 },

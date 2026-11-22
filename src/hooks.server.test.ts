@@ -12,6 +12,7 @@ const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockStartJobs = vi.fn(async () => undefined);
 const mockStopJobs = vi.fn();
 const mockSettleInterruptedImports = vi.fn(() => 0);
+const mockPurgeRestoredMemoryQuarantine = vi.fn();
 const atlasResearchJobStub = { name: "atlas", logPrefix: "[ATLAS]" };
 const extractionJobStub = { name: "extraction", logPrefix: "[EXTRACTION]" };
 const imageJobStub = { name: "image", logPrefix: "[IMAGES]" };
@@ -61,6 +62,10 @@ vi.mock("@sveltejs/kit/hooks", () => ({
 
 			return run(0, event);
 		},
+}));
+
+vi.mock("$lib/server/services/memory-profile/quarantine", () => ({
+	purgeRestoredMemoryQuarantine: mockPurgeRestoredMemoryQuarantine,
 }));
 
 vi.mock("$lib/server/services/auth", () => ({
@@ -193,6 +198,85 @@ describe("hooks.server.ts", () => {
 		expect(mockSentrySetUser).toHaveBeenCalledWith(null);
 	});
 
+	it("lets only the machine admission GET reach its bearer-authenticated handler", async () => {
+		const { handle } = await import("./hooks.server");
+		const { GET } = await import(
+			"./routes/api/internal/memory-admission/+server"
+		);
+		const { getConfig } = await import("$lib/server/config-store");
+		const activity = await import(
+			"./lib/server/services/chat-turn/request-activity"
+		);
+		const config = vi.mocked(getConfig);
+		const original = config();
+		config.mockReturnValue({ ...original, hindsightAdmissionKey: "synthetic" });
+		const state = vi.spyOn(activity, "readForegroundActivity").mockReturnValue({
+			active: true,
+			healthy: true,
+			idle: true,
+			observedAt: 1,
+		});
+		try {
+			const path = "/api/internal/memory-admission";
+			for (const [authorization, expected] of [
+				["Bearer synthetic", 200],
+				["Bearer wrong", 401],
+				["", 401],
+			] as const) {
+				const event = makeHookEvent(path, undefined, { authorization });
+				const resolve = vi.fn(async () =>
+					GET(event as Parameters<typeof GET>[0]),
+				);
+				const response = await handle({ event, resolve });
+				expect(response.status).toBe(expected);
+				expect(resolve).toHaveBeenCalledOnce();
+			}
+			expect(state).toHaveBeenCalledOnce();
+			for (const [route, method] of [
+				[path, "HEAD"],
+				[path, "POST"],
+				[`${path}/child`, "GET"],
+			]) {
+				const resolve = vi.fn();
+				const event = makeHookEvent(
+					route,
+					undefined,
+					{ authorization: "Bearer synthetic" },
+					method,
+				);
+				expect((await handle({ event, resolve })).status).toBe(401);
+				expect(resolve).not.toHaveBeenCalled();
+			}
+		} finally {
+			config.mockReturnValue(original);
+			state.mockRestore();
+		}
+	});
+
+	it("keeps a restored app offline and refuses worker startup while the restore hold is set", async () => {
+		const { handle, init } = await import("./hooks.server");
+		const { getConfig } = await import("$lib/server/config-store");
+		const config = vi.mocked(getConfig);
+		const held = { ...config(), hindsightRestoreHold: true };
+		config.mockReturnValueOnce(held);
+		await init();
+		expect(mockPurgeRestoredMemoryQuarantine).toHaveBeenCalledOnce();
+		expect(mockStartJobs).not.toHaveBeenCalled();
+		expect(mockEnsureMemoryMaintenanceScheduler).not.toHaveBeenCalled();
+		for (const path of [
+			"/api/health",
+			"/api/knowledge/memory",
+			"/api/chat/send",
+		]) {
+			config.mockReturnValueOnce(held);
+			const resolve = vi.fn();
+			const result = await handle({ event: makeHookEvent(path), resolve });
+			expect(result.status).toBe(503);
+			expect(result.headers.get("Cache-Control")).toBe("no-store");
+			expect(resolve).not.toHaveBeenCalled();
+		}
+	});
+
 	it("drops SvelteKit redirect captures from server-side Sentry events", async () => {
 		await import("./hooks.server");
 
@@ -255,6 +339,7 @@ describe("hooks.server.ts", () => {
 		expect(mockStartJobs).toHaveBeenCalledOnce();
 		// Every kind that runs on the engine, in one call.
 		expect(mockStartJobs).toHaveBeenCalledWith([
+			expect.objectContaining({ name: "memory", logPrefix: "[MEMORY]" }),
 			atlasResearchJobStub,
 			extractionJobStub,
 			fileProductionJobStub,
@@ -386,23 +471,24 @@ describe("hooks.server.ts", () => {
 		{ segments: ["api", "tools", "research-web"] },
 		{ segments: ["api", "webhook", "sentence"] },
 		{ segments: ["api", "stream", "webhook", "session-1"] },
-	])("refuses retired public route %# without a session", async ({
-		segments,
-	}) => {
-		const { handle } = await import("./hooks.server");
-		const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
-		const path = `/${segments.join("/")}`;
-		const resolve = vi.fn();
-		const event = makeHookEvent(path);
+	])(
+		"refuses retired public route %# without a session",
+		async ({ segments }) => {
+			const { handle } = await import("./hooks.server");
+			const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
+			const path = `/${segments.join("/")}`;
+			const resolve = vi.fn();
+			const event = makeHookEvent(path);
 
-		// Still gated, and as API paths they are now refused in the API's own
-		// language rather than redirected to a login page.
-		const response = await handle({ event, resolve });
+			// Still gated, and as API paths they are now refused in the API's own
+			// language rather than redirected to a login page.
+			const response = await handle({ event, resolve });
 
-		expect(resolve).not.toHaveBeenCalled();
-		expect(response.status).toBe(401);
-		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
-	});
+			expect(resolve).not.toHaveBeenCalled();
+			expect(response.status).toBe(401);
+			expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
+		},
+	);
 
 	it("redirects protected PAGE routes to /login when no user is present", async () => {
 		const { handle } = await import("./hooks.server");
@@ -414,20 +500,18 @@ describe("hooks.server.ts", () => {
 		});
 	});
 
-	it.each([
-		"/chat/conversation-1",
-		"/knowledge",
-		"/settings",
-		"/privacy/x",
-	])("redirects the page route %s to /login when no user is present", async (path) => {
-		const { handle } = await import("./hooks.server");
-		const event = makeHookEvent(path);
+	it.each(["/chat/conversation-1", "/knowledge", "/settings", "/privacy/x"])(
+		"redirects the page route %s to /login when no user is present",
+		async (path) => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(path);
 
-		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
-			status: 303,
-			location: "/login",
-		});
-	});
+			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+				status: 303,
+				location: "/login",
+			});
+		},
+	);
 
 	// The contract bug this replaced: EVERY unauthenticated request, including
 	// `/api/*`, was answered with a 303 to /login. `fetch` follows it, so an API
@@ -542,23 +626,23 @@ describe("hooks.server.ts", () => {
 		// token equal to ALFYAI_API_SIGNING_KEY), which is why they are on the
 		// public list. The 401 gate must not start intercepting them, or the
 		// deploy's drain call and the file-production callback would break.
-		it.each([
-			"/api/admin/drain",
-			"/api/chat/files/produce",
-		])("lets the service-assertion route %s reach its own auth check", async (path) => {
-			const { handle } = await import("./hooks.server");
-			const resolve = vi.fn(async () => new Response("ok"));
+		it.each(["/api/admin/drain", "/api/chat/files/produce"])(
+			"lets the service-assertion route %s reach its own auth check",
+			async (path) => {
+				const { handle } = await import("./hooks.server");
+				const resolve = vi.fn(async () => new Response("ok"));
 
-			const response = await handle({
-				event: makeHookEvent(path, undefined, {
-					authorization: "Bearer signing-key",
-				}),
-				resolve,
-			});
+				const response = await handle({
+					event: makeHookEvent(path, undefined, {
+						authorization: "Bearer signing-key",
+					}),
+					resolve,
+				});
 
-			expect(resolve).toHaveBeenCalledOnce();
-			expect(response.status).toBe(200);
-		});
+				expect(resolve).toHaveBeenCalledOnce();
+				expect(response.status).toBe(200);
+			},
+		);
 
 		it("lets an authenticated API request through untouched", async () => {
 			const { handle } = await import("./hooks.server");
@@ -580,18 +664,20 @@ describe("hooks.server.ts", () => {
 
 		// `/api` itself is not a route; only the `/api/` prefix switches the
 		// refusal. A page path that merely mentions api stays a page.
-		it.each([
-			"/apiary",
-			"/docs/api/reference",
-		])("treats the page path %s as a page", async (path) => {
-			const { handle } = await import("./hooks.server");
-			const event = makeHookEvent(path);
+		it.each(["/apiary", "/docs/api/reference"])(
+			"treats the page path %s as a page",
+			async (path) => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(path);
 
-			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
-				status: 303,
-				location: "/login",
-			});
-		});
+				await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject(
+					{
+						status: 303,
+						location: "/login",
+					},
+				);
+			},
+		);
 	});
 
 	// An `/api/` path a PERSON is looking at, rather than a program. The OAuth
@@ -674,25 +760,25 @@ describe("hooks.server.ts", () => {
 		// Old browser, curl, a server-side client: no Fetch Metadata at all, so
 		// fall back to what the caller says it wants.
 		describe("without Fetch Metadata headers", () => {
-			it.each([
-				"GET",
-				"HEAD",
-			])("redirects a %s that explicitly asks for html", async (method) => {
-				const { handle } = await import("./hooks.server");
-				const event = makeHookEvent(
-					"/api/knowledge/doc-1/download",
-					undefined,
-					{
-						accept:
-							"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-					},
-					method,
-				);
+			it.each(["GET", "HEAD"])(
+				"redirects a %s that explicitly asks for html",
+				async (method) => {
+					const { handle } = await import("./hooks.server");
+					const event = makeHookEvent(
+						"/api/knowledge/doc-1/download",
+						undefined,
+						{
+							accept:
+								"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+						},
+						method,
+					);
 
-				await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject(
-					{ status: 303, location: "/login" },
-				);
-			});
+					await expect(
+						handle({ event, resolve: vi.fn() }),
+					).rejects.toMatchObject({ status: 303, location: "/login" });
+				},
+			);
 
 			it.each([
 				{ label: "application/json", accept: "application/json" },
@@ -715,24 +801,22 @@ describe("hooks.server.ts", () => {
 
 			// A person's address bar only ever issues GET or HEAD. Anything else
 			// asking for html is a program, however it fills in Accept.
-			it.each([
-				"POST",
-				"PUT",
-				"PATCH",
-				"DELETE",
-			])("answers a %s asking for html with 401", async (method) => {
-				const { handle } = await import("./hooks.server");
-				const event = makeHookEvent(
-					"/api/conversations",
-					undefined,
-					{ accept: "text/html" },
-					method,
-				);
+			it.each(["POST", "PUT", "PATCH", "DELETE"])(
+				"answers a %s asking for html with 401",
+				async (method) => {
+					const { handle } = await import("./hooks.server");
+					const event = makeHookEvent(
+						"/api/conversations",
+						undefined,
+						{ accept: "text/html" },
+						method,
+					);
 
-				const response = await handle({ event, resolve: vi.fn() });
+					const response = await handle({ event, resolve: vi.fn() });
 
-				expect(response.status).toBe(401);
-			});
+					expect(response.status).toBe(401);
+				},
+			);
 		});
 
 		it("does not change anything for an authenticated navigation", async () => {
@@ -885,16 +969,21 @@ describe("hooks.server.ts", () => {
 			"/api/artifacts/app-1/app/download",
 			"/api/artifacts/app-1/app/regenerate",
 			"/api/artifacts/app-1",
-		])("does not intercept %s, even framed — only the served route itself", async (path) => {
-			const { handle } = await import("./hooks.server");
-			const event = makeHookEvent(path, undefined, {
-				"sec-fetch-dest": "iframe",
-			});
+		])(
+			"does not intercept %s, even framed — only the served route itself",
+			async (path) => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(path, undefined, {
+					"sec-fetch-dest": "iframe",
+				});
 
-			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
-				status: 303,
-			});
-		});
+				await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject(
+					{
+						status: 303,
+					},
+				);
+			},
+		);
 
 		// Ruling 76 (Q7): an old App version runs in the same kind of frame, so
 		// it is the same phishing shape without the same answer: a 303 to /login
@@ -903,25 +992,28 @@ describe("hooks.server.ts", () => {
 			it.each([
 				"/api/artifacts/app-1/versions/version-1/app",
 				"/api/artifacts/app-1/versions/version-1/app/",
-			])("answers the localized notice for %s, never reaching the route", async (path) => {
-				const { handle } = await import("./hooks.server");
-				const { APP_SANDBOX_CSP } = await import(
-					"$lib/server/services/artifacts/app/sandbox-response"
-				);
-				const resolve = vi.fn();
-				const event = makeHookEvent(path, undefined, {
-					"sec-fetch-dest": "iframe",
-				});
+			])(
+				"answers the localized notice for %s, never reaching the route",
+				async (path) => {
+					const { handle } = await import("./hooks.server");
+					const { APP_SANDBOX_CSP } = await import(
+						"$lib/server/services/artifacts/app/sandbox-response"
+					);
+					const resolve = vi.fn();
+					const event = makeHookEvent(path, undefined, {
+						"sec-fetch-dest": "iframe",
+					});
 
-				const response = await handle({ event, resolve });
+					const response = await handle({ event, resolve });
 
-				expect(resolve).not.toHaveBeenCalled();
-				expect(response.status).toBe(401);
-				expect(response.headers.get("content-security-policy")).toBe(
-					APP_SANDBOX_CSP,
-				);
-				expect(await response.text()).toContain("Your session ended");
-			});
+					expect(resolve).not.toHaveBeenCalled();
+					expect(response.status).toBe(401);
+					expect(response.headers.get("content-security-policy")).toBe(
+						APP_SANDBOX_CSP,
+					);
+					expect(await response.text()).toContain("Your session ended");
+				},
+			);
 
 			it("still redirects the same route when it is not loaded as a frame", async () => {
 				const { handle } = await import("./hooks.server");
@@ -1409,18 +1501,19 @@ describe("hooks.server.ts", () => {
 		// enforcing header — un-sandboxing model-generated HTML and, because
 		// the trust check then sees no header at all, silently downgrading
 		// every generated report to the no-script renderer.
-		it.each([
-			"report-only",
-			"enforce",
-			"off",
-		] as const)("leaves a file preview's own CSP enforcing when CSP_MODE=%s", async (mode) => {
-			process.env.CSP_MODE = mode;
-			const response = await handlePreview();
+		it.each(["report-only", "enforce", "off"] as const)(
+			"leaves a file preview's own CSP enforcing when CSP_MODE=%s",
+			async (mode) => {
+				process.env.CSP_MODE = mode;
+				const response = await handlePreview();
 
-			expect(response.headers.get("content-security-policy")).toBe(previewCsp);
-			expect(
-				response.headers.get("content-security-policy-report-only"),
-			).toBeNull();
-		});
+				expect(response.headers.get("content-security-policy")).toBe(
+					previewCsp,
+				);
+				expect(
+					response.headers.get("content-security-policy-report-only"),
+				).toBeNull();
+			},
+		);
 	});
 });

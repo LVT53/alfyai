@@ -535,17 +535,15 @@ registered when Parallel is configured. Deploy it this way:
 
 1. Deploy the app code. `scripts/deploy.sh` fetches and archives `origin main`, so merge `dev` to
    `main` first, or use staging (`scripts/deploy-dev.sh`) when testing from `dev`.
-2. Set `PARALLEL_API_KEY`. Parallel powers web search and page extraction for `research_web`,
-   `fetch_url`, and Atlas. Without it, `research_web`/`fetch_url` are omitted from the tool surface and
+2. Set `PARALLEL_API_KEY` for web search, page extraction, Fast image search and Atlas. Without it, `research_web`/`fetch_url` are omitted from the tool surface and
    Atlas reports as unavailable.
-3. Set `BRAVE_SEARCH_API_KEY` only when the separate `image_search` tool should be available.
-4. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and
+3. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and
    `MODEL_1_NAME`, or through `Settings > Administration > System`. The endpoint must expose an
    OpenAI-compatible chat-completions surface.
-5. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works
+4. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works
    without it, but diagnostics will show `sourceReranked: false` when reranking is unavailable or not
    confident.
-6. Restart the AlfyAI process after changing environment variables.
+5. Restart the AlfyAI process after changing environment variables.
 
 Post-deploy checks:
 

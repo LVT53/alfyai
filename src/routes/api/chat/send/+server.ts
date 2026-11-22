@@ -36,6 +36,7 @@ import {
 } from "$lib/server/services/knowledge";
 import type { SupportedLanguage } from "$lib/server/services/language";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import { captureMemoryTurnAcceptance } from "$lib/server/services/memory-profile/chat-delivery";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
@@ -386,6 +387,8 @@ async function runAtlasSendTurn({
 
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
+			turnOrigin: turn.turnOrigin,
+			editSourceMessageId: turn.editSourceMessageId,
 			responseLanguage: chromeLanguage,
 			userId: user.id,
 			conversationId: turn.conversationId,
@@ -571,6 +574,10 @@ async function runStandardSendTurn({
 	deadlineAt: number;
 }): Promise<Response> {
 	const requestId = turn.streamId ?? randomUUID();
+	const memoryAcceptance = captureMemoryTurnAcceptance(
+		user.id,
+		turn.conversationId,
+	);
 	const bounded = await runBoundedPlainTurn(
 		runtimeConfig.requestTimeoutMs,
 		async (guard) => {
@@ -668,6 +675,8 @@ async function runStandardSendTurn({
 					onPersistenceStarted: guard.onPersistenceStarted,
 					completionTurn: modelRunResult.completionTurn,
 					turnKind: "send",
+					turnOrigin: turn.turnOrigin,
+					editSourceMessageId: turn.editSourceMessageId,
 					responseLanguage: turnLanguage?.language ?? user.uiLanguage ?? "en",
 					userId: user.id,
 					conversationId: turn.conversationId,
@@ -721,6 +730,7 @@ async function runStandardSendTurn({
 					assistantMirrorContent: modelRunResult.text ?? "",
 					maintenanceReason: "chat_send",
 					startedResetGeneration,
+					memoryAcceptance,
 					toolCalls: modelRunArtifacts.finalToolCalls,
 					skillUse: turn.appliedSkill
 						? { displayName: turn.appliedSkill.skillDisplayName }

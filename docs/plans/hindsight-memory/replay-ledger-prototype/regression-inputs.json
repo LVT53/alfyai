@@ -1,0 +1,56 @@
+{
+  "note": "Constructed compound-fact counterexamples to the decision algorithm; not claimed fresh native extraction results.",
+  "cases": [
+    {
+      "id": "conflict_new_basket",
+      "previous": "My bicycle is red.",
+      "latest": "My bicycle is green and now has a front basket.",
+      "action": "I corrected my bicycle colour to blue; do not silently choose a conflicting edited-source colour. Preserve other new details.",
+      "facts": [
+        {
+          "id": "basket",
+          "text": "The user owns a green bicycle that now has a front basket."
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red bicycle.",
+        "accepted": "User owns a blue bicycle.",
+        "safeRemainder": "User owns a bicycle."
+      }
+    },
+    {
+      "id": "conflict_shared_city_hu",
+      "previous": "Én és a húgom Győrben élünk.",
+      "latest": "Én Pécsen élek és kerékpározni kezdtem. A húgom továbbra is Győrben él.",
+      "action": "I corrected only my own city to Szeged. A changed source city without an explicit move must remain unresolved; keep my sister and new activity.",
+      "facts": [
+        {
+          "id": "cities",
+          "text": "A felhasználó Pécsen él és kerékpározni kezdett, a húga pedig Győrben él."
+        }
+      ],
+      "ledger": {
+        "original": "A felhasználó és a húga Győrben él.",
+        "accepted": "A felhasználó Szegeden él, a húga Győrben él.",
+        "safeRemainder": "A felhasználó húga Győrben él."
+      }
+    },
+    {
+      "id": "conflict_two_bikes",
+      "previous": "My road bicycle is red. My mountain bicycle is green.",
+      "latest": "My road bicycle is green and I ride it on Tuesdays; my mountain bicycle is still green.",
+      "action": "Earlier I corrected only the road bicycle colour to yellow; conflicting edited-source colour must not silently win. Preserve other details.",
+      "facts": [
+        {
+          "id": "bikes",
+          "text": "The user owns a green road bicycle ridden on Tuesdays and a green mountain bicycle."
+        }
+      ],
+      "ledger": {
+        "original": "User owns a red road bicycle.",
+        "accepted": "User owns a yellow road bicycle.",
+        "safeRemainder": "User owns a road bicycle."
+      }
+    }
+  ]
+}

@@ -15,7 +15,6 @@ import { internalsOf, loadHandler } from "./define";
 import {
 	beat,
 	fail,
-	type ProgressUpdate,
 	progress,
 	readAttemptStatus,
 	readJobRow,
@@ -32,6 +31,7 @@ import type {
 	JobKind,
 	JobRunContext,
 	OwnedAttempt,
+	ProgressUpdate,
 	Tx,
 } from "./types";
 

@@ -1,0 +1,817 @@
+[
+  {
+    "profile": "p01",
+    "index": 0,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Workshop runs September 4–7",
+        "September 7 departure (unqualified)"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Only the raw-linked answer identifies leaving York as the return rather than the outbound date."
+  },
+  {
+    "profile": "p01",
+    "index": 1,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Workshop runs September 4–7"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both name York. Raw-linked confines the span to travel."
+  },
+  {
+    "profile": "p01",
+    "index": 2,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both correctly identify the itinerary return date and Bristol."
+  },
+  {
+    "profile": "p01",
+    "index": 3,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify the Nikon and the sister's Fujifilm, and distinguish the sold Canon."
+  },
+  {
+    "profile": "p01",
+    "index": 4,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both treat profession and vehicle ownership as unknown. Raw-linked's incidental residence, camera and hobby details are supported."
+  },
+  {
+    "profile": "p01",
+    "index": 5,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both ground Bristol and the possible move in 2027 subject to employer approval."
+  },
+  {
+    "profile": "p01",
+    "index": 6,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both retrieve short informal Cedar style. Raw-linked labels the connected-sentence instruction as general."
+  },
+  {
+    "profile": "p01",
+    "index": 7,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify copy approval, postponed pricing and keyboard testing."
+  },
+  {
+    "profile": "p01",
+    "index": 8,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both provide two connected sentences and no list, with some wordiness."
+  },
+  {
+    "profile": "p01",
+    "index": 11,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the correct codename, swimming and Wednesday."
+  },
+  {
+    "profile": "p02",
+    "index": 0,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify outbound start on September 4 and leave Oxford to return on September 7."
+  },
+  {
+    "profile": "p02",
+    "index": 1,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify Oxford and give the travel span in itinerary context."
+  },
+  {
+    "profile": "p02",
+    "index": 2,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify planned return September 7 and Exeter as home."
+  },
+  {
+    "profile": "p02",
+    "index": 3,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the ROG Ally X, the brother's Steam Deck, and the grounded September 9 change."
+  },
+  {
+    "profile": "p02",
+    "index": 4,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both leave all three personal questions open and correctly identify the fictional quote."
+  },
+  {
+    "profile": "p02",
+    "index": 5,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both know Exeter, lack of a decision and the conditional 2027 move."
+  },
+  {
+    "profile": "p02",
+    "index": 6,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give short informal Cedar style and the separate September 15 general format."
+  },
+  {
+    "profile": "p02",
+    "index": 7,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the three correct Cedar project facts."
+  },
+  {
+    "profile": "p02",
+    "index": 8,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": []
+    },
+    "note": "The raw-linked answer uses numbered bullets despite receiving the explicit superseding no-list statement."
+  },
+  {
+    "profile": "p02",
+    "index": 11,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the correct codename, Tuesday and cycling."
+  },
+  {
+    "profile": "p03",
+    "index": 0,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "September 7 departure (unqualified)"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "The raw-linked answer identifies September 7 as leaving Durham to return home."
+  },
+  {
+    "profile": "p03",
+    "index": 1,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Workshop runs September 4–7"
+      ]
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Currently attending the workshop"
+      ]
+    },
+    "note": "Both identify Durham. Observation invents dates for the workshop. Raw-linked confirms real attendance from an itinerary that gives a planned trip."
+  },
+  {
+    "profile": "p03",
+    "index": 2,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify the correct return date and home city."
+  },
+  {
+    "profile": "p03",
+    "index": 3,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Uses replacement Creality K1C as everyday device"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "The raw facts keep old-device habit separate from new ownership. Both correctly attribute the relative's device."
+  },
+  {
+    "profile": "p03",
+    "index": 4,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both treat the personal facts as unknown. Raw-linked's incidental home, hobby and device replacement are supported."
+  },
+  {
+    "profile": "p03",
+    "index": 5,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give Chester and preserve the conditional, undecided relocation."
+  },
+  {
+    "profile": "p03",
+    "index": 6,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give correct project tone and length without mislabelling the general format."
+  },
+  {
+    "profile": "p03",
+    "index": 7,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give approval, postponement and keyboard signup testing."
+  },
+  {
+    "profile": "p03",
+    "index": 8,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give connected, non-list explanations in two sentences."
+  },
+  {
+    "profile": "p03",
+    "index": 11,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the correct codename, climbing and Thursday."
+  },
+  {
+    "profile": "p04",
+    "index": 0,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give not-yet-in-Pécs, departure September 4 and return September 7."
+  },
+  {
+    "profile": "p04",
+    "index": 1,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Course starts September 4"
+      ]
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Course runs September 4–7"
+      ]
+    },
+    "note": "Both identify Pécs, then infer the course schedule from travel evidence."
+  },
+  {
+    "profile": "p04",
+    "index": 2,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify the planned September 7 return and Szeged."
+  },
+  {
+    "profile": "p04",
+    "index": 3,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the Nikon and correctly attribute the Sony to the sister."
+  },
+  {
+    "profile": "p04",
+    "index": 4,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Fictional boats come from stranger review",
+        "User does not own any boat or sports car"
+      ]
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Fictional boats come from another person's opinion"
+      ]
+    },
+    "note": "The two source statements remain separable in evidence. Observation also turns unknown actual ownership into a negative."
+  },
+  {
+    "profile": "p04",
+    "index": 5,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give Szeged, no decision and the approval condition. Observation has a first-person voice slip."
+  },
+  {
+    "profile": "p04",
+    "index": 6,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give Cedar-specific short informal style and the distinct general format."
+  },
+  {
+    "profile": "p04",
+    "index": 7,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give approval, pricing postponement and keyboard testing."
+  },
+  {
+    "profile": "p04",
+    "index": 8,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give two linked, non-list sentences."
+  },
+  {
+    "profile": "p04",
+    "index": 11,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the correct codename, Wednesday and swimming."
+  },
+  {
+    "profile": "p05",
+    "index": 0,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give not in Eger yet and correct outbound and return dates."
+  },
+  {
+    "profile": "p05",
+    "index": 1,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Course runs September 4–7"
+      ]
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Course runs September 4–7"
+      ]
+    },
+    "note": "Both identify Eger and convert the trip range to a course schedule."
+  },
+  {
+    "profile": "p05",
+    "index": 2,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both explicitly ground the return and Győr without claiming a workshop end."
+  },
+  {
+    "profile": "p05",
+    "index": 3,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "User helps relative choose a device rather than accessories"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both identify current ownership and the brother's iPad. The observation answer falsely changes what the user helps choose."
+  },
+  {
+    "profile": "p05",
+    "index": 4,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both leave occupation and vehicle ownership unknown. The observation arm grounds the conditional employer reference."
+  },
+  {
+    "profile": "p05",
+    "index": 5,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give Győr and conditional relocation. Raw-linked has a first-person voice slip."
+  },
+  {
+    "profile": "p05",
+    "index": 6,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both correctly give short informal Cedar style and general connected-sentence format."
+  },
+  {
+    "profile": "p05",
+    "index": 7,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": []
+    },
+    "note": "Raw-linked says the copy is done and omits explicit approval despite having it in evidence."
+  },
+  {
+    "profile": "p05",
+    "index": 8,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give two connected sentences without a list. Observation is wordier."
+  },
+  {
+    "profile": "p05",
+    "index": 11,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both correctly identify the codename, cycling and Tuesday."
+  },
+  {
+    "profile": "p06",
+    "index": 0,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Course runs September 4–7",
+        "Confirms actual location in Debrecen on September 3"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the intended trip start, but the observation answer adds unsupported course timing and infers present location from residence."
+  },
+  {
+    "profile": "p06",
+    "index": 1,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give Sopron and distinguish itinerary dates from course duration."
+  },
+  {
+    "profile": "p06",
+    "index": 2,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Course ended September 7"
+      ]
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Observation replaces the home-return date with an unsupported course end. Raw-linked states September 7 return and Debrecen."
+  },
+  {
+    "profile": "p06",
+    "index": 3,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the PocketBook and father's Kindle, grounded in the dated change."
+  },
+  {
+    "profile": "p06",
+    "index": 4,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both handle the fictional attribution and leave actual ownership and profession unknown."
+  },
+  {
+    "profile": "p06",
+    "index": 5,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both correctly give Debrecen and the undecided move conditioned on employer approval."
+  },
+  {
+    "profile": "p06",
+    "index": 6,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": [
+        "Current request is outside Cedar"
+      ]
+    },
+    "note": "Raw-linked states the style then declines to apply it through a false claim about the current scope."
+  },
+  {
+    "profile": "p06",
+    "index": 7,
+    "observation": {
+      "pass": false,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": false,
+      "unsupportedClaims": []
+    },
+    "note": "Both address postponed pricing and keyboard testing, but say only that the copy is done, omitting approval."
+  },
+  {
+    "profile": "p06",
+    "index": 8,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give two connected, non-list explanatory sentences."
+  },
+  {
+    "profile": "p06",
+    "index": 11,
+    "observation": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "linkedRaw": {
+      "pass": true,
+      "unsupportedClaims": []
+    },
+    "note": "Both give the correct codename, Thursday and wall climbing."
+  }
+]

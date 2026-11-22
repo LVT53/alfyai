@@ -14,8 +14,7 @@ import {
 // a picture is served only when a tool returned it to THIS user. These cases pin
 // who it answers, what it forgets and what it refuses to remember.
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://saved-thumbnails.example/previews/pet";
 
 describe("the source ledger: hosts", () => {
 	beforeEach(() => resetLedgerForTests());
@@ -91,7 +90,7 @@ describe("the source ledger: hosts", () => {
 	});
 });
 
-describe("the source ledger: Brave thumbnails", () => {
+describe("the source ledger: publisher previews", () => {
 	beforeEach(() => resetLedgerForTests());
 
 	it("answers for the exact thumbnail address a search returned to this user", () => {
@@ -101,7 +100,7 @@ describe("the source ledger: Brave thumbnails", () => {
 		expect(ledgerHasThumbnail("user-2", THUMB)).toBe(false);
 	});
 
-	it("does not answer for another address on Brave's image proxy, whatever it wraps", () => {
+	it("does not answer for another image or query on the same publisher", () => {
 		recordLedgerThumbnails("user-1", [THUMB]);
 		const forged = `${THUMB.slice(0, THUMB.lastIndexOf("/"))}/aHR0cHM6Ly9ldmlsLmV4YW1wbGUvP2Q9c2VjcmV0`;
 
@@ -109,30 +108,30 @@ describe("the source ledger: Brave thumbnails", () => {
 		expect(ledgerHasThumbnail("user-1", `${THUMB}?x=1`)).toBe(false);
 	});
 
-	it("remembers only addresses on Brave's image proxy", () => {
+	it("remembers exact HTTPS preview targets only", () => {
 		recordLedgerThumbnails("user-1", [
 			"https://example.com/cat.jpg",
-			"http://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/abc",
-			"https://imgs.search.brave.com:8443/Zq3s9x/abc",
-			"https://evil.example/https://imgs.search.brave.com/abc",
+			"http://saved-thumbnails.example/previews/pet",
+			"https://saved-thumbnails.example:8443/Zq3s9x/abc",
+			"https://evil.example/https://saved-thumbnails.example/abc",
 			"not a url",
 			null,
 		]);
 
 		expect(ledgerHasThumbnail("user-1", "https://example.com/cat.jpg")).toBe(
-			false,
+			true,
 		);
 		expect(
 			ledgerHasThumbnail(
 				"user-1",
-				"http://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/abc",
+				"http://saved-thumbnails.example/previews/pet",
 			),
 		).toBe(false);
 	});
 
 	it("forgets the least recently used thumbnail when a user's ledger is full", () => {
 		const make = (index: number) =>
-			`https://imgs.search.brave.com/sig/rs:fit:500:0:0:0/g:ce/${index}`;
+			`https://saved-thumbnails.example/sig/rs:fit:500:0:0:0/g:ce/${index}`;
 		for (
 			let index = 0;
 			index < LEDGER_MAX_THUMBNAILS_PER_USER + 1;

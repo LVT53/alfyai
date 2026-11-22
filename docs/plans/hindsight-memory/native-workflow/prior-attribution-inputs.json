@@ -1,0 +1,1607 @@
+[
+  {
+    "id": "question_only",
+    "lang": "en",
+    "source": "How long does the Panasonic Lumix S5 II battery last when recording video?",
+    "query": "What camera do I own?",
+    "want": "ownership unknown",
+    "recall": {
+      "results": [],
+      "trace": null,
+      "entities": null,
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "I don't have any information about what camera you own.",
+      "usage": {
+        "prompt_tokens": 205,
+        "total_tokens": 218,
+        "completion_tokens": 13,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 238,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [],
+      "total": 0,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "shopping",
+    "lang": "en",
+    "source": "We are comparing dishwashers. Is the Bosch Series 4 quiet enough for an open-plan kitchen?",
+    "query": "Which dishwasher is installed in my kitchen?",
+    "want": "installed dishwasher unknown; shopping does not establish purchase",
+    "recall": {
+      "results": [
+        {
+          "id": "0e41e4b0-a2fc-4db8-abee-0d917a21d1c1",
+          "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "open-plan kitchen",
+            "Bosch Series 4"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9"
+          ],
+          "scores": {
+            "final": 1.0917036665446365,
+            "reranker": 0.9994277358055115,
+            "semantic": 0.8659787952284932,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        },
+        {
+          "id": "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9",
+          "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen. | Involving: user | Concerned about noise levels in an open-plan kitchen.",
+          "type": "world",
+          "entities": [
+            "user",
+            "open-plan kitchen",
+            "Bosch Series 4"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-shopping_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0915598432639018,
+            "reranker": 0.9992960691452026,
+            "semantic": 0.8724267070674936,
+            "keyword": 0.4000000059604645
+          },
+          "attachments": null
+        },
+        {
+          "id": "ac79c8e7-7107-4cbe-99f7-dd02ead4d3a8",
+          "text": "User is concerned about noise levels in an open-plan kitchen.",
+          "type": "observation",
+          "entities": [
+            "user",
+            "open-plan kitchen",
+            "Bosch Series 4"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9"
+          ],
+          "scores": {
+            "final": 1.0906163651465965,
+            "reranker": 0.9984323382377625,
+            "semantic": 0.8164174447308462,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "448a955a-d9a8-41fe-a278-52fcdedb4e51",
+          "text": "User is comparing dishwashers. | Involving: user",
+          "type": "world",
+          "entities": [
+            "user",
+            "dishwashers"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-shopping_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.006382246588241973,
+            "reranker": 0.005842789076268673,
+            "semantic": 0.8335604220831775,
+            "keyword": 0.20000000298023224
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "user": {
+          "entity_id": "1ea4b786-11e0-4d1b-9f02-faf552ecc4e1",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "open-plan kitchen": {
+          "entity_id": "9f98a479-3c6e-4618-8761-af461490cd39",
+          "canonical_name": "open-plan kitchen",
+          "observations": []
+        },
+        "Bosch Series 4": {
+          "entity_id": "b926607c-8700-4c5e-9ca0-2deacd24b1ce",
+          "canonical_name": "Bosch Series 4",
+          "observations": []
+        },
+        "dishwashers": {
+          "entity_id": "b4466e0c-27f6-4ef1-9c4c-b508382b44f1",
+          "canonical_name": "dishwashers",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-shopping_source_0": {
+          "id": "stress-shopping_source_0",
+          "text": "User (2026-10-01T12:00:00Z): We are comparing dishwashers. Is the Bosch Series 4 quiet enough for an open-plan kitchen?",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9": {
+          "id": "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9",
+          "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen. | Involving: user | Concerned about noise levels in an open-plan kitchen.",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-shopping_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "The provided evidence indicates you are considering the Bosch Series 4 and comparing dishwashers, but it does not state which dishwasher is currently installed in your kitchen. Therefore, I cannot confirm the installed model based on the available information.",
+      "usage": {
+        "prompt_tokens": 1516,
+        "total_tokens": 1563,
+        "completion_tokens": 47,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 849,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "0e41e4b0-a2fc-4db8-abee-0d917a21d1c1",
+          "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen.",
+          "context": "",
+          "date": "2026-10-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:09:38.810308+00:00",
+          "source_memory_ids": [
+            "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9"
+          ]
+        },
+        {
+          "id": "ac79c8e7-7107-4cbe-99f7-dd02ead4d3a8",
+          "text": "User is concerned about noise levels in an open-plan kitchen.",
+          "context": "",
+          "date": "2026-10-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:09:38.810308+00:00",
+          "source_memory_ids": [
+            "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9"
+          ]
+        },
+        {
+          "id": "a25d489d-df7f-4a4d-81a1-1ecc886eb9e9",
+          "text": "User is considering the Bosch Series 4 dishwasher for an open-plan kitchen. | Involving: user | Concerned about noise levels in an open-plan kitchen.",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Bosch Series 4, open-plan kitchen, user",
+          "chunk_id": "stress-shopping_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:09:38.813331+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:09:27.598494+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "448a955a-d9a8-41fe-a278-52fcdedb4e51",
+          "text": "User is comparing dishwashers. | Involving: user",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "dishwashers, user",
+          "chunk_id": "stress-shopping_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:09:38.813331+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:09:27.598494+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "neighbor_device",
+    "lang": "en",
+    "source": "My neighbor left his Dell XPS 13 here for me to fix. Which charger does it need?",
+    "query": "What laptop do I own?",
+    "want": "user laptop unknown; Dell belongs to neighbor",
+    "recall": {
+      "results": [
+        {
+          "id": "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776",
+          "text": "The user's neighbor left a Dell XPS 13 with the user for repair. | When: 2026-10-01 | Involving: user, user's neighbor",
+          "type": "world",
+          "entities": [
+            "Dell XPS 13",
+            "user's neighbor",
+            "user"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": "2026-10-01T12:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-neighbor~5Fdevice_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0003396182813783725,
+            "reranker": 0.0003109121462330222,
+            "semantic": 0.8046838045120239,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "7db2b025-9ff7-4bbe-9e3a-6e4d9fad1a54",
+          "text": "The user's neighbor left a Dell XPS 13 with the user for repair on 2026-10-01.",
+          "type": "observation",
+          "entities": [
+            "Dell XPS 13",
+            "user's neighbor",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": "2026-10-01T12:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776"
+          ],
+          "scores": {
+            "final": 0.00017716361166293773,
+            "reranker": 0.0001621889095986262,
+            "semantic": 0.8008892058796178,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Dell XPS 13": {
+          "entity_id": "61020a37-da4e-4ca8-abaa-ef9391c1e85b",
+          "canonical_name": "Dell XPS 13",
+          "observations": []
+        },
+        "user's neighbor": {
+          "entity_id": "7fdc6ad1-dab4-44d6-996f-aa43796f8558",
+          "canonical_name": "user's neighbor",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "bcf8cd79-275a-4738-9ee6-9eef32644fff",
+          "canonical_name": "user",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-neighbor~5Fdevice_source_0": {
+          "id": "stress-neighbor~5Fdevice_source_0",
+          "text": "User (2026-10-01T12:00:00Z): My neighbor left his Dell XPS 13 here for me to fix. Which charger does it need?",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776": {
+          "id": "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776",
+          "text": "The user's neighbor left a Dell XPS 13 with the user for repair. | When: 2026-10-01 | Involving: user, user's neighbor",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": "2026-10-01T12:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-neighbor~5Fdevice_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "The provided evidence does not state which laptop you own. It only mentions that your neighbor left a Dell XPS 13 with you for repair on October 1, 2026.",
+      "usage": {
+        "prompt_tokens": 1170,
+        "total_tokens": 1211,
+        "completion_tokens": 41,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 850,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "7db2b025-9ff7-4bbe-9e3a-6e4d9fad1a54",
+          "text": "The user's neighbor left a Dell XPS 13 with the user for repair on 2026-10-01.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": "2026-10-01T12:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:09:52.688744+00:00",
+          "source_memory_ids": [
+            "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776"
+          ]
+        },
+        {
+          "id": "6d2219e5-a81a-4ef4-b22e-1f3ce37cc776",
+          "text": "The user's neighbor left a Dell XPS 13 with the user for repair. | When: 2026-10-01 | Involving: user, user's neighbor",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": "2026-10-01T12:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "entities": "Dell XPS 13, user, user's neighbor",
+          "chunk_id": "stress-neighbor~5Fdevice_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:09:52.691611+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:09:48.078853+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 2,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "translation",
+    "lang": "en",
+    "source": "Translate this sentence into Hungarian: I have two children and work as a nurse.",
+    "query": "How many children do I have, and what is my profession?",
+    "want": "both unknown; translated text is not biography",
+    "recall": {
+      "results": [],
+      "trace": null,
+      "entities": null,
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "I don't have any information about your children or profession.",
+      "usage": {
+        "prompt_tokens": 212,
+        "total_tokens": 225,
+        "completion_tokens": 13,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 700,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [],
+      "total": 0,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "actual_self_assertion",
+    "lang": "en",
+    "source": "My Asus Zenbook 14 stopped charging this morning. What should I check first?",
+    "query": "Which laptop do I have?",
+    "want": "Asus Zenbook 14",
+    "recall": {
+      "results": [
+        {
+          "id": "bf6e3df1-a3e8-4fe8-9e59-ae6636901549",
+          "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026. | When: October 1, 2026 | Involving: user",
+          "type": "world",
+          "entities": [
+            "Asus Zenbook 14",
+            "user"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": "2026-10-01T00:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-actual~5Fself~5Fassertion_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0001404217399548331,
+            "reranker": 0.00012858488480560482,
+            "semantic": 0.8249474518016773,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "91a16c9f-f2a4-4b24-9613-5ad5b90d816c",
+          "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026.",
+          "type": "observation",
+          "entities": [
+            "Asus Zenbook 14",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": "2026-10-01T00:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "bf6e3df1-a3e8-4fe8-9e59-ae6636901549"
+          ],
+          "scores": {
+            "final": 0.00009732932215540555,
+            "reranker": 0.00008912494377000257,
+            "semantic": 0.8168505673662001,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Asus Zenbook 14": {
+          "entity_id": "5bcab175-ff00-4c00-aded-790dac832e7f",
+          "canonical_name": "Asus Zenbook 14",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "6f683d40-d2fe-4170-af32-bed3f0151a8c",
+          "canonical_name": "user",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-actual~5Fself~5Fassertion_source_0": {
+          "id": "stress-actual~5Fself~5Fassertion_source_0",
+          "text": "User (2026-10-01T12:00:00Z): My Asus Zenbook 14 stopped charging this morning. What should I check first?",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "bf6e3df1-a3e8-4fe8-9e59-ae6636901549": {
+          "id": "bf6e3df1-a3e8-4fe8-9e59-ae6636901549",
+          "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026. | When: October 1, 2026 | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": "2026-10-01T00:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-actual~5Fself~5Fassertion_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "You have an Asus Zenbook 14.",
+      "usage": {
+        "prompt_tokens": 1178,
+        "total_tokens": 1189,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 213,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "91a16c9f-f2a4-4b24-9613-5ad5b90d816c",
+          "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026.",
+          "context": "",
+          "date": "2026-10-01T00:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": "2026-10-01T00:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:10:42.948825+00:00",
+          "source_memory_ids": [
+            "bf6e3df1-a3e8-4fe8-9e59-ae6636901549"
+          ]
+        },
+        {
+          "id": "bf6e3df1-a3e8-4fe8-9e59-ae6636901549",
+          "text": "User's Asus Zenbook 14 stopped charging on the morning of October 1, 2026. | When: October 1, 2026 | Involving: user",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T00:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": "2026-10-01T00:00:00+00:00",
+          "occurred_end": "2026-10-01T12:00:00+00:00",
+          "entities": "Asus Zenbook 14, user",
+          "chunk_id": "stress-actual~5Fself~5Fassertion_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:10:42.951103+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:10:41.424212+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 2,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "not_yet_sold",
+    "lang": "en",
+    "source": "I'm thinking of selling my Ford Focus, but I haven't listed it yet.",
+    "query": "Have I sold my car, and which model is it?",
+    "want": "not sold according to statement; Ford Focus",
+    "recall": {
+      "results": [
+        {
+          "id": "53580f6d-2530-4b22-9ed7-150ca7a26e9c",
+          "text": "The user is thinking of selling their Ford Focus but has not listed it yet.",
+          "type": "observation",
+          "entities": [
+            "Ford Focus",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "71339898-bac3-4399-88f4-27f7b0f9e9db"
+          ],
+          "scores": {
+            "final": 0.020065638644442167,
+            "reranker": 0.01836959645152092,
+            "semantic": 0.8122690916061401,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "71339898-bac3-4399-88f4-27f7b0f9e9db",
+          "text": "User is thinking of selling their Ford Focus but has not listed it yet. | Involving: user",
+          "type": "world",
+          "entities": [
+            "Ford Focus",
+            "user"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-not~5Fyet~5Fsold_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0015174608171458217,
+            "reranker": 0.0013891978887841105,
+            "semantic": 0.8351638317108154,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Ford Focus": {
+          "entity_id": "cd395b86-30bc-4de6-b87f-2d6756be2eaf",
+          "canonical_name": "Ford Focus",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "eab07bca-ecb0-4def-ad87-85c67144d22c",
+          "canonical_name": "user",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-not~5Fyet~5Fsold_source_0": {
+          "id": "stress-not~5Fyet~5Fsold_source_0",
+          "text": "User (2026-10-01T12:00:00Z): I'm thinking of selling my Ford Focus, but I haven't listed it yet.",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "71339898-bac3-4399-88f4-27f7b0f9e9db": {
+          "id": "71339898-bac3-4399-88f4-27f7b0f9e9db",
+          "text": "User is thinking of selling their Ford Focus but has not listed it yet. | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-not~5Fyet~5Fsold_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "No, you have not sold your car yet. As of October 1, 2026, you were thinking of selling your Ford Focus but had not listed it.",
+      "usage": {
+        "prompt_tokens": 972,
+        "total_tokens": 1009,
+        "completion_tokens": 37,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 2179,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "53580f6d-2530-4b22-9ed7-150ca7a26e9c",
+          "text": "The user is thinking of selling their Ford Focus but has not listed it yet.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:10:48.999793+00:00",
+          "source_memory_ids": [
+            "71339898-bac3-4399-88f4-27f7b0f9e9db"
+          ]
+        },
+        {
+          "id": "71339898-bac3-4399-88f4-27f7b0f9e9db",
+          "text": "User is thinking of selling their Ford Focus but has not listed it yet. | Involving: user",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Ford Focus, user",
+          "chunk_id": "stress-not~5Fyet~5Fsold_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:10:49.002519+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:10:44.864379+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 2,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "question_only_hu",
+    "lang": "hu",
+    "source": "Mennyire hangos a Dyson V15 porszívó?",
+    "query": "Milyen porszívóm van?",
+    "want": "ownership unknown",
+    "recall": {
+      "results": [],
+      "trace": null,
+      "entities": null,
+      "chunks": null,
+      "source_facts": null,
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "Nincs tárolt információm a porszívódról.",
+      "usage": {
+        "prompt_tokens": 207,
+        "total_tokens": 224,
+        "completion_tokens": 17,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 826,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [],
+      "total": 0,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "lang": "hu",
+    "source": "Az ügyfelem gluténérzékeny, neki keresek éttermet Budapesten.",
+    "query": "Tudsz rólam valamilyen ételérzékenységet?",
+    "want": "user food sensitivity unknown; client is gluten-sensitive",
+    "recall": {
+      "results": [
+        {
+          "id": "287763b0-ad94-42c5-a3a4-797db2717ee1",
+          "text": "Az étteremkeresés Budapesten történik.",
+          "type": "observation",
+          "entities": [
+            "Budapest",
+            "ügyfél",
+            "user",
+            "gluténérzékenység"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "03c84eaf-1be4-4adf-8cfc-54a7879d6b34"
+          ],
+          "scores": {
+            "final": 0.7243429377470931,
+            "reranker": 0.6631180644035339,
+            "semantic": 0.7996409297096484,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "03c84eaf-1be4-4adf-8cfc-54a7879d6b34",
+          "text": "Az ügyfél gluténérzékeny, és az étteremkeresés Budapesten történik. | Where: Budapest | Involving: user, ügyfél | Gluténérzékenység miatt speciális étterem szükséges.",
+          "type": "world",
+          "entities": [
+            "Budapest",
+            "ügyfél",
+            "user",
+            "gluténérzékenység"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-client~5Fcondition~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.004668750430852788,
+            "reranker": 0.004274125676602125,
+            "semantic": 0.8452361318328317,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "be9eea11-045b-41ff-b3c6-05d006037e14",
+          "text": "Az ügyfél gluténérzékeny.",
+          "type": "observation",
+          "entities": [
+            "Budapest",
+            "ügyfél",
+            "user",
+            "gluténérzékenység"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "03c84eaf-1be4-4adf-8cfc-54a7879d6b34"
+          ],
+          "scores": {
+            "final": 0.002063177546473501,
+            "reranker": 0.0018887880723923445,
+            "semantic": 0.852216312157137,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Budapest": {
+          "entity_id": "48ba5c78-1ea0-4fae-bc2b-223480fdfb99",
+          "canonical_name": "Budapest",
+          "observations": []
+        },
+        "ügyfél": {
+          "entity_id": "88abbbf8-b5d1-46ce-9b93-51493429a871",
+          "canonical_name": "ügyfél",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "9a43ebb3-5815-4017-a659-4af3b76077b2",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "gluténérzékenység": {
+          "entity_id": "becffb5b-4e39-45b8-aadf-b882e77fd517",
+          "canonical_name": "gluténérzékenység",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-client~5Fcondition~5Fhu_source_0": {
+          "id": "stress-client~5Fcondition~5Fhu_source_0",
+          "text": "User (2026-10-01T12:00:00Z): Az ügyfelem gluténérzékeny, neki keresek éttermet Budapesten.",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "03c84eaf-1be4-4adf-8cfc-54a7879d6b34": {
+          "id": "03c84eaf-1be4-4adf-8cfc-54a7879d6b34",
+          "text": "Az ügyfél gluténérzékeny, és az étteremkeresés Budapesten történik. | Where: Budapest | Involving: user, ügyfél | Gluténérzékenység miatt speciális étterem szükséges.",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-client~5Fcondition~5Fhu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "Igen, tudom, hogy gluténérzékeny vagy.",
+      "usage": {
+        "prompt_tokens": 1285,
+        "total_tokens": 1301,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 281,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "287763b0-ad94-42c5-a3a4-797db2717ee1",
+          "text": "Az étteremkeresés Budapesten történik.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:19.285415+00:00",
+          "source_memory_ids": [
+            "03c84eaf-1be4-4adf-8cfc-54a7879d6b34"
+          ]
+        },
+        {
+          "id": "be9eea11-045b-41ff-b3c6-05d006037e14",
+          "text": "Az ügyfél gluténérzékeny.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:19.285415+00:00",
+          "source_memory_ids": [
+            "03c84eaf-1be4-4adf-8cfc-54a7879d6b34"
+          ]
+        },
+        {
+          "id": "03c84eaf-1be4-4adf-8cfc-54a7879d6b34",
+          "text": "Az ügyfél gluténérzékeny, és az étteremkeresés Budapesten történik. | Where: Budapest | Involving: user, ügyfél | Gluténérzékenység miatt speciális étterem szükséges.",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Budapest, gluténérzékenység, user, ügyfél",
+          "chunk_id": "stress-client~5Fcondition~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:11:19.287515+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:18.023792+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 3,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "applicant_hu",
+    "lang": "hu",
+    "source": "Írj motivációs levelet egy jelentkezőnek, aki biológus és kutatói állásra pályázik.",
+    "query": "Mi a foglalkozásom?",
+    "want": "user profession unknown; applicant is biologist",
+    "recall": {
+      "results": [
+        {
+          "id": "d11f4f6f-a194-49b7-a5b3-1f6cabae9b33",
+          "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik.",
+          "type": "observation",
+          "entities": [
+            "biológus",
+            "user",
+            "kutatói állás",
+            "motivációs levél"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "d886dee8-e9f6-4291-9609-b15c505871c1"
+          ],
+          "scores": {
+            "final": 1.0261005878938387,
+            "reranker": 0.9393697381019592,
+            "semantic": 0.8201748514383854,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "d886dee8-e9f6-4291-9609-b15c505871c1",
+          "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik. | When: 2026-10-01 | Involving: user",
+          "type": "world",
+          "entities": [
+            "biológus",
+            "user",
+            "kutatói állás",
+            "motivációs levél"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-applicant~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 0.0030836894621511235,
+            "reranker": 0.002823041519150138,
+            "semantic": 0.8065125115528716,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "biológus": {
+          "entity_id": "142abaac-cc87-4393-aca4-b13ca96739b3",
+          "canonical_name": "biológus",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "4f45102d-dfcc-40a0-a59b-20270dcb5bd8",
+          "canonical_name": "user",
+          "observations": []
+        },
+        "kutatói állás": {
+          "entity_id": "80c9375c-a7fe-43c9-9f8e-9462ac319c0b",
+          "canonical_name": "kutatói állás",
+          "observations": []
+        },
+        "motivációs levél": {
+          "entity_id": "c26e50f2-98ba-47c1-bb79-3915b8a53ce8",
+          "canonical_name": "motivációs levél",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-applicant~5Fhu_source_0": {
+          "id": "stress-applicant~5Fhu_source_0",
+          "text": "User (2026-10-01T12:00:00Z): Írj motivációs levelet egy jelentkezőnek, aki biológus és kutatói állásra pályázik.",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "d886dee8-e9f6-4291-9609-b15c505871c1": {
+          "id": "d886dee8-e9f6-4291-9609-b15c505871c1",
+          "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik. | When: 2026-10-01 | Involving: user",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-applicant~5Fhu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "A rendelkezésre álló adatok alapján nem ismert a foglalkozásod. A feljegyzések csak arra utalnak, hogy 2026. október 1-jén motivációs levelet kértél egy biológus jelentkező számára, de ez nem határozza meg a te szakmádat.",
+      "usage": {
+        "prompt_tokens": 1046,
+        "total_tokens": 1121,
+        "completion_tokens": 75,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 648,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "d11f4f6f-a194-49b7-a5b3-1f6cabae9b33",
+          "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:22.687812+00:00",
+          "source_memory_ids": [
+            "d886dee8-e9f6-4291-9609-b15c505871c1"
+          ]
+        },
+        {
+          "id": "d886dee8-e9f6-4291-9609-b15c505871c1",
+          "text": "A felhasználó motivációs levelet kért egy biológus jelentkező számára, aki kutatói állásra pályázik. | When: 2026-10-01 | Involving: user",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "biológus, kutatói állás, motivációs levél, user",
+          "chunk_id": "stress-applicant~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:11:22.690966+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:21.749014+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 2,
+      "limit": 100,
+      "offset": 0
+    }
+  },
+  {
+    "id": "self_assertion_hu",
+    "lang": "hu",
+    "source": "A saját Kobo Libra Colour olvasómon túl kicsik a betűk. Hogyan nagyítsam őket?",
+    "query": "Milyen e-könyv-olvasóm van?",
+    "want": "Kobo Libra Colour",
+    "recall": {
+      "results": [
+        {
+          "id": "39d6c769-65f6-4536-b9b5-a03f7e62645d",
+          "text": "A felhasználó Kobo Libra Colour olvasóján túl kicsik a betűk. | Involving: user | A felhasználó betűméret-növelési útmutatást kér.",
+          "type": "world",
+          "entities": [
+            "Kobo Libra Colour",
+            "user"
+          ],
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-self~5Fassertion~5Fhu_source_0",
+          "tags": [],
+          "source_fact_ids": null,
+          "scores": {
+            "final": 1.0892399196428797,
+            "reranker": 0.9971722364425659,
+            "semantic": 0.8075190427159982,
+            "keyword": null
+          },
+          "attachments": null
+        },
+        {
+          "id": "86e230ae-04f6-46d1-a757-112f7d6b914e",
+          "text": "The user's Kobo Libra Colour e-reader has text that is too small.",
+          "type": "observation",
+          "entities": [
+            "Kobo Libra Colour",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "39d6c769-65f6-4536-b9b5-a03f7e62645d"
+          ],
+          "scores": {
+            "final": 1.0736443715552761,
+            "reranker": 0.9828948974609375,
+            "semantic": 0.7361939549446106,
+            "keyword": 0.10000000149011612
+          },
+          "attachments": null
+        },
+        {
+          "id": "22af440f-f1fd-456b-b2f5-ca92c864de66",
+          "text": "The user requested guidance on increasing the font size on their Kobo Libra Colour.",
+          "type": "observation",
+          "entities": [
+            "Kobo Libra Colour",
+            "user"
+          ],
+          "context": null,
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": null,
+          "metadata": {},
+          "chunk_id": null,
+          "tags": [],
+          "source_fact_ids": [
+            "39d6c769-65f6-4536-b9b5-a03f7e62645d"
+          ],
+          "scores": {
+            "final": 0.0005679148881957701,
+            "reranker": 0.0005199120496399701,
+            "semantic": 0.6969037055969238,
+            "keyword": null
+          },
+          "attachments": null
+        }
+      ],
+      "trace": null,
+      "entities": {
+        "Kobo Libra Colour": {
+          "entity_id": "383e4570-a27c-45cd-bbf1-949ff2b937c5",
+          "canonical_name": "Kobo Libra Colour",
+          "observations": []
+        },
+        "user": {
+          "entity_id": "e86a3981-7e85-4757-a287-1cc8d2224729",
+          "canonical_name": "user",
+          "observations": []
+        }
+      },
+      "chunks": {
+        "stress-self~5Fassertion~5Fhu_source_0": {
+          "id": "stress-self~5Fassertion~5Fhu_source_0",
+          "text": "User (2026-10-01T12:00:00Z): A saját Kobo Libra Colour olvasómon túl kicsik a betűk. Hogyan nagyítsam őket?",
+          "chunk_index": 0,
+          "truncated": false,
+          "attachments": null
+        }
+      },
+      "source_facts": {
+        "39d6c769-65f6-4536-b9b5-a03f7e62645d": {
+          "id": "39d6c769-65f6-4536-b9b5-a03f7e62645d",
+          "text": "A felhasználó Kobo Libra Colour olvasóján túl kicsik a betűk. | Involving: user | A felhasználó betűméret-növelési útmutatást kér.",
+          "type": "world",
+          "entities": null,
+          "context": "Personal assistant conversation; project: none",
+          "occurred_start": null,
+          "occurred_end": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "document_id": "source",
+          "metadata": {},
+          "chunk_id": "stress-self~5Fassertion~5Fhu_source_0",
+          "tags": null,
+          "source_fact_ids": null,
+          "scores": null,
+          "attachments": null
+        }
+      },
+      "source_facts_truncated": false
+    },
+    "answer": {
+      "arm": "hindsight",
+      "text": "A Kobo Libra Colour e-könyv-olvasód van.",
+      "usage": {
+        "prompt_tokens": 1284,
+        "total_tokens": 1300,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 249,
+      "finish": "stop"
+    },
+    "stored": {
+      "items": [
+        {
+          "id": "22af440f-f1fd-456b-b2f5-ca92c864de66",
+          "text": "The user requested guidance on increasing the font size on their Kobo Libra Colour.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:25.643734+00:00",
+          "source_memory_ids": [
+            "39d6c769-65f6-4536-b9b5-a03f7e62645d"
+          ]
+        },
+        {
+          "id": "86e230ae-04f6-46d1-a757-112f7d6b914e",
+          "text": "The user's Kobo Libra Colour e-reader has text that is too small.",
+          "context": "",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:25.643734+00:00",
+          "source_memory_ids": [
+            "39d6c769-65f6-4536-b9b5-a03f7e62645d"
+          ]
+        },
+        {
+          "id": "39d6c769-65f6-4536-b9b5-a03f7e62645d",
+          "text": "A felhasználó Kobo Libra Colour olvasóján túl kicsik a betűk. | Involving: user | A felhasználó betűméret-növelési útmutatást kér.",
+          "context": "Personal assistant conversation; project: none",
+          "date": "2026-10-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-10-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "Kobo Libra Colour, user",
+          "chunk_id": "stress-self~5Fassertion~5Fhu_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T01:11:25.646756+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T01:11:24.695842+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 3,
+      "limit": 100,
+      "offset": 0
+    }
+  }
+]

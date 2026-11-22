@@ -115,7 +115,7 @@ function settleFrames(nodes: StoredCanvasNode[]): StoredCanvasNode[] {
 	for (const node of nodes) {
 		if (node.parentId === undefined) continue;
 		const parent = byId.get(node.parentId);
-		if (!parent || parent.type !== "frame" || parent.id === node.id) {
+		if (parent?.type !== "frame" || parent.id === node.id) {
 			delete node.parentId;
 		}
 	}

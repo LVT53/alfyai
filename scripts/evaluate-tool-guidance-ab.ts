@@ -21,7 +21,7 @@
 //   2. Calls `generateText({ model, system, messages, tools })` where
 //      `tools` are DEFINITION-ONLY (name + description + zod input schema,
 //      NO `execute`) so the model's tool-SELECTION is observed without any
-//      real Parallel/Brave/sandbox side effect or cost. AI SDK v6 tools
+//      real Parallel/sandbox side effect or cost. AI SDK v6 tools
 //      without `execute` are "client-side tools": `generateText`'s default
 //      `stopWhen` is `stepCountIs(1)`, so this is naturally single-step —
 //      the model either emits a tool call (captured in `result.toolCalls`,

@@ -2,6 +2,125 @@
 
 const knowledgeDict = {
 	en: {
+		"memoryReview.approvals": "Kept suggestions",
+		"memoryReview.afterSwitch":
+			"Approved memories become available in chat after the Memory switch.",
+		"memoryReview.keepQueued": "Waiting to be added to Memory.",
+		"memoryReview.keepFailed": "Could not add this memory.",
+		"memoryReview.keepPrepared": "Ready for the Memory switch.",
+		"memoryReview.keepReady": "Added to Memory.",
+		"memoryReview.retryKeep": "Retry adding memory",
+		"memoryReview.title": "Review earlier chats",
+		"memoryReview.intro":
+			"Alfy can look through eligible earlier chats for possible memories. Suggestions enter Memory only after you choose to keep them.",
+		"memoryReview.start": "Start reviewing",
+		"memoryReview.hide": "Close review",
+		"memoryReview.working": "Preparing suggestions from earlier chats…",
+		"memoryReview.pendingHelp":
+			"Keep adds this as a current memory. The source date shows when you originally said it.",
+		"memoryReview.held":
+			"Review is paused. Suggestions already available can still be opened.",
+		"memoryReview.complete": "Review complete",
+		"memoryReview.empty": "There are no suggestions waiting for a decision.",
+		"memoryReview.keep": "Keep",
+		"memoryReview.edit": "Edit and keep",
+		"memoryReview.saveEdit": "Keep edited memory",
+		"memoryReview.discard": "Discard",
+		"memoryReview.source": "Open original message",
+		"memoryReview.error":
+			"The review change could not be confirmed. Try again to check the same decision.",
+		"memoryReview.loadError": "Could not load the review.",
+		"memoryReview.retry": "Try again",
+		"memoryReview.kept":
+			"Choice saved. Alfy will add the memory after it is processed.",
+		"memoryReview.discarded": "Suggestion discarded.",
+		"memoryReview.off": "Turn on Memory to review suggestions.",
+		"memoryReview.stale":
+			"This suggestion is no longer available. Refresh the review to see the latest suggestions.",
+		"memoryReview.unknownProject": "Project",
+		"memoryNew.sourceUnavailable":
+			"This message is no longer available. You can still read the rest of the conversation.",
+		"memoryNew.statusUnknown":
+			"Your change may still be processing. Check its status before making another change.",
+		"memoryNew.checkStatus": "Check status",
+		"memoryNew.identityChanged":
+			"This memory has been reorganized. Your draft is still here. Return to the list to choose the memory you want to edit.",
+
+		"memoryNew.title": "What Alfy remembers",
+		"memoryNew.intro":
+			"Useful details from your conversations, easy to update.",
+		"memoryNew.personal": "Personal",
+		"memoryNew.space": "Memory space",
+		"memoryNew.personalHelp":
+			"Available in all your chats, including projects.",
+		"memoryNew.projectHelp":
+			"Only used in this project. Personal memory is also available here.",
+		"memoryNew.add": "Add memory",
+		"memoryNew.search": "Search memories",
+		"memoryNew.remembered": "Remembered",
+		"memoryNew.empty": "Nothing remembered here yet",
+		"memoryNew.emptyHelp":
+			"Details you share in your chats can appear here automatically.",
+		"memoryNew.noResults": "No matching memories",
+		"memoryNew.clearSearch": "Clear search",
+		"memoryNew.more": "Show more",
+		"memoryNew.back": "Back to memories",
+		"memoryNew.edit": "Edit",
+		"memoryNew.remove": "Remove",
+		"memoryNew.cancel": "Cancel",
+		"memoryNew.save": "Save changes",
+		"memoryNew.statement": "Memory",
+		"memoryNew.editTitle": "Edit memory",
+		"memoryNew.editHelp":
+			"Change the wording or delete details you don’t want remembered.",
+		"memoryNew.addHelp":
+			"Write something you would like Alfy to remember in this space.",
+		"memoryNew.savedVersion": "View saved version",
+		"memoryNew.conversation": "Conversation",
+		"memoryNew.youWrote": "You wrote",
+		"memoryNew.addedByYou": "Added by you",
+		"memoryNew.editedByYou": "You’ve edited this memory since.",
+		"memoryNew.unavailable": "This memory is no longer available.",
+		"memoryNew.evidenceUnavailable": "This source is no longer available.",
+		"memoryNew.versions": "Previous versions",
+		"memoryNew.versionsHelp": "Earlier wording of this memory",
+		"memoryNew.noLongerUsed": "No longer used",
+		"memoryNew.removeTitle": "Remove memory?",
+		"memoryNew.removeHelp":
+			"Alfy will stop remembering this. Your conversations will stay.",
+		"memoryNew.removeAgain":
+			"Telling Alfy again later may create a new memory.",
+		"memoryNew.conversationsStay": "Your conversations will stay.",
+		"memoryNew.loading": "Loading memories…",
+		"memoryNew.off": "Memory is off",
+		"memoryNew.offHelp": "You can change this in Profile settings.",
+		"memoryNew.updating": "Updating memories…",
+		"memoryNew.updatingHelp": "Your saved memories are still available.",
+		"memoryNew.saving": "Saving changes…",
+		"memoryNew.removing": "Removing memory…",
+		"memoryNew.saved": "Memory saved",
+		"memoryNew.removed": "Memory removed",
+		"memoryNew.loadFailed": "Couldn’t load memories. Please try again.",
+		"memoryNew.saveFailed":
+			"Couldn’t save this change. Your draft and saved memory are unchanged.",
+		"memoryNew.removeFailed":
+			"Couldn’t remove this memory. Alfy may still use it.",
+		"memoryNew.excluded":
+			"This memory is no longer used. Cleanup is still pending.",
+		"memoryNew.stale":
+			"This memory has changed. Review the saved version before trying again.",
+		"memoryNew.reviewLatest": "Review latest version",
+		"memoryNew.continueEditing": "Continue editing",
+		"memoryNew.pending": "Your change is still being checked.",
+		"memoryNew.backgroundFailed":
+			"Memories couldn’t be updated. Your last saved memories are still available.",
+		"memoryNew.preparing": "Your new memory is being prepared",
+		"memoryNew.preparingHelp":
+			"Your earlier memories haven’t been imported yet.",
+		"memoryNew.unknownDate": "Date unavailable",
+		"memoryNew.project": "Project",
+		"memoryNew.sourceCount": "{count} sources",
+
 		"filePreview.close": "Close file preview",
 		"filePreview.download": "Download {filename}",
 		"filePreview.downloadFile": "Download File",
@@ -386,7 +505,7 @@ const knowledgeDict = {
 		"memory.summary": "Summary",
 		"memory.tasks": "Tasks",
 		"memory.temporarilyUnavailable": `Durable persona memory exists, but the overview is temporarily unavailable right now. The stored profile still contains {count} durable signal{count, plural, one {} other {s}}.`,
-		"memory.title": "Memory Profile",
+		"memory.title": "Memory",
 		"memory.tryAgain": "Try again",
 		"memory.updated": "Updated",
 		"memoryProfile.accept": "Accept",
@@ -561,6 +680,125 @@ const knowledgeDict = {
 		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 	hu: {
+		"memoryReview.approvals": "Megtartott javaslatok",
+		"memoryReview.afterSwitch":
+			"A jóváhagyott emlékek a Memória átállítása után lesznek elérhetők a beszélgetésekben.",
+		"memoryReview.keepQueued": "Arra vár, hogy a Memóriába kerüljön.",
+		"memoryReview.keepFailed": "Ezt az emléket nem sikerült hozzáadni.",
+		"memoryReview.keepPrepared": "Készen áll a Memória átállítására.",
+		"memoryReview.keepReady": "Hozzáadva a Memóriához.",
+		"memoryReview.retryKeep": "Emlék hozzáadásának újrapróbálása",
+		"memoryReview.title": "Korábbi beszélgetések áttekintése",
+		"memoryReview.intro":
+			"Alfy a felhasználható korábbi beszélgetésekből emlékeket javasolhat. Csak azok a javaslatok kerülnek a Memóriába, amelyeket megtartasz.",
+		"memoryReview.start": "Áttekintés indítása",
+		"memoryReview.hide": "Áttekintés bezárása",
+		"memoryReview.working": "Javaslatok előkészítése korábbi beszélgetésekből…",
+		"memoryReview.pendingHelp":
+			"A megtartott javaslat aktuális emlékként kerül a Memóriába. A forrás dátuma az eredeti üzenet idejét mutatja.",
+		"memoryReview.held":
+			"Az áttekintés szünetel. A már elérhető javaslatokat továbbra is megnyithatod.",
+		"memoryReview.complete": "Az áttekintés befejeződött",
+		"memoryReview.empty": "Nincs döntésre váró javaslat.",
+		"memoryReview.keep": "Megtartás",
+		"memoryReview.edit": "Szerkesztés és megtartás",
+		"memoryReview.saveEdit": "Szerkesztett emlék megtartása",
+		"memoryReview.discard": "Elvetés",
+		"memoryReview.source": "Eredeti üzenet megnyitása",
+		"memoryReview.error":
+			"A módosítás megerősítése nem sikerült. Próbáld újra ugyanezt a döntést.",
+		"memoryReview.loadError": "Az áttekintés betöltése nem sikerült.",
+		"memoryReview.retry": "Újrapróbálás",
+		"memoryReview.kept":
+			"A döntés mentve. Az emlék a feldolgozás után kerül a Memóriába.",
+		"memoryReview.discarded": "Javaslat elvetve.",
+		"memoryReview.off": "Kapcsold be a Memóriát a javaslatok áttekintéséhez.",
+		"memoryReview.stale":
+			"Ez a javaslat már nem elérhető. Frissítsd az áttekintést az aktuális javaslatok megjelenítéséhez.",
+		"memoryReview.unknownProject": "Projekt",
+		"memoryNew.sourceUnavailable":
+			"Ez az üzenet már nem érhető el. A beszélgetés többi részét továbbra is olvashatod.",
+		"memoryNew.statusUnknown":
+			"Lehet, hogy a módosításod feldolgozása még folyamatban van. Új módosítás előtt ellenőrizd az állapotát.",
+		"memoryNew.checkStatus": "Állapot ellenőrzése",
+		"memoryNew.identityChanged":
+			"Ez az emlék átrendeződött. A piszkozatod még itt van. Térj vissza a listához, és válaszd ki a szerkesztendő emléket.",
+
+		"memoryNew.title": "Amire Alfy emlékszik",
+		"memoryNew.intro":
+			"Hasznos részletek a beszélgetéseidből, egyszerűen szerkeszthetően.",
+		"memoryNew.personal": "Személyes",
+		"memoryNew.space": "Memória helye",
+		"memoryNew.personalHelp":
+			"Minden beszélgetésedben elérhető, a projektekben is.",
+		"memoryNew.projectHelp":
+			"Csak ebben a projektben használja. A személyes memória itt is elérhető.",
+		"memoryNew.add": "Memória hozzáadása",
+		"memoryNew.search": "Keresés az emlékek között",
+		"memoryNew.remembered": "Megjegyezve",
+		"memoryNew.empty": "Itt még nincs megjegyzett információ",
+		"memoryNew.emptyHelp":
+			"A beszélgetéseidben megosztott részletek automatikusan megjelenhetnek itt.",
+		"memoryNew.noResults": "Nincs találat",
+		"memoryNew.clearSearch": "Keresés törlése",
+		"memoryNew.more": "Továbbiak",
+		"memoryNew.back": "Vissza az emlékekhez",
+		"memoryNew.edit": "Szerkesztés",
+		"memoryNew.remove": "Eltávolítás",
+		"memoryNew.cancel": "Mégse",
+		"memoryNew.save": "Módosítások mentése",
+		"memoryNew.statement": "Memória",
+		"memoryNew.editTitle": "Memória szerkesztése",
+		"memoryNew.editHelp":
+			"Módosítsd a szöveget, vagy töröld azokat a részleteket, amelyeket ne jegyezzen meg.",
+		"memoryNew.addHelp":
+			"Írd le, mit szeretnél, hogy Alfy megjegyezzen ezen a helyen.",
+		"memoryNew.savedVersion": "Mentett változat megtekintése",
+		"memoryNew.conversation": "Beszélgetés",
+		"memoryNew.youWrote": "Ezt írtad",
+		"memoryNew.addedByYou": "Általad hozzáadva",
+		"memoryNew.editedByYou": "Az emléket azóta szerkesztetted.",
+		"memoryNew.unavailable": "Ez az emlék már nem érhető el.",
+		"memoryNew.evidenceUnavailable": "Ez a forrás már nem érhető el.",
+		"memoryNew.versions": "Korábbi változatok",
+		"memoryNew.versionsHelp": "Az emlék korábbi megfogalmazása",
+		"memoryNew.noLongerUsed": "Már nem használja",
+		"memoryNew.removeTitle": "Eltávolítod az emléket?",
+		"memoryNew.removeHelp":
+			"Alfy nem fog erre emlékezni. A beszélgetéseid megmaradnak.",
+		"memoryNew.removeAgain":
+			"Ha később újra elmondod Alfynak, új emlék keletkezhet.",
+		"memoryNew.conversationsStay": "A beszélgetéseid megmaradnak.",
+		"memoryNew.loading": "Emlékek betöltése…",
+		"memoryNew.off": "A memória ki van kapcsolva",
+		"memoryNew.offHelp": "Ezt a Profil beállításainál módosíthatod.",
+		"memoryNew.updating": "Emlékek frissítése…",
+		"memoryNew.updatingHelp": "A mentett emlékeid továbbra is elérhetők.",
+		"memoryNew.saving": "Módosítások mentése…",
+		"memoryNew.removing": "Emlék eltávolítása…",
+		"memoryNew.saved": "Emlék mentve",
+		"memoryNew.removed": "Emlék eltávolítva",
+		"memoryNew.loadFailed":
+			"Nem sikerült betölteni az emlékeket. Próbáld újra.",
+		"memoryNew.saveFailed":
+			"Nem sikerült menteni a módosítást. A piszkozatod és a mentett emlék változatlan.",
+		"memoryNew.removeFailed":
+			"Nem sikerült eltávolítani az emléket. Alfy még használhatja.",
+		"memoryNew.excluded":
+			"Ezt az emléket már nem használja. A végleges törlés még folyamatban van.",
+		"memoryNew.stale":
+			"Ez az emlék megváltozott. Az újrapróbálás előtt nézd meg a mentett változatot.",
+		"memoryNew.reviewLatest": "Legújabb változat megtekintése",
+		"memoryNew.continueEditing": "Szerkesztés folytatása",
+		"memoryNew.pending": "A módosításod ellenőrzése még folyamatban van.",
+		"memoryNew.backgroundFailed":
+			"Nem sikerült frissíteni az emlékeket. A legutóbbi mentett emlékek továbbra is elérhetők.",
+		"memoryNew.preparing": "Az új memória előkészítés alatt áll",
+		"memoryNew.preparingHelp": "A korábbi emlékeid még nincsenek importálva.",
+		"memoryNew.unknownDate": "A dátum nem érhető el",
+		"memoryNew.project": "Projekt",
+		"memoryNew.sourceCount": "{count} forrás",
+
 		"filePreview.close": "Fájlelőnézet bezárása",
 		"filePreview.download": "{filename} letöltése",
 		"filePreview.downloadFile": "Fájl letöltése",
@@ -888,7 +1126,7 @@ const knowledgeDict = {
 		"memory.summary": "Összefoglaló",
 		"memory.tasks": "Feladatok",
 		"memory.temporarilyUnavailable": `Van tartós személyiségmemória, de az áttekintés jelenleg nem elérhető. A tárolt profil továbbra is {count} tartós jelet tartalmaz.`,
-		"memory.title": "Memóriaprofil",
+		"memory.title": "Memória",
 		"memory.tryAgain": "Próbáld újra",
 		"memory.updated": "Frissítve",
 		"memoryProfile.accept": "Elfogadás",

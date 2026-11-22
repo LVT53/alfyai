@@ -92,10 +92,10 @@ describe("review F probe: transient error before any output, no fallback model",
 			executions,
 			secondHasTools:
 				Array.isArray(bodies[1]?.tools) &&
-				(bodies[1]?.tools as unknown[]).length > 0,
+				((bodies[1]?.tools as unknown[] | undefined)?.length ?? 0) > 0,
 			firstHasTools:
 				Array.isArray(bodies[0]?.tools) &&
-				(bodies[0]?.tools as unknown[]).length > 0,
+				((bodies[0]?.tools as unknown[] | undefined)?.length ?? 0) > 0,
 			lastUser: JSON.stringify(
 				(bodies[1]?.messages as Array<{ role: string; content: unknown }>)?.at(
 					-1,
@@ -166,10 +166,10 @@ describe("review F probe: transient error before any output, no fallback model",
 			requests,
 			secondHasTools:
 				Array.isArray(bodies[1]?.tools) &&
-				(bodies[1]?.tools as unknown[]).length > 0,
+				((bodies[1]?.tools as unknown[] | undefined)?.length ?? 0) > 0,
 			firstHasTools:
 				Array.isArray(bodies[0]?.tools) &&
-				(bodies[0]?.tools as unknown[]).length > 0,
+				((bodies[0]?.tools as unknown[] | undefined)?.length ?? 0) > 0,
 			lastUser: JSON.stringify(
 				(bodies[1]?.messages as Array<{ role: string; content: unknown }>)?.at(
 					-1,
@@ -193,92 +193,93 @@ describe("review F probe: transient error before any output, no fallback model",
 	});
 });
 
-it.each([
-	"plain",
-	"streaming",
-])("bounds repeated pre-output failure to two tools-on requests (%s)", async (transport) => {
-	const output: NormalChatOutputEvent[] = [];
-	const bodies: Array<Record<string, unknown>> = [];
-	const args = {
-		provider,
-		messages: [{ role: "user" as const, content: "Search" }],
-		completionPolicy: policy(output),
-		tools: {
-			lookup: tool({
-				inputSchema: z.object({}),
-				execute: async () => "evidence",
-			}),
-		},
-		fetch: async (
-			_url: unknown,
-			init?: { body?: unknown },
-		): Promise<Response> => {
-			bodies.push(JSON.parse(String(init?.body)));
-			throw new Error("fetch failed");
-		},
-	};
-	if (transport === "plain") await runPlainNormalChatModelRun(args);
-	else
-		for await (const event of runStreamingNormalChatModelRun(args)) void event;
-	expect(bodies).toHaveLength(2);
-	for (const body of bodies)
-		expect(body.tools).toEqual(
-			expect.arrayContaining([expect.objectContaining({ type: "function" })]),
-		);
-	expect(output.find((event) => event.type === "completion")).toMatchObject({
-		completion: {
-			phase: "working",
-			outcome: "failed",
-			closingAttempted: false,
-		},
-	});
-});
-
-it.each([
-	"content",
-	"reasoning_content",
-])("never retries tools-on after upstream %s", async (field) => {
-	const output: NormalChatOutputEvent[] = [];
-	const bodies: Array<Record<string, unknown>> = [];
-	let wire: ReadableStreamDefaultController<Uint8Array>;
-	for await (const event of runStreamingNormalChatModelRun({
-		provider,
-		messages: [{ role: "user", content: "Search" }],
-		completionPolicy: {
-			...policy(output),
-			onOutputEvent: (event) => {
-				output.push(event);
-				if (bodies.length === 1 && event.type === "block_delta")
-					setTimeout(() => wire.error(new Error("lost transport")));
+it.each(["plain", "streaming"])(
+	"bounds repeated pre-output failure to two tools-on requests (%s)",
+	async (transport) => {
+		const output: NormalChatOutputEvent[] = [];
+		const bodies: Array<Record<string, unknown>> = [];
+		const args = {
+			provider,
+			messages: [{ role: "user" as const, content: "Search" }],
+			completionPolicy: policy(output),
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
 			},
-		},
-		tools: {
-			lookup: tool({
-				inputSchema: z.object({}),
-				execute: async () => "evidence",
-			}),
-		},
-		fetch: async (_url, init) => {
-			bodies.push(JSON.parse(String(init?.body)));
-			if (bodies.length === 1)
-				return new Response(
-					new ReadableStream({
-						start(controller) {
-							wire = controller;
-							controller.enqueue(
-								new TextEncoder().encode(chunk({ [field]: "partial" })),
-							);
-						},
-					}),
-					{ headers: { "content-type": "text/event-stream" } },
-				);
-			return okStream();
-		},
-	}))
-		void event;
-	expect(bodies).toHaveLength(2);
-	expect(bodies[1].tools).toBeUndefined();
-	expect(output.find((event) => event.type === "completion")).toMatchObject({
-		completion: { phase: "closing", closingAttempted: true },
-	});
-});
+			fetch: async (
+				_url: unknown,
+				init?: { body?: unknown },
+			): Promise<Response> => {
+				bodies.push(JSON.parse(String(init?.body)));
+				throw new Error("fetch failed");
+			},
+		};
+		if (transport === "plain") await runPlainNormalChatModelRun(args);
+		else
+			for await (const event of runStreamingNormalChatModelRun(args))
+				void event;
+		expect(bodies).toHaveLength(2);
+		for (const body of bodies)
+			expect(body.tools).toEqual(
+				expect.arrayContaining([expect.objectContaining({ type: "function" })]),
+			);
+		expect(output.find((event) => event.type === "completion")).toMatchObject({
+			completion: {
+				phase: "working",
+				outcome: "failed",
+				closingAttempted: false,
+			},
+		});
+	},
+);
+
+it.each(["content", "reasoning_content"])(
+	"never retries tools-on after upstream %s",
+	async (field) => {
+		const output: NormalChatOutputEvent[] = [];
+		const bodies: Array<Record<string, unknown>> = [];
+		let wire: ReadableStreamDefaultController<Uint8Array>;
+		for await (const event of runStreamingNormalChatModelRun({
+			provider,
+			messages: [{ role: "user", content: "Search" }],
+			completionPolicy: {
+				...policy(output),
+				onOutputEvent: (event) => {
+					output.push(event);
+					if (bodies.length === 1 && event.type === "block_delta")
+						setTimeout(() => wire.error(new Error("lost transport")));
+				},
+			},
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+			},
+			fetch: async (_url, init) => {
+				bodies.push(JSON.parse(String(init?.body)));
+				if (bodies.length === 1)
+					return new Response(
+						new ReadableStream({
+							start(controller) {
+								wire = controller;
+								controller.enqueue(
+									new TextEncoder().encode(chunk({ [field]: "partial" })),
+								);
+							},
+						}),
+						{ headers: { "content-type": "text/event-stream" } },
+					);
+				return okStream();
+			},
+		}))
+			void event;
+		expect(bodies).toHaveLength(2);
+		expect(bodies[1].tools).toBeUndefined();
+		expect(output.find((event) => event.type === "completion")).toMatchObject({
+			completion: { phase: "closing", closingAttempted: true },
+		});
+	},
+);

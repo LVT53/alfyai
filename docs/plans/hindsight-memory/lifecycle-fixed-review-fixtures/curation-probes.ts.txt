@@ -1,0 +1,279 @@
+it("fresh lifecycle judge: terminal dirty Edit releases publication without restoring its prior raw facts", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, [
+		ckPlan,
+		ckProposal("kayak", "", "sister"),
+		ckOkay,
+	]);
+	let deltaId: string | undefined;
+	let invalidated = false;
+	let deltaDeleted = false;
+	let addId: string | undefined;
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST") {
+			const item = JSON.parse(String(init.body)).items[0];
+			if (item.content === "I play chess.") addId = item.document_id;
+			else deltaId = item.document_id;
+		}
+		if (path.endsWith("/memories/kayak") && init?.method === "PATCH")
+			invalidated = true;
+		if (deltaId && path.endsWith("/documents/" + deltaId) && init?.method === "DELETE")
+			deltaDeleted = true;
+		const response = await original(url, init);
+		if (!path.includes("/memories/list")) return response;
+		const body = await response.json();
+		const appendFact = (id: string, text: string, document_id: string, observe = false) => {
+			body.items.push({ id, text, document_id, fact_type: "world", consolidated_at: "2026-11-01" });
+			if (observe)
+				body.items.push({ id: "observation-" + id, text, fact_type: "observation", source_memory_ids: [id] });
+		};
+		if (deltaId && !deltaDeleted) appendFact("purple", "purple kayak", deltaId);
+		if (deltaId && invalidated && !deltaDeleted)
+			appendFact("drift", "duplicate native raw fact", deltaId);
+		if (addId) appendFact("chess", "I play chess.", addId, true);
+		body.total = body.items.length;
+		return new Response(JSON.stringify(body));
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const list = await import("./native-read");
+	const texts = () => list.listMemory(h.userId, { scope: { kind: "personal" } }).rows.map(({ text }) => text).sort();
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "edit", ref: ckRef, text: "purple kayak", requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "failed", errorCode: "memory_edit_readback_mismatch", cleanupPending: false,
+	});
+	expect(fixture.patches).toEqual(["kayak"]);
+	expect(deltaDeleted).toBe(true);
+	expect(texts()).toEqual(["kayak", "sister"]);
+	const add = await a.submitMemoryAction(h.userId, {
+		kind: "add", scope: { kind: "personal" }, text: "I play chess.", requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId, { id: add.id })?.status).toBe("applied");
+	expect(texts()).toEqual(["I play chess.", "sister bicycle"]);
+});
+
+it("fresh lifecycle judge: Remove success admits newly identified stale observations supported only by other sources", async () => {
+	const f = await setup();
+	const rev = await import("./revisions");
+	const independent = rev.recordMemorySource({
+		userId: h.userId, bankId: f.bank.id, epoch: 0, eventId: "other",
+		lineageId: "other", text: "I play chess.", context: "", assertedAt: new Date(),
+	});
+	const { eq } = await import("drizzle-orm");
+	f.db.update(f.s.memorySourceRevisions)
+		.set({ state: "accepted", acknowledgedFactsJson: JSON.stringify([{ id: "chess", text: "I play chess." }]) })
+		.where(eq(f.s.memorySourceRevisions.id, independent.id))
+		.run();
+	f.db.insert(f.s.memoryPublishedRows)
+		.values({
+			id: "old-chess", nativeId: "old-chess", bankId: f.bank.id, generation: "g", epoch: 0,
+			text: "I play chess.", nativeText: "I play chess.", sourceIdsJson: '["chess"]',
+			sourceFingerprintsJson: '[{"id":"chess","text":"I play chess."}]', updatedAt: new Date(),
+		}).run();
+	const fixture = await nativeFixture(f, []);
+	fixture.setFacts([
+		{ id: "kayak", text: "green kayak" },
+		{ id: "sister", text: "sister bicycle" },
+		{ id: "chess", text: "I play chess.", document_id: independent.id },
+	]);
+	fixture.model
+		.mockResolvedValueOnce({ forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] })
+		.mockResolvedValueOnce(ckProposal("kayak", "", "sister"))
+		.mockResolvedValueOnce(ckOkay)
+		.mockImplementation(async (_prompt, input) =>
+			input.displayed_observations.some(({ text }: { text: string }) =>
+				text.includes("green kayak"),
+			) ? ckReject : ckOkay,
+		);
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const response = await original(url, init);
+		if (!String(url).includes("/memories/list")) return response;
+		const body = await response.json();
+		if (!body.items.some(({ id }: { id: string }) => id === "kayak"))
+			body.items.push({
+				id: "new-misassociated", text: "green kayak and I play chess.",
+				fact_type: "observation", source_memory_ids: ["chess"],
+			});
+		body.total = body.items.length;
+		return new Response(JSON.stringify(body));
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const op = await a.submitMemoryAction(h.userId, { kind: "remove", ref: ckRef, requestId: randomUUID() });
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(fixture.patches).toEqual(["kayak"]);
+	expect(fixture.model.mock.calls.at(-1)?.[1]).toMatchObject({
+		displayed_observations: [{ id: "observation-sister", text: "sister bicycle" }],
+	});
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "applied", exclusionAcknowledged: true, cleanupPending: false,
+	});
+	expect((await import("./native-read")).listMemory(h.userId, { scope: { kind: "personal" } })
+		.rows.map(({ text }) => text)).toContain("green kayak and I play chess.");
+});
+
+it("fresh lifecycle judge: deleting a cancelled Edit root strands the bank-wide rollback hold", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, [
+		ckPlan, ckProposal("kayak", "", "sister"), ckOkay,
+	]);
+	const { eq } = await import("drizzle-orm");
+	const chatId = randomUUID();
+	const messageId = randomUUID();
+	f.db.insert(f.s.conversations).values({ id: chatId, userId: h.userId, title: "Synthetic chat" }).run();
+	f.db.insert(f.s.messages).values({
+		id: messageId, conversationId: chatId, role: "user", content: f.source.text,
+	}).run();
+	f.db.update(f.s.memorySourceRevisions)
+		.set({ conversationId: chatId, messageId, nativeSubmitted: true, nativeAcknowledged: true })
+		.where(eq(f.s.memorySourceRevisions.id, f.source.id)).run();
+	const policy = await import("./migration-policy");
+	let disabled = false;
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const response = await original(url, init);
+		const path = String(url);
+		if (path.endsWith("/memories/kayak") && init?.method === "PATCH" && !disabled) {
+			disabled = true;
+			await policy.setMemoryEnabled(h.userId, false);
+		}
+		if (path.endsWith("/documents/" + f.source.id) && init?.method === "DELETE")
+			fixture.setFacts([]);
+		return response;
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "edit", ref: ckRef, text: "purple kayak", requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(disabled).toBe(true);
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "failed", cleanupPending: true,
+	});
+	await (await import("./chat-delivery")).revokeDeletedMemoryMessages([messageId]);
+	f.db.delete(f.s.messages).where(eq(f.s.messages.id, messageId)).run();
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(f.db.select().from(f.s.memoryDeliveryJobs)
+		.where(eq(f.s.memoryDeliveryJobs.requestId, "source-cleanup:" + f.source.id)).get()?.status,
+	).toBe("succeeded");
+	await policy.setMemoryEnabled(h.userId, true);
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		cleanupPending: true, errorCode: "memory_edit_restore_source_changed",
+	});
+	await expect(a.submitMemoryAction(h.userId, {
+		kind: "add", scope: { kind: "personal" }, text: "I play chess.", requestId: randomUUID(),
+	})).rejects.toMatchObject({ code: "memory_action_pending" });
+	expect(fixture.model).toHaveBeenCalledTimes(3);
+});
+
+it("fresh lifecycle judge: a successful changed resend severs earlier Remove authority for the next unchanged resend", async () => {
+	const f = await setup();
+	const rev = await import("./revisions");
+	const fixture = await nativeFixture(f, []);
+	const { eq } = await import("drizzle-orm");
+	f.db.update(f.s.memorySourceRevisions)
+		.set({ nativeSubmitted: true, nativeAcknowledged: true })
+		.where(eq(f.s.memorySourceRevisions.id, f.source.id)).run();
+	const before = f.source.text;
+	const after = before + ". I play chess.";
+	const removePlan = { forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] };
+	const unchangedFacts = [{ id: "sister", text: "sister bicycle", document_id: f.source.id }];
+	const payloads: Array<Record<string, unknown>> = [];
+	fixture.model.mockImplementation(async (_prompt, input: Record<string, unknown>) => {
+		payloads.push(input);
+		if ("facts" in input) {
+			const plan = input.edit_plan as typeof removePlan;
+			const facts = input.facts as Array<{ id: string; text: string }>;
+			return {
+				facts: facts.map(({ id, text }) => ({
+					id, text: plan.forget.includes("green kayak") && text === "green kayak" ? "" : text,
+				})),
+			};
+		}
+		if ("proposed_facts" in input) {
+			const hasRemove = JSON.stringify(input).includes('"forget":["green kayak"]');
+			const display = input.displayed_observations as Array<{ text: string }> | undefined;
+			if (hasRemove && display?.some(({ text }) => text.includes("green kayak")))
+				return ckReject;
+			if (Array.isArray(input.new_facts) && input.new_facts.some(({ text }) => text === "green kayak"))
+				return ckReject;
+			return ckOkay;
+		}
+		return input.user_saved_after === ""
+			? removePlan
+			: { forget: [], replace: [], preserve: ["unchanged wording; chess is added"] };
+	});
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	let changedId: string | undefined;
+	let identicalId: string | undefined;
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST") {
+			const item = JSON.parse(String(init.body)).items[0];
+			if (item.content.startsWith("{")) {
+				changedId = item.document_id;
+				fixture.setFacts([...unchangedFacts, { id: "chess", text: "I play chess.", document_id: item.document_id }]);
+			} else {
+				identicalId = item.document_id;
+				fixture.setFacts([
+					...unchangedFacts,
+					{ id: "chess", text: "I play chess.", document_id: changedId },
+					{ id: "old-green-new-id", text: "green kayak", document_id: item.document_id },
+				]);
+			}
+		}
+		if (changedId && path.endsWith("/documents/" + changedId) && init?.method === "DELETE")
+			fixture.setFacts([...unchangedFacts, { id: "old-green-new-id", text: "green kayak", document_id: identicalId }]);
+		return original(url, init);
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const list = await import("./native-read");
+	const texts = () => list.listMemory(h.userId, { scope: { kind: "personal" } }).rows.map(({ text }) => text).sort();
+	const remove = await a.submitMemoryAction(h.userId, {
+		kind: "remove", ref: ckRef, requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId, { id: remove.id }).status).toBe("applied");
+	const resubmit = async (previousId: string, eventId: string, explicitEditAt?: Date) => {
+		rev.revokeMemorySources(h.userId, [previousId]);
+		const source = rev.recordMemorySource({
+			userId: h.userId, bankId: f.bank.id, epoch: 0, eventId,
+			lineageId: f.source.lineageId, predecessorSourceId: previousId,
+			text: after, context: "", assertedAt: f.source.assertedAt, explicitEditAt,
+		});
+		const queued = await jobs.enqueueMemoryDelivery({
+			userId: h.userId, bankId: f.bank.id, epoch: 0, kind: "source",
+			sourceId: source.id, requestId: eventId,
+		});
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		return {
+			id: source.id,
+			job: f.db.select().from(f.s.memoryDeliveryJobs)
+				.where(eq(f.s.memoryDeliveryJobs.id, queued.row.id)).get(),
+		};
+	};
+	const changed = await resubmit(f.source.id, "changed", new Date(f.source.assertedAt.getTime() + 120_000));
+	expect(changed.job?.status).toBe("succeeded");
+	expect(texts()).toEqual(["I play chess.", "sister bicycle"]);
+	expect(payloads.some((p) => JSON.stringify(p.ordered_edits ?? []).includes("green kayak"))).toBe(true);
+	const marker = payloads.length;
+	const identical = await resubmit(changed.id, "identical");
+	expect(identical.job).toMatchObject({ status: "failed", errorCode: "memory_preparation_failed" });
+	expect(payloads.slice(marker).length).toBeGreaterThan(0);
+	expect(payloads.slice(marker).every((p) => !JSON.stringify(p).includes('"forget":["green kayak"]'))).toBe(true);
+	expect(texts()).toEqual(["sister bicycle"]);
+});

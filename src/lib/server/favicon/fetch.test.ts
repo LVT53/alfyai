@@ -334,22 +334,25 @@ describe("fetchFavicon behind the outbound guard", () => {
 		["10.0.0.5", "a private address"],
 		["fd00::1", "a unique-local address"],
 		["64:ff9b::7f00:1", "NAT64 wrapping loopback"],
-	])("answers the globe and connects to nothing when every name resolves to %s (%s)", async (address) => {
-		const { transport, connectedTo } = fakeTransport({
-			headers: PNG,
-			chunks: [Buffer.from([1])],
-		});
+	])(
+		"answers the globe and connects to nothing when every name resolves to %s (%s)",
+		async (address) => {
+			const { transport, connectedTo } = fakeTransport({
+				headers: PNG,
+				chunks: [Buffer.from([1])],
+			});
 
-		const result = await fetchFavicon("looks-public.example.com", {
-			fetch: createOutboundFetch({
-				resolve: resolverTo(address),
-				request: transport,
-			}),
-		});
+			const result = await fetchFavicon("looks-public.example.com", {
+				fetch: createOutboundFetch({
+					resolve: resolverTo(address),
+					request: transport,
+				}),
+			});
 
-		expect(result.kind).toBe("globe");
-		expect(connectedTo).toEqual([]);
-	});
+			expect(result.kind).toBe("globe");
+			expect(connectedTo).toEqual([]);
+		},
+	);
 
 	it("treats a redirect into a private range as a miss: it is returned, never followed", async () => {
 		const { transport, calls } = fakeTransport({

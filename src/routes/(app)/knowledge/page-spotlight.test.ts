@@ -82,7 +82,7 @@ describe("Knowledge page — the guide's Show me", () => {
 
 		expect(get(spotlightRequest)).toBeNull();
 		vi.advanceTimersToNextFrame();
-		const tab = screen.getByRole("tab", { name: "Memory Profile" });
+		const tab = screen.getByRole("tab", { name: /^Memory$/ });
 		expect(ringing()).toEqual([tab]);
 		expect(vi.mocked(tab.scrollIntoView).mock.contexts).toEqual([tab]);
 		// It is the other tab that is open, and the ring is on the one asked for.

@@ -64,6 +64,13 @@ Workspace Search (the `/api/workspace-search` surface and its dialog) was built 
 
 What it needs, at minimum, before it can be called an overhaul: decide what a picture and a clip contribute to a result (title, summary, version, who made it, when), how they group beside documents, whether a kind filter belongs in the dialog (the Knowledge documents list already has one, with a Videos chip from 2026-11-15), and how opening a result differs per kind — a document opens the panel, a clip opens the player.
 
+## Owner add-on (2026-11-18): friendly error messages across the whole app
+Owner's words: *"I'd like friendly messages for all error cases we cover basically. it should be made a rule too."* Then, on scope: *"Write up that we'll do the app error messages too later in the owner backlog doc. For now let's stick to rule cover only."* Status: **noted only, for later.** The tool rows come first.
+
+Being done now (2026-11-18, branch `claude/tool-row-words`, design doc to come under `docs/superpowers/specs/`): an opened tool row gives a little more than the tool's name, in plain words, and every error case a tool's server code tells apart gets its own short message in English and Hungarian, shown once. A case with no message of its own falls back to a friendly line for that tool, never to a code; raw error text and codes stay in the server log, the admin included; a stop the app makes on purpose is not drawn as a red failure. It becomes a rule in AGENTS.md, held by a test.
+
+Later: the same rule for every error a person can meet outside the tool rows. Known so far: a reply that ends without an answer shows "The model stopped before writing its answer. Retry the message." whatever the cause (`no_final_answer`, chosen in `chat-turn/stream-completion.ts`), and after a step whose outcome is uncertain a blind Retry may repeat a change. Not looked at yet: uploads and imports, Settings and Admin, connections, Atlas outside its in-chat report row (the row itself is in the tool-row change), read aloud, the composer. Start the way the tool rows did: a sweep that lists every error a person can see and what the server knows about each.
+
 ## Owner request (2026-11-22): video quality upgrades
 Status: **noted only** — not designed, not ranked, and not built.
 

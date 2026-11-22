@@ -1,0 +1,91 @@
+{
+  "pairs": 60,
+  "answers": 120,
+  "verdictTotals": {
+    "observation": {
+      "passed": 48,
+      "answersWithUnsupportedClaims": 11,
+      "unsupportedClaims": 14,
+      "meanPromptTokens": 532.1,
+      "maxEstimatedEvidenceTokens": 768
+    },
+    "linkedRaw": {
+      "passed": 52,
+      "answersWithUnsupportedClaims": 5,
+      "unsupportedClaims": 5,
+      "meanPromptTokens": 770.1,
+      "maxEstimatedEvidenceTokens": 1183
+    }
+  },
+  "pairedOutcomes": {
+    "linkedRawOnly": 7,
+    "observationOnly": 3,
+    "bothFail": 5,
+    "bothPass": 45
+  },
+  "changedCases": {
+    "linkedRawOnly": [
+      "p01/0",
+      "p01/1",
+      "p03/0",
+      "p03/3",
+      "p05/3",
+      "p06/0",
+      "p06/2"
+    ],
+    "observationOnly": [
+      "p02/8",
+      "p05/7",
+      "p06/6"
+    ],
+    "bothFail": [
+      "p03/1",
+      "p04/1",
+      "p04/4",
+      "p05/1",
+      "p06/7"
+    ]
+  },
+  "byCategory": {
+    "future_plan": {
+      "observation": 3,
+      "linkedRaw": 6
+    },
+    "current_plan": {
+      "observation": 2,
+      "linkedRaw": 3
+    },
+    "past_plan": {
+      "observation": 5,
+      "linkedRaw": 6
+    },
+    "ownership": {
+      "observation": 4,
+      "linkedRaw": 6
+    },
+    "fiction_attribution": {
+      "observation": 5,
+      "linkedRaw": 5
+    },
+    "conditional_change": {
+      "observation": 6,
+      "linkedRaw": 6
+    },
+    "project_preference": {
+      "observation": 6,
+      "linkedRaw": 5
+    },
+    "project_continuity": {
+      "observation": 5,
+      "linkedRaw": 4
+    },
+    "preference_correction": {
+      "observation": 6,
+      "linkedRaw": 5
+    },
+    "identity_continuity": {
+      "observation": 6,
+      "linkedRaw": 6
+    }
+  }
+}

@@ -551,7 +551,7 @@ export async function walkReplySegments<
 	const seen = new Set<string>();
 	let row = await readRow(lastId);
 	for (;;) {
-		if (!row || row.role !== "assistant" || seen.has(row.id)) return null;
+		if (row?.role !== "assistant" || seen.has(row.id)) return null;
 		seen.add(row.id);
 		segments.unshift(row);
 		const link = continuesMessageIdOf(row.metadataJson);
@@ -942,8 +942,15 @@ export async function listConversationMessagesForExport(params: {
 	}));
 }
 
-export async function deleteMessages(ids: string[]): Promise<void> {
+export async function deleteMessages(
+	ids: string[],
+	options?: { editSourceMessageId?: string },
+): Promise<void> {
 	if (ids.length === 0) return;
+	const { revokeDeletedMemoryMessages } = await import(
+		"./memory-profile/chat-delivery"
+	);
+	await revokeDeletedMemoryMessages(ids, options);
 	db.transaction((tx) => {
 		let deletedRows = tx
 			.select({
@@ -1646,20 +1653,23 @@ export async function updateAssistantMessageInstructionSuggestionStatus(params: 
 	return nextSuggestion;
 }
 
-export async function clearMessageEvidenceForUser(
+export function clearMessageEvidenceForUser(
 	userId: string,
-): Promise<void> {
-	const conversationRows = await db
+	database: Pick<typeof db, "select" | "update"> = db,
+): void {
+	const conversationRows = database
 		.select({ id: conversations.id })
 		.from(conversations)
-		.where(eq(conversations.userId, userId));
+		.where(eq(conversations.userId, userId))
+		.all();
 	const conversationIds = conversationRows.map((row) => row.id);
 	if (conversationIds.length === 0) return;
 
-	const rows = await db
+	const rows = database
 		.select({ id: messages.id, metadataJson: messages.metadataJson })
 		.from(messages)
-		.where(inArray(messages.conversationId, conversationIds));
+		.where(inArray(messages.conversationId, conversationIds))
+		.all();
 
 	for (const row of rows) {
 		const metadata = parseMetadata(row.metadataJson);
@@ -1679,12 +1689,13 @@ export async function clearMessageEvidenceForUser(
 		delete next.webCitationAudit;
 		delete next.citationAudit;
 
-		await db
+		database
 			.update(messages)
 			.set({
 				metadataJson:
 					Object.keys(next).length > 0 ? JSON.stringify(next) : null,
 			})
-			.where(eq(messages.id, row.id));
+			.where(eq(messages.id, row.id))
+			.run();
 	}
 }

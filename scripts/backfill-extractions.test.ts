@@ -1822,10 +1822,13 @@ describe("the tier it asks for when none is given", () => {
 		[["flash", "basic", "standard"], "standard"],
 		[["flash", "basic"], "basic"],
 		[["flash"], "flash"],
-	] as const)("picks the extractor's choice on a server listing %j: %s", async (tiers, expected) => {
-		// `advanced` is never picked for you, here or in the app.
-		expect(await planTierOnAServerListing([...tiers])).toBe(expected);
-	});
+	] as const)(
+		"picks the extractor's choice on a server listing %j: %s",
+		async (tiers, expected) => {
+			// `advanced` is never picked for you, here or in the app.
+			expect(await planTierOnAServerListing([...tiers])).toBe(expected);
+		},
+	);
 
 	it("still lets the operator name any tier the server serves, advanced included", async () => {
 		expect(

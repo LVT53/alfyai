@@ -21,6 +21,7 @@ import {
 } from "./memory-profile/projection-store";
 import { getMemoryProfileReadModel } from "./memory-profile/read-model";
 import { applyMemoryReviewItemWithRevision } from "./memory-profile/review";
+import { getMemoryAccount } from "./memory-profile/revisions";
 import { normalizeRememberedStatement } from "./memory-profile/scope";
 import { recordMemoryReworkTelemetry } from "./memory-profile/telemetry";
 import type {
@@ -639,6 +640,12 @@ export async function applyKnowledgeMemoryAction(
 	_userDisplayName: string,
 	payload: unknown,
 ): Promise<MemoryProfilePublicPayload | KnowledgeMemorySummaryPayload> {
+	if (getMemoryAccount(userId)?.authority === "hindsight")
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Legacy memory actions are unavailable.",
+			410,
+		);
 	const v2Action = parseMemoryV2Action(payload);
 	if (v2Action) {
 		if (v2Action.kind === "profile_item" && v2Action.action === "correct") {
@@ -774,3 +781,8 @@ export async function applyKnowledgeMemoryAction(
 		await getMemoryProfileReadModel({ userId }),
 	);
 }
+
+export {
+	getMemoryOperation,
+	submitMemoryAction,
+} from "./memory-profile/curation-actions";

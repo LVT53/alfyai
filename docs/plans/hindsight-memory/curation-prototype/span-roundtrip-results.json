@@ -1,0 +1,963 @@
+[
+  {
+    "id": "correct_keep_new_details",
+    "source": {
+      "id": "correct_keep_new_details",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+      "action": "Correct the remembered colour of my bicycle from red to blue.",
+      "want": "blue bicycle; espresso and pottery preserved; no current red bicycle or decaf",
+      "heldOut": false,
+      "accepted": true,
+      "text": "My bicycle is blue. I now prefer espresso. I started pottery.",
+      "proposal": {
+        "patches": [
+          {
+            "old": "My bicycle is red.",
+            "replacement": "My bicycle is blue."
+          }
+        ],
+        "conflicts": []
+      },
+      "errors": [],
+      "ms": 362,
+      "usage": {
+        "prompt_tokens": 381,
+        "total_tokens": 429,
+        "completion_tokens": 48,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "c3ebcfbf-e0bf-4ae1-9af9-cbd9ef459932",
+          "text": "The user started pottery.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.020000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:38.250775+00:00",
+          "source_memory_ids": [
+            "daf282b3-c6ef-405f-b1f5-305d901af027"
+          ]
+        },
+        {
+          "id": "daf282b3-c6ef-405f-b1f5-305d901af027",
+          "text": "User started pottery. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.020000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "pottery, user",
+          "chunk_id": "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:40:38.255020+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:37.041519+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "02544ca2-1ba6-4b67-bbac-fd73b26e9c28",
+          "text": "The user prefers espresso.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:38.250775+00:00",
+          "source_memory_ids": [
+            "fa505d6d-e30c-4bf9-946b-41005f63c00d"
+          ]
+        },
+        {
+          "id": "fa505d6d-e30c-4bf9-946b-41005f63c00d",
+          "text": "User now prefers espresso. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "espresso, user",
+          "chunk_id": "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:40:38.255020+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:37.041519+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "8e40abc8-eb5b-47bb-a815-cd415832e128",
+          "text": "The user's bicycle is blue.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:38.250775+00:00",
+          "source_memory_ids": [
+            "0f9286c8-bd18-40c2-8e52-8a66ca43294c"
+          ]
+        },
+        {
+          "id": "0f9286c8-bd18-40c2-8e52-8a66ca43294c",
+          "text": "User's bicycle is blue. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "bicycle, user",
+          "chunk_id": "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:40:38.255020+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:37.041519+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 6,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "## Your Bicycle\n\nYour bicycle is **blue**.\n\nThis was stated directly in a single message on 2026-11-01: *\"My bicycle is blue.\"* There is only one record of the bicycle's colour in the memory bank, and no subsequent statement changes or contradicts it. Searches for any alternative colour (e.g. red, green) or any update/change to the bicycle colour returned no additional facts.\n\n### Is the bicycle colour unresolved?\n\n**No — it is resolved.** The colour is clearly and unambiguously **blue**. There is exactly one fact about the bicycle's colour, it carries no conflicting counterpart, and nothing later supersedes it. There is no ambiguity to reconcile here.\n\n## Your Coffee Preference\n\nYou prefer **espresso**. This was also stated in the same 2026-11-01 message: *\"I now prefer espresso.\"* The phrasing (\"now prefer\") suggests this may reflect a shift from an earlier preference, but the memory bank contains no record of what your previous coffee preference was — only the current one (espresso) is documented.\n\n## Your Hobby\n\nYour hobby is **pottery**. The memory bank records that *\"The user started pottery\"* on 2026-11-01. This is the only hobby mentioned in the available data.\n\n## Summary\n\n| Item | Value | Source Date |\n|---|---|---|\n| Bicycle colour | **Blue** | 2026-11-01 |\n| Coffee preference | **Espresso** | 2026-11-01 |\n| Hobby | **Pottery** | 2026-11-01 |\n| Bicycle colour resolved? | **Yes — blue, no conflict** | — |",
+      "based_on": {
+        "memories": [
+          {
+            "id": "daf282b3-c6ef-405f-b1f5-305d901af027",
+            "text": "User started pottery. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": "source",
+            "chunk_id": "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "0f9286c8-bd18-40c2-8e52-8a66ca43294c",
+            "text": "User's bicycle is blue. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "source",
+            "chunk_id": "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "fa505d6d-e30c-4bf9-946b-41005f63c00d",
+            "text": "User now prefers espresso. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "source",
+            "chunk_id": "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "c3ebcfbf-e0bf-4ae1-9af9-cbd9ef459932",
+            "text": "The user started pottery.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "8e40abc8-eb5b-47bb-a815-cd415832e128",
+            "text": "The user's bicycle is blue.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "02544ca2-1ba6-4b67-bbac-fd73b26e9c28",
+            "text": "The user prefers espresso.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 23342,
+        "output_tokens": 688,
+        "total_tokens": 24030,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "bicycle colour coffee preference hobby",
+              "max_tokens": 5000,
+              "reason": "Starting search for bicycle colour, coffee preference, and hobby in observations"
+            },
+            "output": {
+              "query": "bicycle colour coffee preference hobby",
+              "count": 3,
+              "observations": [
+                {
+                  "id": "c3ebcfbf-e0bf-4ae1-9af9-cbd9ef459932",
+                  "text": "The user started pottery.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "pottery",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                },
+                {
+                  "id": "8e40abc8-eb5b-47bb-a815-cd415832e128",
+                  "text": "The user's bicycle is blue.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "02544ca2-1ba6-4b67-bbac-fd73b26e9c28",
+                  "text": "The user prefers espresso.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 31,
+            "iteration": 1,
+            "started_at_ms": 1794998439764
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle colour",
+              "max_tokens": 2000,
+              "max_chunk_tokens": 1000,
+              "reason": "Verifying bicycle colour details and checking for any conflicting information about the bicycle"
+            },
+            "output": {
+              "query": "bicycle colour",
+              "memories": [
+                {
+                  "id": "daf282b3-c6ef-405f-b1f5-305d901af027",
+                  "text": "User started pottery. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "pottery",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                },
+                {
+                  "id": "0f9286c8-bd18-40c2-8e52-8a66ca43294c",
+                  "text": "User's bicycle is blue. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "fa505d6d-e30c-4bf9-946b-41005f63c00d",
+                  "text": "User now prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "chunks": {
+                "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0": {
+                  "chunk_text": "User: My bicycle is blue. I now prefer espresso. I started pottery.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                }
+              }
+            },
+            "duration_ms": 32,
+            "iteration": 2,
+            "started_at_ms": 1794998440436
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle red green color update changed",
+              "max_tokens": 2000,
+              "max_chunk_tokens": 1000,
+              "reason": "Checking if there is any other bicycle colour information that might conflict or update the blue colour"
+            },
+            "output": {
+              "query": "bicycle red green color update changed",
+              "memories": [
+                {
+                  "id": "0f9286c8-bd18-40c2-8e52-8a66ca43294c",
+                  "text": "User's bicycle is blue. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "daf282b3-c6ef-405f-b1f5-305d901af027",
+                  "text": "User started pottery. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "pottery",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                },
+                {
+                  "id": "fa505d6d-e30c-4bf9-946b-41005f63c00d",
+                  "text": "User now prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "chunks": {
+                "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0": {
+                  "chunk_text": "User: My bicycle is blue. I now prefer espresso. I started pottery.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 32,
+            "iteration": 3,
+            "started_at_ms": 1794998441329
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "coffee preference espresso latte cappuccino",
+              "max_tokens": 2000,
+              "max_chunk_tokens": 1000,
+              "reason": "Checking for any prior or conflicting coffee preference information, since f3 says 'now prefers espresso' suggesting a prior preference"
+            },
+            "output": {
+              "query": "coffee preference espresso latte cappuccino",
+              "memories": [
+                {
+                  "id": "fa505d6d-e30c-4bf9-946b-41005f63c00d",
+                  "text": "User now prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                },
+                {
+                  "id": "0f9286c8-bd18-40c2-8e52-8a66ca43294c",
+                  "text": "User's bicycle is blue. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "daf282b3-c6ef-405f-b1f5-305d901af027",
+                  "text": "User started pottery. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "pottery",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+                }
+              ],
+              "chunks": {
+                "curation-span-correct~5Fkeep~5Fnew~5Fdetails_source_0": {
+                  "chunk_text": "User: My bicycle is blue. I now prefer espresso. I started pottery.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              }
+            },
+            "duration_ms": 37,
+            "iteration": 4,
+            "started_at_ms": 1794998442185
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 611,
+            "started_at_ms": 1794998439152
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 640,
+            "started_at_ms": 1794998439796
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 860,
+            "started_at_ms": 1794998440469
+          },
+          {
+            "scope": "agent_4",
+            "duration_ms": 822,
+            "started_at_ms": 1794998441363
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 3135,
+            "started_at_ms": 1794998442223
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "conflicting_target_edit",
+    "source": {
+      "id": "conflicting_target_edit",
+      "previous": "My bicycle is red. I prefer decaf coffee.",
+      "latest": "My bicycle is green. I prefer espresso.",
+      "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+      "want": "flag unresolved blue versus green conflict; preserve espresso; no silent chosen colour",
+      "heldOut": false,
+      "accepted": true,
+      "text": "My bicycle is blue. I prefer espresso.",
+      "proposal": {
+        "patches": [
+          {
+            "old": "My bicycle is green.",
+            "replacement": "My bicycle is blue."
+          }
+        ],
+        "conflicts": []
+      },
+      "errors": [],
+      "ms": 320,
+      "usage": {
+        "prompt_tokens": 393,
+        "total_tokens": 441,
+        "completion_tokens": 48,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "items": {
+      "items": [
+        {
+          "id": "91b92c90-6968-4e24-be3b-8ff7433526e8",
+          "text": "User prefers espresso.",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:48.114972+00:00",
+          "source_memory_ids": [
+            "bd6f6afe-ec9f-4943-94c9-3226c19e924a"
+          ]
+        },
+        {
+          "id": "bd6f6afe-ec9f-4943-94c9-3226c19e924a",
+          "text": "User prefers espresso. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00.010000+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "espresso, user",
+          "chunk_id": "curation-span-conflicting~5Ftarget~5Fedit_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:40:48.118708+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:47.182127+00:00",
+          "source_memory_ids": []
+        },
+        {
+          "id": "eb0797ef-dfde-4962-8819-dd5348c49af0",
+          "text": "User's bicycle is blue.",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "observation",
+          "document_id": null,
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "",
+          "chunk_id": null,
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": null,
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:48.114972+00:00",
+          "source_memory_ids": [
+            "04254d17-3c84-4b9a-8234-9760c5974663"
+          ]
+        },
+        {
+          "id": "04254d17-3c84-4b9a-8234-9760c5974663",
+          "text": "User's bicycle is blue. | Involving: user",
+          "context": "",
+          "date": "2026-11-01T12:00:00+00:00",
+          "fact_type": "world",
+          "document_id": "source",
+          "mentioned_at": "2026-11-01T12:00:00+00:00",
+          "occurred_start": null,
+          "occurred_end": null,
+          "entities": "bicycle, user",
+          "chunk_id": "curation-span-conflicting~5Ftarget~5Fedit_source_0",
+          "proof_count": 1,
+          "tags": [],
+          "metadata": {},
+          "consolidated_at": "2026-11-18T10:40:48.118708+00:00",
+          "consolidation_failed_at": null,
+          "state": "valid",
+          "invalidation_reason": null,
+          "invalidated_at": null,
+          "edited_at": null,
+          "updated_at": "2026-11-18T10:40:47.182127+00:00",
+          "source_memory_ids": []
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    },
+    "answer": {
+      "text": "Based on the retrieved information, here is a summary of your personal preferences and possessions:\n\n*   **Bicycle Colour:** Your bicycle is **blue**.\n*   **Coffee Preference:** You prefer **espresso**.\n*   **Hobby:** There is **no recorded information** about your hobbies in the available memory bank.\n\nRegarding the bicycle colour, it is **not unresolved**. The data consistently and clearly states that your bicycle is blue, with no conflicting information or ambiguity found in the records.",
+      "based_on": {
+        "memories": [
+          {
+            "id": "04254d17-3c84-4b9a-8234-9760c5974663",
+            "text": "User's bicycle is blue. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": "source",
+            "chunk_id": "curation-span-conflicting~5Ftarget~5Fedit_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "bd6f6afe-ec9f-4943-94c9-3226c19e924a",
+            "text": "User prefers espresso. | Involving: user",
+            "type": "world",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": "source",
+            "chunk_id": "curation-span-conflicting~5Ftarget~5Fedit_source_0",
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "eb0797ef-dfde-4962-8819-dd5348c49af0",
+            "text": "User's bicycle is blue.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          },
+          {
+            "id": "91b92c90-6968-4e24-be3b-8ff7433526e8",
+            "text": "User prefers espresso.",
+            "type": "observation",
+            "context": null,
+            "occurred_start": null,
+            "occurred_end": null,
+            "mentioned_at": "2026-11-01T12:00:00.010000+00:00",
+            "document_id": null,
+            "chunk_id": null,
+            "tags": [],
+            "metadata": {},
+            "attachments": null
+          }
+        ],
+        "mental_models": [],
+        "directives": []
+      },
+      "structured_output": null,
+      "structured_output_error": null,
+      "usage": {
+        "input_tokens": 22796,
+        "output_tokens": 352,
+        "total_tokens": 23148,
+        "cached_tokens": 0,
+        "thoughts_tokens": 0
+      },
+      "trace": {
+        "tool_calls": [
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "bicycle colour coffee preference hobby",
+              "max_tokens": 5000,
+              "reason": "Searching for consolidated knowledge about the user's bicycle color, coffee preference, and hobby."
+            },
+            "output": {
+              "query": "bicycle colour coffee preference hobby",
+              "count": 2,
+              "observations": [
+                {
+                  "id": "eb0797ef-dfde-4962-8819-dd5348c49af0",
+                  "text": "User's bicycle is blue.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "91b92c90-6968-4e24-be3b-8ff7433526e8",
+                  "text": "User prefers espresso.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 26,
+            "iteration": 1,
+            "started_at_ms": 1794998449045
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "bicycle colour",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Recalling raw memories to verify bicycle colour and check for conflicting information."
+            },
+            "output": {
+              "query": "bicycle colour",
+              "memories": [
+                {
+                  "id": "04254d17-3c84-4b9a-8234-9760c5974663",
+                  "text": "User's bicycle is blue. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "bd6f6afe-ec9f-4943-94c9-3226c19e924a",
+                  "text": "User prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "chunks": {
+                "curation-span-conflicting~5Ftarget~5Fedit_source_0": {
+                  "chunk_text": "User: My bicycle is blue. I prefer espresso.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 27,
+            "iteration": 2,
+            "started_at_ms": 1794998449713
+          },
+          {
+            "tool": "recall",
+            "input": {
+              "tool": "recall",
+              "query": "hobby",
+              "max_tokens": 5000,
+              "max_chunk_tokens": 1000,
+              "reason": "Recalling raw memories to find the user's hobby."
+            },
+            "output": {
+              "query": "hobby",
+              "memories": [
+                {
+                  "id": "04254d17-3c84-4b9a-8234-9760c5974663",
+                  "text": "User's bicycle is blue. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "bd6f6afe-ec9f-4943-94c9-3226c19e924a",
+                  "text": "User prefers espresso. | Involving: user",
+                  "fact_type": "world",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "chunks": {
+                "curation-span-conflicting~5Ftarget~5Fedit_source_0": {
+                  "chunk_text": "User: My bicycle is blue. I prefer espresso.",
+                  "chunk_index": 0,
+                  "truncated": false,
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                }
+              }
+            },
+            "duration_ms": 26,
+            "iteration": 3,
+            "started_at_ms": 1794998450382
+          },
+          {
+            "tool": "search_observations",
+            "input": {
+              "tool": "search_observations",
+              "query": "hobby pastime interest",
+              "max_tokens": 5000,
+              "reason": "Searching for consolidated knowledge about the user's hobby."
+            },
+            "output": {
+              "query": "hobby pastime interest",
+              "count": 2,
+              "observations": [
+                {
+                  "id": "eb0797ef-dfde-4962-8819-dd5348c49af0",
+                  "text": "User's bicycle is blue.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "bicycle",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00+00:00"
+                },
+                {
+                  "id": "91b92c90-6968-4e24-be3b-8ff7433526e8",
+                  "text": "User prefers espresso.",
+                  "fact_type": "observation",
+                  "entities": [
+                    "espresso",
+                    "user"
+                  ],
+                  "mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+                }
+              ],
+              "source_facts": {},
+              "is_stale": false,
+              "freshness": "up_to_date"
+            },
+            "duration_ms": 31,
+            "iteration": 4,
+            "started_at_ms": 1794998451063
+          }
+        ],
+        "llm_calls": [
+          {
+            "scope": "agent_1",
+            "duration_ms": 613,
+            "started_at_ms": 1794998448432
+          },
+          {
+            "scope": "agent_2",
+            "duration_ms": 641,
+            "started_at_ms": 1794998449072
+          },
+          {
+            "scope": "agent_3",
+            "duration_ms": 640,
+            "started_at_ms": 1794998449742
+          },
+          {
+            "scope": "agent_4",
+            "duration_ms": 654,
+            "started_at_ms": 1794998450409
+          },
+          {
+            "scope": "closing_done",
+            "duration_ms": 1274,
+            "started_at_ms": 1794998451096
+          }
+        ]
+      }
+    }
+  }
+]

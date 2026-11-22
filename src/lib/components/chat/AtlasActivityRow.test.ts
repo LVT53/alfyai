@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import { uiLanguage } from "$lib/stores/settings";
 import AtlasActivityRow from "./AtlasActivityRow.svelte";
 
 const NOW = 1_700_000_000_000;
@@ -214,23 +215,26 @@ describe("AtlasActivityRow", () => {
 			["outline", "Outlining"],
 			["answer", "Building the answer table"],
 			["critic", "Reviewing coverage"],
-		] as const)("renders a real label for the v3 %s phase (ADR 0063)", (phase, expectedLabel) => {
-			render(AtlasActivityRow, {
-				job: atlasJob({
-					status: "running",
-					stage: phase,
-					progress: {
-						percent: 40,
+		] as const)(
+			"renders a real label for the v3 %s phase (ADR 0063)",
+			(phase, expectedLabel) => {
+				render(AtlasActivityRow, {
+					job: atlasJob({
+						status: "running",
 						stage: phase,
-						details: { pipelineVersion: 3, phase, queries: [] },
-					},
-				}),
-			});
+						progress: {
+							percent: 40,
+							stage: phase,
+							details: { pipelineVersion: 3, phase, queries: [] },
+						},
+					}),
+				});
 
-			expect(screen.getByTestId("atlas-stage-line")).toHaveTextContent(
-				expectedLabel,
-			);
-		});
+				expect(screen.getByTestId("atlas-stage-line")).toHaveTextContent(
+					expectedLabel,
+				);
+			},
+		);
 
 		it("falls back to the stage label and the query list for a v1 job", () => {
 			render(AtlasActivityRow, {
@@ -537,20 +541,28 @@ describe("AtlasActivityRow", () => {
 	});
 
 	describe("failed and stopped", () => {
-		it("shows the failure reason and a Retry that opens the prefilled panel", async () => {
+		afterEach(() => {
+			uiLanguage.set("en");
+		});
+
+		// The job's `error.message` is the exception the pipeline passed on, written
+		// for the log. The body says the code's sentence and never the message.
+		const RAW_MESSAGE =
+			"Atlas worker heartbeat timed out before completion (ECONNRESET at 10.0.0.7:8302).";
+
+		function failedJob(code: string, message = RAW_MESSAGE) {
+			return atlasJob({
+				status: "failed",
+				stage: "research",
+				completedAt: NOW,
+				error: { code, message, retryable: true },
+			});
+		}
+
+		it("shows the failure's sentence and a Retry that opens the prefilled panel", async () => {
 			const onLifecycleAction = vi.fn();
 			render(AtlasActivityRow, {
-				job: atlasJob({
-					status: "failed",
-					stage: "research",
-					completedAt: NOW,
-					error: {
-						code: "research_failed",
-						message:
-							"Research could not finish: the web search service returned errors for 4 of 6 questions.",
-						retryable: true,
-					},
-				}),
+				job: failedJob("atlas_worker_heartbeat_timeout"),
 				onLifecycleAction,
 			});
 
@@ -558,8 +570,10 @@ describe("AtlasActivityRow", () => {
 			expect(row).toHaveAttribute("data-status", "failed");
 			expect(row).toHaveTextContent("Failed");
 			expect(screen.getByTestId("atlas-failure-reason")).toHaveTextContent(
-				"the web search service returned errors for 4 of 6 questions",
+				"The research stopped partway and couldn't be restarted.",
 			);
+			expect(document.body).not.toHaveTextContent("ECONNRESET");
+			expect(document.body).not.toHaveTextContent("heartbeat timed out");
 
 			await fireEvent.click(screen.getByTestId("atlas-retry"));
 			const panel = screen.getByTestId("atlas-lifecycle-panel");
@@ -575,6 +589,82 @@ describe("AtlasActivityRow", () => {
 				message: "Retry the research plan and keep the sources already read.",
 				profile: "in-depth",
 			});
+		});
+
+		const FALLBACK_EN = "Atlas could not finish. Please try again.";
+		const FALLBACK_HU = "Az Atlas nem tudott elkészülni. Próbáld újra.";
+
+		it.each([
+			["atlas_pipeline_failed", FALLBACK_EN, FALLBACK_HU],
+			[
+				"atlas_v3_local_source_unavailable",
+				"Atlas couldn't reach a source it needed.",
+				"Az Atlas nem érte el az egyik szükséges forrást.",
+			],
+			[
+				"atlas_v3_no_evidence",
+				"Atlas found nothing it could rely on for this question.",
+				"Az Atlas nem talált erre a kérdésre megbízható forrást.",
+			],
+			[
+				"atlas_v3_no_verdict",
+				"Atlas couldn't reach a conclusion.",
+				"Az Atlas nem jutott következtetésre.",
+			],
+			[
+				"no_verdict",
+				"Atlas couldn't reach a conclusion.",
+				"Az Atlas nem jutott következtetésre.",
+			],
+			[
+				"atlas_v3_no_sections",
+				"Atlas couldn't write the report.",
+				"Az Atlas nem tudta megírni a jelentést.",
+			],
+			[
+				"atlas_worker_heartbeat_timeout",
+				"The research stopped partway and couldn't be restarted.",
+				"A kutatás félúton leállt, és nem sikerült újraindítani.",
+			],
+			["job_failed", FALLBACK_EN, FALLBACK_HU],
+			// Codes earlier releases stored, one a newer server may write, and the
+			// Stop's: none of them reads as the code or as the message.
+			["research_failed", FALLBACK_EN, FALLBACK_HU],
+			["atlas_quality_gate_failed", FALLBACK_EN, FALLBACK_HU],
+			["a_code_from_a_newer_server", FALLBACK_EN, FALLBACK_HU],
+			["constructor", FALLBACK_EN, FALLBACK_HU],
+			["cancelled", FALLBACK_EN, FALLBACK_HU],
+		])(
+			"says the sentence of %s and never the message, in both languages",
+			(code, english, hungarian) => {
+				uiLanguage.set("en");
+				const en = render(AtlasActivityRow, { job: failedJob(code) });
+				expect(screen.getByTestId("atlas-failure-reason")).toHaveTextContent(
+					english,
+				);
+				expect(document.body).not.toHaveTextContent("ECONNRESET");
+				if (code.includes("_"))
+					expect(document.body).not.toHaveTextContent(code);
+				en.unmount();
+
+				uiLanguage.set("hu");
+				render(AtlasActivityRow, { job: failedJob(code) });
+				expect(screen.getByTestId("atlas-failure-reason")).toHaveTextContent(
+					hungarian,
+				);
+				expect(document.body).not.toHaveTextContent("ECONNRESET");
+				if (code.includes("_"))
+					expect(document.body).not.toHaveTextContent(code);
+			},
+		);
+
+		it("says the fallback when a failed job carries no error at all", () => {
+			render(AtlasActivityRow, {
+				job: atlasJob({ status: "failed", completedAt: NOW, error: null }),
+			});
+			expect(screen.getByTestId("atlas-failure-reason")).toHaveTextContent(
+				FALLBACK_EN,
+			);
 		});
 
 		it("renders a cancelled job as a done row with Continue", async () => {

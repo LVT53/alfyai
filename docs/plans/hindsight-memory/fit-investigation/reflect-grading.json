@@ -1,0 +1,231 @@
+{
+  "method": "Manual semantic grading against frozen want; correlated paired arms, not independent trials.",
+  "passed": 28,
+  "total": 32,
+  "cases": [
+    {
+      "id": "question_only",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "question_only",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "shopping",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "shopping",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "neighbor_device",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "neighbor_device",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "translation",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": false,
+      "reason": "Translation request is not a personal assertion; answer nevertheless supplies two children/nurse."
+    },
+    {
+      "id": "translation",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": false,
+      "reason": "Translation request is not a personal assertion; answer nevertheless supplies two children/nurse."
+    },
+    {
+      "id": "actual_self_assertion",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "actual_self_assertion",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "not_yet_sold",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "not_yet_sold",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "question_only_hu",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "question_only_hu",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "client_condition_hu",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "client_condition_hu",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "applicant_hu",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "applicant_hu",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "self_assertion_hu",
+      "heldOut": false,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "self_assertion_hu",
+      "heldOut": false,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_colleague_hu",
+      "heldOut": true,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_colleague_hu",
+      "heldOut": true,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_shopping",
+      "heldOut": true,
+      "store_document_text": false,
+      "pass": false,
+      "reason": "Unstarted renovation and shopping do not establish that no cooker is installed."
+    },
+    {
+      "id": "new_shopping",
+      "heldOut": true,
+      "store_document_text": true,
+      "pass": false,
+      "reason": "Unstarted renovation and shopping do not establish that no cooker is installed."
+    },
+    {
+      "id": "new_sister_allergy",
+      "heldOut": true,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_sister_allergy",
+      "heldOut": true,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_shared_hu",
+      "heldOut": true,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_shared_hu",
+      "heldOut": true,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_quote",
+      "heldOut": true,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_quote",
+      "heldOut": true,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_positive_hu",
+      "heldOut": true,
+      "store_document_text": false,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    },
+    {
+      "id": "new_positive_hu",
+      "heldOut": true,
+      "store_document_text": true,
+      "pass": true,
+      "reason": "Matches the frozen semantic expectation; not a broader style/temporal precision grade."
+    }
+  ]
+}

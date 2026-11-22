@@ -33,7 +33,7 @@ export const GET: RequestHandler = async (event) => {
 	});
 	// One reason for absent, foreign, incognito-from-outside, a produced file and
 	// a Document or board: a 403 here would confirm an id exists.
-	if (!artifact || artifact.kind !== "app") {
+	if (artifact?.kind !== "app") {
 		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}
 	const body = await getVersionBody({

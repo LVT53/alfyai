@@ -1,0 +1,416 @@
+{
+  "runtimeCommit": "f13f85a3496b81c9331595e3c9f4a3c20dbf0ddf",
+  "localCheckCommit": "72da602521c04a26dbdf80f78a7aa218da59b974",
+  "baseArchiveSha256": "2a29c74d42f25f6dd63207214202b71aae307628131da17aec0cf1eb02364d31",
+  "runtimeOverlaySha256": "177e28112ca1ce942e4fccb447ce46e407a74ff30dde6b2f16d6f05e4a9bd560",
+  "entrypointSha256": "d97eebf5b30e7b7336be3c43121a32291d5ce2b13ae31900b9e06bc8c5dd424f",
+  "en_edit": {
+    "language": "en",
+    "status": "applied",
+    "cleanupPending": false,
+    "retainedSubject": true,
+    "priorVersionAvailable": true
+  },
+  "en_edit_worker": {
+    "id": "31bec6a3-04b9-4a68-8781-fcecedc0e020",
+    "cleanup_pending": 0,
+    "status": "succeeded",
+    "attempt_count": 2,
+    "outcome": "accepted",
+    "targeted_reconsolidation": 0,
+    "published": 1
+  },
+  "hu_remove": {
+    "operation": "16ae9579-2284-4dd4-a9d7-7d0e1a494dee",
+    "ref": {
+      "scope": {
+        "kind": "personal"
+      },
+      "generation": "421a4abd-7823-46f1-8fec-2e6e96905b50",
+      "rowId": "55402437-11d8-4681-bbf6-a883433e30f2"
+    },
+    "status": "applied",
+    "exclusionAcknowledged": true,
+    "cleanupPending": false,
+    "independentFactRetained": true
+  },
+  "hu_partial": {
+    "actionId": "c8023cad-faf1-4268-9d26-c6f49a746215",
+    "status": "applied",
+    "cleanupPending": false,
+    "ownershipAndNamePreserved": true,
+    "independentCoatPreserved": true,
+    "colorAbsent": true
+  },
+  "decline": {
+    "before": "decline",
+    "after": "decline",
+    "status": "complete",
+    "ongoingSourceRetained": true
+  },
+  "learning_off": {
+    "chat_marker_messages": 2,
+    "memory_source_rows": 0,
+    "memory_delivery_jobs": 0,
+    "reply_used_marker": false
+  },
+  "project_and_account_scope": {
+    "sourceProject": "09c785b1-a60c-4cb8-b856-c41b55d8b94c",
+    "targetProject": "a9af2593-9ee5-44b9-a50a-6e9d6c1b3f0d",
+    "sourceChat": "1c9fa0b5-2aad-461c-8125-7b496fb69ad3",
+    "allowedChat": "dcc2bb0f-1fcd-4ac1-b7a8-6dcfc0e9258c",
+    "excludedChat": "4e147635-6480-4570-8432-1a453f80fa56",
+    "otherTenantChat": "175dd3bb-854f-44f4-8785-6258c943dd81",
+    "positiveCanary": true,
+    "negativeCanary": false,
+    "otherTenantCanary": false
+  },
+  "scope_and_pause_wire": [
+    {
+      "index": 6,
+      "probe": "project-probe",
+      "model": "qwen3-6-27b",
+      "sha256": "5dde453ea0964b8f3cbece6ec32615498171491c2ca59b51dbc484322aef1f96",
+      "personal": true,
+      "project": true,
+      "off": false
+    },
+    {
+      "index": 7,
+      "probe": "project-probe",
+      "model": "qwen3-6-27b",
+      "sha256": "76b1fe21086a93fe829f75ea6ad1402d537c5e8fa1c83c5ca288b4db8efb20c1",
+      "personal": true,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 8,
+      "probe": "project-probe",
+      "model": "qwen3-6-27b",
+      "sha256": "740b02aade65769be47a44fb6adc215233c75358a8cad4416f437b88fda1769c",
+      "personal": true,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 9,
+      "probe": "project-probe",
+      "model": "qwen3-6-27b",
+      "sha256": "770245fa72eac7f38043ad9f3988856deeab93c959aa395f61c2e2a801274c4d",
+      "personal": true,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 10,
+      "probe": "other-account",
+      "model": "qwen3-6-27b",
+      "sha256": "f0ca4d099cece4a977620bbfcf491478e9514586d4b5a70a003c47c906b13e80",
+      "personal": false,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 11,
+      "probe": "other-account",
+      "model": "qwen3-6-27b",
+      "sha256": "08aef1db4f4198014ffcb50ca254ec6fa54d7af81000497d669d1f1766d20ece",
+      "personal": false,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 12,
+      "probe": "other-account",
+      "model": "qwen3-6-27b",
+      "sha256": "7e7107f23d72868564bfa8a96f97a82a74d326067d48d99583b1d2fee652c9c7",
+      "personal": false,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 14,
+      "probe": "after-off",
+      "model": "qwen3-6-27b",
+      "sha256": "e7ccec559f0dcae97f48f1f0b5a3d185aebc9a61b1b8040da0ebb981d8ba430e",
+      "personal": false,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 15,
+      "probe": "after-off",
+      "model": "qwen3-6-27b",
+      "sha256": "34a891f24fcbe105a8f07c90d901d13e28cb2e471e86c895dff1852110339820",
+      "personal": false,
+      "project": false,
+      "off": false
+    },
+    {
+      "index": 16,
+      "probe": "after-off",
+      "model": "qwen3-6-27b",
+      "sha256": "7e8ef8b056aeee9d8939eae5f226b062a4bf64961f7b7a8bea766c5d93d4adf2",
+      "personal": false,
+      "project": false,
+      "off": false
+    }
+  ],
+  "older_pair": {
+    "sqliteSha256": "d3022996a223350e6a40beaa8ef1024c911f80ed9b8f8aad6d5af98a3e017913",
+    "nativeSha256": "8ce16d29f8dbc3f7abae8a70bcb017cf68372ce5a01cc1392f55b3eec4cda834",
+    "nativeApiOffline": true,
+    "previousFactInRestoredPostgres": true,
+    "intent": {
+      "operation": "43c7992f-e1da-4cdf-9a5e-b39566aa3c2e",
+      "status": "queued",
+      "priorPublishedSource": true
+    },
+    "restoredIntentStatus": "queued",
+    "restoredAttempts": 0,
+    "restoredClaim": false,
+    "restoredAttemptLedger": 0,
+    "heldHttp": [
+      {
+        "method": "GET",
+        "route": "/",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "GET",
+        "route": "/api/health",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "GET",
+        "route": "/api/knowledge/memory?scope=personal",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "GET",
+        "route": "/api/knowledge/memory/operations/<old-operation>",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "POST",
+        "route": "/api/knowledge/memory/actions",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "POST",
+        "route": "/api/chat/send",
+        "status": 503,
+        "noStore": true
+      }
+    ]
+  },
+  "privacy_decisions": {
+    "reset": {
+      "success": true,
+      "memoryRows": 0,
+      "cleanupPending": null
+    },
+    "erase": {
+      "success": true,
+      "sessionRevoked": true
+    },
+    "settledCleanupJobs": 4
+  },
+  "newer_pair": {
+    "sqliteSha256": "3c3ebbe4e90c34b80283ab10261b77726f183add44f6444433d5cf8ea2da60b2",
+    "nativeSha256": "b26f09778ecdecc90ea7e9c781410b46580610e360741fafead26e10e03b8257",
+    "heldHttp": [
+      {
+        "method": "GET",
+        "route": "/",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "GET",
+        "route": "/api/health",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "GET",
+        "route": "/api/knowledge/memory?scope=personal",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "GET",
+        "route": "/api/knowledge/memory/operations/<old-operation>",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "POST",
+        "route": "/api/knowledge/memory/actions",
+        "status": 503,
+        "noStore": true
+      },
+      {
+        "method": "POST",
+        "route": "/api/chat/send",
+        "status": 503,
+        "noStore": true
+      }
+    ],
+    "heldIntegrityAndPrivacyCountsMatch": true,
+    "stableNativeWorkerId": true,
+    "bankBindingPreserved": true,
+    "previousBankRawArchivedDocumentCounts": 0,
+    "nativePositive": true,
+    "afterRelease": {
+      "oldOperationStatus": 404,
+      "oldOutcome": null,
+      "newPositive": true,
+      "oldMarkersAbsent": true,
+      "erasedLoginStatus": 401
+    }
+  },
+  "post_restore_model": {
+    "firstPositive": true,
+    "firstOldMeridianReturned": true,
+    "firstToolSource": {
+      "tool": "memory_context",
+      "mode": "history",
+      "sha256": "06ca27ee1b019031f81e77717e6003642fdf4798bd2649073a717754a41b4df7",
+      "markerPaths": [
+        {
+          "path": [
+            0,
+            "candidates",
+            0,
+            "title"
+          ],
+          "markers": [
+            "old_chat_title"
+          ]
+        },
+        {
+          "path": [
+            0,
+            "candidates",
+            0,
+            "snippet"
+          ],
+          "markers": [
+            "old_meridian"
+          ]
+        },
+        {
+          "path": [
+            0,
+            "resultDigest"
+          ],
+          "markers": [
+            "old_chat_title"
+          ]
+        }
+      ]
+    },
+    "retainedSameAccountChat": true,
+    "pristineReplay": {
+      "chat": "5438760e-7a87-4e33-ad0b-6ac8a29857f7",
+      "status": 200,
+      "positive": true,
+      "oldAbsent": true,
+      "oldMeridian": false,
+      "oldSuncairn": false
+    },
+    "pristineReplayWire": [
+      {
+        "index": 1,
+        "sha256": "a15ac240b25a86543e1ab6d53edd3ee1d4dd9e0dcf8f1f53e223533d07249181",
+        "model": "qwen3-6-27b",
+        "results": [
+          {
+            "index": 1,
+            "role": "user",
+            "tool_call_id": null,
+            "name": null,
+            "hits": [
+              {
+                "path": [],
+                "markers": [
+                  "new_positive"
+                ]
+              }
+            ],
+            "memory_calls": []
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "sha256": "b6cfc724fd20c49f98e246589cd1b16fc36aa92df5a7bfaf21b59a42f7d66628",
+        "model": "qwen3-6-27b",
+        "results": [
+          {
+            "index": 1,
+            "role": "user",
+            "tool_call_id": null,
+            "name": null,
+            "hits": [
+              {
+                "path": [],
+                "markers": [
+                  "new_positive"
+                ]
+              }
+            ],
+            "memory_calls": []
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "tool_call_id": null,
+            "name": null,
+            "hits": [],
+            "memory_calls": [
+              {
+                "id": "chatcmpl-tool-9affeaccd0200f04",
+                "tool": "memory_context",
+                "mode": "persona",
+                "targeted_chat": false,
+                "query_contains_marker": false
+              }
+            ]
+          },
+          {
+            "index": 3,
+            "role": "tool",
+            "tool_call_id": "chatcmpl-tool-9affeaccd0200f04",
+            "name": null,
+            "hits": [
+              {
+                "path": [],
+                "markers": [
+                  "new_positive"
+                ]
+              }
+            ],
+            "memory_calls": []
+          }
+        ]
+      }
+    ]
+  },
+  "teardown": {
+    "originalIsolatedAppHealthy": true,
+    "originalIsolatedNativeRunning": true,
+    "olderAndNewerRestoreServicesStopped": true,
+    "temporaryRelayAndSshForwardClosed": true,
+    "canonical3001Healthy": true,
+    "canonical3002Healthy": true,
+    "protectedEvidencePreserved": true
+  }
+}

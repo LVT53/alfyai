@@ -1,0 +1,50 @@
+it("lifecycle judge: deleted chat source replacement can lose an independent child assertion and still publish", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "The project is teal.");
+	const child = f.source([root.id], "That one. Separately, I own a bicycle.");
+	const independent = f.source([], "I play chess.");
+	f.seed(root);
+	f.seed(child, "I own a bicycle.");
+	f.seed(independent);
+	// Simulate native returning zero facts for the repaired short reply, a valid retain outcome.
+	const set = f.facts.set.bind(f.facts);
+	vi.spyOn(f.facts, "set").mockImplementation((key, fact) => {
+		if (![root.id, child.id, independent.id].includes(key)) return f.facts;
+		return set(key, fact);
+	});
+	const job = await f.remove(root);
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(f.db.select().from(f.s.memoryDeliveryJobs).where(awaitEq(f.s.memoryDeliveryJobs.id, job.row.id)).get()?.status).toBe("succeeded");
+	expect(f.retained[0].items[0].content).toContain("bicycle");
+	expect((await import("./publication")).readPublishedMemory(h.userId, f.bank.id).map(r=>r.text)).toEqual(["I play chess."]);
+});
+
+it("lifecycle judge: a surviving chat reset can reopen the fence of a concurrent reset", async () => {
+	const f = await nativeFixture();
+	const knowledge = await import("../knowledge");
+	const lifecycle = await import("../account-lifecycle");
+	const barrier = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const real = knowledge.getArtifactOwnershipScope;
+	const spy = vi.spyOn(knowledge, "getArtifactOwnershipScope").mockImplementationOnce(async (...args) => {
+		entered.resolve();
+		await barrier.promise;
+		return real(...args);
+	});
+	// Slower caller pauses after the committed erasing fence, before deleting local banks.
+	const slow = lifecycle.clearMemoryAndKnowledgeForUser(h.userId, {artifactScope:"all-owned"});
+	await entered.promise;
+	await lifecycle.clearMemoryAndKnowledgeForUser(h.userId);
+	expect(f.r.getMemoryAccount(h.userId)?.lifecycleState).toBe("active");
+	const bank = f.r.ensureMemoryBank(h.userId,{kind:"personal"});
+	const fresh = f.r.recordMemorySource({userId:h.userId,bankId:bank.id,epoch:bank.epoch,eventId:"postreset",lineageId:"postreset",text:"a new source",context:"",assertedAt:new Date()});
+	await f.jobs.enqueueMemoryDelivery({userId:h.userId,bankId:bank.id,epoch:bank.epoch,kind:"source",sourceId:fresh.id,requestId:"postreset"});
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(f.retained.map(r=>r.items[0].content)).toContain("a new source");
+	barrier.resolve();
+	await slow;
+	expect(f.db.select().from(f.s.memoryBanks).all().some(b=>b.id===bank.id)).toBe(false);
+	expect(f.db.select().from(f.s.memoryDeliveryJobs).all().some(j=>j.bankId===bank.id&&j.kind==="cleanup")).toBe(false);
+	expect(f.facts.has(fresh.id)).toBe(true);
+	spy.mockRestore();
+});

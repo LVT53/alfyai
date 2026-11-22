@@ -1,0 +1,229 @@
+[
+  {
+    "id": "black_camera",
+    "previous": "My camera is black. I like hiking.",
+    "latest": "My camera is black. I now like birdwatching.",
+    "action": "Correct my camera colour from black to silver.",
+    "want": "silver camera ownership; birdwatching; no conflict",
+    "accepted": true,
+    "text": "My camera is silver. I now like birdwatching.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "My camera is black.",
+          "replacement": "My camera is silver."
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 343,
+    "usage": {
+      "prompt_tokens": 374,
+      "total_tokens": 422,
+      "completion_tokens": 48,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "camera_conflict",
+    "previous": "My camera is black. I like hiking.",
+    "latest": "My camera is white. I now like birdwatching.",
+    "action": "I corrected the old black camera colour to silver. A conflicting edit without explanation should remain unresolved.",
+    "want": "conflict white/silver; preserve ownership and birdwatching; no chosen colour",
+    "accepted": true,
+    "text": "My camera is silver. I now like birdwatching.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "My camera is white.",
+          "replacement": "My camera is silver."
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 335,
+    "usage": {
+      "prompt_tokens": 384,
+      "total_tokens": 432,
+      "completion_tokens": 48,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "price_same_sentence",
+    "previous": "My red bicycle cost 250 euros.",
+    "latest": "My red bicycle cost 250 euros and I use it daily.",
+    "action": "Forget only my bicycle colour.",
+    "want": "ownership,250euros,daily preserved; no red",
+    "accepted": true,
+    "text": "My bicycle cost 250 euros and I use it daily.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "My red bicycle",
+          "replacement": "My bicycle"
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 303,
+    "usage": {
+      "prompt_tokens": 375,
+      "total_tokens": 420,
+      "completion_tokens": 45,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "not_my_allergy",
+    "previous": "My brother is allergic to eggs. I prefer tea.",
+    "latest": "My brother is allergic to eggs. I now prefer coffee.",
+    "action": "Forget my own food allergy if present. Keep my brother's condition.",
+    "want": "unchanged latest; no conflict",
+    "accepted": true,
+    "text": "My brother is allergic to eggs. I now prefer coffee.",
+    "proposal": {
+      "patches": [],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 185,
+    "usage": {
+      "prompt_tokens": 381,
+      "total_tokens": 392,
+      "completion_tokens": 11,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "duplicate_passage",
+    "previous": "My bicycle is red. My bicycle is red. I prefer tea.",
+    "latest": "My bicycle is red. My bicycle is red. I now prefer coffee.",
+    "action": "Forget only the colour of my bicycle; keep ownership.",
+    "want": "both red occurrences removed; ownership and coffee retained; no ambiguous patch accepted",
+    "accepted": true,
+    "text": "I have a bicycle. I now prefer coffee.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "My bicycle is red. My bicycle is red.",
+          "replacement": "I have a bicycle."
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 349,
+    "usage": {
+      "prompt_tokens": 384,
+      "total_tokens": 437,
+      "completion_tokens": 53,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "new_bike",
+    "previous": "I own a red road bike.",
+    "latest": "I sold my red road bike yesterday and bought a white city bike today.",
+    "action": "Forget the old road bike's colour, not ownership history or later purchases.",
+    "want": "old red omitted; roadsale and newwhitecity preserved",
+    "accepted": true,
+    "text": "I sold my road bike yesterday and bought a white city bike today.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "I sold my red road bike yesterday",
+          "replacement": "I sold my road bike yesterday"
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 383,
+    "usage": {
+      "prompt_tokens": 381,
+      "total_tokens": 434,
+      "completion_tokens": 53,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "shared_hu_new",
+    "previous": "Én és a testvérem Pécsen lakunk. Mindketten kerékpározunk.",
+    "latest": "Én és a testvérem Pécsen lakunk. Mindketten kerékpározunk. Én most festek is.",
+    "action": "Forget only where I live. Preserve my sibling's location, both people's cycling and my painting.",
+    "want": "siblingPecs; bothcycle; userpainting; no userlocation",
+    "accepted": true,
+    "text": "A testvérem Pécsen lakik. Mindketten kerékpározunk. Én most festek is.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "Én és a testvérem Pécsen lakunk.",
+          "replacement": "A testvérem Pécsen lakik."
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 402,
+    "usage": {
+      "prompt_tokens": 415,
+      "total_tokens": 476,
+      "completion_tokens": 61,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  {
+    "id": "different_project",
+    "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+    "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+    "action": "Correct Atlas to use TypeScript instead of Python. Do not alter Beacon.",
+    "want": "AtlasTypeScript; BeaconRust/mobile; no conflict",
+    "accepted": true,
+    "text": "My Atlas project uses TypeScript. My Beacon project uses Rust. Beacon now has a mobile app.",
+    "proposal": {
+      "patches": [
+        {
+          "old": "My Atlas project uses Python.",
+          "replacement": "My Atlas project uses TypeScript."
+        }
+      ],
+      "conflicts": []
+    },
+    "errors": [],
+    "ms": 255,
+    "usage": {
+      "prompt_tokens": 389,
+      "total_tokens": 415,
+      "completion_tokens": 26,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  }
+]

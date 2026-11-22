@@ -1,0 +1,2648 @@
+[
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 0,
+    "category": "future_plan",
+    "query": "According to my booking, am I in York already today, and when do I leave?",
+    "want": [
+      "not yet",
+      "September 4"
+    ],
+    "forbid": [
+      "already at destination"
+    ],
+    "answers": {
+      "passive": "I don't have any information about a booking for York in your current context. Your known facts include living in Bristol and swimming on Wednesdays, but no travel plans are recorded. Therefore, I cannot confirm if you are in York today or when you leave.",
+      "tool": "I don't have any booking details or travel itinerary in your memory profile. The available information only confirms you live in Bristol, swim on Wednesdays, and are working on a project. I cannot determine if you are in York or when you leave without access to your current booking records."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 0,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Abstains instead of recalling booked departure September 4 and not-yet-at-destination status.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 0,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Abstains instead of recalling booked departure September 4 and not-yet-at-destination status.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 1,
+    "category": "current_plan",
+    "query": "According to my booked itinerary, where should I be today?",
+    "want": [
+      "York"
+    ],
+    "forbid": [
+      "Bristol as current planned location"
+    ],
+    "answers": {
+      "passive": "I do not have any information about your booked itinerary in the provided evidence. Therefore, I cannot determine where you should be today.",
+      "tool": "I don't have any information about your booked itinerary in my current memory. I know you live in Bristol and swim on Wednesdays, but I cannot determine where you should be today based on a specific schedule or booking."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 1,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Abstains; does not recall booked location York.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 1,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Abstains; does not recall booked location York.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 2,
+    "category": "past_plan",
+    "query": "According to my itinerary, am I back home now? Which city is home?",
+    "want": [
+      "returned September 7",
+      "Bristol"
+    ],
+    "forbid": [
+      "still at destination"
+    ],
+    "answers": {
+      "passive": "Your home city is Bristol. However, the provided evidence does not contain an itinerary or current location data, so I cannot confirm if you are back home now.",
+      "tool": "Your home city is Bristol. However, I do not have access to your current itinerary or real-time location data, so I cannot confirm if you are back home now."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 2,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correct home city, but cannot recall planned September 7 return or answer already back home.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 2,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correct home city, but cannot recall planned September 7 return or answer already back home.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 3,
+    "category": "ownership",
+    "query": "Which device do I own now? Is the Fujifilm X-S20 mine?",
+    "want": [
+      "Nikon Z5",
+      "Fujifilm X-S20 belongs to relative, not user"
+    ],
+    "forbid": [
+      "Canon EOS R8 still owned",
+      "Fujifilm X-S20 owned by user"
+    ],
+    "answers": {
+      "passive": "You own a Canon EOS R8, which you use as your everyday device. The Fujifilm X-S20 is not yours; you are currently helping your sister choose accessories for it.",
+      "tool": "1. You own a Canon EOS R8, which you use as your everyday device.\n2. No, the Fujifilm X-S20 is not yours; it belongs to your sister, and you are currently helping her choose accessories for it."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 3,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 3,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 4,
+    "category": "fiction_attribution",
+    "query": "What do you actually know about my profession and whether I own boats or a sports car?",
+    "want": [
+      "profession unknown",
+      "boat/car ownership unknown; fictional/quoted claims insufficient"
+    ],
+    "forbid": [
+      "dentist as user profession",
+      "owns boats or sports car"
+    ],
+    "answers": {
+      "passive": "I do not know your profession, nor do I have evidence that you own boats or a sports car. My records confirm you live in Bristol, swim on Wednesdays, and own a Canon EOS R8, but these details do not establish your occupation or vehicle ownership.",
+      "tool": "I don't know your profession, nor do I have any information about you owning boats or a sports car. My current knowledge includes that you live in Bristol, swim every Wednesday, own a Canon EOS R8, have a severe peanut allergy, and are helping your sister with Fujifilm X-S20 accessories."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 4,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 4,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 5,
+    "category": "conditional_change",
+    "query": "Where do I live, and have I decided to relocate?",
+    "want": [
+      "Bristol",
+      "move undecided and conditional"
+    ],
+    "forbid": [
+      "Rome",
+      "Tokyo",
+      "move confirmed"
+    ],
+    "answers": {
+      "passive": "You live in Bristol. There is no evidence in your memory profile indicating that you have decided to relocate.",
+      "tool": "1. You live in Bristol.\n2. There is no record of you deciding to relocate."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 5,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 5,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 6,
+    "category": "project_preference",
+    "query": "What tone and length should we use here?",
+    "want": [
+      "informal",
+      "short"
+    ],
+    "forbid": [
+      "formal detailed"
+    ],
+    "answers": {
+      "passive": "For the Cedar project, use short, informal messages.",
+      "tool": "1. Tone: Short and informal.\n2. Length: Keep it brief.\n\nThis applies specifically to the Cedar project."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 6,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct short, informal Cedar-scoped writing preference.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 6,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct short, informal Cedar-scoped writing preference.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 7,
+    "category": "project_continuity",
+    "query": "What is done, what is postponed, and what should we do next?",
+    "want": [
+      "copy approved",
+      "pricing postponed",
+      "keyboard test signup"
+    ],
+    "forbid": [
+      "rewrite approved copy"
+    ],
+    "answers": {
+      "passive": "I don't have specific project status details for Cedar in my current evidence. I know I must not rewrite the approved landing page copy and prefer short, informal messages for this project. Please share the current task list or recent updates so I can accurately report what is done, postponed, and next steps.",
+      "tool": "1. Done: Landing page copy approved.\n2. Postponed: Pricing decision.\n3. Next: Keyboard test signup form."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 7,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Does not supply postponed pricing or keyboard-testing next step; missing required project continuity.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 7,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct approved copy, postponed pricing, and signup-form keyboard testing next.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 8,
+    "category": "preference_correction",
+    "query": "Explain what a password manager does in my preferred format.",
+    "want": [
+      "two short connected sentences",
+      "no list"
+    ],
+    "forbid": [
+      "numbered list"
+    ],
+    "answers": {
+      "passive": "1. A password manager securely stores your login credentials in an encrypted vault.\n2. It generates strong, unique passwords for each account to prevent reuse.\n3. It auto-fills these details, saving time and reducing typing errors.\n4. It syncs across devices, ensuring access everywhere.\n5. It protects against phishing by only filling credentials on legitimate sites.",
+      "tool": "1. It securely stores your login credentials in an encrypted vault.\n2. It generates strong, unique passwords for each account.\n3. It auto-fills these details on websites and apps.\n4. It syncs data across your devices for easy access."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 8,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 8,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 9,
+    "category": "personalization",
+    "query": "Suggest two weekday lunches that fit my preferences and restrictions.",
+    "want": [
+      "two vegetarian meals",
+      "no mushrooms",
+      "under 20 minutes",
+      "peanut allergy respected"
+    ],
+    "forbid": [
+      "meat",
+      "peanuts",
+      "mushrooms as ingredient"
+    ],
+    "answers": {
+      "passive": "1. **Chickpea & Spinach Salad**: Tinned chickpeas, fresh spinach, cherry tomatoes, and feta cheese with lemon dressing. No peanuts or mushrooms.\n2. **Egg Fried Rice**: Scrambled eggs, cooked rice, peas, and spring onions. Ensure no peanut oil is used. Both are vegetarian, under 20 minutes, and avoid your allergens and disliked ingredients.",
+      "tool": "1. **Caprese & Egg Wrap**: Tortilla with mozzarella, tomato, basil, and a quick scrambled egg. No mushrooms or peanuts. Ready in 10 minutes.\n2. **Halloumi & Veggie Bowl**: Pan-fried halloumi with cherry tomatoes, cucumber, and hummus over greens. Vegetarian, dairy-friendly, and peanut-free. Takes 15 minutes."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 9,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 9,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 10,
+    "category": "cross_project_personal_fact",
+    "query": "Do I have any food allergy you should consider?",
+    "want": [
+      "severe peanut allergy"
+    ],
+    "forbid": [
+      "unknown",
+      "no allergy"
+    ],
+    "answers": {
+      "passive": "Yes, you have a severe peanut allergy. This is a critical constraint to consider for any food-related recommendations or plans.",
+      "tool": "1. Yes, you have a severe peanut allergy.\n2. You are fine with dairy and eggs.\n3. You dislike mushrooms, though that is a preference rather than an allergy."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 10,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct severe peanut allergy recalled across project boundary.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 10,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct severe peanut allergy recalled across project boundary.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p01",
+    "lang": "en",
+    "index": 11,
+    "category": "identity_continuity",
+    "query": "What is my project codename, and what weekly hobby and day did I mention?",
+    "want": [
+      "COPPER-HERON-631",
+      "swimming",
+      "Wednesday"
+    ],
+    "forbid": [
+      "another user codename"
+    ],
+    "answers": {
+      "passive": "1. Your project codename is COPPER-HERON-631.\n2. Your weekly hobby is swimming, which you do every Wednesday.",
+      "tool": "1. Your project codename is COPPER-HERON-631.\n2. Your weekly hobby is swimming, which you do every Wednesday."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p01",
+        "index": 11,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct user codename, hobby, and weekly day.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p01",
+        "index": 11,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct user codename, hobby, and weekly day.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 0,
+    "category": "future_plan",
+    "query": "According to my booking, am I in Oxford already today, and when do I leave?",
+    "want": [
+      "not yet",
+      "September 4"
+    ],
+    "forbid": [
+      "already at destination"
+    ],
+    "answers": {
+      "passive": "No, you are not in Oxford today. Your booking is for a weekend workshop starting this Friday, September 4, 2026, and you are scheduled to return on Monday, September 7, 2026.",
+      "tool": "No, you are not in Oxford today. Your booking is for a weekend workshop starting this Friday, September 4, 2026, and you are scheduled to return on Monday, September 7, 2026. Today is Thursday, September 3, 2026."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 0,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correctly says travel has not started and identifies Friday September 4 (explicitly or relative to Thursday September 3).",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 0,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correctly says travel has not started and identifies Friday September 4 (explicitly or relative to Thursday September 3).",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 1,
+    "category": "current_plan",
+    "query": "According to my booked itinerary, where should I be today?",
+    "want": [
+      "Oxford"
+    ],
+    "forbid": [
+      "Exeter as current planned location"
+    ],
+    "answers": {
+      "passive": "According to your itinerary, you should be in Oxford today. You are traveling there for a weekend workshop starting this Friday and returning on Monday.",
+      "tool": "Today is Sunday, September 6, 2026. Your itinerary states you are traveling to Oxford for a weekend workshop starting this Friday and returning Monday. Therefore, you should currently be in Oxford."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 1,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct booked destination for September 6.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 1,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct booked destination for September 6.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 2,
+    "category": "past_plan",
+    "query": "According to my itinerary, am I back home now? Which city is home?",
+    "want": [
+      "returned September 7",
+      "Exeter"
+    ],
+    "forbid": [
+      "still at destination"
+    ],
+    "answers": {
+      "passive": "Your home city is Exeter. You are traveling to Oxford for a weekend workshop starting this Friday and returning on Monday. Since today is Wednesday, September 9, 2026, you have not yet departed for Oxford, so you are currently at home in Exeter.",
+      "tool": "Your home city is Exeter. According to your itinerary, you are traveling to Oxford this Friday and returning Monday. Since today is Wednesday, September 9, 2026, you have not yet left for Oxford, so you are currently at home in Exeter."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 2,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correct home city but incorrectly moves the September 4 trip into the future on September 9, instead of recognizing September 7 return.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 2,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correct home city but incorrectly moves the September 4 trip into the future on September 9, instead of recognizing September 7 return.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 3,
+    "category": "ownership",
+    "query": "Which device do I own now? Is the Steam Deck OLED mine?",
+    "want": [
+      "ROG Ally X",
+      "Steam Deck OLED belongs to relative, not user"
+    ],
+    "forbid": [
+      "Nintendo Switch Lite still owned",
+      "Steam Deck OLED owned by user"
+    ],
+    "answers": {
+      "passive": "You own a Nintendo Switch Lite, which you use as your everyday device. The Steam Deck OLED is not yours; your brother owns it, and you are helping him choose accessories.",
+      "tool": "1. You own a Nintendo Switch Lite, which you use as your everyday device.\n2. No, the Steam Deck OLED is not yours; your brother owns it, and you are helping him choose accessories."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 3,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 3,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 4,
+    "category": "fiction_attribution",
+    "query": "What do you actually know about my profession and whether I own boats or a sports car?",
+    "want": [
+      "profession unknown",
+      "boat/car ownership unknown; fictional/quoted claims insufficient"
+    ],
+    "forbid": [
+      "dentist as user profession",
+      "owns boats or sports car"
+    ],
+    "answers": {
+      "passive": "I do not know your profession, nor do I have any evidence that you own boats or a sports car. My current knowledge about you includes your severe peanut allergy, preference for numbered lists, dislike of olives, vegetarian weekday lunch habits, ownership of a Nintendo Switch Lite, residence in Exeter, weekly Tuesday cycling, and an upcoming trip to Oxford.",
+      "tool": "I do not know your profession, nor do I have any information regarding whether you own boats or a sports car. My current knowledge about you includes your residence in Exeter, your severe peanut allergy, your cycling habit, and your preference for numbered lists, but these specific details are not in my records."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 4,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device. Also adds obsolete numbered-list preference and wrongly upcoming completed trip.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 4,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correctly leaves profession and boat/car ownership unknown, but explicitly asserts obsolete numbered-list preference after its correction.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 5,
+    "category": "conditional_change",
+    "query": "Where do I live, and have I decided to relocate?",
+    "want": [
+      "Exeter",
+      "move undecided and conditional"
+    ],
+    "forbid": [
+      "Rome",
+      "Tokyo",
+      "move confirmed"
+    ],
+    "answers": {
+      "passive": "You live in Exeter. There is no evidence in your memory profile indicating that you have decided to relocate.",
+      "tool": "1. You live in Exeter.\n2. There is no evidence in your memories that you have decided to relocate."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 5,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 5,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 6,
+    "category": "project_preference",
+    "query": "What tone and length should we use here?",
+    "want": [
+      "informal",
+      "short"
+    ],
+    "forbid": [
+      "formal detailed"
+    ],
+    "answers": {
+      "passive": "For the Cedar project, use short, informal messages.",
+      "tool": "For the Cedar project, use short, informal messages. This preference applies only to this project, not globally."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 6,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct short, informal Cedar-scoped writing preference.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 6,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct short, informal Cedar-scoped writing preference.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 7,
+    "category": "project_continuity",
+    "query": "What is done, what is postponed, and what should we do next?",
+    "want": [
+      "copy approved",
+      "pricing postponed",
+      "keyboard test signup"
+    ],
+    "forbid": [
+      "rewrite approved copy"
+    ],
+    "answers": {
+      "passive": "1. Done: None confirmed.\n2. Postponed: None confirmed.\n3. Next: Clarify current Cedar project status, as no specific progress or delays are recorded in my memory.",
+      "tool": "1. Done: Landing page copy approved.\n2. Postponed: Pricing decision.\n3. Next: Keyboard test signup form.\n\nKeep it short & informal for Cedar. Don't rewrite approved copy."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 7,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Does not supply postponed pricing or keyboard-testing next step; missing required project continuity.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 7,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct approved copy, postponed pricing, and signup-form keyboard testing next.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 8,
+    "category": "preference_correction",
+    "query": "Explain what a password manager does in my preferred format.",
+    "want": [
+      "two short connected sentences",
+      "no list"
+    ],
+    "forbid": [
+      "numbered list"
+    ],
+    "answers": {
+      "passive": "1. A password manager securely stores your login credentials in an encrypted vault.\n2. It generates strong, unique passwords for each account.\n3. It auto-fills these details, saving time and reducing errors.\n4. This allows you to use complex passwords without memorizing them all.",
+      "tool": "1. It securely stores your login credentials in an encrypted vault.\n2. It generates strong, unique passwords for each account.\n3. It auto-fills these details on websites and apps.\n4. It syncs data across your devices, like your Switch Lite.\n5. It protects you from data breaches by isolating compromised passwords."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 8,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 8,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Uses numbered list instead of requested two short connected sentences without a list. Also refers to sold Switch Lite as a current device.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 9,
+    "category": "personalization",
+    "query": "Suggest two weekday lunches that fit my preferences and restrictions.",
+    "want": [
+      "two vegetarian meals",
+      "no olives",
+      "under 20 minutes",
+      "peanut allergy respected"
+    ],
+    "forbid": [
+      "meat",
+      "peanuts",
+      "olives as ingredient"
+    ],
+    "answers": {
+      "passive": "1. Chickpea and spinach curry with rice: vegetarian, dairy-free, under 20 minutes, no olives or peanuts.\n2. Mushroom and egg omelette with toast: vegetarian, uses eggs, under 20 minutes, no olives or peanuts.",
+      "tool": "1. **Caprese Omelette**: Whisk two eggs, cook in a pan, and top with fresh mozzarella, basil, and tomato. Serve with a side salad. No peanuts or olives.\n2. **Halloumi & Avocado Toast**: Toast sourdough, top with pan-fried halloumi, sliced avocado, and lemon juice. Add a sprinkle of chili flakes. Ensure all ingredients are peanut-free."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 9,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 9,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 10,
+    "category": "cross_project_personal_fact",
+    "query": "Do I have any food allergy you should consider?",
+    "want": [
+      "severe peanut allergy"
+    ],
+    "forbid": [
+      "unknown",
+      "no allergy"
+    ],
+    "answers": {
+      "passive": "Yes, you have a severe peanut allergy.",
+      "tool": "1. Yes, you have a severe peanut allergy."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 10,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct severe peanut allergy recalled across project boundary.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 10,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct severe peanut allergy recalled across project boundary.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p02",
+    "lang": "en",
+    "index": 11,
+    "category": "identity_continuity",
+    "query": "What is my project codename, and what weekly hobby and day did I mention?",
+    "want": [
+      "SILVER-OTTER-842",
+      "cycling",
+      "Tuesday"
+    ],
+    "forbid": [
+      "another user codename"
+    ],
+    "answers": {
+      "passive": "Your project codename is SILVER-OTTER-842. You mentioned that you go cycling every Tuesday.",
+      "tool": "1. Your project codename is SILVER-OTTER-842.\n2. Your weekly hobby is cycling, which you do every Tuesday."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p02",
+        "index": 11,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct user codename, hobby, and weekly day.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p02",
+        "index": 11,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct user codename, hobby, and weekly day.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 0,
+    "category": "future_plan",
+    "query": "According to my booking, am I in Durham already today, and when do I leave?",
+    "want": [
+      "not yet",
+      "September 4"
+    ],
+    "forbid": [
+      "already at destination"
+    ],
+    "answers": {
+      "passive": "No, you are not in Durham today. Your booking is for a weekend workshop starting this Friday, September 4, 2026, and you are scheduled to return on Monday, September 7, 2026.",
+      "tool": "No, you are not in Durham today. Your booking is for a weekend workshop starting this Friday and returning Monday. Today is Thursday, September 3, 2026."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 0,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correctly says travel has not started and identifies Friday September 4 (explicitly or relative to Thursday September 3).",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 0,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correctly says travel has not started and identifies Friday September 4 (explicitly or relative to Thursday September 3).",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 1,
+    "category": "current_plan",
+    "query": "According to my booked itinerary, where should I be today?",
+    "want": [
+      "Durham"
+    ],
+    "forbid": [
+      "Chester as current planned location"
+    ],
+    "answers": {
+      "passive": "According to your itinerary, you are traveling to Durham for a weekend workshop this Friday and returning Monday. Since today is Sunday, September 6, 2026, you should be in Durham.",
+      "tool": "Today is Sunday, September 6, 2026. Your itinerary states you are traveling to Durham for a weekend workshop starting this Friday and returning Monday. Therefore, you should currently be in Durham."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 1,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct booked destination for September 6.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 1,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct booked destination for September 6.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 2,
+    "category": "past_plan",
+    "query": "According to my itinerary, am I back home now? Which city is home?",
+    "want": [
+      "returned September 7",
+      "Chester"
+    ],
+    "forbid": [
+      "still at destination"
+    ],
+    "answers": {
+      "passive": "Home is Chester. You are not back home now. Your itinerary states you are traveling to Durham for a weekend workshop starting this Friday and returning on Monday. Since today is Wednesday, September 9, 2026, you have not yet departed for Durham, so you are currently in Chester.",
+      "tool": "Your home city is Chester. Today is Wednesday, September 9, 2026. Your itinerary states you are traveling to Durham this Friday and returning Monday. Since today is Wednesday, you have not yet departed for Durham, so you are currently at home in Chester."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 2,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correct home city but incorrectly moves the September 4 trip into the future on September 9, instead of recognizing September 7 return.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 2,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correct home city but incorrectly moves the September 4 trip into the future on September 9, instead of recognizing September 7 return.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 3,
+    "category": "ownership",
+    "query": "Which device do I own now? Is the Bambu Lab A1 mine?",
+    "want": [
+      "Creality K1C",
+      "Bambu Lab A1 belongs to relative, not user"
+    ],
+    "forbid": [
+      "Prusa MK4 still owned",
+      "Bambu Lab A1 owned by user"
+    ],
+    "answers": {
+      "passive": "You own a Prusa MK4, which is your everyday device. The Bambu Lab A1 is not yours; your father owns it.",
+      "tool": "1. You own a Prusa MK4, which you use as your everyday device.\n2. No, the Bambu Lab A1 is not yours; your father owns it."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 3,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 3,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 4,
+    "category": "fiction_attribution",
+    "query": "What do you actually know about my profession and whether I own boats or a sports car?",
+    "want": [
+      "profession unknown",
+      "boat/car ownership unknown; fictional/quoted claims insufficient"
+    ],
+    "forbid": [
+      "dentist as user profession",
+      "owns boats or sports car"
+    ],
+    "answers": {
+      "passive": "I do not know your profession, nor do I have evidence that you own boats or a sports car. My records confirm you live in Chester, own a Prusa MK4, and have a severe peanut allergy, but these details do not establish your occupation or vehicle ownership.",
+      "tool": "I do not know your profession, nor do I have any information regarding whether you own boats or a sports car. My current knowledge includes that you live in Chester, have a severe peanut allergy, prefer numbered lists, dislike aubergine, own a Prusa MK4, go climbing every Thursday, and are traveling to Durham this Friday."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 4,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 4,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device. Also adds obsolete numbered-list preference and wrongly upcoming completed trip.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 5,
+    "category": "conditional_change",
+    "query": "Where do I live, and have I decided to relocate?",
+    "want": [
+      "Chester",
+      "move undecided and conditional"
+    ],
+    "forbid": [
+      "Rome",
+      "Tokyo",
+      "move confirmed"
+    ],
+    "answers": {
+      "passive": "You live in Chester. There is no evidence in your memory profile indicating that you have decided to relocate.",
+      "tool": "1. You live in Chester.\n2. There is no evidence in your memories that you have decided to relocate."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 5,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 5,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 6,
+    "category": "project_preference",
+    "query": "What tone and length should we use here?",
+    "want": [
+      "informal",
+      "short"
+    ],
+    "forbid": [
+      "formal detailed"
+    ],
+    "answers": {
+      "passive": "For the Cedar project, use short, informal messages. This preference applies only to this project, not globally.",
+      "tool": "For the Cedar project, use short, informal messages."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 6,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct short, informal Cedar-scoped writing preference.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 6,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct short, informal Cedar-scoped writing preference.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 7,
+    "category": "project_continuity",
+    "query": "What is done, what is postponed, and what should we do next?",
+    "want": [
+      "copy approved",
+      "pricing postponed",
+      "keyboard test signup"
+    ],
+    "forbid": [
+      "rewrite approved copy"
+    ],
+    "answers": {
+      "passive": "1. Done: None specified.\n2. Postponed: None specified.\n3. Next: Clarify current tasks.\n\nNote: You are traveling to Durham this Friday.",
+      "tool": "1. Done: Landing page copy approved.\n2. Postponed: Pricing decision.\n3. Next: Keyboard test signup form."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 7,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Does not supply postponed pricing or keyboard-testing next step; missing required project continuity. Adds an unsupported upcoming trip long after its completed itinerary.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 7,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct approved copy, postponed pricing, and signup-form keyboard testing next.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 8,
+    "category": "preference_correction",
+    "query": "Explain what a password manager does in my preferred format.",
+    "want": [
+      "two short connected sentences",
+      "no list"
+    ],
+    "forbid": [
+      "numbered list"
+    ],
+    "answers": {
+      "passive": "1. A password manager securely stores your login credentials in an encrypted vault.\n2. It generates strong, unique passwords for each account.\n3. It auto-fills these details, saving time and reducing errors.\n4. It syncs across devices, ensuring access everywhere.\n5. It protects against data breaches by isolating compromised passwords.",
+      "tool": "1. It securely stores your login credentials in an encrypted vault.\n2. It generates strong, unique passwords for each account.\n3. It auto-fills these details on websites and apps.\n4. It syncs data across your devices for easy access.\n5. It protects against data breaches by isolating compromised passwords."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 8,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 8,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 9,
+    "category": "personalization",
+    "query": "Suggest two weekday lunches that fit my preferences and restrictions.",
+    "want": [
+      "two vegetarian meals",
+      "no aubergine",
+      "under 20 minutes",
+      "peanut allergy respected"
+    ],
+    "forbid": [
+      "meat",
+      "peanuts",
+      "aubergine as ingredient"
+    ],
+    "answers": {
+      "passive": "1. Chickpea and spinach curry with rice: vegetarian, nut-free, and ready in 15 minutes.\n2. Halloumi and roasted red pepper wraps: vegetarian, nut-free, and takes under 10 minutes to assemble.\n\nBoth options avoid aubergine and peanuts, fitting your weekday lunch preferences.",
+      "tool": "1. Chickpea and spinach curry with rice: Vegetarian, peanut-free, no aubergine, and ready in under 20 minutes.\n2. Halloumi and roasted red pepper wraps: Vegetarian, peanut-free, no aubergine, and quick to assemble in under 20 minutes."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 9,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 9,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 10,
+    "category": "cross_project_personal_fact",
+    "query": "Do I have any food allergy you should consider?",
+    "want": [
+      "severe peanut allergy"
+    ],
+    "forbid": [
+      "unknown",
+      "no allergy"
+    ],
+    "answers": {
+      "passive": "Yes, you have a severe peanut allergy.",
+      "tool": "1. You have a severe peanut allergy."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 10,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct severe peanut allergy recalled across project boundary.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 10,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct severe peanut allergy recalled across project boundary.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p03",
+    "lang": "en",
+    "index": 11,
+    "category": "identity_continuity",
+    "query": "What is my project codename, and what weekly hobby and day did I mention?",
+    "want": [
+      "AMBER-KITE-259",
+      "climbing",
+      "Thursday"
+    ],
+    "forbid": [
+      "another user codename"
+    ],
+    "answers": {
+      "passive": "Your project codename is AMBER-KITE-259. You mentioned that you go climbing every Thursday.",
+      "tool": "1. Your project codename is AMBER-KITE-259.\n2. Your weekly hobby is climbing.\n3. You mentioned going climbing every Thursday."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p03",
+        "index": 11,
+        "arm": "passive",
+        "pass": true,
+        "reason": "Correct user codename, hobby, and weekly day.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p03",
+        "index": 11,
+        "arm": "tool",
+        "pass": true,
+        "reason": "Correct user codename, hobby, and weekly day.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 0,
+    "category": "future_plan",
+    "query": "A foglalásom szerint ma már Pécs városában vagyok? Mikor indulok?",
+    "want": [
+      "not yet",
+      "September 4"
+    ],
+    "forbid": [
+      "already at destination"
+    ],
+    "answers": {
+      "passive": "A memória alapján Pécsre utazol egy hétvégi tanfolyamra, és hétfőn jössz haza. Mivel ma (2026. szeptember 3.) csütörtök van, a tanfolyam valószínűleg a hétvégén kezdődik, így ma még nem vagy Pécsen. Az indulás pontos ideje nincs rögzítve, de a hétvégi kezdés miatt pénteken vagy szombaton indulhatsz.",
+      "tool": "A memória alapján Pécsre utazol egy hétvégi tanfolyamra, és hétfőn jössz haza. Mivel ma (2026. szeptember 3., csütörtök) van, a tanfolyam valószínűleg a hétvégén kezdődik, így ma még nem vagy Pécsen. Az indulás pontos ideje nincs megadva, de a hétvégi program miatt pénteken vagy szombaton indulhatsz."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 0,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Lost explicit Friday departure; guesses Friday or Saturday.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 0,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Lost explicit Friday departure; guesses Friday or Saturday.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 1,
+    "category": "current_plan",
+    "query": "A lefoglalt utazásom szerint ma melyik városban kell lennem?",
+    "want": [
+      "Pécs"
+    ],
+    "forbid": [
+      "Szeged as current planned location"
+    ],
+    "answers": {
+      "passive": "A lefoglalt utazásod szerint ma, 2026. szeptember 6-án (vasárnap) Pécsen kell lenned, mivel a hétvégi tanfolyamra utazol, és hétfőn jössz haza.",
+      "tool": "Ma, 2026. szeptember 6-án (vasárnap) Pécsen kell lenned, mivel a hétvégi tanfolyamra utazol, és csak hétfőn jössz haza."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 1,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 1,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 2,
+    "category": "past_plan",
+    "query": "Az útitervem szerint már otthon vagyok? Melyik város az otthonom?",
+    "want": [
+      "returned September 7",
+      "Szeged"
+    ],
+    "forbid": [
+      "still at destination"
+    ],
+    "answers": {
+      "passive": "Az otthonod Szeged. Az útiterved szerint Pécsre utazol egy hétvégi tanfolyamra, és hétfőn jössz haza. Mivel ma szerda van (2026. szeptember 9.), a hétvégi utazás még nem történt meg, így az útiterved alapján nem vagy otthon.",
+      "tool": "Az otthonod Szeged. Az útiterved szerint hétfőn jössz haza Pécsről. Mivel ma szerda van (2026. szeptember 9.), a hétfői hazautazás már megtörtént, így az ütemterv alapján otthon kell lenned."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 2,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Treats the completed September 4–7 itinerary as an upcoming weekend and denies being home.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 2,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 3,
+    "category": "ownership",
+    "query": "Melyik készülék van most a tulajdonomban? A Sony A6700 az enyém?",
+    "want": [
+      "Nikon Z50 II",
+      "Sony A6700 belongs to relative, not user"
+    ],
+    "forbid": [
+      "Canon EOS R10 still owned",
+      "Sony A6700 owned by user"
+    ],
+    "answers": {
+      "passive": "A Canon EOS R10 a te készüléked, ezt használod naponta. A Sony A6700 nem a tiéd, hanem a húgodé, akinek segítesz tartozékot választani.",
+      "tool": "1. A Canon EOS R10 van a tulajdonodban, ezt használod naponta.\n2. A Sony A6700 nem a tiéd, hanem a húgodé; neki segítesz tartozékot választani."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 3,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Reports sold Canon EOS R10 as current instead of Nikon Z50 II.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 3,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Reports sold Canon EOS R10 as current instead of Nikon Z50 II.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 4,
+    "category": "fiction_attribution",
+    "query": "Mit tudsz valójában a foglalkozásomról, illetve van-e hajóm vagy sportautóm?",
+    "want": [
+      "profession unknown",
+      "boat/car ownership unknown; fictional/quoted claims insufficient"
+    ],
+    "forbid": [
+      "dentist as user profession",
+      "owns boats or sports car"
+    ],
+    "answers": {
+      "passive": "A megadott emlékeim alapján semmilyen információm nincs a foglalkozásodra, hajódra vagy sportautódra vonatkozóan. Ezekre a kérdésekre nincs bizonyíték a memóriádban, így ezeket nem tudom megerősíteni vagy cáfolni.",
+      "tool": "1. A foglalkozásodról nincs tárolt információm.\n2. Nincs adat arról, hogy lenne hajód vagy sportautód.\n3. Ismert tényeid: Szegeden laksz, Canon EOS R10-et használsz, és szerdánként úszol."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 4,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 4,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Adds an unsupported current-use claim about the sold Canon EOS R10.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 5,
+    "category": "conditional_change",
+    "query": "Hol lakom, és eldöntöttem már, hogy elköltözöm?",
+    "want": [
+      "Szeged",
+      "move undecided and conditional"
+    ],
+    "forbid": [
+      "Rome",
+      "Tokyo",
+      "move confirmed"
+    ],
+    "answers": {
+      "passive": "Szegeden laksz. Arról, hogy elköltöznél, nincs emlékem, így nem tudom, hogy döntöttél-e erről.",
+      "tool": "1. Szegeden laksz.\n2. Az elköltözésedről nincs adat, így nem tudom, hogy döntöttél-e erről."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 5,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Says the relocation decision is unknown instead of recalling the explicit undecided plan.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 5,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Says the relocation decision is unknown instead of recalling the explicit undecided plan.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 6,
+    "category": "project_preference",
+    "query": "Itt milyen hangnemben és milyen hosszan fogalmazzunk?",
+    "want": [
+      "informal",
+      "short"
+    ],
+    "forbid": [
+      "formal detailed"
+    ],
+    "answers": {
+      "passive": "A Cédrus projektben kizárólag tegeződő, rövid szöveget kérsz. Ez a szabály csak erre a projektre vonatkozik, nem általános preferenciád.",
+      "tool": "A Cédrus projektben tegeződő, rövid szöveget kérek."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 6,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 6,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 7,
+    "category": "project_continuity",
+    "query": "Mi van kész, mi lett elhalasztva, és mi a következő lépés?",
+    "want": [
+      "copy approved",
+      "pricing postponed",
+      "keyboard test signup"
+    ],
+    "forbid": [
+      "rewrite approved copy"
+    ],
+    "answers": {
+      "passive": "1. Kész: a Cédrus projekt nyitóoldalának szövege.\n2. Elhalasztva: az árazási döntés.\n3. Következő lépés: a regisztrációs űrlap billentyűzetes tesztelése.",
+      "tool": "1. Kész: a nyitóoldal szövege elfogadva.\n2. Elhalasztva: az árazási döntés.\n3. Következő lépés: a regisztrációs űrlap billentyűzetes tesztelése."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 7,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 7,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 8,
+    "category": "preference_correction",
+    "query": "Magyarázd el a jelszókezelő lényegét az általam kért formában.",
+    "want": [
+      "two short connected sentences",
+      "no list"
+    ],
+    "forbid": [
+      "numbered list"
+    ],
+    "answers": {
+      "passive": "Íme a jelszókezelő lényege számozott felsorolásban:\n\n1. Egyetlen mesterjelszóval védett, titkosított adatbázis, amelyben minden fiókod jelszava tárolódik.\n2. Automatikus, erős jelszavak generálását és kitöltését végzi el helyetted.\n3. Csak a mesterjelszót kell megjegyezned, a többi hozzáférést a szoftver kezeli.\n4. Szinkronizálja az adatokat eszközeid között, így bárhol elérheted a belépési adataidat.",
+      "tool": "1. A jelszókezelő egy titkosított adatbázis, amelyben tárolhatod a fiókjaid belépési adatait.\n2. Csak egyetlen erős mesterjelszót kell megjegyezned, ami hozzáférést biztosít az összes többihez.\n3. A program automatikusan generál és kitölti a jelszavakat, így nem kell minden alkalommal begépelned őket.\n4. Ez növeli a biztonságot, mert egyedi, bonyolult jelszavakat használhatsz minden szolgáltatáshoz."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 8,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Uses numbered list instead of two connected sentences.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 8,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Uses numbered list instead of two connected sentences.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 9,
+    "category": "personalization",
+    "query": "Javasolj két hétköznapi ebédet az ízlésemnek és korlátaimnak megfelelően.",
+    "want": [
+      "two vegetarian meals",
+      "no gombát",
+      "under 20 minutes",
+      "peanut allergy respected"
+    ],
+    "forbid": [
+      "meat",
+      "peanuts",
+      "gombát as ingredient"
+    ],
+    "answers": {
+      "passive": "Íme két javaslat:\n\n1. Tojásos rántotta pirítóssal és uborkasalátával.\n2. Sajtos-paprikás palacsinta.\n\nMindkét étel húsmentes, nem tartalmaz gombát, és 20 perc alatt elkészíthető. Földimogyoró-mentesek, így biztonságosak számodra.",
+      "tool": "1. Tojásos rántotta paradicsommal és sajttal, pirítós kenyérrel.\n2. Feta sajtos, uborkás joghurtos tészta (pl. penne), friss kaporral.\n\nMindkét étel húsmentes, gomba- és mogyorómentes, tojást és tejterméket tartalmaz, valamint 20 perc alatt elkészíthető."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 9,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 9,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 10,
+    "category": "cross_project_personal_fact",
+    "query": "Van olyan ételallergiám, amelyet figyelembe kell venned?",
+    "want": [
+      "severe peanut allergy"
+    ],
+    "forbid": [
+      "unknown",
+      "no allergy"
+    ],
+    "answers": {
+      "passive": "Igen, súlyos földimogyoró-allergiád van. Ezt minden ételjavaslatnál figyelembe veszem.",
+      "tool": "Igen, súlyos földimogyoró-allergiád van."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 10,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 10,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p04",
+    "lang": "hu",
+    "index": 11,
+    "category": "identity_continuity",
+    "query": "Mi a projektem fedőneve, és milyen heti hobbiról, melyik napról beszéltem?",
+    "want": [
+      "JADE-ROBIN-416",
+      "úszni",
+      "szerdán"
+    ],
+    "forbid": [
+      "another user codename"
+    ],
+    "answers": {
+      "passive": "A projekted fedőneve Atlasz vagy Cédrus, attól függően, melyikről kérdezel, mivel mindkettő szerepel az emlékeimben. A heti hobbid az úszás, amelyet minden szerdán űzöl.",
+      "tool": "A projekted fedőneve Atlasz vagy Cédrus, attól függően, melyikben dolgozol. A heti hobbid az úszás, amelyet minden szerdán űzöl."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p04",
+        "index": 11,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Invents Atlas/Cedar as codename instead of JADE-ROBIN-416.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p04",
+        "index": 11,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Invents Atlas/Cedar as codename instead of JADE-ROBIN-416.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 0,
+    "category": "future_plan",
+    "query": "A foglalásom szerint ma már Eger városában vagyok? Mikor indulok?",
+    "want": [
+      "not yet",
+      "September 4"
+    ],
+    "forbid": [
+      "already at destination"
+    ],
+    "answers": {
+      "passive": "A memória alapján pénteken utazol Egerbe, hétfőn jössz haza. Mivel ma, 2026. szeptember 3-a csütörtök, még nem vagy Egerben, hanem Győrben. Az indulásod holnap, pénteken lesz.",
+      "tool": "Ma (2026. szeptember 3., csütörtök) még nem vagy Egerben. Az emlékeim szerint pénteken indulsz a hétvégi tanfolyamra, és hétfőn jössz haza. Tehát a mai nap nem az utazás napja, a pénteki indulás a terved."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 0,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 0,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 1,
+    "category": "current_plan",
+    "query": "A lefoglalt utazásom szerint ma melyik városban kell lennem?",
+    "want": [
+      "Eger"
+    ],
+    "forbid": [
+      "Győr as current planned location"
+    ],
+    "answers": {
+      "passive": "A pénteki utazásod Egerbe szól, hétfőn jössz haza. Mivel ma vasárnap van (2026. szeptember 6.), a lefoglalt utazásod szerint **Egerben** kell lenned.",
+      "tool": "Ma, 2026. szeptember 6-án, vasárnap van. A lefoglalt utazásod szerint pénteken utazol Egerbe, és hétfőn jössz haza. Mivel a hétvégi tanfolyam ideje alatt vagy, ma Egerben kell lenned."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 1,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 1,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 2,
+    "category": "past_plan",
+    "query": "Az útitervem szerint már otthon vagyok? Melyik város az otthonom?",
+    "want": [
+      "returned September 7",
+      "Győr"
+    ],
+    "forbid": [
+      "still at destination"
+    ],
+    "answers": {
+      "passive": "Az útiterved szerint pénteken utazol Egerbe, és hétfőn jössz haza. Mivel ma szerda van (2026. szeptember 9.), még nem indultál el, tehát otthon vagy. Az otthonod Győr.",
+      "tool": "Az otthonod Győr. Az útiterved szerint pénteken Egerbe utazol, és hétfőn jössz haza. Mivel ma szerda van (2026. szeptember 9.), az utazás még nem történt meg, így jelenleg nem vagy otthon, és az útiterved alapján csak hétfőn érsz haza."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 2,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Reinterprets the completed September 4–7 itinerary as still upcoming; wrong reason/current location.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 2,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Reinterprets the completed September 4–7 itinerary as still upcoming; wrong reason/current location.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 3,
+    "category": "ownership",
+    "query": "Melyik készülék van most a tulajdonomban? A iPad Air M3 az enyém?",
+    "want": [
+      "Lenovo Yoga Tab Plus",
+      "iPad Air M3 belongs to relative, not user"
+    ],
+    "forbid": [
+      "Samsung Galaxy Tab S10 still owned",
+      "iPad Air M3 owned by user"
+    ],
+    "answers": {
+      "passive": "A Samsung Galaxy Tab S10 a te tulajdonod, ezt használod naponta. Az iPad Air M3 nem a tiéd, hanem a bátyádé, akinek segítesz tartozékot választani.",
+      "tool": "1. A tulajdonodban lévő készülék a Samsung Galaxy Tab S10, amelyet naponta használsz.\n2. Az iPad Air M3 nem a tiéd, hanem a bátyádé; te csak tartozékot választasz neki."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 3,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Reports sold Samsung Galaxy Tab S10 instead of current Lenovo Yoga Tab Plus.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 3,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Reports sold Samsung Galaxy Tab S10 instead of current Lenovo Yoga Tab Plus.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 4,
+    "category": "fiction_attribution",
+    "query": "Mit tudsz valójában a foglalkozásomról, illetve van-e hajóm vagy sportautóm?",
+    "want": [
+      "profession unknown",
+      "boat/car ownership unknown; fictional/quoted claims insufficient"
+    ],
+    "forbid": [
+      "dentist as user profession",
+      "owns boats or sports car"
+    ],
+    "answers": {
+      "passive": "A foglalkozásodról, a hajódról vagy a sportautódról nincs tárolt információm. A memóriámban szereplő adatok (lakóhely, étkezési szokások, eszközök, utazási tervek) nem tartalmaznak hivatkozási adatot a munkádról, illetve nem erősítik meg, hogy birtoklod ezeket a járműveket.",
+      "tool": "A tárolt adataim alapján semmilyen információm nincs a foglalkozásodról, hajódról vagy sportautódról.\n\n1. A foglalkozásod nem szerepel az emlékeimben.\n2. Nincs adat arról, hogy lenne hajód.\n3. Nincs adat arról, hogy lenne sportautód.\n\nCsak a lakóhelyed (Győr), a hobbid (kerékpározás) és egyéb preferenciáid ismertek."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 4,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 4,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 5,
+    "category": "conditional_change",
+    "query": "Hol lakom, és eldöntöttem már, hogy elköltözöm?",
+    "want": [
+      "Győr",
+      "move undecided and conditional"
+    ],
+    "forbid": [
+      "Rome",
+      "Tokyo",
+      "move confirmed"
+    ],
+    "answers": {
+      "passive": "Győrben laksz. Arról, hogy elköltöznél, nincs emlékeimben adat, így nem tudom, hogy döntöttél-e erről.",
+      "tool": "Győrben laksz. Arról, hogy elköltöznél, nincs tárolt információm, így nem tudom, hogy döntöttél-e erről."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 5,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Cannot recall whether relocation was decided; source explicitly says it remains undecided.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 5,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Cannot recall whether relocation was decided; source explicitly says it remains undecided.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 6,
+    "category": "project_preference",
+    "query": "Itt milyen hangnemben és milyen hosszan fogalmazzunk?",
+    "want": [
+      "informal",
+      "short"
+    ],
+    "forbid": [
+      "formal detailed"
+    ],
+    "answers": {
+      "passive": "A Cédrus projektben kizárólag tegeződő hangnemet és rövid szöveget kérsz.",
+      "tool": "A Cédrus projektben kizárólag tegeződő, rövid szöveget kérek. Ez a szabály nem általános, csak erre a projektre vonatkozik."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 6,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 6,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 7,
+    "category": "project_continuity",
+    "query": "Mi van kész, mi lett elhalasztva, és mi a következő lépés?",
+    "want": [
+      "copy approved",
+      "pricing postponed",
+      "keyboard test signup"
+    ],
+    "forbid": [
+      "rewrite approved copy"
+    ],
+    "answers": {
+      "passive": "1. Kész: A Cédrus projekt nyitóoldalának szövege elfogadva, nem írjuk át.\n2. Elhalasztva: Nincs konkrét elhalasztott elem a memóriádban.\n3. Következő lépés: A Cédrus projekt következő feladatainak meghatározása.",
+      "tool": "1. Kész: a nyitóoldal szövege (ne írjuk újra).\n2. Elhalasztva: az árazási döntés.\n3. Következő lépés: a regisztrációs űrlap billentyűzetes tesztelése."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 7,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Loses postponed pricing and next keyboard-testing task.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 7,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 8,
+    "category": "preference_correction",
+    "query": "Magyarázd el a jelszókezelő lényegét az általam kért formában.",
+    "want": [
+      "two short connected sentences",
+      "no list"
+    ],
+    "forbid": [
+      "numbered list"
+    ],
+    "answers": {
+      "passive": "Általános preferenciád alapján számozott felsorolást kérsz, így a jelszókezelő lényege:\n\n1. Egyetlen mesterjelszóval védett, titkosított tároló, amelyben minden fiókod jelszava biztonságosan tárolódik.\n2. Automatikus, erős jelszavak generálása és kitöltése, így nem kell memorizálnod őket.\n3. Szinkronizáció eszközeid között, így bárhonnan elérheted adataidat.\n4. Védelem az adatszivárgások ellen, mivel a jelszavak nem kerülnek ki a felhőbe vagy harmadik felekhez.",
+      "tool": "1. A jelszókezelő egy titkosított adatbázis, amelyben egyetlen mesterjelszóval férhetsz hozzá a többi fiókod adataihoz.\n2. Automatikus kitöltéssel és generálással egyszerűsíti a bejelentkezést, így nem kell megjegyezned a bonyolult jelszavakat.\n3. A titkosítás biztosítja, hogy csak te láthasd a tartalmat, még a szolgáltató sem.\n4. Szinkronizálja az adatokat a Samsung Galaxy Tab S10-ed és más eszközeid között, így bárhol elérhetők."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 8,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Uses numbered list; passive explicitly asserts obsolete list preference, tool refers to sold tablet.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 8,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Uses numbered list; passive explicitly asserts obsolete list preference, tool refers to sold tablet.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 9,
+    "category": "personalization",
+    "query": "Javasolj két hétköznapi ebédet az ízlésemnek és korlátaimnak megfelelően.",
+    "want": [
+      "two vegetarian meals",
+      "no olajbogyót",
+      "under 20 minutes",
+      "peanut allergy respected"
+    ],
+    "forbid": [
+      "meat",
+      "peanuts",
+      "olajbogyót as ingredient"
+    ],
+    "answers": {
+      "passive": "Íme két hétköznapi, húsmentes ebédötlet, amely megfelel a korlátaidnak (max. 20 perc, nincs mogyoró, nincs olajbogyó):\n\n1. **Sajtos rántotta pirítóssal:** 3 tojás, reszelt sajt, vaj. Gyorsan elkészül, tejterméket tartalmaz.\n2. **Tejfölös gombaleves:** Friss gomba, hagyma, tejföl, liszt. Egyszerű, laktató és gyorsan fő.\n\nMindkét étel számozott felsorolásban, tegeződő stílusban, mivel nincs aktív projekt.",
+      "tool": "1. Rántotta tojás sajttal és pirítós kenyérrel: gyors, húsmentes, tartalmaz tojást és tejterméket, olajbogyó és földimogyoró nélkül.\n2. Spenótos-feta sajtos palacsinta: 20 perc alatt elkészíthető, húsmentes, tojást és tejterméket tartalmaz, olajbogyó és földimogyoró mentes."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 9,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 9,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 10,
+    "category": "cross_project_personal_fact",
+    "query": "Van olyan ételallergiám, amelyet figyelembe kell venned?",
+    "want": [
+      "severe peanut allergy"
+    ],
+    "forbid": [
+      "unknown",
+      "no allergy"
+    ],
+    "answers": {
+      "passive": "Igen, súlyos földimogyoró-allergiád van. Ezt minden ételjavaslatnál figyelembe veszem.",
+      "tool": "Igen, súlyos földimogyoró-allergiád van. Ezt minden ételjavaslatnál figyelembe veszem."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 10,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 10,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p05",
+    "lang": "hu",
+    "index": 11,
+    "category": "identity_continuity",
+    "query": "Mi a projektem fedőneve, és milyen heti hobbiról, melyik napról beszéltem?",
+    "want": [
+      "CORAL-FOX-783",
+      "kerékpározni",
+      "kedden"
+    ],
+    "forbid": [
+      "another user codename"
+    ],
+    "answers": {
+      "passive": "A projektek fedőnevei Atlasz és Cédrus. A heti hobbid a kerékpározás, amelyet minden kedden űzöl.",
+      "tool": "A projekted fedőneve Atlasz vagy Cédrus. A heti hobbid a kerékpározás, amelyet minden kedden űzöl."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p05",
+        "index": 11,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Invents Atlas/Cedar as codename instead of CORAL-FOX-783.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p05",
+        "index": 11,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Invents Atlas/Cedar as codename instead of CORAL-FOX-783.",
+        "unsupportedPersonalClaim": true
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 0,
+    "category": "future_plan",
+    "query": "A foglalásom szerint ma már Sopron városában vagyok? Mikor indulok?",
+    "want": [
+      "not yet",
+      "September 4"
+    ],
+    "forbid": [
+      "already at destination"
+    ],
+    "answers": {
+      "passive": "A megadott adatok alapján nincs információm a soproni foglalásodról vagy az indulási időről. A memória csak a debreceni lakóhelyedre és a csütörtöki falatmászásra vonatkozik. Kérlek, ellenőrizd a jegyedet vagy a foglalási visszaigazolást a pontos részletekért.",
+      "tool": "A megadott adatok alapján nincs tárolt információ a Sopronba vonatkozó foglalásodról vagy az indulási időről. A memória csak a lakóhelyedet (Debrecen), a heti falatmászási szokásodat és az apád Kindle-jével kapcsolatos tevékenységet rögzíti. Kérlek, ellenőrizd a konkrét foglalási e-mailt vagy naptáradat a pontos időpontért."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 0,
+        "arm": "passive",
+        "pass": false,
+        "reason": "No booked itinerary or explicit September 4 departure recalled.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 0,
+        "arm": "tool",
+        "pass": false,
+        "reason": "No booked itinerary or explicit September 4 departure recalled.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 1,
+    "category": "current_plan",
+    "query": "A lefoglalt utazásom szerint ma melyik városban kell lennem?",
+    "want": [
+      "Sopron"
+    ],
+    "forbid": [
+      "Debrecen as current planned location"
+    ],
+    "answers": {
+      "passive": "A megadott emlékeimben nincs adat a lefoglalt utazásod célállomásáról vagy időpontjáról. Csak azt tudom, hogy Debrecenben élsz, és csütörtökönként falat mászol. Kérlek, pontosítsd az utazás részleteit, hogy meg tudjam válaszolni, melyik városban kell lenned ma.",
+      "tool": "A megadott emlékeimben nem szerepel adat a lefoglalt utazásodról vagy a mai tartózkodási helyedről. Csak azt tudom, hogy Debrecenben laksz. Kérlek, ellenőrizd a naptáradat vagy a foglalási visszaigazolást a pontos város megállapításához."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 1,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Cannot recall booked destination Sopron.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 1,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Cannot recall booked destination Sopron.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 2,
+    "category": "past_plan",
+    "query": "Az útitervem szerint már otthon vagyok? Melyik város az otthonom?",
+    "want": [
+      "returned September 7",
+      "Debrecen"
+    ],
+    "forbid": [
+      "still at destination"
+    ],
+    "answers": {
+      "passive": "Az otthonod Debrecen. Az útiterved részletei nem szerepelnek a memóriámban, így nem tudom megmondani, hogy a terv szerint otthon vagy-e.",
+      "tool": "Az otthonod Debrecen. Az útiterveddel kapcsolatban nincs tárolt információm, így nem tudom megmondani, hogy a terved szerint otthon vagy-e."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 2,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Cannot recall completed itinerary/return, although home Debrecen is known.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 2,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Cannot recall completed itinerary/return, although home Debrecen is known.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 3,
+    "category": "ownership",
+    "query": "Melyik készülék van most a tulajdonomban? A Kindle Paperwhite az enyém?",
+    "want": [
+      "PocketBook Era",
+      "Kindle Paperwhite belongs to relative, not user"
+    ],
+    "forbid": [
+      "Kobo Clara BW still owned",
+      "Kindle Paperwhite owned by user"
+    ],
+    "answers": {
+      "passive": "A Kindle Paperwhite nem a te tulajdonod, hanem az apámé. A jelenlegi tudásom alapján nem áll rendelkezésre információ arról, hogy milyen készülék van most a te tulajdonodban.",
+      "tool": "1. A Kindle Paperwhite nem a te tulajdonod, hanem az apámé.\n2. Jelenlegi emlékeim alapján nem tudom, melyik készülék van most a te tulajdonodban."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 3,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Current PocketBook Era missing; also slips from user father to assistant father.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 3,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Current PocketBook Era missing; also slips from user father to assistant father.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 4,
+    "category": "fiction_attribution",
+    "query": "Mit tudsz valójában a foglalkozásomról, illetve van-e hajóm vagy sportautóm?",
+    "want": [
+      "profession unknown",
+      "boat/car ownership unknown; fictional/quoted claims insufficient"
+    ],
+    "forbid": [
+      "dentist as user profession",
+      "owns boats or sports car"
+    ],
+    "answers": {
+      "passive": "A foglalkozásodról nincs tárolt információm. Hajódról vagy sportautódról sincs adat; a korábbi említés a Kindle Paperwhite kapcsán történt, amely az apád tulajdona. Tehát ezeket a tényeket nem tudom megerősíteni, mivel nem szerepelnek a memóriádban.",
+      "tool": "1. A foglalkozásodról nincs tárolt információm.\n2. Nem tudom, hogy van-e hajód vagy sportautód, mivel erről nem említettél adatot.\n3. A tudásom korlátozott a megadott tényekre: Debrecenben laksz, csütörtökönként falat mászol, súlyos földimogyoró-allergiád van, és az apád Kindle-jéhez keresel tartozékot."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 4,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Invents that boat/sports-car mention occurred in the Kindle discussion.",
+        "unsupportedPersonalClaim": true
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 4,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 5,
+    "category": "conditional_change",
+    "query": "Hol lakom, és eldöntöttem már, hogy elköltözöm?",
+    "want": [
+      "Debrecen",
+      "move undecided and conditional"
+    ],
+    "forbid": [
+      "Rome",
+      "Tokyo",
+      "move confirmed"
+    ],
+    "answers": {
+      "passive": "Debrecenben laksz. Arról, hogy elköltöznél-e, nincs emlékem, így nem tudom, hogy döntöttél-e már.",
+      "tool": "1. Debrecenben laksz.\n2. Az elköltözéseddel kapcsolatban nincs tárolt információm, így nem tudom, hogy döntöttél-e már erről."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 5,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Does not recall known undecided relocation; explicitly says decision unknown.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 5,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Does not recall known undecided relocation; explicitly says decision unknown.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 6,
+    "category": "project_preference",
+    "query": "Itt milyen hangnemben és milyen hosszan fogalmazzunk?",
+    "want": [
+      "informal",
+      "short"
+    ],
+    "forbid": [
+      "formal detailed"
+    ],
+    "answers": {
+      "passive": "A Cédrus projektben kizárólag tegeződő, rövid szöveget kérek.",
+      "tool": "A Cédrus projektben kizárólag tegeződő, rövid szöveget kérsz."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 6,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 6,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 7,
+    "category": "project_continuity",
+    "query": "Mi van kész, mi lett elhalasztva, és mi a következő lépés?",
+    "want": [
+      "copy approved",
+      "pricing postponed",
+      "keyboard test signup"
+    ],
+    "forbid": [
+      "rewrite approved copy"
+    ],
+    "answers": {
+      "passive": "1. Kész: a nyitóoldal szövege elfogadva.\n2. Elhalasztva: az árazási döntés.\n3. Következő lépés: a regisztrációs űrlap billentyűzetes tesztelése.",
+      "tool": "1. Kész: a nyitóoldal szövege elfogadva.\n2. Elhalasztva: az árazási döntés.\n3. Következő lépés: a regisztrációs űrlap billentyűzetes tesztelése."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 7,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 7,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 8,
+    "category": "preference_correction",
+    "query": "Magyarázd el a jelszókezelő lényegét az általam kért formában.",
+    "want": [
+      "two short connected sentences",
+      "no list"
+    ],
+    "forbid": [
+      "numbered list"
+    ],
+    "answers": {
+      "passive": "Íme a jelszókezelő lényege számozott felsorolásban:\n\n1. Biztonságos, titkosított tároló, amelyben minden jelszavadat egy főkulcs mögött őrizheted.\n2. Automatikus, erős jelszavak generálása és kitöltése a weboldalakon.\n3. A jelszavak szinkronizálása az összes eszközöd között.\n4. A belépési adatok gyors, biztonságos elérése a memorizálás helyett.",
+      "tool": "1. A jelszókezelő egy titkosított adatbázis, amelyben minden online fiókod jelszavát tárolod.\n2. Csak egyetlen erős „mesterjelszót” kell megjegyezned, ami hozzáférést biztosít az összes többihez.\n3. A program automatikusan generál és kitölti a bonyolult jelszavakat, így nem kell őket fejből tudnod.\n4. Ez növeli a biztonságot, mert elkerülöd a jelszavak újrahasznosítását, és megvéd a hackerek ellen."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 8,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Numbered list instead of two connected sentences.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 8,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Numbered list instead of two connected sentences.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 9,
+    "category": "personalization",
+    "query": "Javasolj két hétköznapi ebédet az ízlésemnek és korlátaimnak megfelelően.",
+    "want": [
+      "two vegetarian meals",
+      "no padlizsánt",
+      "under 20 minutes",
+      "peanut allergy respected"
+    ],
+    "forbid": [
+      "meat",
+      "peanuts",
+      "padlizsánt as ingredient"
+    ],
+    "answers": {
+      "passive": "1. Tojásos rántotta paradicsomszósszal és pirítós kenyérrel.\n2. Sajtos-fokhagymás palacsinta spenóttal.\n\nMindkét étel húsmentes, tartalmaz tojást és tejterméket, nem tartalmaz padlizsánt, és 20 perc alatt elkészíthető.",
+      "tool": "1. Tojásos rántotta sajttal és pirítóssal: gyors, húsmentes, és elkerüli a földimogyorót.\n2. Feta sajtos paradicsomos tészta: egyszerű, húsz perc alatt elkészül, nem tartalmaz padlizsánt, és megfelel a tejtermék-igényednek."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 9,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 9,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 10,
+    "category": "cross_project_personal_fact",
+    "query": "Van olyan ételallergiám, amelyet figyelembe kell venned?",
+    "want": [
+      "severe peanut allergy"
+    ],
+    "forbid": [
+      "unknown",
+      "no allergy"
+    ],
+    "answers": {
+      "passive": "Igen, súlyos földimogyoró-allergiád van, amit figyelembe veszek. A húsmentes, húsz percnél rövidebb ebédekhez nem ajánlok földimogyorót vagy abból készült termékeket. A padlizsánt sem szeretem, de az nem allergia. A tojás és a tejtermékek fogyasztása rendben van.",
+      "tool": "Igen, van.\n\n1. Súlyos földimogyoró-allergiád van, amit mindig figyelembe veszek.\n2. A padlizsánt nem szereted, így azt is kerülöm.\n3. Hétköznapokra húsmentes, max. 20 perces ebédet kérsz, de tojást és tejterméket ehetünk."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 10,
+        "arm": "passive",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 10,
+        "arm": "tool",
+        "pass": true,
+        "reason": null,
+        "unsupportedPersonalClaim": false
+      }
+    }
+  },
+  {
+    "profile": "p06",
+    "lang": "hu",
+    "index": 11,
+    "category": "identity_continuity",
+    "query": "Mi a projektem fedőneve, és milyen heti hobbiról, melyik napról beszéltem?",
+    "want": [
+      "INDIGO-WREN-925",
+      "falat mászni",
+      "csütörtökön"
+    ],
+    "forbid": [
+      "another user codename"
+    ],
+    "answers": {
+      "passive": "A projekted fedőneve nem szerepel a rendelkezésre álló emlékeimben, így erről nem tudok nyilatkozni. A heti hobbiddal kapcsolatban azonban van adat: minden csütörtökön falat mászol.",
+      "tool": "1. A projekted fedőneve nem szerepel a memóriámban, így azt nem tudom megmondani.\n2. A heti hobbid a falat mászás.\n3. Ezt a tevékenységet minden csütörtökön végzed."
+    },
+    "grades": {
+      "passive": {
+        "profile": "p06",
+        "index": 11,
+        "arm": "passive",
+        "pass": false,
+        "reason": "Project codename INDIGO-WREN-925 missing.",
+        "unsupportedPersonalClaim": false
+      },
+      "tool": {
+        "profile": "p06",
+        "index": 11,
+        "arm": "tool",
+        "pass": false,
+        "reason": "Project codename INDIGO-WREN-925 missing.",
+        "unsupportedPersonalClaim": false
+      }
+    }
+  }
+]

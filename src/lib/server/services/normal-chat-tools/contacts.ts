@@ -10,9 +10,10 @@ import {
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
-import { noMatchingConnectionMessage } from "./shared";
+import { noMatchingConnectionMessage, withReasonCode } from "./shared";
 
 // `query` is overloaded by `action` (kept as one field rather than two
 // action-specific ones, matching the existing single-field shape): for
@@ -89,22 +90,27 @@ function buildPayload(params: {
 	action: ContactsToolInput["action"];
 	message: string;
 	contacts?: ContactsToolContactItem[];
+	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
+	reason?: ConnectorReasonCode;
 }): ContactsToolOutcome {
 	const contacts = params.contacts ?? [];
 	const citations: ContactsCitation[] = contacts.map((contact) => ({
 		label: contact.name || "(unnamed contact)",
 		url: "",
 	}));
+	const modelPayload: ContactsToolModelPayload = {
+		success: params.success,
+		name: "contacts",
+		sourceType: "tool",
+		action: params.action,
+		message: params.message,
+		contacts,
+		citations,
+	};
 	return {
-		modelPayload: {
-			success: params.success,
-			name: "contacts",
-			sourceType: "tool",
-			action: params.action,
-			message: params.message,
-			contacts,
-			citations,
-		},
+		modelPayload: params.reason
+			? withReasonCode(modelPayload, params.reason)
+			: modelPayload,
 		candidates: contacts.map(toCandidate),
 	};
 }
@@ -251,6 +257,7 @@ async function runGroupLookup(
 			action: "group",
 			message:
 				"I couldn't look up that contact group right now. Please try again in a moment.",
+			reason: "account_unreachable",
 		});
 	}
 
@@ -295,6 +302,7 @@ async function runNameLookup(
 			action: "lookup",
 			message:
 				"I couldn't look up your contacts right now. Please try again in a moment.",
+			reason: "account_unreachable",
 		});
 	}
 
@@ -344,6 +352,7 @@ export async function runContactsTool(
 			action: input.action,
 			message:
 				"You don't have a Contacts-capable connection set up yet. Connect your Google or Apple iCloud account in Settings to look up contacts.",
+			reason: "not_connected",
 		});
 	}
 
@@ -359,6 +368,7 @@ export async function runContactsTool(
 					input.account,
 					connections,
 				),
+				reason: "no_such_account",
 			});
 		}
 	}

@@ -43,11 +43,7 @@ export const POST: RequestHandler = async (event) => {
 		artifactId: event.params.id,
 		conversationId: typeof conversationId === "string" ? conversationId : null,
 	});
-	if (
-		!artifact ||
-		artifact.kind !== "app" ||
-		typeof artifact.body !== "string"
-	) {
+	if (artifact?.kind !== "app" || typeof artifact.body !== "string") {
 		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}
 	if (!artifact.conversationId) {

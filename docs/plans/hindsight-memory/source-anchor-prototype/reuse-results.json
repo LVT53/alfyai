@@ -1,0 +1,88 @@
+{
+  "anchor": {
+    "mode": "correct",
+    "subject": "bicycle",
+    "attribute": "colour",
+    "old_value": "red",
+    "replacement_value": "blue",
+    "previous_span": "My bicycle is red."
+  },
+  "cases": [
+    {
+      "stage": "same_anchor_ordinary_edit",
+      "text": "My bicycle is blue. I now prefer espresso. I started pottery.",
+      "conflicts": [],
+      "errors": [],
+      "accepted": true
+    },
+    {
+      "stage": "same_anchor_conflicting_edit",
+      "text": "My bicycle is . I prefer espresso.",
+      "conflicts": [
+        {
+          "subject": "bicycle",
+          "attribute": "colour",
+          "kind": "source changed corrected value",
+          "evidence": "My bicycle is green."
+        }
+      ],
+      "errors": [],
+      "accepted": true
+    },
+    {
+      "stage": "unrelated_suffix_preserved",
+      "text": "My bicycle is . I prefer espresso. I started gardening.",
+      "conflicts": [
+        {
+          "subject": "bicycle",
+          "attribute": "colour",
+          "kind": "source changed corrected value",
+          "evidence": "My bicycle is green."
+        }
+      ],
+      "errors": [],
+      "accepted": true
+    },
+    {
+      "stage": "stale_span_rejected",
+      "text": null,
+      "conflicts": [],
+      "errors": [
+        "missing, ambiguous or overlapping span"
+      ],
+      "accepted": false
+    },
+    {
+      "stage": "same_anchor_new_life_event",
+      "latest": "Yesterday I repainted my blue bicycle green. I now prefer espresso and started pottery.",
+      "match": {
+        "value": {
+          "matches": [
+            {
+              "span": "Yesterday I repainted my blue bicycle green.",
+              "current_value": "green",
+              "template": "Yesterday I repainted my {{value}} bicycle green.",
+              "neutral": "Yesterday I repainted my blue bicycle green.",
+              "event_evidence": "Yesterday I repainted my blue bicycle green."
+            }
+          ],
+          "absent": false
+        },
+        "ms": 667,
+        "usage": {
+          "prompt_tokens": 396,
+          "total_tokens": 495,
+          "completion_tokens": 99,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "text": "Yesterday I repainted my blue bicycle green. I now prefer espresso and started pottery.",
+      "conflicts": [],
+      "errors": [],
+      "accepted": true
+    }
+  ]
+}

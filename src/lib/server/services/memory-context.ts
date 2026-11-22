@@ -4,6 +4,7 @@ import type {
 	MemoryContextResult,
 } from "./memory-context/types";
 import { isMemoryActiveForConversation } from "./memory-controls";
+import { withReasonCode } from "./normal-chat-tools/shared";
 
 export { tokenizeQuery } from "./memory-context/query";
 
@@ -30,8 +31,11 @@ export type {
  * enforces the same single source of truth (isMemoryActiveForConversation:
  * master toggle AND non-incognito) as a backstop so any caller that reaches
  * this entry point on an inactive conversation gets an inert empty result
- * instead of leaking recalled memory. Fails open (active) on a controls-lookup
- * error, matching the predicate's contract.
+ * instead of leaking recalled memory. Fails closed on a controls-lookup
+ * error so unavailable authorization cannot disclose remembered content.
+ *
+ * Tag the inert result beside the payload so the tool row can distinguish
+ * a confirmed pause from an unavailable controls lookup.
  */
 export async function getMemoryContext(
 	params: GetMemoryContextParams,
@@ -39,20 +43,23 @@ export async function getMemoryContext(
 	const memoryActive = await isMemoryActiveForConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
-	}).catch(() => true);
+	}).catch(() => null);
 	if (!memoryActive) {
-		return {
-			success: true,
-			mode: "persona",
-			status: "empty",
-			source: "active_memory_profile",
-			content: null,
-			evidenceCandidates: [],
-			audit: {
-				conversationId: params.conversationId,
-				query: params.query?.trim() || "",
-			},
-		};
+		return withReasonCode(
+			{
+				success: true,
+				mode: "persona",
+				status: "empty",
+				source: "active_memory_profile",
+				content: null,
+				evidenceCandidates: [],
+				audit: {
+					conversationId: params.conversationId,
+					query: params.query?.trim() || "",
+				},
+			} satisfies MemoryContextResult,
+			memoryActive === null ? "memory_unavailable" : "memory_off",
+		);
 	}
 	return getMemoryForTurn(params);
 }

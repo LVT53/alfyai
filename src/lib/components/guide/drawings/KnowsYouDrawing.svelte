@@ -1,24 +1,8 @@
 <script lang="ts">
 /**
- * The It knows you section's drawing: the Knowledge Base's Memory Profile
- * beside a slice of Settings > Profile. The Memory Profile is its portrait
- * card and the Needs Review card; the slice is the Preferences card's Default
- * model and Conversation style and the Assistant behaviour card's Personal
- * instructions, Memory switch, Pictures and videos switch and Skills, in the
- * order Settings draws them.
- *
- * The spot ids are the guide's `drawingSpot`s for this section
- * (`section-drawing-spots.ts`): `memory` is the portrait card and the Memory
- * switch (the row is about seeing what Alfy remembers and about switching it
- * off, so it rings both), `style` the two rows of the model and the style (one
- * row of the guide is about both), `instructions`, `pictures` and `skills`
- * their rows. Show me rings the Memory Profile's tab; the drawing lights the
- * card the tab opens.
- *
- * The frame is 222 design pixels tall and the Settings pane is full. The
- * Assistant card's rows are drawn without their grey help lines (the Memory
- * row never had one), and both panes keep 8 pixels above and below, so the
- * Pictures and videos row fits and every ring stays 7 or more from the edge.
+ * The Knowledge Memory list and scope selector sit beside Settings > Profile.
+ * The Memory spot lights the Knowledge list and the settings switch. The other
+ * spots follow the model, style, instructions, Pictures and videos, and Skills rows.
  */
 import { Pencil } from "@lucide/svelte";
 import DrawingFrame from "$lib/components/drawings/DrawingFrame.svelte";
@@ -38,7 +22,7 @@ let { lit = null }: { lit?: string | null } = $props();
 
 <DrawingFrame>
 	<div class="knowledge">
-		<DrawnSwitcher items={[{ word: 'memory.title', badge: true }, { word: 'knowledge.documents' }]} />
+		<DrawnSwitcher items={[{ word: 'memory.title' }, { word: 'knowledge.documents' }]} />
 		<DrawnMemoryProfile {lit} spot="memory" />
 	</div>
 	<div class="settings">

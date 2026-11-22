@@ -80,7 +80,7 @@ function resolutionFor(
 	comment: ArtifactComment,
 	blocks: DocumentBlock[],
 ): AnchorResolution {
-	if (!comment.anchor || comment.anchor.kind !== "text") {
+	if (comment.anchor?.kind !== "text") {
 		return ORPHANED_ANCHOR_RESOLUTION;
 	}
 	return resolveTextAnchor(comment.anchor, blocks);
@@ -202,7 +202,7 @@ export function countCommentsByTab(
 	const blockIdToTabId = mapBlocksToTabs(blocks, tabs);
 	if (blockIdToTabId.size === 0) return counts;
 	for (const comment of comments) {
-		if (!comment.anchor || comment.anchor.kind !== "text") continue;
+		if (comment.anchor?.kind !== "text") continue;
 		const tabId = blockIdToTabId.get(comment.anchor.blockId);
 		if (!tabId) continue;
 		const entry = counts.get(tabId) ?? { open: 0, resolved: 0 };

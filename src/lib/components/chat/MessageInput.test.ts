@@ -11,17 +11,19 @@ import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubLayoutForSpotlight } from "$lib/actions/spotlight.test-helpers";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
+import { getPendingMemoryNotes } from "$lib/client/conversation-session";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { AttachmentReadinessSnapshot } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getAcceptAttribute } from "$lib/shared/file-types";
 import { requestComposerQuote } from "$lib/stores/composer-quote";
-import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import { selectedModel, sendWithEnter, uiLanguage } from "$lib/stores/settings";
 import {
 	pendingSpotlight,
 	requestSpotlight,
 	spotlightRequest,
 } from "$lib/stores/spotlight";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import { currentConversationId } from "$lib/stores/ui";
 import {
 	resetDisabledFileTypeIds,
@@ -161,6 +163,10 @@ vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
 }));
 
+const memoryOperationRead = vi.hoisted(() => vi.fn());
+vi.mock("$lib/client/api/memory", () => ({
+	fetchMemoryOperationByRequest: memoryOperationRead,
+}));
 vi.mock("$lib/client/api/memory-notes", () => ({
 	addMemoryNote: addMemoryNoteMock,
 }));
@@ -645,29 +651,29 @@ describe("MessageInput", () => {
 		});
 	});
 
-	it.each([
-		false,
-		"stale",
-	])("/new requests explicit settlement even when Stop is hidden and honors %s veto", async (result) => {
-		const permit = { isCurrent: () => false, release: vi.fn() };
-		const onStop = vi.fn(async () =>
-			result === false ? (false as const) : permit,
-		);
-		const view = render(MessageInput, {
-			composerCommandRegistryEnabled: true,
-			isGenerating: false,
-			canStopStreaming: false,
-			onStop,
-		});
-		const input = view.getByPlaceholderText("Type a message...");
-		await fireEvent.input(input, { target: { value: "/new" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
-		await waitFor(() =>
-			expect(onStop).toHaveBeenCalledWith({ purpose: "navigate" }),
-		);
-		expect(gotoMock).not.toHaveBeenCalled();
-		if (result === "stale") expect(permit.release).toHaveBeenCalledOnce();
-	});
+	it.each([false, "stale"])(
+		"/new requests explicit settlement even when Stop is hidden and honors %s veto",
+		async (result) => {
+			const permit = { isCurrent: () => false, release: vi.fn() };
+			const onStop = vi.fn(async () =>
+				result === false ? (false as const) : permit,
+			);
+			const view = render(MessageInput, {
+				composerCommandRegistryEnabled: true,
+				isGenerating: false,
+				canStopStreaming: false,
+				onStop,
+			});
+			const input = view.getByPlaceholderText("Type a message...");
+			await fireEvent.input(input, { target: { value: "/new" } });
+			await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+			await waitFor(() =>
+				expect(onStop).toHaveBeenCalledWith({ purpose: "navigate" }),
+			);
+			expect(gotoMock).not.toHaveBeenCalled();
+			if (result === "stale") expect(permit.release).toHaveBeenCalledOnce();
+		},
+	);
 
 	it("ordinary Stop passes no navigation intent", async () => {
 		const onStop = vi.fn();
@@ -733,7 +739,10 @@ describe("MessageInput", () => {
 
 		expect(input.value).toBe("");
 		await waitFor(() => {
-			expect(addMemoryNoteMock).toHaveBeenCalledWith("oat milk");
+			expect(addMemoryNoteMock).toHaveBeenCalledWith(
+				"oat milk",
+				expect.objectContaining({ requestId: expect.any(String) }),
+			);
 		});
 	});
 
@@ -758,7 +767,10 @@ describe("MessageInput", () => {
 
 		expect(input.value).toBe("");
 		await waitFor(() => {
-			expect(addMemoryNoteMock).toHaveBeenCalledWith("I prefer dark mode");
+			expect(addMemoryNoteMock).toHaveBeenCalledWith(
+				"I prefer dark mode",
+				expect.objectContaining({ requestId: expect.any(String) }),
+			);
 		});
 	});
 
@@ -8417,20 +8429,23 @@ describe("MessageInput and the guide's Show me", () => {
 		["composer.attach", "composer-menu-attach"],
 		["composer.library", "composer-menu-library"],
 		["composer.atlas", "composer-menu-atlas"],
-	] as const)("rings the row for %s once the menu has opened", async (spotlight, rowTestId) => {
-		withLayout();
-		requestSpotlight(spotlight);
+	] as const)(
+		"rings the row for %s once the menu has opened",
+		async (spotlight, rowTestId) => {
+			withLayout();
+			requestSpotlight(spotlight);
 
-		const view = render(MessageInput, { atlasAvailability: atlasOffered });
+			const view = render(MessageInput, { atlasAvailability: atlasOffered });
 
-		await waitFor(() =>
-			expect(view.getByTestId(rowTestId)).toBeInTheDocument(),
-		);
-		// The row took it as it mounted.
-		expect(get(spotlightRequest)).toBeNull();
-		vi.advanceTimersToNextFrame();
-		expect(view.getByTestId(rowTestId)).toHaveClass("spotlight-ring");
-	});
+			await waitFor(() =>
+				expect(view.getByTestId(rowTestId)).toBeInTheDocument(),
+			);
+			// The row took it as it mounted.
+			expect(get(spotlightRequest)).toBeNull();
+			vi.advanceTimersToNextFrame();
+			expect(view.getByTestId(rowTestId)).toHaveClass("spotlight-ring");
+		},
+	);
 
 	it("rings the Thinking button on the bar and opens no menu", async () => {
 		withLayout();
@@ -8604,5 +8619,241 @@ describe("MessageInput and the guide's Show me", () => {
 
 		expect(view.getByTestId("composer-tools-trigger")).toBeDisabled();
 		expect(menuIsOpen(view)).toBe(false);
+	});
+});
+
+it("does not claim a native /remember save until its durable operation applies", async () => {
+	clearToasts();
+	sessionStorage.clear();
+	addMemoryNoteMock.mockResolvedValue({
+		operation: { id: "native-op", status: "queued" },
+	});
+	memoryOperationRead.mockRejectedValue(new Error("offline"));
+	render(MessageInput, {
+		conversationId: "native-chat",
+		composerCommandRegistryEnabled: true,
+	});
+	const input = screen.getByPlaceholderText("Type a message...");
+	await fireEvent.input(input, { target: { value: "/remember green kayak" } });
+	await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+	await waitFor(() => expect(memoryOperationRead).toHaveBeenCalled());
+	expect(
+		get(toasts).some((toast) => toast.message === "Saved to memory."),
+	).toBe(false);
+	expect(getPendingMemoryNotes("native-chat")).toHaveLength(1);
+	memoryOperationRead.mockResolvedValue({ id: "native-op", status: "applied" });
+	await fireEvent.focus(window);
+	await waitFor(() =>
+		expect(
+			get(toasts).some((toast) => toast.message === "Saved to memory."),
+		).toBe(true),
+	);
+	expect(getPendingMemoryNotes("native-chat")).toEqual([]);
+	clearToasts();
+	sessionStorage.clear();
+});
+
+describe("MessageInput with Send with Enter", () => {
+	const COARSE_POINTER = "(hover: none) and (pointer: coarse)";
+	const sentMessage = { text: "Plan a weekend by the lake.", laterReplies: 0 };
+
+	/** A touch-only screen, as `isTouchDevice` asks for it. */
+	function stubTouchScreen() {
+		Object.defineProperty(window, "matchMedia", {
+			configurable: true,
+			writable: true,
+			value: (query: string) => ({
+				matches: query === COARSE_POINTER,
+				media: query,
+				onchange: null,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+				addListener: () => {},
+				removeListener: () => {},
+				dispatchEvent: () => false,
+			}),
+		});
+	}
+
+	function composerBox(view: {
+		getByPlaceholderText: (text: string) => HTMLElement;
+	}) {
+		return view.getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		resetMaxFileUploadSize();
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		sendWithEnter.set(true);
+	});
+
+	afterEach(() => {
+		sendWithEnter.set(false);
+		Reflect.deleteProperty(window, "matchMedia");
+	});
+
+	it("sends on Enter and empties the box", async () => {
+		const onSend = vi.fn();
+		const view = render(MessageInputWrapper, { onSend });
+		const input = composerBox(view);
+
+		await fireEvent.input(input, { target: { value: "Hello World" } });
+		const notPrevented = await fireEvent.keyDown(input, { key: "Enter" });
+
+		// Prevented, so the textarea writes no new line for the Enter that sent.
+		expect(notPrevented).toBe(false);
+		expect(onSend).toHaveBeenCalledTimes(1);
+		expect(onSend).toHaveBeenCalledWith("Hello World");
+		await waitFor(() => expect(input.value).toBe(""));
+	});
+
+	it("leaves Shift+Enter and Alt+Enter to write a new line", async () => {
+		const onSend = vi.fn();
+		const view = render(MessageInputWrapper, { onSend });
+		const input = composerBox(view);
+		await fireEvent.input(input, { target: { value: "Line 1" } });
+
+		const shift = await fireEvent.keyDown(input, {
+			key: "Enter",
+			shiftKey: true,
+		});
+		const alt = await fireEvent.keyDown(input, { key: "Enter", altKey: true });
+
+		expect(shift).toBe(true);
+		expect(alt).toBe(true);
+		expect(onSend).not.toHaveBeenCalled();
+		expect(input.value).toBe("Line 1");
+	});
+
+	it("still sends on Ctrl+Enter", async () => {
+		const onSend = vi.fn();
+		const view = render(MessageInputWrapper, { onSend });
+		const input = composerBox(view);
+
+		await fireEvent.input(input, { target: { value: "Old habits" } });
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+
+		expect(onSend).toHaveBeenCalledWith("Old habits");
+	});
+
+	it("queues the next message on Enter while a reply runs", async () => {
+		const onQueue = vi.fn();
+		const view = render(MessageInputWrapper, { isGenerating: true, onQueue });
+		const input = composerBox(view);
+
+		await fireEvent.input(input, { target: { value: "Queue this next" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+
+		expect(onQueue).toHaveBeenCalledTimes(1);
+		expect(onQueue).toHaveBeenCalledWith("Queue this next");
+		expect(input.value).toBe("");
+	});
+
+	it("never sends on the Enter an input method picks a word with", async () => {
+		const onSend = vi.fn();
+		const view = render(MessageInputWrapper, { onSend });
+		const input = composerBox(view);
+		await fireEvent.input(input, { target: { value: "にほん" } });
+
+		await fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+		// Safari's keydown for the Enter that ends a composition says so only
+		// through keyCode 229.
+		await fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+
+		expect(onSend).not.toHaveBeenCalled();
+		expect(input.value).toBe("にほん");
+	});
+
+	it("keeps Enter for a new line on a touch-only screen, and Ctrl+Enter still sends", async () => {
+		stubTouchScreen();
+		const onSend = vi.fn();
+		const view = render(MessageInputWrapper, { onSend });
+		const input = composerBox(view);
+		await fireEvent.input(input, { target: { value: "From a phone" } });
+
+		const notPrevented = await fireEvent.keyDown(input, { key: "Enter" });
+
+		expect(notPrevented).toBe(true);
+		expect(onSend).not.toHaveBeenCalled();
+
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+		expect(onSend).toHaveBeenCalledWith("From a phone");
+	});
+
+	it("picks the highlighted command on Enter while the command tray is open, and sends nothing", async () => {
+		const onSend = vi.fn();
+		const view = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			onSend,
+		});
+		const input = composerBox(view);
+
+		await fireEvent.input(input, { target: { value: "/web" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+
+		expect(
+			view.getByRole("button", { name: "Remove Web search" }),
+		).toBeInTheDocument();
+		expect(onSend).not.toHaveBeenCalled();
+	});
+
+	it("follows the switch as it changes, in the composer already on screen", async () => {
+		sendWithEnter.set(false);
+		const onSend = vi.fn();
+		const view = render(MessageInputWrapper, { onSend });
+		const input = composerBox(view);
+		await fireEvent.input(input, { target: { value: "First words" } });
+
+		await fireEvent.keyDown(input, { key: "Enter" });
+		expect(onSend).not.toHaveBeenCalled();
+
+		sendWithEnter.set(true);
+		await fireEvent.keyDown(input, { key: "Enter" });
+		expect(onSend).toHaveBeenCalledWith("First words");
+	});
+
+	it("sends an edit on Enter, and Shift+Enter writes a new line in it", async () => {
+		const onEditSubmit = vi.fn();
+		const onEditCancel = vi.fn();
+		const view = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend: vi.fn(),
+			onDraftChange: vi.fn(),
+			onEditSubmit,
+			onEditCancel,
+		});
+		const textarea = view.container.querySelector(
+			"textarea",
+		) as HTMLTextAreaElement;
+		await view.rerender({ editing: sentMessage });
+		await waitFor(() => expect(textarea.value).toBe(sentMessage.text));
+
+		const shift = await fireEvent.keyDown(textarea, {
+			key: "Enter",
+			shiftKey: true,
+		});
+		expect(shift).toBe(true);
+		expect(onEditSubmit).not.toHaveBeenCalled();
+
+		await fireEvent.input(textarea, { target: { value: "Plan it again" } });
+		await fireEvent.keyDown(textarea, { key: "Enter" });
+
+		expect(onEditSubmit).toHaveBeenCalledWith("Plan it again");
+		expect(onEditCancel).not.toHaveBeenCalled();
 	});
 });

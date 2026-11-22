@@ -1,0 +1,51 @@
+{
+  "freshOrdinaryDomains": 6,
+  "additionalHeldOutDomains": 2,
+  "fastOrdinaryTextStates": {
+    "pass": 11,
+    "total": 12,
+    "failure": "new_event initial: stale Where:Cork"
+  },
+  "pairedReasoningTextStates": {
+    "pass": 12,
+    "total": 14,
+    "failures": [
+      "conflict_kayaks",
+      "conflict_projects"
+    ],
+    "note": "12 ordinary captured-input states passed; no native writeback in paired comparison"
+  },
+  "heldOutNativeStages": {
+    "pass": 6,
+    "total": 6,
+    "stages": [
+      "initial",
+      "changed-source",
+      "exact-retry"
+    ]
+  },
+  "forcedReprocess": {
+    "passed": [
+      "kayaks"
+    ],
+    "interrupted": "phone correction call returned EngineCore HTTP500",
+    "remainingNotRun": 6
+  },
+  "repeatCheck": {
+    "completedPasses": 1,
+    "interrupted": "second phone repeat HTTP500",
+    "planned": 6
+  },
+  "restart": {
+    "verifiedAcknowledgedFacts": 24,
+    "completeBanks": 7,
+    "interruptedPhoneAdmitted": 0
+  },
+  "mechanicalSpanChecks": 8,
+  "fullParity": false,
+  "modelHealth": {
+    "at": "2026-11-18T16:01:41.489Z",
+    "status": 500,
+    "error": "fetch failed"
+  }
+}

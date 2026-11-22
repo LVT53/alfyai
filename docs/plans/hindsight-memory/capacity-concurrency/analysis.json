@@ -1,0 +1,254 @@
+[
+  {
+    "limit": 1,
+    "seconds": 187.834,
+    "speedup": 1.0,
+    "linearBackfillHours": 4.57410574074074,
+    "phases": [
+      {
+        "name": "retain",
+        "seconds": 144.38,
+        "calls": 27,
+        "peakObservedConcurrency": 1,
+        "nativeDedupCalls": 0,
+        "statuses": {
+          "200": 27
+        },
+        "finishReasons": {
+          "stop": 27
+        },
+        "promptTokens": 97030,
+        "completionTokens": 22562,
+        "rowsPerBank": [
+          {
+            "world": 12
+          },
+          {
+            "world": 12
+          },
+          {
+            "world": 13
+          }
+        ]
+      },
+      {
+        "name": "consolidate",
+        "seconds": 43.454,
+        "calls": 41,
+        "peakObservedConcurrency": 1,
+        "nativeDedupCalls": 4,
+        "statuses": {
+          "200": 41
+        },
+        "finishReasons": {
+          "stop": 41
+        },
+        "promptTokens": 226280,
+        "completionTokens": 7122,
+        "rowsPerBank": [
+          {
+            "observation": 19,
+            "world": 12
+          },
+          {
+            "observation": 19,
+            "world": 12
+          },
+          {
+            "observation": 19,
+            "world": 13
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "limit": 3,
+    "seconds": 84.856,
+    "speedup": 2.2135617988121052,
+    "linearBackfillHours": 2.066400740740741,
+    "phases": [
+      {
+        "name": "retain",
+        "seconds": 60.6,
+        "calls": 24,
+        "peakObservedConcurrency": 3,
+        "nativeDedupCalls": 0,
+        "statuses": {
+          "200": 24
+        },
+        "finishReasons": {
+          "stop": 24
+        },
+        "promptTokens": 85986,
+        "completionTokens": 20017,
+        "rowsPerBank": [
+          {
+            "world": 12
+          },
+          {
+            "world": 11
+          },
+          {
+            "world": 12
+          }
+        ]
+      },
+      {
+        "name": "consolidate",
+        "seconds": 24.256,
+        "calls": 41,
+        "peakObservedConcurrency": 3,
+        "nativeDedupCalls": 6,
+        "statuses": {
+          "200": 41
+        },
+        "finishReasons": {
+          "stop": 41
+        },
+        "promptTokens": 211865,
+        "completionTokens": 6764,
+        "rowsPerBank": [
+          {
+            "observation": 19,
+            "world": 12
+          },
+          {
+            "observation": 16,
+            "world": 11
+          },
+          {
+            "observation": 15,
+            "world": 12
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "limit": 6,
+    "seconds": 67.746,
+    "speedup": 2.7726212617719126,
+    "linearBackfillHours": 1.6497405555555555,
+    "phases": [
+      {
+        "name": "retain",
+        "seconds": 45.497,
+        "calls": 24,
+        "peakObservedConcurrency": 6,
+        "nativeDedupCalls": 0,
+        "statuses": {
+          "200": 24
+        },
+        "finishReasons": {
+          "stop": 24
+        },
+        "promptTokens": 85986,
+        "completionTokens": 20993,
+        "rowsPerBank": [
+          {
+            "world": 12
+          },
+          {
+            "world": 12
+          },
+          {
+            "world": 12
+          }
+        ]
+      },
+      {
+        "name": "consolidate",
+        "seconds": 22.249,
+        "calls": 40,
+        "peakObservedConcurrency": 4,
+        "nativeDedupCalls": 4,
+        "statuses": {
+          "200": 40
+        },
+        "finishReasons": {
+          "stop": 40
+        },
+        "promptTokens": 217960,
+        "completionTokens": 6323,
+        "rowsPerBank": [
+          {
+            "observation": 20,
+            "world": 12
+          },
+          {
+            "observation": 16,
+            "world": 12
+          },
+          {
+            "observation": 15,
+            "world": 12
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "limit": 8,
+    "seconds": 70.741,
+    "speedup": 2.655235294949181,
+    "linearBackfillHours": 1.722674351851852,
+    "phases": [
+      {
+        "name": "retain",
+        "seconds": 44.463,
+        "calls": 26,
+        "peakObservedConcurrency": 8,
+        "nativeDedupCalls": 0,
+        "statuses": {
+          "200": 26
+        },
+        "finishReasons": {
+          "stop": 26
+        },
+        "promptTokens": 93689,
+        "completionTokens": 25013,
+        "rowsPerBank": [
+          {
+            "world": 13
+          },
+          {
+            "world": 12
+          },
+          {
+            "world": 12
+          }
+        ]
+      },
+      {
+        "name": "consolidate",
+        "seconds": 26.278,
+        "calls": 45,
+        "peakObservedConcurrency": 4,
+        "nativeDedupCalls": 8,
+        "statuses": {
+          "200": 45
+        },
+        "finishReasons": {
+          "stop": 45
+        },
+        "promptTokens": 224614,
+        "completionTokens": 6731,
+        "rowsPerBank": [
+          {
+            "observation": 15,
+            "world": 13
+          },
+          {
+            "observation": 18,
+            "world": 12
+          },
+          {
+            "observation": 15,
+            "world": 12
+          }
+        ]
+      }
+    ]
+  }
+]

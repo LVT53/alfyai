@@ -41,11 +41,17 @@ import {
 	fetchConversationMarkdownExport,
 	setConversationMemoryIncognito,
 } from "$lib/client/api/conversations";
+import { ApiError } from "$lib/client/api/http";
+import { fetchMemoryOperationByRequest } from "$lib/client/api/memory";
+import {
+	getPendingMemoryNotes,
+	setPendingMemoryNote,
+} from "$lib/client/conversation-session";
 import { addMemoryNote } from "$lib/client/api/memory-notes";
 import { saveBlobAsDownload } from "$lib/client/api/settings";
 import { startNewChat } from "$lib/client/new-chat";
 import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
-import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import { selectedModel, sendWithEnter, uiLanguage } from "$lib/stores/settings";
 import { whenLabel } from "$lib/components/artifacts/history/moment-text";
 import { showToast } from "$lib/stores/toast";
 import {
@@ -176,6 +182,7 @@ import {
 	type ComposerCommandToken,
 	type ComposerCommandTokenWithArgument,
 } from "./composer-command-parser";
+import { isComposerSendKey } from "./composer-keys";
 import { browser } from "$app/environment";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -259,6 +266,7 @@ let {
 	conversationId = null,
 	attachmentsEnabled = false,
 	ensureConversation = null,
+	prepareMemoryNote = null,
 	contextStatus = null,
 	attachedArtifacts = [],
 	contextDebug = null,
@@ -346,6 +354,8 @@ let {
 	conversationId?: string | null;
 	attachmentsEnabled?: boolean;
 	ensureConversation?: (() => Promise<string>) | null;
+	/** Host-owned origin and privacy barrier for an explicit memory command. */
+	prepareMemoryNote?: (() => Promise<string | null>) | null;
 	contextStatus?: ConversationContextStatus | null;
 	attachedArtifacts?: ArtifactSummary[];
 	contextDebug?: ContextDebugState | null;
@@ -437,7 +447,10 @@ let {
 	 * faces off, since the resend keeps the message's own attachments.
 	 */
 	editing?: { text: string; laterReplies: number } | null;
-	/** Send (or Cmd/Ctrl+Enter) while editing, with the trimmed text. */
+	/**
+	 * Send (or the send key, `composer-keys.ts`) while editing, with the
+	 * trimmed text.
+	 */
 	onEditSubmit?: ((text: string) => void) | undefined;
 	/** Cancel, Esc, or sending the text unchanged. */
 	onEditCancel?: (() => void) | undefined;
@@ -2048,6 +2061,18 @@ function dismissSlashHint() {
 	}
 }
 
+/**
+ * The composer's Enter rule (`composer-keys.ts`): Enter writes a new line and
+ * Cmd/Ctrl+Enter sends; with "Send with Enter" on, Enter sends and Shift+Enter
+ * writes the new line, except on a touch-only screen.
+ */
+function isSendKey(event: KeyboardEvent): boolean {
+	return isComposerSendKey(event, {
+		sendWithEnter: $sendWithEnter,
+		touchScreen: isMobile(),
+	});
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	if (isComposerDisabled) return;
 	if (event.isComposing) return;
@@ -2057,8 +2082,7 @@ function handleKeydown(event: KeyboardEvent) {
 			cancelEdit();
 			return;
 		}
-		// The composer's own Enter rule: Enter writes a new line, Cmd/Ctrl+Enter sends.
-		if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+		if (isSendKey(event)) {
 			event.preventDefault();
 			submitEdit(textarea?.value ?? message);
 			return;
@@ -2099,7 +2123,7 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		}
 	}
-	if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+	if (isSendKey(event)) {
 		event.preventDefault();
 		const currentTextareaValue = textarea?.value ?? message;
 		if (textarea) {
@@ -3208,18 +3232,120 @@ async function startNewConversationFromCommand() {
 	}
 }
 
-async function submitMemoryNoteCommand(text: string) {
+let memoryNoteTimer: ReturnType<typeof setTimeout> | undefined;
+let memoryNoteMounted = false;
+let memoryNoteChecking = false;
+async function reconcileMemoryNotes() {
+	if (memoryNoteChecking || !memoryNoteMounted) return;
+	const chatId = conversationId ?? resolvedConversationId ?? "personal";
+	memoryNoteChecking = true;
 	try {
-		await addMemoryNote(text);
+		for (const requestId of getPendingMemoryNotes(chatId)) {
+			try {
+				const { status } = await fetchMemoryOperationByRequest(requestId);
+				if (!memoryNoteMounted) return;
+				if (status === "queued" || status === "working") continue;
+				setPendingMemoryNote(chatId, requestId, false);
+				if (chatId === (conversationId ?? resolvedConversationId ?? "personal"))
+					showToast({
+						type: status === "applied" ? "success" : "error",
+						message: $t(
+							status === "applied"
+								? "composerCommands.remember.saved"
+								: "composerCommands.remember.error",
+						),
+					});
+			} catch {
+				/* Unknown acknowledgement stays recoverable; 404 is not proof of rejection. */
+			}
+		}
+	} finally {
+		memoryNoteChecking = false;
+		clearTimeout(memoryNoteTimer);
+		if (memoryNoteMounted && getPendingMemoryNotes(chatId).length)
+			memoryNoteTimer = setTimeout(() => void reconcileMemoryNotes(), 3000);
+	}
+}
+onMount(() => {
+	memoryNoteMounted = true;
+	void reconcileMemoryNotes();
+	window.addEventListener("focus", reconcileMemoryNotes);
+	return () => {
+		memoryNoteMounted = false;
+		clearTimeout(memoryNoteTimer);
+		window.removeEventListener("focus", reconcileMemoryNotes);
+	};
+});
+async function submitMemoryNoteCommand(text: string) {
+	const originConversationId = conversationId;
+	if (memoryIncognito || incognitoOn) {
 		showToast({
-			type: "success",
-			message: $t("composerCommands.remember.saved"),
+			type: "error",
+			message: $t("composerCommands.remember.error"),
 		});
+		return;
+	}
+	let chatId = conversationId ?? resolvedConversationId;
+	try {
+		if (prepareMemoryNote) chatId = await prepareMemoryNote();
+		else chatId ??= await ensureDraftConversationId();
+		if (
+			!memoryNoteMounted ||
+			memoryIncognito ||
+			incognitoOn ||
+			(originConversationId !== null && conversationId !== originConversationId)
+		)
+			throw new Error("Memory command context changed");
 	} catch {
 		showToast({
 			type: "error",
 			message: $t("composerCommands.remember.error"),
 		});
+		return;
+	}
+	const requestId = crypto.randomUUID();
+	const recoveryKey = chatId ?? "personal";
+	setPendingMemoryNote(recoveryKey, requestId, true);
+	try {
+		const result = await addMemoryNote(text, {
+			conversationId: chatId,
+			requestId,
+		});
+		if (!("operation" in result) || result.operation.status === "applied") {
+			setPendingMemoryNote(recoveryKey, requestId, false);
+			showToast({
+				type: "success",
+				message: $t("composerCommands.remember.saved"),
+			});
+		} else if (
+			result.operation.status === "failed" ||
+			result.operation.status === "stale"
+		) {
+			setPendingMemoryNote(recoveryKey, requestId, false);
+			showToast({
+				type: "error",
+				message: $t("composerCommands.remember.error"),
+			});
+		} else {
+			commandTrayMessage = $t("composerCommands.remember.pending");
+			void reconcileMemoryNotes();
+		}
+	} catch (cause) {
+		const refused =
+			cause instanceof ApiError &&
+			cause.status >= 400 &&
+			cause.status < 500 &&
+			![408, 429].includes(cause.status);
+		if (refused) setPendingMemoryNote(recoveryKey, requestId, false);
+		showToast({
+			type: "error",
+			message: $t(
+				refused
+					? "composerCommands.remember.error"
+					: "composerCommands.remember.unknown",
+			),
+		});
+		void reconcileMemoryNotes();
 	}
 }
 
@@ -3656,7 +3782,7 @@ function retireOptimisticUpload(name: string | null) {
 	const index = name
 		? optimisticUploads.findIndex((upload) => upload.name === name)
 		: -1;
-	const target = index >= 0 ? index : 0;
+	const target = Math.max(index, 0);
 	optimisticUploads = optimisticUploads.filter(
 		(_, position) => position !== target,
 	);
@@ -3749,7 +3875,7 @@ function refreshStaleReadiness(): void {
 	let requested = false;
 	for (const attachment of pendingAttachments) {
 		const job = extractionJobs[attachment.artifact.id];
-		if (!job || job.status !== "succeeded") continue;
+		if (job?.status !== "succeeded") continue;
 		if (attachment.promptReady) continue;
 		const code = attachment.readinessErrorCode ?? null;
 		if (code !== null && code !== "still_preparing") continue;

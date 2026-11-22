@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
 	getActiveMemoryProfileContext: vi.fn(),
 	recordMemoryReworkTelemetry: vi.fn(),
 	isMemoryActiveForConversation: vi.fn(),
+	hasNativeMemoryScopeBoundary: vi.fn(() => false),
 	listConversationFileProductionJobStates: vi.fn<
 		() => Promise<
 			Array<
@@ -222,6 +223,11 @@ vi.mock("../memory-controls", () => ({
 	isMemoryActiveForConversation: mocks.isMemoryActiveForConversation,
 }));
 
+vi.mock("../memory-profile/revisions", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../memory-profile/revisions")>()),
+	hasNativeMemoryScopeBoundary: mocks.hasNativeMemoryScopeBoundary,
+}));
+
 vi.mock("../file-production", () => ({
 	listConversationFileProductionJobStates:
 		mocks.listConversationFileProductionJobStates,
@@ -250,6 +256,7 @@ function artifact(overrides: {
 }
 
 function resetConstructedContextMocks() {
+	mocks.hasNativeMemoryScopeBoundary.mockReturnValue(false);
 	mocks.getConfig.mockReturnValue({
 		contextDiagnosticsDebug: false,
 	});
@@ -508,6 +515,73 @@ describe("buildConstructedContext", () => {
 		vi.clearAllMocks();
 	});
 
+	it("keeps foreign saved answers out of a rebuilt native Memory prompt", async () => {
+		resetConstructedContextMocks();
+		const sameChat = {
+			...artifact({
+				id: "own-output",
+				name: "Current result",
+				contentText: "WITHIN_CHAT_EVIDENCE",
+			}),
+			type: "generated_output",
+		};
+		const foreign = {
+			...artifact({
+				id: "foreign-output",
+				name: "Other result",
+				conversationId: "other-chat",
+				contentText: "FOREIGN_CHAT_EVIDENCE",
+			}),
+			type: "generated_output",
+		};
+		const attached = {
+			...artifact({
+				id: "attached-output",
+				name: "Explicitly attached answer",
+				conversationId: "other-chat",
+				contentText: "EXPLICITLY_ATTACHED_EVIDENCE",
+			}),
+			type: "generated_output",
+		};
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [attached],
+			promptArtifacts: [attached],
+			items: [],
+			unresolvedItems: [],
+		});
+		mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue([
+			sameChat,
+			foreign,
+		]);
+		mocks.findRelevantKnowledgeArtifacts.mockResolvedValue([foreign]);
+		mocks.prepareTaskContext.mockResolvedValue({
+			taskState: null,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "verified",
+			selectedArtifacts: [sameChat, foreign],
+		});
+		const params = {
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Compare the saved project decision against the launch report.",
+			modelId: "local-model",
+			attachmentIds: [attached.id],
+		};
+		const preceding = await buildConstructedContext(params);
+		expect(preceding.inputValue).toContain("FOREIGN_CHAT_EVIDENCE");
+		expect(preceding._reuseData).toBeDefined();
+
+		mocks.hasNativeMemoryScopeBoundary.mockReturnValue(true);
+		const rebuilt = await buildConstructedContext({
+			...params,
+			reuseFrom: preceding._reuseData,
+		});
+		expect(rebuilt.inputValue).toContain("WITHIN_CHAT_EVIDENCE");
+		expect(rebuilt.inputValue).toContain("EXPLICITLY_ATTACHED_EVIDENCE");
+		expect(rebuilt.inputValue).not.toContain("FOREIGN_CHAT_EVIDENCE");
+	});
+
 	it("uses a shallow latency tier for simple turns and skips deep retrieval work", async () => {
 		resetConstructedContextMocks();
 		mocks.getConversationProjectId.mockResolvedValue("project-1");
@@ -618,6 +692,28 @@ describe("buildConstructedContext", () => {
 		expect(constructed.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
 		);
+	});
+
+	it("withholds baseline memory when the control store is unavailable", async () => {
+		resetConstructedContextMocks();
+		mocks.isMemoryActiveForConversation.mockRejectedValue(
+			new Error("controls offline"),
+		);
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks, that helps.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+		expect(constructed.inputValue).not.toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+		expect(mocks.getActiveMemoryProfileContext).not.toHaveBeenCalled();
 	});
 
 	it("omits the baseline memory section for an incognito conversation (shallow tier)", async () => {
@@ -817,69 +913,69 @@ describe("buildConstructedContext", () => {
 		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		false,
-		true,
-	])("labels a stopped structural partial in later model history (native=%s)", async (nativeHistoryEnabled) => {
-		resetConstructedContextMocks();
-		mocks.getConfig.mockReturnValue({
-			contextDiagnosticsDebug: false,
-			nativeHistoryEnabled,
-		});
-		const completion = {
-			version: 1,
-			turnId: "t",
-			segmentId: "s",
-			phase: "closing",
-			outcome: "stopped",
-			stopCause: "user_stop",
-			workingStopCause: "user_stop",
-			closingAttempted: true,
-		};
-		mocks.listMessages.mockResolvedValue([
-			{ id: "u1", role: "user", content: "QUESTION", timestamp: 1 },
-			{
-				id: "a1",
-				role: "assistant",
-				content: "Partial conclusion",
-				timestamp: 2,
-				normalChatOutput: {
-					version: 1,
-					events: [
-						{
-							version: 1,
-							turnId: "t",
-							segmentId: "s",
-							attemptId: "a",
-							stepId: "step",
-							phase: "closing",
-							sequence: 1,
-							type: "completion",
-							completion,
-						},
-					],
+	it.each([false, true])(
+		"labels a stopped structural partial in later model history (native=%s)",
+		async (nativeHistoryEnabled) => {
+			resetConstructedContextMocks();
+			mocks.getConfig.mockReturnValue({
+				contextDiagnosticsDebug: false,
+				nativeHistoryEnabled,
+			});
+			const completion = {
+				version: 1,
+				turnId: "t",
+				segmentId: "s",
+				phase: "closing",
+				outcome: "stopped",
+				stopCause: "user_stop",
+				workingStopCause: "user_stop",
+				closingAttempted: true,
+			};
+			mocks.listMessages.mockResolvedValue([
+				{ id: "u1", role: "user", content: "QUESTION", timestamp: 1 },
+				{
+					id: "a1",
+					role: "assistant",
+					content: "Partial conclusion",
+					timestamp: 2,
+					normalChatOutput: {
+						version: 1,
+						events: [
+							{
+								version: 1,
+								turnId: "t",
+								segmentId: "s",
+								attemptId: "a",
+								stepId: "step",
+								phase: "closing",
+								sequence: 1,
+								type: "completion",
+								completion,
+							},
+						],
+					},
 				},
-			},
-		]);
-		const constructed = await buildConstructedContext({
-			userId: "user-1",
-			conversationId: "conversation-1",
-			message: "Continue",
-			modelId: "local-model",
-			contextLimits: {
-				maxModelContext: 16000,
-				compactionUiThreshold: 12000,
-				targetConstructedContext: 8000,
-			},
-		});
-		const outbound = nativeHistoryEnabled
-			? JSON.stringify(constructed.historyMessages)
-			: constructed.inputValue;
-		expect(outbound).toContain(
-			"[Previous assistant turn ended stopped; this is an incomplete partial answer.]",
-		);
-		expect(outbound).toContain("Partial conclusion");
-	});
+			]);
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "Continue",
+				modelId: "local-model",
+				contextLimits: {
+					maxModelContext: 16000,
+					compactionUiThreshold: 12000,
+					targetConstructedContext: 8000,
+				},
+			});
+			const outbound = nativeHistoryEnabled
+				? JSON.stringify(constructed.historyMessages)
+				: constructed.inputValue;
+			expect(outbound).toContain(
+				"[Previous assistant turn ended stopped; this is an incomplete partial answer.]",
+			);
+			expect(outbound).toContain("Partial conclusion");
+		},
+	);
 
 	it("reports the native history window after the compression boundary, counting dropped turns", async () => {
 		resetConstructedContextMocks();
@@ -1423,7 +1519,7 @@ describe("buildConstructedContext", () => {
 		);
 	});
 
-	it("does not accept a memoryIncognito param — context assembly always runs persona/memory and project context", async () => {
+	it("keeps an explicitly requested past project discussion available with the ordinary project context", async () => {
 		// Incognito is "saved-but-untracked": a fully normal, fully functional
 		// chat that just isn't learned into memory or tracked in telemetry.
 		// buildConstructedContext must no longer take a memoryIncognito param at
@@ -1457,7 +1553,7 @@ describe("buildConstructedContext", () => {
 		const params = {
 			userId: "user-1",
 			conversationId: "conversation-1",
-			message: "Review the launch plan against release risks.",
+			message: "What did we decide in the Launch Project?",
 			attachmentIds: ["attachment-1"],
 			activeDocumentArtifactId: "active-document-1",
 			modelId: "local-model",
@@ -1498,6 +1594,25 @@ describe("buildConstructedContext", () => {
 		// The rest of the context still flows too.
 		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain("## Current Attachments");
+
+		mocks.getProjectReferenceContext.mockClear();
+		mocks.selectProjectFolderSiblingPromotion.mockClear();
+		for (const message of [
+			"Review the Launch Project plan.",
+			"What did I say about my cat in our last chat?",
+			"Search our past chats for the conversation titled Original. What did we decide in the Launch Project?",
+		]) {
+			const ordinary = await buildConstructedContext({ ...params, message });
+			expect(ordinary.inputValue).toContain("## Project Folder");
+			expect(ordinary.inputValue).not.toContain("PROMOTED_SIBLING");
+		}
+		expect(mocks.getProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mocks.selectProjectFolderSiblingPromotion).not.toHaveBeenCalled();
+
+		mocks.isMemoryActiveForConversation.mockResolvedValue(false);
+		await buildConstructedContext(params);
+		expect(mocks.getProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mocks.selectProjectFolderSiblingPromotion).not.toHaveBeenCalled();
 	});
 
 	it("produces byte-for-byte identical constructed context whether or not a (now-ignored) memoryIncognito flag is passed", async () => {
@@ -1727,36 +1842,39 @@ describe("buildConstructedContext", () => {
 				"deep",
 				"Please summarise the whole launch plan document in detail, including every risk and open question we have discussed so far in this conversation.",
 			],
-		])("reports a job that failed after its own turn ended (%s tier)", async (tier, message) => {
-			resetConstructedContextMocks();
-			mocks.listConversationFileProductionJobStates.mockResolvedValue([
-				FAILED_JOB,
-			]);
+		])(
+			"reports a job that failed after its own turn ended (%s tier)",
+			async (tier, message) => {
+				resetConstructedContextMocks();
+				mocks.listConversationFileProductionJobStates.mockResolvedValue([
+					FAILED_JOB,
+				]);
 
-			const constructed = await buildConstructedContext({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				message,
-				modelId: "local-model",
-			});
+				const constructed = await buildConstructedContext({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					message,
+					modelId: "local-model",
+				});
 
-			// Guards the fixture: a "deep" case that silently fell back to the
-			// shallow builder would make this a duplicate of the row above.
-			expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalledTimes(
-				tier === "deep" ? 1 : 0,
-			);
-			expect(constructed.inputValue).toContain("## File Jobs");
-			expect(constructed.inputValue).toContain("Quarterly workbook");
-			expect(constructed.inputValue).toContain("FAILED");
-			expect(constructed.inputValue).toContain("program_execution_failed");
-			expect(
-				mocks.listConversationFileProductionJobStates,
-			).toHaveBeenCalledWith({
-				userId: "user-1",
-				conversationId: "conversation-1",
-				limit: 5,
-			});
-		});
+				// Guards the fixture: a "deep" case that silently fell back to the
+				// shallow builder would make this a duplicate of the row above.
+				expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalledTimes(
+					tier === "deep" ? 1 : 0,
+				);
+				expect(constructed.inputValue).toContain("## File Jobs");
+				expect(constructed.inputValue).toContain("Quarterly workbook");
+				expect(constructed.inputValue).toContain("FAILED");
+				expect(constructed.inputValue).toContain("program_execution_failed");
+				expect(
+					mocks.listConversationFileProductionJobStates,
+				).toHaveBeenCalledWith({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					limit: 5,
+				});
+			},
+		);
 
 		it("says a still-running job has produced no file yet", async () => {
 			resetConstructedContextMocks();
@@ -2777,29 +2895,31 @@ describe("inferDocumentContextIntent — document continuation", () => {
 		"még többet belőle",
 	];
 
-	it.each(
-		EN_CONTINUATIONS,
-	)("promotes %j to task depth when a retrieved hit is in play", (message) => {
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).toBe("task");
-	});
+	it.each(EN_CONTINUATIONS)(
+		"promotes %j to task depth when a retrieved hit is in play",
+		(message) => {
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).toBe("task");
+		},
+	);
 
-	it.each(
-		HU_CONTINUATIONS,
-	)("promotes %j to task depth when a retrieved hit is in play", (message) => {
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).toBe("task");
-	});
+	it.each(HU_CONTINUATIONS)(
+		"promotes %j to task depth when a retrieved hit is in play",
+		(message) => {
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).toBe("task");
+		},
+	);
 
 	it("promotes to direct depth when the document selection is explicit", () => {
 		expect(
@@ -2852,28 +2972,31 @@ describe("inferDocumentContextIntent — document continuation", () => {
 		"vasárnap a többiek",
 		"ha többi van",
 		"a következő rész a filmből",
-	])("leaves ordinary talk like %j alone even with a document in play", (message) => {
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).toBe(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: false,
-			}),
-		);
-		expect(
-			inferDocumentContextIntent({
-				...NO_DOCUMENT,
-				message,
-				hasRetrievedEvidence: true,
-			}),
-		).not.toBe("task");
-	});
+	])(
+		"leaves ordinary talk like %j alone even with a document in play",
+		(message) => {
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).toBe(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: false,
+				}),
+			);
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+			).not.toBe("task");
+		},
+	);
 
 	it.each([
 		"the rest",

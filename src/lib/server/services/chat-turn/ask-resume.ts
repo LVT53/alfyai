@@ -3,6 +3,7 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { hasLocalDistillEnabled } from "$lib/server/services/connections/locality";
+import { canResumeCapturedMemory } from "$lib/server/services/memory-controls";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import {
 	updateAssistantToolCallResult,
@@ -21,6 +22,7 @@ import {
 	type AskResumeInput,
 	buildAskResumeContinuation,
 	buildAskResumeSnapshot,
+	capturedMemoryLookup,
 	holdsAskResult,
 } from "./ask-capture";
 import {
@@ -30,6 +32,7 @@ import {
 	listConversationAskQuestions,
 	readAskCapture,
 } from "./ask-questions";
+import type { ContextTraceSection } from "./context-trace";
 import {
 	preflightStoredTurn,
 	type RetryPreparationError,
@@ -167,6 +170,7 @@ type ReplyRow = {
 	role: string;
 	content: string;
 	metadataJson: string | null;
+	createdAt: Date;
 };
 
 /**
@@ -191,6 +195,7 @@ async function findReply(
 			role: messages.role,
 			content: messages.content,
 			metadataJson: messages.metadataJson,
+			createdAt: messages.createdAt,
 		})
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId))
@@ -206,7 +211,7 @@ async function findReply(
 	const firstId = segments[0].id;
 	const at = rows.findIndex((candidate) => candidate.id === firstId);
 	const userMessage = at > 0 ? rows[at - 1] : undefined;
-	if (!userMessage || userMessage.role !== "user") return null;
+	if (userMessage?.role !== "user") return null;
 	return { segments, userMessage };
 }
 
@@ -329,6 +334,63 @@ export async function prepareAskResumeTurn(p: {
 	const reply = await findReply(conversationId, askedMessageId);
 	if (reply === null) return close();
 	const { segments, userMessage } = reply;
+	const snapshot = buildAskResumeSnapshot(
+		capture,
+		claimed.toolCallId,
+		answered.record.result,
+	);
+	// Exact captures from before the boundary may have included an old tool
+	// result in the stored prompt or fetched a past chat without user consent.
+	// Closing the old question avoids re-sending that private material.
+	const original = snapshot?.original;
+	const originalTrace = (
+		original?.provenance as
+			| {
+					prepared?: { contextTraceSections?: ContextTraceSection[] };
+			  }
+			| undefined
+	)?.prepared?.contextTraceSections;
+	if (
+		original?.messages.some(
+			(message) =>
+				(message.role === "tool" &&
+					message.content.some(
+						(part) =>
+							part.type === "tool-result" && part.toolName === "memory_context",
+					)) ||
+				(message.role === "assistant" &&
+					typeof message.content === "string" &&
+					/^\[used memory_context:/mu.test(message.content)),
+		)
+	)
+		return close();
+	const trace = Array.isArray(originalTrace)
+		? originalTrace.filter(
+				(section) => section && section.inclusionLevel !== "omitted",
+			)
+		: [];
+	const capturedProjectChat = trace.some(
+		(section) =>
+			section?.name === "Project Folder Awareness" ||
+			section?.name === "Project Folder Sibling Context" ||
+			section?.name === "Project Continuity Awareness",
+	);
+	// Cross-chat captures have no per-source revision that can reauthorize
+	// their exact saved excerpts. A new history request can read them afresh.
+	if (capturedProjectChat || capturedMemoryLookup(capture.messages, "past"))
+		return close();
+	const capturedPersona =
+		trace.some((section) => section?.name === "Baseline Memory Profile") ||
+		capturedMemoryLookup(capture.messages, "persona");
+	if (
+		capturedPersona &&
+		!(await canResumeCapturedMemory({
+			userId,
+			conversationId,
+			turnStartedAt: userMessage.createdAt,
+		}).catch(() => false))
+	)
+		return close();
 
 	// What the person chose for the turn that began the reply, read off its first
 	// row; the message's uploads and pictures off the message. The answer's body
@@ -388,11 +450,7 @@ export async function prepareAskResumeTurn(p: {
 			claimed.toolCallId,
 			answered.record.result,
 		),
-		snapshot: buildAskResumeSnapshot(
-			capture,
-			claimed.toolCallId,
-			answered.record.result,
-		),
+		snapshot,
 		capturedResults: capture.results,
 		userTexts,
 		priorSegmentToolCalls: await readStoredToolCalls(segments),

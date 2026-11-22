@@ -1,0 +1,68 @@
+[
+  {
+    "id": "91190d75-5af4-4e55-9764-8343d4c36835",
+    "status": "completed",
+    "elapsedMs": 1791,
+    "progress": {
+      "stage": "refreshing_mental_models",
+      "at": "2026-11-18T13:42:06.594687+00:00",
+      "processed": 5,
+      "total": 5,
+      "detail": null
+    }
+  },
+  {
+    "id": "0167b127-b6b6-4d74-bcea-6728836b5e90",
+    "status": "completed",
+    "elapsedMs": 1633,
+    "progress": {
+      "stage": "refreshing_mental_models",
+      "at": "2026-11-18T13:42:09.019981+00:00",
+      "processed": 1,
+      "total": 1,
+      "detail": null
+    }
+  },
+  {
+    "id": "34175090-ad41-4e7e-84df-36ec4e217047",
+    "status": "completed",
+    "elapsedMs": 40,
+    "progress": null
+  },
+  {
+    "id": "08bbf428-eebd-4217-b954-91ce42b06d38",
+    "status": "completed",
+    "elapsedMs": 908,
+    "progress": {
+      "stage": "refreshing_mental_models",
+      "at": "2026-11-18T13:42:12.012196+00:00",
+      "processed": 1,
+      "total": 1,
+      "detail": null
+    }
+  },
+  {
+    "id": "c2569699-72be-41ad-a81e-a3d0456398a5",
+    "status": "completed",
+    "elapsedMs": 914,
+    "progress": {
+      "stage": "refreshing_mental_models",
+      "at": "2026-11-18T13:42:13.986210+00:00",
+      "processed": 1,
+      "total": 1,
+      "detail": null
+    }
+  },
+  {
+    "id": "2264db4c-b7fe-418f-b1b7-afcab7bb32c2",
+    "status": "completed",
+    "elapsedMs": 1048,
+    "progress": {
+      "stage": "refreshing_mental_models",
+      "at": "2026-11-18T13:42:16.087641+00:00",
+      "processed": 1,
+      "total": 1,
+      "detail": null
+    }
+  }
+]

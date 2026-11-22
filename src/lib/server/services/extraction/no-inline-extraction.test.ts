@@ -155,19 +155,20 @@ describe("no inline extraction in the upload path", () => {
 		expect(scanned.length).toBeGreaterThan(20);
 	});
 
-	it.each(
-		SCANNED_ROOTS,
-	)("keeps %s off the extraction client", (relativeRoot) => {
-		const offenders = listSourceFiles(path.join(srcRoot, relativeRoot))
-			.filter((absolute) =>
-				importSpecifiers(readFileSync(absolute, "utf8")).some(
-					referencesExtractionClient,
-				),
-			)
-			.map((absolute) => path.relative(srcRoot, absolute));
+	it.each(SCANNED_ROOTS)(
+		"keeps %s off the extraction client",
+		(relativeRoot) => {
+			const offenders = listSourceFiles(path.join(srcRoot, relativeRoot))
+				.filter((absolute) =>
+					importSpecifiers(readFileSync(absolute, "utf8")).some(
+						referencesExtractionClient,
+					),
+				)
+				.map((absolute) => path.relative(srcRoot, absolute));
 
-		expect(offenders).toEqual([]);
-	});
+			expect(offenders).toEqual([]);
+		},
+	);
 });
 
 describe("the MinerU 3.x client is retired", () => {

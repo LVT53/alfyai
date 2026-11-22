@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,6 +41,12 @@ import HomeSurface from "./HomeSurface.svelte";
  * surface mounts the real composer, which fetches on mount.
  */
 
+const memoryNoteMock = vi.hoisted(() =>
+	vi.fn(async () => ({ id: "note", statement: "saved" })),
+);
+vi.mock("$lib/client/api/memory-notes", () => ({
+	addMemoryNote: memoryNoteMock,
+}));
 const gotoMock = vi.hoisted(() => vi.fn());
 const fetchAvailableModelsMock = vi.hoisted(() =>
 	vi.fn(async () => ({ providers: [], modelAliases: {} })),
@@ -711,5 +717,97 @@ describe("HomeSurface and the guide's Show me", () => {
 				"spotlight-ring",
 			);
 		});
+	});
+});
+
+describe("/remember origin and privacy races", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		sessionStorage.clear();
+		landingIncognitoArmed.set(false);
+		uiLanguage.set("en");
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		landingIncognitoArmed.set(false);
+		sessionStorage.clear();
+	});
+	const project = (id: string) => ({
+		mode: {
+			kind: "project" as const,
+			project: { id, name: id },
+			chatCount: 0,
+			lastActivityAt: null,
+		},
+		recent: [],
+		composerCommandRegistryEnabled: true,
+	});
+	async function remember(text: string) {
+		const input = screen.getByRole("textbox");
+		await fireEvent.input(input, { target: { value: `/remember ${text}` } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+	}
+	it("never writes project A words into project B after deferred creation changes scope", async () => {
+		let release!: (value: Response) => void;
+		let creates = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === "/api/conversations" && init?.method === "POST") {
+					creates++;
+					if (creates === 1)
+						return new Promise<Response>((resolve) => {
+							release = resolve;
+						});
+					return Response.json({ id: "chat-b" });
+				}
+				return Response.json({});
+			}),
+		);
+		const view = render(HomeSurface, project("project-a"));
+		await remember("A private project note");
+		await waitFor(() => expect(creates).toBe(1));
+		await view.rerender(project("project-b"));
+		release(Response.json({ id: "chat-a" }));
+		await waitFor(() => expect(creates).toBe(2));
+		await tick();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(memoryNoteMock).not.toHaveBeenCalled();
+	});
+	it("refuses /remember while an armed prepared-chat privacy PATCH is pending", async () => {
+		let release!: (value: Response) => void;
+		let patchStarted = false;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === "/api/conversations" && init?.method === "POST")
+					return Response.json({ id: "prepared" });
+				if (
+					String(input) === "/api/conversations/prepared" &&
+					init?.method === "PATCH"
+				) {
+					patchStarted = true;
+					return new Promise<Response>((resolve) => {
+						release = resolve;
+					});
+				}
+				return Response.json({});
+			}),
+		);
+		render(HomeSurface, {
+			mode: { kind: "home" },
+			recent: [],
+			composerCommandRegistryEnabled: true,
+		});
+		await remember("normal note");
+		await waitFor(() => expect(memoryNoteMock).toHaveBeenCalledTimes(1));
+		memoryNoteMock.mockClear();
+		landingIncognitoArmed.set(true);
+		await waitFor(() => expect(patchStarted).toBe(true));
+		await remember("must stay private");
+		await tick();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(memoryNoteMock).not.toHaveBeenCalled();
+		release(Response.json({ success: true }));
 	});
 });

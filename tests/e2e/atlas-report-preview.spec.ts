@@ -87,6 +87,7 @@ test.describe("Atlas report preview contract", () => {
 			sources.getByRole("link", { name: "Vendor docs", exact: true }),
 		).toHaveAttribute("href", "https://example.com/vendor-docs");
 
+		// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 		const visibleReportText = await page.locator("body").innerText();
 		expect(visibleReportText).not.toMatch(/Honesty Markers/i);
 		expect(visibleReportText).not.toMatch(/confidence marker/i);

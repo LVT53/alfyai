@@ -344,17 +344,18 @@ describe("MinerU outline — MinerU 4.1 documents", () => {
 		]);
 	});
 
-	it.each(
-		V41_SAMPLES,
-	)("$slug: no preview carries MinerU's markup or an image link", async (sample) => {
-		const { outline } = await outlineForV41(sample.slug, sample.filename);
+	it.each(V41_SAMPLES)(
+		"$slug: no preview carries MinerU's markup or an image link",
+		async (sample) => {
+			const { outline } = await outlineForV41(sample.slug, sample.filename);
 
-		for (const entry of outline) {
-			expect(entry.preview, entry.title).not.toContain("<small>");
-			expect(entry.preview, entry.title).not.toContain("docvortex");
-			expect(entry.preview, entry.title).not.toContain("![](");
-		}
-	});
+			for (const entry of outline) {
+				expect(entry.preview, entry.title).not.toContain("<small>");
+				expect(entry.preview, entry.title).not.toContain("docvortex");
+				expect(entry.preview, entry.title).not.toContain("![](");
+			}
+		},
+	);
 
 	it("pptx: slide titles keep their slide, and the notes sit under their own slide's title", async () => {
 		const { outline, markdown } = await outlineForV41(

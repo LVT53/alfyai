@@ -1,0 +1,124 @@
+{
+  "personal": {
+    "scope": "personal",
+    "status": "ready",
+    "authority": "hindsight",
+    "total": 4,
+    "rows": [
+      {
+        "text": "The user owns a white racing kayak.",
+        "sourceCount": 1
+      },
+      {
+        "text": "The user owns a green touring kayak.",
+        "sourceCount": 1
+      },
+      {
+        "text": "The user prefers meeting notes in bullet points.",
+        "sourceCount": 1
+      },
+      {
+        "text": "The user enjoys making coffee with a moka pot.",
+        "sourceCount": 1
+      }
+    ]
+  },
+  "project": {
+    "scope": "project",
+    "status": "ready",
+    "authority": "hindsight",
+    "total": 2,
+    "rows": [
+      {
+        "text": "A projekt résztvevői a parti műhelyben két faevezőt tartanak.",
+        "sourceCount": 1
+      },
+      {
+        "text": "A projekt résztvevői szombat reggelenként találkoznak.",
+        "sourceCount": 1
+      }
+    ]
+  },
+  "emptyProject": {
+    "scope": "project",
+    "status": "ready",
+    "authority": "hindsight",
+    "total": 0,
+    "rows": []
+  },
+  "noMatches": {
+    "scope": "personal",
+    "status": "ready",
+    "authority": "hindsight",
+    "total": 0,
+    "rows": []
+  },
+  "empty": {
+    "scope": "personal",
+    "status": "ready",
+    "authority": "hindsight",
+    "total": 0,
+    "rows": []
+  },
+  "off": {
+    "scope": "personal",
+    "status": "off",
+    "authority": "hindsight",
+    "total": 0,
+    "rows": []
+  },
+  "otherUsersProjectStatus": "not_found",
+  "verifiedVersions": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "evidence": [
+    {
+      "title": "Kayak club and early mornings",
+      "href": "/chat/b7c91802-11be-4d8c-b817-5d2641fdb577?focus_message=fc065d32-94ea-4442-be62-eec349212c02",
+      "routeStatus": 200,
+      "messageInInitialWindow": false,
+      "initialWindow": 100,
+      "olderCount": 8,
+      "quote": "I own a green touring kayak and a white racing kayak. I enjoy making coffee with a moka pot. I prefer meeting notes in bullet points.",
+      "origin": "conversation"
+    },
+    {
+      "title": "A parti műhely felszerelése",
+      "href": "/chat/57f2cda8-e852-4679-abb6-374efbc668c9?focus_message=505fdbce-6758-45af-aa37-946d5f8fa03f",
+      "routeStatus": 200,
+      "messageInInitialWindow": true,
+      "initialWindow": 2,
+      "olderCount": null,
+      "quote": "Ebben a projektben szombat reggelenként találkozunk. A parti műhelyben két faevezőt tartunk.",
+      "origin": "conversation"
+    }
+  ],
+  "shell": [
+    {
+      "language": "en",
+      "labels": [
+        "Knowledge Base",
+        "What Alfy remembers"
+      ]
+    },
+    {
+      "language": "hu",
+      "labels": [
+        "Tudásbázis",
+        "Amire Alfy emlékszik"
+      ]
+    },
+    {
+      "language": "hu",
+      "labels": [
+        "Tudásbázis",
+        "A memória ki van kapcsolva"
+      ]
+    }
+  ]
+}

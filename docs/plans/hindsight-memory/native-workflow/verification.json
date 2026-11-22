@@ -1,0 +1,22 @@
+{
+  "correct after_identical_retry": true,
+  "correct after_restart": true,
+  "repeated-correct after_identical_retry": true,
+  "repeated-correct after_restart": true,
+  "retire after_first_action": true,
+  "retire after_identical_retry": true,
+  "retire after_restart": true,
+  "delete-source restart": true,
+  "delete-source replay limitation": true,
+  "repeated-delete restart": true,
+  "repeated-delete replay limitation": true,
+  "correct changed-source limitation": true,
+  "retire changed-source limitation": true,
+  "delete-source changed-source limitation": true,
+  "repeated-correct changed-source limitation": true,
+  "repeated-delete changed-source limitation": true,
+  "repeated correction needs all": true,
+  "repeated delete needs all": true,
+  "no source chunks supplied": true,
+  "all workflow answers untruncated": true
+}

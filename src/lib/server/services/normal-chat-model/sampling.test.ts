@@ -105,19 +105,35 @@ describe("every model call takes its sampling from the one route", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it("builds no chat-completions request body by hand", () => {
-		const handBuilt = serverSources()
-			.filter(({ code }) => /chat\/completions/.test(code))
-			.map(({ file }) => file)
-			.sort();
-		expect(handBuilt).toEqual([
+	it("accounts for every chat-completions endpoint reference", () => {
+		const endpointReferences = serverSources()
+			.flatMap(({ file, code }) =>
+				(code.match(/^.*chat\/completions.*$/gm) ?? []).map((line) => ({
+					file,
+					line: line.trim(),
+				})),
+			)
+			.sort((a, b) => a.file.localeCompare(b.file));
+		expect(endpointReferences).toEqual([
+			// ADR-0071 requires this exact private admission path. The shared
+			// control-model sender still builds the request and applies sampling.
+			{
+				file: "lib/server/services/memory-profile/curation.ts",
+				line: `![gateway.pathname, \`\${gateway.pathname}/chat/completions\`].includes(`,
+			},
 			// The provider key check: a one-token liveness ping nobody reads.
-			"lib/server/services/providers.ts",
+			{
+				file: "lib/server/services/providers.ts",
+				line: 'const chatUrl = buildOpenAICompatibleUrl(baseUrl, "/v1/chat/completions");',
+			},
 			// The LTX caption rewrite (video-caption.ts): a fixed temperature-0
 			// machine rewrite of the person's own motion idea, sent to the
 			// admin-config-set caption endpoint — no streaming, no tools, and the
 			// person never reads the request or the answer as prose.
-			"lib/server/services/video-caption.ts",
+			{
+				file: "lib/server/services/video-caption.ts",
+				line: '"/v1/chat/completions",',
+			},
 		]);
 	});
 
@@ -184,6 +200,11 @@ describe("every model call takes its sampling from the one route", () => {
 			count: 1,
 			reason:
 				"the judge, reconcile/merge and re-curation: deterministic JSON decisions (ADR-0045); the persona summary is readBy: person",
+		},
+		"lib/server/services/memory-profile/curation.ts": {
+			count: 1,
+			reason:
+				"low-variance JSON edit plans, fact proposals and verification verdicts that the app parses and validates before publication (ADR-0071)",
 		},
 		"lib/server/services/task-state.ts": {
 			count: 1,

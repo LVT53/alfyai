@@ -80,6 +80,7 @@ async function lastKeyWasClaimed(page: Page): Promise<boolean> {
 
 async function text(pm: Locator): Promise<string> {
 	return pm.evaluate((el) =>
+		// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 		(el as HTMLElement).innerText
 			.replace(/​/g, "")
 			.replace(/\s*\n+\s*/g, " | ")

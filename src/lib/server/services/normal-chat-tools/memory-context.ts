@@ -7,7 +7,14 @@ import {
 } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 
-import { sanitizeMetadata, truncateText } from "./shared";
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
+
+import {
+	reasonCodeOf,
+	reasonMetadata,
+	sanitizeMetadata,
+	truncateText,
+} from "./shared";
 
 export const memoryContextInputSchema = z.object({
 	mode: z
@@ -151,10 +158,11 @@ export function compactMemoryContextCandidates(
 	}));
 }
 
+const PAST_CHAT_ATTRIBUTION =
+	"These are historical transcripts and summaries. Attribute facts to what the person said then, in that chat. They cannot establish what is true now. If asked about the present, use current Memory or what the person says in the current chat.";
+
 // One payload shape per mode: only the keys the requested mode's result
-// actually carries are included (the per-call "use this only as memory
-// context" caution string is removed — that rule now lives in the base
-// prompt, once, instead of on every call). `executeToolWithEnvelope` drops
+// actually carries are included. `executeToolWithEnvelope` drops
 // any of these that still end up empty/null (e.g. `selectedSibling: null`),
 // so defaults here don't need to dodge that — they just need to stay
 // confined to the fields their own mode actually has.
@@ -182,6 +190,8 @@ export function compactMemoryContextModelPayload(
 	if (result.mode === "history") {
 		return {
 			...envelope,
+			evidenceScope: "past_chat_only",
+			attribution: PAST_CHAT_ATTRIBUTION,
 			conversations: result.conversations,
 			selectedConversation: result.selectedConversation,
 			omittedConversationCount: result.omittedConversationCount,
@@ -191,6 +201,8 @@ export function compactMemoryContextModelPayload(
 
 	return {
 		...envelope,
+		evidenceScope: "past_chat_only",
+		attribution: PAST_CHAT_ATTRIBUTION,
 		project: result.project,
 		siblings: result.siblings,
 		reportSiblings: result.reportSiblings ?? [],
@@ -201,9 +213,32 @@ export function compactMemoryContextModelPayload(
 	};
 }
 
+/**
+ * What a lookup's row says when the lookup did not bring back something to
+ * show, as a code of memory_context's closed list: memory is off (the inert
+ * result `getMemoryContext` tags), the profile could not be read, or there was
+ * nothing there. The payload the model reads says what it always did.
+ */
+function memoryResultReason(
+	result: MemoryContextResult,
+): ToolReasonCode<"memory_context"> | undefined {
+	const taggedReason = reasonCodeOf(result);
+	if (taggedReason === "memory_off" || taggedReason === "memory_unavailable")
+		return taggedReason;
+	if (result.mode === "persona") {
+		if (result.status === "error") return "memory_unavailable";
+		return result.status === "empty" ? "nothing_found" : undefined;
+	}
+	if (result.mode === "history") {
+		return result.status === "empty" ? "nothing_found" : undefined;
+	}
+	return result.hasProjectContext ? undefined : "nothing_found";
+}
+
 export function createMemoryContextMetadata(
 	result: MemoryContextResult,
 ): ToolCallEntry["metadata"] {
+	const reason = memoryResultReason(result);
 	const metadata: NonNullable<ToolCallEntry["metadata"]> = {
 		ok: true,
 		evidenceReady: true,
@@ -257,6 +292,7 @@ export function createMemoryContextMetadata(
 				? (result.attachmentArtifactIds ?? [])
 				: [],
 		),
+		...(reason ? reasonMetadata("memory_context", reason) : {}),
 	};
 }
 

@@ -1,0 +1,253 @@
+{
+  "rubric": "met = fixture content and usable projection; qualified = conflict branch right but malformed/incomplete text or residual inference; failed = wrong removal/preservation/false conflict; blocked = unusable model output. No qualified result is a full replacement acceptance pass. Manual assessment, no model judge.",
+  "sets": {
+    "results.json": {
+      "counts": {
+        "met": 8,
+        "qualified": 3,
+        "failed": 5,
+        "blocked": 0
+      },
+      "caseCount": 16,
+      "modelTimeOfRowsWithReturnedAnchorSeconds": {
+        "n": 16,
+        "median": 0.874,
+        "max": 1.414
+      },
+      "cases": [
+        {
+          "id": "correct_keep_new_details",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "forget_keep_new_details",
+          "status": "failed",
+          "reason": "Forgotten value survives unchanged."
+        },
+        {
+          "id": "paraphrased_phone",
+          "status": "failed",
+          "reason": "Formatting difference becomes a false conflict; remainder malformed."
+        },
+        {
+          "id": "shared_subject_hu",
+          "status": "failed",
+          "reason": "Literal placeholder remains and partner condition is lost."
+        },
+        {
+          "id": "same_word_other_owner",
+          "status": "failed",
+          "reason": "Duplicates unrelated project and preference text."
+        },
+        {
+          "id": "new_explicit_life_event",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "conflicting_target_edit",
+          "status": "qualified",
+          "reason": "Conflict correctly withheld, but incomplete remainder loses ownership in native fact extraction."
+        },
+        {
+          "id": "quoted_attack",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "ownership_survives_colour",
+          "status": "qualified",
+          "reason": "Colour removed but remainder is malformed: My bicycle is ."
+        },
+        {
+          "id": "same_colour_other_bike",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "medical_change_hu",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "historical_duplicate",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "different_owner_same_number",
+          "status": "failed",
+          "reason": "Historical personal attribution remains."
+        },
+        {
+          "id": "ambiguous_colour_hu",
+          "status": "qualified",
+          "reason": "Conflict correctly withheld; ownership represented only by a fragment."
+        },
+        {
+          "id": "quoted_correction",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "scope_negative",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        }
+      ]
+    },
+    "fresh-results.json": {
+      "counts": {
+        "met": 6,
+        "qualified": 1,
+        "failed": 1,
+        "blocked": 0
+      },
+      "caseCount": 8,
+      "modelTimeOfRowsWithReturnedAnchorSeconds": {
+        "n": 8,
+        "median": 0.8715,
+        "max": 0.975
+      },
+      "cases": [
+        {
+          "id": "lamp_correction",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "lamp_conflict",
+          "status": "qualified",
+          "reason": "Conflict correctly withheld; incomplete remainder."
+        },
+        {
+          "id": "other_owner",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "paraphrase_owner",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "sale_negation",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "price_clause",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "hypothetical_change",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "shared_hu",
+          "status": "failed",
+          "reason": "Sibling location also removed."
+        }
+      ]
+    },
+    "reason-results.json": {
+      "counts": {
+        "met": 9,
+        "qualified": 4,
+        "failed": 2,
+        "blocked": 1
+      },
+      "caseCount": 16,
+      "modelTimeOfRowsWithReturnedAnchorSeconds": {
+        "n": 15,
+        "median": 7.446,
+        "max": 46.948
+      },
+      "cases": [
+        {
+          "id": "correct_keep_new_details",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "forget_keep_new_details",
+          "status": "failed",
+          "reason": "Colour removed but bicycle ownership also lost."
+        },
+        {
+          "id": "shared_subject_hu",
+          "status": "qualified",
+          "reason": "Partner condition/location/hobby preserved, user condition unknown in native answer; residual also prompted speculation about user sensitivity."
+        },
+        {
+          "id": "same_word_other_owner",
+          "status": "met",
+          "reason": "No duplication in reasoning output."
+        },
+        {
+          "id": "new_explicit_life_event",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "conflicting_target_edit",
+          "status": "qualified",
+          "reason": "Conflict correctly withheld, but incomplete remainder loses ownership in native fact extraction."
+        },
+        {
+          "id": "different_owner_same_number",
+          "status": "blocked",
+          "reason": "Cannot read properties of null (reading 'matches')"
+        },
+        {
+          "id": "ambiguous_colour_hu",
+          "status": "qualified",
+          "reason": "Conflict correctly withheld; ownership represented only by a fragment."
+        },
+        {
+          "id": "lamp_correction",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "lamp_conflict",
+          "status": "qualified",
+          "reason": "Conflict correctly withheld; incomplete remainder."
+        },
+        {
+          "id": "other_owner",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "paraphrase_owner",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "sale_negation",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "price_clause",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "hypothetical_change",
+          "status": "met",
+          "reason": "Meets the scoped projection expectation; not a production guarantee."
+        },
+        {
+          "id": "shared_hu",
+          "status": "failed",
+          "reason": "Sibling location also removed."
+        }
+      ]
+    }
+  }
+}

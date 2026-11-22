@@ -20,11 +20,29 @@ import {
 	hardDeleteArtifactsForUser,
 } from "../knowledge";
 import { advanceMemoryResetGeneration } from "../memory-profile/reset-generation";
+import { getMemoryAccount } from "../memory-profile/revisions";
 import { clearMessageEvidenceForUser } from "../messages";
 
 export async function resetKnowledgeBaseState(userId: string): Promise<{
 	deletedArtifactIds: string[];
 }> {
+	const account = getMemoryAccount(userId);
+	if (
+		account &&
+		account.authority !== "legacy" &&
+		account.authority !== "hindsight"
+	)
+		throw new Error("memory_authority_unavailable");
+	if (account?.authority === "hindsight") {
+		const { clearMemoryAndKnowledgeForUser } = await import(
+			"../account-lifecycle"
+		);
+		return {
+			deletedArtifactIds: await clearMemoryAndKnowledgeForUser(userId, {
+				artifactScope: "all-owned",
+			}),
+		};
+	}
 	await advanceMemoryResetGeneration(userId);
 
 	const ownershipScope = await getArtifactOwnershipScope(userId, {

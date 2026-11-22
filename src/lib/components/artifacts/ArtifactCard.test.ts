@@ -825,16 +825,19 @@ describe("ArtifactCard — deleted (chrome=full)", () => {
 		["canvas", "This canvas was deleted", "Ez a tábla törölve lett"],
 		["slides", "These slides were deleted", "Ez a diasor törölve lett"],
 		["document", "This document was deleted", "Ez a dokumentum törölve lett"],
-	] as const)("names a deleted %s in both languages", (kind, english, hungarian) => {
-		const { unmount } = render(ArtifactCard, {
-			view: view({ kind, deleted: true }),
-		});
-		expect(screen.getByText(english)).toBeInTheDocument();
-		unmount();
-		uiLanguage.set("hu");
-		render(ArtifactCard, { view: view({ kind, deleted: true }) });
-		expect(screen.getByText(hungarian)).toBeInTheDocument();
-	});
+	] as const)(
+		"names a deleted %s in both languages",
+		(kind, english, hungarian) => {
+			const { unmount } = render(ArtifactCard, {
+				view: view({ kind, deleted: true }),
+			});
+			expect(screen.getByText(english)).toBeInTheDocument();
+			unmount();
+			uiLanguage.set("hu");
+			render(ArtifactCard, { view: view({ kind, deleted: true }) });
+			expect(screen.getByText(hungarian)).toBeInTheDocument();
+		},
+	);
 
 	it("offers Regenerate when the item can be made again, and asks for it by id", async () => {
 		const onRegenerate = vi.fn();

@@ -1,0 +1,194 @@
+[
+  {
+    "profile": "p05",
+    "index": 0,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 0,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 1,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 1,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 2,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Reinterprets the completed September 4–7 itinerary as still upcoming; wrong reason/current location.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 2,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Reinterprets the completed September 4–7 itinerary as still upcoming; wrong reason/current location.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 3,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Reports sold Samsung Galaxy Tab S10 instead of current Lenovo Yoga Tab Plus.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 3,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Reports sold Samsung Galaxy Tab S10 instead of current Lenovo Yoga Tab Plus.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 4,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 4,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 5,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Cannot recall whether relocation was decided; source explicitly says it remains undecided.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 5,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Cannot recall whether relocation was decided; source explicitly says it remains undecided.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 6,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 6,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 7,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Loses postponed pricing and next keyboard-testing task.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 7,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 8,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Uses numbered list; passive explicitly asserts obsolete list preference, tool refers to sold tablet.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 8,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Uses numbered list; passive explicitly asserts obsolete list preference, tool refers to sold tablet.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 9,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 9,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 10,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 10,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p05",
+    "index": 11,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Invents Atlas/Cedar as codename instead of CORAL-FOX-783.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p05",
+    "index": 11,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Invents Atlas/Cedar as codename instead of CORAL-FOX-783.",
+    "unsupportedPersonalClaim": true
+  }
+]

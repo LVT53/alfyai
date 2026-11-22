@@ -36,6 +36,8 @@ export type StepImageEntry = {
 
 /** One turn's pictures between the tool that queues them and the step that sends them. */
 export type StepImageQueue = {
+	/** A fresh identity for each provider attempt, so a late web preview can never enter its successor's step. */
+	visionAttempt?: { readonly canSee: boolean };
 	push(entry: StepImageEntry): void;
 	/** Takes every queued entry, in the order they were pushed; the queue is empty after. */
 	drain(): StepImageEntry[];

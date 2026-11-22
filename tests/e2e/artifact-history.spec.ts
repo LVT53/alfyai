@@ -459,6 +459,7 @@ test.describe("History mode", () => {
 			await expect(options.nth(4)).toContainText(
 				"Megtartottad Alfy válaszát dokumentumként",
 			);
+			// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 			const text = (await list.innerText()).replace(/\s+/g, " ");
 			for (const english of [
 				"You ",

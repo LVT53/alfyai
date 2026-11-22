@@ -1,0 +1,239 @@
+{
+  "rubric": "Manual full-outcome grading: unrelated ownership must survive, correct intended action must land, ordinary edits must not become false conflicts; new life events survive. Accepted denotes structural/auditor admission, not semantic truth. Model output alone is not an oracle.",
+  "rewriteAudit": {
+    "passed": 3,
+    "total": 16,
+    "blocked": 3,
+    "acceptedIncorrect": 10,
+    "cases": [
+      {
+        "id": "correct_keep_new_details",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "forget_keep_new_details",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "paraphrased_phone",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "shared_subject_hu",
+        "accepted": false,
+        "meetsRequirements": false,
+        "outcome": "blocked"
+      },
+      {
+        "id": "same_word_other_owner",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "new_explicit_life_event",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "conflicting_target_edit",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "quoted_attack",
+        "accepted": false,
+        "meetsRequirements": false,
+        "outcome": "blocked"
+      },
+      {
+        "id": "ownership_survives_colour",
+        "accepted": true,
+        "meetsRequirements": true,
+        "outcome": "accepted correct"
+      },
+      {
+        "id": "same_colour_other_bike",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "medical_change_hu",
+        "accepted": true,
+        "meetsRequirements": true,
+        "outcome": "accepted correct"
+      },
+      {
+        "id": "historical_duplicate",
+        "accepted": true,
+        "meetsRequirements": true,
+        "outcome": "accepted correct"
+      },
+      {
+        "id": "different_owner_same_number",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "ambiguous_colour_hu",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      },
+      {
+        "id": "quoted_correction",
+        "accepted": false,
+        "meetsRequirements": false,
+        "outcome": "blocked"
+      },
+      {
+        "id": "scope_negative",
+        "accepted": true,
+        "meetsRequirements": false,
+        "outcome": "accepted incorrect"
+      }
+    ]
+  },
+  "localizedSeen": {
+    "passed": 11,
+    "total": 16,
+    "cases": [
+      {
+        "id": "correct_keep_new_details",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "forget_keep_new_details",
+        "meetsRequirements": false,
+        "reason": "Lost bicycle ownership."
+      },
+      {
+        "id": "paraphrased_phone",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "shared_subject_hu",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "same_word_other_owner",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "new_explicit_life_event",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "conflicting_target_edit",
+        "meetsRequirements": false,
+        "reason": "Silently chose blue over new green; no conflict."
+      },
+      {
+        "id": "quoted_attack",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "ownership_survives_colour",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "same_colour_other_bike",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "medical_change_hu",
+        "meetsRequirements": false,
+        "reason": "Dropped the new explicit diagnosis update."
+      },
+      {
+        "id": "historical_duplicate",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "different_owner_same_number",
+        "meetsRequirements": false,
+        "reason": "Dropped company reception number, not just old personal attribution."
+      },
+      {
+        "id": "ambiguous_colour_hu",
+        "meetsRequirements": false,
+        "reason": "Silently chose blue over new green; no conflict."
+      },
+      {
+        "id": "quoted_correction",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "scope_negative",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      }
+    ]
+  },
+  "localizedFresh": {
+    "passed": 7,
+    "total": 8,
+    "cases": [
+      {
+        "id": "black_camera",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "camera_conflict",
+        "meetsRequirements": false,
+        "reason": "Silently chose silver over a new white source value."
+      },
+      {
+        "id": "price_same_sentence",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "not_my_allergy",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "duplicate_passage",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "new_bike",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "shared_hu_new",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      },
+      {
+        "id": "different_project",
+        "meetsRequirements": true,
+        "reason": "Meets the scoped fixture expectations."
+      }
+    ]
+  }
+}

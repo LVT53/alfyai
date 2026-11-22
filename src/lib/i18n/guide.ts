@@ -55,9 +55,9 @@ const guideDict = {
 			"Pick a model and a style; switch Thinking on for harder questions.",
 		"guide.entry.webAndLinks.name": "Web and links",
 		"guide.entry.webAndLinks.line":
-			"Fresh facts from the web, with the sources it used.",
+			"Alfy can find current information, cite its sources and show photos that help you tell things apart.",
 		"guide.entry.webAndLinks.example":
-			"What will the weather be like at Lake Balaton this weekend?",
+			"How can I tell a USB-C plug from a Micro-USB plug at a glance?",
 		"guide.entry.pictureOrFile.name": "Show it a picture or a file",
 		"guide.entry.pictureOrFile.line":
 			"Drop in a photo, a PDF or a screenshot and ask about it.",
@@ -115,7 +115,7 @@ const guideDict = {
 		// ── It knows you ───────────────────────────────────────────────────
 		"guide.entry.memory.name": "Memory",
 		"guide.entry.memory.line":
-			"See what Alfy remembers, correct it, or switch it off.",
+			"See what Alfy remembers, edit details or remove them. Project memories stay in their project. Eligible earlier chats can contribute while Memory is on. Earlier opt-outs and exclusions still apply. Ask directly to look up a past chat. If offered, review suggestions from earlier chats and choose which to keep.",
 		"guide.entry.instructions.name": "Instructions",
 		"guide.entry.instructions.line":
 			"Rules Alfy follows in every chat, or in one project.",
@@ -166,6 +166,9 @@ const guideDict = {
 		"guide.entry.languageAndLook.name": "Language and look",
 		"guide.entry.languageAndLook.line":
 			"Interface and title language, time zone, light or dark.",
+		"guide.entry.sendWithEnter.name": "Send with Enter",
+		"guide.entry.sendWithEnter.line":
+			"Enter sends your message and Shift+Enter starts a new line.",
 		"guide.entry.twoStep.name": "Two-step sign-in",
 		"guide.entry.twoStep.line":
 			"A code from your phone as well as your password.",
@@ -224,9 +227,9 @@ const guideDict = {
 			"Válassz modellt és stílust; nehezebb kérdéshez kapcsold be a Gondolkodást.",
 		"guide.entry.webAndLinks.name": "Web és linkek",
 		"guide.entry.webAndLinks.line":
-			"Friss információk a webről, a felhasznált forrásokkal.",
+			"Alfy friss információkat keres a weben, megadja a forrásait, és fotókon is megmutathatja a különbségeket.",
 		"guide.entry.webAndLinks.example":
-			"Milyen idő lesz a Balatonnál ezen a hétvégén?",
+			"Honnan ismerem fel ránézésre, hogy egy csatlakozó USB-C vagy Micro-USB?",
 		"guide.entry.pictureOrFile.name": "Mutass képet vagy fájlt",
 		"guide.entry.pictureOrFile.line":
 			"Csatolj egy fotót, PDF-et vagy képernyőképet, és kérdezz róla.",
@@ -290,7 +293,7 @@ const guideDict = {
 		// ── It knows you ───────────────────────────────────────────────────
 		"guide.entry.memory.name": "Memória",
 		"guide.entry.memory.line":
-			"Nézd meg, mire emlékszik Alfy, javítsd ki, vagy kapcsold ki.",
+			"Nézd meg, mire emlékszik Alfy, szerkeszd vagy távolítsd el a részleteket. A projektek emlékei a projektben maradnak. Ha a Memória be van kapcsolva, a bevonható korábbi beszélgetésekből is megjegyezhet részleteket. A korábban kizárt beszélgetések és részletek továbbra is kimaradnak. Kérd meg Alfy-t, ha egy korábbi beszélgetésben szeretnél keresni. Ha elérhető, nézd át a korábbi beszélgetésekből származó javaslatokat, és válaszd ki, melyeket tartod meg.",
 		"guide.entry.instructions.name": "Utasítások",
 		"guide.entry.instructions.line":
 			"Amit Alfy minden beszélgetésben betart, vagy csak egy projektben.",
@@ -341,6 +344,9 @@ const guideDict = {
 		"guide.entry.languageAndLook.name": "Nyelv és megjelenés",
 		"guide.entry.languageAndLook.line":
 			"A felület és a címek nyelve, időzóna, világos vagy sötét.",
+		"guide.entry.sendWithEnter.name": "Küldés Enterrel",
+		"guide.entry.sendWithEnter.line":
+			"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd.",
 		"guide.entry.twoStep.name": "Kétlépcsős bejelentkezés",
 		"guide.entry.twoStep.line":
 			"A jelszó mellett egy kód is kell a telefonodról.",

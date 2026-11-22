@@ -1,115 +1,31 @@
-import {
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-	within,
-} from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import type { Component } from "svelte";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "$lib/client/api/http";
-import type { MemoryProfilePublicPayload } from "$lib/memory-profile-types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockPageState = vi.hoisted(() => ({
-	page: {
-		url: new URL("http://localhost/knowledge"),
-		state: {},
-	},
+const state = vi.hoisted(() => ({
+	page: { url: new URL("http://localhost/knowledge"), state: {} },
 }));
-
+const read = vi.hoisted(() => vi.fn());
 vi.mock("$app/environment", () => ({
 	browser: true,
 	building: false,
 	dev: false,
 	version: "test",
 }));
-
 vi.mock("$app/navigation", () => ({
 	goto: vi.fn(),
 	invalidateAll: vi.fn(),
 	replaceState: vi.fn(),
 }));
+vi.mock("$app/state", () => state);
+vi.mock("$lib/client/api/memory", () => ({
+	fetchMemoryPage: read,
+	fetchMemoryDetail: vi.fn(),
+	fetchMemoryOperation: vi.fn(),
+	submitMemoryAction: vi.fn(),
+}));
 
-vi.mock("$app/state", () => mockPageState);
-
-vi.mock("$lib/client/api/knowledge", async () => {
-	const actual = await vi.importActual<
-		typeof import("$lib/client/api/knowledge")
-	>("$lib/client/api/knowledge");
-	return {
-		...actual,
-		fetchMemoryProfile: vi.fn(),
-		fetchKnowledgeMemory: vi.fn(),
-		fetchKnowledgeMemoryOverview: vi.fn(),
-		fetchMemoryProfileItemDetail: vi.fn(),
-		fetchMemorySummary: vi.fn(),
-		fetchMemoryTimeline: vi.fn(),
-		recordDocumentWorkspaceOpen: vi.fn(),
-		submitKnowledgeMemoryAction: vi.fn(),
-		submitMemoryV2Action: vi.fn(),
-	};
-});
-
-import {
-	fetchKnowledgeMemory,
-	fetchKnowledgeMemoryOverview,
-	fetchMemoryProfile,
-	fetchMemoryProfileItemDetail,
-	fetchMemorySummary,
-	fetchMemoryTimeline,
-	submitKnowledgeMemoryAction,
-} from "$lib/client/api/knowledge";
 import Page from "./+page.svelte";
-
-const memoryProfilePayload = {
-	resetGeneration: 1,
-	projectionRevision: 7,
-	categories: [
-		{
-			category: "about_you",
-			items: [
-				{
-					id: "item-about",
-					itemKey: "about-you",
-					category: "about_you",
-					statement: "Levi prefers concise memory behavior.",
-					scope: { type: "global" },
-					status: "active",
-					revision: 1,
-					updatedAt: "2026-06-17T09:00:00.000Z",
-					canEdit: true,
-					canDelete: true,
-					canSuppress: true,
-				},
-			],
-		},
-		{
-			category: "preferences",
-			items: [],
-		},
-		{
-			category: "goals_ongoing_work",
-			items: [],
-		},
-		{
-			category: "constraints_boundaries",
-			items: [],
-		},
-	],
-	review: {
-		visibleItems: [
-			{
-				id: "review-1",
-				subject: "Remember Hungarian labels.",
-				question: "Should this be remembered?",
-				reason: "Repeated in settings work.",
-				canAccept: true,
-			},
-		],
-		openCount: 1,
-		overflowCount: 0,
-	},
-} satisfies MemoryProfilePublicPayload;
 
 function pageData(memoryEnabled?: boolean): {
 	memoryEnabled?: boolean;
@@ -149,336 +65,38 @@ const KnowledgePage = Page as unknown as Component<{
 	data: ReturnType<typeof pageData>;
 }>;
 
-describe("Knowledge page memory loading", () => {
+describe("Knowledge replacement boundary", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		// The page opens on Documents (F23); these cases are about the Memory Profile,
-		// so they ask for its tab.
-		mockPageState.page.url = new URL("http://localhost/knowledge?tab=memory");
-		vi.mocked(fetchMemoryProfile).mockResolvedValue(memoryProfilePayload);
-		vi.mocked(fetchKnowledgeMemory).mockResolvedValue(memoryProfilePayload);
-		vi.mocked(fetchMemoryProfileItemDetail).mockResolvedValue({
-			...memoryProfilePayload.categories[0].items[0],
-			sourceChips: [],
-			whyRemembered: null,
-		});
-		vi.mocked(submitKnowledgeMemoryAction).mockResolvedValue(
-			memoryProfilePayload,
-		);
-		vi.mocked(fetchMemorySummary).mockResolvedValue({ summary: null });
-		vi.mocked(fetchMemoryTimeline).mockResolvedValue({ reports: [] });
-		vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue({
-			memoryEnabled: true,
-			processing: { active: false, pendingCount: 0 },
-		} as Awaited<ReturnType<typeof fetchKnowledgeMemoryOverview>>);
-		Object.defineProperty(document, "hidden", {
-			configurable: true,
-			value: false,
-		});
-		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-			callback(0);
-			return 0;
+		state.page.url = new URL("http://localhost/knowledge");
+		read.mockResolvedValue({
+			authority: "hindsight",
+			scope: { kind: "personal" },
+			generation: "g",
+			rows: [],
+			total: 0,
+			status: "ready",
+			nextCursor: null,
 		});
 	});
-
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
-	// Friction audit F23 (ruling 77): the library is what most visits are for.
-	it("opens on Documents at the plain URL, and fetches the memory profile only when its tab is chosen", async () => {
-		mockPageState.page.url = new URL("http://localhost/knowledge");
-
-		render(KnowledgePage, { data: pageData() });
-		await Promise.resolve();
-		await Promise.resolve();
-
+	it("loads Memory only when its tab is opened, keeping Documents as the default", async () => {
+		render(KnowledgePage, { data: pageData(true) });
 		expect(screen.getByRole("tab", { name: "Documents" })).toHaveAttribute(
 			"aria-selected",
 			"true",
 		);
+		expect(read).not.toHaveBeenCalled();
+		await fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
+		await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
 		expect(
-			screen.getByRole("tabpanel", { name: "Documents" }),
-		).toBeInTheDocument();
-		expect(fetchMemoryProfile).not.toHaveBeenCalled();
-
-		await fireEvent.click(screen.getByRole("tab", { name: "Memory Profile" }));
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledTimes(1);
-		});
+			screen.getByRole("heading", { name: "What Alfy remembers" }),
+		).toBeVisible();
 	});
-
-	it("loads the projection-backed memory profile when opened on it, and lists it as the first tab", async () => {
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledWith();
-		});
-		// The projection profile is the primary source; the overview is fetched
-		// best-effort only for the "memory is processing" notice (Task 3). The
-		// legacy full-memory endpoint stays unused.
-		expect(fetchKnowledgeMemory).not.toHaveBeenCalled();
-
-		const tabs = screen.getAllByRole("tab");
-		expect(tabs).toHaveLength(2);
-		expect(tabs[0]).toHaveTextContent("Memory Profile");
-		expect(tabs[0]).toHaveTextContent("1");
-		expect(tabs[1]).toHaveTextContent("Documents");
-		expect(
-			screen.getByText("Levi prefers concise memory behavior."),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /refresh|reload/i }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.queryByText(/Focus Continuity|task memory|raw/i),
-		).not.toBeInTheDocument();
-	});
-
-	it("selects the documents tab from the SvelteKit route URL query", async () => {
-		mockPageState.page.url = new URL("http://localhost/knowledge?q=report");
-
-		render(KnowledgePage, { data: pageData() });
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(screen.getByRole("tab", { name: "Documents" })).toHaveAttribute(
-			"aria-selected",
-			"true",
-		);
-		expect(
-			screen.getByRole("tabpanel", { name: "Documents" }),
-		).toBeInTheDocument();
-		expect(fetchMemoryProfile).not.toHaveBeenCalled();
-	});
-
-	it("refreshes the memory profile when switching from Documents back to Memory Profile", async () => {
-		mockPageState.page.url = new URL(
-			"http://localhost/knowledge?tab=documents",
-		);
-
-		render(KnowledgePage, { data: pageData() });
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(fetchMemoryProfile).not.toHaveBeenCalled();
-
-		await fireEvent.click(screen.getByRole("tab", { name: "Memory Profile" }));
-
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledTimes(1);
-		});
-	});
-
-	it("submits review item accept actions from the Needs Review controls", async () => {
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(
-				screen.getByText("Remember Hungarian labels."),
-			).toBeInTheDocument();
-		});
-
-		await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-
-		expect(submitKnowledgeMemoryAction).toHaveBeenCalledWith({
-			target: "review_item",
-			action: "accept",
-			itemId: "review-1",
-			expectedProjectionRevision: 7,
-		});
-	});
-
-	it("reloads the memory profile after stale projection conflicts", async () => {
-		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
-			new ApiError("stale projection", {
-				code: "stale_projection",
-				status: 409,
-			}),
-		);
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(
-				screen.getByText("Remember Hungarian labels."),
-			).toBeInTheDocument();
-		});
-		await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
-		});
-		expect(
-			screen.getByText(
-				"Memory profile was updated. Review the latest profile and try again.",
-			),
-		).toBeInTheDocument();
-	});
-
-	it("refreshes the review queue when an accepted review item is already gone", async () => {
-		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
-			new ApiError("Memory review item was not found.", {
-				code: "not_found",
-				status: 404,
-			}),
-		);
-		vi.mocked(fetchMemoryProfile)
-			.mockResolvedValueOnce(memoryProfilePayload)
-			.mockResolvedValueOnce({
-				...memoryProfilePayload,
-				projectionRevision: 8,
-				review: { visibleItems: [], items: [], openCount: 0, overflowCount: 0 },
-			});
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(
-				screen.getByText("Remember Hungarian labels."),
-			).toBeInTheDocument();
-		});
-		await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
-		});
-		await waitFor(() => {
-			expect(
-				screen.queryByText("Remember Hungarian labels."),
-			).not.toBeInTheDocument();
-		});
-		expect(
-			screen.getByText(
-				"That review item was already resolved, so the list has been refreshed.",
-			),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByText("Memory review item was not found."),
-		).not.toBeInTheDocument();
-	});
-
-	it("shows stale projection feedback inside an open memory item dialog", async () => {
-		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
-			new ApiError("stale projection", {
-				code: "stale_projection",
-				status: 409,
-			}),
-		);
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(
-				screen.getByText("Levi prefers concise memory behavior."),
-			).toBeInTheDocument();
-		});
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Edit memory item" }),
-		);
-
-		const dialog = screen.getByRole("dialog", { name: "Memory item" });
-		const textarea = within(dialog).getByLabelText("Statement");
-		await fireEvent.input(textarea, {
-			target: {
-				value:
-					"Levi prefers concise memory behavior with local stale feedback.",
-			},
-		});
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: "Save memory item" }),
-		);
-
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
-		});
-		expect(
-			screen.getByRole("dialog", { name: "Memory item" }),
-		).toBeInTheDocument();
-		expect(within(dialog).getByRole("alert")).toHaveTextContent(
-			"Memory profile was updated. Review the latest profile and try again.",
-		);
-	});
-
-	it("shows stale projection feedback inside an open review edit dialog", async () => {
-		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
-			new ApiError("stale projection", {
-				code: "stale_projection",
-				status: 409,
-			}),
-		);
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(
-				screen.getByText("Remember Hungarian labels."),
-			).toBeInTheDocument();
-		});
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Edit review item" }),
-		);
-
-		const dialog = screen.getByRole("dialog", { name: "Edit review item" });
-		const textarea = within(dialog).getByLabelText("Statement");
-		await fireEvent.input(textarea, {
-			target: { value: "Remember Hungarian labels in UI settings." },
-		});
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: "Save review item" }),
-		);
-
-		await waitFor(() => {
-			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
-		});
-		expect(
-			screen.getByRole("dialog", { name: "Edit review item" }),
-		).toBeInTheDocument();
-		expect(within(dialog).getByRole("alert")).toHaveTextContent(
-			"Memory profile was updated. Review the latest profile and try again.",
-		);
-	});
-
-	// Memory off in Settings: the notice is there with the first paint (the
-	// page's own load says so), and the overview's answer, which is read live,
-	// has the last word.
-	describe("when the person has switched memory off", () => {
-		it("says so as soon as the profile shows, from what the page was loaded with", async () => {
-			vi.mocked(fetchKnowledgeMemoryOverview).mockReturnValue(
-				new Promise(() => {}),
-			);
-
-			render(KnowledgePage, { data: pageData(false) });
-
-			expect(await screen.findByTestId("memory-off-notice")).toHaveTextContent(
-				"Memory is off",
-			);
-		});
-
-		it("says so when the live overview says it, though the page was loaded with memory on", async () => {
-			vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue({
-				memoryEnabled: false,
-				processing: { active: false, pendingCount: 0 },
-			} as Awaited<ReturnType<typeof fetchKnowledgeMemoryOverview>>);
-
-			render(KnowledgePage, { data: pageData(true) });
-
-			expect(
-				await screen.findByTestId("memory-off-notice"),
-			).toBeInTheDocument();
-		});
-
-		it("takes the notice away when the live overview says memory is on", async () => {
-			render(KnowledgePage, { data: pageData(false) });
-			await screen.findByText("Levi prefers concise memory behavior.");
-
-			await waitFor(() =>
-				expect(
-					screen.queryByTestId("memory-off-notice"),
-				).not.toBeInTheDocument(),
-			);
-		});
-
-		it("says nothing while memory is on", async () => {
-			render(KnowledgePage, { data: pageData(true) });
-			await screen.findByText("Levi prefers concise memory behavior.");
-
-			expect(screen.queryByTestId("memory-off-notice")).not.toBeInTheDocument();
-		});
+	it("opens the new view directly without fetching portrait or review data", async () => {
+		state.page.url = new URL("http://localhost/knowledge?tab=memory");
+		render(KnowledgePage, { data: pageData(false) });
+		await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+		expect(screen.getByTestId("memory-off-notice")).toBeVisible();
+		expect(screen.queryByText("Needs Review")).not.toBeInTheDocument();
 	});
 });

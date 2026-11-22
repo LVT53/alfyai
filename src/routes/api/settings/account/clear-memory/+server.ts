@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { passwordThrottledResponse } from "$lib/server/api/current-password";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { getNativeMemoryCleanupStatus } from "$lib/server/services/memory-controls";
 import { clearMemoryAndKnowledge } from "$lib/server/services/privacy-controls";
 import type { RequestHandler } from "./$types";
 
@@ -52,6 +53,7 @@ export const POST: RequestHandler = async (event) => {
 		return json({
 			success: true,
 			deletedArtifactIds: result.deletedArtifactIds,
+			...(await getNativeMemoryCleanupStatus(userId)),
 		});
 	} catch (error) {
 		console.error(

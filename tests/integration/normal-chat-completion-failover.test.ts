@@ -246,119 +246,123 @@ afterEach(() => {
 	records.brokenKey = false;
 });
 
-describe.each(
-	TRANSPORTS,
-)("provider failover before any tool ran (%s)", (transport) => {
-	it("first output never arrives within the timeout: the fallback runs the turn with its own tools", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const h = setup(transport);
-		h.network.script(PRIMARY, hang);
-		h.network.script(
-			FALLBACK,
-			(c) => respond(c.transport, { call: "fb-1" }),
-			(c) => respond(c.transport, { text: "fallback answer" }),
-		);
-		const done = h.run();
-		await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
-		await vi.advanceTimersByTimeAsync(10_000);
-		await done;
-		expect(h.network.to(PRIMARY)).toHaveLength(1);
-		expect(h.network.to(FALLBACK)).toHaveLength(2);
-		const first = h.network.to(FALLBACK)[0].body;
-		expect(messagesOf(first)).toEqual([{ role: "user", content: "Find it" }]);
-		expect(first.tools).toBeDefined();
-		expect(h.ran).toEqual({ primary: 0, fallback: 1 });
-		expect(h.network.to(FALLBACK)[1].text).toContain("FALLBACK-EVIDENCE");
-		expect(h.completion).toMatchObject({
-			phase: "working",
-			outcome: "answered",
-			stopCause: "natural_stop",
-			closingAttempted: false,
-		});
-		expect(h.answer).toBe("fallback answer");
-		expect(h.attempts).toEqual([
-			{
-				provider: "p",
-				phase: "working",
-				outcome: "failed",
-				stop: "transport_error",
-				input: null,
-				known: false,
-			},
-			{
-				provider: "fb",
+describe.each(TRANSPORTS)(
+	"provider failover before any tool ran (%s)",
+	(transport) => {
+		it("first output never arrives within the timeout: the fallback runs the turn with its own tools", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const h = setup(transport);
+			h.network.script(PRIMARY, hang);
+			h.network.script(
+				FALLBACK,
+				(c) => respond(c.transport, { call: "fb-1" }),
+				(c) => respond(c.transport, { text: "fallback answer" }),
+			);
+			const done = h.run();
+			await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
+			await vi.advanceTimersByTimeAsync(10_000);
+			await done;
+			expect(h.network.to(PRIMARY)).toHaveLength(1);
+			expect(h.network.to(FALLBACK)).toHaveLength(2);
+			const first = h.network.to(FALLBACK)[0].body;
+			expect(messagesOf(first)).toEqual([{ role: "user", content: "Find it" }]);
+			expect(first.tools).toBeDefined();
+			expect(h.ran).toEqual({ primary: 0, fallback: 1 });
+			expect(h.network.to(FALLBACK)[1].text).toContain("FALLBACK-EVIDENCE");
+			expect(h.completion).toMatchObject({
 				phase: "working",
 				outcome: "answered",
-				stop: "natural_stop",
-				input: 20,
-				known: true,
+				stopCause: "natural_stop",
+				closingAttempted: false,
+			});
+			expect(h.answer).toBe("fallback answer");
+			expect(h.attempts).toEqual([
+				{
+					provider: "p",
+					phase: "working",
+					outcome: "failed",
+					stop: "transport_error",
+					input: null,
+					known: false,
+				},
+				{
+					provider: "fb",
+					phase: "working",
+					outcome: "answered",
+					stop: "natural_stop",
+					input: 20,
+					known: true,
+				},
+			]);
+		});
+
+		it("a fallback that is slow but alive is not held to the failover threshold", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const h = setup(transport);
+			h.network.script(PRIMARY, hang);
+			h.network.script(
+				FALLBACK,
+				answerAfter(25_000, { text: "slow fallback answer" }),
+			);
+			const done = h.run();
+			await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
+			await vi.advanceTimersByTimeAsync(10_000);
+			await vi.waitFor(() => expect(h.network.to(FALLBACK)).toHaveLength(1));
+			await vi.advanceTimersByTimeAsync(30_000);
+			await done;
+			expect(h.network.to(FALLBACK)).toHaveLength(1);
+			expect(h.answer).toBe("slow fallback answer");
+			expect(h.completion).toMatchObject({
+				outcome: "answered",
+				stopCause: "natural_stop",
+			});
+		});
+
+		it.each([503, 429])(
+			"a provider error (%s) before any output moves the turn to the fallback",
+			async (status) => {
+				const h = setup(transport);
+				h.network.script(PRIMARY, () => httpFailure(status));
+				h.network.script(
+					FALLBACK,
+					(c) => respond(c.transport, { call: "fb-1" }),
+					(c) => respond(c.transport, { text: "fallback answer" }),
+				);
+				await h.run();
+				expect(h.network.to(PRIMARY)).toHaveLength(1);
+				expect(h.network.to(FALLBACK)).toHaveLength(2);
+				const first = h.network.to(FALLBACK)[0].body;
+				expect(messagesOf(first)).toEqual([
+					{ role: "user", content: "Find it" },
+				]);
+				expect(first.tools).toBeDefined();
+				expect(h.ran).toEqual({ primary: 0, fallback: 1 });
+				expect(h.completion).toMatchObject({
+					outcome: "answered",
+					stopCause: "natural_stop",
+					closingAttempted: false,
+				});
+				expect(h.attempts.map((a) => [a.provider, a.outcome, a.stop])).toEqual([
+					["p", "failed", "transport_error"],
+					["fb", "answered", "natural_stop"],
+				]);
+				expect(h.attempts[0]).toMatchObject({ input: null, known: false });
 			},
-		]);
-	});
-
-	it("a fallback that is slow but alive is not held to the failover threshold", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const h = setup(transport);
-		h.network.script(PRIMARY, hang);
-		h.network.script(
-			FALLBACK,
-			answerAfter(25_000, { text: "slow fallback answer" }),
 		);
-		const done = h.run();
-		await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
-		await vi.advanceTimersByTimeAsync(10_000);
-		await vi.waitFor(() => expect(h.network.to(FALLBACK)).toHaveLength(1));
-		await vi.advanceTimersByTimeAsync(30_000);
-		await done;
-		expect(h.network.to(FALLBACK)).toHaveLength(1);
-		expect(h.answer).toBe("slow fallback answer");
-		expect(h.completion).toMatchObject({
-			outcome: "answered",
-			stopCause: "natural_stop",
+
+		it("an authentication failure is not failed over", async () => {
+			const h = setup(transport);
+			h.network.script(
+				PRIMARY,
+				() => httpFailure(401),
+				() => httpFailure(401),
+			);
+			await h.run();
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
+			expect(h.completion).toMatchObject({ outcome: "failed" });
 		});
-	});
-
-	it.each([
-		503, 429,
-	])("a provider error (%s) before any output moves the turn to the fallback", async (status) => {
-		const h = setup(transport);
-		h.network.script(PRIMARY, () => httpFailure(status));
-		h.network.script(
-			FALLBACK,
-			(c) => respond(c.transport, { call: "fb-1" }),
-			(c) => respond(c.transport, { text: "fallback answer" }),
-		);
-		await h.run();
-		expect(h.network.to(PRIMARY)).toHaveLength(1);
-		expect(h.network.to(FALLBACK)).toHaveLength(2);
-		const first = h.network.to(FALLBACK)[0].body;
-		expect(messagesOf(first)).toEqual([{ role: "user", content: "Find it" }]);
-		expect(first.tools).toBeDefined();
-		expect(h.ran).toEqual({ primary: 0, fallback: 1 });
-		expect(h.completion).toMatchObject({
-			outcome: "answered",
-			stopCause: "natural_stop",
-			closingAttempted: false,
-		});
-		expect(h.attempts.map((a) => [a.provider, a.outcome, a.stop])).toEqual([
-			["p", "failed", "transport_error"],
-			["fb", "answered", "natural_stop"],
-		]);
-		expect(h.attempts[0]).toMatchObject({ input: null, known: false });
-	});
-
-	it("an authentication failure is not failed over", async () => {
-		const h = setup(transport);
-		h.network.script(
-			PRIMARY,
-			() => httpFailure(401),
-			() => httpFailure(401),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toMatchObject({ outcome: "failed" });
-	});
-});
+	},
+);
 
 describe("provider failover after partial output, before any tool ran (streaming)", () => {
 	it("does not carry the failed attempt's partial text or reasoning to the fallback", async () => {
@@ -392,81 +396,85 @@ describe("provider failover after partial output, before any tool ran (streaming
 	});
 });
 
-describe.each(
-	TRANSPORTS,
-)("provider failover after a tool settled (%s)", (transport) => {
-	it("closes once on the fallback with tools off, on the original request and the settled evidence", async () => {
-		const h = setup(transport);
-		h.network.script(
-			PRIMARY,
-			(c) => respond(c.transport, { text: "Looking it up.", call: "lookup-1" }),
-			failWith(timeoutError),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "Answer from settled evidence." }),
-		);
-		await h.run();
-		expect(h.network.to(PRIMARY)).toHaveLength(2);
-		expect(h.network.to(FALLBACK)).toHaveLength(1);
-		expect(h.ran).toEqual({ primary: 1, fallback: 0 });
-		const closing = h.network.to(FALLBACK)[0];
-		expect(closing.body.tools).toBeUndefined();
-		expect(closing.text).toContain("SETTLED-EVIDENCE");
-		expect(closing.text).toContain("Looking it up.");
-		const messages = messagesOf(closing.body);
-		expect(messages[0]).toEqual({ role: "user", content: "Find it" });
-		expect(messages.at(-1)).toMatchObject({ role: "user" });
-		expect(JSON.stringify(messages.at(-1))).toContain("Tools are unavailable");
-		const called = messages.flatMap(
-			(m) => m.tool_calls?.map((c) => c.id) ?? [],
-		);
-		const answered = messages
-			.filter((m) => m.role === "tool")
-			.map((m) => m.tool_call_id);
-		expect(called).toEqual(["lookup-1"]);
-		expect(answered).toEqual(["lookup-1"]);
-		expect(h.answer).toBe("Answer from settled evidence.");
-		expect(h.completion).toMatchObject({
-			phase: "closing",
-			outcome: "answered",
-			stopCause: "natural_stop",
-			workingStopCause: "transport_error",
-			closingAttempted: true,
+describe.each(TRANSPORTS)(
+	"provider failover after a tool settled (%s)",
+	(transport) => {
+		it("closes once on the fallback with tools off, on the original request and the settled evidence", async () => {
+			const h = setup(transport);
+			h.network.script(
+				PRIMARY,
+				(c) =>
+					respond(c.transport, { text: "Looking it up.", call: "lookup-1" }),
+				failWith(timeoutError),
+			);
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "Answer from settled evidence." }),
+			);
+			await h.run();
+			expect(h.network.to(PRIMARY)).toHaveLength(2);
+			expect(h.network.to(FALLBACK)).toHaveLength(1);
+			expect(h.ran).toEqual({ primary: 1, fallback: 0 });
+			const closing = h.network.to(FALLBACK)[0];
+			expect(closing.body.tools).toBeUndefined();
+			expect(closing.text).toContain("SETTLED-EVIDENCE");
+			expect(closing.text).toContain("Looking it up.");
+			const messages = messagesOf(closing.body);
+			expect(messages[0]).toEqual({ role: "user", content: "Find it" });
+			expect(messages.at(-1)).toMatchObject({ role: "user" });
+			expect(JSON.stringify(messages.at(-1))).toContain(
+				"Tools are unavailable",
+			);
+			const called = messages.flatMap(
+				(m) => m.tool_calls?.map((c) => c.id) ?? [],
+			);
+			const answered = messages
+				.filter((m) => m.role === "tool")
+				.map((m) => m.tool_call_id);
+			expect(called).toEqual(["lookup-1"]);
+			expect(answered).toEqual(["lookup-1"]);
+			expect(h.answer).toBe("Answer from settled evidence.");
+			expect(h.completion).toMatchObject({
+				phase: "closing",
+				outcome: "answered",
+				stopCause: "natural_stop",
+				workingStopCause: "transport_error",
+				closingAttempted: true,
+			});
+			expect(
+				h.attempts.map((a) => [a.provider, a.phase, a.outcome, a.stop]),
+			).toEqual([
+				["p", "working", "failed", "transport_error"],
+				["fb", "closing", "answered", "natural_stop"],
+			]);
 		});
-		expect(
-			h.attempts.map((a) => [a.provider, a.phase, a.outcome, a.stop]),
-		).toEqual([
-			["p", "working", "failed", "transport_error"],
-			["fb", "closing", "answered", "natural_stop"],
-		]);
-	});
 
-	it("does not send the dead provider's reasoning of a completed step to the fallback", async () => {
-		const h = setup(transport);
-		h.network.script(
-			PRIMARY,
-			(c) =>
-				respond(c.transport, {
-					reasoning: "STEP-ONE-REASONING-OF-PROVIDER-A",
-					text: "Looking it up.",
-					call: "lookup-1",
-				}),
-			failWith(timeoutError),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "Answer from settled evidence." }),
-		);
-		await h.run();
-		const closing = h.network.to(FALLBACK)[0];
-		expect(closing.text).toContain("SETTLED-EVIDENCE");
-		expect(closing.text).toContain("Looking it up.");
-		expect(closing.text).toContain("lookup-1");
-		expect(closing.text).not.toContain("STEP-ONE-REASONING-OF-PROVIDER-A");
-		expect(
-			messagesOf(closing.body).filter((m) => "reasoning_content" in m),
-		).toEqual([]);
-	});
-});
+		it("does not send the dead provider's reasoning of a completed step to the fallback", async () => {
+			const h = setup(transport);
+			h.network.script(
+				PRIMARY,
+				(c) =>
+					respond(c.transport, {
+						reasoning: "STEP-ONE-REASONING-OF-PROVIDER-A",
+						text: "Looking it up.",
+						call: "lookup-1",
+					}),
+				failWith(timeoutError),
+			);
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "Answer from settled evidence." }),
+			);
+			await h.run();
+			const closing = h.network.to(FALLBACK)[0];
+			expect(closing.text).toContain("SETTLED-EVIDENCE");
+			expect(closing.text).toContain("Looking it up.");
+			expect(closing.text).toContain("lookup-1");
+			expect(closing.text).not.toContain("STEP-ONE-REASONING-OF-PROVIDER-A");
+			expect(
+				messagesOf(closing.body).filter((m) => "reasoning_content" in m),
+			).toEqual([]);
+		});
+	},
+);
 
 describe("provider failover after a tool settled, while the next step was streaming", () => {
 	it("does not send the failed step's partial text or reasoning, only the settled evidence", async () => {
@@ -588,27 +596,28 @@ describe("no failover while a tool is running or after an uncertain execution", 
 		expect(h.completion).toMatchObject({ stopCause: "uncertain_execution" });
 	});
 
-	it.each(
-		TRANSPORTS,
-	)("an execution that ended uncertain stops the turn: no fallback, no second run (%s)", async (transport) => {
-		const h = setup(transport, {
-			primaryTool: async () => {
-				throw new Error("the tool failed after it was dispatched");
-			},
-		});
-		h.network.script(
-			PRIMARY,
-			(c) => respond(c.transport, { call: "lookup-1" }),
-			failWith(timeoutError),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.ran).toEqual({ primary: 1, fallback: 0 });
-		expect(h.completion).toMatchObject({ stopCause: "uncertain_execution" });
-	});
+	it.each(TRANSPORTS)(
+		"an execution that ended uncertain stops the turn: no fallback, no second run (%s)",
+		async (transport) => {
+			const h = setup(transport, {
+				primaryTool: async () => {
+					throw new Error("the tool failed after it was dispatched");
+				},
+			});
+			h.network.script(
+				PRIMARY,
+				(c) => respond(c.transport, { call: "lookup-1" }),
+				failWith(timeoutError),
+			);
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			await h.run();
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
+			expect(h.ran).toEqual({ primary: 1, fallback: 0 });
+			expect(h.completion).toMatchObject({ stopCause: "uncertain_execution" });
+		},
+	);
 });
 
 describe.each(TRANSPORTS)("the fallback fails too (%s)", (transport) => {
@@ -710,210 +719,217 @@ describe.each(TRANSPORTS)("the fallback fails too (%s)", (transport) => {
 });
 
 describe.each(TRANSPORTS)("the fallback cannot be bound (%s)", (transport) => {
-	it.each([
-		false,
-		true,
-	])("its stored key cannot be read (after a tool: %s): the turn ends in an outcome, not in a thrown error", async (afterTool) => {
-		const h = setup(transport);
-		records.brokenKey = true;
-		h.network.script(
-			PRIMARY,
-			...(afterTool
-				? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
-				: []),
-			() => httpFailure(503),
-			() => httpFailure(503),
-			(c) => respond(c.transport, { text: "closing on the same provider" }),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await expect(h.run()).resolves.toBeUndefined();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toBeDefined();
-		expect(h.ran.fallback).toBe(0);
-	});
+	it.each([false, true])(
+		"its stored key cannot be read (after a tool: %s): the turn ends in an outcome, not in a thrown error",
+		async (afterTool) => {
+			const h = setup(transport);
+			records.brokenKey = true;
+			h.network.script(
+				PRIMARY,
+				...(afterTool
+					? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
+					: []),
+				() => httpFailure(503),
+				() => httpFailure(503),
+				(c) => respond(c.transport, { text: "closing on the same provider" }),
+			);
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			await expect(h.run()).resolves.toBeUndefined();
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
+			expect(h.completion).toBeDefined();
+			expect(h.ran.fallback).toBe(0);
+		},
+	);
 });
 
-describe.each(
-	TRANSPORTS,
-)("Stop pressed during a failover (%s)", (transport) => {
-	it.each([
-		false,
-		true,
-	])("while the fallback is being resolved: no request goes to it (after a tool: %s)", async (afterTool) => {
-		const h = setup(transport);
-		let release: () => void = () => {};
-		h.network.script(
-			PRIMARY,
-			...(afterTool
-				? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
-				: []),
-			() => {
-				records.gate = new Promise<void>((resolve) => {
-					release = resolve;
+describe.each(TRANSPORTS)(
+	"Stop pressed during a failover (%s)",
+	(transport) => {
+		it.each([false, true])(
+			"while the fallback is being resolved: no request goes to it (after a tool: %s)",
+			async (afterTool) => {
+				const h = setup(transport);
+				let release: () => void = () => {};
+				h.network.script(
+					PRIMARY,
+					...(afterTool
+						? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
+						: []),
+					() => {
+						records.gate = new Promise<void>((resolve) => {
+							release = resolve;
+						});
+						return httpFailure(503);
+					},
+				);
+				h.network.script(FALLBACK, (c) =>
+					respond(c.transport, { text: "must not be asked" }),
+				);
+				const done = h.run();
+				await vi.waitFor(() => expect(records.waiting).toBeGreaterThan(0));
+				h.abort.abort();
+				release();
+				await done;
+				expect(h.network.to(FALLBACK)).toHaveLength(0);
+				expect(h.completion).toMatchObject({
+					outcome: "stopped",
+					stopCause: "user_stop",
 				});
-				return httpFailure(503);
 			},
 		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		const done = h.run();
-		await vi.waitFor(() => expect(records.waiting).toBeGreaterThan(0));
-		h.abort.abort();
-		release();
-		await done;
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toMatchObject({
-			outcome: "stopped",
-			stopCause: "user_stop",
-		});
-	});
 
-	it("while the fallback attempt is being prepared: nothing is sent to it", async () => {
-		const h = setup(transport);
-		h.hooks.attempt = (providerId) => {
-			if (providerId === "fb") h.abort.abort();
-		};
-		h.network.script(PRIMARY, () => httpFailure(503));
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toMatchObject({
-			outcome: "stopped",
-			stopCause: "user_stop",
+		it("while the fallback attempt is being prepared: nothing is sent to it", async () => {
+			const h = setup(transport);
+			h.hooks.attempt = (providerId) => {
+				if (providerId === "fb") h.abort.abort();
+			};
+			h.network.script(PRIMARY, () => httpFailure(503));
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			await h.run();
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
+			expect(h.completion).toMatchObject({
+				outcome: "stopped",
+				stopCause: "user_stop",
+			});
 		});
-	});
 
-	it("while the fallback request is in flight: it is cut, and nothing else is sent", async () => {
-		const h = setup(transport);
-		h.network.script(PRIMARY, () => httpFailure(503));
-		h.network.script(FALLBACK, (c) => {
+		it("while the fallback request is in flight: it is cut, and nothing else is sent", async () => {
+			const h = setup(transport);
+			h.network.script(PRIMARY, () => httpFailure(503));
+			h.network.script(FALLBACK, (c) => {
+				h.abort.abort();
+				return hang(c);
+			});
+			await h.run();
+			expect(h.network.calls).toHaveLength(2);
+			expect(h.completion).toMatchObject({
+				outcome: "stopped",
+				stopCause: "user_stop",
+			});
+		});
+	},
+);
+
+describe.each(TRANSPORTS)(
+	"failover switched off in the configuration (%s)",
+	(transport) => {
+		it("a provider error before any output asks no fallback", async () => {
+			const h = setup(transport, { failover: false });
+			h.network.script(
+				PRIMARY,
+				() => httpFailure(503),
+				() => httpFailure(503),
+			);
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			await h.run();
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
+			expect(h.completion).toMatchObject({ outcome: "failed" });
+		});
+
+		it("a failure after a tool settled asks no fallback", async () => {
+			const h = setup(transport, { failover: false });
+			h.network.script(
+				PRIMARY,
+				(c) => respond(c.transport, { call: "lookup-1" }),
+				() => httpFailure(503),
+				(c) => respond(c.transport, { text: "closing on the same provider" }),
+			);
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			await h.run();
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
+			expect(h.ran).toEqual({ primary: 1, fallback: 0 });
+		});
+
+		it("a request that hangs is not cut at the failover timeout", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const h = setup(transport, { failover: false });
+			let seen: AbortSignal | undefined;
+			h.network.script(PRIMARY, (c) => {
+				seen = c.signal;
+				return hang(c);
+			});
+			h.network.script(FALLBACK, (c) =>
+				respond(c.transport, { text: "must not be asked" }),
+			);
+			const done = h.run();
+			await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(seen?.aborted).toBe(false);
 			h.abort.abort();
-			return hang(c);
+			await done;
+			expect(h.network.to(FALLBACK)).toHaveLength(0);
 		});
-		await h.run();
-		expect(h.network.calls).toHaveLength(2);
-		expect(h.completion).toMatchObject({
-			outcome: "stopped",
-			stopCause: "user_stop",
-		});
-	});
-});
+	},
+);
 
-describe.each(
-	TRANSPORTS,
-)("failover switched off in the configuration (%s)", (transport) => {
-	it("a provider error before any output asks no fallback", async () => {
-		const h = setup(transport, { failover: false });
-		h.network.script(
-			PRIMARY,
-			() => httpFailure(503),
-			() => httpFailure(503),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toMatchObject({ outcome: "failed" });
-	});
+describe.each(TRANSPORTS)(
+	"the fallback cannot take the context (%s)",
+	(transport) => {
+		const afterToolOrNot = [
+			["before any tool ran", false],
+			["after a tool settled", true],
+		] as const;
 
-	it("a failure after a tool settled asks no fallback", async () => {
-		const h = setup(transport, { failover: false });
-		h.network.script(
-			PRIMARY,
-			(c) => respond(c.transport, { call: "lookup-1" }),
-			() => httpFailure(503),
-			(c) => respond(c.transport, { text: "closing on the same provider" }),
+		it.each(afterToolOrNot)(
+			"its window is too small (%s): an explicit refusal, nothing sent, nothing cut",
+			async (_label, afterTool) => {
+				const message = `${"word ".repeat(1500)}end`;
+				const h = setup(transport, { fallbackWindow: 6100, message });
+				h.network.script(
+					PRIMARY,
+					...(afterTool
+						? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
+						: []),
+					() => httpFailure(503),
+				);
+				h.network.script(FALLBACK, (c) =>
+					respond(c.transport, { text: "must not be asked" }),
+				);
+				await h.run();
+				expect(h.network.to(FALLBACK)).toHaveLength(0);
+				expect(h.completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "context_capacity",
+				});
+				expect(h.snapshot?.original.messages).toEqual([
+					{ role: "user", content: message },
+				]);
+				if (afterTool)
+					expect(JSON.stringify(h.snapshot?.steps)).toContain(
+						"SETTLED-EVIDENCE",
+					);
+			},
 		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.ran).toEqual({ primary: 1, fallback: 0 });
-	});
 
-	it("a request that hangs is not cut at the failover timeout", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const h = setup(transport, { failover: false });
-		let seen: AbortSignal | undefined;
-		h.network.script(PRIMARY, (c) => {
-			seen = c.signal;
-			return hang(c);
-		});
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
+		it.each(afterToolOrNot)(
+			"its projection refuses the context (%s): an explicit refusal, nothing sent",
+			async (_label, afterTool) => {
+				const h = setup(transport, { refuseFallbackProjection: true });
+				h.network.script(
+					PRIMARY,
+					...(afterTool
+						? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
+						: []),
+					() => httpFailure(503),
+				);
+				h.network.script(FALLBACK, (c) =>
+					respond(c.transport, { text: "must not be asked" }),
+				);
+				await h.run();
+				expect(h.network.to(FALLBACK)).toHaveLength(0);
+				expect(h.completion).toMatchObject({
+					outcome: "incomplete",
+					stopCause: "incompatible_continuation",
+				});
+			},
 		);
-		const done = h.run();
-		await vi.waitFor(() => expect(h.network.to(PRIMARY)).toHaveLength(1));
-		await vi.advanceTimersByTimeAsync(30_000);
-		expect(seen?.aborted).toBe(false);
-		h.abort.abort();
-		await done;
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-	});
-});
-
-describe.each(
-	TRANSPORTS,
-)("the fallback cannot take the context (%s)", (transport) => {
-	const afterToolOrNot = [
-		["before any tool ran", false],
-		["after a tool settled", true],
-	] as const;
-
-	it.each(
-		afterToolOrNot,
-	)("its window is too small (%s): an explicit refusal, nothing sent, nothing cut", async (_label, afterTool) => {
-		const message = `${"word ".repeat(1500)}end`;
-		const h = setup(transport, { fallbackWindow: 6100, message });
-		h.network.script(
-			PRIMARY,
-			...(afterTool
-				? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
-				: []),
-			() => httpFailure(503),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toMatchObject({
-			outcome: "incomplete",
-			stopCause: "context_capacity",
-		});
-		expect(h.snapshot?.original.messages).toEqual([
-			{ role: "user", content: message },
-		]);
-		if (afterTool)
-			expect(JSON.stringify(h.snapshot?.steps)).toContain("SETTLED-EVIDENCE");
-	});
-
-	it.each(
-		afterToolOrNot,
-	)("its projection refuses the context (%s): an explicit refusal, nothing sent", async (_label, afterTool) => {
-		const h = setup(transport, { refuseFallbackProjection: true });
-		h.network.script(
-			PRIMARY,
-			...(afterTool
-				? [(c: Ctx) => respond(c.transport, { call: "lookup-1" })]
-				: []),
-			() => httpFailure(503),
-		);
-		h.network.script(FALLBACK, (c) =>
-			respond(c.transport, { text: "must not be asked" }),
-		);
-		await h.run();
-		expect(h.network.to(FALLBACK)).toHaveLength(0);
-		expect(h.completion).toMatchObject({
-			outcome: "incomplete",
-			stopCause: "incompatible_continuation",
-		});
-	});
-});
+	},
+);

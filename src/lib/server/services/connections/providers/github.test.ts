@@ -146,27 +146,30 @@ describe("githubConnect", () => {
 		["a loopback IPv4 host", "https://127.0.0.1:3000"],
 		["a private RFC1918 host", "https://192.168.1.10:3000"],
 		["the cloud metadata address", "https://169.254.169.254/latest"],
-	])("rejects %s as invalid_config without ever calling fetch (SSRF guard)", async (_label, baseUrl) => {
-		seedUser(USER_ID);
-		const { githubConnect, GitHubError } = await import("./github");
-		const fetchMock = vi.fn();
+	])(
+		"rejects %s as invalid_config without ever calling fetch (SSRF guard)",
+		async (_label, baseUrl) => {
+			seedUser(USER_ID);
+			const { githubConnect, GitHubError } = await import("./github");
+			const fetchMock = vi.fn();
 
-		try {
-			await githubConnect({
-				userId: USER_ID,
-				token: "token-abc",
-				baseUrl,
-				fetch: fetchMock as unknown as typeof fetch,
-			});
-			throw new Error("expected githubConnect to throw");
-		} catch (err) {
-			expect(err).toBeInstanceOf(GitHubError);
-			expect((err as InstanceType<typeof GitHubError>).code).toBe(
-				"invalid_config",
-			);
-		}
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
+			try {
+				await githubConnect({
+					userId: USER_ID,
+					token: "token-abc",
+					baseUrl,
+					fetch: fetchMock as unknown as typeof fetch,
+				});
+				throw new Error("expected githubConnect to throw");
+			} catch (err) {
+				expect(err).toBeInstanceOf(GitHubError);
+				expect((err as InstanceType<typeof GitHubError>).code).toBe(
+					"invalid_config",
+				);
+			}
+			expect(fetchMock).not.toHaveBeenCalled();
+		},
+	);
 
 	it("a 401 on /user surfaces a clear invalid_token error with no token in the message", async () => {
 		seedUser(USER_ID);

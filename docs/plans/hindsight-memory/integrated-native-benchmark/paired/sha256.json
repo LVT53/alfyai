@@ -1,0 +1,14 @@
+{
+  "README.md": "76a264da63910aa96e9bf6e82d3667ef931153ca1375f9939666dabae1d450a0",
+  "manual-grades.json": "2ca8a4e50adb6e6db3cb0e547ecccb2afac89a82dccb483f3c3d3e4815edb2d4",
+  "model-calls.jsonl.gz": "7b6eca125d8a8ad623e3fb709faa78f1aa4117bcb18a92098282834c56dbcaa6",
+  "p01-results.json.gz": "a7b635befc9dcabb8ad2d5458f3d4df67130d05265adfb1ba1a3d24a0e4355b2",
+  "p02-results.json.gz": "2407a741a1bf1182236d11dbf1e811346af131352945f3b15840feac9e846a56",
+  "p03-results.json.gz": "cb9603258715ef5e3c9643762e50fc2afaab23b32b475558cb81ed961cacb831",
+  "p04-results.json.gz": "d4c38db8a264ceb49c2c9fc780318d14e45f0a5c109f1198758a696f65d28fca",
+  "p05-results.json.gz": "f07633c80f8ed773a5239de2f34fabe8126728512b4d62a92954ca338147adc4",
+  "p06-results.json.gz": "77cdc54d25a257df4f1aee09455c2183d8f0becf0f859f80679ba8882208386e",
+  "review.py": "27d8bad0ba5f206114b44dbe291caf425517c802a084d3ce0e0d431e0f98ca8d",
+  "run.ts": "041bdddabc384069ee676e95f4d32aa7fb8b3cd3bdcbc546d953512670b3d4a8",
+  "summary.json": "09e9611f2e6c4a99a970987a9460595ac55b250c402a061a99d40cdceed17fdf"
+}

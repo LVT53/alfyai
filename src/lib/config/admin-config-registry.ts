@@ -364,6 +364,24 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 
 	// --- Memory & working set ----------------------------------------------
 	{
+		key: "HINDSIGHT_URL",
+		group: "memory",
+		control: { kind: "text" },
+		effect: "live",
+	},
+	{
+		key: "HINDSIGHT_WORKER_ENABLED",
+		group: "memory",
+		control: { kind: "bool" },
+		effect: "live",
+	},
+	{
+		key: "HINDSIGHT_CONCURRENCY",
+		group: "memory",
+		control: int(1, 6),
+		effect: "live",
+	},
+	{
 		key: "MEMORY_JUDGE_DRY_RUN",
 		group: "memory",
 		control: { kind: "bool" },
@@ -934,6 +952,7 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"ATLAS_V3_PAGES_PER_QUESTION_IN_DEPTH",
 	"ATLAS_V3_PAGES_PER_QUESTION_EXHAUSTIVE",
 	"ATLAS_V3_LANGUAGE_STANDARD_HU",
+	"HINDSIGHT_CURATION_MODEL",
 	"MEMORY_JUDGE_MODEL",
 	"MEMORY_CONSOLIDATION_MODEL",
 	"TITLE_GEN_MODEL",
@@ -945,7 +964,6 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"SYSTEM_PROMPT",
 	// Integrations & keys
 	"PARALLEL_API_KEY",
-	"BRAVE_SEARCH_API_KEY",
 	// The MinerU keys arrive through the ADVANCED_KEY_SPECS spread above, now
 	// that every one of them has a spec.
 	"WEB_PUSH_VAPID_PUBLIC_KEY",

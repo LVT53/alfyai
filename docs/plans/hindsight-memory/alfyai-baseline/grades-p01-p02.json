@@ -1,0 +1,386 @@
+[
+  {
+    "profile": "p01",
+    "index": 0,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Abstains instead of recalling booked departure September 4 and not-yet-at-destination status.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 0,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Abstains instead of recalling booked departure September 4 and not-yet-at-destination status.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 1,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Abstains; does not recall booked location York.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 1,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Abstains; does not recall booked location York.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 2,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correct home city, but cannot recall planned September 7 return or answer already back home.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 2,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correct home city, but cannot recall planned September 7 return or answer already back home.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 3,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p01",
+    "index": 3,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p01",
+    "index": 4,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p01",
+    "index": 4,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p01",
+    "index": 5,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 5,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 6,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct short, informal Cedar-scoped writing preference.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 6,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct short, informal Cedar-scoped writing preference.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 7,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Does not supply postponed pricing or keyboard-testing next step; missing required project continuity.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 7,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct approved copy, postponed pricing, and signup-form keyboard testing next.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 8,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 8,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 9,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 9,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 10,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct severe peanut allergy recalled across project boundary.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 10,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct severe peanut allergy recalled across project boundary.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 11,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct user codename, hobby, and weekly day.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p01",
+    "index": 11,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct user codename, hobby, and weekly day.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 0,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correctly says travel has not started and identifies Friday September 4 (explicitly or relative to Thursday September 3).",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 0,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correctly says travel has not started and identifies Friday September 4 (explicitly or relative to Thursday September 3).",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 1,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct booked destination for September 6.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 1,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct booked destination for September 6.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 2,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correct home city but incorrectly moves the September 4 trip into the future on September 9, instead of recognizing September 7 return.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 2,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correct home city but incorrectly moves the September 4 trip into the future on September 9, instead of recognizing September 7 return.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 3,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 3,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correctly attributes compared device to relative, but asserts continued ownership/everyday use of sold device and omits replacement.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 4,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correctly leaves profession and boat/car ownership unknown, but adds contradicted current ownership of sold device. Also adds obsolete numbered-list preference and wrongly upcoming completed trip.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 4,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correctly leaves profession and boat/car ownership unknown, but explicitly asserts obsolete numbered-list preference after its correction.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 5,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 5,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Correct home city, but only reports no evidence/record of a decision; does not establish the known undecided relocation state. Strict incomplete; lenient reading would accept no confirmed decision.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 6,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct short, informal Cedar-scoped writing preference.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 6,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct short, informal Cedar-scoped writing preference.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 7,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Does not supply postponed pricing or keyboard-testing next step; missing required project continuity.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 7,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct approved copy, postponed pricing, and signup-form keyboard testing next.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 8,
+    "arm": "alfyai-passive",
+    "pass": false,
+    "reason": "Uses numbered list instead of requested two short connected sentences without a list.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 8,
+    "arm": "alfyai-tool",
+    "pass": false,
+    "reason": "Uses numbered list instead of requested two short connected sentences without a list. Also refers to sold Switch Lite as a current device.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p02",
+    "index": 9,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 9,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Provides two vegetarian, peanut-free meals avoiding disliked ingredient and compatible with under-20-minute preparation.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 10,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct severe peanut allergy recalled across project boundary.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 10,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct severe peanut allergy recalled across project boundary.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 11,
+    "arm": "alfyai-passive",
+    "pass": true,
+    "reason": "Correct user codename, hobby, and weekly day.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p02",
+    "index": 11,
+    "arm": "alfyai-tool",
+    "pass": true,
+    "reason": "Correct user codename, hobby, and weekly day.",
+    "unsupportedPersonalClaim": false
+  }
+]

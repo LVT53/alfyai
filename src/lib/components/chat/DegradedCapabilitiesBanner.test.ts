@@ -15,7 +15,7 @@ const degradedResponse = {
 	degraded: [
 		{
 			tool: "image_search",
-			backend: "Brave Search",
+			backend: "Parallel API",
 			since: "2026-09-05T10:00:00.000Z",
 		},
 		{

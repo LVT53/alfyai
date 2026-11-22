@@ -53,11 +53,13 @@ import {
 	OSM_ATTRIBUTION,
 	type PlaceInput,
 	type RouteData,
+	type RoutingFailureReason,
 	type RoutingMode,
 	type RoutingProvider,
 	type TransitData,
 	type TransitItinerary,
 } from "$lib/server/services/routing/types";
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
 
 // ── Input schema (v1) ──────────────────────────────────────────
 
@@ -423,12 +425,21 @@ export type RoutingToolModelPayload = {
 	journey?: JourneyNarration;
 };
 
+export type MapRouteReason = ToolReasonCode<"map_route">;
+
 export type RoutingToolOutcome = {
 	modelPayload: RoutingToolModelPayload;
 	candidates: ToolEvidenceCandidate[];
 	// Compact inline map card data (route action only) — never part of
 	// modelPayload; see ToolCallMapData for the size discipline.
 	map?: ToolCallMapData;
+	// Why a call did not work, from map_route's closed list of reasons: beside
+	// the payload the model reads and never in it, so the row can say it in
+	// words of its own. Absent on a call that worked.
+	reason?: MapRouteReason;
+	// The place words that did not resolve (`place_not_found` only): what the
+	// person's own request said, for the row to quote.
+	reasonPlace?: string;
 };
 
 function buildPayload(params: {
@@ -471,15 +482,48 @@ function buildPayload(params: {
 function failure(
 	action: RoutingToolInput["action"],
 	message: string,
+	reason?: MapRouteReason,
+	reasonPlace?: string,
 ): RoutingToolOutcome {
-	return buildPayload({ success: false, action, message });
+	return {
+		...buildPayload({ success: false, action, message }),
+		...(reason ? { reason } : {}),
+		...(reasonPlace !== undefined ? { reasonPlace } : {}),
+	};
 }
 
+// A parameter the model left out or gave in a shape it could correct.
 function missingInput(
 	action: RoutingToolInput["action"],
 	message: string,
 ): RoutingToolOutcome {
-	return failure(action, message);
+	return failure(action, message, "request_adjusted");
+}
+
+// A place that did not resolve, with the reason it did not and, for a place the
+// geocoder found nothing for, the words that were looked up.
+function unresolved(
+	action: RoutingToolInput["action"],
+	place: { message: string; reason: MapRouteReason; place?: string },
+): RoutingToolOutcome {
+	return failure(action, place.message, place.reason, place.place);
+}
+
+// What the engine's own reason is called on a row: a server that is not set up
+// (no engine, no geocoder), a place that did not resolve, the engine's service
+// not answering, and the coverage reasons under the names they already had.
+function mapRouteReasonFor(reason: RoutingFailureReason): MapRouteReason {
+	switch (reason) {
+		case "unconfigured":
+		case "geocoder_unconfigured":
+			return "not_set_up";
+		case "not_found":
+			return "place_not_found";
+		case "provider_error":
+			return "route_service_unavailable";
+		default:
+			return reason;
+	}
 }
 
 const UNCONFIGURED_MESSAGE =
@@ -544,7 +588,7 @@ function placeCandidate(
 // produce a precise, honest message (geocoder unavailable vs place not found).
 type ResolveResult =
 	| { ok: true; coord: LatLng; label: string; geocoded: boolean }
-	| { ok: false; message: string };
+	| { ok: false; message: string; reason: MapRouteReason; place?: string };
 
 async function resolvePlace(
 	place: PlaceInput,
@@ -560,12 +604,17 @@ async function resolvePlace(
 	}
 	const query = place.trim();
 	if (!query) {
-		return { ok: false, message: "An empty place name can't be resolved." };
+		return {
+			ok: false,
+			message: "An empty place name can't be resolved.",
+			reason: "request_adjusted",
+		};
 	}
 	if (!provider.geocoderConfigured()) {
 		return {
 			ok: false,
 			message: `Geocoding is unavailable, so "${query}" can't be resolved. Pass explicit {lat,lng} coordinates instead.`,
+			reason: "not_set_up",
 		};
 	}
 	const outcome = await provider.geocode({ query, limit: 1 });
@@ -574,17 +623,21 @@ async function resolvePlace(
 			return {
 				ok: false,
 				message: `I couldn't find a place matching "${query}".`,
+				reason: "place_not_found",
+				place: query,
 			};
 		}
 		if (outcome.reason === "geocoder_unconfigured") {
 			return {
 				ok: false,
 				message: `Geocoding is unavailable, so "${query}" can't be resolved. Pass explicit {lat,lng} coordinates instead.`,
+				reason: "not_set_up",
 			};
 		}
 		return {
 			ok: false,
 			message: `I couldn't reach the geocoding service to resolve "${query}" right now.`,
+			reason: "geocoder_unavailable",
 		};
 	}
 	const first = outcome.data.results[0];
@@ -592,6 +645,8 @@ async function resolvePlace(
 		return {
 			ok: false,
 			message: `I couldn't find a place matching "${query}".`,
+			reason: "place_not_found",
+			place: query,
 		};
 	}
 	return {
@@ -919,6 +974,7 @@ export async function runRoutingTool(
 			return failure(
 				"geocode",
 				`Geocoding is unavailable — no geocoding service is configured on this server. Say geocoding is unavailable rather than guessing coordinates for "${input.query}".`,
+				"not_set_up",
 			);
 		}
 		const outcome = await provider.geocode({
@@ -928,11 +984,19 @@ export async function runRoutingTool(
 		});
 		if (!outcome.ok) {
 			if (outcome.reason === "not_found") {
-				return failure("geocode", `No place matched "${input.query}".`);
+				return failure(
+					"geocode",
+					`No place matched "${input.query}".`,
+					"place_not_found",
+					input.query,
+				);
 			}
 			return failure(
 				"geocode",
 				`Geocoding failed for "${input.query}". Please try again in a moment.`,
+				outcome.reason === "geocoder_unconfigured"
+					? "not_set_up"
+					: "geocoder_unavailable",
 			);
 		}
 		const results = outcome.data.results;
@@ -953,7 +1017,7 @@ export async function runRoutingTool(
 
 	// route / matrix / isochrone all need ORS routing.
 	if (!provider.routingConfigured()) {
-		return failure(input.action, UNCONFIGURED_MESSAGE);
+		return failure(input.action, UNCONFIGURED_MESSAGE, "not_set_up");
 	}
 
 	if (input.action === "route") {
@@ -964,14 +1028,14 @@ export async function runRoutingTool(
 			);
 		}
 		const origin = await resolvePlace(input.origin, provider);
-		if (!origin.ok) return failure("route", origin.message);
+		if (!origin.ok) return unresolved("route", origin);
 		const destination = await resolvePlace(input.destination, provider);
-		if (!destination.ok) return failure("route", destination.message);
+		if (!destination.ok) return unresolved("route", destination);
 
 		const waypoints: LatLng[] = [];
 		for (const wp of input.waypoints ?? []) {
 			const resolved = await resolvePlace(wp, provider);
-			if (!resolved.ok) return failure("route", resolved.message);
+			if (!resolved.ok) return unresolved("route", resolved);
 			waypoints.push(resolved.coord);
 		}
 
@@ -985,6 +1049,7 @@ export async function runRoutingTool(
 			return failure(
 				"route",
 				providerFailureMessage("a route", outcome, provider),
+				mapRouteReasonFor(outcome.reason),
 			);
 		}
 		const data = outcome.data;
@@ -1042,7 +1107,7 @@ export async function runRoutingTool(
 					continue;
 				}
 				const resolved = await resolvePlace(place, provider);
-				if (!resolved.ok) return failure("journey", resolved.message);
+				if (!resolved.ok) return unresolved("journey", resolved);
 				const entry = { coord: resolved.coord, label: resolved.label };
 				resolvedPlaces.set(key, entry);
 				ends.push(entry);
@@ -1067,12 +1132,14 @@ export async function runRoutingTool(
 			return failure(
 				"journey",
 				`I couldn't read "${input.departure}" as a departure time. Use "HH:MM" or "YYYY-MM-DDTHH:MM".`,
+				"request_adjusted",
 			);
 		}
 		if (input.arrive_by && !arriveBy) {
 			return failure(
 				"journey",
 				`I couldn't read "${input.arrive_by}" as an arrival time. Use "HH:MM" or "YYYY-MM-DDTHH:MM".`,
+				"request_adjusted",
 			);
 		}
 
@@ -1085,7 +1152,13 @@ export async function runRoutingTool(
 			},
 			{ provider },
 		);
-		if (!outcome.ok) return failure("journey", outcome.message);
+		if (!outcome.ok) {
+			return failure(
+				"journey",
+				outcome.message,
+				outcome.reason ? mapRouteReasonFor(outcome.reason) : undefined,
+			);
+		}
 		const plan = outcome.plan;
 		const first = legs[0];
 		const last = legs[legs.length - 1];
@@ -1133,13 +1206,13 @@ export async function runRoutingTool(
 		const origins: LatLng[] = [];
 		for (const place of rawOrigins) {
 			const resolved = await resolvePlace(place, provider);
-			if (!resolved.ok) return failure("matrix", resolved.message);
+			if (!resolved.ok) return unresolved("matrix", resolved);
 			origins.push(resolved.coord);
 		}
 		const destinations: LatLng[] = [];
 		for (const place of rawDestinations) {
 			const resolved = await resolvePlace(place, provider);
-			if (!resolved.ok) return failure("matrix", resolved.message);
+			if (!resolved.ok) return unresolved("matrix", resolved);
 			destinations.push(resolved.coord);
 		}
 		const outcome = await provider.matrix({ origins, destinations, mode });
@@ -1147,6 +1220,7 @@ export async function runRoutingTool(
 			return failure(
 				"matrix",
 				providerFailureMessage("the distance/ETA matrix", outcome, provider),
+				mapRouteReasonFor(outcome.reason),
 			);
 		}
 		return buildPayload({
@@ -1170,12 +1244,13 @@ export async function runRoutingTool(
 			return failure(
 				action,
 				"Public transport timetables are not available on this server. Say timetables are unavailable rather than inventing departures.",
+				"transit_unavailable",
 			);
 		}
 		const origin = await resolvePlace(input.origin, provider);
-		if (!origin.ok) return failure(action, origin.message);
+		if (!origin.ok) return unresolved(action, origin);
 		const destination = await resolvePlace(input.destination, provider);
-		if (!destination.ok) return failure(action, destination.message);
+		if (!destination.ok) return unresolved(action, destination);
 
 		const base = {
 			origin: origin.coord,
@@ -1213,6 +1288,7 @@ export async function runRoutingTool(
 					outcome,
 					provider,
 				),
+				mapRouteReasonFor(outcome.reason),
 			);
 		}
 		const data = outcome.data;
@@ -1307,7 +1383,7 @@ export async function runRoutingTool(
 		);
 	}
 	const origin = await resolvePlace(input.origin, provider);
-	if (!origin.ok) return failure("isochrone", origin.message);
+	if (!origin.ok) return unresolved("isochrone", origin);
 	const outcome = await provider.isochrone({
 		origin: origin.coord,
 		mode,
@@ -1317,6 +1393,7 @@ export async function runRoutingTool(
 		return failure(
 			"isochrone",
 			providerFailureMessage("reachability", outcome, provider),
+			mapRouteReasonFor(outcome.reason),
 		);
 	}
 	return buildPayload({

@@ -235,6 +235,7 @@ async function madeAt(artifactId: string, at: Date): Promise<void> {
 
 /** What one row of the list says, as a reader reads it: its visible text, one line. */
 async function rowText(row: Locator): Promise<string> {
+	// biome-ignore lint/performance/useDomNodeTextContent: innerText is the rendered text, as a person sees it; textContent would count hidden text too.
 	return ((await row.innerText()) ?? "").replace(/\s+/g, " ").trim();
 }
 

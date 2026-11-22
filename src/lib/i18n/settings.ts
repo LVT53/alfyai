@@ -2,6 +2,14 @@
 
 const settingsDict = {
 	en: {
+		"memoryCleanup.pending":
+			"Memory is no longer used. Deletion from the memory service is still pending.",
+		"memoryCleanup.failed":
+			"Memory is no longer used, but deletion needs another attempt.",
+		"memoryCleanup.loadFailed": "Couldn’t check memory deletion.",
+		"memoryCleanup.complete": "Memory deletion is complete.",
+		"memoryCleanup.retry": "Retry deletion",
+
 		"admin.activeSessions": "Active sessions",
 		"admin.addModel": "Add Model",
 		"admin.addModelAlias": "Add alias",
@@ -37,9 +45,6 @@ const settingsDict = {
 			"Base prompt for that language. Leave empty to rely on few-shot examples only.",
 		"admin.baseUrl": "Base URL",
 		"admin.baseUrlPlaceholder": "e.g. https://api.openai.com/v1",
-		"admin.braveSearchApiKey": "Brave Search API Key",
-		"admin.braveSearchApiKeyDescription":
-			"API key for the Brave Search image-search service. Leave empty to disable Brave-backed image search.",
 		"admin.campaigns.actionLabelEn": "English action label",
 		"admin.campaigns.actionLabelHu": "Hungarian action label",
 		"admin.campaigns.actionUrl": "Action URL",
@@ -306,6 +311,9 @@ const settingsDict = {
 		"admin.memory": "Memory",
 		"admin.memoryConsolidationModel": "Memory consolidation model",
 		"admin.memoryConsolidationModelDescription": `Runs the nightly clean-up and writes the "What I remember about you" summary.`,
+		"admin.hindsightCurationModel": "Memory editing model",
+		"admin.hindsightCurationModelDescription":
+			"Memory edits and removals use the server’s Hindsight gateway binding when configured. Choose a local gateway model here to override it. Automatic memory extraction is configured in Hindsight.",
 		"admin.memoryJudgeModel": "Memory judge model",
 		"admin.memoryJudgeModelDescription":
 			"Runs the judge that decides what to remember from each conversation. Defaults to your primary chat model.",
@@ -464,7 +472,7 @@ const settingsDict = {
 		"admin.optionalDisplayName": "Optional display name",
 		"admin.parallelApiKey": "Parallel API Key",
 		"admin.parallelApiKeyDescription":
-			"API key for the Parallel web search and research service. Leave empty to disable Parallel-backed web research.",
+			"Enables web search, page extraction and image search through Parallel.",
 		"admin.parallelFreeMonthlyUsd": "Parallel free monthly allowance",
 		"admin.parallelFreeMonthlyUsdDescription":
 			"Parallel calls cost nothing to users until the whole server's usage passes this amount in a calendar month. After that they count as normal. Set to 0 to always count them.",
@@ -653,7 +661,7 @@ const settingsDict = {
 		"admin.toolHealth.title": "Tool health",
 		"admin.webResearch": "Web Research",
 		"admin.webResearchDescription":
-			"Server-owned web search and research keys. Parallel powers web search and page research; Brave is used separately for image search.",
+			"Parallel powers web search, page extraction and image search.",
 		"admin.webPushVapidPrivateKey": "Web Push VAPID Private Key",
 		"admin.webPushVapidPublicKey": "Web Push VAPID Public Key",
 		"admin.webPushVapidSubject": "Web Push VAPID Subject",
@@ -725,7 +733,41 @@ const settingsDict = {
 		"analytics.extractFetches": "Extract fetches",
 		"analytics.parallelCost": "Parallel cost",
 		"analytics.totalCalls": "Total calls",
-		"analytics.parallelUsage": "Turbo vs Extract usage",
+		"analytics.imageSearches": "Image searches",
+		"analytics.parallelUsage": "Usage by tool",
+		"analytics.pictureTitle": "Chat pictures · {month}",
+		"analytics.pictureScope":
+			"Chat counts cover saved, non-incognito chats for included accounts. The shared budget includes Parallel usage from every account.",
+		"analytics.picturePartial":
+			"Search and preview tracking began on {date}. Billing covers the whole month.",
+		"analytics.pictureHistorical":
+			"This month predates picture tracking. Only recorded billing is available.",
+		"analytics.pictureFrequency": "Chat turns with a picture search",
+		"analytics.pictureRatio": "{searched} of {turns}",
+		"analytics.pictureAttempts": "Search attempts",
+		"analytics.pictureExtra": "Additional searches in the same turn",
+		"analytics.pictureEmpty": "Searches with no results",
+		"analytics.pictureFailed": "Failed searches",
+		"analytics.pictureCandidates": "Image results returned",
+		"analytics.pictureOutcomes": "Pictures in replies",
+		"analytics.pictureShown": "Included in replies",
+		"analytics.pictureLoaded": "Loaded in a browser",
+		"analytics.pictureLoadFailed": "Failed to load",
+		"analytics.pictureUnknown": "No load report",
+		"analytics.pictureOutcomeNote":
+			"Each searched picture counts once per reply. Reopening a chat can confirm a load.",
+		"analytics.pictureSpend": "Shared Parallel budget",
+		"analytics.pictureGroup": "Usage",
+		"analytics.pictureList": "List price",
+		"analytics.pictureCovered": "Covered by credit",
+		"analytics.pictureBilled": "Charged",
+		"analytics.pictureAll": "Picture searches for included accounts",
+		"analytics.pictureExtras": "Additional searches",
+		"analytics.pictureAllParallel": "All Parallel tools",
+		"analytics.pictureRemaining":
+			"{remaining} of the {allowance} monthly credit remains.",
+		"analytics.pictureExtraMetered":
+			"{all} picture searches counted toward list-price usage, including {extra} recorded additional searches.",
 		"analytics.parallelAllowanceOf": "of {allowance} free allowance used",
 		"analytics.parallelAllowanceResets":
 			"Resets 1 {month} · users are charged {charged}",
@@ -849,7 +891,7 @@ const settingsDict = {
 		settings_archiveDownloaded: "Your data archive download has started.",
 		settings_clearMemoryAndKnowledge: "Clear memory and knowledge",
 		settings_clearMemoryDescription:
-			"Deletes everything AlfyAI has learned about you and every document you have uploaded or that AlfyAI created. Your personal instructions, your chats and your account stay.",
+			"Stops using your memories immediately and deletes them, along with uploaded and generated documents. If the memory service is unavailable, deletion finishes when it reconnects. Your personal instructions, chats and account stay.",
 		settings_clearMemorySuccess:
 			"Memory and knowledge have been cleared. Your chats are still available.",
 		settings_clearWorkspaceData: "Clear workspace data",
@@ -1656,6 +1698,16 @@ const settingsDict = {
 		"admin.system.keys.TEI_TIMEOUT_MS.label": "Embedding timeout",
 		"admin.system.keys.TEI_TIMEOUT_MS.meaning":
 			"Wall clock for one embedder or reranker call.",
+		"admin.system.keys.HINDSIGHT_URL.label": "Hindsight service address",
+		"admin.system.keys.HINDSIGHT_URL.meaning":
+			"Private address of the Hindsight service. The deployment configuration must allow this address.",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.label":
+			"Hindsight background processing",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.meaning":
+			"Runs queued Hindsight Memory jobs when the deployment's restore hold is off.",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.label": "Parallel Hindsight jobs",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.meaning":
+			"Maximum number of Hindsight Memory jobs the app runs at once. The service limits model calls separately.",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.label": "Judge dry run",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.meaning":
 			"The judge decides and logs, but writes nothing to the profile.",
@@ -2044,6 +2096,14 @@ const settingsDict = {
 		"profileTab.timeZoneHelp": "Lets AlfyAI know your local date and time.",
 		"profileTab.timeZoneThisDevice": "This device",
 		"profileTab.timeZoneOthers": "Other zones",
+		// Send with Enter: the person's own switch for the message box's keys.
+		// Off, Enter writes a new line and Ctrl/Cmd+Enter sends. A touch-only
+		// screen has no Shift+Enter, so Enter stays a new line there either way.
+		"profileTab.sendWithEnter": "Send with Enter",
+		"profileTab.sendWithEnterHelp":
+			"Enter sends your message and Shift+Enter starts a new line. On a touch screen, Enter still starts a new line.",
+		"profileTab.sendWithEnterOn": "On",
+		"profileTab.sendWithEnterOff": "Off",
 
 		// Assistant behaviour.
 		"profileTab.assistantTitle": "Assistant behaviour",
@@ -2072,7 +2132,7 @@ const settingsDict = {
 		"profileTab.manageSkills": "Manage skills",
 		"profileTab.skillsCountEnabled": "{count} enabled",
 		"profileTab.skillsCountDisabled": "{count} disabled",
-		"profileTab.memoryProfile": "Memory profile",
+		"profileTab.memoryProfile": "Memory",
 		"profileTab.memoryProfileHelp":
 			"Read and edit the portrait AlfyAI keeps of you, category by category.",
 		"profileTab.openKnowledgeBase": "Open Knowledge Base",
@@ -2127,6 +2187,14 @@ const settingsDict = {
 		// ── END PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────
 	},
 	hu: {
+		"memoryCleanup.pending":
+			"A memóriát már nem használja. A memóriaszolgáltatásból való törlés még folyamatban van.",
+		"memoryCleanup.failed":
+			"A memóriát már nem használja, de a törlést újra kell próbálni.",
+		"memoryCleanup.loadFailed": "Nem sikerült ellenőrizni a memória törlését.",
+		"memoryCleanup.complete": "A memória törlése befejeződött.",
+		"memoryCleanup.retry": "Törlés újrapróbálása",
+
 		"admin.activeSessions": "Aktív munkamenetek",
 		"admin.addModel": "Modell hozzáadása",
 		"admin.addModelAlias": "Alias hozzáadása",
@@ -2162,9 +2230,6 @@ const settingsDict = {
 			"Alapprompt az adott nyelvhez. Hagyd üresen, ha csak a few-shot példákra szeretnél támaszkodni.",
 		"admin.baseUrl": "Alap-URL",
 		"admin.baseUrlPlaceholder": "pl. https://api.openai.com/v1",
-		"admin.braveSearchApiKey": "Brave Search API-kulcs",
-		"admin.braveSearchApiKeyDescription":
-			"A Brave Search képkeresési szolgáltatás API-kulcsa. Hagyd üresen a Brave-alapú képkeresés letiltásához.",
 		"admin.campaigns.actionLabelEn": "Angol műveletcímke",
 		"admin.campaigns.actionLabelHu": "Magyar műveletcímke",
 		"admin.campaigns.actionUrl": "Művelet URL",
@@ -2433,6 +2498,9 @@ const settingsDict = {
 		"admin.memory": "Memória",
 		"admin.memoryConsolidationModel": "Memória-összesítő modell",
 		"admin.memoryConsolidationModelDescription": `Ez futtatja az éjszakai karbantartást, és ez írja meg az „Amit rólad megjegyeztem” összefoglalót.`,
+		"admin.hindsightCurationModel": "Memóriaszerkesztési modell",
+		"admin.hindsightCurationModelDescription":
+			"A memória szerkesztése és eltávolítása a kiszolgálón beállított Hindsight-átjárómodellt használja. Itt választhatsz helyi átjárómodellt a kiszolgáló beállításának felülírásához. Az automatikus memóriakinyerés a Hindsightban állítható be.",
 		"admin.memoryJudgeModel": "Memória bíráló modell",
 		"admin.memoryJudgeModelDescription":
 			"Ez futtatja a bírálót, amely eldönti, mit érdemes megjegyezni az adott beszélgetésből. Alapértelmezésben az elsődleges csevegőmodelledet használja.",
@@ -2595,7 +2663,7 @@ const settingsDict = {
 		"admin.optionalDisplayName": "Opcionális megjelenített név",
 		"admin.parallelApiKey": "Parallel API-kulcs",
 		"admin.parallelApiKeyDescription":
-			"A Parallel webes keresési és kutatási szolgáltatás API-kulcsa. Hagyd üresen a Parallel-alapú webes kutatás letiltásához.",
+			"A Parallel webes kereséséhez, weboldalak tartalmának lekéréséhez és képkereséshez szükséges kulcs.",
 		"admin.parallelFreeMonthlyUsd": "Parallel ingyenes havi keret",
 		"admin.parallelFreeMonthlyUsdDescription":
 			"A Parallel hívások addig nem jelentenek költséget a felhasználóknak, amíg a szerver teljes havi használata egy naptári hónapban meg nem haladja ezt az összeget. Utána a szokásos módon számoljuk el. 0 esetén mindig elszámoljuk őket.",
@@ -2793,7 +2861,7 @@ const settingsDict = {
 		"admin.toolHealth.title": "Eszközállapot",
 		"admin.webResearch": "Webes kutatás",
 		"admin.webResearchDescription":
-			"Szerveroldali webes keresési és kutatási kulcsok. A Parallel végzi a webes keresést és oldalkutatást; a Brave külön a képkereséshez használatos.",
+			"A webes keresést, a weboldalak tartalmának lekérését és a képkeresést a Parallel végzi.",
 		"admin.webPushVapidPrivateKey": "Web Push VAPID privát kulcs",
 		"admin.webPushVapidPublicKey": "Web Push VAPID nyilvános kulcs",
 		"admin.webPushVapidSubject": "Web Push VAPID tárgy",
@@ -2866,7 +2934,41 @@ const settingsDict = {
 		"analytics.extractFetches": "Extract lekérések",
 		"analytics.parallelCost": "Parallel költség",
 		"analytics.totalCalls": "Összes hívás",
-		"analytics.parallelUsage": "Turbo vs Extract használat",
+		"analytics.imageSearches": "Képkeresések",
+		"analytics.parallelUsage": "Használat eszközönként",
+		"analytics.pictureTitle": "Képek a beszélgetésekben · {month}",
+		"analytics.pictureScope":
+			"A statisztika a figyelembe vett fiókok mentett, nem inkognitóban folytatott beszélgetéseit mutatja. A közös keretbe az összes fiók Parallel-használata beleszámít.",
+		"analytics.picturePartial":
+			"A kereséseket és az előnézeteket {date} óta mérjük. A költségek a teljes hónapra vonatkoznak.",
+		"analytics.pictureHistorical":
+			"Ebben a hónapban még nem mértük a képek használatát. Csak a rögzített költségek érhetők el.",
+		"analytics.pictureFrequency": "Képkeresést használó beszélgetésfordulók",
+		"analytics.pictureRatio": "{searched} / {turns}",
+		"analytics.pictureAttempts": "Keresési kísérletek",
+		"analytics.pictureExtra": "További keresések ugyanabban a fordulóban",
+		"analytics.pictureEmpty": "Találat nélküli keresések",
+		"analytics.pictureFailed": "Sikertelen keresések",
+		"analytics.pictureCandidates": "Kapott képtalálatok",
+		"analytics.pictureOutcomes": "Képek a válaszokban",
+		"analytics.pictureShown": "Válaszokba illesztve",
+		"analytics.pictureLoaded": "Böngészőben betöltve",
+		"analytics.pictureLoadFailed": "Sikertelen betöltés",
+		"analytics.pictureUnknown": "Nincs betöltési adat",
+		"analytics.pictureOutcomeNote":
+			"Minden keresésből származó kép válaszonként egyszer számít. A betöltés a beszélgetés újbóli megnyitásakor is igazolható.",
+		"analytics.pictureSpend": "Közös Parallel-keret",
+		"analytics.pictureGroup": "Használat",
+		"analytics.pictureList": "Listaár",
+		"analytics.pictureCovered": "Keretből fedezve",
+		"analytics.pictureBilled": "Felszámítva",
+		"analytics.pictureAll": "A figyelembe vett fiókok képkeresései",
+		"analytics.pictureExtras": "Ebből további keresések",
+		"analytics.pictureAllParallel": "Az összes Parallel-eszköz",
+		"analytics.pictureRemaining":
+			"A havi {allowance} keretből {remaining} maradt.",
+		"analytics.pictureExtraMetered":
+			"A listaáras használatba {all} képkeresés számított bele, ebből {extra} keresést rögzítettünk további keresésként.",
 		"analytics.parallelAllowanceOf":
 			"felhasználva a {allowance} ingyenes keretből",
 		"analytics.parallelAllowanceResets":
@@ -2994,7 +3096,7 @@ const settingsDict = {
 		settings_archiveDownloaded: "Elindult az adatarchívum letöltése.",
 		settings_clearMemoryAndKnowledge: "Memória és tudás törlése",
 		settings_clearMemoryDescription:
-			"Törli mindazt, amit az AlfyAI megtanult rólad, és minden feltöltött vagy általa létrehozott dokumentumot. A személyes utasításaid, a csevegéseid és a fiókod megmaradnak.",
+			"Azonnal leállítja az emlékeid használatát, és törli őket a feltöltött és létrehozott dokumentumokkal együtt. Ha a memóriaszolgáltatás nem érhető el, a törlés az újracsatlakozáskor fejeződik be. A személyes utasításaid, beszélgetéseid és fiókod megmaradnak.",
 		settings_clearMemorySuccess:
 			"A memória és a tudás törölve. A beszélgetéseid továbbra is elérhetők.",
 		settings_clearWorkspaceData: "Munkaterületi adatok törlése",
@@ -3817,6 +3919,17 @@ const settingsDict = {
 		"admin.system.keys.TEI_TIMEOUT_MS.label": "Beágyazási időkorlát",
 		"admin.system.keys.TEI_TIMEOUT_MS.meaning":
 			"Egy beágyazó- vagy újrarangsoroló-hívás futásideje.",
+		"admin.system.keys.HINDSIGHT_URL.label": "A Hindsight szolgáltatás címe",
+		"admin.system.keys.HINDSIGHT_URL.meaning":
+			"A Hindsight szolgáltatás belső címe. A címet a telepítési beállításokban engedélyezni kell.",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.label":
+			"Hindsight háttérfeldolgozás",
+		"admin.system.keys.HINDSIGHT_WORKER_ENABLED.meaning":
+			"Futtatja a sorban álló Hindsight-memóriafeladatokat, ha nincs érvényben a visszaállítási zárolás.",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.label":
+			"Párhuzamos Hindsight-feladatok",
+		"admin.system.keys.HINDSIGHT_CONCURRENCY.meaning":
+			"Ennyi Hindsight-memóriafeladatot futtathat egyszerre az alkalmazás. A modellhívásokat a szolgáltatás külön korlátozza.",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.label": "Bíráló próbafutás",
 		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.meaning":
 			"A bíráló dönt és naplóz, de semmit nem ír a profilba.",
@@ -4209,6 +4322,11 @@ const settingsDict = {
 		"profileTab.timeZoneHelp": "Ebből tudja az AlfyAI, mennyi az idő nálad.",
 		"profileTab.timeZoneThisDevice": "Ez az eszköz",
 		"profileTab.timeZoneOthers": "Más időzónák",
+		"profileTab.sendWithEnter": "Küldés Enterrel",
+		"profileTab.sendWithEnterHelp":
+			"Az Enter elküldi az üzenetet, a Shift+Enter új sort kezd. Érintőképernyőn az Enter továbbra is új sort kezd.",
+		"profileTab.sendWithEnterOn": "Be",
+		"profileTab.sendWithEnterOff": "Ki",
 
 		// Az asszisztens viselkedése.
 		"profileTab.assistantTitle": "Az asszisztens viselkedése",
@@ -4231,7 +4349,7 @@ const settingsDict = {
 		"profileTab.manageSkills": "Készségek kezelése",
 		"profileTab.skillsCountEnabled": "{count} engedélyezve",
 		"profileTab.skillsCountDisabled": "{count} letiltva",
-		"profileTab.memoryProfile": "Memóriaprofil",
+		"profileTab.memoryProfile": "Memória",
 		"profileTab.memoryProfileHelp":
 			"Olvasd és szerkeszd a rólad őrzött képet, kategóriánként.",
 		"profileTab.openKnowledgeBase": "Tudásbázis megnyitása",

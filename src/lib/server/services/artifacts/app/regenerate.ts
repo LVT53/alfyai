@@ -69,7 +69,7 @@ export async function regenerateApp(
 		conversationId: input.conversationId,
 		includeIncognito: input.includeIncognito,
 	});
-	if (!current || current.kind !== "app") {
+	if (current?.kind !== "app") {
 		return { ok: false, reason: "not_found" };
 	}
 	if (

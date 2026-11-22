@@ -116,6 +116,7 @@ export type SendPayload = {
 	// record an activity_events "edit_resend" row. See
 	// normal-chat-client-turn-runtime.ts's NormalChatSendPayload.
 	isEditResend?: boolean;
+	editSourceMessageId?: string;
 };
 
 export type MessageEditPayload = {

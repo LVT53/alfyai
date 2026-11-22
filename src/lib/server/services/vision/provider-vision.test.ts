@@ -69,18 +69,18 @@ describe("providerRunsLocally", () => {
 			mocks.resolveNormalChatModelRunProvider.mockReset();
 		});
 
-		it.each([
-			...ON_THE_BOX,
-			...ELSEWHERE,
-		])("is the opposite of isCloudModel for %s", async (baseUrl) => {
-			mocks.resolveNormalChatModelRunProvider.mockResolvedValue(
-				providerAt(baseUrl),
-			);
+		it.each([...ON_THE_BOX, ...ELSEWHERE])(
+			"is the opposite of isCloudModel for %s",
+			async (baseUrl) => {
+				mocks.resolveNormalChatModelRunProvider.mockResolvedValue(
+					providerAt(baseUrl),
+				);
 
-			expect(await isCloudModel("provider:p:m")).toBe(
-				!providerRunsLocally(providerAt(baseUrl)),
-			);
-		});
+				expect(await isCloudModel("provider:p:m")).toBe(
+					!providerRunsLocally(providerAt(baseUrl)),
+				);
+			},
+		);
 	});
 });
 

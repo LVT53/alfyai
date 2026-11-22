@@ -2,6 +2,7 @@ import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import * as memoryControls from "$lib/server/services/memory-controls";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -989,14 +990,21 @@ describe("runStreamingNormalChatSendModel", () => {
 			getToolCalls: () => [],
 		});
 
-		await runStreamingNormalChatSendModel({
-			userId: "user-1",
-			runtimeConfig,
-			message:
-				"Draft a concise engineering decision memo with Context, Decision, Consequences, and Rollout sections.",
-			conversationId: "conv-1",
-			modelId: "model1",
-		});
+		const memoryActive = vi
+			.spyOn(memoryControls, "isMemoryActiveForConversation")
+			.mockResolvedValue(true);
+		try {
+			await runStreamingNormalChatSendModel({
+				userId: "user-1",
+				runtimeConfig,
+				message:
+					"Draft a concise engineering decision memo with Context, Decision, Consequences, and Rollout sections.",
+				conversationId: "conv-1",
+				modelId: "model1",
+			});
+		} finally {
+			memoryActive.mockRestore();
+		}
 
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({

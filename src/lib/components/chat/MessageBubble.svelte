@@ -136,6 +136,7 @@ let {
 	conversationId = null,
 	modelIcons = {},
 	readOnly = false,
+	trackImageLoads = false,
 	onRegenerate = undefined,
 	onSendFollowUp = undefined,
 	onStartEdit = undefined,
@@ -179,6 +180,7 @@ let {
 	conversationId?: string | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	readOnly?: boolean;
+	trackImageLoads?: boolean;
 	onRegenerate?:
 		| ((payload: {
 				messageId: string;
@@ -514,6 +516,12 @@ let foldedDeliverables = $derived(
 						segment.callId ??
 							`${segment.name + JSON.stringify(segment.input)}-${index}`,
 						$t,
+						// A reply that is over has no call still running: one left so was cut
+						// off, by the person's Stop or by the reply ending some other way.
+						{
+							turnEnded: !isStreaming,
+							turnStopped: message.wasStopped === true,
+						},
 					),
 					segment.callId,
 				),
@@ -1337,6 +1345,8 @@ function sendFollowUp(question: string) {
 			content={message.thinking ?? ''}
 			output={outputView}
 			thinkingIsDone={thinkingIsDone}
+			turnEnded={!isStreaming}
+			turnStopped={message.wasStopped === true}
 			segments={thinkingSegmentsForDisplay}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
 			answerStarted={hasVisibleContent && !toolIsRunning}
@@ -1444,6 +1454,7 @@ function sendFollowUp(question: string) {
 				isStreaming={markdownIsStreaming}
 				compactExternalLinks
 				toolResults={renderResources}
+				imageReportMessageId={trackImageLoads && !isUser && !message.importSource && !message.forkCopy && hasServerPersistedIdentity && !isStreaming && renderResources?.toolImages?.length ? message.id : undefined}
 			/>
 			{#if $readAloudAvailable}
 				<ReadAloudMarks

@@ -71,6 +71,7 @@ function appShellDataFixture(
 		userPersonality: null,
 		userSidebarProjectsExpanded: true,
 		userSidebarChatsExpanded: true,
+		userSendWithEnter: false,
 		modelNames: { model1: "Model 1" },
 		availableModels: [
 			{
@@ -452,31 +453,30 @@ describe("chat conversation page load", () => {
 	});
 });
 
-it.each([
-	undefined,
-	0,
-	42,
-])("preserves unknown versus numeric accounting totals (%s)", async (total) => {
-	const fetch = vi.fn(
-		async () =>
-			new Response(
-				JSON.stringify({
-					conversation: conversationFixture("conv-1"),
-					messages: [],
-					...(total === undefined
-						? {}
-						: { totalCostUsdMicros: total, totalTokens: total }),
-				}),
-				{ status: 200 },
+it.each([undefined, 0, 42])(
+	"preserves unknown versus numeric accounting totals (%s)",
+	async (total) => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						conversation: conversationFixture("conv-1"),
+						messages: [],
+						...(total === undefined
+							? {}
+							: { totalCostUsdMicros: total, totalTokens: total }),
+					}),
+					{ status: 200 },
+				),
+		);
+		const data = await load(
+			makeLoadEvent(
+				fetch,
+				async () => appShellDataFixture(),
+				"http://localhost/chat/conv-1",
 			),
-	);
-	const data = await load(
-		makeLoadEvent(
-			fetch,
-			async () => appShellDataFixture(),
-			"http://localhost/chat/conv-1",
-		),
-	);
-	expect(data?.totalCostUsdMicros).toBe(total);
-	expect(data?.totalTokens).toBe(total);
-});
+		);
+		expect(data?.totalCostUsdMicros).toBe(total);
+		expect(data?.totalTokens).toBe(total);
+	},
+);

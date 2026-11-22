@@ -14,8 +14,7 @@ import { createEmptyConversation, login } from "./helpers";
 // through. None of it needs the network: a refusal makes no outbound request,
 // and an allowed host whose icon cannot be fetched is the globe, kept privately.
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://publisher.invalid/picture.png";
 
 function faviconPath(host: string): string {
 	return `/api/favicon?domain=${encodeURIComponent(host)}`;
@@ -57,13 +56,11 @@ test.describe("source routes, signed in", () => {
 		expect(response.headers()["cache-control"]).toBe("no-store");
 	});
 
-	test("a picture no search returned is a bare 404, whether or not the address is Brave's", async ({
-		page,
-	}) => {
+	test("a picture no search returned is a bare 404", async ({ page }) => {
 		for (const address of [
 			THUMB,
 			"https://evil.example/collect?d=secret",
-			"http://imgs.search.brave.com/Zq3s9x/abc",
+			"http://127.0.0.1/private.png",
 		]) {
 			const response = await page.request.get(thumbnailPath(address));
 
@@ -73,6 +70,51 @@ test.describe("source routes, signed in", () => {
 		}
 		const missing = await page.request.get("/api/image-search/thumbnail");
 		expect(missing.status()).toBe(404);
+	});
+
+	test("opening an old chat never authorizes its detached preview or a private publisher address", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"Old picture source",
+		);
+		const picture = "https://127.0.0.1/blocked.jpg";
+		const oldPreview = `https://retired-preview.invalid/${randomUUID()}`;
+		await db.insert(messages).values({
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 1,
+			role: "assistant",
+			content: `![Saved picture](${oldPreview})`,
+			createdAt: new Date(),
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: randomUUID(),
+					name: "image_search",
+					status: "done",
+					input: { query: "picture" },
+					candidates: [
+						{
+							id: "old-image",
+							title: "Saved picture",
+							url: picture,
+							sourceType: "web",
+							metadata: { thumbnail: oldPreview },
+						},
+					],
+				},
+			]),
+		});
+		expect(
+			(await page.request.get(`/api/conversations/${conversationId}`)).ok(),
+		).toBe(true);
+		for (const url of [picture, oldPreview]) {
+			const response = await page.request.get(thumbnailPath(url));
+			expect(response.status()).toBe(404);
+			expect(response.headers()["cache-control"]).toBe("no-store");
+		}
 	});
 
 	test("reading a conversation lets the icon of a source its stored tool calls returned through", async ({

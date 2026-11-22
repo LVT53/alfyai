@@ -9,7 +9,7 @@ import {
 	parseSentryTracePropagationTargets,
 	parseSentryTracesSampleRate,
 } from "$lib/sentry-config";
-import { refreshConfig } from "$lib/server/config-store";
+import { getConfig, refreshConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { ensureRuntimeSchemaCompatibility } from "$lib/server/db/compat";
 import { users } from "$lib/server/db/schema";
@@ -39,6 +39,7 @@ import {
 	ensureMemoryMaintenanceScheduler,
 	stopMemoryMaintenanceScheduler,
 } from "$lib/server/services/memory-maintenance";
+import { memoryDeliveryJob } from "$lib/server/services/memory-profile/delivery-job";
 import { seedDefaultProviders } from "$lib/server/services/providers";
 import {
 	ensureRoutingRegionScheduler,
@@ -238,6 +239,15 @@ export const init: ServerInit = async () => {
 	// protect stored credentials should not take traffic.
 	assertSessionSecret();
 
+	// Keep a restored instance isolated until the operator reconciles privacy
+	// decisions made after its backup. Even worker startup can replay old work.
+	if (getConfig().hindsightRestoreHold) {
+		const { purgeRestoredMemoryQuarantine } = await import(
+			"$lib/server/services/memory-profile/quarantine"
+		);
+		purgeRestoredMemoryQuarantine();
+		return;
+	}
 	await ensureRuntimeConfigReady();
 	// A ChatGPT import runs inside its request, so a restart leaves its row
 	// `processing` with nothing behind it. Settled here, before the first request.
@@ -271,6 +281,7 @@ export const init: ServerInit = async () => {
 	// words were rewritten to the engine's by `ensureRuntimeConfigReady`
 	// (db/compat.ts), which is awaited above, before any kind starts.
 	startJobs([
+		memoryDeliveryJob,
 		atlasResearchJob,
 		extractionJob,
 		fileProductionJob,
@@ -318,6 +329,14 @@ export const init: ServerInit = async () => {
 };
 
 const appHandle: Handle = async ({ event, resolve }) => {
+	if (getConfig().hindsightRestoreHold) {
+		const response = json(
+			{ error: "Restore verification is pending." },
+			{ status: 503, headers: { "Cache-Control": "no-store" } },
+		);
+		applySecurityHeaders(event, response);
+		return response;
+	}
 	await ensureRuntimeConfigReady();
 
 	// Remembered so the gate below can tell "never signed in" (no cookie at
@@ -354,7 +373,14 @@ const appHandle: Handle = async ({ event, resolve }) => {
 
 	const path = event.url.pathname;
 
-	if (!PUBLIC_PATHS.includes(path) && !event.locals.user) {
+	// The native service has its own bearer check on exactly this GET.
+	const isMemoryAdmission =
+		path === "/api/internal/memory-admission" && event.request.method === "GET";
+	if (
+		!PUBLIC_PATHS.includes(path) &&
+		!isMemoryAdmission &&
+		!event.locals.user
+	) {
 		// Ruling 58: the App's served route, loaded in its own sandboxed
 		// iframe, with no session left. A 303 here would follow through to
 		// `/login` rendering INSIDE that same sandboxed browsing context —

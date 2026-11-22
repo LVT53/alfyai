@@ -1,0 +1,11 @@
+{
+  "sourceProject": "65d9fa53-c6cb-4fbe-aa33-a4411b92df64",
+  "targetProject": "f404de6d-e8bc-4a0c-9cf8-1e430f9e1a32",
+  "sourceChat": "807b51c0-337d-4e56-a334-66c416c267b6",
+  "allowedChat": "ae812f01-129f-4607-bd89-ba164d68e4c3",
+  "excludedChat": "4f60ac51-6f1a-46b9-9643-6edac026cd6e",
+  "otherTenantChat": "745fa242-87c8-44c5-afd8-c54c6fe0c7c6",
+  "positiveCanary": true,
+  "negativeCanary": false,
+  "otherTenantCanary": false
+}

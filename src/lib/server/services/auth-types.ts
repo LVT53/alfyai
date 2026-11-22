@@ -34,6 +34,12 @@ export interface UserPreferences {
 	 */
 	picturesAndVideosEnabled: boolean;
 	/**
+	 * "Send with Enter" (Settings > Profile): Enter sends and Shift+Enter writes
+	 * a new line in the message box. Off by default (Enter writes a new line,
+	 * Ctrl/Cmd+Enter sends).
+	 */
+	sendWithEnter: boolean;
+	/**
 	 * Standing guidance the user typed, followed in every chat. `null` when
 	 * unset or cleared — the API stores both as NULL (see
 	 * src/lib/shared/instructions.ts).

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "conflict_kayaks",
+    "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+    "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+    "changed": "I own a green touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+    "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+    "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+  },
+  {
+    "id": "conflict_projects",
+    "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+    "action": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged.",
+    "changed": "My Juniper project uses Scala and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+    "query": "What languages, schedules and features do my projects have?",
+    "expect": "Juniper Go Mondays later offline CLI; Harbor Kotlin dark. No Ruby."
+  }
+]

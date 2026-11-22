@@ -314,6 +314,9 @@ export type ToolCallIconType =
 	| "run-python"
 	| "map-route"
 	| "use-skill"
+	// The offer of an instruction the person may keep (suggest_instruction): drawn
+	// with the same sparkle as a skill, since both are Alfy offering how it works.
+	| "suggest-instruction"
 	// The in-chat artifact card (Feature 2, cross-kind task) — create_artifact,
 	// edit_artifact and the picture/video makers share this one icon type;
 	// ArtifactCard's own per-kind glyph (Document/App/Canvas/Slides/Image/Video)
@@ -359,6 +362,7 @@ export function getToolCallIconType(name: string): ToolCallIconType {
 	if (normalized === "run_python") return "run-python";
 	if (normalized === "map_route") return "map-route";
 	if (normalized === "use_skill") return "use-skill";
+	if (normalized === "suggest_instruction") return "suggest-instruction";
 	if (
 		normalized === "create_artifact" ||
 		normalized === "edit_artifact" ||

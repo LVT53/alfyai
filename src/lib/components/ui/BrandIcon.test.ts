@@ -50,17 +50,17 @@ describe("BrandIcon", () => {
 		);
 	});
 
-	it.each([
-		"imap",
-		"email",
-	])("falls back to the Lucide Mail glyph for %s", (provider) => {
-		renderIcon({ provider });
+	it.each(["imap", "email"])(
+		"falls back to the Lucide Mail glyph for %s",
+		(provider) => {
+			renderIcon({ provider });
 
-		const icon = screen.getByRole("img");
-		expect(icon.querySelector("svg")?.getAttribute("class")).toContain(
-			"lucide-mail",
-		);
-	});
+			const icon = screen.getByRole("img");
+			expect(icon.querySelector("svg")?.getAttribute("class")).toContain(
+				"lucide-mail",
+			);
+		},
+	);
 
 	// Task 8 — Simple Icons has no Microsoft OneDrive glyph in the pinned
 	// package version, so onedrive uses the Lucide fallback instead of a

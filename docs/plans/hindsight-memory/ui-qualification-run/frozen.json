@@ -1,0 +1,68 @@
+{
+  "mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer.",
+  "answerPrompt": "Answer from these native memory facts only. For the SAME person, object, project and property, the latest explicit assertion supersedes conflicting older assertions, even across chats. asserted_at is when the person actually said/edited the assertion, not when it was reprocessed. Preserve unrelated facts, other people/objects/projects, historical events, negation and uncertainty. Future plans do not become current state. A question or interest is not ownership. Say unknown if evidence is absent. Answer in the question language, at most 120 words.",
+  "editPrompt": "Apply a user edit to the displayed memory using minimal exact-substring changes to native facts. You do not extract facts or rewrite whole facts. The before/after text is the user intent: omitted details must stop being remembered; changed details use the after value. Preserve all independent facts, ownership, other people and other objects. Match the same subject and property; do not remove the remaining person from shared facts. Include every supplied fact id with edits or an empty edits array. Each find must occur exactly once in its fact; edits must not overlap. Remove a whole fact with an empty replacement only if all its information is targeted. Apply the same intent to replayed copies of the original assertion. A later explicitly new statement is not replay; it is not supplied for this curation. Dates and scope come from application provenance. Return JSON only.",
+  "editSchema": {
+    "type": "object",
+    "properties": {
+      "facts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "edits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "find": {
+                    "type": "string"
+                  },
+                  "replace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "find",
+                  "replace"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "edits"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "facts"
+    ],
+    "additionalProperties": false
+  },
+  "editCases": [
+    {
+      "id": "en",
+      "before": "I own an amber hiking backpack and a white canoe. I store both in my garage.",
+      "after": "I own a hiking backpack and a blue canoe. I store both in my garage.",
+      "repeat": "My hiking backpack is amber; my canoe is white. Both are in my garage.",
+      "q": "What backpack and boat do I own, what colours are they, and where do I store them?",
+      "later": "User: My hiking backpack is now silver."
+    },
+    {
+      "id": "hu",
+      "before": "Én és a húgom, Luca, gluténmentesen étkezünk. Két macskám van: Mák fekete, Bodza fehér.",
+      "after": "Luca gluténmentesen étkezik. Két macskám van: Mák, és Bodza, aki szürke.",
+      "repeat": "Gluténmentes étrendet követek, ahogy Luca is. A macskáim közül Mák fekete, Bodza fehér.",
+      "q": "Mit tudsz az én és Luca étrendjéről, a macskáimról és a színükről?",
+      "later": "User: Mák most barna bundájú."
+    }
+  ],
+  "note": "No gold answers sent to extractor/editor. No custom semantic current-list projector."
+}

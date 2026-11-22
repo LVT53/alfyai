@@ -259,48 +259,49 @@ afterEach(async () => {
 });
 
 describe("every recorded input reaches a normalized artifact", () => {
-	it.each(
-		FIXTURE_INPUTS,
-	)("%s parses to non-empty text through the real engine", async (input, file, mimeType) => {
-		await boot({ fixtureInput: input });
-		const { jobId, artifactId } = await seedJob({
-			fixtureInput: input,
-			file,
-			mimeType,
-		});
+	it.each(FIXTURE_INPUTS)(
+		"%s parses to non-empty text through the real engine",
+		async (input, file, mimeType) => {
+			await boot({ fixtureInput: input });
+			const { jobId, artifactId } = await seedJob({
+				fixtureInput: input,
+				file,
+				mimeType,
+			});
 
-		expect(await run()).toEqual({ jobId, status: "succeeded" });
+			expect(await run()).toEqual({ jobId, status: "succeeded" });
 
-		expect(persisted).toHaveLength(1);
-		const call = persisted[0];
-		expect(String(call.text).length).toBeGreaterThan(0);
-		expect(call.mimeType).toBe("text/markdown");
-		expect(call.normalizedName).toBe(`${file.split(".")[0]}.md`);
-		expect(call.sourceArtifactId).toBe(artifactId);
+			expect(persisted).toHaveLength(1);
+			const call = persisted[0];
+			expect(String(call.text).length).toBeGreaterThan(0);
+			expect(call.mimeType).toBe("text/markdown");
+			expect(call.normalizedName).toBe(`${file.split(".")[0]}.md`);
+			expect(call.sourceArtifactId).toBe(artifactId);
 
-		// What MinerU was told: the canonical name, and a tier only where one
-		// can be used (S3, S4). A native document runs at flash whatever is asked.
-		const create = server.requests.find(
-			(entry) => entry.method === "POST" && entry.path === "/v1/tasks",
-		)?.json as { files: Array<{ file_name: string }>; tier?: string };
-		expect(create.files[0].file_name).toBe(`document.${input}`);
-		// A native document is the registry's word (`tierHint: "flash"`), not a
-		// list kept here: it gets no tier, everything else gets the best one.
-		const native = getIntakeTierHint(file, mimeType) === "flash";
-		expect("tier" in create).toBe(!native);
-		if (!native) expect(create.tier).toBe("standard");
+			// What MinerU was told: the canonical name, and a tier only where one
+			// can be used (S3, S4). A native document runs at flash whatever is asked.
+			const create = server.requests.find(
+				(entry) => entry.method === "POST" && entry.path === "/v1/tasks",
+			)?.json as { files: Array<{ file_name: string }>; tier?: string };
+			expect(create.files[0].file_name).toBe(`document.${input}`);
+			// A native document is the registry's word (`tierHint: "flash"`), not a
+			// list kept here: it gets no tier, everything else gets the best one.
+			const native = getIntakeTierHint(file, mimeType) === "flash";
+			expect("tier" in create).toBe(!native);
+			if (!native) expect(create.tier).toBe("standard");
 
-		// The structured payload P4-B reads, flat plus the bundle manifest.
-		const structured = call.structured as Record<string, unknown>;
-		expect(structured.parserVersion).toBe("mineru4/2");
-		expect(structured.markdown).toBe(call.text);
-		expect(Array.isArray(structured.pages)).toBe(true);
-		expect(structured.bundle).not.toBeNull();
+			// The structured payload P4-B reads, flat plus the bundle manifest.
+			const structured = call.structured as Record<string, unknown>;
+			expect(structured.parserVersion).toBe("mineru4/2");
+			expect(structured.markdown).toBe(call.text);
+			expect(Array.isArray(structured.pages)).toBe(true);
+			expect(structured.bundle).not.toBeNull();
 
-		const row = await ledger.getExtractionJobRow(jobId);
-		expect(row?.status).toBe("succeeded");
-		expect(row?.errorCode).toBeNull();
-	});
+			const row = await ledger.getExtractionJobRow(jobId);
+			expect(row?.status).toBe("succeeded");
+			expect(row?.errorCode).toBeNull();
+		},
+	);
 });
 
 describe("direct text does not care what MinerU is", () => {

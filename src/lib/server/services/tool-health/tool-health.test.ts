@@ -15,7 +15,6 @@ function fullConfig(
 	return {
 		parallelApiKey: "parallel-key",
 		parallelBaseUrl: "https://parallel.test",
-		braveSearchApiKey: "brave-key",
 		teiEmbedderUrl: "http://tei-embed:8080/",
 		teiEmbedderApiKey: "",
 		teiRerankerUrl: "http://tei-rerank:8080",
@@ -40,7 +39,6 @@ function fullConfig(
 function emptyConfig(): ToolHealthConfig {
 	return fullConfig({
 		parallelApiKey: "",
-		braveSearchApiKey: "",
 		teiEmbedderUrl: "",
 		teiRerankerUrl: "",
 		orsBaseUrl: "",
@@ -482,15 +480,18 @@ describe("tool health registry", () => {
 
 		const parallel = find("https://parallel.test/v1/search");
 		expect(parallel?.[1].method).toBe("POST");
-		expect((parallel?.[1].headers as Record<string, string>)["x-api-key"]).toBe(
-			"parallel-key",
-		);
+		expect(
+			(parallel?.[1].headers as Record<string, string> | undefined)?.[
+				"x-api-key"
+			],
+		).toBe("parallel-key");
 		expect(parallel?.[1].body).toBe("{}");
 
 		expect(find("http://tei-embed:8080/health")).toBeDefined();
 		const reranker = find("http://tei-rerank:8080/health");
 		expect(
-			(reranker?.[1].headers as Record<string, string>).Authorization,
+			(reranker?.[1].headers as Record<string, string> | undefined)
+				?.Authorization,
 		).toBe("Bearer rerank-token");
 
 		expect(find("http://ors:8082/ors/v2/health")).toBeDefined();
@@ -498,30 +499,28 @@ describe("tool health registry", () => {
 
 		const owntracks = find("http://owntracks:8083/api/0/version");
 		expect(
-			(owntracks?.[1].headers as Record<string, string>).Authorization,
+			(owntracks?.[1].headers as Record<string, string> | undefined)
+				?.Authorization,
 		).toBe(`Basic ${Buffer.from("alfy:secret").toString("base64")}`);
 		// produce_file and run_python sit on the same Docker daemon and share a
 		// probeKey, so one snapshot pings it once, not once per entry.
 		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
 	});
 
-	// Every Brave call is a query against the plan's monthly quota, and the
-	// snapshot is refreshed every five minutes while an admin has the app open.
-	it("never sends Brave a query to check image_search", async () => {
+	it("shares the Parallel credential probe without sending an image query", async () => {
 		const deps = makeDeps(healthyHandler);
 		const tools = byId(await checkToolHealth(deps));
-
-		expect(
-			deps.fetch.mock.calls.some(([url]) =>
-				String(url).includes("api.search.brave.com"),
-			),
-		).toBe(false);
-		expect(tools.image_search.probed).toBe(false);
-	});
-
-	it("says a configured backend it does not probe is not probed", async () => {
-		const tools = byId(await checkToolHealth(makeDeps(healthyHandler)));
-		expect(tools.image_search.detail).toBe("not probed");
+		const requests = deps.fetch.mock.calls.filter(([url]) =>
+			String(url).startsWith("https://parallel.test/"),
+		);
+		expect(requests).toHaveLength(1);
+		expect(requests[0][0]).toBe("https://parallel.test/v1/search");
+		expect(requests[0][1]?.body).toBe("{}");
+		expect(tools.image_search).toMatchObject({
+			backend: "Parallel API",
+			status: "healthy",
+			probed: true,
+		});
 	});
 
 	it("reports a rate-limited backend degraded", async () => {

@@ -7,6 +7,11 @@
 // data parsing over text the user gave, not for artifact generation.
 
 import { z } from "zod";
+import {
+	DISPLAY_OUTPUT_MAX_CHARS,
+	DISPLAY_OUTPUT_MAX_LINES,
+	type ToolReasonCode,
+} from "$lib/shared/tool-reasons";
 
 export const runPythonInputSchema = z.object({
 	code: z.string().min(1),
@@ -74,6 +79,10 @@ export interface RunPythonModelPayload {
 // model as a hard tool failure.
 const SANDBOX_TIMEOUT_ERROR = "Execution timed out";
 
+// What the sandbox reports for a run it was told to cancel (also with no exit
+// code, so it is read before the missing code is).
+const SANDBOX_CANCELLED_ERROR = "Execution cancelled";
+
 // Sentinel for "no exit code was produced" (timeout, or the sandbox failing
 // before the process could exit). Not `null`: the tool envelope compacts
 // null/undefined values out of the model payload (see compactModelPayload in
@@ -98,6 +107,54 @@ export function buildRunPythonModelPayload(
 		timedOut,
 		truncated: stdoutCapped.truncated || stderrCapped.truncated,
 	};
+}
+
+/**
+ * A short copy of what the program printed, for the tool's row: the first
+ * DISPLAY_OUTPUT_MAX_LINES lines of the raw stdout, kept to whole lines within
+ * DISPLAY_OUTPUT_MAX_CHARS, trailing whitespace trimmed. A first line that is
+ * longer than that on its own is cut hard, to one character fewer plus "…".
+ * Blank lines before the first printed line are not counted, so a long line
+ * behind them is still shown. Null when nothing was printed. It goes on the
+ * entry's metadata and is never part of what the model reads.
+ */
+export function displayOutputOf(stdout: string): string | null {
+	const printed = stdout.trimEnd().replace(/^(?:[ \t]*\r?\n)+/, "");
+	if (printed === "") return null;
+
+	const lines = printed.split(/\r?\n/).slice(0, DISPLAY_OUTPUT_MAX_LINES);
+	const kept: string[] = [];
+	let length = 0;
+	for (const line of lines) {
+		const next = length + (kept.length > 0 ? 1 : 0) + line.length;
+		if (next > DISPLAY_OUTPUT_MAX_CHARS) break;
+		kept.push(line);
+		length = next;
+	}
+	if (kept.length === 0) {
+		// The first line alone is longer than that: its first characters are all
+		// there is room for, and they are all in `printed`'s first line.
+		return `${printed.slice(0, DISPLAY_OUTPUT_MAX_CHARS - 1)}…`;
+	}
+	return kept.join("\n").trimEnd();
+}
+
+/**
+ * The code a run is named with on its row, from the closed list of run_python
+ * (`$lib/shared/tool-reasons`), or nothing for a program that ran and exited 0.
+ * The sandbox's own time limit and a cancelled run come first; a run that never
+ * produced an exit code is the sandbox failing before the program could exit;
+ * any other exit code is the program's own error.
+ */
+export function runPythonReasonOf(
+	execution: RunPythonExecutionResult,
+	payload: RunPythonModelPayload,
+): ToolReasonCode<"run_python"> | undefined {
+	if (payload.timedOut) return "timed_out";
+	if (execution.error === SANDBOX_CANCELLED_ERROR) return "stopped";
+	if (payload.exitCode === NO_EXIT_CODE) return "sandbox_unavailable";
+	if (payload.exitCode !== 0) return "program_error";
+	return undefined;
 }
 
 export function summarizeRunPythonResult(

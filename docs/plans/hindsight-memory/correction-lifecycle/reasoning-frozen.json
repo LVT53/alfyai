@@ -1,0 +1,423 @@
+{
+  "prompt": "Apply an explicit user correction/removal to native memory facts. You do NOT extract memories and must NOT rewrite complete facts. Return an entry for EVERY fact ID, with a list of minimal exact substring replacements (find,replace); empty edits means unchanged. Application code applies replacements and preserves all untouched text verbatim. Each find must occur exactly once in that fact. Edits must not overlap. Replace a whole fact with empty text only if ALL its information is targeted.\nThe user action is durable intent about the original statement, and must survive reprocessing of that statement. Removing an attribution also removes historical/former wording of that attribution. Keep a new owner, new unrelated details and explicit later life events. Match only the target person/object/project/relationship. Shared subjects may need a minimal subject replacement to retain the other person's fact. Never invent the opposite of a forgotten fact. Corrections change the original claim, not an explicitly new event. If an edited source changes the target to a third conflicting value without an explicit new event, remove only the disputed aspect (any value), preserve ALL independent details and mark conflict true. Do not delete an entire multi-claim clause just to remove one property. Use the supplied original source to distinguish replay from a new event. Return no commentary.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "facts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "conflict": {
+              "type": "boolean"
+            },
+            "edits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "find": {
+                    "type": "string"
+                  },
+                  "replace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "find",
+                  "replace"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "conflict",
+            "edits"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "facts"
+    ],
+    "additionalProperties": false
+  },
+  "inputs": [
+    {
+      "id": "kayaks",
+      "stage": "initial",
+      "c": {
+        "id": "kayaks",
+        "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+        "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+        "changed": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+        "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+        "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+      },
+      "facts": [
+        {
+          "id": "639639ce-f441-4155-9dc6-f92869d2b46e",
+          "text": "The racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "440baa13-25e9-47fe-9055-e0c2272a0a05",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "6d5daf06-79e8-44e4-9dfa-b45d0c966620",
+          "text": "User owns an orange touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "kayaks",
+      "stage": "changed-source",
+      "c": {
+        "id": "kayaks",
+        "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+        "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+        "changed": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+        "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+        "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+      },
+      "facts": [
+        {
+          "id": "8c515635-5b8c-4302-8244-b99a23171a5a",
+          "text": "The racing kayak is stored at the club. | Where: the club"
+        },
+        {
+          "id": "ba236c86-3741-4385-ba1a-e11b120b5b28",
+          "text": "The touring kayak has a deck compass as of November 18, 2026. | When: November 18, 2026"
+        },
+        {
+          "id": "0106449d-cd8b-42de-aa46-9a8a143048ee",
+          "text": "User paddles the touring kayak on Saturdays. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "809b521d-b4ae-4b63-a228-a75301ba387b",
+          "text": "User owns an orange touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "phone",
+      "stage": "initial",
+      "c": {
+        "id": "phone",
+        "source": "My personal telephone number is 07700 904444. I coordinate the community choir on Thursdays.",
+        "action": "Forget the association between me personally and telephone number 07700 904444. Keep other information and do not erase a later association with an organisation.",
+        "changed": "My former personal telephone number 07700 904444 now belongs to the community choir reception. My new personal number is 07700 905555. I coordinate the community choir on Thursdays.",
+        "query": "What are my and the choir's contact details and when do I coordinate the choir?",
+        "expect": "No former personal attribution. Later choir reception 904444, new personal 905555, Thursdays remain."
+      },
+      "facts": [
+        {
+          "id": "6e2003c8-3cea-49d6-9cb5-8e6a609b817e",
+          "text": "User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user"
+        },
+        {
+          "id": "a376e120-7b4c-4550-a889-b58c4bdededc",
+          "text": "User's personal telephone number is 07700 904444. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "phone",
+      "stage": "changed-source",
+      "c": {
+        "id": "phone",
+        "source": "My personal telephone number is 07700 904444. I coordinate the community choir on Thursdays.",
+        "action": "Forget the association between me personally and telephone number 07700 904444. Keep other information and do not erase a later association with an organisation.",
+        "changed": "My former personal telephone number 07700 904444 now belongs to the community choir reception. My new personal number is 07700 905555. I coordinate the community choir on Thursdays.",
+        "query": "What are my and the choir's contact details and when do I coordinate the choir?",
+        "expect": "No former personal attribution. Later choir reception 904444, new personal 905555, Thursdays remain."
+      },
+      "facts": [
+        {
+          "id": "ffa1c90e-ad79-4bbd-8fa8-9f7f1704369a",
+          "text": "User coordinates the community choir on Thursdays. | When: Thursdays | Involving: user"
+        },
+        {
+          "id": "673221cf-c7dc-48e2-9d33-4dcb1e6f7587",
+          "text": "User's new personal telephone number is 07700 905555. | Involving: user"
+        },
+        {
+          "id": "c7353803-bce5-4a6c-ad45-f83291af8bdf",
+          "text": "User's former personal telephone number 07700 904444 now belongs to the community choir reception. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "siblings_hu",
+      "stage": "initial",
+      "c": {
+        "id": "siblings_hu",
+        "source": "Én és az öcsém Kecskeméten élünk. Én szerdánként úszom, az öcsém péntekenként sakkozik.",
+        "action": "Forget only which city I live in. Keep my brother's city and both our activities.",
+        "changed": "Én és az öcsém Kecskeméten élünk. Én szerdánként úszom és most festeni tanulok, az öcsém péntekenként sakkozik.",
+        "query": "Hol élünk az öcsémmel, és milyen hobbink van?",
+        "expect": "User city absent, brother Kecskemét, user Wednesday swimming and later painting; brother Friday chess."
+      },
+      "facts": [
+        {
+          "id": "2fd4d4f0-883e-4f20-85a4-75a452b15988",
+          "text": "Az öcsém péntekenként sakkozik. | When: péntekenként | Involving: öcsém"
+        },
+        {
+          "id": "74df7f57-082a-464c-8b3f-22ddda2e651c",
+          "text": "A felhasználó szerdánként úszik. | When: szerdánként | Involving: user"
+        },
+        {
+          "id": "c1e596e7-9a43-4edc-934d-6010ce8193d4",
+          "text": "A felhasználó és az öccse Kecskeméten élnek. | Where: Kecskemét | Involving: user, öcsém"
+        }
+      ]
+    },
+    {
+      "id": "siblings_hu",
+      "stage": "changed-source",
+      "c": {
+        "id": "siblings_hu",
+        "source": "Én és az öcsém Kecskeméten élünk. Én szerdánként úszom, az öcsém péntekenként sakkozik.",
+        "action": "Forget only which city I live in. Keep my brother's city and both our activities.",
+        "changed": "Én és az öcsém Kecskeméten élünk. Én szerdánként úszom és most festeni tanulok, az öcsém péntekenként sakkozik.",
+        "query": "Hol élünk az öcsémmel, és milyen hobbink van?",
+        "expect": "User city absent, brother Kecskemét, user Wednesday swimming and later painting; brother Friday chess."
+      },
+      "facts": [
+        {
+          "id": "e14e5f53-f7a8-4a77-a333-acf5a6469961",
+          "text": "A user öccse péntekenként sakkozik. | When: péntekenként | Involving: user öccse"
+        },
+        {
+          "id": "725ab18c-a49c-4adb-95db-56f0a8b509f4",
+          "text": "A user jelenleg (2026. november 18.) festeni tanul. | When: jelenleg (2026. november 18.) | Involving: user"
+        },
+        {
+          "id": "5a096df6-b3ae-4b9c-9f78-3ef2deb46005",
+          "text": "A user szerdánként úszik. | When: szerdánként | Involving: user"
+        },
+        {
+          "id": "66f6f0b1-82f7-404b-9d57-53027dddda8a",
+          "text": "A user és az öccse Kecskeméten élnek. | Where: Kecskemét | Involving: user, user öccse"
+        }
+      ]
+    },
+    {
+      "id": "projects",
+      "stage": "initial",
+      "c": {
+        "id": "projects",
+        "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+        "action": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged.",
+        "changed": "My Juniper project uses Ruby and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+        "query": "What languages, schedules and features do my projects have?",
+        "expect": "Juniper Go Mondays later offline CLI; Harbor Kotlin dark. No Ruby."
+      },
+      "facts": [
+        {
+          "id": "4d601233-ce45-4b88-9a1b-cfcdfec9c9b2",
+          "text": "The user's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "11c7f1fc-3580-423c-a4e6-f5ff0076103e",
+          "text": "The user's Juniper project uses Ruby and ships on Mondays. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "projects",
+      "stage": "changed-source",
+      "c": {
+        "id": "projects",
+        "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+        "action": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged.",
+        "changed": "My Juniper project uses Ruby and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+        "query": "What languages, schedules and features do my projects have?",
+        "expect": "Juniper Go Mondays later offline CLI; Harbor Kotlin dark. No Ruby."
+      },
+      "facts": [
+        {
+          "id": "011d4468-3088-4167-bbb3-15f96fdd0396",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "bdb70024-bc53-4789-914e-5a2cd9e031c9",
+          "text": "User's Juniper project uses Ruby, ships on Mondays, and its new CLI supports offline mode. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "shared_food",
+      "stage": "initial",
+      "c": {
+        "id": "shared_food",
+        "source": "My partner and I cannot eat sesame. I prefer spicy meals and my partner prefers mild meals. We have a rice cooker.",
+        "action": "Forget only my sesame restriction, retaining my partner's restriction and all our other preferences.",
+        "changed": "My partner and I cannot eat sesame. I prefer spicy meals and my partner prefers mild meals. We have a rice cooker and now a countertop steamer.",
+        "query": "What food restrictions and preferences do my partner and I have, and what cooking appliances?",
+        "expect": "Partner sesame restriction only, user spicy partner mild, rice cooker later steamer. Do not invent that user can eat sesame."
+      },
+      "facts": [
+        {
+          "id": "0ee2312a-eb5e-4bd9-b605-e49353412396",
+          "text": "User and their partner have a rice cooker. | Involving: user and partner"
+        },
+        {
+          "id": "eabbcd09-5e1c-410b-9188-0806a713ce39",
+          "text": "User's partner prefers mild meals. | Involving: partner"
+        },
+        {
+          "id": "481a9123-c6a6-46e9-971b-af4f5e9d03e9",
+          "text": "User prefers spicy meals. | Involving: user"
+        },
+        {
+          "id": "0107e797-5bb1-4252-ba1b-5a800795ae74",
+          "text": "User and their partner cannot eat sesame. | Involving: user and partner"
+        }
+      ]
+    },
+    {
+      "id": "shared_food",
+      "stage": "changed-source",
+      "c": {
+        "id": "shared_food",
+        "source": "My partner and I cannot eat sesame. I prefer spicy meals and my partner prefers mild meals. We have a rice cooker.",
+        "action": "Forget only my sesame restriction, retaining my partner's restriction and all our other preferences.",
+        "changed": "My partner and I cannot eat sesame. I prefer spicy meals and my partner prefers mild meals. We have a rice cooker and now a countertop steamer.",
+        "query": "What food restrictions and preferences do my partner and I have, and what cooking appliances?",
+        "expect": "Partner sesame restriction only, user spicy partner mild, rice cooker later steamer. Do not invent that user can eat sesame."
+      },
+      "facts": [
+        {
+          "id": "09bbbf86-6ca0-46fb-94c1-1cb78567a871",
+          "text": "User and user's partner have a rice cooker and, as of November 18, 2026, also have a countertop steamer. | When: November 18, 2026 | Involving: user, user's partner"
+        },
+        {
+          "id": "dcb73f2e-5716-4641-8eec-7295988df103",
+          "text": "User prefers spicy meals, while user's partner prefers mild meals. | Involving: user, user's partner"
+        },
+        {
+          "id": "6efd2988-8a2a-43ab-bcee-11c91e4dd404",
+          "text": "User and user's partner cannot eat sesame. | Involving: user, user's partner"
+        }
+      ]
+    },
+    {
+      "id": "new_event",
+      "stage": "initial",
+      "c": {
+        "id": "new_event",
+        "source": "I live in Cork and work remotely. My sister lives in Limerick.",
+        "action": "Correct where I lived at the time of this statement to Galway, not Cork. This is a correction of the old statement, not a ban on future moves.",
+        "changed": "At the time of my old statement I lived in Cork and worked remotely. On 17 November 2026 I moved to Waterford. My sister still lives in Limerick; I now commute by train.",
+        "query": "Where did I live before, where do I live now, how do I work or commute, and where does my sister live?",
+        "expect": "Old Galway not Cork, new Waterford move preserved, remote historical, train current, sister Limerick."
+      },
+      "facts": [
+        {
+          "id": "31348380-2034-41b7-bcea-2f176fe05c19",
+          "text": "User's sister lives in Limerick. | Where: Limerick | Involving: user's sister"
+        },
+        {
+          "id": "17340d2e-e778-41dd-92ed-538c6cca7f56",
+          "text": "User works remotely. | Involving: user"
+        },
+        {
+          "id": "2c0c4947-03ae-4e43-84ed-9adc50a1cbea",
+          "text": "User lives in Cork. | Where: Cork | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "new_event",
+      "stage": "changed-source",
+      "c": {
+        "id": "new_event",
+        "source": "I live in Cork and work remotely. My sister lives in Limerick.",
+        "action": "Correct where I lived at the time of this statement to Galway, not Cork. This is a correction of the old statement, not a ban on future moves.",
+        "changed": "At the time of my old statement I lived in Cork and worked remotely. On 17 November 2026 I moved to Waterford. My sister still lives in Limerick; I now commute by train.",
+        "query": "Where did I live before, where do I live now, how do I work or commute, and where does my sister live?",
+        "expect": "Old Galway not Cork, new Waterford move preserved, remote historical, train current, sister Limerick."
+      },
+      "facts": [
+        {
+          "id": "3695ecac-6bc6-4474-ae4f-dac858208b06",
+          "text": "User now commutes by train. | When: As of 18 November 2026 | Involving: user"
+        },
+        {
+          "id": "c942311a-cbd1-46a1-86f2-66e774db660b",
+          "text": "User's sister still lives in Limerick. | When: As of 18 November 2026 | Where: Limerick | Involving: user's sister"
+        },
+        {
+          "id": "f93ee925-0088-40c1-a0c5-72011598fb5f",
+          "text": "User moved to Waterford on 17 November 2026. | When: 17 November 2026 | Where: Waterford | Involving: user"
+        },
+        {
+          "id": "4b475dd9-12bd-4c02-bcd4-0f44d061eebf",
+          "text": "User lived in Cork and worked remotely at the time of their old statement. | When: At the time of user's old statement | Where: Cork | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "conflict_kayaks",
+      "stage": "third-value-conflict",
+      "c": {
+        "id": "conflict_kayaks",
+        "source": "I own an orange touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays; the racing kayak is stored at the club.",
+        "action": "Correct only my touring kayak's colour to purple. Keep everything else.",
+        "changed": "I own a green touring kayak and a white racing kayak. I paddle the touring kayak on Saturdays and it now has a deck compass; the racing kayak is stored at the club.",
+        "query": "Which kayaks do I own, what colours are they, when do I paddle them and what equipment or storage do they have?",
+        "expect": "Touring purple, Saturday, later compass; racing white and club. No orange after correction."
+      },
+      "facts": [
+        {
+          "id": "ca515f40-5da7-4280-9788-bb8ba6a68399",
+          "text": "The white racing kayak is stored at the club. | Where: club | Involving: user"
+        },
+        {
+          "id": "dcf0f879-01c6-428e-90b4-731060f9320a",
+          "text": "User paddles the touring kayak on Saturdays, and as of November 18, 2026 it has a deck compass. | When: Saturdays | Involving: user"
+        },
+        {
+          "id": "39e04e23-8193-4f0b-9669-b217ce9ab830",
+          "text": "User owns a green touring kayak and a white racing kayak. | Involving: user"
+        }
+      ]
+    },
+    {
+      "id": "conflict_projects",
+      "stage": "third-value-conflict",
+      "c": {
+        "id": "conflict_projects",
+        "source": "My Juniper project uses Ruby and ships on Mondays. My Harbor project uses Kotlin and has a dark theme.",
+        "action": "Correct Juniper's programming language to Go. Keep Harbor and the release schedule unchanged.",
+        "changed": "My Juniper project uses Scala and ships on Mondays; its new CLI supports offline mode. My Harbor project uses Kotlin and has a dark theme.",
+        "query": "What languages, schedules and features do my projects have?",
+        "expect": "Juniper Go Mondays later offline CLI; Harbor Kotlin dark. No Ruby."
+      },
+      "facts": [
+        {
+          "id": "335388f4-1e4a-42fc-a0b7-8600fad72824",
+          "text": "User's Harbor project uses Kotlin and has a dark theme. | Involving: user"
+        },
+        {
+          "id": "fa2cbda3-69d1-4c00-bbf7-a514f05e9570",
+          "text": "The new CLI for User's Juniper project supports offline mode. | Involving: user"
+        },
+        {
+          "id": "ef7ae5ae-3ee0-4a93-8166-afb2d83841a1",
+          "text": "User's Juniper project uses Scala and ships on Mondays. | Involving: user"
+        }
+      ]
+    }
+  ],
+  "thinking": true,
+  "maxOutput": 8192
+}

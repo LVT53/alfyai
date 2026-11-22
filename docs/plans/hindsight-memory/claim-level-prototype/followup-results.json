@@ -1,0 +1,291 @@
+[
+  {
+    "id": "historical_duplicate",
+    "previous": "I own a red bicycle. I like jazz.",
+    "latest": "The red cycle I own is in the shed. I like jazz and started piano.",
+    "action": "Forget the colour of my bicycle. Preserve ownership, location and unrelated preferences.",
+    "want": "bicycle ownership/shed; jazz/piano; no colour",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "claims": [
+          {
+            "subject": "user",
+            "attribute": "owns bicycle",
+            "value": "yes",
+            "statement": "The user owns a bicycle.",
+            "template": "The user owns {{value}} bicycle.",
+            "evidence": "I own a red bicycle",
+            "kind": "asserted",
+            "event_evidence": ""
+          },
+          {
+            "subject": "user's bicycle",
+            "attribute": "colour",
+            "value": "red",
+            "statement": "The user's bicycle is red.",
+            "template": "The user's bicycle is {{value}}.",
+            "evidence": "I own a red bicycle",
+            "kind": "asserted",
+            "event_evidence": ""
+          },
+          {
+            "subject": "user",
+            "attribute": "likes jazz",
+            "value": "yes",
+            "statement": "The user likes jazz.",
+            "template": "The user likes {{value}}.",
+            "evidence": "I like jazz",
+            "kind": "asserted",
+            "event_evidence": ""
+          }
+        ]
+      },
+      "ms": 1657,
+      "usage": {
+        "prompt_tokens": 384,
+        "total_tokens": 657,
+        "completion_tokens": 273,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "id": 1,
+            "replacement_value": ""
+          }
+        ]
+      },
+      "ms": 348,
+      "usage": {
+        "prompt_tokens": 319,
+        "total_tokens": 361,
+        "completion_tokens": 42,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "claims": [
+          {
+            "subject": "user",
+            "attribute": "owns bicycle",
+            "value": "true",
+            "statement": "The user owns a bicycle.",
+            "template": "The user owns a bicycle.",
+            "evidence": "The red cycle I own",
+            "kind": "asserted",
+            "event_evidence": ""
+          },
+          {
+            "subject": "user's bicycle",
+            "attribute": "colour",
+            "value": "red",
+            "statement": "The user's bicycle is red.",
+            "template": "The user's bicycle is {{value}}.",
+            "evidence": "The red cycle",
+            "kind": "asserted",
+            "event_evidence": ""
+          },
+          {
+            "subject": "user's bicycle",
+            "attribute": "location",
+            "value": "shed",
+            "statement": "The user's bicycle is in the shed.",
+            "template": "The user's bicycle is in the {{value}}.",
+            "evidence": "is in the shed",
+            "kind": "asserted",
+            "event_evidence": ""
+          },
+          {
+            "subject": "user",
+            "attribute": "likes jazz",
+            "value": "true",
+            "statement": "The user likes jazz.",
+            "template": "The user likes jazz.",
+            "evidence": "I like jazz",
+            "kind": "asserted",
+            "event_evidence": ""
+          },
+          {
+            "subject": "user",
+            "attribute": "started piano",
+            "value": "true",
+            "statement": "The user started playing piano.",
+            "template": "The user started playing piano.",
+            "evidence": "started piano",
+            "kind": "asserted",
+            "event_evidence": ""
+          }
+        ]
+      },
+      "ms": 2412,
+      "usage": {
+        "prompt_tokens": 422,
+        "total_tokens": 864,
+        "completion_tokens": 442,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "claims": [
+      {
+        "subject": "user",
+        "attribute": "owns bicycle",
+        "value": "true",
+        "statement": "The user owns a bicycle.",
+        "template": "The user owns a bicycle.",
+        "evidence": "The red cycle I own",
+        "kind": "asserted",
+        "event_evidence": ""
+      },
+      {
+        "subject": "user's bicycle",
+        "attribute": "location",
+        "value": "shed",
+        "statement": "The user's bicycle is in the shed.",
+        "template": "The user's bicycle is in the {{value}}.",
+        "evidence": "is in the shed",
+        "kind": "asserted",
+        "event_evidence": ""
+      },
+      {
+        "subject": "user",
+        "attribute": "likes jazz",
+        "value": "true",
+        "statement": "The user likes jazz.",
+        "template": "The user likes jazz.",
+        "evidence": "I like jazz",
+        "kind": "asserted",
+        "event_evidence": ""
+      },
+      {
+        "subject": "user",
+        "attribute": "started piano",
+        "value": "true",
+        "statement": "The user started playing piano.",
+        "template": "The user started playing piano.",
+        "evidence": "started piano",
+        "kind": "asserted",
+        "event_evidence": ""
+      }
+    ],
+    "conflicts": [],
+    "removed": [
+      {
+        "subject": "user's bicycle",
+        "attribute": "colour",
+        "value": "red",
+        "statement": "The user's bicycle is red.",
+        "template": "The user's bicycle is {{value}}.",
+        "evidence": "The red cycle",
+        "kind": "asserted",
+        "event_evidence": ""
+      }
+    ],
+    "text": "The user owns a bicycle.\nThe user's bicycle is in the shed.\nThe user likes jazz.\nThe user started playing piano."
+  },
+  {
+    "id": "unambiguous_translation",
+    "previous": "Translate \"I have two children and work as a nurse.\" Separately, remember that I prefer brief answers.",
+    "latest": "Translate \"I have two children and work as a nurse.\" Separately, remember that I prefer brief answers.",
+    "action": "Forget any personal profession claim about me, if present.",
+    "want": "No user nurse or children; explicit brief-answer preference preserved.",
+    "before": {
+      "value": {
+        "claims": [
+          {
+            "subject": "user",
+            "attribute": "preference",
+            "value": "brief answers",
+            "statement": "The user prefers brief answers.",
+            "template": "The user prefers {{value}}.",
+            "evidence": "remember that I prefer brief answers",
+            "kind": "asserted",
+            "event_evidence": ""
+          }
+        ]
+      },
+      "ms": 603,
+      "usage": {
+        "prompt_tokens": 396,
+        "total_tokens": 497,
+        "completion_tokens": 101,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": []
+      },
+      "ms": 437,
+      "usage": {
+        "prompt_tokens": 209,
+        "total_tokens": 218,
+        "completion_tokens": 9,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "claims": [
+          {
+            "subject": "user",
+            "attribute": "preference",
+            "value": "brief answers",
+            "statement": "The user prefers brief answers.",
+            "template": "The user prefers {{value}}.",
+            "evidence": "remember that I prefer brief answers",
+            "kind": "asserted",
+            "event_evidence": ""
+          }
+        ]
+      },
+      "ms": 627,
+      "usage": {
+        "prompt_tokens": 408,
+        "total_tokens": 509,
+        "completion_tokens": 101,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "claims": [
+      {
+        "subject": "user",
+        "attribute": "preference",
+        "value": "brief answers",
+        "statement": "The user prefers brief answers.",
+        "template": "The user prefers {{value}}.",
+        "evidence": "remember that I prefer brief answers",
+        "kind": "asserted",
+        "event_evidence": ""
+      }
+    ],
+    "conflicts": [],
+    "removed": [],
+    "text": "The user prefers brief answers."
+  }
+]

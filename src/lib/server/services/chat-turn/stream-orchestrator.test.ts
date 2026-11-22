@@ -1159,41 +1159,43 @@ describe("stream-orchestrator SSE contract", () => {
 		}
 	});
 
-	it.each([
-		false,
-		true,
-	])("releases its owner when stalled iterator cleanup hangs=%s", async (cleanupHangs) => {
-		vi.useFakeTimers();
-		const { runStreamingNormalChatSendModel: run } = await import(
-			"./streaming-normal-chat-model-run"
-		);
-		const finish = vi.fn(async () => {});
-		const returned = vi.fn(() =>
-			cleanupHangs
-				? new Promise<IteratorResult<NeutralStreamEvent>>(() => {})
-				: Promise.resolve({ done: true as const, value: undefined }),
-		);
-		const next = vi.fn(
-			() => new Promise<IteratorResult<NeutralStreamEvent>>(() => {}),
-		);
-		vi.mocked(run).mockResolvedValue(
-			createWatchdogStreamingResult([], {
-				stream: { [Symbol.asyncIterator]: () => ({ next, return: returned }) },
-				completionTurn: { finish, getSnapshot: () => null },
-			}),
-		);
-		const reading = readSseResponse(runStream());
-		try {
-			await vi.advanceTimersByTimeAsync(0);
-			expect(next).toHaveBeenCalledTimes(1);
-			await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
-			expect((await reading).join("")).toContain("data-stream-error");
-			expect(returned).toHaveBeenCalledTimes(1);
-			expect(finish).toHaveBeenCalledTimes(1);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+	it.each([false, true])(
+		"releases its owner when stalled iterator cleanup hangs=%s",
+		async (cleanupHangs) => {
+			vi.useFakeTimers();
+			const { runStreamingNormalChatSendModel: run } = await import(
+				"./streaming-normal-chat-model-run"
+			);
+			const finish = vi.fn(async () => {});
+			const returned = vi.fn(() =>
+				cleanupHangs
+					? new Promise<IteratorResult<NeutralStreamEvent>>(() => {})
+					: Promise.resolve({ done: true as const, value: undefined }),
+			);
+			const next = vi.fn(
+				() => new Promise<IteratorResult<NeutralStreamEvent>>(() => {}),
+			);
+			vi.mocked(run).mockResolvedValue(
+				createWatchdogStreamingResult([], {
+					stream: {
+						[Symbol.asyncIterator]: () => ({ next, return: returned }),
+					},
+					completionTurn: { finish, getSnapshot: () => null },
+				}),
+			);
+			const reading = readSseResponse(runStream());
+			try {
+				await vi.advanceTimersByTimeAsync(0);
+				expect(next).toHaveBeenCalledTimes(1);
+				await vi.advanceTimersByTimeAsync(TURN_BOUND_MS);
+				expect((await reading).join("")).toContain("data-stream-error");
+				expect(returned).toHaveBeenCalledTimes(1);
+				expect(finish).toHaveBeenCalledTimes(1);
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
 
 	it("bounds finalization reads and prevents a late read from starting persistence", async () => {
 		vi.useFakeTimers();
@@ -2672,6 +2674,86 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// A tool row says why a call failed from a code. `errorCode` is the stream's
+	// bucket (it files any message containing "abort" under "timeout"), so the
+	// code comes from the message instead: the envelope's own timeout, and the
+	// completion engine's `user_stop` and `deadline`.
+	describe("the reason code of a failed tool event", () => {
+		async function failedToolMetadata(
+			error: string,
+		): Promise<Record<string, unknown>> {
+			const { runStreamingNormalChatSendModel } = await import(
+				"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+			);
+			(
+				runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+			).mockResolvedValue(
+				createNeutralStreamingResult([
+					{
+						type: "tool_call",
+						callId: "call-failed",
+						toolName: "fetch_url",
+						input: { url: "https://example.com/page" },
+					},
+					{
+						type: "tool_error",
+						callId: "call-failed",
+						toolName: "fetch_url",
+						error,
+					},
+					{ type: "text_delta", text: "Answer" },
+					finishEvent,
+				]),
+			);
+			const chunks = await readSseResponse(runStream());
+			const failed = uiDataParts<Record<string, unknown>>(
+				parseUiStreamParts(chunks),
+				"data-tool-call",
+			).find((payload) => payload.status === "failed");
+			return (failed?.metadata ?? {}) as Record<string, unknown>;
+		}
+
+		it("carries timed_out for a tool's own time limit", async () => {
+			const metadata = await failedToolMetadata(
+				"fetch_url timed out after 45000ms",
+			);
+			expect(metadata.reasonCode).toBe("timed_out");
+			expect(metadata.ok).toBe(false);
+		});
+
+		it("carries stopped for the engine's user_stop, as the SDK words it or as the message alone", async () => {
+			expect((await failedToolMetadata("Error: user_stop")).reasonCode).toBe(
+				"stopped",
+			);
+			expect((await failedToolMetadata("user_stop")).reasonCode).toBe(
+				"stopped",
+			);
+		});
+
+		it("carries out_of_time for the engine's deadline", async () => {
+			expect((await failedToolMetadata("Error: deadline")).reasonCode).toBe(
+				"out_of_time",
+			);
+			expect((await failedToolMetadata("deadline")).reasonCode).toBe(
+				"out_of_time",
+			);
+		});
+
+		it("carries no code for an abort the stream buckets as a timeout", async () => {
+			const metadata = await failedToolMetadata(
+				"fetch_url aborted: The user stopped the turn",
+			);
+			// The stream's bucket still says timeout; the row reads no timed_out.
+			expect(metadata.errorCode).toBe("timeout");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+
+		it("carries no code for any other failure", async () => {
+			const metadata = await failedToolMetadata("uncertain_execution");
+			expect(metadata).not.toHaveProperty("reasonCode");
+		});
+	});
+
 	// produce_file RETURNS its failure instead of throwing it: the file
 	// production ledger said the job failed, which is a normal tool_result as
 	// far as the AI SDK is concerned. The activity row must still read as
@@ -3377,41 +3459,41 @@ describe("stream-orchestrator: when a completion-engine turn takes its first tok
 		return vi.mocked(persistAssistantTurnState).mock.calls[0][0].analytics;
 	}
 
-	it.each([
-		"provisional",
-		"answer",
-	] as const)("takes the first token when the first %s text is written, not when the engine ends", async (role) => {
-		vi.useFakeTimers();
-		const engine = await playEngine();
-		const requestStartedAt = Date.now();
-		const reading = readSseResponse(runStream());
-		await engine.running();
+	it.each(["provisional", "answer"] as const)(
+		"takes the first token when the first %s text is written, not when the engine ends",
+		async (role) => {
+			vi.useFakeTimers();
+			const engine = await playEngine();
+			const requestStartedAt = Date.now();
+			const reading = readSseResponse(runStream());
+			await engine.running();
 
-		// The model thinks first. Reasoning is activity, never the first token.
-		engine.startBlock("thinking", "reasoning", "activity");
-		engine.writeText("thinking", "Weighing how to answer.");
-		await vi.advanceTimersByTimeAsync(3_000);
-		// Then the first words of the answer reach the person.
-		engine.startBlock("answer", "text", role);
-		engine.writeText("answer", "The first words of the answer.");
-		const firstWordsAt = Date.now() - requestStartedAt;
-		// The engine keeps writing for a long while before it can accept the answer.
-		await vi.advanceTimersByTimeAsync(17_000);
-		engine.writeText("answer", " And the rest of it.");
-		await vi.advanceTimersByTimeAsync(2_000);
-		engine.acceptAnswer("The first words of the answer. And the rest of it.");
-		await vi.advanceTimersByTimeAsync(0);
-		const chunks = await reading;
+			// The model thinks first. Reasoning is activity, never the first token.
+			engine.startBlock("thinking", "reasoning", "activity");
+			engine.writeText("thinking", "Weighing how to answer.");
+			await vi.advanceTimersByTimeAsync(3_000);
+			// Then the first words of the answer reach the person.
+			engine.startBlock("answer", "text", role);
+			engine.writeText("answer", "The first words of the answer.");
+			const firstWordsAt = Date.now() - requestStartedAt;
+			// The engine keeps writing for a long while before it can accept the answer.
+			await vi.advanceTimersByTimeAsync(17_000);
+			engine.writeText("answer", " And the rest of it.");
+			await vi.advanceTimersByTimeAsync(2_000);
+			engine.acceptAnswer("The first words of the answer. And the rest of it.");
+			await vi.advanceTimersByTimeAsync(0);
+			const chunks = await reading;
 
-		expect(firstWordsAt).toBe(3_000);
-		expect(terminalTimeline(chunks)).toMatchObject({
-			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: firstWordsAt,
-		});
-		expect(await savedAnalytics()).toMatchObject({
-			firstTokenMs: firstWordsAt,
-			generationTimeMs: 22_000,
-		});
-	});
+			expect(firstWordsAt).toBe(3_000);
+			expect(terminalTimeline(chunks)).toMatchObject({
+				[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: firstWordsAt,
+			});
+			expect(await savedAnalytics()).toMatchObject({
+				firstTokenMs: firstWordsAt,
+				generationTimeMs: 22_000,
+			});
+		},
+	);
 
 	it("does not take reasoning, activity text or blank text as the first token", async () => {
 		vi.useFakeTimers();
@@ -4143,57 +4225,62 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 		it.each([
 			["the stream closed without a finish", []],
 			["a finish came before the step was captured", [finishEvent]],
-		])("does not pause a run whose captured messages lack the ask's result when %s: it ends as a turn that never paused", async (_label, ending) => {
-			// only the search step was captured; the step that asked was not
-			await mockRun(
-				[{ type: "text_delta", text: "Which one?" }, ...askEvents, ...ending],
-				{
-					...askingRun,
-					fixtureOutcome: "incomplete",
-					getResponseMessages: () => responseMessages.slice(0, 2),
-				},
-			);
-			const { runPlainNormalChatSendModel } = await import(
-				"$lib/server/services/chat-turn/plain-normal-chat-model-run"
-			);
-			const { stampAskQuestion, discardAskQuestion } = await import(
-				"$lib/server/services/chat-turn/ask-questions"
-			);
-			const { createMessage } = await import("$lib/server/services/messages");
+		])(
+			"does not pause a run whose captured messages lack the ask's result when %s: it ends as a turn that never paused",
+			async (_label, ending) => {
+				// only the search step was captured; the step that asked was not
+				await mockRun(
+					[{ type: "text_delta", text: "Which one?" }, ...askEvents, ...ending],
+					{
+						...askingRun,
+						fixtureOutcome: "incomplete",
+						getResponseMessages: () => responseMessages.slice(0, 2),
+					},
+				);
+				const { runPlainNormalChatSendModel } = await import(
+					"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+				);
+				const { stampAskQuestion, discardAskQuestion } = await import(
+					"$lib/server/services/chat-turn/ask-questions"
+				);
+				const { createMessage } = await import("$lib/server/services/messages");
 
-			const chunks = await readSseResponse(
-				runStream({
-					conversationId: "uncaptured-ask-conv",
-					streamId: "uncaptured-ask-stream",
-				}),
-			);
-
-			// its words stand, so nothing is regenerated, and nothing is paused
-			expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
-			expect(terminalMetadata(chunks)).not.toHaveProperty("waitingQuestionId");
-			expect(stampAskQuestion).not.toHaveBeenCalled();
-			expect(createMessage).toHaveBeenCalledWith(
-				"uncaptured-ask-conv",
-				"assistant",
-				"Which one?",
-				undefined,
-				expect.arrayContaining([
-					expect.objectContaining({
-						type: "tool_call",
-						name: "ask_user",
-						outputSummary: ENDED_BEFORE_ANSWER,
-						resultDigest: null,
+				const chunks = await readSseResponse(
+					runStream({
+						conversationId: "uncaptured-ask-conv",
+						streamId: "uncaptured-ask-stream",
 					}),
-				]),
-				expect.anything(),
-			);
-			await vi.waitFor(() =>
-				expect(discardAskQuestion).toHaveBeenCalledWith({
-					userId: "u1",
-					questionId: "q-1",
-				}),
-			);
-		});
+				);
+
+				// its words stand, so nothing is regenerated, and nothing is paused
+				expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+				expect(terminalMetadata(chunks)).not.toHaveProperty(
+					"waitingQuestionId",
+				);
+				expect(stampAskQuestion).not.toHaveBeenCalled();
+				expect(createMessage).toHaveBeenCalledWith(
+					"uncaptured-ask-conv",
+					"assistant",
+					"Which one?",
+					undefined,
+					expect.arrayContaining([
+						expect.objectContaining({
+							type: "tool_call",
+							name: "ask_user",
+							outputSummary: ENDED_BEFORE_ANSWER,
+							resultDigest: null,
+						}),
+					]),
+					expect.anything(),
+				);
+				await vi.waitFor(() =>
+					expect(discardAskQuestion).toHaveBeenCalledWith({
+						userId: "u1",
+						questionId: "q-1",
+					}),
+				);
+			},
+		);
 	});
 
 	it("saves a reply stopped after it asked as stopped, discards its question and pauses nothing", async () => {
@@ -4489,7 +4576,12 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				},
 			],
 			userTexts: ["Satin, please"],
-			priorSegmentToolCalls: [fetchEntry, searchEntry, askEntry] as never,
+			priorSegmentToolCalls: [
+				fetchEntry,
+				searchEntry,
+				{ name: "image_search", status: "done", input: { query: "plugs" } },
+				askEntry,
+			] as never,
 			keepConnectorDataLocal: true,
 			answerDigest: {
 				outputSummary: "The user picked: B",
@@ -4569,6 +4661,9 @@ describe("stream-orchestrator: a reply that asks the person", () => {
 				});
 				// no regeneration appendix: this is the same reply going on
 				expect(params.systemPromptAppendix).toBeUndefined();
+				expect(params.priorImageSearchCalls).toEqual([
+					{ name: "image_search", status: "done", input: { query: "plugs" } },
+				]);
 				expect(params.resumeProvenance).toEqual({
 					userTexts: ["Satin, please"],
 					priorResults: capturedProvenanceResults({

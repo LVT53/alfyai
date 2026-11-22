@@ -1,0 +1,47 @@
+{
+  "method": "Manual transformation-only grading; no end-to-end Hindsight acceptance claim.",
+  "passed": 7,
+  "total": 8,
+  "cases": [
+    {
+      "id": "correct_keep_new_details",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    },
+    {
+      "id": "forget_keep_new_details",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    },
+    {
+      "id": "paraphrased_phone",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    },
+    {
+      "id": "shared_subject_hu",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    },
+    {
+      "id": "same_word_other_owner",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    },
+    {
+      "id": "new_explicit_life_event",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    },
+    {
+      "id": "conflicting_target_edit",
+      "pass": false,
+      "reason": "Silently selected blue over new green source edit; returned empty conflicts."
+    },
+    {
+      "id": "quoted_attack",
+      "pass": true,
+      "reason": "Preserves required unrelated latest details and applies the targeted action in this fixture."
+    }
+  ]
+}

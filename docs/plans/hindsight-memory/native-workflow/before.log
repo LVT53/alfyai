@@ -1,0 +1,27 @@
+correct baseline Your bicycle is red, and you prefer decaf coffee. However, I do not have any information about a hobby you started.
+correct after_first_action Your bicycle is blue, and you prefer decaf coffee. However, I do not have any information about a hobby you started.
+correct after_unrelated_message Your bicycle is blue. You prefer decaf coffee. You recently started learning pottery.
+correct after_identical_retry Your bicycle is blue. You prefer decaf coffee. You recently started learning pottery.
+correct action_reapplied_before_restart Your bicycle is blue. You prefer decaf coffee. You recently started learning pottery.
+retire baseline Your bicycle is red. You prefer decaf coffee. I don't have any information about a hobby you started.
+retire after_first_action Your bicycle colour is unknown. You prefer decaf coffee. There is no evidence of a hobby you started.
+retire after_unrelated_message I don't know the colour of your bicycle. You prefer decaf coffee, and you started learning pottery.
+retire after_identical_retry I don't know the colour of your bicycle. You prefer decaf coffee, and you recently started learning pottery.
+retire action_reapplied_before_restart Your bicycle's colour is unknown. You prefer decaf coffee and recently started learning pottery.
+delete-source baseline Your bicycle is red, and you prefer decaf coffee. However, I do not have any information about a hobby you started.
+delete-source after_first_action I do not have any recorded information about your bicycle's color, coffee preferences, or hobbies.
+delete-source after_unrelated_message Your bicycle colour and coffee preference are unknown. You started learning pottery.
+delete-source after_identical_retry Your bicycle is red. You prefer decaf coffee. You recently started learning pottery.
+delete-source action_reapplied_before_restart Your bicycle's colour and coffee preference are unknown based on the available evidence. However, you did start learning pottery as a hobby.
+repeated-correct baseline Your bicycle is red. You prefer decaf coffee. I don't have any information about a hobby you started.
+repeated-correct after_first_action Your bicycle is red, as the red one in your hallway belongs to you. You prefer decaf coffee. I have no information about a hobby you started.
+repeated-correct after_all_supporting_sources Your bicycle is blue. You prefer decaf coffee. I don't have any information about a hobby you started.
+repeated-correct after_unrelated_message Your bicycle is blue. You prefer decaf coffee. You started learning pottery.
+repeated-correct after_identical_retry Your bicycle is blue. You prefer decaf coffee. You started learning pottery.
+repeated-correct action_reapplied_before_restart Your bicycle is blue. You prefer decaf coffee. You recently started learning pottery.
+repeated-delete baseline Your bicycle is red. You prefer decaf coffee. I do not have any information about a hobby you started.
+repeated-delete after_first_action Your bicycle is red. I don't know your coffee preference or any hobby you started.
+repeated-delete after_all_supporting_sources I don't know the colour of your bicycle, your coffee preference, or any hobby you started, as there is no evidence provided about these personal details.
+repeated-delete after_unrelated_message I don't know the colour of your bicycle or your coffee preference, as there is no evidence for those details. However, I do know that you started learning pottery.
+repeated-delete after_identical_retry Your bicycle is red. You prefer decaf coffee and have started learning pottery.
+repeated-delete action_reapplied_before_restart I don't know the colour of your bicycle or your coffee preference, as there is no evidence for those details. However, I know you started learning pottery.

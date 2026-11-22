@@ -19,6 +19,7 @@ describe("index.ts", () => {
 				"stopJobs",
 				"drain",
 				"enqueue",
+				"enqueueAtomic",
 				"cancel",
 				"cancelAll",
 				"retry",

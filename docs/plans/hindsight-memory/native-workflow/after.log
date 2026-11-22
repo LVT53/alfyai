@@ -1,0 +1,10 @@
+correct after_restart Your bicycle is blue. You prefer decaf coffee. You recently started learning pottery.
+correct after_changed_source_reprocessing Your bicycle is red. You prefer decaf coffee, which you usually drink in the morning. You recently started learning pottery.
+retire after_restart I don't know the colour of your bicycle. You prefer decaf coffee, and you recently started learning pottery.
+retire after_changed_source_reprocessing Your bicycle is red. You prefer decaf coffee, which you usually drink in the morning. You recently started learning pottery.
+delete-source after_restart Your bicycle's colour is unknown. Your coffee preference is unknown. You started learning pottery.
+delete-source after_changed_source_reprocessing Your bicycle is red. You prefer decaf coffee, which you usually drink in the morning. You recently started learning pottery.
+repeated-correct after_restart Your bicycle is blue. You prefer decaf coffee. You recently started learning pottery.
+repeated-correct after_changed_source_reprocessing Your bicycle is red. You prefer decaf coffee. You recently started learning pottery.
+repeated-delete after_restart I don't know the colour of your bicycle or your coffee preference, as there is no evidence for those details. However, I know you started learning pottery.
+repeated-delete after_changed_source_reprocessing Your bicycle is red. You prefer decaf coffee. You recently started learning pottery.

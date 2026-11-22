@@ -90,10 +90,12 @@ import {
 	WORKING_SET_OUTPUT_TOKEN_BUDGET,
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from "../knowledge";
+import { isAutomaticEvidenceInConversation } from "../knowledge/automatic-generated-evidence";
 import {
 	listConversationLinkedContextSources,
 	resolveLinkedContextSourcesForConversation,
 } from "../linked-context-sources";
+import { recallMemory } from "../memory-context/native";
 import { retrievePersonaMemory } from "../memory-context/persona";
 import {
 	recordMemoryPromptTelemetry,
@@ -101,6 +103,8 @@ import {
 } from "../memory-context/telemetry";
 import { isMemoryActiveForConversation } from "../memory-controls";
 import type { MemoryProfileScope } from "../memory-profile/active-context";
+import { usesNativeMemory } from "../memory-profile/chat-delivery";
+import { hasNativeMemoryScopeBoundary } from "../memory-profile/revisions";
 import { listMessages } from "../messages";
 import {
 	getConversationProjectId,
@@ -145,6 +149,10 @@ import {
 	buildHistoryModelMessages,
 	type HistoryToolMessagesMode,
 } from "./conversation-history";
+import {
+	namedPastChatTitle,
+	requestsPastChatLookup,
+} from "./past-chat-request";
 
 const SESSION_HISTORY_CONTEXT_TOKENS = 2_000;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
@@ -395,19 +403,40 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	// of truth (users.memoryEnabled AND not conversations.memoryIncognito). When
 	// memory is inactive, inject NO baseline section — an incognito or
 	// memory-disabled conversation must never have persona memory injected into
-	// its prompt. Both the shallow and deep context tiers funnel through here,
-	// so this one check covers every baseline injection. Fail open (treat as
-	// active) on a controls-lookup error, matching the predicate's contract.
+	// its prompt. Both context tiers share this gate; failed authorization
+	// withholds memory without preventing the chat response.
 	const memoryActive = await isMemoryActiveForConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
-	}).catch(() => true);
+	}).catch(() => false);
 	if (!memoryActive) {
 		return null;
 	}
 	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
 		contextBudget: params.modelContextBudget,
 	});
+	if (usesNativeMemory(params.userId)) {
+		const recalled = await recallMemory(params.userId, {
+			conversationId: params.conversationId,
+			query: "Relevant user preferences, constraints and current context",
+			tokenBudget: baselineMemoryProfileBudget.totalBudget,
+		});
+		if (!recalled.length) return null;
+		const content = recalled.map((item) => `- ${item.text}`).join("\n");
+		return {
+			section: {
+				title: "Remembered information",
+				body: `${ACTIVE_MEMORY_PROFILE_NOTE}\n${content}`,
+				layer: "session",
+				protected: true,
+				llmCompactible: true,
+			},
+			itemIds: recalled.map((item) => item.ref.rowId),
+			itemTitles: recalled.map((item) =>
+				clipText(item.text, PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS),
+			),
+		};
+	}
 	const retrieval = await retrievePersonaMemory({
 		userId: params.userId,
 		applicableScopes:
@@ -1935,13 +1964,34 @@ export async function buildConstructedContext(params: {
 	const projectFilesSectionPromise = projectFilesPromise.then((projectFiles) =>
 		buildProjectFilesPromptSection(projectFiles),
 	);
+	const restrictGeneratedOutput = hasNativeMemoryScopeBoundary(params.userId);
+	const projectLabelPromise = getConversationProjectLabel(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	// A resumed reply may have received a later prohibition in an answer.
+	// Only its tool path has those authored answers available to veto a read.
+	const pastProjectLookupAllowed = projectLabelPromise.then((label) =>
+		!params.historyBeforeMessageId &&
+		namedPastChatTitle(params.message) === null &&
+		label &&
+		requestsPastChatLookup(params.message, label)
+			? isMemoryActiveForConversation({
+					userId: params.userId,
+					conversationId: params.conversationId,
+				}).catch(() => false)
+			: false,
+	);
+	const automaticEvidenceAllowed = (artifact: Artifact) =>
+		!restrictGeneratedOutput ||
+		isAutomaticEvidenceInConversation(artifact, params.conversationId);
 	const [
 		sessionContext,
 		resolvedAttachments,
 		conversationSourceArtifactIds,
 		allSourceArtifactNames,
 		linkedContextSources,
-		workingSetArtifacts,
+		workingSetCandidates,
 		projectFolderLabel,
 		projectFolderReferenceContext,
 		projectFolderSiblingPromotion,
@@ -1985,18 +2035,24 @@ export async function buildConstructedContext(params: {
 					: null,
 			).catch(() => []),
 		),
-		getConversationProjectLabel(params.userId, params.conversationId).catch(
-			() => null,
+		projectLabelPromise,
+		pastProjectLookupAllowed.then((allowed) =>
+			allowed
+				? getProjectReferenceContext({
+						userId: params.userId,
+						conversationId: params.conversationId,
+					}).catch(() => null)
+				: null,
 		),
-		getProjectReferenceContext({
-			userId: params.userId,
-			conversationId: params.conversationId,
-		}).catch(() => null),
-		selectProjectFolderSiblingPromotion({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			query: params.message,
-		}).catch(() => null),
+		pastProjectLookupAllowed.then((allowed) =>
+			allowed
+				? selectProjectFolderSiblingPromotion({
+						userId: params.userId,
+						conversationId: params.conversationId,
+						query: params.message,
+					}).catch(() => null)
+				: null,
+		),
 		getConversationForkOrigin(params.conversationId).catch(() => null),
 		loadContextCompressionPromptSnapshot({
 			userId: params.userId,
@@ -2010,6 +2066,9 @@ export async function buildConstructedContext(params: {
 			conversationId: params.conversationId,
 		}),
 	]);
+	const workingSetArtifacts = workingSetCandidates.filter(
+		automaticEvidenceAllowed,
+	);
 	const {
 		sessionMessages,
 		storedMessages,
@@ -2198,7 +2257,7 @@ export async function buildConstructedContext(params: {
 	]);
 
 	const relevantArtifacts = params.reuseFrom
-		? params.reuseFrom.relevantArtifacts
+		? params.reuseFrom.relevantArtifacts.filter(automaticEvidenceAllowed)
 		: await findRelevantKnowledgeArtifacts({
 				userId: params.userId,
 				query: params.message,
@@ -2227,8 +2286,13 @@ export async function buildConstructedContext(params: {
 	});
 	const documentFocused = contextSelection.documentFocused;
 
-	const preparedContext = params.reuseFrom
-		? params.reuseFrom.preparedContext
+	const previousPreparation = params.reuseFrom?.preparedContext;
+	const preparedContext = previousPreparation?.selectedArtifacts.every(
+		(artifact) =>
+			allAttachmentContextIds.has(artifact.id) ||
+			automaticEvidenceAllowed(artifact),
+	)
+		? previousPreparation
 		: await prepareTaskContext({
 				userId: params.userId,
 				conversationId: params.conversationId,
@@ -2253,7 +2317,9 @@ export async function buildConstructedContext(params: {
 			}));
 	const taskState = preparedContext.taskState;
 	const selectedEvidence = preparedContext.selectedArtifacts.filter(
-		(artifact) => !allAttachmentContextIds.has(artifact.id),
+		(artifact) =>
+			!allAttachmentContextIds.has(artifact.id) &&
+			automaticEvidenceAllowed(artifact),
 	);
 
 	const promptArtifacts = new Map<string, Artifact>();

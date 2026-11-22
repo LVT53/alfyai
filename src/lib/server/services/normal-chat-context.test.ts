@@ -1527,7 +1527,7 @@ describe("prepareOutboundChatContext", () => {
 		it("sends a question whose choice is the person's to the card, before any text", () => {
 			const guidance = guidanceFor("off");
 			expect(guidance).toContain(
-				"Use a tool only when the answer needs current or verifiable facts, the user's own data or connections, a pasted link, or a file the user asked for.",
+				"Use a tool only when the person needs a visual reference to recognize, choose or make something, current or verifiable facts, their own data or connections, a pasted link, or a requested file.",
 			);
 			expect(guidance).toContain(ASK_ON_QUICK);
 		});
@@ -1702,17 +1702,20 @@ describe("prepareOutboundChatContext", () => {
 				["an empty string", ""],
 				["a name the runtime does not know", "Mars/Olympus"],
 				["a UTC offset, which is not a zone name", "+01:00"],
-			])("says the zone is unknown and keeps the server's date: %s", (_label, timeZone) => {
-				const line = buildTimeContextLine({ now: middayUtc, timeZone });
+			])(
+				"says the zone is unknown and keeps the server's date: %s",
+				(_label, timeZone) => {
+					const line = buildTimeContextLine({ now: middayUtc, timeZone });
 
-				expect(line).toMatch(/^\[SYSTEM TIME CONTEXT: .*\]$/);
-				expect(line).toContain("Today is Tuesday, November 10, 2026");
-				expect(line).toContain("time zone is unknown");
-				// No time of day, no zone and no offset: nothing here is known.
-				expect(line).not.toMatch(/\d{1,2}:\d{2}/);
-				expect(line).not.toMatch(/UTC[+-]/);
-				expect(line).not.toContain("\n");
-			});
+					expect(line).toMatch(/^\[SYSTEM TIME CONTEXT: .*\]$/);
+					expect(line).toContain("Today is Tuesday, November 10, 2026");
+					expect(line).toContain("time zone is unknown");
+					// No time of day, no zone and no offset: nothing here is known.
+					expect(line).not.toMatch(/\d{1,2}:\d{2}/);
+					expect(line).not.toMatch(/UTC[+-]/);
+					expect(line).not.toContain("\n");
+				},
+			);
 		});
 
 		it("is the first section of the turn guidance, once, and follows the zone it is given", () => {
@@ -3274,15 +3277,18 @@ describe("prepareOutboundChatContext", () => {
 		it.each([
 			["can see", true],
 			["cannot see", false],
-		])("asks the context to prepare them only when the model %s", async (_label, canSee) => {
-			mocks.buildConstructedContext.mockResolvedValueOnce(withPictures({}));
+		])(
+			"asks the context to prepare them only when the model %s",
+			async (_label, canSee) => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(withPictures({}));
 
-			await prepareOutboundChatContext(turn({ collectImages: canSee }));
+				await prepareOutboundChatContext(turn({ collectImages: canSee }));
 
-			expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
-				expect.objectContaining({ collectImages: canSee }),
-			);
-		});
+				expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+					expect.objectContaining({ collectImages: canSee }),
+				);
+			},
+		);
 
 		it("rebuilds a compressed context with the same picture setting", async () => {
 			const reuseData = {
@@ -3789,6 +3795,49 @@ describe("prepareOutboundChatContext", () => {
 			expect(mocks.fetchUrlViaParallel).toHaveBeenCalledTimes(1);
 		});
 	}
+
+	it("names, on the prefetched fetch_url call, why a pasted page could not be read", async () => {
+		const url = "https://example.com/source";
+		const page = (await mocks.fetchUrlViaParallel({})) as Record<
+			string,
+			unknown
+		>;
+		const prepare = () =>
+			prepareOutboundChatContext({
+				message: `What does this page say? ${url}`,
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				contextLimits: {
+					maxModelContext: 262_144,
+					compactionUiThreshold: 209_715,
+					targetConstructedContext: 157_286,
+				},
+				logLabel: "provider request",
+			});
+
+		const read = await prepare();
+		expect(read.prefetchedToolCalls?.[0]?.metadata).not.toHaveProperty(
+			"reasonCode",
+		);
+
+		mocks.fetchUrlViaParallel.mockResolvedValueOnce({
+			...page,
+			sources: [],
+			evidence: [],
+			readFailure: "site_refused",
+		});
+		const refused = await prepare();
+		expect(refused.prefetchedToolCalls).toEqual([
+			expect.objectContaining({
+				name: "fetch_url",
+				metadata: expect.objectContaining({
+					serverPrefetched: true,
+					reasonCode: "site_refused",
+				}),
+			}),
+		]);
+	});
 
 	it("prefetches pasted URLs before the model run as a native fetch_url tool-call/result exchange", async () => {
 		const url = "https://example.com/source";

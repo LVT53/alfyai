@@ -152,7 +152,7 @@ export function mineruBundleDir(
  */
 export function mineruFigureContentType(name: string): string | null {
 	const entry = getEntryByFilename(name);
-	if (!entry || entry.category !== "image") return null;
+	if (entry?.category !== "image") return null;
 	const contentType = entry.mimeTypes[0];
 	return contentType.endsWith("+xml") ? null : contentType;
 }

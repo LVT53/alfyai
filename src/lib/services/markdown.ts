@@ -37,7 +37,7 @@ type RenderMarkdownOptions = {
 	sourceReferences?: SourceReferenceCandidate[];
 	/**
 	 * What the message's image_search calls returned: the only pictures a reply may
-	 * show, and then as Brave's thumbnail through the app's own route. Without them no
+	 * show, through the app’s own thumbnail route. Without them no
 	 * picture from the web is shown (a preview, a history page).
 	 */
 	toolImages?: readonly ToolImage[];
@@ -128,6 +128,7 @@ const RENDERED_CLASSES: ReadonlySet<string> = new Set([
 	"source-link-chip__label",
 	"source-link-chip__icon",
 	"source-link-chip--image",
+	"markdown-image-fallback",
 	"source-link-chip__image-icon",
 	"source-link-chip__host",
 	"shiki",
@@ -178,10 +179,12 @@ const INERT_MARKUP = { allowClass: isRenderedClass };
  * not have written.
  */
 type ResourcePolicy = {
-	/** image_search's results, by the comparison form of their address and of their thumbnail's. */
+	/** image_search's results, by the comparison form of their address. */
 	images: ReadonlyMap<string, ToolImage>;
 	/** The thumbnails the app's route may be asked for. */
 	thumbnails: ReadonlySet<string>;
+	/** Exact aliases in old replies. These never enter the fetch allowlist. */
+	savedAliases: ReadonlyMap<string, ToolImage>;
 	/** The hosts whose favicon a chip may ask for. */
 	sourceHosts: ReadonlySet<string>;
 };
@@ -189,8 +192,11 @@ type ResourcePolicy = {
 function createResourcePolicy(options: RenderMarkdownOptions): ResourcePolicy {
 	const images = new Map<string, ToolImage>();
 	const thumbnails = new Set<string>();
+	const savedAliases = new Map<string, ToolImage>();
 	for (const image of options.toolImages ?? []) {
 		if (image.thumbnail) thumbnails.add(image.thumbnail);
+		if (image.savedThumbnailUrl)
+			savedAliases.set(image.savedThumbnailUrl, image);
 		for (const address of [image.url, image.thumbnail]) {
 			const key = provenanceKey(address);
 			// A picture a tool returned twice is shown by the result that has a thumbnail.
@@ -200,6 +206,7 @@ function createResourcePolicy(options: RenderMarkdownOptions): ResourcePolicy {
 	return {
 		images,
 		thumbnails,
+		savedAliases,
 		sourceHosts: options.toolSourceHosts ?? new Set(),
 	};
 }
@@ -986,14 +993,20 @@ function createMarkdownRenderer(
 	// are stripped by DOMPurify, so the loading state rides on CSS classes.
 	// Which address becomes an <img> is the policy's (docs/plans/exfil-channels), not
 	// the model's: the app's own thumbnail of a connected photo, a picture that holds
-	// its own bytes, or a picture image_search returned (shown as its Brave thumbnail
+	// its own bytes, or a picture image_search returned (shown as a thumbnail
 	// through the app's route). Any other web address is a link chip that is never
 	// fetched, and anything that is not a web address is only its words.
-	const imageFrame = (src: string, alt: string, title: string | undefined) => {
+	const imageFrame = (
+		src: string,
+		alt: string,
+		title: string | undefined,
+		fallback = "",
+	) => {
 		const titleAttribute = title ? ` title="${escapeMarkdownText(title)}"` : "";
 		return [
 			'<span class="markdown-image-frame markdown-image-frame--loading">',
 			`<img class="markdown-image" src="${escapeHtml(src)}" alt="${escapeMarkdownText(alt)}"${titleAttribute} loading="lazy" decoding="async">`,
+			fallback,
 			"</span>",
 		].join("");
 	};
@@ -1006,12 +1019,17 @@ function createMarkdownRenderer(
 		}
 		const key = provenanceKey(href);
 		if (key === null) return escapeMarkdownText(alt);
-		const result = policy.images.get(key);
+		const result = policy.images.get(key) ?? policy.savedAliases.get(href);
 		if (result?.thumbnail) {
+			const fallback =
+				result.sourcePageUrl && linkTextDepth === 0
+					? `<span class="markdown-image-fallback">${renderBlockedImage({ href: result.sourcePageUrl, alt, imageNotLoadedLabel })}</span>`
+					: "";
 			return imageFrame(
 				imageThumbnailRouteUrl(result.thumbnail),
 				alt,
 				title ?? undefined,
+				fallback,
 			);
 		}
 		// Inside a link the link is the way to the address; a chip there would be a link
@@ -1021,7 +1039,11 @@ function createMarkdownRenderer(
 				compactWhitespace(alt) || (sourceHostOf(href) ?? ""),
 			);
 		}
-		return renderBlockedImage({ href, alt, imageNotLoadedLabel });
+		return renderBlockedImage({
+			href: result?.sourcePageUrl ?? result?.url ?? href,
+			alt,
+			imageNotLoadedLabel,
+		});
 	};
 	renderer.link = ({ href, title, tokens }) => {
 		const text = renderLinkText(tokens);

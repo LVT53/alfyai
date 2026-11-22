@@ -1,0 +1,46 @@
+{
+  "archive": "eb1bc237cf9fd409bcd80407c138365fa1a4a329",
+  "foregroundProviderModel": "qwen3-6-27b",
+  "firstObservation": {
+    "sourceProject": "464d62b4-1b42-43da-95c6-e44b6577fa02",
+    "sourceChat": "ddf73572-6b53-4494-b337-16569220ed4b",
+    "sourceMessage": "4d833c70-3807-476e-b969-b07ede20d6db",
+    "otherProject": "8ec770c0-abad-4e6c-8c26-3891b280dd24",
+    "otherChat": "d00321c4-62d6-4507-a1d4-1423f6025fa0",
+    "replyMessage": "d1493ae5-beaf-44a8-a4d8-d4ae8f31504a",
+    "replyContainedCanary": true,
+    "persistedToolCalls": false,
+    "wireCaptureEnabled": false
+  },
+  "readOnlyReplay": {
+    "ownProjectNativeRecallContainedCanary": true,
+    "otherProjectNativeRecallContainedCanary": false,
+    "ownProjectBank": "8a1bec68-3d8c-490e-b856-7ac999d9308d",
+    "otherProjectBank": "57a8b347-26f1-4410-813c-c63d4ad6db48"
+  },
+  "otherProjectRepeatWire": {
+    "sha256": "67f8289f2c0a6923166779129c853bac931357c69f46a646c5f990c9277c13a4",
+    "rememberedInformationContainedCanary": false,
+    "retrievedEvidenceContainedCanary": true,
+    "sourceArtifactsWithCanary": [
+      {"artifact": "c3fcdf4f-eacc-4592-8d2f-7fb6d48da20d", "title": "Stage project bench result", "origin": "source_project"},
+      {"artifact": "fc887912-4301-417c-996c-4d57ac108b21", "title": "Stage recall result", "origin": "source_project"},
+      {"artifact": "27803060-d4d4-4bbd-9e4b-8d7d0f59b952", "title": "Stage cross-project recall result", "origin": "other_project_prior_answer"}
+    ],
+    "replyContainedCanary": true
+  },
+  "manualProjectCanaryWire": {
+    "ownProjectPromptAndAnswerContainedCanary": true,
+    "otherProjectPromptAndAnswerContainedCanaryBeforeOwnProjectTurn": false,
+    "otherProjectPromptAndAnswerContainedCanaryAfterOwnProjectTurn": false,
+    "personalPromptAndAnswerContainedCanary": false,
+    "otherTenantPromptAndAnswerContainedCanary": false,
+    "negativeMemoryContextToolResultsContainedCanary": false
+  },
+  "cleanup": {
+    "foregroundProviderOriginalEndpointRestored": true,
+    "captureListenerStopped": true,
+    "unexpectedUsers": 0,
+    "canonicalStagingAndProductionHealthyAtBaselineRelease": true
+  }
+}

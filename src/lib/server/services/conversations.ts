@@ -22,6 +22,11 @@ import { recordConversationAnalytics } from "./analytics";
 import { listWaitingAskConversationIds } from "./chat-turn/ask-questions";
 import type { ConversationForkListSummary } from "./conversation-forks";
 import { getConversationForkSummaries } from "./conversation-forks";
+import {
+	prepareConversationMemoryMove,
+	usesNativeMemory,
+} from "./memory-profile/chat-delivery";
+import { enqueueMemoryMutation } from "./memory-profile/delivery-job";
 
 type CreateConversationOptions = {
 	projectId?: string | null;
@@ -89,9 +94,10 @@ export async function createConversation(
 		.returning();
 	// Opportunistically flush any pending idle judge runs for this user now that
 	// they have started a new conversation (prior conversation is likely idle).
-	void import("$lib/server/services/memory-judge/runner")
-		.then(({ flushPendingJudgeRuns }) => flushPendingJudgeRuns(userId))
-		.catch(() => {});
+	if (!usesNativeMemory(userId))
+		void import("$lib/server/services/memory-judge/runner")
+			.then(({ flushPendingJudgeRuns }) => flushPendingJudgeRuns(userId))
+			.catch(() => {});
 	recordConversationAnalytics({
 		conversationId: conversation.id,
 		userId,
@@ -535,7 +541,33 @@ async function setOwnedConversationProject(
 	conversationId: string,
 	projectId: string | null,
 ): Promise<Conversation | null> {
-	return updateOwnedConversationFields(userId, conversationId, { projectId });
+	let updated: typeof conversations.$inferSelect | undefined;
+	await enqueueMemoryMutation((tx) => {
+		const owned = and(
+			eq(conversations.id, conversationId),
+			eq(conversations.userId, userId),
+		);
+		const previous = tx.select().from(conversations).where(owned).get();
+		if (!previous) return [];
+		if (
+			projectId !== null &&
+			!tx
+				.select({ id: projects.id })
+				.from(projects)
+				.where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+				.get()
+		)
+			return [];
+		const jobs = prepareConversationMemoryMove(tx, previous, projectId);
+		updated = tx
+			.update(conversations)
+			.set({ projectId })
+			.where(owned)
+			.returning()
+			.get();
+		return jobs;
+	});
+	return updated ? toConversation(updated) : null;
 }
 
 export async function moveConversationToProject(

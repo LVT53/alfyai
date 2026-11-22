@@ -1,0 +1,55 @@
+name: alfyai-memory
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: hindsight
+      POSTGRES_USER: hindsight
+      POSTGRES_PASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set a private database password}
+    volumes:
+      - memory-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hindsight -d hindsight"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  hindsight:
+    build: .
+    image: alfyai-hindsight:9fb28dbd724dc1ce4da7cb4c49008e601db76c5f
+    env_file:
+      - native-tenants.env
+      - native-model.env
+    environment:
+      HINDSIGHT_API_DATABASE_URL: postgresql://hindsight:${HINDSIGHT_DB_PASSWORD_URI:?Set a URI-encoded private database password}@postgres:5432/hindsight
+      HINDSIGHT_API_WORKER_ID: "${HINDSIGHT_API_WORKER_ID:?Set a persistent native worker ID}"
+      HINDSIGHT_API_LLM_TRACE_ENABLED: "false"
+      HINDSIGHT_API_LLM_TRACE_DELETE_WITH_DOCUMENT: "true"
+      HINDSIGHT_API_OTEL_TRACES_ENABLED: "false"
+      HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT: "${HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT:-false}"
+      HINDSIGHT_API_LOG_LEVEL: warning
+      HINDSIGHT_API_TENANT_SCHEMA_PREFIX: alfyai
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: onnx
+      HINDSIGHT_API_RERANKER_PROVIDER: flashrank
+      HINDSIGHT_API_RERANKER_FLASHRANK_MODEL: ms-marco-MultiBERT-L-12
+      # Never above one while admission refuses instead of queueing: over-budget calls get 429
+      # and exhaust the engine's three quick LLM retries, failing the whole retain.
+      HINDSIGHT_API_LLM_MAX_CONCURRENT: "1"
+      # App curation calls share the same budget: wait them out (backoff 1 s up to 60 s)
+      # instead of failing consolidation or extraction after three quick retries.
+      HINDSIGHT_API_LLM_MAX_RETRIES: "12"
+      HINDSIGHT_API_LLM_PROVIDER: openai
+      HINDSIGHT_API_LLM_BASE_URL: http://127.0.0.1:8888/ext/alfyai/inference/v1
+      HINDSIGHT_API_SKIP_LLM_VERIFICATION: "true"
+      HINDSIGHT_API_RETAIN_LLM_EXTRA_BODY: '{"chat_template_kwargs":{"enable_thinking":true},"max_tokens":8192}'
+      HINDSIGHT_API_ADMISSION_RETAIN_MAX_WAIT_MS: "1000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8888:8888"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  memory-db:

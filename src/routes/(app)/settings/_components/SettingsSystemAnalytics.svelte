@@ -16,6 +16,7 @@ import {
 } from "$lib/components/analytics";
 import AnalyticsChassis from "./analytics/AnalyticsChassis.svelte";
 import AnalyticsColumnChart from "./analytics/AnalyticsColumnChart.svelte";
+import PictureSearchAnalytics from "./analytics/PictureSearchAnalytics.svelte";
 import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
 import {
 	buildComparisonDelta,
@@ -213,9 +214,14 @@ const modelOptions = $derived(
 // MonthNav expects chronologically ascending "YYYY-MM" keys.
 const months = $derived(
 	[
-		...(analyticsData?.systemAvailableMonths ??
-			system?.monthly?.map((m) => m.month) ??
-			[]),
+		...new Set([
+			...(analyticsData?.systemAvailableMonths ??
+				system?.monthly?.map((m) => m.month) ??
+				[]),
+			...(activeTab === "parallel"
+				? (parallel?.pictureMonths?.map((row) => row.month) ?? [])
+				: []),
+		]),
 	].sort(),
 );
 
@@ -298,10 +304,17 @@ function formatMonthLong(ym: string): string {
 }
 
 // ---- Overview ----------------------------------------------------------
+const pictureMonth = $derived(
+	parallel?.pictureMonths?.find(
+		(row) => row.month === (selectedSystemMonth ?? parallel?.allowance?.month),
+	),
+);
 const parallelCostUsd = $derived(parallel?.totalCostUsd ?? 0);
 const llmCostUsd = $derived((system?.totalCostUsd ?? 0) - parallelCostUsd);
-const webCalls = $derived(
-	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
+const parallelTotalCalls = $derived(
+	(parallel?.totalTurboCalls ?? 0) +
+		(parallel?.totalExtractCalls ?? 0) +
+		(parallel?.totalImageCalls ?? 0),
 );
 // The hero is the sum of LLM spend and Parallel spend; the bar shows the
 // proportion and the legend names both halves with their amounts, so the hero
@@ -657,13 +670,19 @@ const latencyRows = $derived.by(() => {
 const hasLatencyData = $derived(latencyRows.some((row) => row.turns > 0));
 
 // ---- Parallel API ------------------------------------------------------
-const parallelTotalCalls = $derived(
-	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
-);
 
 // The free monthly allowance (Slice B). "$X of $Y used" counts the month's
 // LIST price against the allowance — that is what the allowance absorbs —
 // while the reset line's "$Z" is what users were actually charged.
+const parallelUsd = $derived(
+	new Intl.NumberFormat(intlLocale($uiLanguage), {
+		style: "currency",
+		currency: "USD",
+		currencyDisplay: "narrowSymbol",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 6,
+	}),
+);
 const parallelAllowance = $derived(parallel?.allowance);
 const parallelAllowanceUsedUsd = $derived(
 	(parallelAllowance?.monthListMicros ?? 0) / 1_000_000,
@@ -715,6 +734,12 @@ const parallelChartData = $derived({
 			backgroundColor: SERIES.extract,
 			borderRadius: 4,
 		},
+		{
+			label: $t("analytics.imageSearches"),
+			data: (parallel?.monthly ?? []).map((m) => m.imageCalls),
+			backgroundColor: SERIES.images,
+			borderRadius: 4,
+		},
 	],
 });
 
@@ -722,6 +747,7 @@ const parallelColumns: TableColumn[] = [
 	{ key: "month", label: $t("analytics.month"), type: "text" },
 	{ key: "turbo", label: $t("analytics.turbo"), type: "number" },
 	{ key: "extract", label: $t("analytics.extract"), type: "number" },
+	{ key: "images", label: $t("analytics.imageSearches"), type: "number" },
 	{
 		key: "calls",
 		label: $t("analytics.parallelMonthlyBreakdownCalls"),
@@ -731,7 +757,7 @@ const parallelColumns: TableColumn[] = [
 	{ key: "counted", label: $t("analytics.parallelCountedCost"), type: "usd" },
 ];
 
-// The turbo/extract split and the allowance arithmetic are both derived from
+// The per-tool counts and the allowance arithmetic are both derived from
 // the same walk over the month's rows, so the two lists share a month key.
 const parallelMonthlyByMonth = $derived(
 	new Map((parallel?.monthly ?? []).map((entry) => [entry.month, entry])),
@@ -742,6 +768,7 @@ const parallelRows = $derived<TableRow[]>(
 		month: formatMonthShort(row.month),
 		turbo: parallelMonthlyByMonth.get(row.month)?.turboCalls ?? 0,
 		extract: parallelMonthlyByMonth.get(row.month)?.extractCalls ?? 0,
+		images: parallelMonthlyByMonth.get(row.month)?.imageCalls ?? 0,
 		calls: row.calls,
 		free: row.freeMicros / 1_000_000,
 		counted: row.billedMicros / 1_000_000,
@@ -752,6 +779,7 @@ const parallelTotalRow = $derived<TableRow>({
 	month: $t("analytics.total"),
 	turbo: parallel?.totalTurboCalls ?? 0,
 	extract: parallel?.totalExtractCalls ?? 0,
+	images: parallel?.totalImageCalls ?? 0,
 	calls: parallelTotalCalls,
 	free: parallelFreeUsd,
 	counted: parallelCostUsd,
@@ -932,10 +960,10 @@ async function toggleExcludedUser(userId: string) {
 						label={$t('analytics.totalTokens')}
 					/>
 					<StatCard
-						value={formatNum(webCalls)}
+						value={formatNum(parallelTotalCalls)}
 						label={$t('analytics.webCalls')}
 						comparison={parallel
-							? `${formatNum(parallel.totalTurboCalls)} ${$t('analytics.turbo')} · ${formatNum(parallel.totalExtractCalls)} ${$t('analytics.extract')}`
+							? `${formatNum(parallel.totalTurboCalls)} ${$t('analytics.turbo')} · ${formatNum(parallel.totalExtractCalls)} ${$t('analytics.extract')} · ${formatNum(parallel.totalImageCalls)} ${$t('analytics.imageSearches')}`
 							: undefined}
 					/>
 					<StatCard value={formatNum(system.totalConversations ?? 0)} label={$t('analytics.totalConversations')} />
@@ -1154,16 +1182,16 @@ async function toggleExcludedUser(userId: string) {
 				{#if parallelAllowance}
 					<div class="parallel-meter" data-testid="parallel-allowance-meter">
 						<div class="parallel-meter-line">
-							<b class="parallel-meter-used">{formatUsd(parallelAllowanceUsedUsd)}</b>
+							<b class="parallel-meter-used">{parallelUsd.format(parallelAllowanceUsedUsd)}</b>
 							<span class="parallel-meter-caption">
 								{$t('analytics.parallelAllowanceOf', {
-									allowance: formatUsd(parallelAllowanceUsd),
+									allowance: parallelUsd.format(parallelAllowanceUsd),
 								})}
 							</span>
 							<span class="parallel-meter-reset">
 								{$t('analytics.parallelAllowanceResets', {
 									month: parallelAllowanceResetMonth,
-									charged: formatUsd(parallelMonthChargedUsd),
+									charged: parallelUsd.format(parallelMonthChargedUsd),
 								})}
 							</span>
 						</div>
@@ -1179,10 +1207,11 @@ async function toggleExcludedUser(userId: string) {
 				<StatGrid>
 					<StatCard value={formatNum(parallel.totalTurboCalls)} label={$t('analytics.turboSearches')} />
 					<StatCard value={formatNum(parallel.totalExtractCalls)} label={$t('analytics.extractFetches')} />
-					<StatCard hero value={formatUsd(parallelCostUsd)} label={$t('analytics.parallelCost')} />
+					<StatCard value={formatNum(parallel.totalImageCalls)} label={$t('analytics.imageSearches')} />
+					<StatCard hero value={parallelUsd.format(parallelCostUsd)} label={$t('analytics.parallelCost')} />
 					<StatCard value={formatNum(parallelTotalCalls)} label={$t('analytics.totalCalls')} />
 					<StatCard
-						value={formatUsd(parallelMonthChargedUsd)}
+						value={parallelUsd.format(parallelMonthChargedUsd)}
 						label={$t('analytics.parallelCountedAsCost')}
 					/>
 				</StatGrid>
@@ -1193,6 +1222,11 @@ async function toggleExcludedUser(userId: string) {
 					</div>
 				{/if}
 			</AnalyticsCard>
+
+			{#if pictureMonth}
+				<PictureSearchAnalytics data={pictureMonth} currency={parallelUsd} trackingSince={parallel.pictureTrackingSince}
+					currentAllowance={pictureMonth.month === parallelAllowance?.month ? parallelAllowance?.allowanceMicros : undefined} />
+			{/if}
 
 			{#if (parallel.monthly ?? []).length > 0}
 				<div class="mt-4">

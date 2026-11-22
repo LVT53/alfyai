@@ -182,8 +182,8 @@ describe("recordParallelUsage against the free allowance", () => {
 		// boundary: 0.0025 USD = 2,500 micros = two and a half calls.
 		await setAllowanceUsd(0.0025);
 		await recordParallelUsage({ userId: "u1", tool: "research_web" });
-		await recordParallelUsage({ userId: "u1", tool: "research_web" });
-		await recordParallelUsage({ userId: "u1", tool: "research_web" });
+		await recordParallelUsage({ userId: "u1", tool: "fetch_url" });
+		await recordParallelUsage({ userId: "u1", tool: "image_search" });
 
 		expect(totalBilledMicros()).toBe(500);
 	});

@@ -159,7 +159,7 @@ const ZOOM_KEYS: Record<string, () => void> = {
 	"=": () => zoom.zoomIn(),
 	"-": () => zoom.zoomOut(),
 	_: () => zoom.zoomOut(),
-	"0": () => zoom.fit(),
+	0: () => zoom.fit(),
 };
 
 function handleKeydown(event: KeyboardEvent) {

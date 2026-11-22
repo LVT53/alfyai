@@ -442,212 +442,216 @@ it("keeps explicit answer control bytes until the shared finalizer can extract t
 	);
 	expect((await run.runPlain()).text).toBe(answer);
 });
-it.each([
-	"success",
-	"repeat",
-	"stopped",
-] as const)("retains working-step Skill Control through the actual prepared/model path (%s)", async (mode) => {
-	const { MockLanguageModelV3 } = await import("ai/test");
-	const { tool } = await import("ai");
-	const { z } = await import("zod");
-	const { runNormalChatCompletion } = await import(
-		"../normal-chat-model/completion"
-	);
-	const { UserStopReason } = await import("./active-streams");
-	const payload = JSON.stringify({
-		version: 1,
-		operations: [
-			{
-				operationId: "working-op",
-				kind: "skill_draft",
-				draft: {
-					id: "working-skill",
-					displayName: "Working skill",
-					description: "A synthetic working-step draft",
-					instructions: "Write the requested answer.",
-					activationExamples: ["Write the answer"],
-				},
-			},
-		],
-	});
-	const envelope = `<skill_control_v1>${payload}</skill_control_v1>`;
-	const abort = new AbortController();
-	let generations = 0,
-		executions = 0;
-	const model = new MockLanguageModelV3({
-		doGenerate: async () => {
-			const first = generations++ === 0;
-			return {
-				content: first
-					? [
-							{ type: "text" as const, text: `Working prose${envelope}` },
-							{
-								type: "tool-call" as const,
-								toolCallId: "read",
-								toolName: "research_web",
-								input: "{}",
-							},
-						]
-					: [
-							{
-								type: "text" as const,
-								text: `Answer${mode === "repeat" ? envelope : ""}`,
-							},
-						],
-				finishReason: {
-					unified: first ? ("tool-calls" as const) : ("stop" as const),
-					raw: first ? "tool_calls" : "stop",
-				},
-				usage: {
-					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-					outputTokens: { total: 1, text: 1, reasoning: 0 },
-				},
-				warnings: [],
-			};
-		},
-	});
-	mocks.tools.mockImplementation(async () => {
-		const rows: import("../messages-types").ToolCallEntry[] = [];
-		return {
-			stepImages: { drain: () => [] },
-			getToolCalls: () => rows,
-			getTurnAsk: () => null,
-			tools: {
-				research_web: tool({
-					inputSchema: z.object({}),
-					execute: async (_input, options) => {
-						executions++;
-						rows.push({
-							name: "research_web",
-							callId: options.toolCallId,
-							input: {},
-							status: "done",
-							metadata: { ok: true },
-						});
-						if (mode === "stopped") abort.abort(new UserStopReason());
-						return { success: true, evidence: "Full synthetic result" };
-					},
-				}),
-			},
-		};
-	});
-	mocks.model.mockImplementation((params) => ({
-		runPlain: async () => {
-			const driver = runNormalChatCompletion(
-				params,
-				{
-					model,
-					maxModelContext: 32000,
-					providerOptions: undefined,
-					stopWhen: undefined,
-					metadata: () => createPlainNormalChatModelRunResult().model,
-					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
-				},
-				false,
-			);
-			for (;;) {
-				const next = await driver.next();
-				if (next.done) return next.value;
-			}
-		},
-		stream: async function* () {},
-		getSnapshot: () => null,
-	}));
-	const run = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams({ signal: abort.signal }),
-	);
-	const result = await run.runPlain();
-	expect(executions).toBe(1);
-	expect(run.receipt.skillControl?.operations).toHaveLength(
-		mode === "stopped" ? 0 : 1,
-	);
-	expect(result.text).not.toContain("Working prose");
-	if (mode !== "stopped") {
-		expect(result.text.startsWith("Answer")).toBe(true);
-		expect(generations).toBe(2);
-	} else expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("stopped");
-});
-
-it.each([
-	false,
-	true,
-])("keeps captured v2 defaults but respects validated explicit depth overrides (%s)", async (explicit) => {
-	const oldDepth = {
-		requested: "quick" as const,
-		appliedProfile: "off" as const,
-		fallback: false,
-	};
-	const newDepth = {
-		requested: "thorough" as const,
-		appliedProfile: "standard" as const,
-		fallback: false,
-	};
-	const first = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams({
-			depthMetadata: oldDepth,
-			thinkingMode: "off",
-		}),
-	);
-	const original = mocks.model.mock.calls.at(-1)?.[0];
-	await first.runPlain();
-	const snapshot: import("../normal-chat-model").NormalChatContinuationSnapshot =
-		{
+it.each(["success", "repeat", "stopped"] as const)(
+	"retains working-step Skill Control through the actual prepared/model path (%s)",
+	async (mode) => {
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const { tool } = await import("ai");
+		const { z } = await import("zod");
+		const { runNormalChatCompletion } = await import(
+			"../normal-chat-model/completion"
+		);
+		const { UserStopReason } = await import("./active-streams");
+		const payload = JSON.stringify({
 			version: 1,
-			fidelity: "exact",
-			turnId: "t",
-			segmentId: "old",
-			original: {
-				providerId: "model1",
-				providerBaseUrl: "https://test.invalid",
-				modelName: "gpt-4.1",
-				system: original.system,
-				messages: original.messages,
-				provenance: original.completionPolicy.contextProvenance,
+			operations: [
+				{
+					operationId: "working-op",
+					kind: "skill_draft",
+					draft: {
+						id: "working-skill",
+						displayName: "Working skill",
+						description: "A synthetic working-step draft",
+						instructions: "Write the requested answer.",
+						activationExamples: ["Write the answer"],
+					},
+				},
+			],
+		});
+		const envelope = `<skill_control_v1>${payload}</skill_control_v1>`;
+		const abort = new AbortController();
+		let generations = 0,
+			executions = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				const first = generations++ === 0;
+				return {
+					content: first
+						? [
+								{ type: "text" as const, text: `Working prose${envelope}` },
+								{
+									type: "tool-call" as const,
+									toolCallId: "read",
+									toolName: "research_web",
+									input: "{}",
+								},
+							]
+						: [
+								{
+									type: "text" as const,
+									text: `Answer${mode === "repeat" ? envelope : ""}`,
+								},
+							],
+					finishReason: {
+						unified: first ? ("tool-calls" as const) : ("stop" as const),
+						raw: first ? "tool_calls" : "stop",
+					},
+					usage: {
+						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+						outputTokens: { total: 1, text: 1, reasoning: 0 },
+					},
+					warnings: [],
+				};
 			},
-			steps: [],
-			prepared: { maxOutputTokens: 100 },
-			pendingImageEntries: [],
-			executions: [],
-			events: [],
-			usage: [],
-			sequence: 0,
-			nextAttempt: 0,
-			workingSteps: 0,
-			closingSegments: [],
-			deadlineAt: Date.now() + 10000,
-			totalTimeoutMs: 10000,
+		});
+		mocks.tools.mockImplementation(async () => {
+			const rows: import("../messages-types").ToolCallEntry[] = [];
+			return {
+				stepImages: { drain: () => [] },
+				getToolCalls: () => rows,
+				getTurnAsk: () => null,
+				tools: {
+					research_web: tool({
+						inputSchema: z.object({}),
+						execute: async (_input, options) => {
+							executions++;
+							rows.push({
+								name: "research_web",
+								callId: options.toolCallId,
+								input: {},
+								status: "done",
+								metadata: { ok: true },
+							});
+							if (mode === "stopped") abort.abort(new UserStopReason());
+							return { success: true, evidence: "Full synthetic result" };
+						},
+					}),
+				},
+			};
+		});
+		mocks.model.mockImplementation((params) => ({
+			runPlain: async () => {
+				const driver = runNormalChatCompletion(
+					params,
+					{
+						model,
+						maxModelContext: 32000,
+						providerOptions: undefined,
+						stopWhen: undefined,
+						metadata: () => createPlainNormalChatModelRunResult().model,
+						mapUsage: () => ({
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+						}),
+					},
+					false,
+				);
+				for (;;) {
+					const next = await driver.next();
+					if (next.done) return next.value;
+				}
+			},
+			stream: async function* () {},
+			getSnapshot: () => null,
+		}));
+		const run = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams({ signal: abort.signal }),
+		);
+		const result = await run.runPlain();
+		expect(executions).toBe(1);
+		expect(run.receipt.skillControl?.operations).toHaveLength(
+			mode === "stopped" ? 0 : 1,
+		);
+		expect(result.text).not.toContain("Working prose");
+		if (mode !== "stopped") {
+			expect(result.text.startsWith("Answer")).toBe(true);
+			expect(generations).toBe(2);
+		} else
+			expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("stopped");
+	},
+);
+
+it.each([false, true])(
+	"keeps captured v2 defaults but respects validated explicit depth overrides (%s)",
+	async (explicit) => {
+		const oldDepth = {
+			requested: "quick" as const,
+			appliedProfile: "off" as const,
+			fallback: false,
 		};
-	const resumed = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams({
-			continuationSnapshot: snapshot,
-			resumeDepthOverride: explicit,
-			depthMetadata: newDepth,
-			thinkingMode: "on",
-		}),
-	);
-	const effective = mocks.model.mock.calls.at(-1)?.[0];
-	const expected = resolveReasoningDepthEffort({
-		depthMetadata: explicit ? newDepth : oldDepth,
-		provider: createPlainNormalChatProvider(),
-	});
-	expect(effective.maxToolSteps).toBe(expected.maxToolSteps);
-	expect(
-		effective.resolveProviderOptions(createPlainNormalChatProvider()),
-	).toEqual(
-		buildReasoningDepthProviderOptions(
-			createPlainNormalChatProvider(),
-			expected,
-		),
-	);
-	expect(
-		effective.completionPolicy.contextProvenance.settings.depthMetadata
-			.requested,
-	).toBe(explicit ? "thorough" : "quick");
-	expect(effective.messages).toEqual(original.messages);
-	expect(effective.system).toBe(original.system);
-	expect(mocks.prepare).toHaveBeenCalledOnce();
-	await resumed.runPlain();
-});
+		const newDepth = {
+			requested: "thorough" as const,
+			appliedProfile: "standard" as const,
+			fallback: false,
+		};
+		const first = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams({
+				depthMetadata: oldDepth,
+				thinkingMode: "off",
+			}),
+		);
+		const original = mocks.model.mock.calls.at(-1)?.[0];
+		await first.runPlain();
+		const snapshot: import("../normal-chat-model").NormalChatContinuationSnapshot =
+			{
+				version: 1,
+				fidelity: "exact",
+				turnId: "t",
+				segmentId: "old",
+				original: {
+					providerId: "model1",
+					providerBaseUrl: "https://test.invalid",
+					modelName: "gpt-4.1",
+					system: original.system,
+					messages: original.messages,
+					provenance: original.completionPolicy.contextProvenance,
+				},
+				steps: [],
+				prepared: { maxOutputTokens: 100 },
+				pendingImageEntries: [],
+				executions: [],
+				events: [],
+				usage: [],
+				sequence: 0,
+				nextAttempt: 0,
+				workingSteps: 0,
+				closingSegments: [],
+				deadlineAt: Date.now() + 10000,
+				totalTimeoutMs: 10000,
+			};
+		const resumed = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams({
+				continuationSnapshot: snapshot,
+				resumeDepthOverride: explicit,
+				depthMetadata: newDepth,
+				thinkingMode: "on",
+			}),
+		);
+		const effective = mocks.model.mock.calls.at(-1)?.[0];
+		const expected = resolveReasoningDepthEffort({
+			depthMetadata: explicit ? newDepth : oldDepth,
+			provider: createPlainNormalChatProvider(),
+		});
+		expect(effective.maxToolSteps).toBe(expected.maxToolSteps);
+		expect(
+			effective.resolveProviderOptions(createPlainNormalChatProvider()),
+		).toEqual(
+			buildReasoningDepthProviderOptions(
+				createPlainNormalChatProvider(),
+				expected,
+			),
+		);
+		expect(
+			effective.completionPolicy.contextProvenance.settings.depthMetadata
+				.requested,
+		).toBe(explicit ? "thorough" : "quick");
+		expect(effective.messages).toEqual(original.messages);
+		expect(effective.system).toBe(original.system);
+		expect(mocks.prepare).toHaveBeenCalledOnce();
+		await resumed.runPlain();
+	},
+);
 
 // The external preparation boundary uses the real context-budget owner, while
 // the actual prepared owner and real SDK completion engine remain under test.
@@ -786,25 +790,25 @@ async function reserveFixture(
 	return { sdkCaps, runtime, config };
 }
 
-it.each([
-	"plain",
-	"stream",
-] as const)("resolves an absent cap before preparation and sends that exact reserve to the real SDK (%s)", async (mode) => {
-	const fixture = await reserveFixture({ configured: null });
-	const run = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams(),
-	);
-	if (mode === "plain") await run.runPlain();
-	else
-		for await (const _event of run.stream().stream) {
-		}
-	expect(mocks.prepare.mock.calls[0][1].modelConfig.maxTokens).toBe(820);
-	expect(fixture.runtime.modelConfig.maxTokens).toBeNull();
-	expect(mocks.model.mock.calls[0][0].maxOutputTokens).toBe(820);
-	expect(fixture.sdkCaps).toEqual([820]);
-	expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
-	expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("answered");
-});
+it.each(["plain", "stream"] as const)(
+	"resolves an absent cap before preparation and sends that exact reserve to the real SDK (%s)",
+	async (mode) => {
+		const fixture = await reserveFixture({ configured: null });
+		const run = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams(),
+		);
+		if (mode === "plain") await run.runPlain();
+		else
+			for await (const _event of run.stream().stream) {
+			}
+		expect(mocks.prepare.mock.calls[0][1].modelConfig.maxTokens).toBe(820);
+		expect(fixture.runtime.modelConfig.maxTokens).toBeNull();
+		expect(mocks.model.mock.calls[0][0].maxOutputTokens).toBe(820);
+		expect(fixture.sdkCaps).toEqual([820]);
+		expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
+		expect(run.receipt.getSnapshot()?.completion?.outcome).toBe("answered");
+	},
+);
 it.each([
 	{ configured: 777, providerCap: 321, expected: 777 },
 	{ configured: null, providerCap: 321, expected: 321 },
@@ -812,42 +816,42 @@ it.each([
 	{ configured: NaN, providerCap: Infinity, expected: 820 },
 	{ configured: Infinity, providerCap: 321, expected: 321 },
 	{ configured: 5000, providerCap: undefined, target: 7000, expected: 1192 },
-])("keeps configured/provider/default precedence and existing preparation clamps ($configured/$providerCap)", async ({
-	expected,
-	...options
-}) => {
-	const fixture = await reserveFixture(options);
-	const run = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams(),
-	);
-	await run.runPlain();
-	expect(mocks.model.mock.calls[0][0].maxOutputTokens).toBe(expected);
-	expect(fixture.sdkCaps).toEqual([expected]);
-	expect(
-		mocks.model.mock.calls[0][0].completionPolicy.contextProvenance.prepared
-			.outputTokenBudget,
-	).toMatchObject({ effectiveMaxTokens: expected, outputReserve: expected });
-	expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(expected);
-});
-it.each([
-	"plain",
-	"stream",
-] as const)("freezes the same effective reserve for working and closing (%s)", async (mode) => {
-	const fixture = await reserveFixture({ configured: null, closing: true });
-	const run = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams(),
-	);
-	if (mode === "plain") await run.runPlain();
-	else
-		for await (const _event of run.stream().stream) {
-		}
-	expect(fixture.sdkCaps).toEqual([820, 820]);
-	expect(run.receipt.getSnapshot()?.completion).toMatchObject({
-		outcome: "answered",
-		closingAttempted: true,
-	});
-	expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
-});
+])(
+	"keeps configured/provider/default precedence and existing preparation clamps ($configured/$providerCap)",
+	async ({ expected, ...options }) => {
+		const fixture = await reserveFixture(options);
+		const run = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams(),
+		);
+		await run.runPlain();
+		expect(mocks.model.mock.calls[0][0].maxOutputTokens).toBe(expected);
+		expect(fixture.sdkCaps).toEqual([expected]);
+		expect(
+			mocks.model.mock.calls[0][0].completionPolicy.contextProvenance.prepared
+				.outputTokenBudget,
+		).toMatchObject({ effectiveMaxTokens: expected, outputReserve: expected });
+		expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(expected);
+	},
+);
+it.each(["plain", "stream"] as const)(
+	"freezes the same effective reserve for working and closing (%s)",
+	async (mode) => {
+		const fixture = await reserveFixture({ configured: null, closing: true });
+		const run = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams(),
+		);
+		if (mode === "plain") await run.runPlain();
+		else
+			for await (const _event of run.stream().stream) {
+			}
+		expect(fixture.sdkCaps).toEqual([820, 820]);
+		expect(run.receipt.getSnapshot()?.completion).toMatchObject({
+			outcome: "answered",
+			closingAttempted: true,
+		});
+		expect(run.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
+	},
+);
 it("uses the existing provider-first context window for the fallback rather than a larger runtime placeholder", async () => {
 	const fixture = await reserveFixture({
 		capacity: 8192,
@@ -873,48 +877,45 @@ it("keeps tiny actual capacity refusal before the SDK", async () => {
 		"context_capacity",
 	);
 });
-it.each([
-	null,
-	undefined,
-	NaN,
-	Infinity,
-	"missing_prepared",
-] as const)("repairs a legacy absent/invalid captured reserve without rebuilding evidence (%s)", async (legacyCap) => {
-	const fixture = await reserveFixture({ configured: null });
-	const first = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams(),
-	);
-	await first.runPlain();
-	const captured = first.receipt.getSnapshot();
-	if (!captured) throw new Error("Missing snapshot");
-	if (legacyCap === "missing_prepared")
-		Reflect.deleteProperty(captured, "prepared");
-	else Reflect.set(captured.prepared, "maxOutputTokens", legacyCap);
-	const provenance = captured.original.provenance;
-	if (
-		!provenance ||
-		typeof provenance !== "object" ||
-		!("prepared" in provenance) ||
-		!provenance.prepared ||
-		typeof provenance.prepared !== "object"
-	)
-		throw new Error("Missing captured provenance");
-	Reflect.deleteProperty(provenance.prepared, "outputTokenBudget");
-	const resumed = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams({ continuationSnapshot: captured }),
-	);
-	await resumed.runPlain();
-	expect(mocks.prepare).toHaveBeenCalledOnce();
-	expect(fixture.sdkCaps).toEqual([820, 820]);
-	expect(resumed.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
-	expect(resumed.receipt.getSnapshot()?.original.messages).toEqual(
-		captured.original.messages,
-	);
-	expect(
-		mocks.model.mock.calls.at(-1)?.[0].completionPolicy.contextProvenance
-			.prepared.outputTokenBudget,
-	).toMatchObject({ effectiveMaxTokens: 820, outputReserve: 820 });
-});
+it.each([null, undefined, NaN, Infinity, "missing_prepared"] as const)(
+	"repairs a legacy absent/invalid captured reserve without rebuilding evidence (%s)",
+	async (legacyCap) => {
+		const fixture = await reserveFixture({ configured: null });
+		const first = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams(),
+		);
+		await first.runPlain();
+		const captured = first.receipt.getSnapshot();
+		if (!captured) throw new Error("Missing snapshot");
+		if (legacyCap === "missing_prepared")
+			Reflect.deleteProperty(captured, "prepared");
+		else Reflect.set(captured.prepared, "maxOutputTokens", legacyCap);
+		const provenance = captured.original.provenance;
+		if (
+			!provenance ||
+			typeof provenance !== "object" ||
+			!("prepared" in provenance) ||
+			!provenance.prepared ||
+			typeof provenance.prepared !== "object"
+		)
+			throw new Error("Missing captured provenance");
+		Reflect.deleteProperty(provenance.prepared, "outputTokenBudget");
+		const resumed = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams({ continuationSnapshot: captured }),
+		);
+		await resumed.runPlain();
+		expect(mocks.prepare).toHaveBeenCalledOnce();
+		expect(fixture.sdkCaps).toEqual([820, 820]);
+		expect(resumed.receipt.getSnapshot()?.prepared.maxOutputTokens).toBe(820);
+		expect(resumed.receipt.getSnapshot()?.original.messages).toEqual(
+			captured.original.messages,
+		);
+		expect(
+			mocks.model.mock.calls.at(-1)?.[0].completionPolicy.contextProvenance
+				.prepared.outputTokenBudget,
+		).toMatchObject({ effectiveMaxTokens: 820, outputReserve: 820 });
+	},
+);
 it("refuses a smaller resumed destination without lowering the captured cap", async () => {
 	const fixture = await reserveFixture({ configured: null });
 	const first = await prepareNormalChatTurn(
@@ -991,160 +992,164 @@ it("permits typed local-only image projection but refuses unprojectable original
 	).toBeNull();
 });
 
-it.each([
-	"success",
-	"throw-after-success",
-] as const)("keeps actual plain SDK execution records and reused-ID uncertainty (%s)", async (mode) => {
-	const { MockLanguageModelV3 } = await import("ai/test");
-	const { tool } = await import("ai");
-	const { z } = await import("zod");
-	const { createToolCallRecorder, executeToolWithEnvelope } = await import(
-		"../normal-chat-tools/shared"
-	);
-	const { runNormalChatCompletion } = await import(
-		"../normal-chat-model/completion"
-	);
-	const recorder = createToolCallRecorder();
-	let generations = 0;
-	let executions = 0;
-	const model = new MockLanguageModelV3({
-		doGenerate: async () => {
-			const step = generations++;
-			const call = step === 0 || (mode === "throw-after-success" && step === 1);
-			return {
-				content: call
-					? [
-							{
-								type: "tool-call" as const,
-								toolCallId: "python-391",
-								toolName: "run_python",
-								input: JSON.stringify({ code: "print(17 * 23)" }),
+it.each(["success", "throw-after-success"] as const)(
+	"keeps actual plain SDK execution records and reused-ID uncertainty (%s)",
+	async (mode) => {
+		const { MockLanguageModelV3 } = await import("ai/test");
+		const { tool } = await import("ai");
+		const { z } = await import("zod");
+		const { createToolCallRecorder, executeToolWithEnvelope } = await import(
+			"../normal-chat-tools/shared"
+		);
+		const { runNormalChatCompletion } = await import(
+			"../normal-chat-model/completion"
+		);
+		const recorder = createToolCallRecorder();
+		let generations = 0;
+		let executions = 0;
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				const step = generations++;
+				const call =
+					step === 0 || (mode === "throw-after-success" && step === 1);
+				return {
+					content: call
+						? [
+								{
+									type: "tool-call" as const,
+									toolCallId: "python-391",
+									toolName: "run_python",
+									input: JSON.stringify({ code: "print(17 * 23)" }),
+								},
+							]
+						: [{ type: "text" as const, text: "PRODUCT391" }],
+					finishReason: {
+						unified: call ? ("tool-calls" as const) : ("stop" as const),
+						raw: call ? "tool_calls" : "stop",
+					},
+					usage: {
+						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+						outputTokens: { total: 1, text: 1, reasoning: 0 },
+					},
+					warnings: [],
+				};
+			},
+		});
+		mocks.tools.mockResolvedValue({
+			stepImages: { drain: () => [] },
+			getToolCalls: () => recorder.getEntries(),
+			getTurnAsk: () => null,
+			tools: {
+				run_python: tool({
+					inputSchema: z.object({ code: z.string() }),
+					execute: async (input, options) => {
+						executions++;
+						if (mode === "throw-after-success" && executions > 1)
+							throw new Error("Synthetic failure before recorder");
+						return executeToolWithEnvelope({
+							toolName: "run_python",
+							options,
+							recorder,
+							timeoutMs: 1000,
+							run: async () => {
+								return {
+									modelPayload: { success: true, stdout: "391", exitCode: 0 },
+									entry: {
+										name: "run_python",
+										callId: options.toolCallId,
+										input,
+										status: "done",
+										outputSummary: "run_python finished: exit code 0.",
+										metadata: { ok: true, exitCode: 0 },
+									},
+								};
 							},
-						]
-					: [{ type: "text" as const, text: "PRODUCT391" }],
-				finishReason: {
-					unified: call ? ("tool-calls" as const) : ("stop" as const),
-					raw: call ? "tool_calls" : "stop",
-				},
-				usage: {
-					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-					outputTokens: { total: 1, text: 1, reasoning: 0 },
-				},
-				warnings: [],
-			};
-		},
-	});
-	mocks.tools.mockResolvedValue({
-		stepImages: { drain: () => [] },
-		getToolCalls: () => recorder.getEntries(),
-		getTurnAsk: () => null,
-		tools: {
-			run_python: tool({
-				inputSchema: z.object({ code: z.string() }),
-				execute: async (input, options) => {
-					executions++;
-					if (mode === "throw-after-success" && executions > 1)
-						throw new Error("Synthetic failure before recorder");
-					return executeToolWithEnvelope({
-						toolName: "run_python",
-						options,
-						recorder,
-						timeoutMs: 1000,
-						run: async () => {
-							return {
-								modelPayload: { success: true, stdout: "391", exitCode: 0 },
+							onError: () => ({
+								modelPayload: { success: false },
 								entry: {
 									name: "run_python",
 									callId: options.toolCallId,
 									input,
-									status: "done",
-									outputSummary: "run_python finished: exit code 0.",
-									metadata: { ok: true, exitCode: 0 },
+									status: "failed",
+									metadata: { ok: false },
 								},
-							};
-						},
-						onError: () => ({
-							modelPayload: { success: false },
-							entry: {
-								name: "run_python",
-								callId: options.toolCallId,
-								input,
-								status: "failed",
-								metadata: { ok: false },
-							},
-						}),
-					});
-				},
-			}),
-		},
-	});
-	mocks.model.mockImplementation((params) => ({
-		runPlain: async () => {
-			const driver = runNormalChatCompletion(
-				params,
-				{
-					model,
-					maxModelContext: 32000,
-					providerOptions: undefined,
-					stopWhen: undefined,
-					metadata: () => createPlainNormalChatModelRunResult().model,
-					mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
-				},
-				false,
-			);
-			for (;;) {
-				const next = await driver.next();
-				if (next.done) return next.value;
-			}
-		},
-		stream: async function* () {},
-		getSnapshot: () => null,
-	}));
-	const run = await prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams(),
-	);
-	const result = await run.runPlain();
-	if (mode === "throw-after-success") {
-		expect(executions).toBe(2);
-		expect(generations).toBe(2);
-		expect(recorder.getEntries()).toHaveLength(1);
-		expect(recorder.getEntries()[0].status).toBe("done");
-		expect(run.receipt.getSnapshot()?.executions.map((e) => e.state)).toEqual([
-			"succeeded",
-			"uncertain",
-		]);
-		expect(run.receipt.getSnapshot()?.completion).toMatchObject({
-			outcome: "incomplete",
-			stopCause: "uncertain_execution",
-			closingAttempted: false,
+							}),
+						});
+					},
+				}),
+			},
 		});
-		return;
-	}
-	expect(executions).toBe(1);
-	expect(result.text).toBe("PRODUCT391");
-	expect(result.normalChatToolCalls).toMatchObject([
-		{
+		mocks.model.mockImplementation((params) => ({
+			runPlain: async () => {
+				const driver = runNormalChatCompletion(
+					params,
+					{
+						model,
+						maxModelContext: 32000,
+						providerOptions: undefined,
+						stopWhen: undefined,
+						metadata: () => createPlainNormalChatModelRunResult().model,
+						mapUsage: () => ({
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+						}),
+					},
+					false,
+				);
+				for (;;) {
+					const next = await driver.next();
+					if (next.done) return next.value;
+				}
+			},
+			stream: async function* () {},
+			getSnapshot: () => null,
+		}));
+		const run = await prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams(),
+		);
+		const result = await run.runPlain();
+		if (mode === "throw-after-success") {
+			expect(executions).toBe(2);
+			expect(generations).toBe(2);
+			expect(recorder.getEntries()).toHaveLength(1);
+			expect(recorder.getEntries()[0].status).toBe("done");
+			expect(run.receipt.getSnapshot()?.executions.map((e) => e.state)).toEqual(
+				["succeeded", "uncertain"],
+			);
+			expect(run.receipt.getSnapshot()?.completion).toMatchObject({
+				outcome: "incomplete",
+				stopCause: "uncertain_execution",
+				closingAttempted: false,
+			});
+			return;
+		}
+		expect(executions).toBe(1);
+		expect(result.text).toBe("PRODUCT391");
+		expect(result.normalChatToolCalls).toMatchObject([
+			{
+				name: "run_python",
+				callId: "python-391",
+				status: "done",
+				metadata: { ok: true },
+			},
+		]);
+		expect(result.toolCalls).toEqual(result.normalChatToolCalls);
+		expect(result.serverSegments).toEqual(
+			result.normalChatToolCalls?.map((entry) => ({
+				type: "tool_call",
+				...entry,
+			})),
+		);
+		expect(result.serverSegments?.[0]).toMatchObject({
+			type: "tool_call",
 			name: "run_python",
 			callId: "python-391",
 			status: "done",
-			metadata: { ok: true },
-		},
-	]);
-	expect(result.toolCalls).toEqual(result.normalChatToolCalls);
-	expect(result.serverSegments).toEqual(
-		result.normalChatToolCalls?.map((entry) => ({
-			type: "tool_call",
-			...entry,
-		})),
-	);
-	expect(result.serverSegments?.[0]).toMatchObject({
-		type: "tool_call",
-		name: "run_python",
-		callId: "python-391",
-		status: "done",
-		metadata: { ok: true, exitCode: 0 },
-	});
-});
+			metadata: { ok: true, exitCode: 0 },
+		});
+	},
+);
 
 it("never inherits refusal certainty through reused call IDs or another attempt pack", async () => {
 	const { createToolCallRecorder } = await import(
@@ -1206,199 +1211,199 @@ it("never inherits refusal certainty through reused call IDs or another attempt 
 	).toBe("uncertain");
 });
 
-it.each([
-	"openai",
-	"deepseek",
-] as const)("captures native prefetch once from %s and projects only that exchange for each destination", async (initialFamily) => {
-	const baseRuntime = await mocks.runtime(
-		createPlainNormalChatSendModelParams(),
-	);
-	mocks.runtime.mockResolvedValue({
-		...baseRuntime,
-		provider: {
-			...baseRuntime.provider,
-			name: initialFamily,
-			modelName: initialFamily === "deepseek" ? "deepseek-flash" : "gpt-test",
-			baseUrl:
-				initialFamily === "deepseek"
-					? "https://api.deepseek.com"
-					: "https://api.openai.com/v1",
-		},
-	});
-	const pair = [
-		{
-			role: "assistant",
-			content: [
-				{
-					type: "tool-call",
-					toolCallId: "prefetch-1",
-					toolName: "fetch_url",
-					input: { urls: ["https://public.invalid"] },
-				},
-			],
-		},
-		{
-			role: "tool",
-			content: [
-				{
-					type: "tool-result",
-					toolCallId: "prefetch-1",
-					toolName: "fetch_url",
-					output: {
-						type: "json",
-						value: {
-							answer: "CAPTURED-EVIDENCE",
-							urls: ["https://public.invalid"],
+it.each(["openai", "deepseek"] as const)(
+	"captures native prefetch once from %s and projects only that exchange for each destination",
+	async (initialFamily) => {
+		const baseRuntime = await mocks.runtime(
+			createPlainNormalChatSendModelParams(),
+		);
+		mocks.runtime.mockResolvedValue({
+			...baseRuntime,
+			provider: {
+				...baseRuntime.provider,
+				name: initialFamily,
+				modelName: initialFamily === "deepseek" ? "deepseek-flash" : "gpt-test",
+				baseUrl:
+					initialFamily === "deepseek"
+						? "https://api.deepseek.com"
+						: "https://api.openai.com/v1",
+			},
+		});
+		const pair = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "prefetch-1",
+						toolName: "fetch_url",
+						input: { urls: ["https://public.invalid"] },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "prefetch-1",
+						toolName: "fetch_url",
+						output: {
+							type: "json",
+							value: {
+								answer: "CAPTURED-EVIDENCE",
+								urls: ["https://public.invalid"],
+							},
 						},
 					},
-				},
-			],
-		},
-	] as const;
-	mocks.prepare.mockResolvedValue(
-		createPlainNormalChatPreparedContext({
-			inputValue: "User intent stays exact",
-			prefetchedToolMessages: structuredClone(pair) as never,
-			prefetchedToolCalls: [
-				{
-					callId: "prefetch-1",
-					name: "fetch_url",
-					input: {},
-					status: "done",
-					outputSummary: "CAPTURED-EVIDENCE",
-				},
-			],
-		}),
-	);
-	await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
-	expect(mocks.prepare.mock.calls[0][5]).toBe("native");
-	const args = mocks.model.mock.calls.at(-1)?.[0];
-	const native = {
-		...args.provider,
-		name: "openai",
-		modelName: "gpt-test",
-		baseUrl: "https://api.openai.com/v1",
-	};
-	const flatten = {
-		...native,
-		id: "ds",
-		name: "deepseek",
-		modelName: "deepseek-flash",
-		baseUrl: "https://api.deepseek.com",
-	};
-	const other = [
-		{
-			role: "assistant",
-			content: [
-				{
-					type: "tool-call",
-					toolCallId: "real-tool",
-					toolName: "lookup",
-					input: {},
-				},
-			],
-		},
-		{
-			role: "tool",
-			content: [
-				{
-					type: "tool-result",
-					toolCallId: "real-tool",
-					toolName: "lookup",
-					output: { type: "text", value: "REAL-RESULT" },
-				},
-			],
-		},
-	];
-	const messages = [...args.messages, ...other];
-	// Images and the exact user text are never rebuilt while rebinding evidence.
-	messages[0] = {
-		role: "user",
-		content: [
-			...messages[0].content,
-			{
-				type: "image",
-				image: new Uint8Array([1, 2, 3]),
-				mediaType: "image/png",
+				],
 			},
-		],
-	};
-	const before = JSON.stringify(messages);
-	for (const [provider, id] of [
-		[flatten, "a"],
-		[native, "b"],
-		[flatten, "c"],
-	] as const) {
-		const policy = await args.completionPolicy.forAttempt({
-			provider,
-			modelId: id,
-			phase: "closing",
-			attemptId: id,
-			toolsAllowed: false,
-			snapshot: {},
-		});
-		const projected = policy.projectContext({
-			snapshot: {},
-			system: "system",
-			messages,
-			provider,
-		});
-		expect(projected.messages[0]).toEqual(messages[0]);
-		expect(projected.messages.slice(-2)).toEqual(other);
-		if (provider === flatten) {
-			expect(projected.messages).toHaveLength(messages.length - 1);
-			expect(projected.messages[1]).toMatchObject({
-				role: "user",
-				content: expect.stringContaining("CAPTURED-EVIDENCE"),
+		] as const;
+		mocks.prepare.mockResolvedValue(
+			createPlainNormalChatPreparedContext({
+				inputValue: "User intent stays exact",
+				prefetchedToolMessages: structuredClone(pair) as never,
+				prefetchedToolCalls: [
+					{
+						callId: "prefetch-1",
+						name: "fetch_url",
+						input: {},
+						status: "done",
+						outputSummary: "CAPTURED-EVIDENCE",
+					},
+				],
+			}),
+		);
+		await prepareNormalChatTurn(createPlainNormalChatSendModelParams());
+		expect(mocks.prepare.mock.calls[0][5]).toBe("native");
+		const args = mocks.model.mock.calls.at(-1)?.[0];
+		const native = {
+			...args.provider,
+			name: "openai",
+			modelName: "gpt-test",
+			baseUrl: "https://api.openai.com/v1",
+		};
+		const flatten = {
+			...native,
+			id: "ds",
+			name: "deepseek",
+			modelName: "deepseek-flash",
+			baseUrl: "https://api.deepseek.com",
+		};
+		const other = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "real-tool",
+						toolName: "lookup",
+						input: {},
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "real-tool",
+						toolName: "lookup",
+						output: { type: "text", value: "REAL-RESULT" },
+					},
+				],
+			},
+		];
+		const messages = [...args.messages, ...other];
+		// Images and the exact user text are never rebuilt while rebinding evidence.
+		messages[0] = {
+			role: "user",
+			content: [
+				...messages[0].content,
+				{
+					type: "image",
+					image: new Uint8Array([1, 2, 3]),
+					mediaType: "image/png",
+				},
+			],
+		};
+		const before = JSON.stringify(messages);
+		for (const [provider, id] of [
+			[flatten, "a"],
+			[native, "b"],
+			[flatten, "c"],
+		] as const) {
+			const policy = await args.completionPolicy.forAttempt({
+				provider,
+				modelId: id,
+				phase: "closing",
+				attemptId: id,
+				toolsAllowed: false,
+				snapshot: {},
 			});
-			expect(JSON.stringify(projected.messages)).not.toContain(
-				'"toolCallId":"prefetch-1"',
-			);
-		} else expect(projected.messages).toEqual(messages);
-	}
-	expect(JSON.stringify(messages)).toBe(before);
-	expect(mocks.prepare).toHaveBeenCalledOnce();
-});
+			const projected = policy.projectContext({
+				snapshot: {},
+				system: "system",
+				messages,
+				provider,
+			});
+			expect(projected.messages[0]).toEqual(messages[0]);
+			expect(projected.messages.slice(-2)).toEqual(other);
+			if (provider === flatten) {
+				expect(projected.messages).toHaveLength(messages.length - 1);
+				expect(projected.messages[1]).toMatchObject({
+					role: "user",
+					content: expect.stringContaining("CAPTURED-EVIDENCE"),
+				});
+				expect(JSON.stringify(projected.messages)).not.toContain(
+					'"toolCallId":"prefetch-1"',
+				);
+			} else expect(projected.messages).toEqual(messages);
+		}
+		expect(JSON.stringify(messages)).toBe(before);
+		expect(mocks.prepare).toHaveBeenCalledOnce();
+	},
+);
 
-it.each([
-	"runtime",
-	"preparation",
-] as const)("does not continue preparation after abort during %s", async (stage) => {
-	const controller = new AbortController();
-	let release!: () => void;
-	const held = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const current =
-		stage === "runtime"
-			? mocks.runtime.getMockImplementation()
-			: mocks.prepare.getMockImplementation();
-	const prepared = createPlainNormalChatPreparedContext();
-	if (stage === "runtime")
-		mocks.runtime.mockImplementation(async (...args) => {
-			await held;
-			if (!current) throw new Error("Missing runtime fixture");
-			return current(...args);
+it.each(["runtime", "preparation"] as const)(
+	"does not continue preparation after abort during %s",
+	async (stage) => {
+		const controller = new AbortController();
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
 		});
-	else
-		mocks.prepare.mockImplementation(async () => {
-			await held;
-			return prepared;
-		});
-	const pending = prepareNormalChatTurn(
-		createPlainNormalChatSendModelParams({ signal: controller.signal }),
-	);
-	await vi.waitFor(() =>
-		expect(
-			stage === "runtime" ? mocks.runtime : mocks.prepare,
-		).toHaveBeenCalledOnce(),
-	);
-	controller.abort(new Error("cancelled preparation"));
-	release();
-	await expect(pending).rejects.toThrow("cancelled preparation");
-	expect(mocks.tools).not.toHaveBeenCalled();
-	expect(mocks.model).not.toHaveBeenCalled();
-});
+		const current =
+			stage === "runtime"
+				? mocks.runtime.getMockImplementation()
+				: mocks.prepare.getMockImplementation();
+		const prepared = createPlainNormalChatPreparedContext();
+		if (stage === "runtime")
+			mocks.runtime.mockImplementation(async (...args) => {
+				await held;
+				if (!current) throw new Error("Missing runtime fixture");
+				return current(...args);
+			});
+		else
+			mocks.prepare.mockImplementation(async () => {
+				await held;
+				return prepared;
+			});
+		const pending = prepareNormalChatTurn(
+			createPlainNormalChatSendModelParams({ signal: controller.signal }),
+		);
+		await vi.waitFor(() =>
+			expect(
+				stage === "runtime" ? mocks.runtime : mocks.prepare,
+			).toHaveBeenCalledOnce(),
+		);
+		controller.abort(new Error("cancelled preparation"));
+		release();
+		await expect(pending).rejects.toThrow("cancelled preparation");
+		expect(mocks.tools).not.toHaveBeenCalled();
+		expect(mocks.model).not.toHaveBeenCalled();
+	},
+);
 
 it("settles the lifetime exactly once if cancellation arrives while the initial tool pack is prepared", async () => {
 	const controller = new AbortController();

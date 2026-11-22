@@ -412,208 +412,216 @@ describe("installed SDK native shapes", () => {
 		});
 	});
 
-	it.each([
-		false,
-		true,
-	])("combines native context projection with entry vision policy (local-only: %s)", async (localOnly) => {
-		const queue = createStepImageQueue();
-		queue.push({
-			label: "private names",
-			labelWithoutNames: "positions: 1, 2, 3",
-			localOnly: localOnly ? true : undefined,
-			images: [picture, picture, picture],
-		});
-		const seen: unknown[] = [];
-		const model = new MockLanguageModelV3({
-			doGenerate: async (input) => {
-				seen.push(input.prompt);
-				return {
-					content: [{ type: "text", text: "Final" }],
-					finishReason: { unified: "stop", raw: "stop" },
-					usage,
-					warnings: [],
-				};
-			},
-		});
-		const args = params();
-		const result = await collect(
-			runNormalChatCompletion(
-				{
-					...args,
-					provider: {
-						...provider,
-						capabilities: localOnly ? seeing : undefined,
-					},
-					stepImages: queue,
-					completionPolicy: {
-						...args.completionPolicy,
-						forAttempt: () => ({
-							projectContext: ({ system, messages }) => ({ system, messages }),
-						}),
-					},
+	it.each([false, true])(
+		"combines native context projection with entry vision policy (local-only: %s)",
+		async (localOnly) => {
+			const queue = createStepImageQueue();
+			queue.push({
+				label: "private names",
+				labelWithoutNames: "positions: 1, 2, 3",
+				localOnly: localOnly ? true : undefined,
+				images: [picture, picture, picture],
+			});
+			const seen: unknown[] = [];
+			const model = new MockLanguageModelV3({
+				doGenerate: async (input) => {
+					seen.push(input.prompt);
+					return {
+						content: [{ type: "text", text: "Final" }],
+						finishReason: { unified: "stop", raw: "stop" },
+						usage,
+						warnings: [],
+					};
 				},
-				dependencies(model),
-				false,
-			),
-		);
-		expect(result.completion?.outcome).toBe("answered");
-		expect(seen).toHaveLength(1);
-		expect(pixelCount(seen)).toBe(0);
-		const wire = JSON.stringify(seen);
-		expect(wire.split(STRIPPED_IMAGE_NOTE)).toHaveLength(2);
-		expect(wire).toContain(localOnly ? "positions: 1, 2, 3" : "private names");
-		if (localOnly) expect(wire).not.toContain("private names");
-		expect(result.continuation?.steps[0].imageEntries[0].images).toHaveLength(
-			3,
-		);
-	});
-	it.each([
-		false,
-		true,
-	])("expires completed step thumbnails while retaining original prepared pictures (stream: %s)", async (streaming) => {
-		const queue = createStepImageQueue();
-		const seen: unknown[] = [];
-		let executions = 0;
-		const model = new MockLanguageModelV3({
-			doGenerate: async (input) => {
-				seen.push(input.prompt);
-				return {
-					content:
-						seen.length < 3
-							? [
-									{
-										type: "tool-call",
-										toolCallId: `c${seen.length}`,
-										toolName: "lookup",
-										input: "{}",
-									},
-								]
-							: [{ type: "text", text: "Final" }],
-					finishReason: {
-						unified: seen.length < 3 ? "tool-calls" : "stop",
-						raw: "stop",
+			});
+			const args = params();
+			const result = await collect(
+				runNormalChatCompletion(
+					{
+						...args,
+						provider: {
+							...provider,
+							capabilities: localOnly ? seeing : undefined,
+						},
+						stepImages: queue,
+						completionPolicy: {
+							...args.completionPolicy,
+							forAttempt: () => ({
+								projectContext: ({ system, messages }) => ({
+									system,
+									messages,
+								}),
+							}),
+						},
 					},
-					usage,
-					warnings: [],
-				};
-			},
-			doStream: async (input) => {
-				seen.push(input.prompt);
-				return {
-					stream: stream(
-						seen.length < 3
-							? [
-									{
-										type: "tool-call",
-										toolCallId: `c${seen.length}`,
-										toolName: "lookup",
-										input: "{}",
-									},
-									finish("tool-calls"),
-								]
-							: [...textParts("Final"), finish()],
-					),
-				};
-			},
-		});
-		const args = params();
-		const result = await collect(
-			runNormalChatCompletion(
-				{
-					...args,
-					provider: { ...provider, capabilities: seeing },
-					messages: originalPictures,
-					stepImages: queue,
-					tools: {
-						lookup: tool({
-							inputSchema: z.object({}),
-							execute: async () => {
-								if (++executions === 1)
-									queue.push({ label: "step picture", images: [picture] });
-								return "evidence";
-							},
-						}),
-					},
-					completionPolicy: {
-						...args.completionPolicy,
-						forAttempt: () => ({
-							classifyExecution: () => "succeeded",
-							projectContext: ({ system, messages }) => ({ system, messages }),
-						}),
-					},
+					dependencies(model),
+					false,
+				),
+			);
+			expect(result.completion?.outcome).toBe("answered");
+			expect(seen).toHaveLength(1);
+			expect(pixelCount(seen)).toBe(0);
+			const wire = JSON.stringify(seen);
+			expect(wire.split(STRIPPED_IMAGE_NOTE)).toHaveLength(2);
+			expect(wire).toContain(
+				localOnly ? "positions: 1, 2, 3" : "private names",
+			);
+			if (localOnly) expect(wire).not.toContain("private names");
+			expect(result.continuation?.steps[0].imageEntries[0].images).toHaveLength(
+				3,
+			);
+		},
+	);
+	it.each([false, true])(
+		"expires completed step thumbnails while retaining original prepared pictures (stream: %s)",
+		async (streaming) => {
+			const queue = createStepImageQueue();
+			const seen: unknown[] = [];
+			let executions = 0;
+			const model = new MockLanguageModelV3({
+				doGenerate: async (input) => {
+					seen.push(input.prompt);
+					return {
+						content:
+							seen.length < 3
+								? [
+										{
+											type: "tool-call",
+											toolCallId: `c${seen.length}`,
+											toolName: "lookup",
+											input: "{}",
+										},
+									]
+								: [{ type: "text", text: "Final" }],
+						finishReason: {
+							unified: seen.length < 3 ? "tool-calls" : "stop",
+							raw: "stop",
+						},
+						usage,
+						warnings: [],
+					};
 				},
-				dependencies(model),
-				streaming,
-			),
-		);
-		expect(result.completion?.outcome).toBe("answered");
-		expect(seen.map(pixelCount)).toEqual([1, 2, 1]);
-		expect(JSON.stringify(seen[2])).not.toContain("step picture");
-		expect(result.continuation?.steps[1].imageEntries[0].images).toHaveLength(
-			1,
-		);
-		expect(pixelCount(result.continuation?.steps[1].inserts)).toBe(1);
-		expect(pixelCount(result.continuation?.original.messages)).toBe(1);
-	});
-	it.each([
-		false,
-		true,
-	])("retains an unfinished look across pre-execution retry (stream: %s)", async (streaming) => {
-		const queue = createStepImageQueue();
-		queue.push({ label: "retry picture", images: [picture] });
-		const seen: unknown[] = [];
-		const failed = new MockLanguageModelV3({
-			doGenerate: async (input) => {
-				seen.push(input.prompt);
-				throw new Error("offline before response");
-			},
-			doStream: async (input) => {
-				seen.push(input.prompt);
-				throw new Error("offline before response");
-			},
-		});
-		const recovered = new MockLanguageModelV3({
-			doGenerate: async (input) => {
-				seen.push(input.prompt);
-				return {
-					content: [{ type: "text", text: "Final" }],
-					finishReason: { unified: "stop", raw: "stop" },
-					usage,
-					warnings: [],
-				};
-			},
-			doStream: async (input) => {
-				seen.push(input.prompt);
-				return { stream: stream([...textParts("Final"), finish()]) };
-			},
-		});
-		const result = await collect(
-			runNormalChatCompletion(
-				{
-					...params(),
-					provider: { ...provider, capabilities: seeing },
-					messages: originalPictures,
-					stepImages: queue,
+				doStream: async (input) => {
+					seen.push(input.prompt);
+					return {
+						stream: stream(
+							seen.length < 3
+								? [
+										{
+											type: "tool-call",
+											toolCallId: `c${seen.length}`,
+											toolName: "lookup",
+											input: "{}",
+										},
+										finish("tool-calls"),
+									]
+								: [...textParts("Final"), finish()],
+						),
+					};
 				},
-				{
-					...dependencies(failed),
-					fallback: async () => ({
+			});
+			const args = params();
+			const result = await collect(
+				runNormalChatCompletion(
+					{
+						...args,
 						provider: { ...provider, capabilities: seeing },
-						modelId: "native",
-						dependencies: dependencies(recovered),
-					}),
+						messages: originalPictures,
+						stepImages: queue,
+						tools: {
+							lookup: tool({
+								inputSchema: z.object({}),
+								execute: async () => {
+									if (++executions === 1)
+										queue.push({ label: "step picture", images: [picture] });
+									return "evidence";
+								},
+							}),
+						},
+						completionPolicy: {
+							...args.completionPolicy,
+							forAttempt: () => ({
+								classifyExecution: () => "succeeded",
+								projectContext: ({ system, messages }) => ({
+									system,
+									messages,
+								}),
+							}),
+						},
+					},
+					dependencies(model),
+					streaming,
+				),
+			);
+			expect(result.completion?.outcome).toBe("answered");
+			expect(seen.map(pixelCount)).toEqual([1, 2, 1]);
+			expect(JSON.stringify(seen[2])).not.toContain("step picture");
+			expect(result.continuation?.steps[1].imageEntries[0].images).toHaveLength(
+				1,
+			);
+			expect(pixelCount(result.continuation?.steps[1].inserts)).toBe(1);
+			expect(pixelCount(result.continuation?.original.messages)).toBe(1);
+		},
+	);
+	it.each([false, true])(
+		"retains an unfinished look across pre-execution retry (stream: %s)",
+		async (streaming) => {
+			const queue = createStepImageQueue();
+			queue.push({ label: "retry picture", images: [picture] });
+			const seen: unknown[] = [];
+			const failed = new MockLanguageModelV3({
+				doGenerate: async (input) => {
+					seen.push(input.prompt);
+					throw new Error("offline before response");
 				},
-				streaming,
-			),
-		);
-		expect(result.completion).toMatchObject({
-			outcome: "answered",
-			closingAttempted: false,
-		});
-		expect(seen.map(pixelCount)).toEqual([2, 2]);
-		expect(result.continuation?.steps[0].finished).toBe(false);
-		expect(pixelCount(result.continuation?.steps[0].inserts)).toBe(1);
-	});
+				doStream: async (input) => {
+					seen.push(input.prompt);
+					throw new Error("offline before response");
+				},
+			});
+			const recovered = new MockLanguageModelV3({
+				doGenerate: async (input) => {
+					seen.push(input.prompt);
+					return {
+						content: [{ type: "text", text: "Final" }],
+						finishReason: { unified: "stop", raw: "stop" },
+						usage,
+						warnings: [],
+					};
+				},
+				doStream: async (input) => {
+					seen.push(input.prompt);
+					return { stream: stream([...textParts("Final"), finish()]) };
+				},
+			});
+			const result = await collect(
+				runNormalChatCompletion(
+					{
+						...params(),
+						provider: { ...provider, capabilities: seeing },
+						messages: originalPictures,
+						stepImages: queue,
+					},
+					{
+						...dependencies(failed),
+						fallback: async () => ({
+							provider: { ...provider, capabilities: seeing },
+							modelId: "native",
+							dependencies: dependencies(recovered),
+						}),
+					},
+					streaming,
+				),
+			);
+			expect(result.completion).toMatchObject({
+				outcome: "answered",
+				closingAttempted: false,
+			});
+			expect(seen.map(pixelCount)).toEqual([2, 2]);
+			expect(result.continuation?.steps[0].finished).toBe(false);
+			expect(pixelCount(result.continuation?.steps[0].inserts)).toBe(1);
+		},
+	);
 
 	it.each([
 		["length", "stop", 2],
@@ -621,88 +629,91 @@ describe("installed SDK native shapes", () => {
 		["stop", "stop", 1],
 		["length", "length", 2],
 		["failed", "failed", 2],
-	] as const)("keeps unfinished step image eligibility through recovery (%s → %s)", async (first, closing, wantClosingPixels) => {
-		const queue = createStepImageQueue();
-		queue.push({ label: "unfinished picture", images: [picture] });
-		const seen: unknown[] = [];
-		const model = new MockLanguageModelV3({
-			doGenerate: async (input) => {
-				seen.push(input.prompt);
-				const end = seen.length === 1 ? first : closing;
-				if (end === "failed") throw new Error("connection failed");
-				return {
-					content: [{ type: "text", text: seen.length === 1 ? "" : "Final" }],
-					finishReason: { unified: end, raw: end },
-					usage,
-					warnings: [],
-				};
-			},
-		});
-		const result = await collect(
-			runNormalChatCompletion(
-				{
-					...params(),
-					provider: { ...provider, capabilities: seeing },
-					messages: originalPictures,
-					stepImages: queue,
+	] as const)(
+		"keeps unfinished step image eligibility through recovery (%s → %s)",
+		async (first, closing, wantClosingPixels) => {
+			const queue = createStepImageQueue();
+			queue.push({ label: "unfinished picture", images: [picture] });
+			const seen: unknown[] = [];
+			const model = new MockLanguageModelV3({
+				doGenerate: async (input) => {
+					seen.push(input.prompt);
+					const end = seen.length === 1 ? first : closing;
+					if (end === "failed") throw new Error("connection failed");
+					return {
+						content: [{ type: "text", text: seen.length === 1 ? "" : "Final" }],
+						finishReason: { unified: end, raw: end },
+						usage,
+						warnings: [],
+					};
 				},
-				dependencies(model),
-				false,
-			),
-		);
-		expect(seen.map(pixelCount)).toEqual([2, wantClosingPixels]);
-		expect(seen).toHaveLength(2);
-		expect(result.completion?.closingAttempted).toBe(first !== "failed");
-		expect(result.completion?.phase).toBe(
-			first === "failed" ? "working" : "closing",
-		);
-		expect(result.completion?.outcome).toBe(
-			closing === "stop"
-				? "answered"
-				: closing === "failed"
-					? "failed"
-					: "incomplete",
-		);
-		expect(result.continuation?.steps[0].imageEntries[0].images).toHaveLength(
-			1,
-		);
-		expect(pixelCount(result.continuation?.steps[0].inserts)).toBe(1);
-		const resumedInputs: unknown[] = [];
-		const resumedModel = new MockLanguageModelV3({
-			doGenerate: async (input) => {
-				resumedInputs.push(input.prompt);
-				return {
-					content: [{ type: "text", text: "Resumed answer" }],
-					finishReason: { unified: "stop", raw: "stop" },
-					usage,
-					warnings: [],
-				};
-			},
-		});
-		const args = params();
-		const resumed = await collect(
-			runNormalChatCompletion(
-				{
-					...args,
-					provider: { ...provider, capabilities: seeing },
-					messages: originalPictures,
-					completionPolicy: {
-						...args.completionPolicy,
-						segmentId: "new",
-						continuation: result.continuation,
-						continuationKind: "user_resume",
+			});
+			const result = await collect(
+				runNormalChatCompletion(
+					{
+						...params(),
+						provider: { ...provider, capabilities: seeing },
+						messages: originalPictures,
+						stepImages: queue,
 					},
+					dependencies(model),
+					false,
+				),
+			);
+			expect(seen.map(pixelCount)).toEqual([2, wantClosingPixels]);
+			expect(seen).toHaveLength(2);
+			expect(result.completion?.closingAttempted).toBe(first !== "failed");
+			expect(result.completion?.phase).toBe(
+				first === "failed" ? "working" : "closing",
+			);
+			expect(result.completion?.outcome).toBe(
+				closing === "stop"
+					? "answered"
+					: closing === "failed"
+						? "failed"
+						: "incomplete",
+			);
+			expect(result.continuation?.steps[0].imageEntries[0].images).toHaveLength(
+				1,
+			);
+			expect(pixelCount(result.continuation?.steps[0].inserts)).toBe(1);
+			const resumedInputs: unknown[] = [];
+			const resumedModel = new MockLanguageModelV3({
+				doGenerate: async (input) => {
+					resumedInputs.push(input.prompt);
+					return {
+						content: [{ type: "text", text: "Resumed answer" }],
+						finishReason: { unified: "stop", raw: "stop" },
+						usage,
+						warnings: [],
+					};
 				},
-				dependencies(resumedModel),
-				false,
-			),
-		);
-		expect(resumed.completion?.outcome).toBe("answered");
-		expect(resumedInputs.map(pixelCount)).toEqual([
-			closing === "stop" || first === "stop" ? 1 : 2,
-		]);
-		expect(pixelCount(resumed.continuation?.steps[0].inserts)).toBe(1);
-	});
+			});
+			const args = params();
+			const resumed = await collect(
+				runNormalChatCompletion(
+					{
+						...args,
+						provider: { ...provider, capabilities: seeing },
+						messages: originalPictures,
+						completionPolicy: {
+							...args.completionPolicy,
+							segmentId: "new",
+							continuation: result.continuation,
+							continuationKind: "user_resume",
+						},
+					},
+					dependencies(resumedModel),
+					false,
+				),
+			);
+			expect(resumed.completion?.outcome).toBe("answered");
+			expect(resumedInputs.map(pixelCount)).toEqual([
+				closing === "stop" || first === "stop" ? 1 : 2,
+			]);
+			expect(pixelCount(resumed.continuation?.steps[0].inserts)).toBe(1);
+		},
+	);
 
 	it("binds a buffered tool result to its source step while the consumer waits for the next SDK step", async () => {
 		let calls = 0;
@@ -804,192 +815,198 @@ describe("installed SDK native shapes", () => {
 			),
 		).toEqual(["Working"]);
 	});
-	it.each([
-		"stream",
-		"plain",
-	] as const)("requires a visible character for working and closing answers (%s)", async (mode) => {
-		let calls = 0;
-		const model = new MockLanguageModelV3({
-			doStream: async () => {
-				calls++;
-				return { stream: stream([...textParts("\u200B"), finish()]) };
-			},
-			doGenerate: async () => {
-				calls++;
-				return {
-					content: [{ type: "text", text: "\u200B" }],
-					finishReason: { unified: "stop", raw: "stop" },
-					usage,
-					warnings: [],
-				};
-			},
-		});
-		const run = runNormalChatCompletion(
-			params(),
-			dependencies(model),
-			mode === "stream",
-		);
-		let result: PlainNormalChatModelRunResult;
-		for (;;) {
-			const next = await run.next();
-			if (next.done) {
-				result = next.value;
-				break;
+	it.each(["stream", "plain"] as const)(
+		"requires a visible character for working and closing answers (%s)",
+		async (mode) => {
+			let calls = 0;
+			const model = new MockLanguageModelV3({
+				doStream: async () => {
+					calls++;
+					return { stream: stream([...textParts("\u200B"), finish()]) };
+				},
+				doGenerate: async () => {
+					calls++;
+					return {
+						content: [{ type: "text", text: "\u200B" }],
+						finishReason: { unified: "stop", raw: "stop" },
+						usage,
+						warnings: [],
+					};
+				},
+			});
+			const run = runNormalChatCompletion(
+				params(),
+				dependencies(model),
+				mode === "stream",
+			);
+			let result: PlainNormalChatModelRunResult;
+			for (;;) {
+				const next = await run.next();
+				if (next.done) {
+					result = next.value;
+					break;
+				}
 			}
-		}
-		expect(result.completion).toMatchObject({
-			outcome: "incomplete",
-			closingAttempted: true,
-		});
-		expect(calls).toBe(2);
-		expect(result.continuation?.steps.map((s) => s.phase)).toEqual([
-			"working",
-			"closing",
-		]);
-		expect(
-			projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
-				(b) => b.text,
-			),
-		).toEqual(["\u200B"]);
-	});
+			expect(result.completion).toMatchObject({
+				outcome: "incomplete",
+				closingAttempted: true,
+			});
+			expect(calls).toBe(2);
+			expect(result.continuation?.steps.map((s) => s.phase)).toEqual([
+				"working",
+				"closing",
+			]);
+			expect(
+				projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
+					(b) => b.text,
+				),
+			).toEqual(["\u200B"]);
+		},
+	);
 	it.each([
 		["length", "stop", "length", "answered"],
 		["length", "length", "length", "incomplete"],
 		["missing_finish", "stop", "stream_end", "answered"],
 		["error", "stop", "transport_error", "answered"],
-	] as const)("does not let earlier delivery mask later %s work or closing %s", async (workingEnd, closingEnd, workingStopCause, outcome) => {
-		let calls = 0;
-		const model = new MockLanguageModelV3({
-			doStream: async () => ({
-				stream: stream(
-					++calls === 1
-						? [
-								{
-									type: "tool-call",
-									toolCallId: "c",
-									toolName: "deliver",
-									input: "{}",
-								},
-								finish("tool-calls"),
-							]
-						: calls === 2
+	] as const)(
+		"does not let earlier delivery mask later %s work or closing %s",
+		async (workingEnd, closingEnd, workingStopCause, outcome) => {
+			let calls = 0;
+			const model = new MockLanguageModelV3({
+				doStream: async () => ({
+					stream: stream(
+						++calls === 1
 							? [
-									...textParts("Later analysis cut short"),
-									...(workingEnd === "length"
-										? [finish("length")]
-										: workingEnd === "error"
-											? [
-													{
-														type: "error" as const,
-														error: new Error("later stream failed"),
-													},
-												]
-											: []),
+									{
+										type: "tool-call",
+										toolCallId: "c",
+										toolName: "deliver",
+										input: "{}",
+									},
+									finish("tool-calls"),
 								]
-							: [...textParts("Completed remaining work"), finish(closingEnd)],
+							: calls === 2
+								? [
+										...textParts("Later analysis cut short"),
+										...(workingEnd === "length"
+											? [finish("length")]
+											: workingEnd === "error"
+												? [
+														{
+															type: "error" as const,
+															error: new Error("later stream failed"),
+														},
+													]
+												: []),
+									]
+								: [
+										...textParts("Completed remaining work"),
+										finish(closingEnd),
+									],
+					),
+				}),
+			});
+			const base = params();
+			const run = runNormalChatCompletion(
+				{
+					...base,
+					tools: {
+						deliver: tool({
+							inputSchema: z.object({}),
+							execute: async () => "real delivery",
+						}),
+					},
+					completionPolicy: {
+						...base.completionPolicy,
+						forAttempt: () => ({
+							...base.completionPolicy.forAttempt(),
+							isDelivery: () => true,
+						}),
+					},
+				},
+				dependencies(model),
+				true,
+			);
+			let result: PlainNormalChatModelRunResult;
+			for (;;) {
+				const next = await run.next();
+				if (next.done) {
+					result = next.value;
+					break;
+				}
+			}
+			expect(result.completion).toMatchObject({
+				outcome,
+				closingAttempted: true,
+				workingStopCause,
+			});
+			expect(result.text).toBe("Completed remaining work");
+			expect(calls).toBe(3);
+			expect(
+				projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
+					(b) => b.text,
 				),
-			}),
-		});
-		const base = params();
-		const run = runNormalChatCompletion(
-			{
-				...base,
-				tools: {
-					deliver: tool({
-						inputSchema: z.object({}),
-						execute: async () => "real delivery",
-					}),
+			).toEqual(["Later analysis cut short"]);
+		},
+	);
+	it.each([false, true])(
+		"retains artifact-only delivery without closing (clean blank follow-up: %s)",
+		async (blankFollowup) => {
+			let calls = 0;
+			const base = params();
+			const model = new MockLanguageModelV3({
+				doStream: async () => {
+					calls++;
+					if (calls > 1) return { stream: stream([finish()]) };
+					return {
+						stream: stream([
+							{
+								type: "tool-call",
+								toolCallId: "c",
+								toolName: "deliver",
+								input: "{}",
+							},
+							finish("tool-calls"),
+						]),
+					};
 				},
-				completionPolicy: {
-					...base.completionPolicy,
-					forAttempt: () => ({
-						...base.completionPolicy.forAttempt(),
-						isDelivery: () => true,
-					}),
+			});
+			const run = runNormalChatCompletion(
+				{
+					...base,
+					maxToolSteps: blankFollowup ? 2 : 1,
+					tools: {
+						deliver: tool({
+							inputSchema: z.object({}),
+							execute: async () => "real delivery",
+						}),
+					},
+					completionPolicy: {
+						...base.completionPolicy,
+						forAttempt: () => ({
+							...base.completionPolicy.forAttempt(),
+							isDelivery: () => true,
+						}),
+					},
 				},
-			},
-			dependencies(model),
-			true,
-		);
-		let result: PlainNormalChatModelRunResult;
-		for (;;) {
-			const next = await run.next();
-			if (next.done) {
-				result = next.value;
-				break;
+				dependencies(model),
+				true,
+			);
+			let result: PlainNormalChatModelRunResult;
+			for (;;) {
+				const next = await run.next();
+				if (next.done) {
+					result = next.value;
+					break;
+				}
 			}
-		}
-		expect(result.completion).toMatchObject({
-			outcome,
-			closingAttempted: true,
-			workingStopCause,
-		});
-		expect(result.text).toBe("Completed remaining work");
-		expect(calls).toBe(3);
-		expect(
-			projectNormalChatOutput(result.continuation?.events ?? []).activity.map(
-				(b) => b.text,
-			),
-		).toEqual(["Later analysis cut short"]);
-	});
-	it.each([
-		false,
-		true,
-	])("retains artifact-only delivery without closing (clean blank follow-up: %s)", async (blankFollowup) => {
-		let calls = 0;
-		const base = params();
-		const model = new MockLanguageModelV3({
-			doStream: async () => {
-				calls++;
-				if (calls > 1) return { stream: stream([finish()]) };
-				return {
-					stream: stream([
-						{
-							type: "tool-call",
-							toolCallId: "c",
-							toolName: "deliver",
-							input: "{}",
-						},
-						finish("tool-calls"),
-					]),
-				};
-			},
-		});
-		const run = runNormalChatCompletion(
-			{
-				...base,
-				maxToolSteps: blankFollowup ? 2 : 1,
-				tools: {
-					deliver: tool({
-						inputSchema: z.object({}),
-						execute: async () => "real delivery",
-					}),
-				},
-				completionPolicy: {
-					...base.completionPolicy,
-					forAttempt: () => ({
-						...base.completionPolicy.forAttempt(),
-						isDelivery: () => true,
-					}),
-				},
-			},
-			dependencies(model),
-			true,
-		);
-		let result: PlainNormalChatModelRunResult;
-		for (;;) {
-			const next = await run.next();
-			if (next.done) {
-				result = next.value;
-				break;
-			}
-		}
-		expect(result.completion).toMatchObject({
-			outcome: "delivered",
-			closingAttempted: false,
-		});
-		expect(calls).toBe(blankFollowup ? 2 : 1);
-	});
+			expect(result.completion).toMatchObject({
+				outcome: "delivered",
+				closingAttempted: false,
+			});
+			expect(calls).toBe(blankFollowup ? 2 : 1);
+		},
+	);
 
 	it("preserves multiple native block IDs within a single clean answer", async () => {
 		const output: NormalChatOutputEvent[] = [];
@@ -1221,72 +1238,83 @@ describe("lossless closing admission", () => {
 		"unknown-window",
 		"unknown-output",
 		"spent",
-	] as const)("gates adaptive closing on exact original identity and known limits: %s", async (kind) => {
-		const { seed, execute } = await retainedWork();
-		const doGenerate = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
-			content: [{ type: "text" as const, text: "Closed." }],
-			finishReason: { unified: "stop" as const, raw: "stop" },
-			usage,
-			warnings: [],
-		}));
-		const model = new MockLanguageModelV3({ doGenerate });
-		const destination = {
-			...provider,
-			maxOutputTokens: kind === "unknown-output" ? undefined : 2048,
-			...(kind === "id" ? { id: "other" } : {}),
-			...(kind === "base" ? { baseUrl: "https://other.invalid" } : {}),
-			...(kind === "model" || kind === "model-fits"
-				? { modelName: "other" }
-				: {}),
-		};
-		if (kind === "unknown-output") seed.prepared.maxOutputTokens = null;
-		if (kind === "spent") seed.closingSegments = ["s"];
-		const result = await collect(
-			runNormalChatCompletion(
-				{
-					provider: destination,
-					messages: [],
-					completionPolicy: {
-						turnId: "t",
-						segmentId: "s",
-						deadlineAt: seed.deadlineAt,
-						totalTimeoutMs: seed.totalTimeoutMs,
-						continuation: seed,
-						forAttempt: () => ({
-							projectContext: ({ system, messages }) => ({ system, messages }),
-						}),
-					},
-				},
-				{
-					...dependencies(model),
-					maxModelContext:
-						kind === "unknown-window"
-							? undefined
-							: await closingWindow(seed, kind === "model-fits" ? 2048 : 1024),
-				},
-				false,
-			),
-		);
-		const allowed = kind === "same" || kind === "model-fits";
-		expect(doGenerate).toHaveBeenCalledTimes(allowed ? 1 : 0);
-		expect(execute).toHaveBeenCalledTimes(1);
-		expect(result.completion?.outcome).toBe(
-			allowed ? "answered" : "incomplete",
-		);
-		if (allowed)
-			expect(doGenerate.mock.calls[0][0].maxOutputTokens).toBe(
-				kind === "same" ? 1024 : 2048,
+	] as const)(
+		"gates adaptive closing on exact original identity and known limits: %s",
+		async (kind) => {
+			const { seed, execute } = await retainedWork();
+			const doGenerate = vi.fn(
+				async (_options: LanguageModelV3CallOptions) => ({
+					content: [{ type: "text" as const, text: "Closed." }],
+					finishReason: { unified: "stop" as const, raw: "stop" },
+					usage,
+					warnings: [],
+				}),
 			);
-		else if (kind !== "spent") {
-			expect(result.completion?.stopCause).toBe("context_capacity");
-			expect(result.continuation?.usage.at(-1)).toMatchObject({
-				complete: true,
-				inputTokens: 0,
-				outputTokens: 0,
-				totalTokens: 0,
-			});
-		}
-	});
+			const model = new MockLanguageModelV3({ doGenerate });
+			const destination = {
+				...provider,
+				maxOutputTokens: kind === "unknown-output" ? undefined : 2048,
+				...(kind === "id" ? { id: "other" } : {}),
+				...(kind === "base" ? { baseUrl: "https://other.invalid" } : {}),
+				...(kind === "model" || kind === "model-fits"
+					? { modelName: "other" }
+					: {}),
+			};
+			if (kind === "unknown-output") seed.prepared.maxOutputTokens = null;
+			if (kind === "spent") seed.closingSegments = ["s"];
+			const result = await collect(
+				runNormalChatCompletion(
+					{
+						provider: destination,
+						messages: [],
+						completionPolicy: {
+							turnId: "t",
+							segmentId: "s",
+							deadlineAt: seed.deadlineAt,
+							totalTimeoutMs: seed.totalTimeoutMs,
+							continuation: seed,
+							forAttempt: () => ({
+								projectContext: ({ system, messages }) => ({
+									system,
+									messages,
+								}),
+							}),
+						},
+					},
+					{
+						...dependencies(model),
+						maxModelContext:
+							kind === "unknown-window"
+								? undefined
+								: await closingWindow(
+										seed,
+										kind === "model-fits" ? 2048 : 1024,
+									),
+					},
+					false,
+				),
+			);
+			const allowed = kind === "same" || kind === "model-fits";
+			expect(doGenerate).toHaveBeenCalledTimes(allowed ? 1 : 0);
+			expect(execute).toHaveBeenCalledTimes(1);
+			expect(result.completion?.outcome).toBe(
+				allowed ? "answered" : "incomplete",
+			);
+			if (allowed)
+				expect(doGenerate.mock.calls[0][0].maxOutputTokens).toBe(
+					kind === "same" ? 1024 : 2048,
+				);
+			else if (kind !== "spent") {
+				expect(result.completion?.stopCause).toBe("context_capacity");
+				expect(result.continuation?.usage.at(-1)).toMatchObject({
+					complete: true,
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 0,
+				});
+			}
+		},
+	);
 	it("caches the complete projected closing input with pending images before allocating its cap", async () => {
 		const { seed } = await retainedWork();
 		const label = "pending picture label ".repeat(500);
@@ -1345,100 +1373,45 @@ describe("lossless closing admission", () => {
 		[false, "microtask"],
 		[true, "sync"],
 		[true, "microtask"],
-	] as const)("retains images queued after the closing observed-input notification and refuses stale dispatch, streaming=%s insertion=%s", async (streaming, insertion) => {
-		const { seed, execute } = await retainedWork();
-		const queue = createStepImageQueue();
-		const lateEntry = {
-			label: "Late picture evidence",
-			images: [],
-			localOnly: true,
-			labelWithoutNames: "Late private evidence",
-		};
-		let queued = false;
-		let pendingAtNotification: number | undefined;
-		const doGenerate = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
-			content: [{ type: "text" as const, text: "Stale answer." }],
-			finishReason: { unified: "stop" as const, raw: "stop" },
-			usage,
-			warnings: [],
-		}));
-		const doStream = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
-			stream: stream([
-				{ type: "text-start", id: "late" },
-				{ type: "text-delta", id: "late", delta: "Stale answer." },
-				{ type: "text-end", id: "late" },
-				{
-					type: "finish",
+	] as const)(
+		"retains images queued after the closing observed-input notification and refuses stale dispatch, streaming=%s insertion=%s",
+		async (streaming, insertion) => {
+			const { seed, execute } = await retainedWork();
+			const queue = createStepImageQueue();
+			const lateEntry = {
+				label: "Late picture evidence",
+				images: [],
+				localOnly: true,
+				labelWithoutNames: "Late private evidence",
+			};
+			let queued = false;
+			let pendingAtNotification: number | undefined;
+			const doGenerate = vi.fn(
+				async (_options: LanguageModelV3CallOptions) => ({
+					content: [{ type: "text" as const, text: "Stale answer." }],
+					finishReason: { unified: "stop" as const, raw: "stop" },
 					usage,
-					finishReason: { unified: "stop", raw: "stop" },
-				},
-			]),
-		}));
-		const model = new MockLanguageModelV3({ doGenerate, doStream });
-		const result = await collect(
-			runNormalChatCompletion(
-				{
-					provider,
-					messages: [],
-					stepImages: queue,
-					completionPolicy: {
-						turnId: "t",
-						segmentId: "s",
-						deadlineAt: seed.deadlineAt,
-						totalTimeoutMs: seed.totalTimeoutMs,
-						continuation: seed,
-						onSnapshot: (snapshot) => {
-							if (
-								queued ||
-								!snapshot.steps.some(
-									(step) => step.phase === "closing" && step.observedInput,
-								)
-							)
-								return;
-							queued = true;
-							pendingAtNotification = snapshot.pendingImageEntries.length;
-							if (insertion === "sync") queue.push(lateEntry);
-							else queueMicrotask(() => queue.push(lateEntry));
-						},
+					warnings: [],
+				}),
+			);
+			const doStream = vi.fn(async (_options: LanguageModelV3CallOptions) => ({
+				stream: stream([
+					{ type: "text-start", id: "late" },
+					{ type: "text-delta", id: "late", delta: "Stale answer." },
+					{ type: "text-end", id: "late" },
+					{
+						type: "finish",
+						usage,
+						finishReason: { unified: "stop", raw: "stop" },
 					},
-				},
-				dependencies(model),
-				streaming,
-			),
-		);
-		expect(queued).toBe(true);
-		expect(pendingAtNotification).toBe(0);
-		expect.soft(doGenerate).not.toHaveBeenCalled();
-		expect.soft(doStream).not.toHaveBeenCalled();
-		expect.soft(result.completion).toMatchObject({
-			outcome: "incomplete",
-			stopCause: "context_capacity",
-			closingAttempted: true,
-		});
-		expect(result.continuation?.closingSegments).toEqual(["s"]);
-		expect(result.continuation?.pendingImageEntries).toEqual([lateEntry]);
-		expect(result.continuation?.steps.at(-1)?.imageEntries).toEqual([]);
-		expect(execute).toHaveBeenCalledTimes(1);
-	});
-	it.each([
-		"stop",
-		"deadline",
-		"new-image",
-	] as const)("rechecks %s while closing preparation yields before SDK dispatch", async (kind) => {
-		const { seed } = await retainedWork();
-		const controller = new AbortController();
-		const queue = createStepImageQueue();
-		const doGenerate = vi.fn();
-		const model = new MockLanguageModelV3({ doGenerate });
-		const now = Date.now();
-		const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-		try {
+				]),
+			}));
+			const model = new MockLanguageModelV3({ doGenerate, doStream });
 			const result = await collect(
 				runNormalChatCompletion(
 					{
 						provider,
 						messages: [],
-						abortSignal: controller.signal,
 						stepImages: queue,
 						completionPolicy: {
 							turnId: "t",
@@ -1446,33 +1419,92 @@ describe("lossless closing admission", () => {
 							deadlineAt: seed.deadlineAt,
 							totalTimeoutMs: seed.totalTimeoutMs,
 							continuation: seed,
-							forAttempt: () => ({
-								projectContext: ({ system, messages }) => {
-									queueMicrotask(() => {
-										if (kind === "stop") controller.abort();
-										else if (kind === "deadline")
-											clock.mockReturnValue(seed.deadlineAt + 1);
-										else queue.push({ label: "new picture", images: [] });
-									});
-									return { system, messages };
-								},
-							}),
+							onSnapshot: (snapshot) => {
+								if (
+									queued ||
+									!snapshot.steps.some(
+										(step) => step.phase === "closing" && step.observedInput,
+									)
+								)
+									return;
+								queued = true;
+								pendingAtNotification = snapshot.pendingImageEntries.length;
+								if (insertion === "sync") queue.push(lateEntry);
+								else queueMicrotask(() => queue.push(lateEntry));
+							},
 						},
 					},
 					dependencies(model),
-					false,
+					streaming,
 				),
 			);
-			expect(doGenerate).not.toHaveBeenCalled();
-			expect(result.completion?.stopCause).toBe(
-				kind === "stop"
-					? "user_stop"
-					: kind === "deadline"
-						? "deadline"
-						: "context_capacity",
-			);
-		} finally {
-			clock.mockRestore();
-		}
-	});
+			expect(queued).toBe(true);
+			expect(pendingAtNotification).toBe(0);
+			expect.soft(doGenerate).not.toHaveBeenCalled();
+			expect.soft(doStream).not.toHaveBeenCalled();
+			expect.soft(result.completion).toMatchObject({
+				outcome: "incomplete",
+				stopCause: "context_capacity",
+				closingAttempted: true,
+			});
+			expect(result.continuation?.closingSegments).toEqual(["s"]);
+			expect(result.continuation?.pendingImageEntries).toEqual([lateEntry]);
+			expect(result.continuation?.steps.at(-1)?.imageEntries).toEqual([]);
+			expect(execute).toHaveBeenCalledTimes(1);
+		},
+	);
+	it.each(["stop", "deadline", "new-image"] as const)(
+		"rechecks %s while closing preparation yields before SDK dispatch",
+		async (kind) => {
+			const { seed } = await retainedWork();
+			const controller = new AbortController();
+			const queue = createStepImageQueue();
+			const doGenerate = vi.fn();
+			const model = new MockLanguageModelV3({ doGenerate });
+			const now = Date.now();
+			const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+			try {
+				const result = await collect(
+					runNormalChatCompletion(
+						{
+							provider,
+							messages: [],
+							abortSignal: controller.signal,
+							stepImages: queue,
+							completionPolicy: {
+								turnId: "t",
+								segmentId: "s",
+								deadlineAt: seed.deadlineAt,
+								totalTimeoutMs: seed.totalTimeoutMs,
+								continuation: seed,
+								forAttempt: () => ({
+									projectContext: ({ system, messages }) => {
+										queueMicrotask(() => {
+											if (kind === "stop") controller.abort();
+											else if (kind === "deadline")
+												clock.mockReturnValue(seed.deadlineAt + 1);
+											else queue.push({ label: "new picture", images: [] });
+										});
+										return { system, messages };
+									},
+								}),
+							},
+						},
+						dependencies(model),
+						false,
+					),
+				);
+				expect(doGenerate).not.toHaveBeenCalled();
+				expect(result.completion?.stopCause).toBe(
+					kind === "stop"
+						? "user_stop"
+						: kind === "deadline"
+							? "deadline"
+							: "context_capacity",
+				);
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
 });

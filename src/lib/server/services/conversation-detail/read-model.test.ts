@@ -937,8 +937,7 @@ describe("Conversation Detail Read Model", () => {
 	// restart, so reading a conversation, or an older page of it, is what fills it
 	// again: before the payload that names those hosts reaches the browser.
 	describe("the user's source ledger", () => {
-		const THUMB =
-			"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+		const THUMB = "https://saved-thumbnails.example/previews/pet";
 		const assistantWithTools = (id: string, hostUrl: string) =>
 			({
 				id,
@@ -996,7 +995,9 @@ describe("Conversation Detail Read Model", () => {
 
 			expect(hasSourceHost("user-1", "stored.example")).toBe(true);
 			expect(hasSourceHost("user-1", "pics.example")).toBe(true);
-			expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
+			expect(hasSourceThumbnail("user-1", "https://pics.example/cat.jpg")).toBe(
+				true,
+			);
 			expect(hasSourceHost("user-2", "stored.example")).toBe(false);
 		});
 
@@ -1072,7 +1073,9 @@ describe("Conversation Detail Read Model", () => {
 			});
 
 			expect(hasSourceHost("user-1", "older.example")).toBe(true);
-			expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
+			expect(hasSourceThumbnail("user-1", "https://pics.example/cat.jpg")).toBe(
+				true,
+			);
 		});
 	});
 });

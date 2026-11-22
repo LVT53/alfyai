@@ -1,0 +1,82 @@
+{
+  "request": {
+    "model": "qwen3-6-27b",
+    "temperature": 0,
+    "max_tokens": 100,
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "probe",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "explicit"
+              ]
+            },
+            "value": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Return status explicit and value 7."
+      }
+    ]
+  },
+  "status": 200,
+  "response": {
+    "id": "chatcmpl-858acfba39207b7a",
+    "object": "chat.completion",
+    "created": 1795009930,
+    "model": "qwen3-6-27b",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"status\": \"explicit\",\n  \"value\": 7\n}",
+          "refusal": null,
+          "annotations": null,
+          "audio": null,
+          "function_call": null,
+          "reasoning": null
+        },
+        "logprobs": null,
+        "finish_reason": "stop",
+        "stop_reason": null,
+        "token_ids": null,
+        "routed_experts": null
+      }
+    ],
+    "service_tier": null,
+    "system_fingerprint": "vllm-0.31.0-6612147e",
+    "usage": {
+      "prompt_tokens": 20,
+      "total_tokens": 39,
+      "completion_tokens": 19,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "prompt_logprobs": null,
+    "prompt_token_ids": null,
+    "prompt_text": null,
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "metrics": null
+  }
+}

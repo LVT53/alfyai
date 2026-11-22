@@ -327,6 +327,15 @@ async function performUserMemoryMaintenance(
 		void startImportedSummaryDrain(userId);
 	});
 
+	// The imported chats native Memory has not taken up, if a restart or a
+	// failure stopped the import from recording them. It logs codes only.
+	await safe("resume imported memory", async () => {
+		const { catchUpImportedHistory } = await import(
+			"./memory-profile/imported-history"
+		);
+		await catchUpImportedHistory(userId, "maintenance");
+	});
+
 	await safe("prune checkpoints", () => pruneTaskCheckpoints(userId));
 	await safe("archive stale tasks", () => archiveStaleTaskMemory(userId));
 

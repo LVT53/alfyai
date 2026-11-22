@@ -176,7 +176,7 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 		expectNoRawI18nKeys();
 	});
 
-	it("renders a failed v1 row with its stored error and a Retry", () => {
+	it("renders a failed v1 row with the fallback sentence, not its stored message, and a Retry", () => {
 		const card = mapAtlasJobRowToCard(
 			storedRow({
 				status: "failed",
@@ -198,8 +198,14 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 			"data-status",
 			"failed",
 		);
+		// `atlas_quality_gate_failed` is a code earlier releases stored; its cause is
+		// not worth a sentence of its own, so the row says the tool's fallback and
+		// never the message that was written for the log.
 		expect(screen.getByTestId("atlas-failure-reason")).toHaveTextContent(
-			"Atlas could not verify enough claims to publish.",
+			"Atlas could not finish. Please try again.",
+		);
+		expect(document.body).not.toHaveTextContent(
+			"could not verify enough claims",
 		);
 		expect(screen.getByTestId("atlas-retry")).toBeInTheDocument();
 		expectNoRawI18nKeys();
@@ -269,24 +275,25 @@ describe("stored Atlas v1/v2 rows render through the current read path", () => {
 });
 
 describe("every v3 phase has a label", () => {
-	it.each(
-		ATLAS_V3_PHASES,
-	)("parses and labels the v3 %s phase in EN and HU", (phase) => {
-		expect(parseAtlasActivityDetails({ pipelineVersion: 3, phase }).phase).toBe(
-			phase,
-		);
-		const key = `atlasActivity.phase.${phase}` as const;
-		expect((chatDict.en as Record<string, string>)[key]).toBeTruthy();
-		expect((chatDict.hu as Record<string, string>)[key]).toBeTruthy();
-		for (const locale of ["en", "hu"] as const) {
+	it.each(ATLAS_V3_PHASES)(
+		"parses and labels the v3 %s phase in EN and HU",
+		(phase) => {
 			expect(
-				resolveRunningJobPhase({
-					status: "running",
-					stage: phase,
-					progressDetailsJson: JSON.stringify({ pipelineVersion: 3, phase }),
-					locale,
-				}),
-			).toBe((chatDict[locale] as Record<string, string>)[key]);
-		}
-	});
+				parseAtlasActivityDetails({ pipelineVersion: 3, phase }).phase,
+			).toBe(phase);
+			const key = `atlasActivity.phase.${phase}` as const;
+			expect((chatDict.en as Record<string, string>)[key]).toBeTruthy();
+			expect((chatDict.hu as Record<string, string>)[key]).toBeTruthy();
+			for (const locale of ["en", "hu"] as const) {
+				expect(
+					resolveRunningJobPhase({
+						status: "running",
+						stage: phase,
+						progressDetailsJson: JSON.stringify({ pipelineVersion: 3, phase }),
+						locale,
+					}),
+				).toBe((chatDict[locale] as Record<string, string>)[key]);
+			}
+		},
+	);
 });

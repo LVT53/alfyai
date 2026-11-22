@@ -1,0 +1,61 @@
+{
+  "instructions": "Remember explicit user facts, preferences, constraints, plans and project details. First distinguish the user's own assertions from text supplied for translation, rewriting, examples, fiction, or quotations. Do not extract the biography or possessions of the speaker inside supplied text as facts about the user. A separate personal statement outside that text remains eligible, even in the same message. Questions about products do not establish ownership; not buying a product does not establish that the person owns none. Preserve explicit negatives with their exact scope.\nKeep every independently useful detail. Preserve whose fact it is, shared facts about multiple people, ownership, temporal changes and uncertainty. Do not discard a reply preference because the rest of the message is a translation task. Use independently understandable natural-language facts and the native output format; do not invent a fixed property taxonomy. Keep unrelated properties independently editable where possible, without deleting their context or implying new facts. Dates must come from the source or the supplied reference time, not imagination.",
+  "cases": [
+    {
+      "id": "new_explicit_life_event",
+      "source": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office."
+    },
+    {
+      "id": "compound_price",
+      "source": "My red bicycle cost 250 euros and I ride it daily."
+    },
+    {
+      "id": "different_projects",
+      "source": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app."
+    },
+    {
+      "id": "negative_health_hu",
+      "source": "A párom laktózérzékeny, én nem. Mindketten szeretjük a rizst."
+    },
+    {
+      "id": "quote_hu",
+      "source": "Fordítsd le: \"Két gyermekem van, és ápolóként dolgozom.\" Egyébként rövid válaszokat kérek."
+    },
+    {
+      "id": "phone_reassignment",
+      "source": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222."
+    },
+    {
+      "id": "shopping",
+      "source": "I am comparing Bosch dishwashers. I have not bought one."
+    },
+    {
+      "id": "explicit_quote_boundary",
+      "source": "Please translate \"I own a silver camera.\" I personally own a black laptop. I prefer tea."
+    },
+    {
+      "id": "fresh_quote_en",
+      "source": "Please translate \"I own three horses and live in Cork.\" For my own replies, use short paragraphs. I am considering a saddle for my sister; I have not purchased it."
+    },
+    {
+      "id": "fresh_shared_hu",
+      "source": "A húgom és én szeretjük a teát. A húgom Pécsen él, én Szegeden. A régi telefonszámom a cégünk ügyfélszolgálatáé lett; az új személyes számom 07700 903333."
+    },
+    {
+      "id": "fresh_quoted_email",
+      "source": "Rewrite this email from my client: \"I live in Madrid and have a cat.\" Separately, I live in Galway and prefer concise emails."
+    },
+    {
+      "id": "fresh_hu_shopping",
+      "source": "Melyik Samsung telefon jó fotózásra? A lányomnak van egy Pixel 9 telefonja. Én még nem választottam új telefont."
+    },
+    {
+      "id": "fresh_hu_quotation",
+      "source": "Példamondat: „Három kutyám van, és szakács vagyok.” Ezt fordítsd angolra. A saját válaszaidban tegezz, és használj rövid bekezdéseket."
+    },
+    {
+      "id": "fresh_explicit_inside_question",
+      "source": "I own a Nikon Z6. Which lens should I buy for bird photography? My partner prefers landscape photography."
+    }
+  ]
+}

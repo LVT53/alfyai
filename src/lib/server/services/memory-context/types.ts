@@ -7,6 +7,8 @@ export type GetMemoryContextParams = {
 	userId: string;
 	conversationId: string;
 	mode?: string | null;
+	/** Exact title named in the authenticated current user message. */
+	authoredHistoryTitle?: string;
 	query?: string | null;
 	userDisplayName?: string | null;
 	maxSiblings?: number | null;
@@ -28,7 +30,7 @@ export type PersonaMemoryContextResult = {
 	success: true;
 	mode: "persona";
 	status: "available" | "empty" | "error";
-	source: "active_memory_profile";
+	source: "active_memory_profile" | "hindsight";
 	content: string | null;
 	error?: string;
 	evidenceCandidates: ToolEvidenceCandidate[];

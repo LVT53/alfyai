@@ -1,0 +1,55 @@
+it("final lifecycle judge: identical resend before initial delivery never learns the original assertion", async () => {
+	const f = await setup();
+	f.db.delete(f.s.memoryPublishedRows).run();
+	f.db.delete(f.s.memorySourceRevisions).run();
+	f.db.update(f.s.memoryBanks).set({ generation: null }).run();
+	const fixture = await nativeFixture(f, []);
+	fixture.setFacts([]);
+	const original = fixture.fetcher.getMockImplementation();
+	if (!original) throw Error("missing native fixture");
+	const assertion = "I prefer decaf in the afternoon.";
+	let retains = 0;
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		if (String(url).endsWith("/memories") && init?.method === "POST") {
+			retains++;
+			const item = JSON.parse(String(init.body)).items[0];
+			expect(item.content).toBe(assertion);
+			fixture.setFacts([{ id: "decaf", text: assertion, document_id: item.document_id }]);
+		}
+		return original(url, init);
+	});
+	const { eq } = await import("drizzle-orm");
+	const chat = await import("./chat-delivery");
+	const job = await import("./delivery-job");
+	const chatId = randomUUID();
+	f.db.insert(f.s.conversations)
+		.values({ id: chatId, title: "Synthetic chat", userId: h.userId }).run();
+	const persist = async (prefix: string, previous?: string) => {
+		const memoryAcceptance = chat.captureMemoryTurnAcceptance(h.userId, chatId);
+		f.db.insert(f.s.messages).values([
+			{ id: prefix, conversationId: chatId, role: "user", content: assertion, messageSequence: previous ? 3 : 1 },
+			{ id: prefix + "-assistant", conversationId: chatId, role: "assistant", content: "Understood.", messageSequence: previous ? 4 : 2 },
+		]).run();
+		await chat.deliverCompletedMemoryTurn({
+			memoryAcceptance, userId: h.userId, conversationId: chatId,
+			userMessageId: prefix, assistantMessageId: prefix + "-assistant",
+			...(previous ? { turnOrigin: "edit_resend", editSourceMessageId: previous } : {}),
+		});
+		const source = f.db.select().from(f.s.memorySourceRevisions)
+			.where(eq(f.s.memorySourceRevisions.messageId, prefix)).get();
+		if (!source) throw Error("missing recorded source");
+		return source;
+	};
+	const previous = await persist("before");
+	expect(previous).toMatchObject({ state: "pending", nativeSubmitted: false, acknowledgedFactsJson: "[]" });
+	await chat.revokeDeletedMemoryMessages(["before"], { editSourceMessageId: "before" });
+	f.db.delete(f.s.messages).where(eq(f.s.messages.id, "before")).run();
+	const next = await persist("after", "before");
+	expect(next.predecessorSourceId).toBe(previous.id);
+	await h.engine.drain(job.memoryDeliveryJob);
+	const delivery = f.db.select().from(f.s.memoryDeliveryJobs)
+		.where(eq(f.s.memoryDeliveryJobs.sourceId, next.id)).get();
+	expect(delivery?.status).toBe("succeeded");
+	expect(retains).toBe(0);
+	expect((await import("./native-read")).listMemory(h.userId, { scope: { kind: "personal" } }).rows).toEqual([]);
+});

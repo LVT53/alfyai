@@ -102,7 +102,23 @@ export const DELETE: RequestHandler = async (event) => {
 			}
 		}
 
-		await deleteMessages(safeIds);
+		const editSourceMessageId =
+			typeof body.editSourceMessageId === "string"
+				? body.editSourceMessageId
+				: undefined;
+		if (
+			editSourceMessageId &&
+			!existingMessages.some(
+				(message) =>
+					message.id === editSourceMessageId &&
+					message.role === "user" &&
+					safeIdSet.has(message.id),
+			)
+		)
+			return json({ error: "invalid_edit_source" }, { status: 400 });
+		if (editSourceMessageId)
+			await deleteMessages(safeIds, { editSourceMessageId });
+		else await deleteMessages(safeIds);
 
 		return json({ deleted: safeIds.length });
 	} catch (err) {

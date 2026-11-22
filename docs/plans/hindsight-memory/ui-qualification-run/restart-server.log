@@ -1,0 +1,406 @@
+
+  [38;2;9;127;184m▄[0m[48;2;8;130;178m[38;2;5;133;186m▄[0m       [48;2;10;143;160m[38;2;10;143;165m▄[0m[38;2;7;140;156m▄[0m
+ [38;2;8;125;192m▄[0m [38;2;3;132;191m▀[0m[38;2;2;133;192m▄[0m [38;2;3;132;180m▄[0m[38;2;1;137;184m▄[0m[38;2;3;133;174m▄[0m [38;2;3;142;176m▄[0m[38;2;4;142;169m▀[0m [38;2;10;144;164m▄[0m
+[38;2;6;121;195m▀[0m[38;2;5;128;203m▀[0m[48;2;5;124;195m[38;2;3;125;200m▄[0m[38;2;2;126;196m▄[0m[48;2;3;128;188m[38;2;1;131;196m▄[0m[48;2;0;152;219m[38;2;2;131;191m▄[0m[38;2;1;141;196m▀[0m[38;2;1;135;183m▀[0m[38;2;1;148;198m▀[0m[48;2;1;156;202m[38;2;2;135;180m▄[0m[48;2;4;134;169m[38;2;1;137;177m▄[0m[38;2;3;138;173m▄[0m[48;2;6;137;165m[38;2;2;140;170m▄[0m[38;2;7;144;169m▀[0m[38;2;7;139;158m▀[0m
+   [48;2;2;128;202m[38;2;2;124;201m▄[0m[48;2;1;130;201m[38;2;0;135;212m▄[0m[38;2;2;128;196m▄[0m [48;2;2;142;204m[38;2;7;138;199m▄[0m [38;2;1;135;186m▄[0m[48;2;1;142;186m[38;2;2;144;194m▄[0m[48;2;3;138;176m[38;2;2;134;176m▄[0m
+ [48;2;8;118;200m[38;2;8;121;209m▄[0m[38;2;3;121;203m▀[0m [38;2;3;122;192m▀[0m[38;2;1;138;216m▀[0m[48;2;0;138;210m[38;2;3;128;198m▄[0m[48;2;0;126;188m[38;2;2;131;198m▄[0m[48;2;0;142;205m[38;2;3;132;193m▄[0m[38;2;1;140;196m▀[0m  [38;2;4;134;175m▀[0m[48;2;13;135;167m[38;2;8;136;174m▄[0m 
+
+  [38;2;0;116;217mH[38;2;0;116;215mi[38;2;0;117;213mn[38;2;0;118;211md[38;2;0;119;209ms[38;2;0;120;207mi[38;2;0;121;205mg[38;2;0;122;203mh[38;2;0;123;201mt[38;2;0;123;199m: [38;2;0;125;195mA[38;2;0;126;193mg[38;2;0;127;191me[38;2;0;128;189mn[38;2;0;129;187mt [38;2;0;131;183mM[38;2;0;131;181me[38;2;0;132;179mm[38;2;0;133;177mo[38;2;0;134;175mr[38;2;0;135;173my [38;2;0;137;169mT[38;2;0;138;167mh[38;2;0;138;165ma[38;2;0;139;163mt [38;2;0;141;159mL[38;2;0;142;157me[38;2;0;143;155ma[38;2;0;144;153mr[38;2;0;145;151mn[38;2;0;146;150ms[0m
+
+2026-11-18 18:20:31,666 - INFO - hindsight_api.config - Database: pg0://alfyai-eval (schema: public)
+2026-11-18 18:20:31,666 - INFO - hindsight_api.config - LLM: provider=openai, model=qwen3-6-27b
+2026-11-18 18:20:31,666 - INFO - hindsight_api.config - Embeddings: provider=onnx
+2026-11-18 18:20:31,666 - INFO - hindsight_api.config - Reranker: provider=flashrank
+2026-11-18 18:20:31,666 - INFO - hindsight_api.config - Native threads: 14 per pool (available CPUs=14, cgroup CPU quota=none found)
+2026-11-18 18:20:31,666 - INFO - hindsight_api.config - Graph retriever: link_expansion
+2026-11-18 18:20:32,253 - INFO - hindsight_api.extensions.loader - Loading extension from HINDSIGHT_API_TENANT_EXTENSION=hindsight_ext_static_keys_tenant:StaticKeysTenantExtension
+2026-11-18 18:20:32,254 - INFO - hindsight_api.extensions.loader - Loaded extension StaticKeysTenantExtension with config keys: ['users', 'schema_prefix']
+2026-11-18 18:20:32,254 - INFO - root - Loaded tenant extension: StaticKeysTenantExtension
+2026-11-18 18:20:32,475 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:20:32,476 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:20:32,476 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:20:32,477 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:20:32,477 - INFO - hindsight_api.engine.providers.openai_compatible_llm - OpenAI-compatible client initialized: provider=openai, model=qwen3-6-27b, base_url=http://127.0.0.1:18891/v1, reasoning_effort=not sent
+2026-11-18 18:20:32,909 - INFO - hindsight_api.api.mcp - MCP servers created (stateless_http=False)
+2026-11-18 18:20:32,909 - INFO - hindsight_api.extensions.loader - Loading extension from HINDSIGHT_API_HTTP_EXTENSION=native_delete:NativeDelete
+2026-11-18 18:20:32,909 - INFO - hindsight_api.extensions.loader - Loaded extension NativeDelete with config keys: []
+2026-11-18 18:20:32,909 - INFO - root - Loaded HTTP extension: NativeDelete
+2026-11-18 18:20:33,024 - INFO - root - HTTP extension router mounted at /ext/
+2026-11-18 18:20:33,024 - INFO - hindsight_api.api - HTTP REST API enabled
+2026-11-18 18:20:33,024 - INFO - hindsight_api.api - MCP server enabled at /mcp/
+uvloop available, will use for event loop
+[38;2;0;116;217mStarting Hindsight API...[0m
+  [38;2;128;128;128mVersion:[0m [38;2;0;119;210mv1.2.1[0m
+  [38;2;128;128;128mURL:[0m [38;2;0;122;203mhttp://127.0.0.1:18890[0m
+  [38;2;128;128;128mDatabase:[0m [38;2;0;128;190mpg0://alfyai-eval[0m
+  [38;2;128;128;128mLLM:[0m [38;2;0;134;176mopenai / qwen3-6-27b[0m
+  [38;2;128;128;128mEmbeddings:[0m [38;2;0;140;163monnx[0m
+  [38;2;128;128;128mReranker:[0m [38;2;0;146;150mflashrank[0m
+  [38;2;128;128;128mExtensions:[0m [38;2;0;128;190mpgvector (vector) / native (text)[0m
+  [38;2;128;128;128mMCP:[0m [38;2;0;146;150menabled at /mcp[0m
+
+INFO:     Started server process [21561]
+INFO:     Waiting for application startup.
+2026-11-18 18:20:33,047 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager started
+2026-11-18 18:20:33,048 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager started
+2026-11-18 18:20:33,048 - INFO - hindsight_api.api - MCP lifespans started (multi-bank and single-bank)
+2026-11-18 18:20:33,048 - INFO - root - Metrics initialized - available at /metrics endpoint
+[transformers] PyTorch was not found. Models won't be available and only tokenizers, configuration and file/data utilities can be used.
+Fetching 1 files:   0%|          | 0/1 [00:00<?, ?it/s]Fetching 1 files: 100%|██████████| 1/1 [00:00<00:00, 2770.35it/s]
+2026-11-18 18:20:34,386 - INFO - hindsight_api.engine.embeddings - Embeddings: initializing ONNX provider with model intfloat/multilingual-e5-small (/private/tmp/alfyai-hindsight-eval/hf/hub/models--intfloat--multilingual-e5-small/snapshots/614241f622f53c4eeff9890bdc4f31cfecc418b3/onnx/model.onnx)
+2026-11-18 18:20:34,386 - INFO - hindsight_api.engine.embeddings - Embeddings: ONNX query_prefix='query: ' passage_prefix='passage: ' pooling=mean normalize=True batch_size=32 cpu_mem_arena=False
+2026-11-18 18:20:35,979 - INFO - hindsight_api.engine.embeddings - Embeddings: ONNX provider initialized (dim: 384, device: cpu, cuda_device_id: None, providers: ['CPUExecutionProvider'])
+2026-11-18 18:20:36,029 - INFO - hindsight_api.engine.cross_encoder - Reranker: initializing FlashRank provider with model ms-marco-MultiBERT-L-12 (cpu_mem_arena=False)
+2026-11-18 18:20:36,403 - INFO - hindsight_api.engine.cross_encoder - Reranker: replaced FlashRank ONNX session (cpu_mem_arena=False, threads=14)
+2026-11-18 18:20:36,408 - INFO - hindsight_api.engine.cross_encoder - Reranker: FlashRank provider initialized (max_concurrent=4)
+2026-11-18 18:20:36,967 - INFO - hindsight_api.engine.providers.openai_compatible_llm - Verifying connection: openai/qwen3-6-27b
+2026-11-18 18:20:37,042 - INFO - hindsight_api.pg0 - Starting embedded PostgreSQL (name=alfyai-eval, port=auto)...
+2026-11-18 18:20:37,161 - INFO - httpx2 - HTTP Request: POST http://127.0.0.1:18891/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-18 18:20:37,166 - INFO - hindsight_api.engine.providers.openai_compatible_llm - Connection verified: openai/qwen3-6-27b
+2026-11-18 18:20:37,258 - INFO - hindsight_api.pg0 - PostgreSQL started: postgresql://hindsight:hindsight@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,258 - INFO - hindsight_api.engine.memory_engine - Running database migrations...
+2026-11-18 18:20:37,258 - INFO - hindsight_api.engine.memory_engine - Running migrations on 6 schema(s)...
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.schemas
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.tables
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.types
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.constraints
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.defaults
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.autogenerate.comments
+2026-11-18 18:20:37,302 - INFO - alembic.runtime.plugins - setup plugin alembic.ext.checkconstraint_byname
+2026-11-18 18:20:37,354 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p01'...
+2026-11-18 18:20:37,354 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,354 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,362 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,362 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,383 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p01'
+2026-11-18 18:20:37,393 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,404 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,435 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p02'...
+2026-11-18 18:20:37,435 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,435 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,442 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,442 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,455 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p02'
+2026-11-18 18:20:37,462 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,468 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,495 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p03'...
+2026-11-18 18:20:37,495 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,495 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,501 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,501 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,514 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p03'
+2026-11-18 18:20:37,521 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,529 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,551 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p04'...
+2026-11-18 18:20:37,551 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,551 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,557 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,557 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,571 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p04'
+2026-11-18 18:20:37,578 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,585 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,609 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p05'...
+2026-11-18 18:20:37,609 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,609 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,615 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,615 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,628 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p05'
+2026-11-18 18:20:37,635 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,642 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,682 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p06'...
+2026-11-18 18:20:37,682 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,682 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,689 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,689 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,702 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p06'
+2026-11-18 18:20:37,710 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,717 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,734 - INFO - hindsight_api.engine.memory_engine - Schema migrations completed
+2026-11-18 18:20:37,741 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'public'...
+2026-11-18 18:20:37,741 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,741 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:37,748 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:37,748 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:37,761 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'public'
+2026-11-18 18:20:37,768 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:37,775 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:37,795 - INFO - hindsight_api.engine.memory_engine - Base schema 'public' migrated (holds the cross-tenant maintenance routines)
+2026-11-18 18:20:37,795 - INFO - hindsight_api.engine.memory_engine - Connecting to database at postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:37,805 - INFO - hindsight_api.engine.db.postgresql - PostgreSQL pool created (min=5, max=100, cmd_timeout=60s, acquire_timeout=30s, session_setup_on_acquire=True)
+2026-11-18 18:20:37,811 - INFO - hindsight_api.engine.task_backend - BrokerTaskBackend initialized
+2026-11-18 18:20:37,811 - INFO - hindsight_api.engine.memory_engine - Memory system initialized (pool and task backend started)
+2026-11-18 18:20:37,811 - INFO - root - Memory system initialized
+2026-11-18 18:20:37,894 - INFO - root - DB pool metrics configured
+2026-11-18 18:20:37,895 - INFO - hindsight.loop_watchdog - Loop watchdog started (stall_threshold=1.00s, poll_interval=0.25s)
+2026-11-18 18:20:37,895 - INFO - root - Worker id: Leventes-MacBook-Pro.local (source: hostname (default))
+2026-11-18 18:20:37,896 - INFO - root - Worker poller started (worker_id=Leventes-MacBook-Pro.local)
+2026-11-18 18:20:37,896 - INFO - root - Tenant extension started
+2026-11-18 18:20:37,896 - INFO - root - HTTP extension started
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18890 (Press CTRL+C to quit)
+2026-11-18 18:20:37,897 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local starting polling loop (max_slots=10, reservations=[consolidation=2], shared_pool=8)
+2026-11-18 18:20:37,897 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local recovering stale tasks across 6 schemas
+2026-11-18 18:20:37,912 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local recovered 0 stale tasks from previous run (6 schemas in 0.0s)
+2026-11-18 18:20:38,412 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2350 | my_active: none
+2026-11-18 18:20:49,978 - INFO - hindsight_ext_static_keys_tenant.extension - Initializing schema: adoption_p05
+2026-11-18 18:20:49,986 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p05'...
+2026-11-18 18:20:49,986 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:49,986 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:49,992 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:49,992 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:50,005 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p05'
+2026-11-18 18:20:50,012 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:50,018 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:50,041 - INFO - hindsight_ext_static_keys_tenant.extension - Schema ready: adoption_p05
+2026-11-18 18:20:50,082 - INFO - hindsight_api.engine.memory_engine - [RECALL uiq-1118-50082-e0aa37] Starting recall for query: What backpack and boat do I own, what colours are ..., tags=['original', 'repeat-r2', 'later-explicit'] (any_strict)
+2026-11-18 18:20:50,089 - INFO - hindsight_api.engine.memories.postgres - Using LinkExpansion graph retriever
+2026-11-18 18:20:50,142 - INFO - hindsight_api.engine.memory_engine - 
+[RECALL uiq-1118-50082-e0aa37] Query: 'What backpack and boat do I own, what colours are ...' (budget=300, max_tokens=3000, tags=['original', 'repeat-r2', 'later-explicit'], tags_match=any_strict)
+  [1] Generate query embedding + temporal window: 0.006s
+  [2] Parallel retrieval (2 fact_types): semantic=4(0.000s), bm25=3(0.000s), graph=0(0.000s), temporal_extraction=0.000s | store=0.017s in 0.017s
+  [3] RRF merge: 4 unique candidates in 0.000s
+  [4] Reranking [cross-encoder]: 4 candidates scored in 0.033s
+  [4.6] Combined scoring: ce * recency_boost(0.2) * temporal_boost(0.2)
+  [5] Truncated to top 4 results
+  [6] Token filtering: 4 results, 102/3000 tokens in 0.000s
+  [phases] reranking=33ms, parallel_retrieval=17ms, generate_query_embedding=6ms, entity_build=3ms, rrf_merge=0ms, token_filtering=0ms, combined_scoring=0ms, hydrate_results=0ms, result_serialization=0ms, backend_acquisition=0ms | accounted=59ms of 59ms
+  [phases:subsets] store_recall=17ms, retrieval_store_recall=17ms, semaphore_wait=0ms, retrieval_temporal_extraction=0ms
+[RECALL uiq-1118-50082-e0aa37] Complete: 4 facts (102 tok), 0 chunks (0 tok), 6 entities (0 tok) | world=4 | 0.059s
+2026-11-18 18:20:50,475 - INFO - hindsight_api.engine.memory_engine - [RECALL uiq-1118-50475-1aa43e] Starting recall for query: Mit tudsz az én és Luca étrendjéről, a macskáimról..., tags=['original', 'repeat-r2', 'later-explicit'] (any_strict)
+2026-11-18 18:20:50,546 - INFO - hindsight_api.engine.memory_engine - 
+[RECALL uiq-1118-50475-1aa43e] Query: 'Mit tudsz az én és Luca étrendjéről, a macskáimról...' (budget=300, max_tokens=3000, tags=['original', 'repeat-r2', 'later-explicit'], tags_match=any_strict)
+  [1] Generate query embedding + temporal window: 0.006s
+  [2] Parallel retrieval (2 fact_types): semantic=6(0.000s), bm25=3(0.000s), graph=0(0.000s), temporal_extraction=0.000s | store=0.010s in 0.010s
+  [3] RRF merge: 6 unique candidates in 0.000s
+  [4] Reranking [cross-encoder]: 6 candidates scored in 0.051s
+  [4.6] Combined scoring: ce * recency_boost(0.2) * temporal_boost(0.2)
+  [5] Truncated to top 6 results
+  [6] Token filtering: 6 results, 148/3000 tokens in 0.000s
+  [phases] reranking=51ms, parallel_retrieval=10ms, generate_query_embedding=6ms, entity_build=2ms, token_filtering=0ms, combined_scoring=0ms, rrf_merge=0ms, hydrate_results=0ms, result_serialization=0ms, backend_acquisition=0ms | accounted=70ms of 70ms
+  [phases:subsets] store_recall=10ms, retrieval_store_recall=10ms, semaphore_wait=0ms, retrieval_temporal_extraction=0ms
+[RECALL uiq-1118-50475-1aa43e] Complete: 6 facts (148 tok), 0 chunks (0 tok), 7 entities (0 tok) | world=6 | 0.070s
+2026-11-18 18:20:51,162 - INFO - hindsight_ext_static_keys_tenant.extension - Initializing schema: adoption_p06
+2026-11-18 18:20:51,171 - INFO - hindsight_api.migrations - Running database migrations to head for schema 'adoption_p06'...
+2026-11-18 18:20:51,171 - INFO - hindsight_api.migrations - Database URL: postgresql://***:***@127.0.0.1:5432/hindsight
+2026-11-18 18:20:51,171 - INFO - hindsight_api.migrations - Script location: /private/tmp/alfyai-hindsight-eval/venv/lib/python3.12/site-packages/hindsight_api/alembic
+2026-11-18 18:20:51,178 - INFO - alembic.runtime.migration - Context impl PostgresqlImpl.
+2026-11-18 18:20:51,178 - INFO - alembic.runtime.migration - Will assume transactional DDL.
+2026-11-18 18:20:51,193 - INFO - hindsight_api.migrations - Database migrations completed successfully for schema 'adoption_p06'
+2026-11-18 18:20:51,200 - INFO - hindsight_api.migrations - Using vector extension: pgvector
+2026-11-18 18:20:51,208 - INFO - hindsight_api.migrations - Target vector extension: pgvector
+2026-11-18 18:20:51,222 - INFO - hindsight_ext_static_keys_tenant.extension - Schema ready: adoption_p06
+2026-11-18 18:20:51,237 - INFO - hindsight_api.engine.memory_engine - Created parent operation 81e3579c-89fc-4b63-bdab-e1f923a6fb4b with 1 child sub-batch(es)
+2026-11-18 18:20:51,566 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local claimed 1 tasks (0 consolidation): batch_retain:1 (schemas: adoption_p06)
+2026-11-18 18:20:51,569 - INFO - hindsight_api.engine.memory_engine - [BATCH_RETAIN_TASK] Starting background batch retain for bank_id=uiq-1118-scope-juniper, 1 items, operation_id=1b4d629e-d84f-40ca-b4e3-8ace98486e20
+2026-11-18 18:20:54,416 - INFO - httpx2 - HTTP Request: POST http://127.0.0.1:18891/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-18 18:20:54,443 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Phase 1 (entity resolution): 0.008s
+2026-11-18 18:20:54,463 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Phase 2 (write transaction): 0.020s
+2026-11-18 18:20:54,464 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Consumer batch 1 total (excluding fire-and-forget): 0.030s
+2026-11-18 18:20:54,472 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Final ANN chunk 1/1: 10 links in 0.006s
+2026-11-18 18:20:54,472 - INFO - hindsight_api.engine.retain.orchestrator - 
+============================================================
+RETAIN_BATCH START: uiq-1118-scope-juniper
+Batch size: 1 content items, 78 chars
+============================================================
+[streaming] 1 chunks, batch_size 100 — 1 batch
+  Extract facts: 2 facts, 1 chunks from 1 contents in 2.840s
+  Generate embeddings: 2 embeddings in 0.017s
+[streaming] Embeddings: 2 texts in 1 backend request(s) (avg 2.0, max 2 texts per request)
+[streaming] Consumer batch 1: processing 2 facts from 1 chunks
+[streaming] Document later-project tracked (full content)
+  Store chunks: 1 chunks in 0.003s
+  Insert facts: 2 units in 0.000s
+  Insert unit_entities: 4 pairs in 0.001s
+  Temporal links: 10 links in 0.005s
+  Semantic links: skipped (deferred to final ANN pass)
+  Causal links: 0 links in 0.000s
+[streaming] Checkpoint: 2 facts committed, ANN pass next
+[streaming] Final ANN: loaded 2 units with embeddings in 0.001s
+      [8.1] ANN search (Phase 1): 2 units → 10 links in 0.005s
+[streaming] Final ANN: 10 total semantic links
+[streaming] Final ANN pass: 0.007s for 2 units
+============================================================
+STREAMING RETAIN COMPLETE: 2 units across 1 batches in 2.900s
+Document: later-project
+============================================================
+
+2026-11-18 18:20:54,475 - INFO - hindsight_api.engine.memory_engine - consolidation task queued for bank_id=uiq-1118-scope-juniper, operation_id=139d8d2f-25e1-448b-b6f8-db4743e12ec2
+2026-11-18 18:20:54,477 - INFO - hindsight_api.engine.retain.timing - [retain-timing] bank=uiq-1118-scope-juniper store=PostgresMemories docs=1 wall=2.908s 0.0KB/s | embed=0.016s/1c/1% pg.acquire=0.006s/22c/0%
+2026-11-18 18:20:54,477 - INFO - hindsight_api.engine.memory_engine - [BATCH_RETAIN_TASK] Completed background batch retain for bank_id=uiq-1118-scope-juniper
+2026-11-18 18:20:54,478 - INFO - hindsight_api.engine.memory_engine - Marked async operation as completed: 1b4d629e-d84f-40ca-b4e3-8ace98486e20
+2026-11-18 18:20:54,479 - INFO - hindsight_api.engine.memory_engine - Updated parent operation 81e3579c-89fc-4b63-bdab-e1f923a6fb4b to status 'completed' (all children done)
+2026-11-18 18:20:54,484 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local claimed 1 tasks (1 consolidation): consolidation:1 (schemas: adoption_p06)
+2026-11-18 18:20:54,493 - INFO - hindsight_api.engine.consolidation.consolidator - [CONSOLIDATION] bank=uiq-1118-scope-juniper total_unconsolidated=2
+2026-11-18 18:20:56,116 - INFO - httpx2 - HTTP Request: POST http://127.0.0.1:18891/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-18 18:20:56,151 - INFO - hindsight_api.engine.consolidation.consolidator - [CONSOLIDATION] bank=uiq-1118-scope-juniper llm_batch #1 (2 memories, 1 llm calls) | processed=2/2 | recall=0.038s, llm=1.587s, embedding=0.016s, db_write=0.003s | created=0 updated=2 skipped=0 | input_tokens=~3680 | avg=0.828s/memory
+2026-11-18 18:20:56,157 - INFO - hindsight_api.engine.consolidation.consolidator - 
+============================================================
+CONSOLIDATION for bank uiq-1118-scope-juniper
+[1] Found 2 pending memories to consolidate
+[3] Results: 2 memories -> 2 actions (0 created, 2 updated, 0 merged, 0 skipped)
+[4] Timing breakdown: recall=0.038s, llm=1.587s, embedding=0.016s, db_write=0.003s (2 calls, avg=2ms), avg_obs=3.0, avg_prompt_tokens=~3680
+============================================================
+CONSOLIDATION COMPLETE: 1.665s total
+============================================================
+2026-11-18 18:20:56,159 - INFO - hindsight_api.engine.memory_engine - [CONSOLIDATION] bank=uiq-1118-scope-juniper completed: 2 processed
+2026-11-18 18:20:56,160 - INFO - hindsight_api.engine.memory_engine - Marked async operation as completed: 139d8d2f-25e1-448b-b6f8-db4743e12ec2
+2026-11-18 18:20:56,280 - INFO - hindsight_api.engine.memory_engine - [RECALL uiq-1118-56280-5e2420] Starting recall for query: What explanation style and release day apply to Ju..., tags=['source'] (any_strict)
+2026-11-18 18:20:56,324 - INFO - hindsight_api.engine.memory_engine - 
+[RECALL uiq-1118-56280-5e2420] Query: 'What explanation style and release day apply to Ju...' (budget=300, max_tokens=3000, tags=['source'], tags_match=any_strict)
+  [1] Generate query embedding + temporal window: 0.019s
+  [2] Parallel retrieval (2 fact_types): semantic=2(0.000s), bm25=1(0.000s), graph=0(0.000s), temporal_extraction=0.000s | store=0.005s in 0.005s
+  [3] RRF merge: 2 unique candidates in 0.000s
+  [4] Reranking [cross-encoder]: 2 candidates scored in 0.017s
+  [4.6] Combined scoring: ce * recency_boost(0.2) * temporal_boost(0.2)
+  [5] Truncated to top 2 results
+  [6] Token filtering: 2 results, 25/3000 tokens in 0.000s
+  [phases] generate_query_embedding=19ms, reranking=17ms, parallel_retrieval=5ms, entity_build=1ms, combined_scoring=0ms, token_filtering=0ms, rrf_merge=0ms, hydrate_results=0ms, result_serialization=0ms, backend_acquisition=0ms | accounted=43ms of 43ms
+  [phases:subsets] store_recall=5ms, retrieval_store_recall=5ms, semaphore_wait=0ms, retrieval_temporal_extraction=0ms
+[RECALL uiq-1118-56280-5e2420] Complete: 2 facts (25 tok), 0 chunks (0 tok), 3 entities (0 tok) | world=2 | 0.043s
+2026-11-18 18:20:56,327 - INFO - hindsight_api.engine.memory_engine - [RECALL uiq-1118-56327-8d29ff] Starting recall for query: What explanation style and release day apply to Ju..., tags=['source', 'later-project'] (any_strict)
+2026-11-18 18:20:56,387 - INFO - hindsight_api.engine.memory_engine - 
+[RECALL uiq-1118-56327-8d29ff] Query: 'What explanation style and release day apply to Ju...' (budget=300, max_tokens=3000, tags=['source', 'later-project'], tags_match=any_strict)
+  [1] Generate query embedding + temporal window: 0.013s
+  [2] Parallel retrieval (2 fact_types): semantic=5(0.000s), bm25=5(0.000s), graph=0(0.000s), temporal_extraction=0.000s | store=0.005s in 0.005s
+  [3] RRF merge: 5 unique candidates in 0.000s
+  [4] Reranking [cross-encoder]: 5 candidates scored in 0.040s
+  [4.6] Combined scoring: ce * recency_boost(0.2) * temporal_boost(0.2)
+  [5] Truncated to top 5 results
+  [6] Token filtering: 5 results, 80/3000 tokens in 0.000s
+  [phases] reranking=40ms, generate_query_embedding=13ms, parallel_retrieval=5ms, entity_build=1ms, combined_scoring=0ms, token_filtering=0ms, rrf_merge=0ms, hydrate_results=0ms, result_serialization=0ms, backend_acquisition=0ms | accounted=60ms of 60ms
+  [phases:subsets] store_recall=5ms, retrieval_store_recall=5ms, semaphore_wait=0ms, retrieval_temporal_extraction=0ms
+[RECALL uiq-1118-56327-8d29ff] Complete: 5 facts (80 tok), 0 chunks (0 tok), 5 entities (0 tok) | world=5 | 0.060s
+2026-11-18 18:20:56,996 - INFO - hindsight_api.engine.memory_engine - Created parent operation 54904082-b78b-4b7d-8e35-e92d75f9d177 with 1 child sub-batch(es)
+2026-11-18 18:20:57,175 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local claimed 1 tasks (0 consolidation): batch_retain:1 (schemas: adoption_p06)
+2026-11-18 18:20:57,177 - INFO - hindsight_api.engine.memory_engine - [BATCH_RETAIN_TASK] Starting background batch retain for bank_id=uiq-1118-scope-juniper, 1 items, operation_id=70f9a2ea-b666-4312-96c2-3cf607b9d7a7
+2026-11-18 18:21:08,809 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=1/10 | reserved: [consolidation=0/2(avail=2)] | shared=1/8(avail=7) | global: pending=1 (queried=1/6 schemas: adoption_p06) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2383 | my_active: retain:uiq-1118-scope-juniper(1)
+2026-11-18 18:21:08,809 - INFO - hindsight_api.worker.poller - [PENDING_BREAKDOWN] batch_retain: total=1 payload_null=1 retry_blocked=0 assigned=0
+2026-11-18 18:21:08,809 - INFO - hindsight_api.worker.poller - [WORKER_TASK] op=70f9a2ea-b666-4312-96c2-3cf607b9d7a7 type=batch_retain op_type=retain bank=uiq-1118-scope-juniper schema=adoption_p06 age=12s stage=llm.openai.retain_extract_facts.attempt=1/4 stage_age=12s
+2026-11-18 18:21:11,138 - INFO - httpx2 - HTTP Request: POST http://127.0.0.1:18891/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-18 18:21:11,141 - INFO - hindsight_api.engine.providers.openai_compatible_llm - slow llm call: scope=retain_extract_facts, model=openai/qwen3-6-27b, input_tokens=3653, output_tokens=346, total_tokens=3999, thoughts_tokens=1996, time=13.959s, ratio out/in=0.09
+2026-11-18 18:21:11,174 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Phase 1 (entity resolution): 0.007s
+2026-11-18 18:21:11,178 - INFO - hindsight_api.engine.memories.pg.writes - [OBSERVATIONS] Deleted 3 observations, reset 2 source memories for re-consolidation in bank uiq-1118-scope-juniper
+2026-11-18 18:21:11,178 - INFO - hindsight_api.engine.retain.fact_storage - [RETAIN] Document source re-ingested: invalidated 3 observation(s) derived from 3 outgoing memory_units
+2026-11-18 18:21:11,198 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Phase 2 (write transaction): 0.025s
+2026-11-18 18:21:11,199 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Consumer batch 1 total (excluding fire-and-forget): 0.032s
+2026-11-18 18:21:11,206 - INFO - hindsight_api.engine.retain.orchestrator - [streaming] Final ANN chunk 1/1: 8 links in 0.004s
+2026-11-18 18:21:11,206 - INFO - hindsight_api.engine.retain.orchestrator - 
+============================================================
+RETAIN_BATCH START: uiq-1118-scope-juniper
+Batch size: 1 content items, 90 chars
+============================================================
+[streaming] 1 chunks, batch_size 100 — 1 batch
+  Extract facts: 2 facts, 1 chunks from 1 contents in 13.968s
+  Generate embeddings: 2 embeddings in 0.017s
+[streaming] Embeddings: 2 texts in 1 backend request(s) (avg 2.0, max 2 texts per request)
+[streaming] Consumer batch 1: processing 2 facts from 1 chunks
+[streaming] Document source tracked (full content)
+  Store chunks: 1 chunks in 0.003s
+  Insert facts: 2 units in 0.000s
+  Insert unit_entities: 7 pairs in 0.001s
+  Temporal links: 6 links in 0.004s
+  Semantic links: skipped (deferred to final ANN pass)
+  Causal links: 0 links in 0.000s
+[streaming] Checkpoint: 2 facts committed, ANN pass next
+[streaming] Final ANN: loaded 2 units with embeddings in 0.001s
+      [8.1] ANN search (Phase 1): 2 units → 8 links in 0.003s
+[streaming] Final ANN: 8 total semantic links
+[streaming] Final ANN pass: 0.005s for 2 units
+============================================================
+STREAMING RETAIN COMPLETE: 2 units across 1 batches in 14.027s
+Document: source
+============================================================
+
+2026-11-18 18:21:11,209 - INFO - hindsight_api.engine.memory_engine - consolidation task queued for bank_id=uiq-1118-scope-juniper, operation_id=cb72acf9-a6cc-48f2-b650-63741cf6f492
+2026-11-18 18:21:11,211 - INFO - hindsight_api.engine.memory_engine - graph_maintenance task queued for bank_id=uiq-1118-scope-juniper, operation_id=ed74a706-cc40-41e4-af81-8bef53a8b6e4
+2026-11-18 18:21:11,211 - INFO - hindsight_api.engine.retain.timing - [retain-timing] bank=uiq-1118-scope-juniper store=PostgresMemories docs=1 wall=14.034s 0.0KB/s | embed=0.017s/1c/0% pg.acquire=0.005s/22c/0%
+2026-11-18 18:21:11,211 - INFO - hindsight_api.engine.memory_engine - [BATCH_RETAIN_TASK] Completed background batch retain for bank_id=uiq-1118-scope-juniper
+2026-11-18 18:21:11,212 - INFO - hindsight_api.engine.memory_engine - Marked async operation as completed: 70f9a2ea-b666-4312-96c2-3cf607b9d7a7
+2026-11-18 18:21:11,212 - INFO - hindsight_api.engine.memory_engine - Updated parent operation 54904082-b78b-4b7d-8e35-e92d75f9d177 to status 'completed' (all children done)
+2026-11-18 18:21:11,218 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local claimed 2 tasks (1 consolidation): consolidation:1, graph_maintenance:1 (schemas: adoption_p06)
+2026-11-18 18:21:11,220 - INFO - hindsight_api.engine.consolidation.consolidator - [CONSOLIDATION] bank=uiq-1118-scope-juniper total_unconsolidated=4
+2026-11-18 18:21:11,236 - INFO - hindsight_api.engine.memories.pg.links -       [8.1] ANN search (Phase 1): 2 units → 8 links in 0.004s
+2026-11-18 18:21:11,243 - INFO - hindsight_api.engine.graph_maintenance - [GRAPH_MAINT] bank=uiq-1118-scope-juniper done: {'relink_units_processed': 2, 'relink_links_added': 8, 'entities_examined': 4, 'orphan_entities_pruned': 0, 'stale_cooccurrences_pruned': 0, 'queues_drained': True}, elapsed=0.02s, operation_id=ed74a706-cc40-41e4-af81-8bef53a8b6e4
+2026-11-18 18:21:11,244 - INFO - hindsight_api.engine.memory_engine - Marked async operation as completed: ed74a706-cc40-41e4-af81-8bef53a8b6e4
+2026-11-18 18:21:12,646 - INFO - httpx2 - HTTP Request: POST http://127.0.0.1:18891/v1/chat/completions "HTTP/1.1 200 OK"
+2026-11-18 18:21:12,693 - INFO - hindsight_api.engine.consolidation.consolidator - [CONSOLIDATION] bank=uiq-1118-scope-juniper llm_batch #1 (4 memories, 1 llm calls) | processed=4/4 | recall=0.080s, llm=1.348s, embedding=0.017s, db_write=0.002s | created=4 updated=0 skipped=0 | input_tokens=~3507 | avg=0.368s/memory
+2026-11-18 18:21:12,698 - INFO - hindsight_api.engine.consolidation.consolidator - 
+============================================================
+CONSOLIDATION for bank uiq-1118-scope-juniper
+[1] Found 4 pending memories to consolidate
+[3] Results: 4 memories -> 4 actions (4 created, 0 updated, 0 merged, 0 skipped)
+[4] Timing breakdown: recall=0.080s, llm=1.348s, embedding=0.017s, db_write=0.002s (5 calls, avg=0ms), avg_obs=0.0, avg_prompt_tokens=~3508
+============================================================
+CONSOLIDATION COMPLETE: 1.479s total
+============================================================
+2026-11-18 18:21:12,700 - INFO - hindsight_api.engine.memory_engine - [CONSOLIDATION] bank=uiq-1118-scope-juniper completed: 4 processed
+2026-11-18 18:21:12,701 - INFO - hindsight_api.engine.memory_engine - Marked async operation as completed: cb72acf9-a6cc-48f2-b650-63741cf6f492
+2026-11-18 18:21:13,182 - INFO - hindsight_api.engine.memory_engine - [RECALL uiq-1118-73182-3e9091] Starting recall for query: What explanation style and release day apply to Ju..., tags=['source'] (any_strict)
+2026-11-18 18:21:13,231 - INFO - hindsight_api.engine.memory_engine - 
+[RECALL uiq-1118-73182-3e9091] Query: 'What explanation style and release day apply to Ju...' (budget=300, max_tokens=3000, tags=['source'], tags_match=any_strict)
+  [1] Generate query embedding + temporal window: 0.020s
+  [2] Parallel retrieval (2 fact_types): semantic=2(0.000s), bm25=1(0.000s), graph=0(0.000s), temporal_extraction=0.000s | store=0.006s in 0.006s
+  [3] RRF merge: 2 unique candidates in 0.000s
+  [4] Reranking [cross-encoder]: 2 candidates scored in 0.017s
+  [4.6] Combined scoring: ce * recency_boost(0.2) * temporal_boost(0.2)
+  [5] Truncated to top 2 results
+  [6] Token filtering: 2 results, 25/3000 tokens in 0.000s
+  [phases] generate_query_embedding=20ms, reranking=17ms, parallel_retrieval=7ms, entity_build=4ms, combined_scoring=0ms, rrf_merge=0ms, token_filtering=0ms, hydrate_results=0ms, result_serialization=0ms, backend_acquisition=0ms | accounted=48ms of 49ms
+  [phases:subsets] store_recall=6ms, retrieval_store_recall=6ms, semaphore_wait=0ms, retrieval_temporal_extraction=0ms
+[RECALL uiq-1118-73182-3e9091] Complete: 2 facts (25 tok), 0 chunks (0 tok), 3 entities (0 tok) | world=2 | 0.049s
+2026-11-18 18:21:13,234 - INFO - hindsight_api.engine.memory_engine - [RECALL uiq-1118-73234-97725d] Starting recall for query: What explanation style and release day apply to Ju..., tags=['source', 'later-project'] (any_strict)
+2026-11-18 18:21:13,294 - INFO - hindsight_api.engine.memory_engine - 
+[RECALL uiq-1118-73234-97725d] Query: 'What explanation style and release day apply to Ju...' (budget=300, max_tokens=3000, tags=['source', 'later-project'], tags_match=any_strict)
+  [1] Generate query embedding + temporal window: 0.014s
+  [2] Parallel retrieval (2 fact_types): semantic=4(0.000s), bm25=4(0.000s), graph=0(0.000s), temporal_extraction=0.000s | store=0.006s in 0.006s
+  [3] RRF merge: 4 unique candidates in 0.000s
+  [4] Reranking [cross-encoder]: 4 candidates scored in 0.038s
+  [4.6] Combined scoring: ce * recency_boost(0.2) * temporal_boost(0.2)
+  [5] Truncated to top 4 results
+  [6] Token filtering: 4 results, 80/3000 tokens in 0.000s
+  [phases] reranking=38ms, generate_query_embedding=14ms, parallel_retrieval=6ms, entity_build=1ms, combined_scoring=0ms, token_filtering=0ms, rrf_merge=0ms, hydrate_results=0ms, result_serialization=0ms, backend_acquisition=0ms | accounted=59ms of 60ms
+  [phases:subsets] store_recall=6ms, retrieval_store_recall=6ms, semaphore_wait=0ms, retrieval_temporal_extraction=0ms
+[RECALL uiq-1118-73234-97725d] Complete: 4 facts (80 tok), 0 chunks (0 tok), 6 entities (0 tok) | world=4 | 0.060s
+2026-11-18 18:21:37,551 - INFO - hindsight_api.engine.maintenance - Maintenance: retention took 0.020s
+2026-11-18 18:21:37,634 - INFO - hindsight_api.engine.maintenance - Maintenance: consolidation reconcile took 0.083s
+2026-11-18 18:21:37,653 - INFO - hindsight_api.engine.maintenance - Maintenance: scheduled mental model refresh took 0.019s
+2026-11-18 18:21:37,655 - INFO - hindsight_api.engine.maintenance - Maintenance: attachment sweep took 0.002s
+2026-11-18 18:21:39,031 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2383 | my_active: none
+2026-11-18 18:22:09,403 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2383 | my_active: none
+2026-11-18 18:22:39,747 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2383 | my_active: none
+2026-11-18 18:22:54,697 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-current transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=14
+2026-11-18 18:22:54,711 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-edit-en transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=9
+2026-11-18 18:22:54,721 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-edit-hu transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=7
+2026-11-18 18:22:54,730 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-scope-personal transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=7
+2026-11-18 18:22:54,737 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-scope-juniper transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=5
+2026-11-18 18:22:54,745 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-scope-harbor transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=6
+2026-11-18 18:22:54,757 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-scope-personal transport=http tenant=p06 schema=adoption_p06 api_key_id=0cf25e7d93f75b00 status=ok duration_ms=9
+2026-11-18 18:22:54,765 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-scope-juniper transport=http tenant=p06 schema=adoption_p06 api_key_id=0cf25e7d93f75b00 status=ok duration_ms=6
+2026-11-18 18:22:54,772 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-scope-harbor transport=http tenant=p06 schema=adoption_p06 api_key_id=0cf25e7d93f75b00 status=ok duration_ms=5
+2026-11-18 18:22:54,782 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-bounded-edit-hu transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=8
+2026-11-18 18:22:54,791 - INFO - hindsight_api.engine.audit - destructive_op action=delete_bank bank=uiq-1118-backfill transport=http tenant=p05 schema=adoption_p05 api_key_id=e12d3407bfbdef68 status=ok duration_ms=7
+2026-11-18 18:23:10,106 - INFO - hindsight_api.worker.poller - [WORKER_STATS] worker=Leventes-MacBook-Pro.local slots=0/10 | reserved: [consolidation=0/2(avail=2)] | shared=0/8(avail=8) | global: pending=0 (queried=0/6 schemas: ) | others: none | pool: size=5 limits=5-100 idle=5 in_use=0 free_holders=100 pending_acquires=0 | proc: peak_rss_mb=2383 | my_active: none
+2026-11-18 18:23:10,926 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local stopped claiming new tasks
+2026-11-18 18:23:10,926 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local polling loop stopped
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-11-18 18:23:11,047 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local initiating graceful shutdown
+2026-11-18 18:23:11,047 - INFO - hindsight_api.worker.poller - Worker Leventes-MacBook-Pro.local graceful shutdown complete
+2026-11-18 18:23:11,048 - INFO - root - Worker poller stopped
+2026-11-18 18:23:11,048 - INFO - root - Tenant extension stopped
+2026-11-18 18:23:11,048 - INFO - root - HTTP extension stopped
+2026-11-18 18:23:11,048 - INFO - hindsight_api.engine.memory_engine - close() started
+2026-11-18 18:23:11,048 - INFO - hindsight_api.engine.task_backend - BrokerTaskBackend shutdown
+2026-11-18 18:23:11,051 - INFO - hindsight_api.engine.db.postgresql - PostgreSQL pool closed
+2026-11-18 18:23:11,052 - INFO - hindsight_api.engine.memory_engine - Stopping pg0...
+2026-11-18 18:23:11,052 - INFO - hindsight_api.pg0 - Stopping embedded PostgreSQL (name: alfyai-eval)...
+2026-11-18 18:23:11,189 - INFO - hindsight_api.pg0 - Embedded PostgreSQL stopped
+2026-11-18 18:23:11,189 - INFO - hindsight_api.engine.memory_engine - pg0 stopped
+2026-11-18 18:23:11,189 - INFO - root - Memory system closed
+2026-11-18 18:23:11,189 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager shutting down
+2026-11-18 18:23:11,190 - INFO - hindsight_api.api - MCP lifespans stopped
+2026-11-18 18:23:11,190 - INFO - mcp.server.streamable_http_manager - StreamableHTTP session manager shutting down
+INFO:     Application shutdown complete.
+INFO:     Finished server process [21561]
+
+Received signal 15, shutting down...

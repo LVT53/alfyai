@@ -280,55 +280,58 @@ describe("a HEIC or HEIF photo reaches MinerU 4.1 as a PNG", () => {
 		],
 		["a .heic sent with no type", "IMG_0042.heic", null, "IMG_0042"],
 		["a .heif", "shot.heif", "image/heif", "shot"],
-	])("%s: told document.png at an explicit tier, uploaded as PNG bytes, the original untouched", async (_label, fileName, mimeType, stem) => {
-		await boot({ fixtureInput: "png" });
-		const uploads = await captureUploads();
-		const { jobId, artifactId, storedPath } = await seedPhotoJob({
-			fileName,
-			mimeType,
-			bytes: tinyHeic,
-		});
+	])(
+		"%s: told document.png at an explicit tier, uploaded as PNG bytes, the original untouched",
+		async (_label, fileName, mimeType, stem) => {
+			await boot({ fixtureInput: "png" });
+			const uploads = await captureUploads();
+			const { jobId, artifactId, storedPath } = await seedPhotoJob({
+				fileName,
+				mimeType,
+				bytes: tinyHeic,
+			});
 
-		expect(await run()).toEqual({ jobId, status: "succeeded" });
+			expect(await run()).toEqual({ jobId, status: "succeeded" });
 
-		// What MinerU was told: the PNG's canonical name, never document.heic, and
-		// the tier an image is always given (S3, S4).
-		const create = createBody();
-		expect(create?.files).toHaveLength(1);
-		expect(create?.files[0].file_name).toBe("document.png");
-		expect(create?.tier).toBe("standard");
+			// What MinerU was told: the PNG's canonical name, never document.heic, and
+			// the tier an image is always given (S3, S4).
+			const create = createBody();
+			expect(create?.files).toHaveLength(1);
+			expect(create?.files[0].file_name).toBe("document.png");
+			expect(create?.tier).toBe("standard");
 
-		// What it was sent: one upload, and it is a PNG of the photo, whole.
-		expect(uploads).toHaveLength(1);
-		const png = uploads[0].bytes;
-		expect(png.subarray(0, 8)).toEqual(PNG_SIGNATURE);
-		expect(png.readUInt32BE(16)).toBe(64);
-		expect(png.readUInt32BE(20)).toBe(42);
-		// The task declares the PNG, not the photo whose digest the artifact holds,
-		// and the server checked the bytes against that declaration before it
-		// accepted them (a mismatch is a 400 and the file keeps waiting).
-		expect(create?.files[0].sha256sum).toBe(sha256(png));
-		expect(create?.files[0].sha256sum).not.toBe(sha256(tinyHeic));
-		expect(create?.files[0].bytes).toBe(png.length);
-		expect(puts()).toHaveLength(1);
-		expect(puts()[0].bodyBytes).toBe(png.length);
-		expect(server.blobs.get(sha256(png))).toBe(png.length);
+			// What it was sent: one upload, and it is a PNG of the photo, whole.
+			expect(uploads).toHaveLength(1);
+			const png = uploads[0].bytes;
+			expect(png.subarray(0, 8)).toEqual(PNG_SIGNATURE);
+			expect(png.readUInt32BE(16)).toBe(64);
+			expect(png.readUInt32BE(20)).toBe(42);
+			// The task declares the PNG, not the photo whose digest the artifact holds,
+			// and the server checked the bytes against that declaration before it
+			// accepted them (a mismatch is a 400 and the file keeps waiting).
+			expect(create?.files[0].sha256sum).toBe(sha256(png));
+			expect(create?.files[0].sha256sum).not.toBe(sha256(tinyHeic));
+			expect(create?.files[0].bytes).toBe(png.length);
+			expect(puts()).toHaveLength(1);
+			expect(puts()[0].bodyBytes).toBe(png.length);
+			expect(server.blobs.get(sha256(png))).toBe(png.length);
 
-		// It completed, and the text is attached to the photo under its own name.
-		expect(persisted).toHaveLength(1);
-		const call = persisted[0];
-		expect(String(call.text).length).toBeGreaterThan(0);
-		expect(call.sourceArtifactId).toBe(artifactId);
-		expect(call.sourceName).toBe(fileName);
-		expect(call.normalizedName).toBe(`${stem}.md`);
-		const row = await ledger.getExtractionJobRow(jobId);
-		expect(row?.status).toBe("succeeded");
-		expect(row?.errorCode).toBeNull();
+			// It completed, and the text is attached to the photo under its own name.
+			expect(persisted).toHaveLength(1);
+			const call = persisted[0];
+			expect(String(call.text).length).toBeGreaterThan(0);
+			expect(call.sourceArtifactId).toBe(artifactId);
+			expect(call.sourceName).toBe(fileName);
+			expect(call.normalizedName).toBe(`${stem}.md`);
+			const row = await ledger.getExtractionJobRow(jobId);
+			expect(row?.status).toBe("succeeded");
+			expect(row?.errorCode).toBeNull();
 
-		// The photo is as it was uploaded, and the PNG did not outlive the attempt.
-		expect(await readFile(storedPath)).toEqual(tinyHeic);
-		expect(existsSync(uploads[0].path)).toBe(false);
-	});
+			// The photo is as it was uploaded, and the PNG did not outlive the attempt.
+			expect(await readFile(storedPath)).toEqual(tinyHeic);
+			expect(existsSync(uploads[0].path)).toBe(false);
+		},
+	);
 });
 
 // The photo is decoded when the extractor first needs its bytes: after it has
@@ -438,30 +441,33 @@ describe("an original that has gone from storage", () => {
 	it.each([
 		["a HEIC photo", "IMG_0042.heic", "image/heic", tinyHeic],
 		["a PDF", "report.pdf", "application/pdf", Buffer.from("%PDF-1.7\n")],
-	])("%s: waits as the document service being unavailable, and the message holds no path", async (_label, fileName, mimeType, bytes) => {
-		await boot({ fixtureInput: "png" });
-		const { jobId, storedPath } = await seedPhotoJob({
-			fileName,
-			mimeType,
-			bytes,
-		});
-		await rm(storedPath);
+	])(
+		"%s: waits as the document service being unavailable, and the message holds no path",
+		async (_label, fileName, mimeType, bytes) => {
+			await boot({ fixtureInput: "png" });
+			const { jobId, storedPath } = await seedPhotoJob({
+				fileName,
+				mimeType,
+				bytes,
+			});
+			await rm(storedPath);
 
-		const ran = await run();
+			const ran = await run();
 
-		const row = await ledger.getExtractionJobRow(jobId);
-		const sentence = extractionErrorMessage("unavailable", "");
-		expect(row?.errorMessage).not.toContain(storageDir);
-		expect(row?.errorMessage).toBe(sentence);
-		expect(row?.errorCode).toBe("unavailable");
-		// An outage code waits and tries again; it does not fail the document.
-		expect(ran).toEqual({ jobId, status: "queued" });
-		const [attempt] = await ledger.listExtractionJobAttempts(jobId);
-		expect(attempt?.errorMessage).toBe(sentence);
-		// The raw text is kept where an operator reads it.
-		expect(attempt?.diagnosticsJson).toContain(storedPath);
-		expect(persisted).toEqual([]);
-	});
+			const row = await ledger.getExtractionJobRow(jobId);
+			const sentence = extractionErrorMessage("unavailable", "");
+			expect(row?.errorMessage).not.toContain(storageDir);
+			expect(row?.errorMessage).toBe(sentence);
+			expect(row?.errorCode).toBe("unavailable");
+			// An outage code waits and tries again; it does not fail the document.
+			expect(ran).toEqual({ jobId, status: "queued" });
+			const [attempt] = await ledger.listExtractionJobAttempts(jobId);
+			expect(attempt?.errorMessage).toBe(sentence);
+			// The raw text is kept where an operator reads it.
+			expect(attempt?.diagnosticsJson).toContain(storedPath);
+			expect(persisted).toEqual([]);
+		},
+	);
 });
 
 describe("a photo over the pixel limit", () => {

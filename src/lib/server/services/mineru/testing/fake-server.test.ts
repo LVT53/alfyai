@@ -38,6 +38,13 @@ interface Reply {
 	bytes: Buffer;
 }
 
+/** The first file a reply lists, or a failure that says it listed none. */
+function firstFile<T>(reply: Reply): T {
+	const file = reply.json.files?.[0];
+	if (!file) throw new Error("expected the reply to list a first file");
+	return file as T;
+}
+
 let server: FakeMineruServer | null = null;
 
 afterEach(async () => {
@@ -262,8 +269,7 @@ describe("capability reads", () => {
 			key: "secret",
 		});
 		expect(receipt.status).toBe(202);
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		const noKey = recorded("errors/115_upload_no_key.json");
 		const refused = await putTo(upload, CSV);
 		expect(refused.status).toBe(noKey.response.status);
@@ -515,7 +521,7 @@ describe("creating a task", () => {
 		const omitted = await submit("x.pdf", PDF);
 		const done = await getTask(omitted.taskId);
 		// Omitted, on a basic server, parses with Basic (D14).
-		expect((done.json.files?.[0]?.parse as { tier: string }).tier).toBe(
+		expect(firstFile<{ parse: { tier: string } }>(done).parse.tier).toBe(
 			"basic",
 		);
 	});
@@ -582,8 +588,7 @@ describe("uploading, polling and the result", () => {
 		for (let poll = 0; poll < 3; poll += 1) {
 			expect((await getTask(taskId)).json.status).toBe("waiting-file");
 		}
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		await putTo(upload, PDF);
 		expect((await getTask(taskId)).json.status).toBe("pending");
 		expect((await getTask(taskId)).json.status).toBe("completed");
@@ -673,12 +678,12 @@ describe("uploading, polling and the result", () => {
 		await start();
 		const native = await submit("document.docx", CSV, { tier: "standard" });
 		const nativeDone = await getTask(native.taskId);
-		expect((nativeDone.json.files?.[0]?.parse as { tier: string }).tier).toBe(
+		expect(firstFile<{ parse: { tier: string } }>(nativeDone).parse.tier).toBe(
 			"flash",
 		);
 		const visual = await submit("document.pdf", PDF, { tier: "standard" });
 		const visualDone = await getTask(visual.taskId);
-		expect((visualDone.json.files?.[0]?.parse as { tier: string }).tier).toBe(
+		expect(firstFile<{ parse: { tier: string } }>(visualDone).parse.tier).toBe(
 			"standard",
 		);
 	});
@@ -687,7 +692,7 @@ describe("uploading, polling and the result", () => {
 		await start({ fixtureInput: "v41-docx" });
 		const { taskId } = await submit("document.docx", CSV);
 		const done = await getTask(taskId);
-		const url = (done.json.files?.[0] as { result_url: string }).result_url;
+		const url = firstFile<{ result_url: string }>(done).result_url;
 		expect(url).toMatch(
 			/^http:\/\/127\.0\.0\.1:\d+\/v1\/files\/file-[0-9a-f]{24}\/content$/,
 		);
@@ -733,7 +738,7 @@ describe("uploading, polling and the result", () => {
 			const { taskId } = await submit("document.pdf", PDF);
 			const done = await getTask(taskId);
 			const download = await call(
-				(done.json.files?.[0] as { result_url: string }).result_url,
+				firstFile<{ result_url: string }>(done).result_url,
 			);
 			expect(download.bytes.equals(readFileSync(path)), String(input)).toBe(
 				true,
@@ -752,7 +757,7 @@ describe("uploading, polling and the result", () => {
 		const { taskId } = await submit("document.pdf", PDF);
 		const done = await getTask(taskId);
 		const download = await call(
-			(done.json.files?.[0] as { result_url: string }).result_url,
+			firstFile<{ result_url: string }>(done).result_url,
 		);
 		const zip = await JSZip.loadAsync(download.bytes);
 		const structured = await zip
@@ -768,7 +773,7 @@ describe("uploading, polling and the result", () => {
 		const { taskId } = await submit("Árvíztűrő jelentés.pdf", PDF);
 		const done = await getTask(taskId);
 		const download = await call(
-			(done.json.files?.[0] as { result_url: string }).result_url,
+			firstFile<{ result_url: string }>(done).result_url,
 		);
 		expect(download.headers.get("content-disposition")).toBe(
 			"attachment; filename*=utf-8''%C3%81rv%C3%ADzt%C5%B1r%C5%91%20jelent%C3%A9s.zip",
@@ -780,7 +785,7 @@ describe("uploading, polling and the result", () => {
 		const { taskId } = await submit("document.xlsx", CSV);
 		const done = await getTask(taskId);
 		const download = await call(
-			(done.json.files?.[0] as { result_url: string }).result_url,
+			firstFile<{ result_url: string }>(done).result_url,
 		);
 		expect(download.status).toBe(200);
 		expect(download.bytes.subarray(0, 2).toString()).toBe("PK");
@@ -790,8 +795,7 @@ describe("uploading, polling and the result", () => {
 		await start();
 		const receipt = await create([fileFor("document.pdf", PDF)]);
 		const taskId = receipt.json.task_id as string;
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		const wrong = recorded("errors/107_upload_size_short_by_one.json");
 
 		const short = await putTo(upload, PDF.subarray(0, PDF.byteLength - 1));
@@ -812,8 +816,7 @@ describe("uploading, polling and the result", () => {
 	it("a PUT whose bytes do not hash to the declared sha256 is a 400, and the file keeps waiting", async () => {
 		await start();
 		const receipt = await create([fileFor("document.pdf", PDF)]);
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		const wrong = recorded("errors/113_upload_hash_mismatch_right_size.json");
 
 		const swapped = Buffer.from(PDF);
@@ -829,8 +832,7 @@ describe("uploading, polling and the result", () => {
 	it("answers a repeat PUT 200 with the file's current status", async () => {
 		await start();
 		const { taskId, fileId, receipt } = await submit("document.pdf", PDF);
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		const again = await putTo(upload, PDF);
 		expect(again.status).toBe(200);
 		expect(again.json).toMatchObject({ task_id: taskId, file_id: fileId });
@@ -919,8 +921,7 @@ describe("cancel", () => {
 		await start();
 		const receipt = await create([fileFor("document.pdf", PDF)]);
 		const taskId = receipt.json.task_id as string;
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 
 		const cancel = await cancelTask(taskId);
 		expect(cancel.status).toBe(200);
@@ -1130,8 +1131,7 @@ describe("restart", () => {
 		const result = await call(`/v1/files/${done.fileId}/content`);
 		expect(result.status).toBe(404);
 		expect(result.json.error?.code).toBe("file_not_found");
-		const upload = (waiting.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(waiting).upload.url;
 		const put = await putTo(upload, CSV);
 		expect(put.status).toBe(404);
 		expect(put.json.error?.code).toBe("task_not_found");
@@ -1150,8 +1150,7 @@ describe("restart", () => {
 		const receipt = await create([fileFor("document.pdf", PDF)]);
 		expect(receipt.status).toBe(202);
 		// The 202 went out, then the server forgot it.
-		const upload = (receipt.json.files?.[0] as { upload: { url: string } })
-			.upload.url;
+		const upload = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		expect((await putTo(upload, PDF)).json.error?.code).toBe("task_not_found");
 		// Armed once: the retry is not forgotten.
 		const second = await submit("document.pdf", PDF);
@@ -1360,7 +1359,7 @@ describe("options are checked where they are set", () => {
 		const done = await getTask(taskId);
 		expect(done.json.status).toBe("completed");
 		const download = await call(
-			(done.json.files?.[0] as { result_url: string }).result_url,
+			firstFile<{ result_url: string }>(done).result_url,
 		);
 		expect(
 			download.bytes.equals(
@@ -1441,8 +1440,7 @@ describe("test controls", () => {
 	it("can issue its URLs on a foreign origin, to test that a client will not follow them", async () => {
 		await start({ urlOrigin: "cross-origin" });
 		const receipt = await create([fileFor("a.csv", CSV)]);
-		const url = (receipt.json.files?.[0] as { upload: { url: string } }).upload
-			.url;
+		const url = firstFile<{ upload: { url: string } }>(receipt).upload.url;
 		expect(url.startsWith(server?.crossOriginBaseUrl as string)).toBe(true);
 		expect(url.startsWith(server?.baseUrl as string)).toBe(false);
 		// The same server answers there, which is what makes the test meaningful.
@@ -1454,7 +1452,7 @@ describe("test controls", () => {
 		await start({ redirectDownloads: "same-origin" });
 		const { taskId } = await submit("document.pdf", PDF);
 		const done = await getTask(taskId);
-		const url = (done.json.files?.[0] as { result_url: string }).result_url;
+		const url = firstFile<{ result_url: string }>(done).result_url;
 		const first = await fetch(url, { redirect: "manual" });
 		expect(first.status).toBe(302);
 		expect(first.headers.get("location")).toBe(url);

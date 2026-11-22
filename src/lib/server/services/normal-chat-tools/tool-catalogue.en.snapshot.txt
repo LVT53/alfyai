@@ -78,7 +78,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "memory_context",
-      "description": "Look up durable memory when it would materially improve the answer. `mode` `persona` (default) for preferences and goals; `history` for older conversations matching `query`, then one of them via `historyConversationId` + `maxMessages`; `project` for project-folder continuity (name the folder in `query`), then a returned `siblingConversationId` for detail. Do not use it to re-fetch memory this turn already quotes — same store, so call only to go deeper or further back — nor for this conversation, which you already read, nor for stored files (files). `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. Returns memory entries and conversation excerpts; an empty result is not proof no memory exists.",
+      "description": "Use `mode` `persona` (default) for current remembered facts, preferences and goals. Search older conversations only when the person's latest message explicitly asks about a past chat or discussion. Then use `history` with a `query`, followed by a returned `historyConversationId` + `maxMessages` for detail, or `project` for past discussions in a named project folder and a returned `siblingConversationId` for detail. Do not use chat search for a current fact or a question just about a project. For this conversation use the dialogue already in context. For stored files use files. `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. An empty result is not proof no memory exists.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -130,17 +130,46 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "image_search",
-      "description": "Find web images (photos, illustrations, diagrams) to show in the answer: {\"query\": \"golden retriever puppy\"}. Do not use it for maps, routes, distances or anything geographic (map_route renders its own map card), for the user's own pictures (photos), or for facts and text (research_web). Returns a list of image URLs. Embed the ones you use in your answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible.",
+      "description": "Use supplied pictures first. Show one photo for recognition, comparison or a technique. For recipes, show the dish or a key stage (browned butter, risen dough). Do not use for facts alone, decoration, directions (map_route) or personal photos (photos). Inspect resultIds for visual details. Embed ![alt text](url) or it is invisible. Cite sourcePageUrl.",
       "parameters": {
         "type": "object",
         "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "search",
+              "inspect"
+            ]
+          },
           "query": {
-            "type": "string"
+            "type": "string",
+            "description": "Short visual keywords; preserve local names and accents."
+          },
+          "additionalQueries": {
+            "description": "Optional complementary international terms. Honor any requested search language.",
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "objective": {
+            "description": "What the picture must visibly show.",
+            "type": "string",
+            "maxLength": 5000
+          },
+          "resultIds": {
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^image-search:[0-9a-f]{12}$"
+            },
+            "description": "One or two image IDs from this turn's search results. No URLs."
           }
-        },
-        "required": [
-          "query"
-        ]
+        }
       }
     }
   },

@@ -7,7 +7,10 @@ import type { Project } from "$lib/server/services/projects";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { importChatGPTData } from "$lib/client/api/chatgpt-import";
 import { ApiError } from "$lib/client/api/http";
-import { exportedConversationId } from "$lib/shared/chatgpt-export";
+import {
+	exportedConversationId,
+	readExportedConversations,
+} from "$lib/shared/chatgpt-export";
 
 interface ChatGPTConversation {
 	id?: string;
@@ -115,16 +118,18 @@ function countMessages(mapping: ChatGPTConversation["mapping"]): number {
 async function parseZip(uploadedFile: File): Promise<void> {
 	try {
 		const zip = await JSZip.loadAsync(uploadedFile);
-		const jsonFile = zip.file("conversations.json");
-		if (!jsonFile) {
-			throw new Error($t("chatgptImport.parseError"));
+		// The server reads the export the same way, so the list and the import agree.
+		const read = await readExportedConversations(zip);
+		if (!read.ok) {
+			throw new Error(
+				$t(
+					read.problem === "not_a_list"
+						? "chatgptImport.noConversations"
+						: "chatgptImport.parseError",
+				),
+			);
 		}
-		const text = await jsonFile.async("text");
-		const data = JSON.parse(text) as ChatGPTConversation[];
-
-		if (!Array.isArray(data)) {
-			throw new Error($t("chatgptImport.noConversations"));
-		}
+		const data = read.entries as ChatGPTConversation[];
 
 		// An entry the export gives no id cannot be named in what is sent to the
 		// server, so it is not offered.
@@ -403,6 +408,7 @@ function handleRetry(): void {
 							{$t("chatgptImport.willImport", { count: selectedCount })}
 						</p>
 					</div>
+					<p class="text-xs text-text-muted">{$t("chatgptImport.memoryNote")}</p>
 				</div>
 			{:else if importState === "importing"}
 				<div class="flex flex-col items-center gap-4 py-4">

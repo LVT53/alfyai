@@ -1,0 +1,50 @@
+[
+  {
+    "id": "erf-1118-hu-regression",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-hu-regression' and all associated data deleted successfully\",\"deleted_count\":15}"
+  },
+  {
+    "id": "erf-1118-en-fresh",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-en-fresh' and all associated data deleted successfully\",\"deleted_count\":23}"
+  },
+  {
+    "id": "erf-1118-hu-fresh",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-hu-fresh' and all associated data deleted successfully\",\"deleted_count\":19}"
+  },
+  {
+    "id": "erf-1118-remove",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-remove' and all associated data deleted successfully\",\"deleted_count\":17}"
+  },
+  {
+    "id": "erf-1118-final-hu-regression",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-final-hu-regression' and all associated data deleted successfully\",\"deleted_count\":18}"
+  },
+  {
+    "id": "erf-1118-final-en-fresh",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-final-en-fresh' and all associated data deleted successfully\",\"deleted_count\":24}"
+  },
+  {
+    "id": "erf-1118-final-hu-fresh",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-final-hu-fresh' and all associated data deleted successfully\",\"deleted_count\":27}"
+  },
+  {
+    "id": "erf-1118-final-remove",
+    "tenant": "p05",
+    "status": 200,
+    "response": "{\"success\":true,\"message\":\"Bank 'erf-1118-final-remove' and all associated data deleted successfully\",\"deleted_count\":17}"
+  }
+]

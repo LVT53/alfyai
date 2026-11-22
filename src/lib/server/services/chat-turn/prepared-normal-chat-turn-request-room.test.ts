@@ -61,6 +61,12 @@ vi.mock("../connections/resolve", () => ({
 vi.mock("../connections/locality", () => ({
 	hasLocalDistillEnabled: async () => false,
 }));
+// Price the full catalogue for an owned conversation with Memory enabled.
+vi.mock("../memory-controls", async (original) => ({
+	...(await original<typeof import("../memory-controls")>()),
+	isMemoryActiveForConversation: async () => true,
+	isConversationIncognito: async () => false,
+}));
 // The standing instructions, the clock, the skills, the connectors' live block,
 // the compression snapshots and the picture descriptions are other tests'
 // subjects (and the database's): none of them is read here.
@@ -341,43 +347,43 @@ beforeEach(() => {
 describe("a context built up to its budget, with the real tool catalogue", () => {
 	// The scenario first: 131,072 on the default ratios, which left no room for
 	// the margin, let alone the catalogue.
-	it.each([
-		"plain",
-		"stream",
-	] as const)("goes out as one provider request on a 131,072 window on the default ratios (%s)", async (mode) => {
-		const f = await fixture({ capacity: 131_072 });
-		const { completion, run } = await runTurn(mode);
+	it.each(["plain", "stream"] as const)(
+		"goes out as one provider request on a 131,072 window on the default ratios (%s)",
+		async (mode) => {
+			const f = await fixture({ capacity: 131_072 });
+			const { completion, run } = await runTurn(mode);
 
-		expect(completion?.stopCause).not.toBe("context_capacity");
-		expect(completion).toMatchObject({ outcome: "answered" });
-		expect(f.requests).toHaveLength(1);
+			expect(completion?.stopCause).not.toBe("context_capacity");
+			expect(completion).toMatchObject({ outcome: "answered" });
+			expect(f.requests).toHaveLength(1);
 
-		// The premise: the builder filled the target it was handed (to within the
-		// slack), the catalogue is the real one with every connector on, and the
-		// default target was held back for it.
-		const target = f.handed.limits?.targetConstructedContext ?? 0;
-		expect(f.handed.built).toBeGreaterThan(target - SLACK_TOKENS * 2);
-		expect(f.handed.built).toBeLessThanOrEqual(target);
-		expect(f.handed.toolCount).toBeGreaterThanOrEqual(20);
-		expect(f.limits.targetConstructedContext).toBe(117_964);
-		expect(target).toBeLessThan(117_964);
+			// The premise: the builder filled the target it was handed (to within the
+			// slack), the catalogue is the real one with every connector on, and the
+			// default target was held back for it.
+			const target = f.handed.limits?.targetConstructedContext ?? 0;
+			expect(f.handed.built).toBeGreaterThan(target - SLACK_TOKENS * 2);
+			expect(f.handed.built).toBeLessThanOrEqual(target);
+			expect(f.handed.toolCount).toBeGreaterThanOrEqual(20);
+			expect(f.limits.targetConstructedContext).toBe(117_964);
+			expect(target).toBeLessThan(117_964);
 
-		// What the page and the snapshot report is the number it was built to.
-		const prepared = run.receipt.getSnapshot()?.original.provenance as {
-			prepared: {
-				contextLimits: ModelContextLimits;
-				outputTokenBudget: { effectiveMaxTokens: number };
+			// What the page and the snapshot report is the number it was built to.
+			const prepared = run.receipt.getSnapshot()?.original.provenance as {
+				prepared: {
+					contextLimits: ModelContextLimits;
+					outputTokenBudget: { effectiveMaxTokens: number };
+				};
 			};
-		};
-		expect(prepared.prepared.contextLimits).toEqual(f.handed.limits);
-		expect(
-			prepared.prepared.contextLimits.compactionUiThreshold,
-		).toBeLessThanOrEqual(target);
-		expect(prepared.prepared.outputTokenBudget.effectiveMaxTokens).toBe(
-			f.reserve,
-		);
-		expect(f.requests).toEqual([f.reserve]);
-	});
+			expect(prepared.prepared.contextLimits).toEqual(f.handed.limits);
+			expect(
+				prepared.prepared.contextLimits.compactionUiThreshold,
+			).toBeLessThanOrEqual(target);
+			expect(prepared.prepared.outputTokenBudget.effectiveMaxTokens).toBe(
+				f.reserve,
+			);
+			expect(f.requests).toEqual([f.reserve]);
+		},
+	);
 
 	it.each([
 		{ name: "146,000 on the default ratios", window: { capacity: 146_000 } },

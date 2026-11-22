@@ -1,0 +1,24 @@
+2026-11-18T18:49:57.729Z baseline-en original rows=4 rejected=0
+2026-11-18T18:50:03.795Z baseline-en newer rows=4 rejected=0
+2026-11-18T18:50:12.890Z baseline-en correction rows=4 rejected=0
+2026-11-18T18:50:20.973Z baseline-en old-replay rows=4 rejected=0
+2026-11-18T18:50:25.029Z baseline-en pending rows=3 rejected=1
+2026-11-18T18:50:29.109Z baseline-en pending-removed rows=7 rejected=0
+2026-11-18T18:50:35.214Z current-en original rows=4 rejected=0
+2026-11-18T18:50:44.314Z current-en newer rows=4 rejected=0
+2026-11-18T18:50:54.429Z current-en correction rows=4 rejected=0
+2026-11-18T18:51:00.501Z current-en old-replay rows=4 rejected=0
+2026-11-18T18:51:04.570Z current-en pending rows=3 rejected=1
+2026-11-18T18:51:07.637Z current-en pending-removed rows=6 rejected=0
+2026-11-18T18:51:15.774Z current-en ERROR bounded editor withheld; list-after-edit unqualified
+2026-11-18T18:51:22.871Z current-hu original rows=4 rejected=0
+2026-11-18T18:51:31.970Z current-hu newer rows=4 rejected=0
+2026-11-18T18:51:44.099Z current-hu correction rows=4 rejected=0
+2026-11-18T18:51:54.216Z current-hu old-replay rows=4 rejected=0
+2026-11-18T18:51:58.281Z current-hu pending rows=3 rejected=1
+2026-11-18T18:52:01.343Z current-hu pending-removed rows=6 rejected=0
+2026-11-18T18:52:15.230Z current-hu mixed-edit rows=4 rejected=0
+2026-11-18T18:52:18.340Z current-hu removable-added rows=5 rejected=0
+2026-11-18T18:52:19.395Z current-hu whole-remove rows=4 rejected=0
+2026-11-18T18:52:22.455Z current-hu insert rows=5 rejected=0
+2026-11-18T18:52:22.475Z CURRENT LIST PROBE COMPLETE

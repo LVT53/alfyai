@@ -143,21 +143,22 @@ describe("providerCanSeeImages", () => {
 				imageMessageParts: { state: "manual_override", supported: false },
 			}),
 		],
-	] satisfies Array<
-		[string, ModelCapabilitySet | undefined]
-	>)("is false for %s", (_label, capabilities) => {
-		expect(
-			providerCanSeeImages({
-				id: "p",
-				name: "p",
-				displayName: "P",
-				baseUrl: "http://p.example/v1",
-				modelName: "m",
-				apiKey: "k",
-				capabilities,
-			}),
-		).toBe(false);
-	});
+	] satisfies Array<[string, ModelCapabilitySet | undefined]>)(
+		"is false for %s",
+		(_label, capabilities) => {
+			expect(
+				providerCanSeeImages({
+					id: "p",
+					name: "p",
+					displayName: "P",
+					baseUrl: "http://p.example/v1",
+					modelName: "m",
+					apiKey: "k",
+					capabilities,
+				}),
+			).toBe(false);
+		},
+	);
 });
 
 // The admin form and the model list read the stored string with

@@ -1,1500 +1,702 @@
-import {
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-	within,
-} from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemoryProfilePublicPayload } from "$lib/memory-profile-types";
+import { ApiError } from "$lib/client/api/http";
+import type {
+	MemoryDetail,
+	MemoryOperation,
+	MemoryPage,
+} from "$lib/memory-types";
 import { uiLanguage } from "$lib/stores/settings";
 import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
 
-const { fetchMemoryProfileItemDetailMock } = vi.hoisted(() => ({
-	fetchMemoryProfileItemDetailMock: vi.fn(),
+const api = vi.hoisted(() => ({
+	fetchMemoryPage: vi.fn(),
+	fetchMemoryQuarantine: vi.fn(),
+	saveMemoryQuarantine: vi.fn(),
+	fetchMemoryDetail: vi.fn(),
+	submitMemoryAction: vi.fn(),
+	fetchMemoryOperation: vi.fn(),
+	fetchMemoryOperationByRequest: vi.fn(),
 }));
-
-vi.mock("$lib/client/api/knowledge", () => ({
-	fetchMemoryProfileItemDetail: fetchMemoryProfileItemDetailMock,
+vi.mock("$lib/client/api/memory", () => api);
+vi.mock("svelte/transition", () => ({
+	fly: () => ({ duration: 0 }),
+	slide: () => ({ duration: 0 }),
 }));
+const ref = {
+	scope: { kind: "personal" },
+	generation: "g1",
+	rowId: "kayak",
+} as const;
+const row = {
+	ref,
+	text: "You own a green touring kayak and a white racing kayak.",
+	updatedAt: "2026-11-18T09:00:00Z",
+	sourceCount: 1,
+};
+const page: MemoryPage = {
+	authority: "hindsight",
+	scope: ref.scope,
+	generation: "g1",
+	rows: [row],
+	nextCursor: null,
+	total: 1,
+	status: "ready",
+};
+const detail: MemoryDetail = {
+	row,
+	sources: [
+		{
+			id: "source",
+			conversationId: "chat",
+			messageId: "reply",
+			title: "Kayak setup",
+			quote: "My touring kayak is green. My racing kayak is white.",
+			assertedAt: row.updatedAt,
+			available: true,
+		},
+	],
+	versions: [
+		{ text: "A yellow touring kayak.", changedAt: "2026-11-16T09:00:00Z" },
+	],
+	canEdit: true,
+	canRemove: true,
+};
+const failed: MemoryOperation = {
+	id: "op",
+	status: "failed",
+	retryable: true,
+	errorCode: "validation_failed",
+	exclusionAcknowledged: false,
+	cleanupPending: false,
+	ref: null,
+};
+beforeEach(() => {
+	vi.clearAllMocks();
+	uiLanguage.set("en");
+	api.fetchMemoryPage.mockReset().mockResolvedValue(page);
+	api.fetchMemoryQuarantine
+		.mockReset()
+		.mockResolvedValue({ status: "unavailable", candidates: [] });
+	api.fetchMemoryDetail.mockResolvedValue(detail);
+	api.submitMemoryAction.mockResolvedValue(failed);
+});
+async function open() {
+	render(KnowledgeMemoryView, { memoryEnabled: true });
+	await fireEvent.click(
+		await screen.findByRole("button", { name: /You own a green/ }),
+	);
+	await screen.findByTestId("memory-detail");
+}
+describe("published Memory UI", () => {
+	it("opens provenance without changing original quotations and only shows verified prior wording", async () => {
+		await open();
+		expect(screen.getByRole("link", { name: "Kayak setup" })).toHaveAttribute(
+			"href",
+			"/chat/chat?focus_message=reply",
+		);
+		expect(screen.getByText(detail.sources[0].quote)).toBeVisible();
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Previous versions/ }),
+		);
+		expect(screen.getByText("A yellow touring kayak.")).toBeVisible();
+		expect(screen.getByText("No longer used")).toBeVisible();
+	});
+	it.each(["en", "hu"] as const)(
+		"omits an unverified memory date and displays the original source date in %s",
+		async (language) => {
+			uiLanguage.set(language);
+			const undated = { ...row, updatedAt: null };
+			api.fetchMemoryPage.mockResolvedValue({ ...page, rows: [undated] });
+			api.fetchMemoryDetail.mockResolvedValue({ ...detail, row: undated });
+			render(KnowledgeMemoryView, { memoryEnabled: true });
+			const item = await screen.findByRole("button", {
+				name: /You own a green/,
+			});
+			expect(item.querySelector("time")).toBeNull();
+			await fireEvent.click(item);
+			const panel = await screen.findByTestId("memory-detail");
+			const [sourceDate] = panel.querySelectorAll("time");
+			expect(panel.querySelectorAll("time")).toHaveLength(1);
+			expect(sourceDate).toHaveAttribute(
+				"datetime",
+				detail.sources[0].assertedAt,
+			);
+			expect(sourceDate).toHaveTextContent(
+				new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(
+					new Date(detail.sources[0].assertedAt),
+				),
+			);
+		},
+	);
+	it.each([
+		{
+			language: "en",
+			attribution: "Added by you",
+			conversation: "Conversation",
+		},
+		{
+			language: "hu",
+			attribution: "Általad hozzáadva",
+			conversation: "Beszélgetés",
+		},
+	] as const)(
+		"shows verified manual provenance in $language",
+		async ({ language, attribution, conversation }) => {
+			uiLanguage.set(language);
+			api.fetchMemoryDetail.mockResolvedValue({
+				...detail,
+				origin: "manual",
+				sources: [],
+				versions: [],
+			});
+			await open();
+			expect(screen.getByText(attribution)).toBeVisible();
+			expect(
+				screen.queryByRole("heading", { name: conversation }),
+			).not.toBeInTheDocument();
+		},
+	);
+	it("omits the provenance card when origin is unknown and sources are empty", async () => {
+		api.fetchMemoryDetail.mockResolvedValue({
+			...detail,
+			origin: "unknown",
+			sources: [],
+			versions: [],
+		});
+		await open();
+		expect(
+			screen.queryByRole("heading", { name: "Conversation" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByText("Added by you")).not.toBeInTheDocument();
+	});
+	it("keeps partial-removal draft and original memory on failed verification; retry reuses intent", async () => {
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		const input = screen.getByRole("textbox", { name: "Memory" });
+		await fireEvent.input(input, {
+			target: { value: "You own a touring kayak and a white racing kayak." },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await screen.findByRole("alert");
+		expect(input).toHaveValue(
+			"You own a touring kayak and a white racing kayak.",
+		);
+		const request = api.submitMemoryAction.mock.calls[0][0];
+		expect(request).toMatchObject({
+			kind: "edit",
+			ref,
+			text: "You own a touring kayak and a white racing kayak.",
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(api.submitMemoryAction.mock.calls[1][0]).toEqual(request);
+	});
+	it("does not claim removal before exclusion is acknowledged", async () => {
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"Alfy may still use it",
+		);
+		expect(screen.queryByText("Memory removed")).not.toBeInTheDocument();
+	});
+	it("dismissal does not clear acknowledged exclusion or enable removing again", async () => {
+		api.submitMemoryAction.mockResolvedValue({
+			...failed,
+			exclusionAcknowledged: true,
+			cleanupPending: true,
+		});
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await screen.findByRole("alert");
+		await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+		expect(
+			screen.getByText(
+				"This memory is no longer used. Cleanup is still pending.",
+			),
+		).toBeVisible();
+	});
+	it("does not accept a stale edit without reviewing new accepted wording", async () => {
+		api.submitMemoryAction.mockResolvedValue({
+			...failed,
+			status: "stale",
+			retryable: false,
+		});
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await screen.findByRole("button", { name: "Review latest version" });
+		expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+	});
+	it("keeps pending operations pending after feedback dismissal and disables second mutations", async () => {
+		api.submitMemoryAction.mockResolvedValue({
+			...failed,
+			status: "working",
+			retryable: false,
+		});
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await screen.findByText("Your change is still being checked.");
+		expect(
+			screen.getByRole("button", { name: "Saving changes…" }),
+		).toBeDisabled();
+		expect(screen.queryByText("Memory saved")).not.toBeInTheDocument();
+	});
+	it("does not silently present legacy history as migrated", async () => {
+		api.fetchMemoryPage.mockResolvedValue({
+			...page,
+			authority: "legacy",
+			rows: [],
+			total: 0,
+		});
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		expect(
+			await screen.findByText(
+				"Your earlier memories haven’t been imported yet.",
+			),
+		).toBeVisible();
+		expect(screen.getByRole("button", { name: "Add memory" })).toBeDisabled();
+	});
+	it("keeps memory off controls in Profile and translates the new views", async () => {
+		uiLanguage.set("hu");
+		render(KnowledgeMemoryView, { memoryEnabled: false });
+		expect(await screen.findByText("A memória ki van kapcsolva")).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Memória hozzáadása" }),
+		).toBeDisabled();
+		expect(
+			screen.queryByRole("button", { name: /Manage|Keep part|Correct/ }),
+		).not.toBeInTheDocument();
+		uiLanguage.set("en");
+	});
+	it.each([
+		{ control: "Edit", action: "Save changes", panel: "memory-editor" },
+		{ control: "Remove", action: "Remove", panel: "memory-remove" },
+	])(
+		"disables the open $control action when a focus refresh reports Memory off",
+		async ({ control, action, panel }) => {
+			await open();
+			await fireEvent.click(screen.getByRole("button", { name: control }));
+			const submit = screen.getByRole("button", { name: action });
+			expect(submit).toBeEnabled();
+			api.fetchMemoryPage.mockResolvedValue({
+				...page,
+				status: "off",
+				rows: [],
+				total: 0,
+			});
 
-// The dialogs and the category disclosure animate open and shut. A real outro
-// keeps a closed dialog in the DOM for its duration, which these tests would
-// read as "it did not close" — so run every transition at zero length here and
-// leave the reduced-motion wiring to its own regression suite.
-vi.mock("svelte/transition", () => {
-	const instant = () => ({ delay: 0, duration: 0, css: () => "" });
-	return { fade: instant, scale: instant, slide: instant };
+			await fireEvent.focus(window);
+
+			expect(await screen.findByTestId("memory-off-notice")).toHaveTextContent(
+				"Memory is off",
+			);
+			expect(submit).toBeDisabled();
+			await fireEvent.click(submit);
+			if (control === "Edit") await fireEvent.submit(screen.getByTestId(panel));
+			expect(api.submitMemoryAction).not.toHaveBeenCalled();
+			expect(screen.getByTestId(panel)).toBeVisible();
+		},
+	);
+	it("withdraws mutation Retry when Memory is turned off after a failed save", async () => {
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		const retry = await screen.findByRole("button", { name: "Retry" });
+		api.fetchMemoryPage.mockResolvedValue({
+			...page,
+			status: "off",
+			rows: [],
+			total: 0,
+		});
+
+		await fireEvent.focus(window);
+
+		await screen.findByTestId("memory-off-notice");
+		expect(retry).not.toBeInTheDocument();
+		expect(api.submitMemoryAction).toHaveBeenCalledTimes(1);
+	});
+	it("ignores a late list result from a previous query", async () => {
+		let resolve!: (value: MemoryPage) => void;
+		api.fetchMemoryPage
+			.mockImplementationOnce(() => new Promise((r) => (resolve = r)))
+			.mockResolvedValueOnce({ ...page, rows: [], total: 0 });
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		await fireEvent.input(screen.getByRole("searchbox"), {
+			target: { value: "not found" },
+		});
+		await waitFor(() => expect(api.fetchMemoryPage).toHaveBeenCalledTimes(2));
+		resolve(page);
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: /You own a green/ }),
+			).not.toBeInTheDocument(),
+		);
+	});
 });
 
-const profile: MemoryProfilePublicPayload = {
-	resetGeneration: 1,
-	projectionRevision: 7,
-	categories: [
-		{
-			category: "about_you",
-			items: [
-				{
-					id: "item-about",
-					itemKey: "about",
-					category: "about_you",
-					statement: "Levi prefers concise memory behavior.",
-					scope: { type: "global" },
-					status: "active",
-					revision: 1,
-					updatedAt: "2026-06-17T09:00:00.000Z",
-					canEdit: true,
-					canDelete: true,
-					canSuppress: true,
-				},
-			],
-		},
-		{
-			category: "preferences",
-			items: [
-				{
-					id: "item-preference",
-					itemKey: "preference",
-					category: "preferences",
-					statement: "Levi likes compact, actionable UI.",
-					scope: { type: "project", id: "project-1" },
-					status: "active",
-					revision: 1,
-					updatedAt: "2026-06-17T09:00:00.000Z",
-					canEdit: true,
-					canDelete: true,
-					canSuppress: true,
-				},
-			],
-		},
-		{ category: "goals_ongoing_work", items: [] },
-		{ category: "constraints_boundaries", items: [] },
-	],
-	review: {
-		items: [
-			{
-				id: "review-1",
-				subject: "Remember Hungarian labels.",
-				question: "Should this be remembered?",
-				reason: "Repeated in settings work.",
-				canAccept: true,
-			},
-			{
-				id: "review-2",
-				subject: "Prefer icon actions.",
-				question: "Should this be remembered?",
-				reason: "UI guidance.",
-				canAccept: true,
-			},
-			{
-				id: "review-3",
-				subject: "Avoid diagnostic memory tables.",
-				question: "Should this be remembered?",
-				reason: "Product decision.",
-				canAccept: true,
-			},
-			{
-				id: "review-4",
-				subject: "Open documents from search.",
-				question: "Should this be remembered?",
-				reason: "Workflow signal.",
-				canAccept: true,
-			},
-		],
-		visibleItems: [
-			{
-				id: "review-1",
-				subject: "Remember Hungarian labels.",
-				question: "Should this be remembered?",
-				reason: "Repeated in settings work.",
-				canAccept: true,
-			},
-			{
-				id: "review-2",
-				subject: "Prefer icon actions.",
-				question: "Should this be remembered?",
-				reason: "UI guidance.",
-				canAccept: true,
-			},
-			{
-				id: "review-3",
-				subject: "Avoid diagnostic memory tables.",
-				question: "Should this be remembered?",
-				reason: "Product decision.",
-				canAccept: true,
-			},
-		],
-		openCount: 4,
-		overflowCount: 1,
-	},
-};
-
-function renderMemoryView(overrides = {}) {
-	return render(KnowledgeMemoryView, {
-		props: {
-			profile,
-			memoryLoading: false,
-			memoryLoaded: true,
-			memoryLoadError: "",
-			pendingActionKey: null,
-			actionError: "",
-			onRetryLoadMemory: vi.fn(),
-			onAction: vi.fn(),
-			...overrides,
-		},
-	});
-}
-
-describe("KnowledgeMemoryView", () => {
-	beforeEach(() => {
-		fetchMemoryProfileItemDetailMock.mockReset();
-		fetchMemoryProfileItemDetailMock.mockImplementation(
-			async (itemId: string) => {
-				const item = profile.categories
-					.flatMap((group) => group.items)
-					.find((candidate) => candidate.id === itemId);
-				return {
-					...(item ?? profile.categories[0]?.items[0]),
-					sourceChips: [
-						{
-							id: "source-1",
-							sourceType: "user_statement",
-							label: "Chat",
-							summary: "User said this directly.",
-						},
-					],
-					whyRemembered: "User said this directly.",
-				};
-			},
+describe("review regressions: asynchronous navigation", () => {
+	it("ignores a detail success after Add has opened", async () => {
+		let resolve!: (v: MemoryDetail) => void;
+		api.fetchMemoryDetail.mockImplementationOnce(
+			() => new Promise((r) => (resolve = r)),
 		);
-	});
-
-	it("renders the persona summary card above the categories with the summary text", () => {
-		renderMemoryView({
-			summary: {
-				text: "Levi is building AlfyAI and prefers concise answers.",
-				updatedAt: "2026-07-06T22:00:00.000Z",
-			},
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /You own a green/ }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+		await fireEvent.input(screen.getByRole("textbox"), {
+			target: { value: "Keep my draft" },
 		});
-
-		expect(
-			screen.getByRole("heading", { name: "What I remember about you" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("Levi is building AlfyAI and prefers concise answers."),
-		).toBeInTheDocument();
+		resolve(detail);
+		await waitFor(() =>
+			expect(screen.getByRole("textbox")).toHaveValue("Keep my draft"),
+		);
+		expect(screen.queryByTestId("memory-detail")).not.toBeInTheDocument();
 	});
-
-	it("renders the night-shift timeline section with its reports", () => {
-		renderMemoryView({
-			timelineReports: [
-				{
-					id: "report-1",
-					status: "completed",
-					summaryText: "Renewed one memory overnight.",
-					createdAt: "2026-07-05T02:00:00.000Z",
-					actions: [],
-				},
-			],
+	it("focuses Search after removal even while the old row is waiting for refresh", async () => {
+		api.submitMemoryAction.mockResolvedValue({
+			...failed,
+			status: "applied",
+			exclusionAcknowledged: true,
+			retryable: false,
 		});
-
-		expect(
-			screen.getByRole("heading", { name: "While you were away" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("Renewed one memory overnight."),
-		).toBeInTheDocument();
+		await open();
+		let finishRefresh!: (updated: MemoryPage) => void;
+		api.fetchMemoryPage.mockImplementationOnce(
+			() => new Promise((resolve) => (finishRefresh = resolve)),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		expect(screen.queryByTestId("memory-remove")).not.toBeInTheDocument();
+		await waitFor(() => expect(screen.getByRole("searchbox")).toHaveFocus());
+		finishRefresh({ ...page, rows: [], total: 0 });
+		await screen.findByText("Nothing remembered here yet");
+		expect(screen.getByRole("searchbox")).toHaveFocus();
 	});
-
-	it("shows a filled confidence dot for stated facts and a hollow one for inferred facts", () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				categories: profile.categories.map((group) =>
-					group.category === "about_you"
-						? {
-								...group,
-								items: [
-									{ ...group.items[0], confidence: "stated" as const },
-									{
-										...group.items[0],
-										id: "item-inferred",
-										itemKey: "inferred",
-										statement: "Probably enjoys hiking.",
-										confidence: "inferred" as const,
-									},
-								],
-							}
-						: group,
-				),
-			},
+	it("locks the uncertain submitted draft and retries its request identity", async () => {
+		api.submitMemoryAction.mockRejectedValueOnce(
+			new TypeError("connection lost"),
+		);
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		await screen.findByRole("button", { name: /You own a green/ });
+		await fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+		await fireEvent.input(screen.getByRole("textbox"), {
+			target: { value: "Tea" },
 		});
-
-		const statedDot = screen.getByRole("img", { name: "Stated by you" });
-		const inferredDot = screen.getByRole("img", {
-			name: "Inferred from conversation",
-		});
-		expect(statedDot).toHaveClass("memory-dot--stated");
-		expect(inferredDot).toHaveClass("memory-dot--inferred");
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await screen.findByRole("alert");
+		expect(screen.getByRole("textbox")).toBeDisabled();
+		const sent = api.submitMemoryAction.mock.calls[0][0];
+		await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(api.submitMemoryAction.mock.calls[1][0]).toEqual(sent);
 	});
-
-	// A fact the projection never marked must not be drawn as one you stated.
-	it("draws no confidence dot when the projection recorded no provenance", () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				categories: profile.categories.map((group) =>
-					group.category === "about_you"
-						? {
-								...group,
-								items: [{ ...group.items[0], confidence: undefined }],
-							}
-						: group,
-				),
-			},
-		});
-
+	it("offers one Retry for the initial list error and shows an accepted empty result after retry", async () => {
+		api.fetchMemoryPage
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValueOnce({ ...page, rows: [], total: 0 });
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		const alert = await screen.findByRole("alert");
 		expect(
-			screen.queryByRole("img", { name: "Stated by you" }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole("img", { name: "Inferred from conversation" }),
-		).not.toBeInTheDocument();
-	});
-
-	it("shows an expiry chip when a fact has expiresAt", () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				categories: profile.categories.map((group) =>
-					group.category === "about_you"
-						? {
-								...group,
-								items: [
-									{
-										...group.items[0],
-										expiresAt: "2026-09-01T00:00:00.000Z",
-									},
-								],
-							}
-						: group,
-				),
-			},
-		});
-
-		expect(screen.getByText(/expires /)).toBeInTheDocument();
-	});
-
-	it("offers Retire in the Remove modal for profile items and dispatches onRetire", async () => {
-		const onRetire = vi.fn();
-		renderMemoryView({ onRetire });
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: /Retire/ }),
-		);
-
-		expect(onRetire).toHaveBeenCalledWith("item-about");
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Remove this memory?" }),
-			).not.toBeInTheDocument();
-		});
-	});
-
-	it("keeps the Remove modal open when retire fails", async () => {
-		const onRetire = vi.fn().mockResolvedValue(false);
-		renderMemoryView({ onRetire });
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: /Retire/ }),
-		);
-
-		expect(onRetire).toHaveBeenCalledWith("item-about");
-		// Failed retire follows the Forget/Delete contract: the modal stays open.
-		expect(
-			screen.getByRole("dialog", { name: "Remove this memory?" }),
-		).toBeInTheDocument();
-	});
-
-	it("disables the Retire option while the retire action is pending", async () => {
-		renderMemoryView({
-			onRetire: vi.fn(),
-			pendingActionKey: "item-about:retire",
-		});
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-		expect(
-			within(dialog).getByRole("button", { name: /Retire/ }),
-		).toBeDisabled();
-	});
-
-	it("lets a dialog taller than the window be scrolled to its foot", async () => {
-		// The Remove and review-edit dialogs centre a panel with no height of its
-		// own in a layer that did not scroll: on a phone on its side the top and the
-		// foot of a taller panel were out of reach. The layer scrolls, and the panel's
-		// auto margins centre it only while it fits, so it never overflows its top.
-		renderMemoryView({ onRetire: vi.fn() });
-		const reviewSection = screen
-			.getByRole("heading", { name: "Needs Review" })
-			.closest("section") as HTMLElement;
-
-		await fireEvent.click(
-			within(reviewSection).getAllByRole("button", {
-				name: "Remove this memory",
-			})[0],
-		);
-		const remove = screen.getByRole("dialog", { name: "Remove this memory?" });
-		expect(remove.parentElement).toHaveClass("overflow-y-auto");
-		expect(remove).toHaveClass("my-auto");
-		await fireEvent.click(
-			within(remove).getByRole("button", { name: "Close" }),
-		);
-
-		await fireEvent.click(
-			within(reviewSection).getAllByRole("button", {
-				name: "Edit review item",
-			})[0],
-		);
-		const edit = screen.getByRole("dialog", { name: "Edit review item" });
-		expect(edit.parentElement).toHaveClass("overflow-y-auto");
-		expect(edit).toHaveClass("my-auto");
-	});
-
-	it("does not offer Retire without an onRetire handler or for review items", async () => {
-		const onRetire = vi.fn();
-		renderMemoryView({ onRetire });
-
-		// Review items route through the same modal but must not offer Retire.
-		const reviewSection = screen
-			.getByRole("heading", { name: "Needs Review" })
-			.closest("section");
-		await fireEvent.click(
-			within(reviewSection as HTMLElement).getAllByRole("button", {
-				name: "Remove this memory",
-			})[0],
-		);
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-		expect(
-			within(dialog).queryByRole("button", { name: /Retire/ }),
-		).not.toBeInTheDocument();
-	});
-
-	it("shows an auto-expiry countdown on review items that carry expiresAt", () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
-		try {
-			renderMemoryView({
-				profile: {
-					...profile,
-					review: {
-						...profile.review,
-						visibleItems: [
-							{
-								...profile.review.visibleItems[0],
-								expiresAt: "2026-07-16T00:00:00.000Z",
-							},
-						],
-						items: undefined,
-						openCount: 1,
-						overflowCount: 0,
-					},
-				},
-			});
-
-			expect(screen.getByText("auto-expires in 10 days")).toBeInTheDocument();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("uses the singular form when the countdown is one day", () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
-		try {
-			renderMemoryView({
-				profile: {
-					...profile,
-					review: {
-						...profile.review,
-						visibleItems: [
-							{
-								...profile.review.visibleItems[0],
-								expiresAt: "2026-07-07T00:00:00.000Z",
-							},
-						],
-						items: undefined,
-						openCount: 1,
-						overflowCount: 0,
-					},
-				},
-			});
-
-			expect(screen.getByText("auto-expires in 1 day")).toBeInTheDocument();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("renders an explainer hint and settings link beneath each empty category state", () => {
-		renderMemoryView();
-
-		// goals_ongoing_work and constraints_boundaries are empty in the fixture.
-		const goalsSection = screen
-			.getByRole("heading", { name: "Goals & Ongoing Work" })
-			.closest("section");
-		const constraintsSection = screen
-			.getByRole("heading", { name: "Constraints & Boundaries" })
-			.closest("section");
-		expect(goalsSection).not.toBeNull();
-		expect(constraintsSection).not.toBeNull();
-
-		// The generic explainer hint renders below each empty state.
-		expect(
-			within(goalsSection as HTMLElement).getByText(
-				/builds these from your chats/i,
-			),
-		).toBeInTheDocument();
-		expect(
-			within(constraintsSection as HTMLElement).getByText(
-				/builds these from your chats/i,
-			),
-		).toBeInTheDocument();
-
-		// A link to the memory settings section is present.
-		const goalsLink = within(goalsSection as HTMLElement).getByRole("link", {
-			name: /memory settings/i,
-		});
-		expect(goalsLink).toHaveAttribute("href", "/settings?section=memory");
-	});
-
-	it("does not render the explainer hint for categories that have items", () => {
-		renderMemoryView();
-
-		// about_you has one item — no empty hint should be shown.
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		expect(
-			within(aboutSection as HTMLElement).queryByText(
-				/builds these from your chats/i,
-			),
-		).not.toBeInTheDocument();
-	});
-
-	it("renders four projection categories and limits Needs Review to three visible items", () => {
-		renderMemoryView();
-
-		expect(
-			screen.getByRole("heading", { name: "About You" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByRole("heading", { name: "Preferences" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByRole("heading", { name: "Goals & Ongoing Work" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByRole("heading", { name: "Constraints & Boundaries" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("Levi prefers concise memory behavior."),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("Levi likes compact, actionable UI."),
-		).toBeInTheDocument();
-		expect(screen.queryByText("Global")).not.toBeInTheDocument();
-		// The scope chip on the row, plus the legend entry that explains it.
-		expect(screen.getAllByText("Project").length).toBeGreaterThanOrEqual(1);
-		expect(
-			screen
-				.getByText("Levi likes compact, actionable UI.")
-				.closest(".memory-row")
-				?.querySelector(".memory-chip--scope")?.textContent,
-		).toContain("Project");
-
-		const review = screen
-			.getByRole("heading", { name: "Needs Review" })
-			.closest("section");
-		expect(review).not.toBeNull();
-		expect(review).toHaveClass("memory-review-section");
-		expect(review?.querySelector(".memory-review-card")).not.toBeNull();
-		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
-		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();
-		expect(
-			screen.getByText("Avoid diagnostic memory tables."),
-		).toBeInTheDocument();
-		expect(screen.getAllByText("Should this be remembered?")).toHaveLength(3);
-		expect(
-			screen.queryByText("Open documents from search."),
-		).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "+1 more" })).toBeInTheDocument();
-		expect(
-			screen.queryByText(/Focus Continuity|task memory|raw/i),
-		).not.toBeInTheDocument();
-	});
-
-	it("defensively caps server-provided visible review items to three", () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				review: {
-					...profile.review,
-					visibleItems: profile.review.items,
-					overflowCount: 0,
-				},
-			},
-		});
-
-		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
-		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();
-		expect(
-			screen.getByText("Avoid diagnostic memory tables."),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByText("Open documents from search."),
-		).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "+1 more" })).toBeInTheDocument();
-	});
-
-	it("pages a long category to five rows and discloses the rest inline", async () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				categories: profile.categories.map((group) =>
-					group.category === "about_you"
-						? {
-								...group,
-								items: Array.from({ length: 23 }, (_, index) => ({
-									id: `about-${index + 1}`,
-									itemKey: `about-${index + 1}`,
-									category: "about_you" as const,
-									statement: `About memory ${index + 1}.`,
-									scope: { type: "global" as const },
-									status: "active" as const,
-									revision: 1,
-									updatedAt: `2026-06-${String((index % 28) + 1).padStart(2, "0")}T09:00:00.000Z`,
-									canEdit: true,
-									canDelete: true,
-									canSuppress: true,
-								})),
-							}
-						: group,
-				),
-			},
-		});
-
-		const section = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(section).not.toBeNull();
-		expect(section?.querySelectorAll(".memory-row")).toHaveLength(5);
-
-		// The heading states the real total, never the length of the page.
-		expect(
-			within(section as HTMLElement).getByTestId("memory-category-count")
-				.textContent,
-		).toContain("23 remembered");
-
-		const disclosure = within(section as HTMLElement).getByTestId(
-			"memory-category-disclosure",
-		);
-		expect(disclosure).toHaveTextContent("Show all 23");
-		expect(
-			within(section as HTMLElement).getByText("18 more, newest first"),
-		).toBeInTheDocument();
-
-		// Expanding grows the section in place; the disclosure becomes the way back.
-		await fireEvent.click(disclosure);
-		expect(section?.querySelectorAll(".memory-row")).toHaveLength(23);
-		expect(
-			within(section as HTMLElement).getByTestId("memory-category-disclosure"),
-		).toHaveTextContent("Show fewer");
-
-		await fireEvent.click(
-			within(section as HTMLElement).getByTestId("memory-category-disclosure"),
-		);
-		expect(section?.querySelectorAll(".memory-row")).toHaveLength(5);
-	});
-
-	it("keeps category totals honest while a filter narrows the rows", async () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				categories: profile.categories.map((group) =>
-					group.category === "about_you"
-						? {
-								...group,
-								items: Array.from({ length: 12 }, (_, index) => ({
-									id: `about-${index + 1}`,
-									itemKey: `about-${index + 1}`,
-									category: "about_you" as const,
-									statement:
-										index === 0
-											? "Keeps files in Nextcloud."
-											: `About memory ${index + 1}.`,
-									scope: { type: "global" as const },
-									status: "active" as const,
-									revision: 1,
-									updatedAt: "2026-06-17T09:00:00.000Z",
-									canEdit: true,
-									canDelete: true,
-									canSuppress: true,
-								})),
-							}
-						: group,
-				),
-			},
-		});
-
-		const filter = screen.getByLabelText("Filter memories");
-		await fireEvent.input(filter, { target: { value: "nextcloud" } });
-
-		const section = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(
-			within(section as HTMLElement).getByTestId("memory-category-count")
-				.textContent,
-		).toContain("1 of 12 match");
-		expect(section?.querySelectorAll(".memory-row")).toHaveLength(1);
-	});
-
-	it("narrows to a single category when its filter chip is picked", async () => {
-		renderMemoryView();
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: /^Preferences — / }),
-		);
-
-		expect(
-			screen.getByRole("heading", { name: "Preferences" }),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("heading", { name: "About You" }),
-		).not.toBeInTheDocument();
-	});
-
-	it("shows a single Remove entry point and no standalone suppress or delete on the row", () => {
-		renderMemoryView();
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-
-		// Exactly one Remove (trash) entry point per inline card.
-		expect(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		).toBeInTheDocument();
-
-		// No standalone instant suppress-X or delete-trash on the row.
-		expect(
-			within(aboutSection as HTMLElement).queryByRole("button", {
-				name: "Do not remember memory item",
-			}),
-		).not.toBeInTheDocument();
-		expect(
-			within(aboutSection as HTMLElement).queryByRole("button", {
-				name: "Delete memory item",
-			}),
-		).not.toBeInTheDocument();
-	});
-
-	it("opens a confirm modal from the Remove button showing the memory and options", async () => {
-		renderMemoryView();
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-		// The memory statement is quoted for context inside the modal.
-		expect(
-			within(dialog).getByText(/Levi prefers concise memory behavior\./),
-		).toBeInTheDocument();
-		// Both Forget and Delete permanently are offered for delete-capable items.
-		expect(
-			within(dialog).getByRole("button", { name: /Forget/ }),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByRole("button", { name: /Delete permanently/ }),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByRole("button", { name: "Cancel" }),
-		).toBeInTheDocument();
-	});
-
-	it("dispatches suppress on Forget and delete on Delete permanently from the modal", async () => {
-		const onAction = vi.fn();
-		renderMemoryView({ onAction });
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: /Delete permanently/ }),
-		);
-		expect(onAction).toHaveBeenCalledWith({
-			target: "profile_item",
-			action: "delete",
-			itemId: "item-about",
-			expectedProjectionRevision: 7,
-		});
-
-		// Cancel the first modal, then verify Forget dispatches suppress.
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: "Cancel" }),
-		);
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Remove this memory?" }),
-			).not.toBeInTheDocument();
-		});
-
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const reopenedDialog = screen.getByRole("dialog", {
-			name: "Remove this memory?",
-		});
-		await fireEvent.click(
-			within(reopenedDialog).getByRole("button", { name: /Forget/ }),
-		);
-		expect(onAction).toHaveBeenCalledWith({
-			target: "profile_item",
-			action: "suppress",
-			itemId: "item-about",
-			expectedProjectionRevision: 7,
-		});
-	});
-
-	it("closes the confirm modal harmlessly on Cancel without dispatching", async () => {
-		const onAction = vi.fn();
-		renderMemoryView({ onAction });
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: "Cancel" }),
-		);
-
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Remove this memory?" }),
-			).not.toBeInTheDocument();
-		});
-		expect(onAction).not.toHaveBeenCalled();
-	});
-
-	it("sends review target actions from inline and overflow icon controls", async () => {
-		const onAction = vi.fn();
-		renderMemoryView({ onAction });
-
-		await fireEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]);
-		expect(onAction).toHaveBeenCalledWith({
-			target: "review_item",
-			action: "accept",
-			itemId: "review-1",
-			expectedProjectionRevision: 7,
-		});
-
-		await fireEvent.click(screen.getByRole("button", { name: "+1 more" }));
-		const dialog = screen.getByRole("dialog", { name: "Needs Review" });
-		expect(
-			within(dialog).getByText("Open documents from search."),
-		).toBeInTheDocument();
-		expect(within(dialog).getByText("Workflow signal.")).toBeInTheDocument();
-
-		// Review items route their suppress action through the Remove modal.
-		await fireEvent.click(
-			within(dialog).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		);
-		const removeDialog = screen.getByRole("dialog", {
-			name: "Remove this memory?",
-		});
-		// Review items only support Forget (suppress) — Delete is not offered.
-		expect(
-			within(removeDialog).queryByRole("button", {
-				name: /Delete permanently/,
-			}),
-		).not.toBeInTheDocument();
-		await fireEvent.click(
-			within(removeDialog).getByRole("button", { name: /Forget/ }),
-		);
-		expect(onAction).toHaveBeenCalledWith({
-			target: "review_item",
-			action: "suppress",
-			itemId: "review-4",
-			expectedProjectionRevision: 7,
-		});
-	});
-
-	it("shows only additional review items in the overflow dialog", async () => {
-		renderMemoryView();
-
-		await fireEvent.click(screen.getByRole("button", { name: "+1 more" }));
-		const dialog = screen.getByRole("dialog", { name: "Needs Review" });
-
-		expect(
-			within(dialog).queryByText("Remember Hungarian labels."),
-		).not.toBeInTheDocument();
-		expect(
-			within(dialog).queryByText("Prefer icon actions."),
-		).not.toBeInTheDocument();
-		expect(
-			within(dialog).queryByText("Avoid diagnostic memory tables."),
-		).not.toBeInTheDocument();
-		expect(
-			within(dialog).getByText("Open documents from search."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getAllByText("Should this be remembered?"),
+			screen.getAllByText("Couldn’t load memories. Please try again."),
 		).toHaveLength(1);
-	});
-
-	it("requires editing for review items without a safe proposed statement", () => {
-		renderMemoryView({
-			profile: {
-				...profile,
-				review: {
-					...profile.review,
-					items: [
-						{
-							id: "review-generic",
-							subject: "Document-related memory request",
-							question: "Should this be remembered?",
-							reason:
-								"The intake gate could not safely admit this automatically.",
-							canAccept: false,
-						},
-					],
-					visibleItems: [
-						{
-							id: "review-generic",
-							subject: "Document-related memory request",
-							question: "Should this be remembered?",
-							reason:
-								"The intake gate could not safely admit this automatically.",
-							canAccept: false,
-						},
-					],
-					openCount: 1,
-					overflowCount: 0,
-				},
-			},
-		});
-
-		const reviewSection = screen
-			.getByRole("heading", { name: "Needs Review" })
-			.closest("section");
+		const retry = screen.getByRole("button", { name: "Retry" });
+		expect(alert).toContainElement(retry);
+		await fireEvent.click(retry);
 		expect(
-			screen.queryByRole("button", { name: "Accept" }),
+			await screen.findByText("Nothing remembered here yet"),
+		).toBeVisible();
+		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+	});
+	it("does not render accepted-empty after dismissing an initial list failure", async () => {
+		api.fetchMemoryPage.mockRejectedValueOnce(new Error("offline"));
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		await screen.findByRole("alert");
+		await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		expect(
+			screen.queryByText("Nothing remembered here yet"),
 		).not.toBeInTheDocument();
-		expect(
-			within(reviewSection as HTMLElement).getByRole("button", {
-				name: "Edit review item",
-			}),
-		).toBeInTheDocument();
-		expect(
-			within(reviewSection as HTMLElement).getByRole("button", {
-				name: "Remove this memory",
-			}),
-		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Add memory" })).toBeDisabled();
 	});
-
-	it("keeps the memory item dialog open when an action reports failure", async () => {
-		const onAction = vi.fn().mockResolvedValue(false);
-		renderMemoryView({ onAction });
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Edit memory item",
-			}),
-		);
-
-		const dialog = screen.getByRole("dialog", { name: "Memory item" });
-		await waitFor(() => {
-			expect(
-				within(dialog).getByText("Chat: User said this directly."),
-			).toBeInTheDocument();
-		});
-		expect(
-			within(dialog).queryByRole("button", { name: "Do not remember" }),
-		).not.toBeInTheDocument();
-		expect(
-			within(dialog).getByRole("button", { name: "Cancel editing" }),
-		).toBeInTheDocument();
-		const textarea = within(dialog).getByLabelText("Statement");
-		await fireEvent.input(textarea, {
-			target: {
-				value: "Levi prefers concise memory behavior with stale-safe edits.",
-			},
-		});
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: "Save memory item" }),
-		);
-
-		expect(onAction).toHaveBeenCalledWith({
-			action: "edit",
-			itemId: "item-about",
-			statement: "Levi prefers concise memory behavior with stale-safe edits.",
-			expectedProjectionRevision: 7,
-		});
-		expect(
-			screen.getByRole("dialog", { name: "Memory item" }),
-		).toBeInTheDocument();
-	});
-
-	it("opens read-only memory item details without edit-only controls", async () => {
-		const readOnlyProfile: MemoryProfilePublicPayload = {
-			...profile,
-			categories: profile.categories.map((group) =>
-				group.category === "about_you"
-					? {
-							...group,
-							items: [
-								{
-									...group.items[0],
-									id: "item-readonly",
-									statement: "Read-only memory still has detail.",
-									scope: { type: "document", id: "doc-1" },
-									canEdit: false,
-									canDelete: false,
-									canSuppress: false,
-								},
-							],
-						}
-					: group,
-			),
-		};
-		fetchMemoryProfileItemDetailMock.mockResolvedValueOnce({
-			...readOnlyProfile.categories[0].items[0],
-			sourceChips: [
-				{
-					id: "source-1",
-					sourceType: "document",
-					label: "Project brief",
-					summary: "Imported project note.",
-				},
-			],
-			whyRemembered: "Document-specific workflow rule.",
-		});
-
-		renderMemoryView({ profile: readOnlyProfile });
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		// An "Edit" button over a memory the projection refuses to rewrite
-		// invites a change the dialog then denies, so the row says View.
-		expect(
-			within(aboutSection as HTMLElement).queryByRole("button", {
-				name: "Edit memory item",
-			}),
-		).not.toBeInTheDocument();
-		expect(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "View memory item",
-			}).textContent,
-		).toContain("View");
-
-		await fireEvent.click(
-			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "View memory item",
-			}),
-		);
-
-		const dialog = screen.getByRole("dialog", { name: "Memory item" });
-		await waitFor(() => {
-			expect(
-				within(dialog).getByText("Scope: Document doc-1"),
-			).toBeInTheDocument();
-		});
-
-		expect(
-			within(dialog).getByText("Read-only memory still has detail."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByText("Why: Document-specific workflow rule."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByText("Project brief: Imported project note."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).queryByLabelText("Statement"),
-		).not.toBeInTheDocument();
-		expect(
-			within(dialog).queryByRole("button", { name: "Save memory item" }),
-		).not.toBeInTheDocument();
-		expect(
-			within(dialog).queryByRole("button", { name: "Delete memory item" }),
-		).not.toBeInTheDocument();
-	});
-
-	it("shows full scope, why summary, and capped expandable sources in the memory item dialog", async () => {
-		fetchMemoryProfileItemDetailMock.mockResolvedValueOnce({
-			...profile.categories[1].items[0],
-			sourceChips: [
-				{
-					id: "source-1",
-					sourceType: "user_statement",
-					label: "Chat",
-					summary: "User said this directly.",
-				},
-				{
-					id: "source-2",
-					sourceType: "document",
-					label: "Project brief",
-					summary: "Imported project note.",
-				},
-				{
-					id: "source-3",
-					sourceType: "conversation",
-					label: "Follow-up",
-					summary: "Repeated in chat.",
-				},
-				{
-					id: "source-4",
-					sourceType: "document",
-					label: "Design notes",
-					summary: "Confirmed by design notes.",
-				},
-			],
-			whyRemembered: "Repeated preference across UI planning work.",
-		});
-		renderMemoryView();
-
-		const preferenceSection = screen
-			.getByRole("heading", { name: "Preferences" })
-			.closest("section");
-		expect(preferenceSection).not.toBeNull();
-		await fireEvent.click(
-			within(preferenceSection as HTMLElement).getByRole("button", {
-				name: "Edit memory item",
-			}),
-		);
-
-		const dialog = screen.getByRole("dialog", { name: "Memory item" });
-		await waitFor(() => {
-			expect(
-				within(dialog).getByText("Scope: Project project-1"),
-			).toBeInTheDocument();
-		});
-
-		expect(
-			within(dialog).getByText(
-				"Why: Repeated preference across UI planning work.",
-			),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByText("Chat: User said this directly."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByText("Project brief: Imported project note."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).getByText("Follow-up: Repeated in chat."),
-		).toBeInTheDocument();
-		expect(
-			within(dialog).queryByText("Design notes: Confirmed by design notes."),
-		).not.toBeInTheDocument();
-
-		expect(within(dialog).getByText("+1 sources")).toBeInTheDocument();
-		await fireEvent.click(
-			within(dialog).getByRole("button", { name: "Show 1 more sources" }),
-		);
-		expect(
-			within(dialog).getByText("Design notes: Confirmed by design notes."),
-		).toBeInTheDocument();
-	});
-
-	it("closes review overflow before opening a review edit dialog", async () => {
-		renderMemoryView();
-
-		await fireEvent.click(screen.getByRole("button", { name: "+1 more" }));
-		const overflowDialog = screen.getByRole("dialog", { name: "Needs Review" });
-		await fireEvent.click(
-			within(overflowDialog).getAllByRole("button", {
-				name: "Edit review item",
-			})[0],
-		);
-
-		expect(
-			screen.queryByRole("dialog", { name: "Needs Review" }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.getByRole("dialog", { name: "Edit review item" }),
-		).toBeInTheDocument();
-	});
-
-	it("focuses, traps, closes, and restores focus for the review overflow dialog", async () => {
-		renderMemoryView();
-
-		const opener = screen.getByRole("button", { name: "+1 more" });
-		opener.focus();
-		await fireEvent.click(opener);
-
-		const dialog = screen.getByRole("dialog", { name: "Needs Review" });
-		await waitFor(() => {
-			expect(dialog).toContainElement(document.activeElement as HTMLElement);
-		});
-
-		const buttons = within(dialog)
-			.getAllByRole("button")
-			.filter((button) => !button.hasAttribute("disabled"));
-		const firstButton = buttons[0];
-		const lastButton = buttons[buttons.length - 1];
-		lastButton.focus();
-		await fireEvent.keyDown(window, { key: "Tab" });
-		expect(firstButton).toHaveFocus();
-
-		await fireEvent.keyDown(window, { key: "Escape" });
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Needs Review" }),
-			).not.toBeInTheDocument();
-		});
-		expect(opener).toHaveFocus();
-	});
-
-	it("focuses review edits and restores focus after Escape", async () => {
-		renderMemoryView();
-
-		const editButton = screen.getAllByRole("button", {
-			name: "Edit review item",
-		})[0];
-		editButton.focus();
-		await fireEvent.click(editButton);
-
-		const dialog = screen.getByRole("dialog", { name: "Edit review item" });
-		const textarea = within(dialog).getByLabelText("Statement");
-		await waitFor(() => {
-			expect(textarea).toHaveFocus();
-		});
-
-		await fireEvent.keyDown(window, { key: "Escape" });
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Edit review item" }),
-			).not.toBeInTheDocument();
-		});
-		expect(editButton).toHaveFocus();
-	});
-
-	it("keeps focus inside the memory item dialog and restores it on Escape", async () => {
-		renderMemoryView();
-
-		const aboutSection = screen
-			.getByRole("heading", { name: "About You" })
-			.closest("section");
-		expect(aboutSection).not.toBeNull();
-		const editButton = within(aboutSection as HTMLElement).getByRole("button", {
-			name: "Edit memory item",
-		});
-		editButton.focus();
-		await fireEvent.click(editButton);
-
-		const dialog = screen.getByRole("dialog", { name: "Memory item" });
-		const textarea = within(dialog).getByLabelText("Statement");
-		await waitFor(() => {
-			expect(textarea).toHaveFocus();
-		});
-
-		const buttons = within(dialog)
-			.getAllByRole("button")
-			.filter((button) => !button.hasAttribute("disabled"));
-		const firstButton = buttons[0];
-		const lastButton = buttons[buttons.length - 1];
-		lastButton.focus();
-		await fireEvent.keyDown(window, { key: "Tab" });
-		expect(firstButton).toHaveFocus();
-
-		await fireEvent.keyDown(window, { key: "Escape" });
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Memory item" }),
-			).not.toBeInTheDocument();
-		});
-		expect(editButton).toHaveFocus();
-	});
-
-	it("shows an in-progress notice only when processing is active", () => {
-		const { rerender } = renderMemoryView({
-			processing: { active: false, pendingCount: 0 },
-		});
-		expect(screen.queryByText(/Updating your memory/i)).not.toBeInTheDocument();
-
-		rerender({
-			profile,
-			memoryLoading: false,
-			memoryLoaded: true,
-			memoryLoadError: "",
-			pendingActionKey: null,
-			actionError: "",
-			onRetryLoadMemory: vi.fn(),
-			onAction: vi.fn(),
-			processing: { active: true, pendingCount: 3 },
-		});
-		expect(screen.getByText(/3 updates in progress/i)).toBeInTheDocument();
-	});
-
-	it("falls back to the single-line notice when operations is an empty array", () => {
-		renderMemoryView({
-			processing: { active: true, pendingCount: 2, operations: [] },
-		});
-		expect(screen.getByText(/2 updates in progress/i)).toBeInTheDocument();
-		expect(screen.queryByRole("list")).not.toBeInTheDocument();
-	});
-
-	it("renders a friendly per-reason line with a count for each processing operation", async () => {
-		renderMemoryView({
-			processing: {
-				active: true,
-				pendingCount: 2,
-				operations: [
-					{
-						reason: "deferred_intake",
-						scope: { type: "conversation", id: "c1" },
-						count: 3,
-					},
-					{
-						reason: "possible_conflict",
-						scope: { type: "project", id: "p1" },
-						count: 1,
-					},
-				],
-			},
-		});
-
-		// The pill on the eyebrow line prints one short line; the per-reason
-		// detail is behind its tooltip, so it can never push the cards below
-		// it down the page.
-		const notice = screen.getByRole("status");
-		expect(
-			within(notice).getByText(/2 updates in progress/i),
-		).toBeInTheDocument();
-		expect(
-			within(notice).queryByText(
-				/Reviewing new details from your recent conversations/i,
-			),
-		).not.toBeInTheDocument();
-
-		await fireEvent.focus(screen.getByTestId("memory-processing-pill"));
-
-		const detail = screen.getByRole("tooltip");
-		expect(
-			within(detail).getByText(
-				/Reviewing new details from your recent conversations/i,
-			),
-		).toBeInTheDocument();
-		expect(within(detail).getByText(/3 items/i)).toBeInTheDocument();
-		expect(
-			within(detail).getByText(/Resolving a possible conflict/i),
-		).toBeInTheDocument();
-		// Project-scoped operation gets a scope hint; a count of 1 shouldn't
-		// render a redundant "1 items" suffix.
-		expect(within(detail).getByText(/for this project/i)).toBeInTheDocument();
-		expect(within(detail).queryByText(/1 items/i)).not.toBeInTheDocument();
-		expect(
-			detail.querySelectorAll(".memory-processing-detail-item"),
-		).toHaveLength(2);
-	});
-
-	it("keeps the head one line high whether or not the pill is there", () => {
-		const { container, rerender } = renderMemoryView({
-			processing: { active: false, pendingCount: 0 },
-		});
-		const head = container.querySelector(".memory-profile-head");
-		expect(head).not.toBeNull();
-		expect(head?.querySelector(".memory-processing")).toBeNull();
-
-		rerender({
-			profile,
-			memoryLoading: false,
-			memoryLoaded: true,
-			memoryLoadError: "",
-			pendingActionKey: null,
-			actionError: "",
-			onRetryLoadMemory: vi.fn(),
-			onAction: vi.fn(),
-			processing: {
-				active: true,
-				pendingCount: 1,
-				operations: [
-					{ reason: "deferred_intake", scope: { type: "global" }, count: 1 },
-				],
-			},
-		});
-
-		// Same head, one extra inline child on the same line — and the detail
-		// that used to sit under it is not in the document at all until asked
-		// for.
-		expect(container.querySelector(".memory-profile-head")).toBe(head);
-		expect(head?.querySelector(".memory-processing")).not.toBeNull();
-		expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-	});
-
-	it("does not render raw fact text for processing operations — only reason/scope/count-derived copy", () => {
-		renderMemoryView({
-			processing: {
-				active: true,
-				pendingCount: 1,
-				operations: [
-					{
-						reason: "deferred_intake",
-						scope: { type: "conversation", id: "c1" },
-						count: 1,
-					},
-				],
-			},
-		});
-		const notice = screen.getByRole("status");
-		expect(notice.textContent).not.toContain("c1");
-	});
-
-	// The rows a category discloses are each wrapped in their own transition
-	// element, so a `:first-child` rule would strip the divider off every one
-	// of them. Only the row that opens the list is marked.
-	it("marks exactly one opening row per category, expanded or not", async () => {
-		const many: MemoryProfilePublicPayload = {
-			...profile,
-			categories: [
-				{
-					category: "about_you",
-					items: Array.from({ length: 8 }, (_unused, index) => ({
-						...profile.categories[0].items[0],
-						id: `item-${index}`,
-						statement: `Fact number ${index}.`,
-						updatedAt: `2026-06-${String(10 + index).padStart(2, "0")}T09:00:00.000Z`,
-					})),
-				},
-				{ category: "preferences", items: [] },
-				{ category: "goals_ongoing_work", items: [] },
-				{ category: "constraints_boundaries", items: [] },
-			],
-		};
-		const { container } = renderMemoryView({ profile: many });
-
-		expect(container.querySelectorAll(".memory-row")).toHaveLength(5);
-		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
-
-		await fireEvent.click(screen.getByTestId("memory-category-disclosure"));
-		expect(container.querySelectorAll(".memory-row")).toHaveLength(8);
-		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
-	});
-
-	// Settings' "Memory" switch pauses all learning and all use of the profile;
-	// the memories themselves are kept. This tab is where a person looks at them,
-	// so it has to say that they are not being used, and where to turn that back on.
-	describe("when memory is off", () => {
-		beforeEach(() => {
-			uiLanguage.set("en");
-		});
-
-		it("says memory is off, what that means, and where to turn it on", () => {
-			renderMemoryView({ memoryEnabled: false });
-
-			const notice = screen.getByTestId("memory-off-notice");
-			expect(within(notice).getByText("Memory is off")).toBeInTheDocument();
-			expect(
-				within(notice).getByText(/isn't learning from your chats/),
-			).toBeInTheDocument();
-			expect(
-				within(notice).getByRole("link", { name: "Turn it on in Settings" }),
-			).toHaveAttribute("href", "/settings?section=memory");
-		});
-
-		it("still lists what is kept", () => {
-			renderMemoryView({ memoryEnabled: false });
-
-			expect(
-				screen.getByText("Levi prefers concise memory behavior."),
-			).toBeInTheDocument();
-		});
-
-		it("says nothing while memory is on, or while that is not known yet", () => {
-			for (const memoryEnabled of [true, null, undefined]) {
-				const { unmount } = renderMemoryView({ memoryEnabled });
+	it.each([
+		{ scenario: "on a fresh visit", openedRecord: false },
+		{ scenario: "after visiting a different memory", openedRecord: true },
+	])(
+		"returns focus to Add after cancelling $scenario",
+		async ({ openedRecord }) => {
+			if (openedRecord) {
+				await open();
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Back to memories" }),
+				);
 				expect(
-					screen.queryByTestId("memory-off-notice"),
-				).not.toBeInTheDocument();
-				unmount();
+					screen.getByRole("button", { name: /You own a green/ }),
+				).toHaveFocus();
+			} else {
+				render(KnowledgeMemoryView, { memoryEnabled: true });
+				await screen.findByRole("button", { name: /You own a green/ });
 			}
+			const add = screen.getByRole("button", { name: "Add memory" });
+			add.focus();
+			await fireEvent.click(add);
+			await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+			await waitFor(() =>
+				expect(
+					screen.getByRole("button", { name: "Add memory" }),
+				).toHaveFocus(),
+			);
+		},
+	);
+	it("focuses Search on return when the last opened row is no longer listed", async () => {
+		await open();
+		api.fetchMemoryPage.mockResolvedValue({ ...page, rows: [], total: 0 });
+		await fireEvent.focus(window);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Back to memories" }),
+		);
+		await screen.findByText("Nothing remembered here yet");
+		await waitFor(() => expect(screen.getByRole("searchbox")).toHaveFocus());
+	});
+});
+
+describe("review regressions: recovery and attribution", () => {
+	it("does not show inaccessible source quotations or invent manual authorship", async () => {
+		api.fetchMemoryDetail.mockResolvedValue({
+			...detail,
+			sources: [
+				{ ...detail.sources[0], available: false, quote: "SECRET WITHHELD" },
+			],
 		});
-
-		it("says it in Hungarian for a Hungarian reader", () => {
-			uiLanguage.set("hu");
-			renderMemoryView({ memoryEnabled: false });
-
-			const notice = screen.getByTestId("memory-off-notice");
-			expect(
-				within(notice).getByText("A memória ki van kapcsolva"),
-			).toBeInTheDocument();
-			expect(
-				within(notice).getByRole("link", {
-					name: "Bekapcsolás a beállításokban",
-				}),
-			).toBeInTheDocument();
+		await open();
+		expect(screen.queryByText("SECRET WITHHELD")).not.toBeInTheDocument();
+		expect(
+			screen.getByText("This source is no longer available."),
+		).toBeVisible();
+		expect(screen.queryByRole("link")).not.toBeInTheDocument();
+		expect(screen.queryByText("Added by you")).not.toBeInTheDocument();
+	});
+	it("does not attach an old detail failure to a newer draft", async () => {
+		let reject!: (e: Error) => void;
+		api.fetchMemoryDetail.mockImplementationOnce(
+			() => new Promise((_r, j) => (reject = j)),
+		);
+		render(KnowledgeMemoryView, { memoryEnabled: true });
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /You own a green/ }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+		reject(new Error("old read failed"));
+		await waitFor(() =>
+			expect(screen.getByTestId("memory-editor")).toBeVisible(),
+		);
+		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+	});
+	it("recovers polling after its error is dismissed", async () => {
+		api.submitMemoryAction.mockResolvedValue({ ...failed, status: "queued" });
+		api.fetchMemoryOperation
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValueOnce({ ...failed, status: "applied", ref: null });
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+		await screen.findByRole("alert");
+		await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+		expect(await screen.findByTestId("memory-list")).toBeVisible();
+	});
+	it("finds the same authorized row on page two when reviewing a stale edit", async () => {
+		api.submitMemoryAction.mockResolvedValue({ ...failed, status: "stale" });
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await screen.findByRole("button", { name: "Review latest version" });
+		api.fetchMemoryPage
+			.mockResolvedValueOnce({
+				...page,
+				generation: "g2",
+				rows: [],
+				nextCursor: "page2",
+			})
+			.mockResolvedValueOnce({
+				...page,
+				generation: "g2",
+				rows: [{ ...row, ref: { ...ref, generation: "g2" } }],
+			});
+		api.fetchMemoryDetail.mockResolvedValueOnce({
+			...detail,
+			row: {
+				...row,
+				text: "Latest wording",
+				ref: { ...ref, generation: "g2" },
+			},
+		});
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Review latest version" }),
+		);
+		expect(await screen.findByText("Latest wording")).toBeVisible();
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue editing" }),
+		);
+		expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+		expect(api.fetchMemoryPage).toHaveBeenCalledWith({
+			scope: ref.scope,
+			cursor: "page2",
 		});
 	});
+});
+
+describe("second review regressions", () => {
+	it("consumes applied edits once and does not reopen detail on focus", async () => {
+		api.submitMemoryAction.mockResolvedValue({
+			...failed,
+			status: "applied",
+			ref,
+		});
+		await open();
+		await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await screen.findByTestId("memory-detail");
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Back to memories" }),
+		);
+		await fireEvent.focus(window);
+		expect(api.fetchMemoryOperation).not.toHaveBeenCalled();
+		expect(screen.getByTestId("memory-list")).toBeVisible();
+	});
+	it("focuses the explicit detail heading instead of Back", async () => {
+		await open();
+		await waitFor(() =>
+			expect(screen.getByRole("heading", { name: "Memory" })).toHaveFocus(),
+		);
+	});
+	it("clears cached scope immediately while restoring another scope", async () => {
+		const view = render(KnowledgeMemoryView, { memoryEnabled: true });
+		await screen.findByRole("button", { name: /You own a green/ });
+		api.fetchMemoryPage.mockImplementationOnce(() => new Promise(() => {}));
+		void view.component.restore({
+			scopeValue: "project-b",
+			query: "",
+			pages: 1,
+			rowId: "",
+			scrollTop: 0,
+			pending: null,
+		});
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: /You own a green/ }),
+			).not.toBeInTheDocument(),
+		);
+	});
+});
+
+it.each([401, 403, 404])(
+	"removes accepted quotations and rows on authorization loss %s",
+	async (status) => {
+		await open();
+		api.fetchMemoryPage.mockRejectedValue(new ApiError("denied", { status }));
+		api.fetchMemoryDetail.mockRejectedValue(new ApiError("denied", { status }));
+		await fireEvent.focus(window);
+		await waitFor(() =>
+			expect(
+				screen.queryByText(detail.sources[0].quote),
+			).not.toBeInTheDocument(),
+		);
+		expect(
+			screen.queryByRole("button", { name: /You own a green/ }),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Add memory" })).toBeDisabled();
+	},
+);
+it("retains unresolved restored identity without blocking unrelated work or creating another mutation", async () => {
+	api.fetchMemoryOperationByRequest.mockRejectedValue(
+		new ApiError("unknown", { status: 404 }),
+	);
+	const view = render(KnowledgeMemoryView, { memoryEnabled: true });
+	await screen.findByTestId("memory-list");
+	await view.component.restore({
+		scopeValue: "personal",
+		query: "",
+		pages: 1,
+		rowId: "",
+		scrollTop: 0,
+		pending: {
+			requestId: "lost",
+			operationId: null,
+			kind: "add",
+			scope: { kind: "personal" },
+			rowId: null,
+		},
+	});
+	await waitFor(() =>
+		expect(api.fetchMemoryOperationByRequest).toHaveBeenCalledWith("lost"),
+	);
+	expect(screen.getByRole("button", { name: "Add memory" })).toBeEnabled();
+	await fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+	expect(view.component.capture().detached?.[0]?.requestId).toBe("lost");
+	api.fetchMemoryOperationByRequest.mockResolvedValue({
+		...failed,
+		status: "applied",
+	});
+	await fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+	await waitFor(() => expect(view.component.capture().detached).toEqual([]));
+	expect(api.submitMemoryAction).not.toHaveBeenCalled();
+});
+
+it("keeps reconciling background work after one scheduled transport failure", async () => {
+	api.fetchMemoryPage
+		.mockResolvedValueOnce({ ...page, status: "working" })
+		.mockRejectedValueOnce(new Error("offline"))
+		.mockResolvedValue({ ...page, status: "ready" });
+	render(KnowledgeMemoryView, { memoryEnabled: true });
+	await screen.findByText(/Updating/);
+	await waitFor(() => expect(api.fetchMemoryPage).toHaveBeenCalledTimes(3), {
+		timeout: 8000,
+	});
+	await waitFor(() =>
+		expect(screen.queryByText(/Updating/)).not.toBeInTheDocument(),
+	);
+}, 10000);
+it("does not reopen an editor cancelled while its request is running", async () => {
+	api.submitMemoryAction.mockResolvedValue({ ...failed, status: "queued" });
+	api.fetchMemoryOperation.mockResolvedValue({
+		...failed,
+		status: "applied",
+		ref,
+	});
+	await open();
+	await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+	await fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+	await screen.findByRole("button", { name: "Check status" });
+	await fireEvent.click(
+		screen.getByRole("button", { name: "Back to memories" }),
+	);
+	await fireEvent.focus(window);
+	await waitFor(() => expect(api.fetchMemoryOperation).toHaveBeenCalled());
+	expect(screen.getByTestId("memory-list")).toBeVisible();
+});
+
+it("offers private review in preparing authority while leaving ordinary Add unavailable", async () => {
+	api.fetchMemoryPage.mockResolvedValue({
+		...page,
+		authority: "preparing",
+		rows: [],
+		total: 0,
+	});
+	api.fetchMemoryQuarantine.mockResolvedValue({
+		status: "idle",
+		candidates: [],
+	});
+	render(KnowledgeMemoryView, { memoryEnabled: true });
+	expect(
+		await screen.findByRole("button", { name: "Review earlier chats" }),
+	).toBeEnabled();
+	expect(
+		await screen.findByRole("button", { name: "Add memory" }),
+	).toBeDisabled();
+	expect(api.saveMemoryQuarantine).not.toHaveBeenCalled();
 });

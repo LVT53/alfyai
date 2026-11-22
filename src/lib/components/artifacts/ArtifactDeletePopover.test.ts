@@ -203,15 +203,18 @@ describe("ArtifactDeletePopover", () => {
 			["canvas", "and its versions and comments will be deleted"],
 			["slides", "and its versions and comments will be deleted"],
 			["file", "will be deleted"],
-		] as const)("keeps what a %s loses, and adds the way back", async (kind, loses) => {
-			renderPopover({ kind, regenerable: true });
+		] as const)(
+			"keeps what a %s loses, and adds the way back",
+			async (kind, loses) => {
+				renderPopover({ kind, regenerable: true });
 
-			const dialog = await screen.findByRole("dialog");
-			expect(dialog.textContent).toContain(loses);
-			expect(dialog.textContent).toContain(
-				"You can regenerate it from the chat.",
-			);
-		});
+				const dialog = await screen.findByRole("dialog");
+				expect(dialog.textContent).toContain(loses);
+				expect(dialog.textContent).toContain(
+					"You can regenerate it from the chat.",
+				);
+			},
+		);
 
 		it("says it in Hungarian", async () => {
 			uiLanguage.set("hu");

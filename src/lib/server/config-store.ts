@@ -125,7 +125,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"ROUTING_GTFS_REFRESH_DAYS",
 	"ROUTING_GTFS_MAX_MB",
 	"NATIVE_HISTORY_ENABLED",
-	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
 	"MAX_FILE_UPLOAD_SIZE",
@@ -138,6 +137,10 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_CONSOLIDATION_MODEL",
 	"MEMORY_JUDGE_IDLE_MINUTES",
 	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"HINDSIGHT_URL",
+	"HINDSIGHT_WORKER_ENABLED",
+	"HINDSIGHT_CONCURRENCY",
+	"HINDSIGHT_CURATION_MODEL",
 	"MEMORY_JUDGE_DRY_RUN",
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
@@ -233,6 +236,21 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
+	hindsightUrl: string;
+	hindsightAllowedUrls: string[];
+	hindsightTenantKeys: string;
+	hindsightTenantMasterKeys: string;
+	hindsightTenantActiveKey: string;
+	hindsightAdmissionKey: string;
+	hindsightOvernightIdle: boolean;
+	hindsightRestoreHold: boolean;
+	hindsightWorkerEnabled: boolean;
+	hindsightQuarantineEnabled: boolean;
+	hindsightNewAccountsEnabled: boolean;
+	hindsightConcurrency: number;
+	hindsightCurationModel: ModelId | null;
+	hindsightCurationGatewayModel: string;
+	hindsightInferenceKey: string;
 	memoryJudgeModel: ModelId;
 	memoryConsolidationModel: ModelId;
 	memoryJudgeIdleMinutes: number;
@@ -334,7 +352,6 @@ export interface RuntimeConfig {
 	routingGtfsMaxMb: number;
 	nativeHistoryEnabled: boolean;
 	normalChatDebugOutbound: boolean;
-	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
 	onedriveClientId: string;
@@ -380,10 +397,24 @@ function buildDefaultConfig(): RuntimeConfig {
 		...envConfig,
 		model1: { ...envConfig.model1 },
 		model2: { ...envConfig.model2 },
-		braveSearchApiKey: envConfig.braveSearchApiKey,
 		appVersionOverride: null,
 		model1IconAssetId: null,
 		model2IconAssetId: null,
+		hindsightUrl: envConfig.hindsightUrl,
+		hindsightAllowedUrls: envConfig.hindsightAllowedUrls,
+		hindsightTenantKeys: envConfig.hindsightTenantKeys,
+		hindsightTenantMasterKeys: envConfig.hindsightTenantMasterKeys,
+		hindsightTenantActiveKey: envConfig.hindsightTenantActiveKey,
+		hindsightAdmissionKey: envConfig.hindsightAdmissionKey,
+		hindsightOvernightIdle: envConfig.hindsightOvernightIdle,
+		hindsightRestoreHold: envConfig.hindsightRestoreHold,
+		hindsightWorkerEnabled: envConfig.hindsightWorkerEnabled,
+		hindsightQuarantineEnabled: envConfig.hindsightQuarantineEnabled,
+		hindsightNewAccountsEnabled: envConfig.hindsightNewAccountsEnabled,
+		hindsightConcurrency: envConfig.hindsightConcurrency,
+		hindsightCurationModel: envConfig.hindsightCurationModel,
+		hindsightCurationGatewayModel: envConfig.hindsightCurationGatewayModel,
+		hindsightInferenceKey: envConfig.hindsightInferenceKey,
 		memoryJudgeModel: envConfig.memoryJudgeModel,
 		memoryConsolidationModel: envConfig.memoryConsolidationModel,
 		memoryJudgeIdleMinutes: envConfig.memoryJudgeIdleMinutes,
@@ -1028,9 +1059,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	NATIVE_HISTORY_ENABLED: (config, value) => {
 		config.nativeHistoryEnabled = value.trim() !== "false";
 	},
-	BRAVE_SEARCH_API_KEY: (config, value) => {
-		config.braveSearchApiKey = value;
-	},
 	GOOGLE_OAUTH_CLIENT_ID: (config, value) => {
 		config.googleOauthClientId = value.trim();
 	},
@@ -1088,6 +1116,26 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		const n = Number.parseInt(value, 10);
 		if (Number.isFinite(n) && n > 0)
 			config.memoryConsolidationIntervalMinutes = n;
+	},
+	HINDSIGHT_CURATION_MODEL: (config, value) => {
+		config.hindsightCurationModel = /^(model[12]|provider:[^:]+:[^:]+)$/.test(
+			value.trim(),
+		)
+			? normalizeConfiguredModelId(value)
+			: null;
+		if (value.trim() && !config.hindsightCurationModel)
+			config.hindsightCurationGatewayModel = "";
+	},
+	HINDSIGHT_URL: (config, value) => {
+		config.hindsightUrl = value.trim();
+	},
+	HINDSIGHT_WORKER_ENABLED: (config, value) => {
+		config.hindsightWorkerEnabled = value === "true";
+	},
+	HINDSIGHT_CONCURRENCY: (config, value) => {
+		const n = Number(value);
+		if (Number.isInteger(n) && n >= 1 && n <= 6)
+			config.hindsightConcurrency = n;
 	},
 	MEMORY_JUDGE_DRY_RUN: (config, value) => {
 		config.memoryJudgeDryRun = value.trim().toLowerCase() === "true";
@@ -1858,7 +1906,6 @@ export function getResolvedAdminConfigValues(
 		ROUTING_GTFS_REFRESH_DAYS: String(config.routingGtfsRefreshDays),
 		ROUTING_GTFS_MAX_MB: String(config.routingGtfsMaxMb),
 		NATIVE_HISTORY_ENABLED: config.nativeHistoryEnabled ? "true" : "false",
-		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",
 		ONEDRIVE_CLIENT_ID: config.onedriveClientId,
@@ -1879,6 +1926,10 @@ export function getResolvedAdminConfigValues(
 		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
 			config.memoryConsolidationIntervalMinutes,
 		),
+		HINDSIGHT_URL: config.hindsightUrl,
+		HINDSIGHT_WORKER_ENABLED: String(config.hindsightWorkerEnabled),
+		HINDSIGHT_CONCURRENCY: String(config.hindsightConcurrency),
+		HINDSIGHT_CURATION_MODEL: config.hindsightCurationModel ?? "",
 		MEMORY_JUDGE_DRY_RUN: String(config.memoryJudgeDryRun),
 		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
 		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),

@@ -1,0 +1,105 @@
+it("lifecycle judge: successful raw removal with stale observation wording is reported applied",async()=>{
+	const f=await setup();
+	const fixture=await nativeFixture(f,[{forget:["green kayak"],replace:[],preserve:["sister bicycle"]},ckProposal("kayak","","sister"),ckOkay]);
+	const original=fixture.fetcher.getMockImplementation()!;
+	fixture.fetcher.mockImplementation(async(u,i)=>{
+		const res=await original(u,i);
+		if (!String(u).includes("/memories/list")) return res;
+		const body=await res.json();
+		for(const m of body.items) if(m.id==="observation-sister") m.text="green kayak and sister bicycle";
+		return new Response(JSON.stringify(body));
+	});
+	const a=await import("./curation-actions");
+	const jobs=await import("./delivery-job");
+	const op=await a.submitMemoryAction(h.userId,{kind:"remove",ref:ckRef,requestId:randomUUID()});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId,{id:op.id})).toMatchObject({status:"applied",cleanupPending:false});
+	expect((await import("./native-read")).listMemory(h.userId,{scope:{kind:"personal"}}).rows.map(r=>r.text)).toEqual(["green kayak and sister bicycle"]);
+});
+
+it("lifecycle judge: manual edit reports applied when consolidated output omits every edited observation",async()=>{
+	const f=await setup();
+	const fixture=await nativeFixture(f,[ckPlan,ckProposal("kayak","","sister"),ckOkay]);
+	let deltaId;
+	const original=fixture.fetcher.getMockImplementation()!;
+	fixture.fetcher.mockImplementation(async(u,i)=>{
+		if (String(u).endsWith("/memories") && i?.method==="POST") deltaId=JSON.parse(String(i.body)).items[0].document_id;
+		const res=await original(u,i);
+		if (!String(u).includes("/memories/list")) return res;
+		const body=await res.json();
+		if(deltaId) body.items.push({id:"edited-purple",text:"purple kayak",document_id:deltaId,fact_type:"world",consolidated_at:"2026-11-01"});
+		body.items=body.items.filter(m=>m.id!=="observation-kayak"); body.total=body.items.length;
+		return new Response(JSON.stringify(body));
+	});
+	const a=await import("./curation-actions");
+	const jobs=await import("./delivery-job");
+	const op=await a.submitMemoryAction(h.userId,{kind:"edit",ref:ckRef,text:"purple kayak",requestId:randomUUID()});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId,{id:op.id})).toMatchObject({status:"applied",ref:null});
+	expect((await import("./native-read")).listMemory(h.userId,{scope:{kind:"personal"}}).rows.map(r=>r.text)).toEqual(["sister bicycle"]);
+});
+
+it("lifecycle judge: acknowledged Remove sends memory text to its checker after Memory off", async () => {
+	const f=await setup();
+	const fixture=await nativeFixture(f,[]);
+	const {setMemoryEnabled}=await import("./migration-policy");
+	const a=await import("./curation-actions");
+	const jobs=await import("./delivery-job");
+	const afterOff: unknown[]=[];
+	let n=0;
+	fixture.model.mockImplementation(async (_prompt,input)=>{
+		if(n++===0) return {forget:["kayak"],replace:[],preserve:["sister bicycle"]};
+		if(n===2){
+			await setMemoryEnabled(h.userId,false); // A real off transaction while the APPLY response is outstanding.
+			return ckProposal("kayak","","sister");
+		}
+		if(f.db.select().from(f.s.users).get()?.memoryEnabled===false) afterOff.push(input);
+		return ckOkay;
+	});
+	const op=await a.submitMemoryAction(h.userId,{kind:"remove",ref:ckRef,requestId:randomUUID()});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(afterOff).toHaveLength(1);
+	expect(JSON.stringify(afterOff[0])).toContain("green kayak");
+	expect(a.getMemoryOperation(h.userId,{id:op.id})).toMatchObject({exclusionAcknowledged:true,cleanupPending:true});
+});
+
+it("lifecycle judge: an unchanged edit resend does not load prior Remove intent and can restore it",async()=>{
+	const f=await setup();
+	const fixture=await nativeFixture(f,[
+		{forget:["green kayak"],replace:[],preserve:["sister bicycle"]},
+		ckProposal("kayak","","sister"),ckOkay,
+	]);
+	const a=await import("./curation-actions");
+	const jobs=await import("./delivery-job");
+	const rev=await import("./revisions");
+	const pub=await import("./publication");
+	const op=await a.submitMemoryAction(h.userId,{kind:"remove",ref:ckRef,requestId:randomUUID()});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(a.getMemoryOperation(h.userId,{id:op.id})).toMatchObject({status:"applied",cleanupPending:false});
+	expect(pub.readPublishedMemory(h.userId,f.bank.id).map(r=>r.text)).toEqual(["sister bicycle"]);
+	rev.revokeMemorySources(h.userId,[f.source.id]);
+	const next=rev.recordMemorySource({userId:h.userId,bankId:f.bank.id,epoch:0,eventId:"unchanged",lineageId:f.source.lineageId,predecessorSourceId:f.source.id,text:f.source.text,context:"",assertedAt:f.source.assertedAt});
+	const old=fixture.fetcher.getMockImplementation()!;
+	fixture.fetcher.mockImplementation(async (u,i)=>{
+		if(String(u).endsWith("/memories")&&i?.method==="POST"){
+			expect(JSON.parse(String(i.body)).items[0].content).toBe(f.source.text);
+			fixture.setFacts([{id:"sister",text:"sister bicycle",document_id:f.source.id},{id:"new-green",text:"green kayak",document_id:next.id}]);
+		}
+		return old(u,i);
+	});
+	const modelInputs:unknown[]=[];
+	fixture.model.mockImplementation(async (_prompt, input)=>{
+		modelInputs.push(input);
+		if ("proposed_facts" in input) return ckOkay;
+		if ("facts" in input) return {facts:[{id:"sister",text:"sister bicycle"}]};
+		return {forget:[],replace:[],preserve:["green kayak","sister bicycle"]};
+	});
+	const queued=await jobs.enqueueMemoryDelivery({userId:h.userId,bankId:f.bank.id,epoch:0,kind:"source",sourceId:next.id,requestId:"unchanged"});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const {eq}=await import("drizzle-orm");
+	expect(f.db.select().from(f.s.memoryDeliveryJobs).where(eq(f.s.memoryDeliveryJobs.id,queued.row.id)).get()?.status).toBe("succeeded");
+	expect(modelInputs).toHaveLength(3);
+	expect(modelInputs[0]).toMatchObject({displayed_before:f.source.text,user_saved_after:f.source.text});
+	expect(modelInputs.some(input=>JSON.stringify(input).includes('"forget":["green kayak"]'))).toBe(false);
+	expect(pub.readPublishedMemory(h.userId,f.bank.id).map(r=>r.text).sort()).toEqual(["green kayak","sister bicycle"]);
+});

@@ -1,0 +1,194 @@
+[
+  {
+    "profile": "p04",
+    "index": 0,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Lost explicit Friday departure; guesses Friday or Saturday.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 0,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Lost explicit Friday departure; guesses Friday or Saturday.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 1,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 1,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 2,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Treats the completed September 4–7 itinerary as an upcoming weekend and denies being home.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p04",
+    "index": 2,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 3,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Reports sold Canon EOS R10 as current instead of Nikon Z50 II.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p04",
+    "index": 3,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Reports sold Canon EOS R10 as current instead of Nikon Z50 II.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p04",
+    "index": 4,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 4,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Adds an unsupported current-use claim about the sold Canon EOS R10.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p04",
+    "index": 5,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Says the relocation decision is unknown instead of recalling the explicit undecided plan.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 5,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Says the relocation decision is unknown instead of recalling the explicit undecided plan.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 6,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 6,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 7,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 7,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 8,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Uses numbered list instead of two connected sentences.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 8,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Uses numbered list instead of two connected sentences.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 9,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 9,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 10,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 10,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p04",
+    "index": 11,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Invents Atlas/Cedar as codename instead of JADE-ROBIN-416.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p04",
+    "index": 11,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Invents Atlas/Cedar as codename instead of JADE-ROBIN-416.",
+    "unsupportedPersonalClaim": true
+  }
+]

@@ -19,9 +19,8 @@ import { t } from "$lib/i18n";
 import CommentsSurface from "../CommentsSurface.svelte";
 // MarginPanel is a genuine runtime import for the <MarginPanel {...} /> mount in
 // the template below, on top of typing MarginPanelProps via
-// ComponentProps<typeof MarginPanel> — biome's import-usage check only sees
-// this script block, not the template, so it reads as type-only.
-// biome-ignore lint/style/useImportType: see above — import type would break the template mount
+// ComponentProps<typeof MarginPanel>. It stays a value import: `import type`
+// would break the mount.
 import MarginPanel from "./MarginPanel.svelte";
 
 type MarginPanelProps = Omit<

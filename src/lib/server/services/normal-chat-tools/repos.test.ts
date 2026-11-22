@@ -26,6 +26,7 @@ import {
 	runReposTool,
 	sanitizeReposToolInput,
 } from "./repos";
+import { reasonCodeOf } from "./shared";
 
 // selectConnection/pickDefaultConnection are kept as their REAL (pure)
 // implementations — only resolveConnectionsForCapability/needsDisambiguation
@@ -220,6 +221,26 @@ describe("runReposTool", () => {
 			"don't have a Repositories connection",
 		);
 		expect(githubListReposMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(result.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(result.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "repos",
+				sourceType: "tool",
+				action: "list_repos",
+				message:
+					"You don't have a Repositories connection set up yet. Connect your GitHub account in Settings to browse repos, issues, PRs, commits, and CI.",
+				repos: [],
+				issues: [],
+				prs: [],
+				commits: [],
+				ciRuns: [],
+				codeResults: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("surfaces ambiguity when more than one Repositories connection is available", async () => {
@@ -286,6 +307,9 @@ describe("runReposTool", () => {
 		);
 		expect(missingRepo.modelPayload.success).toBe(false);
 		expect(missingRepo.modelPayload.message).toContain("owner");
+		// The model asked the wrong way and reads what to fix: the row says Alfy
+		// adjusted its request.
+		expect(reasonCodeOf(missingRepo.modelPayload)).toBe("request_adjusted");
 
 		const missingPath = await runReposTool(
 			"user-1",
@@ -298,6 +322,7 @@ describe("runReposTool", () => {
 		);
 		expect(missingPath.modelPayload.success).toBe(false);
 		expect(missingPath.modelPayload.message).toContain("path");
+		expect(reasonCodeOf(missingPath.modelPayload)).toBe("request_adjusted");
 
 		expect(githubReadFileMock).not.toHaveBeenCalled();
 	});
@@ -558,6 +583,7 @@ describe("runReposTool", () => {
 		expect(result.modelPayload.success).toBe(false);
 		expect(result.modelPayload.message).toContain("query");
 		expect(githubSearchCodeMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(result.modelPayload)).toBe("request_adjusted");
 	});
 
 	it("search_code searches across accessible repos", async () => {
@@ -602,6 +628,42 @@ describe("runReposTool", () => {
 
 		expect(result.modelPayload.success).toBe(false);
 		expect(result.modelPayload.message).toContain("reconnected");
+		expect(reasonCodeOf(result.modelPayload)).toBe("needs_reconnect");
+	});
+
+	it.each([
+		[
+			"a repository that is not there",
+			new GitHubError("nope", "not_found"),
+			"item_not_found",
+		],
+		[
+			"a GitHub connection that is gone",
+			new GitHubError("gone", "connection_not_found"),
+			"not_connected",
+		],
+		[
+			"a GitHub that did not answer",
+			new GitHubError("down", "request_failed"),
+			"account_unreachable",
+		],
+		[
+			"an error that is not the provider's",
+			new Error("boom"),
+			"account_unreachable",
+		],
+	] as const)("names %s", async (_label, error, code) => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		githubListReposMock.mockRejectedValue(error);
+
+		const result = await runReposTool(
+			"user-1",
+			{ action: "list_repos" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(result.modelPayload.success).toBe(false);
+		expect(reasonCodeOf(result.modelPayload)).toBe(code);
 	});
 });
 
@@ -751,6 +813,9 @@ describe("runReposTool — locality Option A distillation gate", () => {
 		const serialized = JSON.stringify(result.modelPayload);
 		expect(serialized).not.toContain("API_KEY=super-secret-value");
 		expect(result.modelPayload.message).toContain("withheld");
+		// The cloud model got none of the details: the row says so.
+		expect(reasonCodeOf(result.modelPayload)).toBe("details_withheld");
+		expect(serialized).not.toContain("details_withheld");
 	});
 
 	it("list_issues: Option A on + cloud model — issue titles are stripped from the payload AND citations, Sources-tab candidates keep the real title", async () => {

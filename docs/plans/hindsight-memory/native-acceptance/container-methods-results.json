@@ -1,0 +1,175 @@
+{
+  "base": "http://127.0.0.1:18894",
+  "tenants": [
+    "3f9dc86d-6b04-4eca-ab92-02c24d41ea64",
+    "878b4530-42ae-42ac-9769-6bd77ccc3ac8"
+  ],
+  "bank": "7dddbed6-fd03-4a70-9127-b5da4707b568",
+  "methods": [
+    {
+      "method": "GET",
+      "path": "/ext/alfyai/capabilities",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/config",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/config",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/ext/alfyai/capabilities",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/config",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/config",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/list?state=valid&limit=100&offset=0",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/list?state=valid&limit=100&offset=0",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/recall",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/9c703a5c-f19a-48b4-811b-a4385a9e31aa",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/9c703a5c-f19a-48b4-811b-a4385a9e31aa",
+      "status": 200
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/documents/synthetic-en",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/documents/synthetic-en",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/list?state=valid&limit=100&offset=0",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/documents/synthetic-hu",
+      "status": 200
+    }
+  ],
+  "wrongKey": [
+    {
+      "method": "GET",
+      "path": "/ext/alfyai/capabilities",
+      "status": 401
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/config",
+      "status": 401
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/list?state=valid&limit=100&offset=0",
+      "status": 401
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/9c703a5c-f19a-48b4-811b-a4385a9e31aa",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/recall",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories",
+      "status": 401
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/9c703a5c-f19a-48b4-811b-a4385a9e31aa",
+      "status": 401
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/documents/synthetic-en",
+      "status": 401
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568",
+      "status": 401
+    }
+  ],
+  "crossedTenant": [
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/9c703a5c-f19a-48b4-811b-a4385a9e31aa",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/documents/synthetic-en",
+      "status": 404
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/memories/9c703a5c-f19a-48b4-811b-a4385a9e31aa",
+      "status": 404
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/default/banks/7dddbed6-fd03-4a70-9127-b5da4707b568/documents/synthetic-en",
+      "status": 404
+    }
+  ],
+  "passed": true
+}

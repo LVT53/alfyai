@@ -1,0 +1,230 @@
+{
+  "baseline": [
+    {
+      "status": 200,
+      "ms": 1955,
+      "hasResponse": true
+    },
+    {
+      "status": 200,
+      "ms": 1594,
+      "hasResponse": true
+    },
+    {
+      "status": 200,
+      "ms": 2027,
+      "hasResponse": true
+    }
+  ],
+  "trials": [
+    {
+      "idle": {
+        "idle": true,
+        "active": false,
+        "healthy": true,
+        "observedAt": 1795037415466,
+        "latencyMs": 2984
+      },
+      "full": {
+        "active": 6,
+        "peak": 6,
+        "rejected": 0,
+        "completed": 9,
+        "duration_ms": 7223
+      },
+      "active": {
+        "idle": true,
+        "active": true,
+        "healthy": true,
+        "observedAt": 1795037415522,
+        "latencyMs": 6
+      },
+      "blocked": {
+        "status": 429,
+        "ms": 21
+      },
+      "foreground": {
+        "status": 200,
+        "ms": 1785,
+        "hasResponse": true
+      },
+      "background": [
+        {
+          "status": 200,
+          "ms": 4209
+        },
+        {
+          "status": 200,
+          "ms": 4160
+        },
+        {
+          "status": 200,
+          "ms": 4180
+        },
+        {
+          "status": 200,
+          "ms": 4182
+        },
+        {
+          "status": 200,
+          "ms": 4182
+        },
+        {
+          "status": 200,
+          "ms": 4182
+        }
+      ],
+      "finished": {
+        "idle": true,
+        "active": false,
+        "healthy": true,
+        "observedAt": 1795037419681,
+        "latencyMs": 5
+      }
+    },
+    {
+      "idle": {
+        "idle": true,
+        "active": false,
+        "healthy": true,
+        "observedAt": 1795037419703,
+        "latencyMs": 6
+      },
+      "full": {
+        "active": 6,
+        "peak": 6,
+        "rejected": 2,
+        "completed": 15,
+        "duration_ms": 32089
+      },
+      "active": {
+        "idle": true,
+        "active": true,
+        "healthy": true,
+        "observedAt": 1795037419784,
+        "latencyMs": 4
+      },
+      "blocked": {
+        "status": 429,
+        "ms": 8
+      },
+      "foreground": {
+        "status": 200,
+        "ms": 1786,
+        "hasResponse": true
+      },
+      "background": [
+        {
+          "status": 200,
+          "ms": 4230
+        },
+        {
+          "status": 200,
+          "ms": 4183
+        },
+        {
+          "status": 200,
+          "ms": 4182
+        },
+        {
+          "status": 200,
+          "ms": 4183
+        },
+        {
+          "status": 200,
+          "ms": 4183
+        },
+        {
+          "status": 200,
+          "ms": 4183
+        }
+      ],
+      "finished": {
+        "idle": true,
+        "active": false,
+        "healthy": true,
+        "observedAt": 1795037423938,
+        "latencyMs": 4
+      }
+    },
+    {
+      "idle": {
+        "idle": true,
+        "active": false,
+        "healthy": true,
+        "observedAt": 1795037423946,
+        "latencyMs": 3
+      },
+      "full": {
+        "active": 6,
+        "peak": 6,
+        "rejected": 4,
+        "completed": 21,
+        "duration_ms": 56901
+      },
+      "active": {
+        "idle": true,
+        "active": true,
+        "healthy": true,
+        "observedAt": 1795037423994,
+        "latencyMs": 4
+      },
+      "blocked": {
+        "status": 429,
+        "ms": 23
+      },
+      "foreground": {
+        "status": 200,
+        "ms": 2174,
+        "hasResponse": true
+      },
+      "background": [
+        {
+          "status": 200,
+          "ms": 4221
+        },
+        {
+          "status": 200,
+          "ms": 4195
+        },
+        {
+          "status": 200,
+          "ms": 4218
+        },
+        {
+          "status": 200,
+          "ms": 4221
+        },
+        {
+          "status": 200,
+          "ms": 4245
+        },
+        {
+          "status": 200,
+          "ms": 4221
+        }
+      ],
+      "finished": {
+        "idle": true,
+        "active": false,
+        "healthy": true,
+        "observedAt": 1795037428196,
+        "latencyMs": 5
+      }
+    }
+  ],
+  "authStatuses": [
+    200,
+    401,
+    401,
+    401
+  ],
+  "final": {
+    "active": 0,
+    "peak": 6,
+    "rejected": 6,
+    "completed": 27,
+    "duration_ms": 82026
+  },
+  "passed": true
+}

@@ -103,18 +103,21 @@ describe("review A: terminal outcomes", () => {
 		["U+3164 HANGUL FILLER", "ㅤ"],
 		["U+FE0F VARIATION SELECTOR-16", "️"],
 		["U+2800 BRAILLE PATTERN BLANK", "⠀"],
-	])("does not settle an invisible-only natural stop as answered (%s)", async (_name, invisible) => {
-		const args = setup();
-		let requests = 0;
-		const result = await runPlainNormalChatModelRun({
-			...args,
-			fetch: async () =>
-				++requests === 1 ? reply(invisible) : reply("closed"),
-		});
-		// Natural promotion requires visible sanitized text; otherwise closing runs.
-		expect(requests).toBe(2);
-		expect(result.text).toBe("closed");
-	});
+	])(
+		"does not settle an invisible-only natural stop as answered (%s)",
+		async (_name, invisible) => {
+			const args = setup();
+			let requests = 0;
+			const result = await runPlainNormalChatModelRun({
+				...args,
+				fetch: async () =>
+					++requests === 1 ? reply(invisible) : reply("closed"),
+			});
+			// Natural promotion requires visible sanitized text; otherwise closing runs.
+			expect(requests).toBe(2);
+			expect(result.text).toBe("closed");
+		},
+	);
 
 	it("reports only the resumed segment's own usage, not the paused segment's again", async () => {
 		const args = setup();

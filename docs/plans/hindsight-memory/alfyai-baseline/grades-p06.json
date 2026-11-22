@@ -1,0 +1,194 @@
+[
+  {
+    "profile": "p06",
+    "index": 0,
+    "arm": "passive",
+    "pass": false,
+    "reason": "No booked itinerary or explicit September 4 departure recalled.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 0,
+    "arm": "tool",
+    "pass": false,
+    "reason": "No booked itinerary or explicit September 4 departure recalled.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 1,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Cannot recall booked destination Sopron.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 1,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Cannot recall booked destination Sopron.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 2,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Cannot recall completed itinerary/return, although home Debrecen is known.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 2,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Cannot recall completed itinerary/return, although home Debrecen is known.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 3,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Current PocketBook Era missing; also slips from user father to assistant father.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 3,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Current PocketBook Era missing; also slips from user father to assistant father.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 4,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Invents that boat/sports-car mention occurred in the Kindle discussion.",
+    "unsupportedPersonalClaim": true
+  },
+  {
+    "profile": "p06",
+    "index": 4,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 5,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Does not recall known undecided relocation; explicitly says decision unknown.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 5,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Does not recall known undecided relocation; explicitly says decision unknown.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 6,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 6,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 7,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 7,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 8,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Numbered list instead of two connected sentences.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 8,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Numbered list instead of two connected sentences.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 9,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 9,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 10,
+    "arm": "passive",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 10,
+    "arm": "tool",
+    "pass": true,
+    "reason": null,
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 11,
+    "arm": "passive",
+    "pass": false,
+    "reason": "Project codename INDIGO-WREN-925 missing.",
+    "unsupportedPersonalClaim": false
+  },
+  {
+    "profile": "p06",
+    "index": 11,
+    "arm": "tool",
+    "pass": false,
+    "reason": "Project codename INDIGO-WREN-925 missing.",
+    "unsupportedPersonalClaim": false
+  }
+]

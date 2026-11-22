@@ -32,18 +32,24 @@ const mockConversations: Record<string, unknown>[] = [
 
 // What the mocked ZIP holds; a test that needs another export assigns it.
 let exportedConversations: Record<string, unknown>[] = mockConversations;
+// Other files of the mocked ZIP, by path (a newer export's manifest and shards).
+let otherZipFiles: Record<string, unknown> = {};
 
 vi.mock("jszip", () => {
 	return {
 		default: {
 			loadAsync: vi.fn().mockResolvedValue({
-				file: (name: string) =>
-					name === "conversations.json"
-						? {
-								async: () =>
-									Promise.resolve(JSON.stringify(exportedConversations)),
-							}
-						: null,
+				file: (name: string) => {
+					const value =
+						name in otherZipFiles
+							? otherZipFiles[name]
+							: name === "conversations.json"
+								? exportedConversations
+								: undefined;
+					return value === undefined
+						? null
+						: { async: () => Promise.resolve(JSON.stringify(value)) };
+				},
 			}),
 		},
 	};
@@ -65,6 +71,7 @@ describe("ImportChatGPTModal", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		exportedConversations = mockConversations;
+		otherZipFiles = {};
 		uiLanguage.set("en");
 	});
 
@@ -124,6 +131,64 @@ describe("ImportChatGPTModal", () => {
 
 		expect(screen.getByText("Chat One")).toBeInTheDocument();
 		expect(screen.getByText("Chat Two")).toBeInTheDocument();
+	});
+
+	it("lists the conversations of every file a newer export's manifest names", async () => {
+		const [first, second] = mockConversations;
+		exportedConversations = [];
+		otherZipFiles = {
+			"export_manifest.json": {
+				version: 1,
+				logical_files: {
+					"conversations.json": {
+						files: ["conversations-0001.json", "conversations-0002.json"],
+						sharded: true,
+						shard_count: 2,
+					},
+				},
+			},
+			"conversations-0001.json": [first],
+			"conversations-0002.json": [second],
+		};
+		render(ImportChatGPTModal, {
+			props: { show: true, onClose: vi.fn(), projects: [] },
+		});
+		await fireEvent.drop(
+			screen.getByRole("button", { name: "Drop ZIP file here" }),
+			{ dataTransfer: { files: [createZipFile()] } },
+		);
+		await waitFor(() => {
+			expect(
+				screen.getByText("Select Conversations to Import"),
+			).toBeInTheDocument();
+		});
+		for (const chat of [first, second])
+			expect(screen.getByText(String(chat.title))).toBeInTheDocument();
+	});
+
+	it("says it cannot read an export whose manifest names a missing file", async () => {
+		otherZipFiles = {
+			"export_manifest.json": {
+				logical_files: {
+					"conversations.json": { files: ["conversations-0002.json"] },
+				},
+			},
+		};
+		render(ImportChatGPTModal, {
+			props: { show: true, onClose: vi.fn(), projects: [] },
+		});
+		await fireEvent.drop(
+			screen.getByRole("button", { name: "Drop ZIP file here" }),
+			{ dataTransfer: { files: [createZipFile()] } },
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Select Conversations to Import"),
+			).not.toBeInTheDocument();
+			expect(
+				screen.getByText("Could not read conversations from the ZIP file."),
+			).toBeInTheDocument();
+		});
 	});
 
 	it("filters conversations by search query", async () => {

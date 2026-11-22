@@ -221,27 +221,6 @@ function allowanceFieldValue(): string {
 				/>
 			{/snippet}
 		</SettingRow>
-
-		<SettingRow
-			label={$t('admin.braveSearchApiKey')}
-			meaning={$t('admin.braveSearchApiKeyDescription')}
-			configKey="BRAVE_SEARCH_API_KEY"
-			dirty={isDirty('BRAVE_SEARCH_API_KEY')}
-			highlighted={highlightKey === 'BRAVE_SEARCH_API_KEY'}
-			onReset={() => resetValue('BRAVE_SEARCH_API_KEY')}
-			canReset={canResetKey('BRAVE_SEARCH_API_KEY')}
-		>
-			{#snippet control()}
-				<SecretField
-					inputId="BRAVE_SEARCH_API_KEY"
-					label={$t('admin.braveSearchApiKey')}
-					value={adminConfig.BRAVE_SEARCH_API_KEY ?? ''}
-					lastChanged={secretChangedAt.BRAVE_SEARCH_API_KEY ?? ''}
-					onchange={(next) => setValue('BRAVE_SEARCH_API_KEY', next)}
-					onCancelReplace={() => revertValue('BRAVE_SEARCH_API_KEY')}
-				/>
-			{/snippet}
-		</SettingRow>
 	</div>
 
 	<hr class="sys-hr" />

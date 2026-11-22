@@ -91,15 +91,18 @@ describe("the H3 canvas", () => {
 		[100, 100, 2048, 2048],
 		[6000, 2000, 6144, 2048], // 3:1 still fits under 6272
 		[6272, 2048, 6272, 2048], // exactly the longest side
-	] as const)("edits a %ix%i picture on a %ix%i canvas: its short edge at 2048", (baseWidth, baseHeight, width, height) => {
-		const canvas = canvasForEdit(
-			{ width: baseWidth, height: baseHeight },
-			false,
-			"h3",
-		);
-		expect(canvas).toEqual({ width, height });
-		expect(Math.min(canvas.width, canvas.height)).toBe(2048);
-	});
+	] as const)(
+		"edits a %ix%i picture on a %ix%i canvas: its short edge at 2048",
+		(baseWidth, baseHeight, width, height) => {
+			const canvas = canvasForEdit(
+				{ width: baseWidth, height: baseHeight },
+				false,
+				"h3",
+			);
+			expect(canvas).toEqual({ width, height });
+			expect(Math.min(canvas.width, canvas.height)).toBe(2048);
+		},
+	);
 
 	it("has no print enlargement for an edit either", () => {
 		for (const base of [

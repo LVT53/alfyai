@@ -50,6 +50,7 @@ This file is the canonical engineering map for AlfyAI: the rules that hold every
 - The model chooses the reply language under one rule, and everything the app writes into a model request is English (ruling 79). Read `src/lib/server/services/chat-turn/AGENTS.md`, which holds the rule and its five invariants, before changing prompt text or adding a model call.
 - An address the app requests without a click comes from the user's own words or a tool's result, never from the model's (ADR-0068). Read `src/lib/server/services/url-provenance/AGENTS.md` before adding anything that loads, embeds or fetches an address on its own.
 - The Feature Guide (`/guide`) is the app's one map of what a person can do. A change that adds, removes, renames or moves a user-facing feature updates its guide entry (`src/lib/components/guide/guide-content.ts`, `src/lib/i18n/guide.ts`) in the same change, and its section's drawing when a pictured control changes. A moved control keeps its spotlight marker, so Show me still finds it.
+- An opened tool row says what happened in plain words, in English and Hungarian, and every error case a tool's server code tells apart has its own words. Codes and raw error text stay in the server log: a row never shows a code, an exception or the note written for the model. `src/lib/components/chat/AGENTS.md` ("Tool Rows") and `src/lib/utils/tool-reason-words.test.ts` hold the rule, and a new tool or reason code ships with its words or that test fails.
 
 ## Folder Rules
 
@@ -76,7 +77,7 @@ Browser and shared:
 - `src/lib/client/read-aloud/` — read aloud in the browser: the speech script, marks, the reading machine and controller, its language detector.
 - `src/lib/shared/artifacts/` — shared artifact types, and where the board's rules live.
 - `src/lib/components/` — design tokens, fonts, icons, scroll ownership, component contracts.
-- `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made.
+- `src/lib/components/chat/` — composer, message list, Mermaid (an untrusted source), what a turn made, the tool rows' words (the rule and where it lives).
 - `src/lib/components/document-workspace/` — the side panel: dock width, tab memory, history entries.
 - `src/lib/components/artifacts/` — card, rows, headers, popovers, Download; `canvas/`, `document/`, `history/`, `image/`, `takes/` (the picture and video cards' one shell) and `tour/` each keep their own file.
 - `src/lib/components/drawings/` — the drawing kit: small drawn copies of real controls (words from their keys, Lucide icons, colours, fonts and shadows from tokens and sizes in design pixels, hidden from screen readers, spots a guide row lights), and the rule that a drawing follows its control.
@@ -164,7 +165,7 @@ Do not:
 - New continuity or evidence-context logic:
   - `src/lib/server/services/task-state.ts`
 - New profile-memory behavior:
-  - `src/lib/server/services/memory-judge/` (intake), `memory-consolidation/` (maintenance), `memory-profile/` (projection)
+  - `src/lib/server/services/memory-profile/` (native replacement; see ADR-0071); `memory-judge/` and `memory-consolidation/` are legacy-authority compatibility only
 - New reusable browser API call:
   - `src/lib/client/api/`
 - New client state transition:
@@ -231,7 +232,7 @@ Run these too when relevant:
 ## What Not To Reintroduce
 
 - No new top-level `src/lib/server/services/*.ts` public boundary just because one file is getting large.
-- No parallel memory subsystem beside `task-state.ts` (continuity) and the Memory Profile / Memory Judge / Consolidation stack (profile memory).
+- No parallel memory subsystem beside `task-state.ts` (continuity) and the authority-gated profile-memory boundary. ADR-0071 authorizes the native Hindsight replacement under `memory-profile/`; legacy Judge/Consolidation remain only for migration/rollback accounts. Keep native extraction native and use the existing job engine.
 - No duplicated route-specific chat execution logic.
 - No new raw `sessionStorage` protocol outside `conversation-session.ts`.
 - No direct env reads in override-aware runtime services.

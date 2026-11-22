@@ -128,6 +128,10 @@ vi.mock("./chatgpt-import/owed-summaries", () => ({
 	startImportedSummaryDrain: vi.fn(async () => undefined),
 }));
 
+vi.mock("./memory-profile/imported-history", () => ({
+	catchUpImportedHistory: vi.fn(async () => 0),
+}));
+
 vi.mock("./disk-reconciliation", () => ({
 	findOrphanFiles: (
 		...args: Parameters<typeof mockState.mockFindOrphanFiles>
@@ -289,6 +293,21 @@ describe("memory-maintenance", () => {
 
 			// A restart stops the import's own drain; this is what resumes it.
 			expect(startImportedSummaryDrain).toHaveBeenCalledWith("user-1");
+		});
+
+		it("takes up the imported chats native Memory still owes", async () => {
+			addUserRow("user-1");
+			const { catchUpImportedHistory } = await import(
+				"./memory-profile/imported-history"
+			);
+
+			await runUserMemoryMaintenance("user-1", "manual");
+
+			// A restart or a failure can stop the import from recording them.
+			expect(catchUpImportedHistory).toHaveBeenCalledWith(
+				"user-1",
+				"maintenance",
+			);
 		});
 
 		it("calls pruneOldMemoryBehaviorEvents during maintenance", async () => {

@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { updateUserPreferences } from "$lib/client/api/settings";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import {
@@ -22,6 +22,14 @@ export const uiLanguage = writable<UiLanguage>("en");
 // ADR-0061: the old off/auto/max reasoning-depth ladder became a single
 // thinking toggle — "thorough" (thinking on) is the default.
 export const selectedReasoningDepth = writable<ReasoningDepth>("thorough");
+/**
+ * "Send with Enter" (Settings > Profile): Enter sends and Shift+Enter writes a
+ * new line in the message box. Off is the box's own rule (Enter writes a new
+ * line, Ctrl/Cmd+Enter sends). The account's row is the truth, so there is no
+ * localStorage copy: the shell seeds this from its load data on mount, and
+ * `setSendWithEnterAndSync` is the one writer after that.
+ */
+export const sendWithEnter = writable<boolean>(false);
 
 const SELECTED_MODEL_KEY = "selectedModel";
 const TITLE_LANGUAGE_KEY = "titleLanguage";
@@ -160,6 +168,22 @@ export async function setUiLanguageAndSync(lang: UiLanguage): Promise<void> {
 		await updateUserPreferences({ uiLanguage: lang });
 	} catch {
 		// Non-fatal
+	}
+}
+
+/**
+ * The Settings switch's save: the message box follows at once, and goes back
+ * with the switch when the save fails, so the keys never disagree with what
+ * the account says. Throws that failure for the switch to put itself back.
+ */
+export async function setSendWithEnterAndSync(enabled: boolean): Promise<void> {
+	const previous = get(sendWithEnter);
+	sendWithEnter.set(enabled);
+	try {
+		await updateUserPreferences({ sendWithEnter: enabled });
+	} catch (error) {
+		sendWithEnter.set(previous);
+		throw error;
 	}
 }
 

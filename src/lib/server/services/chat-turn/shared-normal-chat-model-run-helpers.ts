@@ -237,6 +237,8 @@ export type NormalChatSendModelBaseParams = {
 	// What the paused segment's tools handed the model and the words the person
 	// typed into their answers, for this turn's address check (ADR-0068).
 	resumeProvenance?: ResumeProvenance;
+	/** Server-recorded image searches and inspections from this logical reply. */
+	priorImageSearchCalls?: readonly ToolCallEntry[];
 	personalityPrompt?: string;
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -639,6 +641,9 @@ export async function createToolPack(
 		...(params.turnTakes ? { turnTakes: params.turnTakes } : {}),
 		...(params.onToolActivity ? { onToolActivity: params.onToolActivity } : {}),
 		...(params.canPause ? { canPause: true } : {}),
+		...(params.priorImageSearchCalls?.length
+			? { priorImageSearchCalls: params.priorImageSearchCalls }
+			: {}),
 		...(params.resumeProvenance
 			? { resumeProvenance: params.resumeProvenance }
 			: {}),
@@ -651,24 +656,23 @@ export async function createToolPack(
 			: {}),
 	});
 
-	// Read-side master gate for the recall tool. Single source of truth; fail
-	// open (active) so a controls-lookup hiccup never silently drops recall.
+	// A controls-lookup failure withholds recall; it never grants permission.
 	const memoryActive = params.disableTools
 		? false
 		: await isMemoryActiveForConversation({
 				userId: params.userId,
 				conversationId: params.conversationId,
-			}).catch(() => true);
+			}).catch(() => false);
 	// Incognito is resolved on its own, never through `memoryActive`: the
 	// instruction *offer* is what incognito withholds, while the instructions
-	// themselves keep applying there. Fails to "not incognito" on a lookup
-	// error, matching isConversationIncognito's own default — and because a
+	// themselves keep applying there. Fails to incognito on a lookup
+	// error; a missing authorization record never grants permission. Because a
 	// conversation is incognito for its whole life, this gate cannot vary
 	// mid-conversation anyway. Skipped entirely for a turn with no tools at
 	// all, where there is no catalogue to gate.
 	const incognito = params.disableTools
 		? false
-		: await isConversationIncognito(params.conversationId).catch(() => false);
+		: await isConversationIncognito(params.conversationId).catch(() => true);
 
 	return {
 		tools: params.disableTools

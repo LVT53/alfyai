@@ -16,13 +16,10 @@ describe("mineruSpeaksTasksProtocol", () => {
 		expect(mineruSpeaksTasksProtocol(version)).toBe(expected);
 	});
 
-	it.each([
-		"",
-		"nightly",
-		"4",
-		"4.x",
-		"latest-4.1",
-	])("cannot read %j, which is no evidence either way", (version) => {
-		expect(mineruSpeaksTasksProtocol(version)).toBeNull();
-	});
+	it.each(["", "nightly", "4", "4.x", "latest-4.1"])(
+		"cannot read %j, which is no evidence either way",
+		(version) => {
+			expect(mineruSpeaksTasksProtocol(version)).toBeNull();
+		},
+	);
 });

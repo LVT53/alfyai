@@ -1,0 +1,56 @@
+[
+  {
+    "case": "en",
+    "name": "revocation removes affected cached rows before refresh",
+    "pass": true,
+    "survivingRows": 3
+  },
+  {
+    "case": "en",
+    "name": "native removes notebook observation after settlement",
+    "pass": true
+  },
+  {
+    "case": "en",
+    "name": "pinned pagination no duplicates or omissions on insert",
+    "pass": true
+  },
+  {
+    "case": "en",
+    "name": "pending leaves published snapshot unchanged",
+    "pass": true
+  },
+  {
+    "case": "hu",
+    "name": "revocation removes affected cached rows before refresh",
+    "pass": true,
+    "survivingRows": 4
+  },
+  {
+    "case": "hu",
+    "name": "native removes notebook observation after settlement",
+    "pass": true
+  },
+  {
+    "case": "hu",
+    "name": "pinned pagination no duplicates or omissions on insert",
+    "pass": true
+  },
+  {
+    "case": "hu",
+    "name": "pending leaves published snapshot unchanged",
+    "pass": true
+  },
+  {
+    "name": "known-note",
+    "pass": true
+  },
+  {
+    "name": "real-history",
+    "pass": true
+  },
+  {
+    "name": "unverified-note",
+    "pass": true
+  }
+]

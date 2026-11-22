@@ -423,23 +423,26 @@ describe("provider family compatibility policy", () => {
 			modelName: "google/gemma-4-31b-it",
 			baseUrl: "https://integrate.api.nvidia.com/v1",
 		},
-	])("translates thinking objects to NVIDIA chat template kwargs for $modelName", (testCase) => {
-		const transformed = transformNormalChatModelRunRequestBody(
-			{
-				model: testCase.modelName,
-				messages: [{ role: "user", content: "Hello" }],
-				thinking: { type: "enabled" },
-			},
-			gatewayProvider(testCase.modelName, {
-				baseUrl: testCase.baseUrl,
-			}),
-		);
+	])(
+		"translates thinking objects to NVIDIA chat template kwargs for $modelName",
+		(testCase) => {
+			const transformed = transformNormalChatModelRunRequestBody(
+				{
+					model: testCase.modelName,
+					messages: [{ role: "user", content: "Hello" }],
+					thinking: { type: "enabled" },
+				},
+				gatewayProvider(testCase.modelName, {
+					baseUrl: testCase.baseUrl,
+				}),
+			);
 
-		expect(transformed).toMatchObject({
-			chat_template_kwargs: { enable_thinking: true },
-		});
-		expect(transformed).not.toHaveProperty("thinking");
-	});
+			expect(transformed).toMatchObject({
+				chat_template_kwargs: { enable_thinking: true },
+			});
+			expect(transformed).not.toHaveProperty("thinking");
+		},
+	);
 });
 
 describe("OpenAI-compatible provider adapter profiles", () => {
@@ -512,13 +515,14 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 		},
 	];
 
-	it.each(
-		providers,
-	)("resolves $family through one adapter resolver", (testCase) => {
-		expect(
-			resolveOpenAICompatibleProviderAdapterProfile(testCase.provider).family,
-		).toBe(testCase.family);
-	});
+	it.each(providers)(
+		"resolves $family through one adapter resolver",
+		(testCase) => {
+			expect(
+				resolveOpenAICompatibleProviderAdapterProfile(testCase.provider).family,
+			).toBe(testCase.family);
+		},
+	);
 
 	it.each([
 		{ family: "deepseek", modelName: "deepseek_v4_chat" },
@@ -528,65 +532,70 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 	] satisfies Array<{
 		family: OpenAICompatibleProviderFamily;
 		modelName: string;
-	}>)("resolves compact generic-gateway model id $modelName as $family", (testCase) => {
-		expect(
-			resolveOpenAICompatibleProviderAdapterProfile({
-				name: "gateway-primary",
-				displayName: "Primary Gateway",
-				baseUrl: "https://gateway.example.test/openai/v1",
-				modelName: testCase.modelName,
-			}).family,
-		).toBe(testCase.family);
-	});
+	}>)(
+		"resolves compact generic-gateway model id $modelName as $family",
+		(testCase) => {
+			expect(
+				resolveOpenAICompatibleProviderAdapterProfile({
+					name: "gateway-primary",
+					displayName: "Primary Gateway",
+					baseUrl: "https://gateway.example.test/openai/v1",
+					modelName: testCase.modelName,
+				}).family,
+			).toBe(testCase.family);
+		},
+	);
 
-	it.each(
-		providers,
-	)("exposes an error classifier through the resolved $family profile", (testCase) => {
-		const profile = resolveOpenAICompatibleProviderAdapterProfile(
-			testCase.provider,
-		);
+	it.each(providers)(
+		"exposes an error classifier through the resolved $family profile",
+		(testCase) => {
+			const profile = resolveOpenAICompatibleProviderAdapterProfile(
+				testCase.provider,
+			);
 
-		expect(typeof profile.classifyProviderError).toBe("function");
-		expect(profile.classifyProviderError({ providerSpecific: true })).toBe(
-			"unknown",
-		);
-	});
+			expect(typeof profile.classifyProviderError).toBe("function");
+			expect(profile.classifyProviderError({ providerSpecific: true })).toBe(
+				"unknown",
+			);
+		},
+	);
 
-	it.each(
-		providers,
-	)("classifies conservative OpenAI-compatible error payloads through the resolved $family profile", (testCase) => {
-		const profile = resolveOpenAICompatibleProviderAdapterProfile(
-			testCase.provider,
-		);
+	it.each(providers)(
+		"classifies conservative OpenAI-compatible error payloads through the resolved $family profile",
+		(testCase) => {
+			const profile = resolveOpenAICompatibleProviderAdapterProfile(
+				testCase.provider,
+			);
 
-		expect(
-			profile.classifyProviderError({
-				error: {
-					type: "rate_limit_error",
-					code: "rate_limit_exceeded",
-					message: "Rate limit reached for this model.",
-				},
-			}),
-		).toBe("retryable");
-		expect(
-			profile.classifyProviderError({
-				error: {
-					type: "authentication_error",
-					code: "invalid_api_key",
-					message: "Incorrect API key provided.",
-				},
-			}),
-		).toBe("non_retryable");
-		expect(
-			profile.classifyProviderError({
-				error: {
-					type: "provider_specific_error",
-					code: "provider_specific_code",
-					message: "A provider-specific response.",
-				},
-			}),
-		).toBe("unknown");
-	});
+			expect(
+				profile.classifyProviderError({
+					error: {
+						type: "rate_limit_error",
+						code: "rate_limit_exceeded",
+						message: "Rate limit reached for this model.",
+					},
+				}),
+			).toBe("retryable");
+			expect(
+				profile.classifyProviderError({
+					error: {
+						type: "authentication_error",
+						code: "invalid_api_key",
+						message: "Incorrect API key provided.",
+					},
+				}),
+			).toBe("non_retryable");
+			expect(
+				profile.classifyProviderError({
+					error: {
+						type: "provider_specific_error",
+						code: "provider_specific_code",
+						message: "A provider-specific response.",
+					},
+				}),
+			).toBe("unknown");
+		},
+	);
 
 	it("keeps existing provider option behavior on the resolved profiles", () => {
 		const cases: Array<{

@@ -1,0 +1,1460 @@
+[
+  {
+    "id": "forget_keep_new_details",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+    "action": "Forget the colour of my bicycle. Keep my other information.",
+    "facts": [
+      {
+        "id": "4364c0d1-1454-474f-9ace-eea9035694b2",
+        "text": "User started pottery. | Involving: user"
+      },
+      {
+        "id": "1307809d-1563-4a74-94c6-54d7737d4c8b",
+        "text": "User now prefers espresso as of November 18, 2026. | When: November 18, 2026 | Involving: user"
+      },
+      {
+        "id": "50b8cce7-827b-4113-84b5-999097daac37",
+        "text": "User owns a red bicycle. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red bicycle.",
+      "accepted": "User owns a bicycle.",
+      "safeRemainder": "User owns a bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "4364c0d1-1454-474f-9ace-eea9035694b2",
+            "kind": "keep"
+          },
+          {
+            "id": "1307809d-1563-4a74-94c6-54d7737d4c8b",
+            "kind": "keep"
+          },
+          {
+            "id": "50b8cce7-827b-4113-84b5-999097daac37",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-a23a7567468663fe",
+        "object": "chat.completion",
+        "created": 1795016404,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"4364c0d1-1454-474f-9ace-eea9035694b2\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"1307809d-1563-4a74-94c6-54d7737d4c8b\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"50b8cce7-827b-4113-84b5-999097daac37\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 636,
+          "total_tokens": 814,
+          "completion_tokens": 178,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "User started pottery. | Involving: user",
+      "User now prefers espresso as of November 18, 2026. | When: November 18, 2026 | Involving: user",
+      "User owns a bicycle."
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 925
+  },
+  {
+    "id": "shared_subject_hu",
+    "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+    "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+    "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+    "facts": [
+      {
+        "id": "c78baf26-d8a4-4e0d-b75c-28c85afd867d",
+        "text": "A felhasználó 2026. november 18-án kerámiázni tanul. | When: 2026. november 18. | Involving: user"
+      },
+      {
+        "id": "d56b1bd6-3123-4e0d-85a1-c9ef090709b3",
+        "text": "A felhasználó és a párja Szegeden él. | Where: Szeged | Involving: user, a felhasználó párja"
+      },
+      {
+        "id": "481509f6-ffd2-4c16-8c56-02ffca1838fa",
+        "text": "A felhasználó és a párja gluténérzékenyek. | Involving: user, a felhasználó párja"
+      }
+    ],
+    "ledger": {
+      "original": "A felhasználó és a párja gluténérzékeny.",
+      "accepted": "A felhasználó párja gluténérzékeny.",
+      "safeRemainder": "A felhasználó párja gluténérzékeny."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "c78baf26-d8a4-4e0d-b75c-28c85afd867d",
+            "kind": "keep"
+          },
+          {
+            "id": "d56b1bd6-3123-4e0d-85a1-c9ef090709b3",
+            "kind": "keep"
+          },
+          {
+            "id": "481509f6-ffd2-4c16-8c56-02ffca1838fa",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-947471acaf9d98c2",
+        "object": "chat.completion",
+        "created": 1795016405,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"c78baf26-d8a4-4e0d-b75c-28c85afd867d\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"d56b1bd6-3123-4e0d-85a1-c9ef090709b3\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"481509f6-ffd2-4c16-8c56-02ffca1838fa\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 729,
+          "total_tokens": 902,
+          "completion_tokens": 173,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "A felhasználó 2026. november 18-án kerámiázni tanul. | When: 2026. november 18. | Involving: user",
+      "A felhasználó és a párja Szegeden él. | Where: Szeged | Involving: user, a felhasználó párja",
+      "A felhasználó párja gluténérzékeny."
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 884
+  },
+  {
+    "id": "new_explicit_life_event",
+    "previous": "I live in Rome. I work remotely.",
+    "latest": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+    "action": "Earlier correction: the old claim that I lived in Rome was wrong; I lived in Berlin. This corrects the old statement, not future moves.",
+    "facts": [
+      {
+        "id": "74a9bc02-417d-4de4-8862-dd412f5a4718",
+        "text": "User currently works in an office. | When: as of November 18, 2026 | Involving: user"
+      },
+      {
+        "id": "d4929667-70c1-4c3e-b2c8-328141926321",
+        "text": "User moved to Prague on Tuesday, November 17, 2026. | When: Tuesday, November 17, 2026 | Where: Prague | Involving: user"
+      },
+      {
+        "id": "cdd706eb-48f8-4d80-ac08-0ad2c6ef148c",
+        "text": "User previously lived in Berlin. | Where: Berlin | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User lives in Rome.",
+      "accepted": "User lived in Berlin at the time of the original statement.",
+      "safeRemainder": ""
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "74a9bc02-417d-4de4-8862-dd412f5a4718",
+            "kind": "keep"
+          },
+          {
+            "id": "d4929667-70c1-4c3e-b2c8-328141926321",
+            "kind": "keep"
+          },
+          {
+            "id": "cdd706eb-48f8-4d80-ac08-0ad2c6ef148c",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-ac2fbd7b18e20e45",
+        "object": "chat.completion",
+        "created": 1795016406,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"74a9bc02-417d-4de4-8862-dd412f5a4718\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"d4929667-70c1-4c3e-b2c8-328141926321\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"cdd706eb-48f8-4d80-ac08-0ad2c6ef148c\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 686,
+          "total_tokens": 861,
+          "completion_tokens": 175,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "User currently works in an office. | When: as of November 18, 2026 | Involving: user",
+      "User moved to Prague on Tuesday, November 17, 2026. | When: Tuesday, November 17, 2026 | Where: Prague | Involving: user",
+      "User lived in Berlin at the time of the original statement."
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 900
+  },
+  {
+    "id": "conflicting_target_edit",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is green. I prefer espresso.",
+    "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+    "facts": [
+      {
+        "id": "1907b4a7-735d-4ed3-ba7a-7c1af90596c4",
+        "text": "The user prefers espresso. | Involving: user"
+      },
+      {
+        "id": "2d6f3e86-1ff1-4d5f-9a0d-ff8696bde9a3",
+        "text": "The user's bicycle is green. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red bicycle.",
+      "accepted": "User owns a blue bicycle.",
+      "safeRemainder": "User owns a bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "1907b4a7-735d-4ed3-ba7a-7c1af90596c4",
+            "kind": "keep"
+          },
+          {
+            "id": "2d6f3e86-1ff1-4d5f-9a0d-ff8696bde9a3",
+            "kind": "conflict"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-975217e15cad4db7",
+        "object": "chat.completion",
+        "created": 1795016407,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"1907b4a7-735d-4ed3-ba7a-7c1af90596c4\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"2d6f3e86-1ff1-4d5f-9a0d-ff8696bde9a3\",\n      \"kind\": \"conflict\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 575,
+          "total_tokens": 698,
+          "completion_tokens": 123,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user prefers espresso. | Involving: user",
+      "User owns a bicycle."
+    ],
+    "merges": [],
+    "conflicts": [
+      "2d6f3e86-1ff1-4d5f-9a0d-ff8696bde9a3"
+    ],
+    "ms": 678
+  },
+  {
+    "id": "compound_price",
+    "previous": "My red bicycle cost 250 euros.",
+    "latest": "My red bicycle cost 250 euros and I ride it daily.",
+    "action": "Forget only the colour of my bicycle.",
+    "facts": [
+      {
+        "id": "3bdff82b-4353-452a-abe2-289b89a25806",
+        "text": "The user owns a red bicycle that cost 250 euros and rides it daily. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red bicycle that cost 250 euros.",
+      "accepted": "User owns a bicycle that cost 250 euros.",
+      "safeRemainder": "User owns a bicycle that cost 250 euros."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "3bdff82b-4353-452a-abe2-289b89a25806",
+            "kind": "merge"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-9a72662021182b63",
+        "object": "chat.completion",
+        "created": 1795016407,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"3bdff82b-4353-452a-abe2-289b89a25806\",\n      \"kind\": \"merge\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 537,
+          "total_tokens": 604,
+          "completion_tokens": 67,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user owns a bicycle that cost 250 euros and rides it daily."
+    ],
+    "merges": [
+      {
+        "id": "3bdff82b-4353-452a-abe2-289b89a25806",
+        "value": {
+          "text": "The user owns a bicycle that cost 250 euros and rides it daily."
+        },
+        "response": {
+          "id": "chatcmpl-b011d24819ab66f8",
+          "object": "chat.completion",
+          "created": 1795016408,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"text\":\"The user owns a bicycle that cost 250 euros and rides it daily.\"}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 219,
+            "total_tokens": 241,
+            "completion_tokens": 22,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    ],
+    "conflicts": [],
+    "ms": 679
+  },
+  {
+    "id": "different_projects",
+    "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+    "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+    "action": "Correct only Atlas to use TypeScript.",
+    "facts": [
+      {
+        "id": "3ba6c172-c7e3-4e39-a177-3414a67a30c3",
+        "text": "The user's Beacon project now has a mobile app. | When: as of Wednesday, November 18, 2026 | Involving: user"
+      },
+      {
+        "id": "01ca43b5-91d8-4ea6-bdd1-cd74c5dd7fe1",
+        "text": "The user's Beacon project uses Rust. | Involving: user"
+      },
+      {
+        "id": "7d9ed4f7-9672-46f1-89d0-7f4dd945907c",
+        "text": "The user's Atlas project uses Python. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User’s Atlas project uses Python.",
+      "accepted": "User’s Atlas project uses TypeScript.",
+      "safeRemainder": "User has the Atlas project."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "3ba6c172-c7e3-4e39-a177-3414a67a30c3",
+            "kind": "keep"
+          },
+          {
+            "id": "01ca43b5-91d8-4ea6-bdd1-cd74c5dd7fe1",
+            "kind": "keep"
+          },
+          {
+            "id": "7d9ed4f7-9672-46f1-89d0-7f4dd945907c",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-90c7e0cf6aaaaa18",
+        "object": "chat.completion",
+        "created": 1795016408,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"3ba6c172-c7e3-4e39-a177-3414a67a30c3\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"01ca43b5-91d8-4ea6-bdd1-cd74c5dd7fe1\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"7d9ed4f7-9672-46f1-89d0-7f4dd945907c\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 639,
+          "total_tokens": 813,
+          "completion_tokens": 174,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user's Beacon project now has a mobile app. | When: as of Wednesday, November 18, 2026 | Involving: user",
+      "The user's Beacon project uses Rust. | Involving: user",
+      "User’s Atlas project uses TypeScript."
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 860
+  },
+  {
+    "id": "two_bikes",
+    "previous": "My road bicycle is red. My mountain bicycle is blue.",
+    "latest": "My road bicycle is red. My mountain bicycle is blue. I ride the mountain bicycle on Sundays.",
+    "action": "Correct only my road bicycle colour to yellow.",
+    "facts": [
+      {
+        "id": "2480f413-81ec-4bc2-bc54-4acbbeadbb8b",
+        "text": "The user rides the mountain bicycle on Sundays. | When: Sundays | Involving: user"
+      },
+      {
+        "id": "48677ae6-2021-4bbf-94dd-1d5c31b7afb2",
+        "text": "The user's mountain bicycle is blue. | Involving: user"
+      },
+      {
+        "id": "88a6d905-41ee-40d7-a9ae-580902654b10",
+        "text": "The user's road bicycle is red. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User’s road bicycle is red.",
+      "accepted": "User’s road bicycle is yellow.",
+      "safeRemainder": "User owns a road bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "2480f413-81ec-4bc2-bc54-4acbbeadbb8b",
+            "kind": "keep"
+          },
+          {
+            "id": "48677ae6-2021-4bbf-94dd-1d5c31b7afb2",
+            "kind": "keep"
+          },
+          {
+            "id": "88a6d905-41ee-40d7-a9ae-580902654b10",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-be758cfced5533be",
+        "object": "chat.completion",
+        "created": 1795016409,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"2480f413-81ec-4bc2-bc54-4acbbeadbb8b\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"48677ae6-2021-4bbf-94dd-1d5c31b7afb2\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"88a6d905-41ee-40d7-a9ae-580902654b10\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 624,
+          "total_tokens": 794,
+          "completion_tokens": 170,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user rides the mountain bicycle on Sundays. | When: Sundays | Involving: user",
+      "The user's mountain bicycle is blue. | Involving: user",
+      "User’s road bicycle is yellow."
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 861
+  },
+  {
+    "id": "sibling_hu",
+    "previous": "Én és a nővérem Győrben élünk.",
+    "latest": "Én és a nővérem Győrben élünk. Én teniszezem, ő fut.",
+    "action": "Forget only my city.",
+    "facts": [
+      {
+        "id": "1fa28871-d97c-4a60-b354-f4c6cda4b5c5",
+        "text": "A user teniszezik, a nővére pedig fut. | Involving: user, user nővére"
+      },
+      {
+        "id": "f4c3f5df-700a-4781-a886-7c8b54fadab0",
+        "text": "A user és a nővére Győrben élnek. | Where: Győr | Involving: user, user nővére"
+      }
+    ],
+    "ledger": {
+      "original": "A felhasználó és a nővére Győrben él.",
+      "accepted": "A felhasználó nővére Győrben él.",
+      "safeRemainder": "A felhasználó nővére Győrben él."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "1fa28871-d97c-4a60-b354-f4c6cda4b5c5",
+            "kind": "keep"
+          },
+          {
+            "id": "f4c3f5df-700a-4781-a886-7c8b54fadab0",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-81d82fd40d9adabf",
+        "object": "chat.completion",
+        "created": 1795016410,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"1fa28871-d97c-4a60-b354-f4c6cda4b5c5\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"f4c3f5df-700a-4781-a886-7c8b54fadab0\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 609,
+          "total_tokens": 728,
+          "completion_tokens": 119,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "A user teniszezik, a nővére pedig fut. | Involving: user, user nővére",
+      "A felhasználó nővére Győrben él."
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 648
+  },
+  {
+    "id": "phone_reassignment",
+    "previous": "My personal number is 07700 901111.",
+    "latest": "My old personal number 07700 901111 is now my company reception number. My new personal number is 07700 902222.",
+    "action": "Forget my former personal phone number, preserving the company number and my new personal number.",
+    "facts": [
+      {
+        "id": "59da75e7-8f3f-4ef2-8deb-b805fd1714bf",
+        "text": "The user's new personal number is 07700 902222. | Involving: user"
+      },
+      {
+        "id": "e5576a0a-a702-47e5-af5c-294508d698bb",
+        "text": "The user's old personal number 07700 901111 is now their company reception number. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User’s personal number is 07700 901111.",
+      "accepted": "",
+      "safeRemainder": ""
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "59da75e7-8f3f-4ef2-8deb-b805fd1714bf",
+            "kind": "keep"
+          },
+          {
+            "id": "e5576a0a-a702-47e5-af5c-294508d698bb",
+            "kind": "keep"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-9a0a6b92d14807a6",
+        "object": "chat.completion",
+        "created": 1795016410,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"59da75e7-8f3f-4ef2-8deb-b805fd1714bf\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"e5576a0a-a702-47e5-af5c-294508d698bb\",\n      \"kind\": \"keep\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 636,
+          "total_tokens": 754,
+          "completion_tokens": 118,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user's new personal number is 07700 902222. | Involving: user",
+      "The user's old personal number 07700 901111 is now their company reception number. | Involving: user"
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 646
+  },
+  {
+    "id": "fresh_shared_tea",
+    "previous": "A húgom és én szeretjük a teát.",
+    "latest": "A húgom és én szeretjük a teát. A húgom Pécsen él, én Szegeden. A régi telefonszámom a cégünk ügyfélszolgálatáé lett; az új személyes számom 07700 903333.",
+    "action": "Forget only my preference for tea; preserve my sister’s preference and all other details.",
+    "facts": [
+      {
+        "id": "521eb763-203f-4a8f-8547-7a005acc2029",
+        "text": "A felhasználó régi telefonszáma a cégük ügyfélszolgálatáé lett; az új személyes telefonszáma 07700 903333. | Involving: user"
+      },
+      {
+        "id": "183c05bd-bb3f-46c2-b94a-6e05b4379d59",
+        "text": "A felhasználó Szegeden él, a húga pedig Pécsen él. | Where: Szeged, Pécs | Involving: user, húga"
+      },
+      {
+        "id": "8294d1b5-bf05-48a3-b39e-e2136f1ac0d9",
+        "text": "A felhasználó és a húga szeretik a teát. | Involving: user, húga"
+      }
+    ],
+    "ledger": {
+      "original": "A felhasználó és a húga szeretik a teát.",
+      "accepted": "A felhasználó húga szereti a teát.",
+      "safeRemainder": "A felhasználó húga szereti a teát."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "521eb763-203f-4a8f-8547-7a005acc2029",
+            "kind": "keep"
+          },
+          {
+            "id": "183c05bd-bb3f-46c2-b94a-6e05b4379d59",
+            "kind": "keep"
+          },
+          {
+            "id": "8294d1b5-bf05-48a3-b39e-e2136f1ac0d9",
+            "kind": "merge"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-8f59eca38ff549bc",
+        "object": "chat.completion",
+        "created": 1795016411,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"521eb763-203f-4a8f-8547-7a005acc2029\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"183c05bd-bb3f-46c2-b94a-6e05b4379d59\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"8294d1b5-bf05-48a3-b39e-e2136f1ac0d9\",\n      \"kind\": \"merge\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 758,
+          "total_tokens": 933,
+          "completion_tokens": 175,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "A felhasználó régi telefonszáma a cégük ügyfélszolgálatáé lett; az új személyes telefonszáma 07700 903333. | Involving: user",
+      "A felhasználó Szegeden él, a húga pedig Pécsen él. | Where: Szeged, Pécs | Involving: user, húga",
+      "A felhasználó húga szereti a teát."
+    ],
+    "merges": [
+      {
+        "id": "8294d1b5-bf05-48a3-b39e-e2136f1ac0d9",
+        "value": {
+          "text": "A felhasználó húga szereti a teát."
+        },
+        "response": {
+          "id": "chatcmpl-8a0b5dff56060bcf",
+          "object": "chat.completion",
+          "created": 1795016412,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"text\": \"A felhasználó húga szereti a teát.\"}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 224,
+            "total_tokens": 241,
+            "completion_tokens": 17,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    ],
+    "conflicts": [],
+    "ms": 1087
+  },
+  {
+    "id": "fresh_camera",
+    "previous": "I own a Nikon Z6.",
+    "latest": "I own a Nikon Z6. Which lens should I buy for bird photography? My partner prefers landscape photography.",
+    "action": "Forget my camera ownership statement, preserving my partner’s interests and the lens-shopping context.",
+    "facts": [
+      {
+        "id": "09cfd3d9-099d-4408-9097-a46a35b29a7a",
+        "text": "User's partner prefers landscape photography. | Involving: user's partner"
+      },
+      {
+        "id": "e3fb22f0-4e37-482f-b2c3-74a2ff5335d2",
+        "text": "User is considering buying a lens for bird photography. | Involving: user"
+      },
+      {
+        "id": "0b8350b9-f177-4fc1-84d0-c48919ee1b17",
+        "text": "User owns a Nikon Z6. | Involving: user"
+      }
+    ],
+    "ledger": {
+      "original": "User owns a Nikon Z6.",
+      "accepted": "",
+      "safeRemainder": ""
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "09cfd3d9-099d-4408-9097-a46a35b29a7a",
+            "kind": "keep"
+          },
+          {
+            "id": "e3fb22f0-4e37-482f-b2c3-74a2ff5335d2",
+            "kind": "keep"
+          },
+          {
+            "id": "0b8350b9-f177-4fc1-84d0-c48919ee1b17",
+            "kind": "replay"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-b6973d7dec69fb77",
+        "object": "chat.completion",
+        "created": 1795016412,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"09cfd3d9-099d-4408-9097-a46a35b29a7a\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"e3fb22f0-4e37-482f-b2c3-74a2ff5335d2\",\n      \"kind\": \"keep\"\n    },\n    {\n      \"id\": \"0b8350b9-f177-4fc1-84d0-c48919ee1b17\",\n      \"kind\": \"replay\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 619,
+          "total_tokens": 796,
+          "completion_tokens": 177,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "User's partner prefers landscape photography. | Involving: user's partner",
+      "User is considering buying a lens for bird photography. | Involving: user"
+    ],
+    "merges": [],
+    "conflicts": [],
+    "ms": 894
+  },
+  {
+    "id": "conflict_new_basket",
+    "previous": "My bicycle is red.",
+    "latest": "My bicycle is green and now has a front basket.",
+    "action": "I corrected my bicycle colour to blue; do not silently choose a conflicting edited-source colour. Preserve other new details.",
+    "facts": [
+      {
+        "id": "basket",
+        "text": "The user owns a green bicycle that now has a front basket."
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red bicycle.",
+      "accepted": "User owns a blue bicycle.",
+      "safeRemainder": "User owns a bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "basket",
+            "kind": "conflict_merge"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-bd453849f5a66612",
+        "object": "chat.completion",
+        "created": 1795016413,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"basket\",\n      \"kind\": \"conflict_merge\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 484,
+          "total_tokens": 522,
+          "completion_tokens": 38,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user owns a bicycle that now has a front basket."
+    ],
+    "merges": [
+      {
+        "id": "basket",
+        "conflict": true,
+        "value": {
+          "text": "The user owns a bicycle that now has a front basket."
+        },
+        "response": {
+          "id": "chatcmpl-90c2152a6df66722",
+          "object": "chat.completion",
+          "created": 1795016413,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"text\": \"The user owns a bicycle that now has a front basket.\"}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 197,
+            "total_tokens": 215,
+            "completion_tokens": 18,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    ],
+    "conflicts": [
+      "basket"
+    ],
+    "ms": 542
+  },
+  {
+    "id": "conflict_shared_city_hu",
+    "previous": "Én és a húgom Győrben élünk.",
+    "latest": "Én Pécsen élek és kerékpározni kezdtem. A húgom továbbra is Győrben él.",
+    "action": "I corrected only my own city to Szeged. A changed source city without an explicit move must remain unresolved; keep my sister and new activity.",
+    "facts": [
+      {
+        "id": "cities",
+        "text": "A felhasználó Pécsen él és kerékpározni kezdett, a húga pedig Győrben él."
+      }
+    ],
+    "ledger": {
+      "original": "A felhasználó és a húga Győrben él.",
+      "accepted": "A felhasználó Szegeden él, a húga Győrben él.",
+      "safeRemainder": "A felhasználó húga Győrben él."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "cities",
+            "kind": "conflict_merge"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-83e53b20907680cc",
+        "object": "chat.completion",
+        "created": 1795016414,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"cities\",\n      \"kind\": \"conflict_merge\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 548,
+          "total_tokens": 586,
+          "completion_tokens": 38,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "A felhasználó kerékpározni kezdett, a húga pedig Győrben él."
+    ],
+    "merges": [
+      {
+        "id": "cities",
+        "conflict": true,
+        "value": {
+          "text": "A felhasználó kerékpározni kezdett, a húga pedig Győrben él."
+        },
+        "response": {
+          "id": "chatcmpl-afe2e6f64369ab2f",
+          "object": "chat.completion",
+          "created": 1795016414,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"text\":\"A felhasználó kerékpározni kezdett, a húga pedig Győrben él.\"}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 220,
+            "total_tokens": 245,
+            "completion_tokens": 25,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    ],
+    "conflicts": [
+      "cities"
+    ],
+    "ms": 546
+  },
+  {
+    "id": "conflict_two_bikes",
+    "previous": "My road bicycle is red. My mountain bicycle is green.",
+    "latest": "My road bicycle is green and I ride it on Tuesdays; my mountain bicycle is still green.",
+    "action": "Earlier I corrected only the road bicycle colour to yellow; conflicting edited-source colour must not silently win. Preserve other details.",
+    "facts": [
+      {
+        "id": "bikes",
+        "text": "The user owns a green road bicycle ridden on Tuesdays and a green mountain bicycle."
+      }
+    ],
+    "ledger": {
+      "original": "User owns a red road bicycle.",
+      "accepted": "User owns a yellow road bicycle.",
+      "safeRemainder": "User owns a road bicycle."
+    },
+    "classification": {
+      "value": {
+        "decisions": [
+          {
+            "id": "bikes",
+            "kind": "conflict_merge"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-8a115791d7a3f5e6",
+        "object": "chat.completion",
+        "created": 1795016414,
+        "model": "qwen3-6-27b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\n  \"decisions\": [\n    {\n      \"id\": \"bikes\",\n      \"kind\": \"conflict_merge\"\n    }\n  ]\n}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "system_fingerprint": "vllm-0.31.0-6612147e",
+        "usage": {
+          "prompt_tokens": 509,
+          "total_tokens": 548,
+          "completion_tokens": 39,
+          "prompt_tokens_details": null,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      }
+    },
+    "projected": [
+      "The user owns a green mountain bicycle."
+    ],
+    "merges": [
+      {
+        "id": "bikes",
+        "conflict": true,
+        "value": {
+          "text": "The user owns a green mountain bicycle."
+        },
+        "response": {
+          "id": "chatcmpl-948b87f1fd942071",
+          "object": "chat.completion",
+          "created": 1795016414,
+          "model": "qwen3-6-27b",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"text\": \"The user owns a green mountain bicycle.\"}",
+                "refusal": null,
+                "annotations": null,
+                "audio": null,
+                "function_call": null,
+                "reasoning": null
+              },
+              "logprobs": null,
+              "finish_reason": "stop",
+              "stop_reason": null,
+              "token_ids": null,
+              "routed_experts": null
+            }
+          ],
+          "service_tier": null,
+          "system_fingerprint": "vllm-0.31.0-6612147e",
+          "usage": {
+            "prompt_tokens": 203,
+            "total_tokens": 217,
+            "completion_tokens": 14,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "prompt_logprobs": null,
+          "prompt_token_ids": null,
+          "prompt_text": null,
+          "kv_transfer_params": null,
+          "ec_transfer_params": null,
+          "metrics": null
+        }
+      }
+    ],
+    "conflicts": [
+      "bikes"
+    ],
+    "ms": 537
+  }
+]

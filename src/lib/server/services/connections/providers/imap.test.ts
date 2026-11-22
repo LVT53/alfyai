@@ -583,11 +583,11 @@ describe("imapSearch", () => {
 		expect(client.searchCalls).toHaveLength(1);
 		const call = client.searchCalls[0];
 		expect(call?.since).toBeInstanceOf(Date);
-		expect((call?.since as Date).toISOString()).toBe(
+		expect((call?.since as Date | undefined)?.toISOString()).toBe(
 			"2026-07-01T00:00:00.000Z",
 		);
 		expect(call?.before).toBeInstanceOf(Date);
-		expect((call?.before as Date).toISOString()).toBe(
+		expect((call?.before as Date | undefined)?.toISOString()).toBe(
 			"2026-07-31T00:00:00.000Z",
 		);
 		expect(call?.text).toBeUndefined();

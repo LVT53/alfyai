@@ -119,14 +119,15 @@ const ORDINARY: Record<string, string> = {
 };
 
 describe("sanitizeMermaidSource: what an ordinary diagram keeps", () => {
-	it.each(
-		Object.entries(ORDINARY),
-	)("leaves %s exactly as it is, and Mermaid still reads it", async (_name, source) => {
-		const result = sanitizeMermaidSource(source);
-		expect(result.source).toBe(source);
-		expect(result.removed).toEqual([]);
-		expect(await parses(result.source)).toBe(true);
-	});
+	it.each(Object.entries(ORDINARY))(
+		"leaves %s exactly as it is, and Mermaid still reads it",
+		async (_name, source) => {
+			const result = sanitizeMermaidSource(source);
+			expect(result.source).toBe(source);
+			expect(result.removed).toEqual([]);
+			expect(await parses(result.source)).toBe(true);
+		},
+	);
 
 	it("says nothing about an empty source", () => {
 		expect(sanitizeMermaidSource("")).toEqual({ source: "", removed: [] });
@@ -329,12 +330,15 @@ describe("sanitizeMermaidSource: an image or icon shape is fetched by Mermaid wh
 			`A@{ img: "${HOST}/p.png", "l\\u0061bel": "Docs" } --> B`,
 			"A --> B",
 		],
-	])("takes out %s, keeps the node and its edge, and the caption when it is plain", async (_what, line, kept) => {
-		const result = sanitizeMermaidSource(`flowchart LR\n  ${line}`);
-		expect(result.source).toBe(`flowchart LR\n  ${kept}`);
-		expect(result.removed).toHaveLength(1);
-		expect(await parses(result.source)).toBe(true);
-	});
+	])(
+		"takes out %s, keeps the node and its edge, and the caption when it is plain",
+		async (_what, line, kept) => {
+			const result = sanitizeMermaidSource(`flowchart LR\n  ${line}`);
+			expect(result.source).toBe(`flowchart LR\n  ${kept}`);
+			expect(result.removed).toHaveLength(1);
+			expect(await parses(result.source)).toBe(true);
+		},
+	);
 
 	it("names an image or icon block for what it is, and any other block it does not know as just that", () => {
 		expect(
@@ -566,15 +570,18 @@ describe("sanitizeMermaidSource: a CSS address in a style is fetched by the brow
 			'src("https://x.test/a.svg")',
 			'src ("https://x.test/a.svg")',
 		],
-	])("keeps the browser from reading %s as a function", (_what, value, expected) => {
-		const result = sanitizeMermaidSource(
-			`classDiagram\n  class Foo:::c\n  classDef c fill:${value}`,
-		);
-		expect(result.source).toBe(
-			`classDiagram\n  class Foo:::c\n  classDef c fill:${expected}`,
-		);
-		expect(result.removed).toEqual(["css-address"]);
-	});
+	])(
+		"keeps the browser from reading %s as a function",
+		(_what, value, expected) => {
+			const result = sanitizeMermaidSource(
+				`classDiagram\n  class Foo:::c\n  classDef c fill:${value}`,
+			);
+			expect(result.source).toBe(
+				`classDiagram\n  class Foo:::c\n  classDef c fill:${expected}`,
+			);
+			expect(result.removed).toEqual(["css-address"]);
+		},
+	);
 
 	it("does the same wherever a colour can be written", () => {
 		for (const source of [
@@ -645,14 +652,15 @@ describe("sanitizeMermaidSource: it always finishes, and finishing is a fixed po
 		`u\\\nrl(${HOST})`,
 	];
 
-	it.each(
-		HOSTILE,
-	)("gives the same source when it is run on its own result: %s", (source) => {
-		const once = sanitizeMermaidSource(source);
-		const twice = sanitizeMermaidSource(once.source);
-		expect(twice.source).toBe(once.source);
-		expect(twice.removed).toEqual([]);
-	});
+	it.each(HOSTILE)(
+		"gives the same source when it is run on its own result: %s",
+		(source) => {
+			const once = sanitizeMermaidSource(source);
+			const twice = sanitizeMermaidSource(once.source);
+			expect(twice.source).toBe(once.source);
+			expect(twice.removed).toEqual([]);
+		},
+	);
 
 	it("does a very large source in a moment, and cuts it at a little more than Mermaid's own limit", () => {
 		const started = Date.now();

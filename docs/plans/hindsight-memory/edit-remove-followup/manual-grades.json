@@ -1,0 +1,29 @@
+{
+  "method": "Manual semantic inspection, separate from model validator. Pre-new-assertion evidence comes from stage recall/post API snapshots, not the mutable accepted-events array. New-assertion checks use restart answers with synthetic today 2026-11-24.",
+  "cases": [
+    {
+      "case": "hu-regression",
+      "editReplayReprocess": "pass: inspected admitted raw evidence and answers; removed details absent and retained facts preserved",
+      "newAssertionAndRestart": "pass: inspected corrected-clock restart answer and stable native IDs/text",
+      "notes": ""
+    },
+    {
+      "case": "en-fresh",
+      "editReplayReprocess": "pass: inspected admitted raw evidence and answers; removed details absent and retained facts preserved",
+      "newAssertionAndRestart": "pass: inspected corrected-clock restart answer and stable native IDs/text",
+      "notes": ""
+    },
+    {
+      "case": "hu-fresh",
+      "editReplayReprocess": "pass: inspected admitted raw evidence and answers; removed details absent and retained facts preserved",
+      "newAssertionAndRestart": "pass: inspected corrected-clock restart answer and stable native IDs/text",
+      "notes": "Answer once over-interpreted vegetarian/no-meat wording as supersession; facts themselves preserved."
+    },
+    {
+      "case": "remove",
+      "editReplayReprocess": "pass: inspected admitted raw evidence and answers; removed details absent and retained facts preserved",
+      "newAssertionAndRestart": "pass: inspected corrected-clock restart answer and stable native IDs/text",
+      "notes": ""
+    }
+  ]
+}

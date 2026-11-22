@@ -42,6 +42,7 @@ type RequestBody = {
 	model?: unknown;
 	skipPersistUserMessage?: unknown;
 	isEditResend?: unknown;
+	editSourceMessageId?: unknown;
 	attachmentIds?: unknown;
 	pictureRefs?: unknown;
 	imageMarks?: unknown;
@@ -180,6 +181,12 @@ export async function parseChatTurnRequest(
 			// A body can claim an edit-and-resend and nothing else; the
 			// regenerate family is stamped by chat-turn/retry.ts.
 			turnOrigin: body.isEditResend === true ? "edit_resend" : "send",
+			editSourceMessageId:
+				body.isEditResend === true &&
+				typeof body.editSourceMessageId === "string" &&
+				body.editSourceMessageId.length <= 200
+					? body.editSourceMessageId.trim() || undefined
+					: undefined,
 			attachmentTraceId:
 				safeAttachmentIds.length > 0
 					? createAttachmentTraceId(route)

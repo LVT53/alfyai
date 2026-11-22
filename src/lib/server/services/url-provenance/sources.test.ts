@@ -27,8 +27,7 @@ import { LEDGER_MAX_HOSTS_PER_USER } from "./ledger";
 // the database: an incognito conversation promises that nothing it touched is
 // written down.
 
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const THUMB = "https://saved-thumbnails.example/previews/pet";
 
 function entry(
 	name: string,
@@ -93,7 +92,10 @@ describe("noteToolEntrySources (the recorder's writer)", () => {
 			]),
 		);
 
-		expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
+		expect(hasSourceThumbnail("user-1", "https://example.com/cat.jpg")).toBe(
+			true,
+		);
+		expect(hasSourceThumbnail("user-1", THUMB)).toBe(false);
 		expect(hasSourceHost("user-1", "example.com")).toBe(true);
 		expect(hasSourceThumbnail("user-1", `${THUMB}x`)).toBe(false);
 	});
@@ -147,7 +149,10 @@ describe("noteMessageSources (the read model's backfill)", () => {
 
 		expect(hasSourceHost("user-1", "stored.example")).toBe(true);
 		expect(hasSourceHost("user-1", "pics.example")).toBe(true);
-		expect(hasSourceThumbnail("user-1", THUMB)).toBe(true);
+		expect(hasSourceThumbnail("user-1", "https://pics.example/cat.jpg")).toBe(
+			true,
+		);
+		expect(hasSourceThumbnail("user-1", THUMB)).toBe(false);
 		expect(hasSourceHost("user-2", "stored.example")).toBe(false);
 	});
 

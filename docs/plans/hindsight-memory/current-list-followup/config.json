@@ -1,0 +1,4 @@
+{
+  "retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership.",
+  "observations_mission": "Synthesize only evidence-supported personal and project information. Preserve who stated each claim, who it concerns, uncertainty, time and project restrictions. Plans are not completed events. User corrections supersede older claims only within their actual scope."
+}

@@ -47,7 +47,7 @@ files in this directory (numbers `0007` and `0014` are intentionally absent).
 | [0042](0042-normal-chat-context-preparation-telemetry.md) | Normal Chat context-preparation telemetry separates raw stages from visible activity |
 | [0043](0043-ui-refresh-identity-clarity-and-jump-rail.md) | UI Refresh — Identity, Clarity, Jump-Rail, and Touch Foundation |
 | [0044](0044-connections-ui-redesign.md) | Connections UI Redesign |
-| [0045](0045-memory-v2-judge-gated-local-memory.md) | Memory v2: judge-gated local memory replaces the Honcho substrate |
+| [0045](0045-memory-v2-judge-gated-local-memory.md) | Memory v2: judge-gated local memory replaces the Honcho substrate (legacy authority, see 0071) |
 | [0046](0046-automatic-depth-selection-is-deterministic.md) | Automatic Depth Selection is a deterministic rules classifier, not an LLM preflight |
 | [0047](0047-provider-cost-price-windows-and-cache-accounting.md) | Provider cost accounting: time-slot price windows and prompt-cache token accounting |
 | [0048](0048-openai-compatible-provider-family-compatibility.md) | Provider-family compatibility profiles are the seam for OpenAI-compatible quirks |
@@ -72,3 +72,4 @@ files in this directory (numbers `0007` and `0014` are intentionally absent).
 | [0067](0067-alfy-works-on-your-computers-through-an-outbound-agent.md) | Alfy works on your own computers through an outbound agent (alfy-remote), one checker and an OS-sandbox floor |
 | [0068](0068-model-output-never-picks-an-address-fetched-without-a-click.md) | Model output never picks an address the browser or the server fetches without a click |
 | [0070](0070-read-aloud-runs-beside-the-model.md) | Read aloud runs on a speech service beside the model, and AlfyAI's server is its only reader |
+| [0071](0071-native-memory-with-small-app-owned-control-boundaries.md) | Native Memory with small app-owned control boundaries |

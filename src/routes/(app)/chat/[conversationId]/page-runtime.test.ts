@@ -274,6 +274,7 @@ function appShellDataFixture(
 		userPersonality: null,
 		userSidebarProjectsExpanded: true,
 		userSidebarChatsExpanded: true,
+		userSendWithEnter: false,
 		modelNames: { model1: "Model 1" },
 		availableModels: [
 			{
@@ -1080,17 +1081,22 @@ describe("chat page runtime integration", () => {
 			"hu",
 			"A korábbi válasz állapota nem érhető el. A részleges válasz megmarad.",
 		],
-	] as const)("translates observation unavailability in %s", async (language, expected) => {
-		const { uiLanguage } = await import("$lib/stores/settings");
-		renderPage();
-		uiLanguage.set(language);
-		runtimeHarness.adapters?.setSendError("chat.observationUnavailable");
-		await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument());
-		expect(
-			screen.queryByText("chat.observationUnavailable"),
-		).not.toBeInTheDocument();
-		uiLanguage.set("en");
-	});
+	] as const)(
+		"translates observation unavailability in %s",
+		async (language, expected) => {
+			const { uiLanguage } = await import("$lib/stores/settings");
+			renderPage();
+			uiLanguage.set(language);
+			runtimeHarness.adapters?.setSendError("chat.observationUnavailable");
+			await waitFor(() =>
+				expect(screen.getByText(expected)).toBeInTheDocument(),
+			);
+			expect(
+				screen.queryByText("chat.observationUnavailable"),
+			).not.toBeInTheDocument();
+			uiLanguage.set("en");
+		},
+	);
 
 	// Owner idea — "Answer now" clicks the ThinkingBlock header's quick-answer
 	// button while a turn is still reasoning: it must interrupt the CURRENT
@@ -5145,35 +5151,40 @@ describe("chat page runtime integration", () => {
 				"You can regenerate it from the chat.",
 				"can't be undone",
 			],
-		] as const)("tells a list row's delete confirm whether the chat can make it again (server: %s, create call in the page's messages: %s)", async (regenerable, callInMessages, promised, notPromised) => {
-			renderPage(
-				pageData({
-					messages: [
-						callInMessages
-							? createDocumentMessage()
-							: { ...createDocumentMessage(), thinkingSegments: [] },
-					],
-					artifacts: [{ ...documentSummary(), regenerable }],
-				}),
-			);
+		] as const)(
+			"tells a list row's delete confirm whether the chat can make it again (server: %s, create call in the page's messages: %s)",
+			async (regenerable, callInMessages, promised, notPromised) => {
+				renderPage(
+					pageData({
+						messages: [
+							callInMessages
+								? createDocumentMessage()
+								: { ...createDocumentMessage(), thinkingSegments: [] },
+						],
+						artifacts: [{ ...documentSummary(), regenerable }],
+					}),
+				);
 
-			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
-			const list = await screen.findByTestId("artifact-panel-list");
-			await fireEvent.click(
-				within(list).getByRole("button", {
-					name: "More actions for Vienna trip plan",
-				}),
-			);
-			await fireEvent.click(
-				await screen.findByRole("menuitem", { name: "Delete document" }),
-			);
+				await fireEvent.click(
+					await screen.findByTestId("artifact-count-button"),
+				);
+				const list = await screen.findByTestId("artifact-panel-list");
+				await fireEvent.click(
+					within(list).getByRole("button", {
+						name: "More actions for Vienna trip plan",
+					}),
+				);
+				await fireEvent.click(
+					await screen.findByRole("menuitem", { name: "Delete document" }),
+				);
 
-			const dialog = await screen.findByRole("dialog", {
-				name: "Delete this document?",
-			});
-			expect(dialog.textContent).toContain(promised);
-			expect(dialog.textContent).not.toContain(notPromised);
-		});
+				const dialog = await screen.findByRole("dialog", {
+					name: "Delete this document?",
+				});
+				expect(dialog.textContent).toContain(promised);
+				expect(dialog.textContent).not.toContain(notPromised);
+			},
+		);
 
 		// The security review's L1: a fork's card can name (and open) the parent's
 		// Document, but Delete acts only on what this chat made — the panel does
@@ -10075,89 +10086,90 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 		expect(sidebarMark()).toBe(false);
 	});
 
-	it.each([
-		"normal",
-		"Stop",
-	] as const)("keeps a canonically reconciled resume folded with its asking reply through %s", async (mode) => {
-		renderAskedChat();
-		await chooseOnCard("Dinner out");
-		await waitFor(() =>
-			expect(runtimeHarness.streamInvocations).toHaveLength(1),
-		);
-		const resume = runtimeHarness.streamInvocations[0];
-		resume.callbacks.onToken("Provisional continued text");
-		await tick();
-		const scope = {
-			version: 1,
-			turnId: "resume-turn",
-			segmentId: "resume-segment",
-			attemptId: "a",
-			stepId: "s",
-			phase: "working",
-		} as const;
-		const completion = {
-			version: 1,
-			turnId: scope.turnId,
-			segmentId: scope.segmentId,
-			phase: "working",
-			outcome: mode === "Stop" ? "stopped" : "answered",
-			stopCause: mode === "Stop" ? "user_stop" : "natural_stop",
-			workingStopCause: mode === "Stop" ? "user_stop" : "natural_stop",
-			closingAttempted: false,
-		} as const;
-		const rows = answeredChat();
-		rows[2].normalChatOutput = {
-			version: 1,
-			events: [{ ...scope, sequence: 1, type: "completion", completion }],
-		};
-		vi.mocked(fetchConversationDetail).mockResolvedValue(
-			conversationDetailFixture({ messages: rows }),
-		);
-		vi.mocked(fetchConversationQuestions).mockResolvedValue([
-			answeredQuestion(),
-		]);
-		if (mode === "Stop") {
-			await fireEvent.click(screen.getByTestId("stop-button"));
+	it.each(["normal", "Stop"] as const)(
+		"keeps a canonically reconciled resume folded with its asking reply through %s",
+		async (mode) => {
+			renderAskedChat();
+			await chooseOnCard("Dinner out");
 			await waitFor(() =>
-				expect(runtimeHarness.streamInvocations).toHaveLength(2),
+				expect(runtimeHarness.streamInvocations).toHaveLength(1),
 			);
-		}
-		const observer = runtimeHarness.streamInvocations.at(-1);
-		if (!observer || !resume.handle) throw new Error("Missing resumed stream");
-		observer.callbacks.onEnd("", {
-			observation: {
+			const resume = runtimeHarness.streamInvocations[0];
+			resume.callbacks.onToken("Provisional continued text");
+			await tick();
+			const scope = {
 				version: 1,
-				state: "terminal",
-				streamId: resume.handle.streamId,
-				conversationId: "conv-1",
-				assistantMessageId: "assistant-2",
-				completion,
-			},
-		});
-		await screen.findByText(SECOND_WORDS);
-		if (mode === "Stop")
-			expect(screen.getByTestId("normal-chat-output-status")).toHaveTextContent(
-				"Stopped",
+				turnId: "resume-turn",
+				segmentId: "resume-segment",
+				attemptId: "a",
+				stepId: "s",
+				phase: "working",
+			} as const;
+			const completion = {
+				version: 1,
+				turnId: scope.turnId,
+				segmentId: scope.segmentId,
+				phase: "working",
+				outcome: mode === "Stop" ? "stopped" : "answered",
+				stopCause: mode === "Stop" ? "user_stop" : "natural_stop",
+				workingStopCause: mode === "Stop" ? "user_stop" : "natural_stop",
+				closingAttempted: false,
+			} as const;
+			const rows = answeredChat();
+			rows[2].normalChatOutput = {
+				version: 1,
+				events: [{ ...scope, sequence: 1, type: "completion", completion }],
+			};
+			vi.mocked(fetchConversationDetail).mockResolvedValue(
+				conversationDetailFixture({ messages: rows }),
 			);
-		expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
-		expect(
-			screen.getAllByRole("button", { name: "Regenerate response" }),
-		).toHaveLength(1);
-		const copy = vi.fn().mockResolvedValue(undefined);
-		const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-		Object.defineProperty(navigator, "clipboard", {
-			configurable: true,
-			value: { writeText: copy },
-		});
-		try {
-			const copies = screen.getAllByRole("button", { name: "Copy message" });
-			await fireEvent.click(copies[copies.length - 1]);
-			expect(copy).toHaveBeenCalledWith(`${FIRST_WORDS}\n\n${SECOND_WORDS}`);
-		} finally {
-			if (previous) Object.defineProperty(navigator, "clipboard", previous);
-			else Reflect.deleteProperty(navigator, "clipboard");
-		}
-	});
+			vi.mocked(fetchConversationQuestions).mockResolvedValue([
+				answeredQuestion(),
+			]);
+			if (mode === "Stop") {
+				await fireEvent.click(screen.getByTestId("stop-button"));
+				await waitFor(() =>
+					expect(runtimeHarness.streamInvocations).toHaveLength(2),
+				);
+			}
+			const observer = runtimeHarness.streamInvocations.at(-1);
+			if (!observer || !resume.handle)
+				throw new Error("Missing resumed stream");
+			observer.callbacks.onEnd("", {
+				observation: {
+					version: 1,
+					state: "terminal",
+					streamId: resume.handle.streamId,
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-2",
+					completion,
+				},
+			});
+			await screen.findByText(SECOND_WORDS);
+			if (mode === "Stop")
+				expect(
+					screen.getByTestId("normal-chat-output-status"),
+				).toHaveTextContent("Stopped");
+			expect(screen.getByText(FIRST_WORDS)).toBeInTheDocument();
+			expect(
+				screen.getAllByRole("button", { name: "Regenerate response" }),
+			).toHaveLength(1);
+			const copy = vi.fn().mockResolvedValue(undefined);
+			const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+			Object.defineProperty(navigator, "clipboard", {
+				configurable: true,
+				value: { writeText: copy },
+			});
+			try {
+				const copies = screen.getAllByRole("button", { name: "Copy message" });
+				await fireEvent.click(copies[copies.length - 1]);
+				expect(copy).toHaveBeenCalledWith(`${FIRST_WORDS}\n\n${SECOND_WORDS}`);
+			} finally {
+				if (previous) Object.defineProperty(navigator, "clipboard", previous);
+				else Reflect.deleteProperty(navigator, "clipboard");
+			}
+		},
+	);
 
 	it("draws the continued reply's web search while the resume runs, and after it ends", async () => {
 		renderPage();
@@ -10679,47 +10691,50 @@ describe("chat page: a question Alfy asked (Ask me first)", () => {
 				"a message turned away while a question waits",
 				{ type: "refusedWhileWaiting" },
 			],
-		] as const)("leaves the chat the person moved to alone when it settles %s", async (_what, event) => {
-			const view = renderAskedChat();
-			// The read of the questions the settle begins with is out ...
-			let questionsAnswer: (questions: AskQuestionDto[]) => void = () => {};
-			vi.mocked(fetchConversationQuestions).mockReturnValueOnce(
-				new Promise<AskQuestionDto[]>((resolve) => {
-					questionsAnswer = resolve;
-				}),
-			);
-			runtimeHarness.adapters?.onAskEvent?.(event);
-			// ... when the person moves to another chat, which has no question.
-			vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
-			await view.rerender({
-				data: pageData({
-					conversation: conversationFixture("conv-2"),
-					messages: [
-						{
-							id: "b-user",
-							role: "user",
-							content: "Question for chat B",
-							timestamp: 1,
-						},
-					],
-				}),
-				params: { conversationId: "conv-2" },
-			});
-			expect(
-				await screen.findByText("Question for chat B"),
-			).toBeInTheDocument();
-			const chatReadsBefore = vi.mocked(fetchConversationDetail).mock.calls
-				.length;
+		] as const)(
+			"leaves the chat the person moved to alone when it settles %s",
+			async (_what, event) => {
+				const view = renderAskedChat();
+				// The read of the questions the settle begins with is out ...
+				let questionsAnswer: (questions: AskQuestionDto[]) => void = () => {};
+				vi.mocked(fetchConversationQuestions).mockReturnValueOnce(
+					new Promise<AskQuestionDto[]>((resolve) => {
+						questionsAnswer = resolve;
+					}),
+				);
+				runtimeHarness.adapters?.onAskEvent?.(event);
+				// ... when the person moves to another chat, which has no question.
+				vi.mocked(fetchConversationQuestions).mockResolvedValue([]);
+				await view.rerender({
+					data: pageData({
+						conversation: conversationFixture("conv-2"),
+						messages: [
+							{
+								id: "b-user",
+								role: "user",
+								content: "Question for chat B",
+								timestamp: 1,
+							},
+						],
+					}),
+					params: { conversationId: "conv-2" },
+				});
+				expect(
+					await screen.findByText("Question for chat B"),
+				).toBeInTheDocument();
+				const chatReadsBefore = vi.mocked(fetchConversationDetail).mock.calls
+					.length;
 
-			questionsAnswer([]);
-			await new Promise((resolve) => setTimeout(resolve, 30));
+				questionsAnswer([]);
+				await new Promise((resolve) => setTimeout(resolve, 30));
 
-			// Nothing was read of the chat on its account, and the new chat is as it was.
-			expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
-				chatReadsBefore,
-			);
-			expect(screen.getByText("Question for chat B")).toBeInTheDocument();
-		});
+				// Nothing was read of the chat on its account, and the new chat is as it was.
+				expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
+					chatReadsBefore,
+				);
+				expect(screen.getByText("Question for chat B")).toBeInTheDocument();
+			},
+		);
 
 		// The reply can never be carried on (its capture or its segments are gone), so
 		// the server closes the question for good before it refuses the answer

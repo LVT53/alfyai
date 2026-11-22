@@ -25,6 +25,7 @@ import type {
 	LatLng,
 	PlaceInput,
 	RouteData,
+	RoutingFailureReason,
 	RoutingMode,
 	RoutingProvider,
 	TransitItinerary,
@@ -188,9 +189,12 @@ export type JourneyPlan = {
 	plannedBackwards: boolean;
 };
 
+// A failure names the engine's own reason when a leg's provider call gave one
+// (and `transit_unavailable` / `no_route` for the two it finds itself), so the
+// tool can say why without reading the message.
 export type JourneyOutcome =
 	| { ok: true; plan: JourneyPlan }
-	| { ok: false; message: string };
+	| { ok: false; message: string; reason?: RoutingFailureReason };
 
 function minutesBetween(from: string, to: string): number {
 	const start = localToMinutes(from);
@@ -231,6 +235,7 @@ export async function planJourney(
 			ok: false,
 			message:
 				"Public transport timetables are not available on this server, so a journey with a transit leg can't be planned. Say timetables are unavailable rather than inventing departures.",
+			reason: "transit_unavailable",
 		};
 	}
 
@@ -245,7 +250,8 @@ export async function planJourney(
 		anchor: { departure?: string; arrival?: string },
 		index: number,
 	): Promise<
-		{ ok: true; leg: PlannedJourneyLeg } | { ok: false; message: string }
+		| { ok: true; leg: PlannedJourneyLeg }
+		| { ok: false; message: string; reason?: RoutingFailureReason }
 	> {
 		const outcome = await provider.route({
 			origin: leg.from,
@@ -256,6 +262,7 @@ export async function planJourney(
 			return {
 				ok: false,
 				message: `Leg ${index + 1} (${leg.mode} from ${leg.fromLabel} to ${leg.toLabel}) could not be routed: ${outcome.message}`,
+				reason: outcome.reason,
 			};
 		}
 		const durationS = Math.round(outcome.data.duration_s);
@@ -281,11 +288,16 @@ export async function planJourney(
 		anchor: { departure?: string; arrival?: string },
 		index: number,
 	): Promise<
-		{ ok: true; leg: PlannedJourneyLeg } | { ok: false; message: string }
+		| { ok: true; leg: PlannedJourneyLeg }
+		| { ok: false; message: string; reason?: RoutingFailureReason }
 	> {
 		const transit = provider.transit;
 		if (!transit) {
-			return { ok: false, message: "Public transport is unavailable." };
+			return {
+				ok: false,
+				message: "Public transport is unavailable.",
+				reason: "transit_unavailable",
+			};
 		}
 		const outcome = await transit({
 			origin: leg.from,
@@ -300,6 +312,7 @@ export async function planJourney(
 			return {
 				ok: false,
 				message: `Leg ${index + 1} (transit from ${leg.fromLabel} to ${leg.toLabel}) could not be planned: ${outcome.message}`,
+				reason: outcome.reason,
 			};
 		}
 		const itinerary = outcome.data.itineraries[0];
@@ -307,6 +320,7 @@ export async function planJourney(
 			return {
 				ok: false,
 				message: `No public transport itinerary was found for leg ${index + 1} (${leg.fromLabel} → ${leg.toLabel}).`,
+				reason: "no_route",
 			};
 		}
 		timezone = timezone ?? outcome.data.timezone;
@@ -345,7 +359,13 @@ export async function planJourney(
 				leg.mode === "transit"
 					? await transitLeg(leg, anchor, i)
 					: await roadLeg(leg, anchor, i);
-			if (!result.ok) return { ok: false, message: result.message };
+			if (!result.ok) {
+				return {
+					ok: false,
+					message: result.message,
+					...(result.reason ? { reason: result.reason } : {}),
+				};
+			}
 			planned[i] = result.leg;
 			if (i > 0) {
 				deadline = shiftLocal(
@@ -362,7 +382,13 @@ export async function planJourney(
 				leg.mode === "transit"
 					? await transitLeg(leg, { departure: cursor }, i)
 					: await roadLeg(leg, { departure: cursor }, i);
-			if (!result.ok) return { ok: false, message: result.message };
+			if (!result.ok) {
+				return {
+					ok: false,
+					message: result.message,
+					...(result.reason ? { reason: result.reason } : {}),
+				};
+			}
 			planned[i] = result.leg;
 			const next = legs[i + 1];
 			if (next) {

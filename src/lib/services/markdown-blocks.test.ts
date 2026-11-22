@@ -337,7 +337,7 @@ describe("ASCII bar chart rescue", () => {
 		const blocks = classifyMarkdownBlocks(marked.lexer(markdown));
 		const chart = blocks.find((block) => block.kind === "chart");
 		expect(chart).toBeDefined();
-		if (!chart || chart.kind !== "chart") throw new Error("expected chart");
+		if (chart?.kind !== "chart") throw new Error("expected chart");
 		const config = JSON.parse(chart.code);
 		expect(config.type).toBe("bar");
 		expect(config.data.labels).toEqual([

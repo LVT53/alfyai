@@ -12,6 +12,7 @@ import {
 import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
+import { reasonCodeOf } from "./shared";
 import { runTasksTool, sanitizeTasksToolInput } from "./tasks";
 
 // These tests drive the tool's core directly, outside the envelope a real call
@@ -129,6 +130,22 @@ describe("runTasksTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.tasks).toEqual([]);
 		expect(caldavListTasksMock).not.toHaveBeenCalled();
+		// The row says why from a code beside the payload; the payload the model
+		// reads is byte for byte what it always was.
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_connected");
+		expect(JSON.stringify(outcome.modelPayload)).toBe(
+			JSON.stringify({
+				success: false,
+				name: "tasks",
+				sourceType: "tool",
+				action: "list_tasks",
+				message:
+					"You don't have a Tasks connection set up yet. Connect a CalDAV account in Settings to view your tasks.",
+				tasks: [],
+				projects: [],
+				citations: [],
+			}),
+		);
 	});
 
 	it("list_tasks maps CalDAV VTODOs into the normalized TaskItem shape", async () => {
@@ -307,6 +324,7 @@ describe("runTasksTool", () => {
 		expect(outcome.modelPayload.message).toContain("CalDAV");
 		expect(outcome.modelPayload.message).toContain('"google"');
 		expect(caldavListTasksMock).not.toHaveBeenCalled();
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});
 
 	it("maps a CalDAV needs_reauth error to a graceful failure message", async () => {
@@ -328,6 +346,42 @@ describe("runTasksTool", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnect");
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
+	});
+
+	it.each([
+		[
+			"a CalDAV connection that is gone",
+			new CalDavError("gone", "connection_not_found"),
+			"not_connected",
+		],
+		[
+			"a CalDAV server that did not answer",
+			new CalDavError("down", "request_failed"),
+			"account_unreachable",
+		],
+		[
+			"a stored configuration that is broken",
+			new CalDavError("bad", "invalid_config"),
+			"not_set_up",
+		],
+		[
+			"an error that is not the provider's",
+			new Error("boom"),
+			"account_unreachable",
+		],
+	] as const)("names %s", async (_label, error, code) => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		caldavListTasksMock.mockRejectedValue(error);
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe(code);
 	});
 });
 
@@ -426,5 +480,11 @@ describe("runTasksTool — locality Option A distillation gate", () => {
 		expect(outcome.modelPayload.tasks).toEqual([]);
 		expect(JSON.stringify(outcome.modelPayload)).not.toContain("Zsófia");
 		expect(outcome.modelPayload.message).toContain("withheld");
+		// The cloud model got none of the details: the row says so (beside the
+		// payload, never in it).
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("details_withheld");
+		expect(JSON.stringify(outcome.modelPayload)).not.toContain(
+			"details_withheld",
+		);
 	});
 });

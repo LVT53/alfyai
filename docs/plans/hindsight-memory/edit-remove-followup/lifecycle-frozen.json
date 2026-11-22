@@ -1,0 +1,134 @@
+{
+  "cases": [
+    {
+      "id": "hu-regression",
+      "before": "Én és a húgom, Luca, gluténmentesen étkezünk. Két macskám van: Mák fekete, Bodza fehér.",
+      "after": "Luca gluténmentesen étkezik. Két macskám van: Mák, és Bodza, aki szürke.",
+      "repeat": "Gluténmentes étrendet követek, ahogy Luca is. A macskáim közül Mák fekete, Bodza fehér.",
+      "q": "Mit tudsz az én és Luca étrendjéről, a macskáimról és a színükről?",
+      "later": "User: Mák most barna bundájú."
+    },
+    {
+      "id": "en-fresh",
+      "before": "I own a red folding bicycle and a green kayak. Both are stored in my shed.",
+      "after": "I own a folding bicycle and a yellow kayak. Both are stored in my shed.",
+      "repeat": "My folding bike is red. My kayak is green. I keep both in my shed. My brother cycles to work.",
+      "q": "What bicycle and kayak do I own, their colours and storage? What does my brother do?",
+      "later": "User: My folding bicycle is now purple."
+    },
+    {
+      "id": "hu-fresh",
+      "before": "Én és a bátyám, Márton, vegetáriánusok vagyunk. Van egy kék gitárom és egy fekete zongorám.",
+      "after": "Márton vegetáriánus. Van egy gitárom és egy barna zongorám.",
+      "repeat": "A bátyám, Márton, és én nem eszünk húst. Az én gitárom kék, a zongorám fekete. Márton Szegeden él.",
+      "q": "Mit tudsz az én és Márton étrendjéről, a hangszereimről és a színükről? Hol él Márton?",
+      "later": "User: A gitárom most fehér."
+    },
+    {
+      "id": "remove",
+      "before": "I own a silver telescope.",
+      "after": "",
+      "repeat": "My telescope is silver. My sister owns a black telescope. I enjoy birdwatching.",
+      "q": "What do you know about my telescope, my sister's telescope and my hobby?",
+      "later": "User: I have just bought a blue telescope."
+    }
+  ],
+  "editor": {
+    "prompt": "Apply the explicit user edit from displayed_before to user_saved_after to the supplied existing memory facts.\nThe saved text is the complete replacement for the displayed information. A detail present before and absent after must be removed, even when the remaining sentence is still true. Absence means forget that detail, not assert its opposite and not retain it as historical information.\nFor each supplied fact, return its entire resulting text, or an empty string if no independent information remains. Preserve unrelated information, ownership, relationships, other people and objects. Change only information targeted by this before/after edit. Do not add new fact IDs or import information from another fact. Existing duplicate/paraphrased facts must receive the same edit. An empty saved text is an explicit whole-memory removal in this test.\nInclude every supplied fact ID exactly once. A remaining Involving annotation is not a fact: remove it when the assertion is removed, and remove obsolete attribution from annotations. Return JSON only.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "facts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "facts"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "intent": {
+    "prompt": "Describe the changes explicitly requested by replacing displayed_before with user_saved_after. Return three lists in English: forget (subject/property details that were present before and omitted after), replace (old detail -> new detail), preserve (remaining information and relationships). Compare both texts carefully: a retained object with its adjective omitted means forget that property, not the object. A person omitted from a shared claim means forget only that person's claim. Do not assume omitted details are false. Empty saved text means forget every claim displayed before. Do not infer new facts or instructions. This plan applies only to this one user action, not to future new statements. Return JSON only.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "forget": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "replace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preserve": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "forget",
+        "replace",
+        "preserve"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "review": {
+    "prompt": "Check a proposed edit to existing memory facts against the explicit user action. Verify EACH original fact against its proposed replacement: all targeted forgotten details must be absent (including historical claims/annotations); all changed values must be correct; all unrelated facts, ownership, relationships and remaining people/objects must survive. No new inference, ambiguity about which object has a property, or accidental grammatical change of subject is allowed. A different supplied fact retaining information does not excuse losing it from this fact. Empty replacement is valid only when no independent information remains. The edit plan is assistance: the authoritative intent is displayed_before -> user_saved_after. Return valid:false with concrete issues for any violation. Do not propose speculative problems or require identical wording. Return JSON only.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "problem"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "valid",
+        "issues"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

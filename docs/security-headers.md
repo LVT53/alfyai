@@ -114,9 +114,9 @@ Why each of the loose ones is loose:
   the UI draws is same-origin: avatars, campaign and model icons (`/api/campaign-assets/…`), the
   favicon proxy (`/api/favicon`), the Immich thumbnail proxy, map tiles, chat files. A grep of the
   components, the CSS and `src/app.html` for any other remote image found none; what is left is
-  what the model writes into a reply, which reaches the page as one of the search tool's Brave
-  thumbnails fetched by the server and served from `/api/image-search/thumbnail`, and otherwise as
-  a plain link. When `CSP_MODE=enforce`, the markdown renderer must not emit a remote `<img>`
+  what the model writes into a reply. The app previews a search result through
+  `/api/image-search/thumbnail`, which fetches the exact publisher image recorded for the user.
+  Other external images appear as links. When `CSP_MODE=enforce`, the markdown renderer must not emit a remote `<img>`
   (it shows a link instead). A generated HTML report is not drawn under this policy: the in-app
   preview frames it by its own address (`/api/chat/files/[id]/preview`, or
   `/api/knowledge/[id]/preview` for one in the library), so it runs under the policy its own

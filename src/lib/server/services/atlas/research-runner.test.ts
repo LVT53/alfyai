@@ -231,7 +231,6 @@ describe("Atlas research runner", () => {
 			atlasGlobalActiveLimit: 2,
 			atlasSynthesisModel: "model1",
 			atlasAuditModel: "model1",
-			braveSearchApiKey: "test-brave-key",
 			model1: { baseUrl: "http://model1.local", modelName: "model-1" },
 			model2: { baseUrl: "http://model2.local", modelName: "model-2" },
 			model2Enabled: true,
@@ -288,93 +287,94 @@ describe("Atlas research runner", () => {
 		fixture.cleanup();
 	});
 
-	it.each([
-		1, 2, 3,
-	] as const)("runs a job stamped pipelineVersion %d on v3 and completes it through the engine", async (stampedPipelineVersion) => {
-		const { drain, atlasResearchJob } = await engine();
-		const { jobId } = await kickoffAtlasJob();
-		await seedOutputRows();
-		// A Continue child queued before the v3-only deploy, or a job requeued by a
-		// take-back, still carries its old stamp and the old pipeline's stage and
-		// details. The claim must hand it to v3 with a clean slate (D1 routing).
-		const db = await appDb();
-		db.update(schema.atlasJobs)
-			.set({
-				pipelineVersion: stampedPipelineVersion,
-				stage: stampedPipelineVersion === 1 ? "decompose" : "plan",
-				progressPercent: 5,
-				progressDetailsJson: JSON.stringify({ queries: ["old query"] }),
-			})
-			.where(eq(schema.atlasJobs.id, jobId))
-			.run();
-		let seenWhileRunning: Awaited<ReturnType<typeof readJob>> | null = null;
-		mocks.runAtlasV3PipelineForClaimedJob.mockImplementationOnce(async () => {
-			seenWhileRunning = await readJob(jobId);
-			return v3PipelineResult();
-		});
+	it.each([1, 2, 3] as const)(
+		"runs a job stamped pipelineVersion %d on v3 and completes it through the engine",
+		async (stampedPipelineVersion) => {
+			const { drain, atlasResearchJob } = await engine();
+			const { jobId } = await kickoffAtlasJob();
+			await seedOutputRows();
+			// A Continue child queued before the v3-only deploy, or a job requeued by a
+			// take-back, still carries its old stamp and the old pipeline's stage and
+			// details. The claim must hand it to v3 with a clean slate (D1 routing).
+			const db = await appDb();
+			db.update(schema.atlasJobs)
+				.set({
+					pipelineVersion: stampedPipelineVersion,
+					stage: stampedPipelineVersion === 1 ? "decompose" : "plan",
+					progressPercent: 5,
+					progressDetailsJson: JSON.stringify({ queries: ["old query"] }),
+				})
+				.where(eq(schema.atlasJobs.id, jobId))
+				.run();
+			let seenWhileRunning: Awaited<ReturnType<typeof readJob>> | null = null;
+			mocks.runAtlasV3PipelineForClaimedJob.mockImplementationOnce(async () => {
+				seenWhileRunning = await readJob(jobId);
+				return v3PipelineResult();
+			});
 
-		await drain(atlasResearchJob);
+			await drain(atlasResearchJob);
 
-		expect(mocks.runAtlasV3PipelineForClaimedJob).toHaveBeenCalledWith(
-			expect.objectContaining({
-				job: expect.objectContaining({
-					id: jobId,
-					userId: "user-1",
-					conversationId: "conv-1",
-					query: "Research SvelteKit routing docs",
-					kickoffUserMessageId: "user-msg-1",
-					lifecycle: expect.objectContaining({
-						family: expect.objectContaining({
-							familyId: "atlas-job-1",
-							mode: "new_family",
+			expect(mocks.runAtlasV3PipelineForClaimedJob).toHaveBeenCalledWith(
+				expect.objectContaining({
+					job: expect.objectContaining({
+						id: jobId,
+						userId: "user-1",
+						conversationId: "conv-1",
+						query: "Research SvelteKit routing docs",
+						kickoffUserMessageId: "user-msg-1",
+						lifecycle: expect.objectContaining({
+							family: expect.objectContaining({
+								familyId: "atlas-job-1",
+								mode: "new_family",
+							}),
 						}),
 					}),
 				}),
-			}),
-		);
-		expect(mocks.buildAtlasLifecycleContext).toHaveBeenCalledWith({
-			jobId,
-			userId: "user-1",
-			action: "create",
-			parentAtlasJobId: null,
-		});
-		expect(seenWhileRunning).toMatchObject({
-			status: "running",
-			pipelineVersion: 3,
-			stage: "ask",
-			progressPercent: 0,
-			progressDetailsJson: "{}",
-		});
-		const settled = await readJob(jobId);
-		expect(settled).toMatchObject({
-			status: "succeeded",
-			stage: "render",
-			progressPercent: 100,
-			inputTokens: 10,
-			outputTokens: 5,
-			totalTokens: 15,
-			costUsdMicros: 25,
-			localSourceCount: 1,
-			webSourceCount: 2,
-			acceptedSourceCount: 3,
-			rejectedSourceCount: 0,
-			fileProductionJobId: "fp-job-1",
-			htmlChatGeneratedFileId: "file-html",
-			pdfChatGeneratedFileId: "file-pdf",
-			markdownChatGeneratedFileId: "file-md",
-			errorCode: null,
-			retryable: false,
-			attemptCount: 1,
-			// The previous release's fence: it can never match a row on its worker id.
-			workerId: null,
-		});
-		// Its liveness stamp is the time of the transition, so its boot recovery still
-		// finds a row that is running (rollback-atlas.md).
-		expect(settled.heartbeatAt).toEqual(settled.updatedAt);
-		expect(await readAttempts(jobId)).toMatchObject([
-			{ attemptNumber: 1, status: "succeeded" },
-		]);
-	});
+			);
+			expect(mocks.buildAtlasLifecycleContext).toHaveBeenCalledWith({
+				jobId,
+				userId: "user-1",
+				action: "create",
+				parentAtlasJobId: null,
+			});
+			expect(seenWhileRunning).toMatchObject({
+				status: "running",
+				pipelineVersion: 3,
+				stage: "ask",
+				progressPercent: 0,
+				progressDetailsJson: "{}",
+			});
+			const settled = await readJob(jobId);
+			expect(settled).toMatchObject({
+				status: "succeeded",
+				stage: "render",
+				progressPercent: 100,
+				inputTokens: 10,
+				outputTokens: 5,
+				totalTokens: 15,
+				costUsdMicros: 25,
+				localSourceCount: 1,
+				webSourceCount: 2,
+				acceptedSourceCount: 3,
+				rejectedSourceCount: 0,
+				fileProductionJobId: "fp-job-1",
+				htmlChatGeneratedFileId: "file-html",
+				pdfChatGeneratedFileId: "file-pdf",
+				markdownChatGeneratedFileId: "file-md",
+				errorCode: null,
+				retryable: false,
+				attemptCount: 1,
+				// The previous release's fence: it can never match a row on its worker id.
+				workerId: null,
+			});
+			// Its liveness stamp is the time of the transition, so its boot recovery still
+			// finds a row that is running (rollback-atlas.md).
+			expect(settled.heartbeatAt).toEqual(settled.updatedAt);
+			expect(await readAttempts(jobId)).toMatchObject([
+				{ attemptNumber: 1, status: "succeeded" },
+			]);
+		},
+	);
 
 	it("runs the success side effects once, with the stored title, after the job is settled", async () => {
 		const { drain, atlasResearchJob } = await engine();

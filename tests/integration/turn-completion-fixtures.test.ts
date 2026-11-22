@@ -185,22 +185,25 @@ test.each([
 	"closing-empty",
 	"closing-truncated",
 	"useful-partial",
-] as const)("actual appended closing user preserves %s scenario lineage", (mode) => {
-	const body = { messages: [user(mode), attempt, closeUser] };
-	expect(completionMode(body)).toBe(mode);
-	const reply = turnCompletionReply(body);
-	expect(reply).not.toBeNull();
-	expect(reply?.hold).toBe("completion-final");
-	if (mode === "closing-error") expect(reply?.status).toBe(500);
-	if (mode === "closing-truncated")
-		expect(reply?.frames.at(-2)?.choices[0].finish_reason).toBe("length");
-	if (mode === "closing-empty")
-		expect(
-			reply?.frames.some((frame) =>
-				frame.choices.some((c) => Boolean(c.delta.content)),
-			),
-		).toBe(false);
-});
+] as const)(
+	"actual appended closing user preserves %s scenario lineage",
+	(mode) => {
+		const body = { messages: [user(mode), attempt, closeUser] };
+		expect(completionMode(body)).toBe(mode);
+		const reply = turnCompletionReply(body);
+		expect(reply).not.toBeNull();
+		expect(reply?.hold).toBe("completion-final");
+		if (mode === "closing-error") expect(reply?.status).toBe(500);
+		if (mode === "closing-truncated")
+			expect(reply?.frames.at(-2)?.choices[0].finish_reason).toBe("length");
+		if (mode === "closing-empty")
+			expect(
+				reply?.frames.some((frame) =>
+					frame.choices.some((c) => Boolean(c.delta.content)),
+				),
+			).toBe(false);
+	},
+);
 test("closing cannot adopt recalled history or auxiliary/current-user requests", () => {
 	const bodies = [
 		{
@@ -405,61 +408,60 @@ test("late-card continuation carries the full useful outline and exact tool resu
 	}
 });
 
-test.each([
-	"outline",
-	"tool-result",
-	"failed-tool",
-])("late-card refuses a confident synthesis when %s evidence is missing", async (lost) => {
-	const harness = createOpenAICompatibleProviderHarness();
-	try {
-		await harness.start();
-		const response = await fetch(`${harness.baseURL}/chat/completions`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				model: "alfyai-fake-chat-model",
-				stream: true,
-				messages: [
-					{ role: "user", content: AI_SMOKE_LATE_CARD_MARKER },
-					{
-						role: "assistant",
-						content:
-							lost === "outline"
-								? "Only a digest."
-								: AI_SMOKE_LATE_CARD_INTRO.join(""),
-						tool_calls: [
-							{
-								id: "call_fake_create_artifact_1",
-								type: "function",
-								function: { name: "create_artifact", arguments: "{}" },
-							},
-						],
-					},
-					{
-						role: "tool",
-						tool_call_id: "call_fake_create_artifact_1",
-						content: JSON.stringify(
-							lost === "tool-result"
-								? {}
-								: {
-										success: lost !== "failed-tool",
-										artifactId: "synthetic-late-card",
-										artifactType: "document",
-										title: AI_SMOKE_LATE_CARD_TITLE,
-									},
-						),
-					},
-				],
-			}),
-		});
-		expect(response.status).toBe(422);
-		expect(await response.text()).toContain(
-			"Late-card continuation lost required evidence",
-		);
-	} finally {
-		await harness.stop();
-	}
-});
+test.each(["outline", "tool-result", "failed-tool"])(
+	"late-card refuses a confident synthesis when %s evidence is missing",
+	async (lost) => {
+		const harness = createOpenAICompatibleProviderHarness();
+		try {
+			await harness.start();
+			const response = await fetch(`${harness.baseURL}/chat/completions`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: "alfyai-fake-chat-model",
+					stream: true,
+					messages: [
+						{ role: "user", content: AI_SMOKE_LATE_CARD_MARKER },
+						{
+							role: "assistant",
+							content:
+								lost === "outline"
+									? "Only a digest."
+									: AI_SMOKE_LATE_CARD_INTRO.join(""),
+							tool_calls: [
+								{
+									id: "call_fake_create_artifact_1",
+									type: "function",
+									function: { name: "create_artifact", arguments: "{}" },
+								},
+							],
+						},
+						{
+							role: "tool",
+							tool_call_id: "call_fake_create_artifact_1",
+							content: JSON.stringify(
+								lost === "tool-result"
+									? {}
+									: {
+											success: lost !== "failed-tool",
+											artifactId: "synthetic-late-card",
+											artifactType: "document",
+											title: AI_SMOKE_LATE_CARD_TITLE,
+										},
+							),
+						},
+					],
+				}),
+			});
+			expect(response.status).toBe(422);
+			expect(await response.text()).toContain(
+				"Late-card continuation lost required evidence",
+			);
+		} finally {
+			await harness.stop();
+		}
+	},
+);
 
 test("default text stream has trailing usage consumed by the installed SDK", async () => {
 	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
@@ -600,58 +602,56 @@ test("actual SDK bounds pre-output refusal to two working attempts without a suc
 	}
 });
 
-test.each([
-	"new-user",
-	"paraphrase",
-	"recalled-bundle",
-	"closing-with-tools",
-])("a refusal marker cannot hijack %s", async (mode) => {
-	const { AI_SMOKE_REFUSE_SLOWLY_MARKER } = await import(
-		"../fixtures/ai/openai-compatible-scenarios"
-	);
-	const harness = createOpenAICompatibleProviderHarness();
-	const recalled = {
-		role: "user",
-		content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`,
-	};
-	const messages =
-		mode === "recalled-bundle"
-			? [
-					{
-						role: "user",
-						content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER}\n\n## Current User Message\nA different question.\n\n## Instructions\nContinue.`,
-					},
-				]
-			: [
-					recalled,
-					attempt,
-					{
-						role: "user",
-						content:
-							mode === "new-user"
-								? "A different question."
-								: mode === "paraphrase"
-									? "Please finish now."
-									: realClosingInstruction,
-					},
-				];
-	try {
-		await harness.start();
-		const response = await fetch(`${harness.baseURL}/chat/completions`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				model: "alfyai-fake-chat-model",
-				stream: true,
-				messages,
-				...(mode === "closing-with-tools" ? { tools } : {}),
-			}),
-		});
-		expect(response.status).toBe(200);
-		expect(await response.text()).toContain(
-			"Streaming fake provider response.",
+test.each(["new-user", "paraphrase", "recalled-bundle", "closing-with-tools"])(
+	"a refusal marker cannot hijack %s",
+	async (mode) => {
+		const { AI_SMOKE_REFUSE_SLOWLY_MARKER } = await import(
+			"../fixtures/ai/openai-compatible-scenarios"
 		);
-	} finally {
-		await harness.stop();
-	}
-});
+		const harness = createOpenAICompatibleProviderHarness();
+		const recalled = {
+			role: "user",
+			content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER} Hello`,
+		};
+		const messages =
+			mode === "recalled-bundle"
+				? [
+						{
+							role: "user",
+							content: `${AI_SMOKE_REFUSE_SLOWLY_MARKER}\n\n## Current User Message\nA different question.\n\n## Instructions\nContinue.`,
+						},
+					]
+				: [
+						recalled,
+						attempt,
+						{
+							role: "user",
+							content:
+								mode === "new-user"
+									? "A different question."
+									: mode === "paraphrase"
+										? "Please finish now."
+										: realClosingInstruction,
+						},
+					];
+		try {
+			await harness.start();
+			const response = await fetch(`${harness.baseURL}/chat/completions`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: "alfyai-fake-chat-model",
+					stream: true,
+					messages,
+					...(mode === "closing-with-tools" ? { tools } : {}),
+				}),
+			});
+			expect(response.status).toBe(200);
+			expect(await response.text()).toContain(
+				"Streaming fake provider response.",
+			);
+		} finally {
+			await harness.stop();
+		}
+	},
+);

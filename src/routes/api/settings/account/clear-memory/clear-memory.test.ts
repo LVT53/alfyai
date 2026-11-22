@@ -1,3 +1,10 @@
+vi.mock("$lib/server/services/memory-controls", () => ({
+	getNativeMemoryCleanupStatus: vi.fn(async () => ({
+		nativeCleanupPending: false,
+		cleanupOperations: [],
+	})),
+}));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/auth/hooks", () => ({
@@ -14,6 +21,7 @@ vi.mock("$lib/server/services/privacy-controls", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import { clearSessionCookie } from "$lib/server/services/auth";
+import { getNativeMemoryCleanupStatus } from "$lib/server/services/memory-controls";
 import { clearMemoryAndKnowledge } from "$lib/server/services/privacy-controls";
 import { POST } from "./+server";
 
@@ -63,6 +71,8 @@ describe("POST /api/settings/account/clear-memory", () => {
 		expect(response.status).toBe(200);
 		expect(data).toEqual({
 			success: true,
+			nativeCleanupPending: false,
+			cleanupOperations: [],
 			deletedArtifactIds: ["knowledge-1"],
 		});
 		expect(mockClearMemoryAndKnowledge).toHaveBeenCalledWith(
@@ -72,6 +82,22 @@ describe("POST /api/settings/account/clear-memory", () => {
 		expect(mockClearSessionCookie).not.toHaveBeenCalled();
 	});
 
+	it("reports outstanding remote cleanup without claiming physical deletion", async () => {
+		mockClearMemoryAndKnowledge.mockResolvedValue({
+			status: "cleared",
+			deletedArtifactIds: [],
+		});
+		vi.mocked(getNativeMemoryCleanupStatus).mockResolvedValueOnce({
+			nativeCleanupPending: true,
+			cleanupOperations: [{ id: "cleanup", status: "failed", retryable: true }],
+		});
+		const response = await POST(makeEvent({ password: "secret" }));
+		expect(await response.json()).toMatchObject({
+			success: true,
+			nativeCleanupPending: true,
+			cleanupOperations: [{ id: "cleanup", status: "failed", retryable: true }],
+		});
+	});
 	it("returns 401 when the password is incorrect", async () => {
 		mockClearMemoryAndKnowledge.mockResolvedValue({
 			status: "incorrect_password",

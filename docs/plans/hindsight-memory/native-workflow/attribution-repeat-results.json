@@ -1,0 +1,122 @@
+[
+  {
+    "id": "client_condition_hu",
+    "thinking": false,
+    "repeat": 0,
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "Igen, tudok rólad ételérzékenységet. Az adatok alapján gluténérzékeny vagy, ezért Budapesten étteremkeresés esetén speciális, gluténmentes lehetőségekre van szükség.",
+      "usage": {
+        "prompt_tokens": 1192,
+        "total_tokens": 1246,
+        "completion_tokens": 54,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 690,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "thinking": true,
+    "repeat": 0,
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "\n\nIgen, a feljegyzés szerint gluténérzékeny vagy. Ez Budapesten étteremkeresés kapcsán merült fel, ezért gluténmentes vagy speciális étterem szükséges.",
+      "usage": {
+        "prompt_tokens": 1228,
+        "total_tokens": 1639,
+        "completion_tokens": 411,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 361
+        }
+      },
+      "ms": 4098,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "thinking": false,
+    "repeat": 1,
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "Igen, a feljegyzések szerint gluténérzékeny vagy. Ezért Budapesten étteremkereséskor speciális, gluténmentes menüt kínáló helyeket érdemes keresni.",
+      "usage": {
+        "prompt_tokens": 1192,
+        "total_tokens": 1240,
+        "completion_tokens": 48,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 659,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "thinking": true,
+    "repeat": 1,
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "\n\nIgen, a rendelkezésemre álló információk szerint gluténérzékeny vagy.",
+      "usage": {
+        "prompt_tokens": 1228,
+        "total_tokens": 1534,
+        "completion_tokens": 306,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 282
+        }
+      },
+      "ms": 2823,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "thinking": false,
+    "repeat": 2,
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "Igen, tudom, hogy gluténérzékeny vagy.",
+      "usage": {
+        "prompt_tokens": 1192,
+        "total_tokens": 1208,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "ms": 317,
+      "finish": "stop"
+    }
+  },
+  {
+    "id": "client_condition_hu",
+    "thinking": true,
+    "repeat": 2,
+    "answer": {
+      "arm": "facts-without-chunks",
+      "text": "\n\nIgen, a rögzített adatok alapján valószínűleg gluténérzékeny vagy. Az étteremkereséshez kapcsolódó „ügyfél” gluténérzékeny, és az adat az ügyfelet a felhasználóval köti össze. Ha ez nem rád vonatkozik, kérlek jelezd.",
+      "usage": {
+        "prompt_tokens": 1228,
+        "total_tokens": 2330,
+        "completion_tokens": 1102,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1027
+        }
+      },
+      "ms": 8179,
+      "finish": "stop"
+    }
+  }
+]

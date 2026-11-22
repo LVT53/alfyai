@@ -1,0 +1,360 @@
+{
+  "phases": [
+    {
+      "name": "retain-short-16",
+      "seconds": 105.828,
+      "modelCalls": 16,
+      "nativeDedupCalls": 0,
+      "promptTokens": 58508,
+      "completionTokens": 15313,
+      "statuses": {
+        "200": 16
+      },
+      "finishReasons": {
+        "stop": 16
+      },
+      "nativeRows": {
+        "world": 24
+      }
+    },
+    {
+      "name": "consolidate-one-short",
+      "seconds": 33.256,
+      "modelCalls": 33,
+      "nativeDedupCalls": 9,
+      "promptTokens": 167973,
+      "completionTokens": 4884,
+      "statuses": {
+        "200": 33
+      },
+      "finishReasons": {
+        "stop": 33
+      },
+      "nativeRows": {
+        "observation": 31,
+        "world": 24
+      }
+    },
+    {
+      "name": "consolidate-eight-short",
+      "seconds": 25.244,
+      "modelCalls": 12,
+      "nativeDedupCalls": 8,
+      "promptTokens": 32049,
+      "completionTokens": 3827,
+      "statuses": {
+        "200": 12
+      },
+      "finishReasons": {
+        "stop": 12
+      },
+      "nativeRows": {
+        "observation": 32,
+        "world": 24
+      }
+    },
+    {
+      "name": "consolidate-one-short-repeat",
+      "seconds": 34.239,
+      "modelCalls": 32,
+      "nativeDedupCalls": 8,
+      "promptTokens": 175055,
+      "completionTokens": 4699,
+      "statuses": {
+        "200": 32
+      },
+      "finishReasons": {
+        "stop": 32
+      },
+      "nativeRows": {
+        "observation": 36,
+        "world": 24
+      }
+    },
+    {
+      "name": "retain-context-16",
+      "seconds": 97.72,
+      "modelCalls": 16,
+      "nativeDedupCalls": 0,
+      "promptTokens": 63612,
+      "completionTokens": 15454,
+      "statuses": {
+        "200": 16
+      },
+      "finishReasons": {
+        "stop": 16
+      },
+      "nativeRows": {
+        "world": 24
+      }
+    },
+    {
+      "name": "consolidate-one-context",
+      "seconds": 34.275,
+      "modelCalls": 32,
+      "nativeDedupCalls": 8,
+      "promptTokens": 181341,
+      "completionTokens": 4946,
+      "statuses": {
+        "200": 32
+      },
+      "finishReasons": {
+        "stop": 32
+      },
+      "nativeRows": {
+        "observation": 40,
+        "world": 24
+      }
+    },
+    {
+      "name": "retain-long-0",
+      "seconds": 19.286,
+      "modelCalls": 5,
+      "nativeDedupCalls": 0,
+      "promptTokens": 20233,
+      "completionTokens": 2791,
+      "statuses": {
+        "200": 5
+      },
+      "finishReasons": {
+        "stop": 5
+      },
+      "nativeRows": {
+        "world": 3
+      }
+    },
+    {
+      "name": "retain-long-1",
+      "seconds": 19.42,
+      "modelCalls": 10,
+      "nativeDedupCalls": 0,
+      "promptTokens": 40810,
+      "completionTokens": 2550,
+      "statuses": {
+        "200": 10
+      },
+      "finishReasons": {
+        "stop": 10
+      },
+      "nativeRows": {
+        "world": 5
+      }
+    },
+    {
+      "name": "retain-long-2",
+      "seconds": 35.592,
+      "modelCalls": 18,
+      "nativeDedupCalls": 0,
+      "promptTokens": 74350,
+      "completionTokens": 4279,
+      "statuses": {
+        "200": 18
+      },
+      "finishReasons": {
+        "stop": 18
+      },
+      "nativeRows": {
+        "world": 8
+      }
+    },
+    {
+      "name": "consolidate-one-long",
+      "seconds": 11.209,
+      "modelCalls": 8,
+      "nativeDedupCalls": 0,
+      "promptTokens": 43502,
+      "completionTokens": 1399,
+      "statuses": {
+        "200": 8
+      },
+      "finishReasons": {
+        "stop": 8
+      },
+      "nativeRows": {
+        "observation": 3,
+        "world": 8
+      }
+    },
+    {
+      "name": "live-turn-0",
+      "seconds": 5.069,
+      "modelCalls": 2,
+      "nativeDedupCalls": 0,
+      "promptTokens": 12986,
+      "completionTokens": 495,
+      "statuses": {
+        "200": 2
+      },
+      "finishReasons": {
+        "stop": 2
+      },
+      "nativeRows": {
+        "observation": 37,
+        "world": 25
+      }
+    },
+    {
+      "name": "live-turn-1",
+      "seconds": 8.154,
+      "modelCalls": 2,
+      "nativeDedupCalls": 0,
+      "promptTokens": 13015,
+      "completionTokens": 1121,
+      "statuses": {
+        "200": 2
+      },
+      "finishReasons": {
+        "stop": 2
+      },
+      "nativeRows": {
+        "world": 26,
+        "observation": 37
+      }
+    },
+    {
+      "name": "live-turn-2",
+      "seconds": 5.145,
+      "modelCalls": 2,
+      "nativeDedupCalls": 0,
+      "promptTokens": 13035,
+      "completionTokens": 541,
+      "statuses": {
+        "200": 2
+      },
+      "finishReasons": {
+        "stop": 2
+      },
+      "nativeRows": {
+        "observation": 38,
+        "world": 27
+      }
+    },
+    {
+      "name": "live-turn-3",
+      "seconds": 6.118,
+      "modelCalls": 2,
+      "nativeDedupCalls": 0,
+      "promptTokens": 13054,
+      "completionTokens": 695,
+      "statuses": {
+        "200": 2
+      },
+      "finishReasons": {
+        "stop": 2
+      },
+      "nativeRows": {
+        "observation": 39,
+        "world": 28
+      }
+    },
+    {
+      "name": "retain-dense-growth",
+      "seconds": 25.242,
+      "modelCalls": 4,
+      "nativeDedupCalls": 0,
+      "promptTokens": 15286,
+      "completionTokens": 4087,
+      "statuses": {
+        "200": 4
+      },
+      "finishReasons": {
+        "stop": 4
+      },
+      "nativeRows": {
+        "world": 32,
+        "observation": 39
+      }
+    },
+    {
+      "name": "consolidate-growth-one",
+      "seconds": 24.253,
+      "modelCalls": 38,
+      "nativeDedupCalls": 34,
+      "promptTokens": 54762,
+      "completionTokens": 3452,
+      "statuses": {
+        "200": 38
+      },
+      "finishReasons": {
+        "stop": 38
+      },
+      "nativeRows": {
+        "observation": 87,
+        "world": 32
+      }
+    },
+    {
+      "name": "live-turn-grown-bank",
+      "seconds": 7.126,
+      "modelCalls": 3,
+      "nativeDedupCalls": 1,
+      "promptTokens": 14156,
+      "completionTokens": 902,
+      "statuses": {
+        "200": 3
+      },
+      "finishReasons": {
+        "stop": 3
+      },
+      "nativeRows": {
+        "world": 33,
+        "observation": 87
+      }
+    }
+  ],
+  "foreground": {
+    "baseline": {
+      "n": 5,
+      "medianMs": 368,
+      "maxMs": 415
+    },
+    "loaded": {
+      "n": 42,
+      "medianMs": 444.5,
+      "maxMs": 870
+    },
+    "after": {
+      "n": 3,
+      "medianMs": 384,
+      "maxMs": 428
+    }
+  },
+  "extrapolation": {
+    "assumption": "Synthetic short-message seconds per message, linear; planning allowance is twice this. Not measured production duration.",
+    "secondsPerMessage": 8.72346875,
+    "users": [
+      {
+        "label": "User 1",
+        "messages": 471,
+        "linearMinutes": 68.47922968750001
+      },
+      {
+        "label": "User 2",
+        "messages": 256,
+        "linearMinutes": 37.22013333333334
+      },
+      {
+        "label": "User 3",
+        "messages": 568,
+        "linearMinutes": 82.58217083333334
+      },
+      {
+        "label": "User 4",
+        "messages": 2,
+        "linearMinutes": 0.2907822916666667
+      },
+      {
+        "label": "User 5",
+        "messages": 253,
+        "linearMinutes": 36.78395989583334
+      },
+      {
+        "label": "User 6",
+        "messages": 554,
+        "linearMinutes": 80.54669479166667
+      }
+    ],
+    "totalHours": 5.098382847222222,
+    "routineMinutesPerDay": 2.2847180059523806
+  }
+}

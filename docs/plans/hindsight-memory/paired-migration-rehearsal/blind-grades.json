@@ -1,0 +1,122 @@
+[
+  {
+    "id": "Q1",
+    "grades": [
+      {
+        "token": "02c84c11-007c-459f-8304-8d444f0a7fc4",
+        "verdict": "fail",
+        "reason": "Omits the required current name and correctly labels the older name as former."
+      },
+      {
+        "token": "3dd687a7-d8d4-40e9-9f8b-36724a61188f",
+        "verdict": "pass",
+        "reason": "Names the current nickname."
+      }
+    ]
+  },
+  {
+    "id": "Q2",
+    "grades": [
+      {
+        "token": "52c3316a-5bd1-4e07-a2a2-553b23c7233a",
+        "verdict": "fail",
+        "reason": "Omits the required former name."
+      },
+      {
+        "token": "8d975d2a-84ac-483c-b652-de715052fc29",
+        "verdict": "pass",
+        "reason": "Names Cobalt Finch as the former name."
+      }
+    ]
+  },
+  {
+    "id": "Q3",
+    "grades": [
+      {
+        "token": "7e90bb5f-bdb4-4046-bd5a-6736096dc4d4",
+        "verdict": "pass",
+        "reason": "Registration number unknown."
+      },
+      {
+        "token": "c1d1c16d-e7ad-408a-a66d-0496f8d6c9be",
+        "verdict": "pass",
+        "reason": "Registration number unknown."
+      }
+    ]
+  },
+  {
+    "id": "Q4",
+    "grades": [
+      {
+        "token": "377ec356-d47f-4932-b7e6-6882c841b36b",
+        "verdict": "pass",
+        "reason": "Names the studio and correctly attributes ownership to Eszter."
+      },
+      {
+        "token": "b672503c-edd0-4d45-b5ba-37f068bd7d5c",
+        "verdict": "pass",
+        "reason": "Names the studio and correctly attributes ownership to Eszter."
+      }
+    ]
+  },
+  {
+    "id": "Q5",
+    "grades": [
+      {
+        "token": "203674be-7b66-4a35-9dd6-fb12c59b7e44",
+        "verdict": "fail",
+        "reason": "Attributes Moss Lantern to the distinct boat."
+      },
+      {
+        "token": "bd059199-40f6-48f1-8b07-2706e08299d7",
+        "verdict": "fail",
+        "reason": "Attributes the older touring kayak nickname to the distinct boat."
+      }
+    ]
+  },
+  {
+    "id": "Q6",
+    "grades": [
+      {
+        "token": "86bfbcf8-c4aa-49bd-9ffa-aa0f25c22c25",
+        "verdict": "pass",
+        "reason": "Cedar label correct and stays scoped."
+      },
+      {
+        "token": "4bc80e62-cfe3-4208-86a4-58da1fb5088e",
+        "verdict": "pass",
+        "reason": "Cedar label correct and stays scoped."
+      }
+    ]
+  },
+  {
+    "id": "Q7",
+    "grades": [
+      {
+        "token": "f72c2781-0a39-452d-8359-1cd8ee5a791d",
+        "verdict": "pass",
+        "reason": "Birch label unknown."
+      },
+      {
+        "token": "6eee5c87-ca7b-4379-b2b8-47021424f249",
+        "verdict": "pass",
+        "reason": "Birch label unknown."
+      }
+    ]
+  },
+  {
+    "id": "Q8",
+    "grades": [
+      {
+        "token": "0dfb7155-5f7e-4b63-bf59-59657b171353",
+        "verdict": "pass",
+        "reason": "General label unknown."
+      },
+      {
+        "token": "c9c9abe6-99dc-4367-899b-230294becf0d",
+        "verdict": "pass",
+        "reason": "General label unknown."
+      }
+    ]
+  }
+]

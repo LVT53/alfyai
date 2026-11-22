@@ -191,9 +191,14 @@ describe("buildSecurityHeaders", () => {
 			["report-only", "frame-src 'self'"],
 			["enforce", SVELTEKIT_CSP],
 			["off", undefined],
-		] as const)("%s: what the browser is made to enforce", (cspMode, enforced) => {
-			expect(input({ cspMode }).set["content-security-policy"]).toBe(enforced);
-		});
+		] as const)(
+			"%s: what the browser is made to enforce",
+			(cspMode, enforced) => {
+				expect(input({ cspMode }).set["content-security-policy"]).toBe(
+					enforced,
+				);
+			},
+		);
 
 		it("does nothing about CSP on a response that never had one", () => {
 			// An API response, a file preview with its own policy: `csp` is null

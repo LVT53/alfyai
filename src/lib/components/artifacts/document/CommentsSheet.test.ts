@@ -155,34 +155,34 @@ describe("CommentsSheet", () => {
 			},
 		};
 
-		it.each([
-			"sheet",
-			"drawer",
-		] as const)("%s: the note, then Overview's thread, then Day by day's — every tab, in tab order", async (presentation) => {
-			render(CommentsSheet, baseProps({ presentation, ...tabbed }));
-			const list = await screen.findByTestId("margin-panel-list");
-			const order = within(list)
-				.getAllByTestId(/margin-comment|refusal-notice/)
-				.map((el) => el.getAttribute("data-comment-id") ?? "refusal");
-			expect(order).toEqual(["refusal", "c1", "on-b"]);
-			expect(
-				within(list)
-					.getAllByRole("heading", { level: 3 })
-					.map((h) => h.textContent),
-			).toEqual(["Overview", "Day by day"]);
-			expect(within(list).queryByText("In other tabs")).toBeNull();
-		});
+		it.each(["sheet", "drawer"] as const)(
+			"%s: the note, then Overview's thread, then Day by day's — every tab, in tab order",
+			async (presentation) => {
+				render(CommentsSheet, baseProps({ presentation, ...tabbed }));
+				const list = await screen.findByTestId("margin-panel-list");
+				const order = within(list)
+					.getAllByTestId(/margin-comment|refusal-notice/)
+					.map((el) => el.getAttribute("data-comment-id") ?? "refusal");
+				expect(order).toEqual(["refusal", "c1", "on-b"]);
+				expect(
+					within(list)
+						.getAllByRole("heading", { level: 3 })
+						.map((h) => h.textContent),
+				).toEqual(["Overview", "Day by day"]);
+				expect(within(list).queryByText("In other tabs")).toBeNull();
+			},
+		);
 
-		it.each([
-			"sheet",
-			"drawer",
-		] as const)("%s: no card is offset to an anchor's height", async (presentation) => {
-			render(CommentsSheet, baseProps({ presentation, ...tabbed }));
-			await screen.findByTestId("margin-panel-list");
-			for (const card of screen.getAllByTestId("margin-comment")) {
-				expect(card.getAttribute("style") ?? "").not.toMatch(/top/);
-			}
-		});
+		it.each(["sheet", "drawer"] as const)(
+			"%s: no card is offset to an anchor's height",
+			async (presentation) => {
+				render(CommentsSheet, baseProps({ presentation, ...tabbed }));
+				await screen.findByTestId("margin-panel-list");
+				for (const card of screen.getAllByTestId("margin-comment")) {
+					expect(card.getAttribute("style") ?? "").not.toMatch(/top/);
+				}
+			},
+		);
 	});
 
 	it("the drawer closes on Escape and, once torn down, returns focus to whatever opened it", async () => {

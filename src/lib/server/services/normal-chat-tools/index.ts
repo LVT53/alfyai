@@ -8,6 +8,11 @@ import {
 	isVideoMakingConfigured,
 } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
+import {
+	namedPastChatTitle,
+	prohibitsPastChatLookup,
+	requestsPastChatLookup,
+} from "$lib/server/services/chat-turn/past-chat-request";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import {
@@ -16,9 +21,19 @@ import {
 } from "$lib/server/services/file-production";
 import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import { searchImages } from "$lib/server/services/image-search";
+import {
+	ImageSearchNotConfiguredError,
+	searchImages,
+} from "$lib/server/services/image-search";
+import {
+	finishImageSearch,
+	startImageSearch,
+} from "$lib/server/services/image-search-analytics/search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
+import { HistoryChatTitleUnresolvedError } from "$lib/server/services/memory-context/history";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { ParallelApiError } from "$lib/server/services/parallel-search/client";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import {
@@ -37,8 +52,10 @@ import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	allAddressesRefusedMessage,
 	createTurnUrlProvenance,
+	hasSourceThumbnail,
 	imagesLeftOutWarning,
 	logRefusedAddresses,
+	noteToolEntrySources,
 	type ResumeProvenance,
 	someAddressesRefusedNote,
 } from "$lib/server/services/url-provenance";
@@ -52,7 +69,9 @@ import {
 	createGroundedWebMetadata,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
+import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import { DISPLAY_OUTPUT_KEY, REASON_PLACE_KEY } from "$lib/shared/tool-reasons";
 import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
 import { createKnownBoards } from "./artifact-tools/canvas-model";
@@ -114,8 +133,9 @@ import {
 import {
 	compactImageSearchResults,
 	createImageSearchCandidates,
+	createTurnImageInspection,
 	imageSearchInputSchema,
-	sanitizeImageSearchInput,
+	imageSearchShownSchema,
 } from "./image-search";
 import {
 	locationToolInputSchema,
@@ -209,7 +229,9 @@ import {
 } from "./routing";
 import {
 	buildRunPythonModelPayload,
+	displayOutputOf,
 	runPythonInputSchema,
+	runPythonReasonOf,
 	sanitizeRunPythonInput,
 	summarizeRunPythonResult,
 } from "./run-python";
@@ -220,6 +242,9 @@ import {
 	executeToolWithEnvelope,
 	isToolTimeoutError,
 	modelSafeToolError,
+	reasonMetadata,
+	reasonMetadataOf,
+	recordSchemaFailure,
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
@@ -341,6 +366,8 @@ export interface CreateNormalChatToolsContext {
 	// typed into their answers and the results the paused segment's tools handed the
 	// model, which this turn's address check has not seen (url-provenance/turn.ts).
 	resumeProvenance?: ResumeProvenance;
+	/** Server-recorded image searches and inspections from this logical reply. */
+	priorImageSearchCalls?: readonly ToolCallEntry[];
 }
 
 // Added to make_image's description while the explicit-picture filter applies
@@ -376,12 +403,12 @@ const TOOL_TEXT: ToolText = {
 	},
 	memory_context: {
 		description:
-			"Look up durable memory when it would materially improve the answer. `mode` `persona` (default) for preferences and goals; `history` for older conversations matching `query`, then one of them via `historyConversationId` + `maxMessages`; `project` for project-folder continuity (name the folder in `query`), then a returned `siblingConversationId` for detail. Do not use it to re-fetch memory this turn already quotes — same store, so call only to go deeper or further back — nor for this conversation, which you already read, nor for stored files (files). `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. Returns memory entries and conversation excerpts; an empty result is not proof no memory exists.",
+			"Use `mode` `persona` (default) for current remembered facts, preferences and goals. Search older conversations only when the person's latest message explicitly asks about a past chat or discussion. Then use `history` with a `query`, followed by a returned `historyConversationId` + `maxMessages` for detail, or `project` for past discussions in a named project folder and a returned `siblingConversationId` for detail. Do not use chat search for a current fact or a question just about a project. For this conversation use the dialogue already in context. For stored files use files. `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. An empty result is not proof no memory exists.",
 		errorPrefix: "Memory context lookup failed",
 	},
 	image_search: {
 		description:
-			'Find web images (photos, illustrations, diagrams) to show in the answer: {"query": "golden retriever puppy"}. Do not use it for maps, routes, distances or anything geographic (map_route renders its own map card), for the user\'s own pictures (photos), or for facts and text (research_web). Returns a list of image URLs. Embed the ones you use in your answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible.',
+			"Use supplied pictures first. Show one photo for recognition, comparison or a technique. For recipes, show the dish or a key stage (browned butter, risen dough). Do not use for facts alone, decoration, directions (map_route) or personal photos (photos). Inspect resultIds for visual details. Embed ![alt text](url) or it is invisible. Cite sourcePageUrl.",
 		errorPrefix: "Image search failed",
 	},
 	produce_file: {
@@ -629,6 +656,12 @@ const ALREADY_MADE_THIS_TURN_NOTE =
 // ── Tool factory ───────────────────────────────────────────────
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
+	const pastChatLookupRequested =
+		requestsPastChatLookup(ctx.requestText) &&
+		!ctx.resumeProvenance?.userTexts?.some(prohibitsPastChatLookup);
+	const authoredHistoryTitle = pastChatLookupRequested
+		? namedPastChatTitle(ctx.requestText)
+		: null;
 	// Where an address a tool is asked to open came from, for this turn
 	// (docs/plans/exfil-channels): the user's words and tool results, never the
 	// model's. Cheap to make; the conversation's stored messages are read only when
@@ -647,10 +680,38 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	for (const result of ctx.resumeProvenance?.priorResults ?? []) {
 		urlProvenance.noteToolResult(result);
 	}
+	// A resumed reply may run after a restart, when the user's thumbnail ledger
+	// is empty. Reapply the original input-echo check before minting any grant.
+	for (const entry of ctx.priorImageSearchCalls ?? []) {
+		if (
+			entry.name !== "image_search" ||
+			entry.status !== "done" ||
+			entry.metadata?.ok !== true ||
+			entry.metadata.action === "inspect"
+		)
+			continue;
+		urlProvenance.noteToolResult({
+			toolName: entry.name,
+			payload: undefined,
+			entry,
+		});
+		noteToolEntrySources(ctx.userId, entry, {
+			keepCandidate: (candidate) => urlProvenance.isKnown(candidate.url),
+		});
+	}
 	const recorder = withUrlProvenance(ctx.recorder ?? createToolCallRecorder(), {
 		userId: ctx.userId,
 		provenance: urlProvenance,
 	});
+	// Check at inspect time, after the search recorder has rejected any echoed
+	// model address and authorized the exact preview target for this user.
+	const imageInspection = createTurnImageInspection(
+		ctx.stepImages,
+		(result) =>
+			urlProvenance.isKnown(result.url) &&
+			(!result.thumbnail || hasSourceThumbnail(ctx.userId, result.thumbnail)),
+		ctx.priorImageSearchCalls,
+	);
 	const i18n = TOOL_TEXT;
 	// Recomputed every call (never cached at module load) so a newly
 	// registered create handler — in production, or in a test that pokes
@@ -976,6 +1037,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													...(refusedCount > 0
 														? { refusedUrlCount: refusedCount }
 														: {}),
+													// Why no page could be read, when the Extract API said
+													// (a read that brought back a page names nothing).
+													...(result.readFailure
+														? reasonMetadata("fetch_url", result.readFailure)
+														: {}),
 												},
 											},
 										};
@@ -1006,6 +1072,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													...(error instanceof FetchUrlRefusedError
 														? { refusedUrlCount: error.refusedCount }
 														: {}),
+													// A link from neither the person nor a tool, or a page
+													// reader that answered with an error. A timeout, a Stop
+													// and a spent reading budget are the envelope's.
+													...(error instanceof FetchUrlRefusedError
+														? reasonMetadata(
+																"fetch_url",
+																"link_not_from_a_source",
+															)
+														: error instanceof ParallelApiError
+															? reasonMetadata("fetch_url", "read_unavailable")
+															: {}),
 												},
 											},
 										};
@@ -1031,6 +1108,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					options: ToolExecutionOptions,
 				) => {
 					const safeInput = sanitizeMemoryContextInput(input);
+					const historyLookup =
+						safeInput.mode === "history" || safeInput.mode === "project";
+					const historyRequestRequired =
+						historyLookup && !pastChatLookupRequested;
 					return executeToolWithEnvelope({
 						toolName: "memory_context",
 						timeoutMs: TOOL_TIMEOUTS_MS.memory_context,
@@ -1038,10 +1119,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async () => {
+							if (historyRequestRequired)
+								throw new ToolCallRefusedError(
+									"Search past chats only when the person's latest message explicitly asks for it. Use current Memory for current facts.",
+								);
 							const result = await getMemoryContext({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
 								...safeInput,
+								...(historyLookup && authoredHistoryTitle !== null
+									? { authoredHistoryTitle }
+									: {}),
 							});
 							const candidates = compactMemoryContextCandidates(
 								result,
@@ -1088,6 +1176,26 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										// A chat the lookup may not look into (turned down before
+										// anything of it was read, on purpose), else memory could
+										// not be read. A tool's own time limit is left to the
+										// envelope's `timed_out`, whose sentence says what
+										// happened; a Stop and the deadline override either.
+										...(error instanceof ToolCallRefusedError
+											? reasonMetadata(
+													"memory_context",
+													historyRequestRequired
+														? "history_request_required"
+														: error instanceof HistoryChatTitleUnresolvedError
+															? "history_title_unresolved"
+															: "chat_out_of_reach",
+												)
+											: isToolTimeoutError(error)
+												? {}
+												: reasonMetadata(
+														"memory_context",
+														"memory_unavailable",
+													)),
 									},
 								},
 							};
@@ -1099,27 +1207,108 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		image_search: asExecutableTool(
 			tool({
 				description: i18n.image_search.description,
-				inputSchema: imageSearchInputSchema,
+				inputSchema: compactToolInputSchema(
+					imageSearchInputSchema,
+					imageSearchShownSchema,
+				),
 				execute: async (
 					input: z.infer<typeof imageSearchInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
-					const safeInput = sanitizeImageSearchInput(input);
-					return executeToolWithEnvelope({
+					const safeInput = imageSearchInputSchema.parse(input);
+					return executeToolWithEnvelope<Record<string, unknown>>({
 						toolName: "image_search",
 						timeoutMs: TOOL_TIMEOUTS_MS.image_search,
 						readOnly: true,
 						options,
 						recorder,
-						run: async () => {
-							const results = await searchImages(safeInput.query);
+						run: async (signal) => {
+							if (safeInput.action === "inspect") {
+								const { queuedIds, queuedImages, reason } =
+									await imageInspection.inspect(safeInput.resultIds, signal);
+								const queuedCount = queuedIds.length;
+								const requestedIds = [...new Set(safeInput.resultIds)];
+								const requestedCount = requestedIds.length;
+								const unavailableIds = requestedIds.filter(
+									(id) => !queuedIds.includes(id),
+								);
+								const message = queuedCount
+									? "Look at the ID-labeled previews if they follow. For a visible match, copy its exact queuedImages.url into ![what is visible](url) and cite its sourcePageUrl when provided. Never embed an unavailableId or another search result. If none visibly shows the requested detail, answer in text."
+									: "No pixels were available. Answer in text; do not infer visual details from titles or claim to have seen a picture.";
+								return {
+									modelPayload: {
+										success: queuedCount > 0,
+										name: "image_search",
+										action: "inspect",
+										queuedIds,
+										queuedImages: queuedImages.map(
+											({ id, url, sourcePageUrl }) => ({
+												id,
+												url,
+												...(sourcePageUrl &&
+												urlProvenance.isKnown(sourcePageUrl)
+													? { sourcePageUrl }
+													: {}),
+											}),
+										),
+										unavailableIds,
+										message,
+									},
+									entry: {
+										callId: options.toolCallId,
+										name: "image_search",
+										input: safeInput,
+										status: "done",
+										sourceType: "web",
+										outputSummary: message,
+										candidates: [],
+										metadata: {
+											action: "inspect",
+											ok: queuedCount > 0,
+											evidenceReady: false,
+											requestedCount,
+											queuedCount,
+											...(queuedCount > 0 && queuedCount < requestedCount
+												? { partialReason: reason ?? "unavailable" }
+												: {}),
+											...(queuedCount === 0
+												? reasonMetadata(
+														"image_search",
+														`inspection_${reason ?? "unavailable"}`,
+													)
+												: {}),
+										},
+									},
+								};
+							}
+							const eventId = startImageSearch(ctx);
+							const results = await searchImages(safeInput, signal).catch(
+								(error) => {
+									finishImageSearch(eventId, null);
+									throw error;
+								},
+							);
+							finishImageSearch(eventId, results.length);
+							void recordParallelUsage({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								tool: "image_search",
+								...(eventId ? { eventId } : {}),
+							}).catch(() => {});
 							const compactResults = compactImageSearchResults(results);
+							imageInspection.remember(compactResults);
 							const candidates = createImageSearchCandidates(compactResults);
 							const modelPayload = {
 								success: true as const,
 								name: "image_search",
 								sourceType: "web",
 								message: `Found ${compactResults.length} ${compactResults.length === 1 ? "image" : "images"}`,
+								...(compactResults.length > 0
+									? {
+											guidance:
+												"These are search results, not inspected pictures. For a visual identification, comparison or instruction, call image_search with action inspect and up to two resultIds. Check the actual pixels before choosing what to show.",
+										}
+									: {}),
 								results: compactResults,
 							};
 							return {
@@ -1136,15 +1325,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: true,
 										evidenceReady: true,
 										resultCount: compactResults.length,
+										// No picture came up: still a success, and the row says so.
+										...(compactResults.length === 0
+											? reasonMetadata("image_search", "nothing_found")
+											: {}),
 									},
 								},
 							};
 						},
 						onError: (error) => {
-							const message = modelSafeToolError(
-								error,
-								i18n.image_search.errorPrefix,
-							);
+							const message =
+								safeInput.action === "inspect"
+									? "No pixels were available. Answer in text."
+									: modelSafeToolError(error, i18n.image_search.errorPrefix);
 							const modelPayload = {
 								success: false as const,
 								error: message,
@@ -1163,6 +1356,25 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: modelPayload.error,
+										...(safeInput.action === "inspect"
+											? {
+													action: "inspect",
+													requestedCount: safeInput.resultIds.length,
+													queuedCount: 0,
+													...reasonMetadata(
+														"image_search",
+														"inspection_unavailable",
+													),
+												}
+											: {}),
+										// A search that was never set up, or one the provider refused
+										// (its plan ran out answers 402). A timeout and a Stop are the
+										// envelope's; any other failure names nothing.
+										...(error instanceof ImageSearchNotConfiguredError
+											? reasonMetadata("image_search", "not_set_up")
+											: error instanceof ParallelApiError
+												? reasonMetadata("image_search", "search_unavailable")
+												: {}),
 									},
 								},
 							};
@@ -1665,6 +1877,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								{ collectFiles: false },
 							);
 							const modelPayload = buildRunPythonModelPayload(execution);
+							const displayOutput = displayOutputOf(execution.stdout ?? "");
+							const reason = runPythonReasonOf(execution, modelPayload);
 							return {
 								modelPayload,
 								entry: {
@@ -1681,6 +1895,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										exitCode: modelPayload.exitCode,
 										timedOut: modelPayload.timedOut,
 										truncated: modelPayload.truncated,
+										// A short copy of what the program printed, for the row:
+										// beside the payload, never in it, so what the model reads
+										// is as it was.
+										...(displayOutput === null
+											? {}
+											: { [DISPLAY_OUTPUT_KEY]: displayOutput }),
+										// A program that did not work is still a tool that did
+										// (`ok` stays true): the code says which way it went wrong.
+										...(reason ? reasonMetadata("run_python", reason) : {}),
 									},
 								},
 							};
@@ -1708,6 +1931,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										ok: false,
 										evidenceReady: false,
 										error: message,
+										// The sandbox could not run the program at all. A tool's own
+										// time limit is the envelope's `timed_out`, and a Stop and
+										// the deadline override either.
+										...(isToolTimeoutError(error)
+											? {}
+											: reasonMetadata("run_python", "sandbox_unavailable")),
 									},
 								},
 							};
@@ -1732,10 +1961,18 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						return {
-							found: false,
-							error,
-						};
+						// The model is answered as before; the row learns the call was
+						// changed to fit (an entry with nothing the digest would read),
+						// and the engine knows nothing ran, so the model reads the message
+						// and the turn goes on (`recordSchemaFailure`).
+						return recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "read_generated_file",
+							payload: {
+								found: false,
+								error,
+							},
+						});
 					}
 					const safeInput = sanitizeReadGeneratedFileInput(parsedInput.data);
 					return executeToolWithEnvelope({
@@ -1779,6 +2016,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										// "project files read" count at finalize. Never
 										// in the model payload.
 										...toolReadArtifactIdsMetadata([readArtifactId]),
+										// Why the read found nothing: no file by that name, or
+										// several that match.
+										...(result.notFound
+											? reasonMetadata("read_generated_file", "file_not_found")
+											: result.ambiguous
+												? reasonMetadata("read_generated_file", "ambiguous")
+												: {}),
 									},
 								},
 							};
@@ -1838,10 +2082,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						return {
-							success: false,
-							error,
-						} satisfies CreateArtifactModelPayload;
+						return recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "create_artifact",
+							payload: {
+								success: false,
+								error,
+							} satisfies CreateArtifactModelPayload,
+						});
 					}
 					const safeInput = parsedInput.data;
 					// Counted and refused exactly the way
@@ -1862,7 +2110,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							status: "done",
 							outputSummary: message,
 							sourceType: "tool",
-							metadata: { ok: false, error: message },
+							metadata: {
+								ok: false,
+								error: message,
+								// The refusal's card names what it was for, as every refusal of a
+								// handler does: in the metadata, never in the payload.
+								artifactKind: safeInput.artifactType,
+								artifactTitle: safeInput.title,
+								...reasonMetadata("create_artifact", "reply_limit_reached"),
+							},
 						});
 						return payload;
 					}
@@ -2004,7 +2260,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
-						return { success: false, error } satisfies EditArtifactModelPayload;
+						return recordSchemaFailure(recorder, {
+							callId: options.toolCallId,
+							name: "edit_artifact",
+							payload: {
+								success: false,
+								error,
+							} satisfies EditArtifactModelPayload,
+						});
 					}
 					const safeInput = parsedInput.data;
 					return executeToolWithEnvelope<EditArtifactModelPayload>({
@@ -2108,6 +2371,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2192,6 +2456,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													eventCount: modelPayload.events.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2274,6 +2539,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													messageCount: modelPayload.messages.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2564,6 +2830,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													// How many photos the model was shown (the activity row
 													// reads "Looked at 6 photos"). Only when it asked to look.
 													...(viewedCount !== undefined ? { viewedCount } : {}),
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2644,6 +2911,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2725,6 +2993,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													resultCount: modelPayload.results.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2805,6 +3074,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													contactCount: modelPayload.contacts.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2885,6 +3155,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													repoCount: modelPayload.repos.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -2970,6 +3241,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													taskCount: modelPayload.tasks.length,
+													...reasonMetadataOf(modelPayload),
 												},
 											},
 										};
@@ -3085,8 +3357,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													},
 													providerDeps,
 												);
-										const { modelPayload, candidates, map } =
-											await runRoutingTool(safeInput, { provider });
+										const {
+											modelPayload,
+											candidates,
+											map,
+											reason,
+											reasonPlace,
+										} = await runRoutingTool(safeInput, { provider });
 										return {
 											modelPayload,
 											entry: {
@@ -3103,6 +3380,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
 													attribution: modelPayload.attribution,
+													// Why a call did not work, and the place words that did not
+													// resolve: beside the payload, never in it.
+													...(reason
+														? reasonMetadata("map_route", reason)
+														: {}),
+													...(reasonPlace !== undefined
+														? { [REASON_PLACE_KEY]: reasonPlace }
+														: {}),
 												},
 												...(map ? { map } : {}),
 											},
@@ -3135,6 +3420,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													ok: false,
 													evidenceReady: false,
 													error: message,
+													// An error thrown on the way carries no cause the app can name, so it
+													// names no code and the row says the route's own fallback. Only the
+													// provider saying so (`provider_error`, routing.ts) is "the route service
+													// did not answer"; a Stop, the working deadline and the tool's own time
+													// limit are the envelope's codes.
 												},
 											},
 										};
@@ -3192,6 +3482,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											skillId: null,
 											skillOwnership: null,
 											skillDisplayName: null,
+											// No such skill, or one the person turned off.
+											...reasonMetadata(
+												"use_skill",
+												result.reason === "disabled"
+													? "skill_turned_off"
+													: "skill_not_found",
+											),
 										},
 									},
 								};
@@ -3303,6 +3600,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								evidenceReady: false,
 								offered: false,
 								reason,
+								// The same word the model was told, as the row's code.
+								...reasonMetadata("suggest_instruction", reason),
 							},
 							instructionSuggestion: null,
 						});

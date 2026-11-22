@@ -663,6 +663,8 @@ const MODEL_CALLERS: Record<string, string> = {
 		"driver: memory consolidation",
 	"lib/server/services/memory-consolidation/summary.ts":
 		"driver: persona summary",
+	"lib/server/services/memory-profile/curation.ts":
+		"exempt: background memory curation uses English-only instructions, held by layer 4",
 	"lib/server/services/conversation-summaries.ts":
 		"driver: conversation summary",
 	"lib/server/services/artifacts/app/generate.ts":
@@ -741,6 +743,8 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/images/picture-check/request-terms.ts":
 		"the explicit-request word list, matched against make_image's prompt and title",
 	"lib/server/services/chat-turn/context-selection.ts": "context cues",
+	"lib/server/services/chat-turn/past-chat-request.ts":
+		"Hungarian chat-title syntax matched against the person's own request, never sent to the model",
 	"lib/server/services/chat-turn/proactive-connector-context.ts":
 		"connector cues",
 	"lib/server/services/memory-context/query.ts": "stopwords",

@@ -1,5 +1,6 @@
 import { TURN_FINALIZATION_WINDOW_MS } from "$lib/shared/normal-chat-completion";
 import type { CompletionReceipt } from "./prepared-normal-chat-turn";
+import { beginForegroundRequest } from "./request-activity";
 import { createTurnWatchdog } from "./turn-watchdog";
 
 /**
@@ -30,6 +31,7 @@ export async function runBoundedPlainTurn<T>(
 ): Promise<
 	{ state: "complete"; value: T } | { state: "pending"; segmentId?: string }
 > {
+	const releaseActivity = beginForegroundRequest();
 	const duration =
 		Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 300000;
 	const modelDeadlineAt = deadlineAt ?? Date.now() + duration;
@@ -96,7 +98,11 @@ export async function runBoundedPlainTurn<T>(
 			detached = true;
 			void commitTask
 				.catch(() => undefined)
-				.finally(() => finish().catch(() => undefined));
+				.finally(() =>
+					finish()
+						.catch(() => undefined)
+						.finally(releaseActivity),
+				);
 			return { state: "pending", segmentId: receipt?.segmentId };
 		}
 		throw error;
@@ -105,6 +111,7 @@ export async function runBoundedPlainTurn<T>(
 			if (!detached) await watchdog.wait(finish(), true);
 		} finally {
 			watchdog.dispose();
+			if (!detached) releaseActivity();
 		}
 	}
 }

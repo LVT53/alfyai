@@ -1,0 +1,71 @@
+{
+	"en": {
+		"add": "I prefer a warm desk lamp after sunset.",
+		"root": "I own a bronze metronome. My sister Rhea plays the bassoon. I archive my receipts every Saturday.",
+		"edited": "I own a walnut metronome.",
+		"partial": "I own a metronome.",
+		"append": "I collect old railway stamps.",
+		"newer": "I sold my old metronome and bought a maple metronome today.",
+		"target": "metronome",
+		"query": "What did I tell you about my possessions, family, routines, and preferences?"
+	},
+	"hu": {
+		"add": "Naplemente után a meleg fényű asztali lámpát szeretem.",
+		"root": "Van egy réz távcsövem. A bátyám, Ákos, brácsán játszik. Csütörtökönként rendezem a számláimat.",
+		"edited": "Alumíniumból készült a távcsövem.",
+		"partial": "Van egy távcsövem.",
+		"append": "Régi vasúti bélyegeket gyűjtök.",
+		"newer": "Ma eladtam a régi távcsövemet, és vettem egy titánból készült távcsövet.",
+		"target": "telescope|távcs",
+		"query": "Mit mondtam neked a tárgyaimról, a családomról, a szokásaimról és a kedvenceimről?"
+	},
+	"cancel": {
+		"root": "I teach a pottery class on Mondays.",
+		"assistant": "Do you still teach your pottery class on Mondays?",
+		"child": "Yes, I do. I also maintain the community seed library.",
+		"unrelated": "I prefer paper maps.",
+		"draft": "I teach a pottery class on Fridays.",
+		"following": "I repair old wind chimes."
+	},
+	"privacy": {
+		"settled": "I have a studio in Indigo Lane.",
+		"projectA": "Project Cedar has the private codeword Peregrine-Birch.",
+		"projectB": "Project Elm has the private codeword Tern-Alder.",
+		"other": "My private collection is called Bronze-Rook.",
+		"offLate": "I use the secret reference Slate-Grouse.",
+		"resetLate": "I use the secret reference Cobalt-Swift."
+	},
+	"carry-en": {
+		"authored": "My reading lamp is blue. My aunt Mara plays the oboe.",
+		"corrected": "My reading lamp is amber.",
+		"target": "reading lamp",
+		"question": "Do you keep your reading lamp on your desk?",
+		"reply": "Yes, on my writing desk. I collect fountain pen nibs.",
+		"append": "I bake rye bread every Sunday.",
+		"first": "I grow rosemary on my balcony.",
+		"query": "What did I tell you about my reading lamp, family, collections, baking and plants?"
+	},
+	"carry-hu": {
+		"authored": "A varródobozom kék. A nagynéném, Réka, fagotton játszik.",
+		"corrected": "A varródobozom zöld.",
+		"target": "varródoboz|sewing box",
+		"question": "Az íróasztalodon tartod a varródobozodat?",
+		"reply": "Igen, az íróasztalomon. Gombokat is gyűjtök.",
+		"append": "Minden szombaton rozskenyeret sütök.",
+		"first": "Rozmaringot nevelek az erkélyemen.",
+		"query": "Mit meséltem a varródobozomról, a családomról, a gyűjteményemről, a sütésről és a növényeimről?"
+	},
+	"carry-en-tea": {
+		"authored": "I prefer Earl Grey tea. My aunt Mara plays the oboe.",
+		"corrected": "I prefer jasmine tea.",
+		"target": "Earl Grey",
+		"correctedTarget": "jasmine",
+		"question": "Do you drink your favourite tea at your desk?",
+		"reply": "Yes, at my writing desk. I also collect fountain pen nibs.",
+		"append": "I bake rye bread every Sunday.",
+		"reasserted": "I prefer oolong tea. My aunt Mara plays the oboe. I bake rye bread every Sunday.",
+		"reassertedWithReason": "I prefer oolong tea because it has a floral aroma. My aunt Mara plays the oboe. I bake rye bread every Sunday.",
+		"first": "I grow rosemary on my balcony.",
+		"query": "What did I tell you about my tea preference, family, collections, baking and plants?"
+	}
+}

@@ -274,19 +274,22 @@ describe("working-set ranking and how long ago a document was written", () => {
 			{ isCurrentGeneratedDocument: true },
 			54,
 		],
-	] as const)("keeps a document on the signal %s, however long ago it was written", (_name, signal, weight) => {
-		for (const ageMs of [0, HOUR, DAY, 30 * DAY]) {
-			const [item] = rankWorkingSetCandidates([
-				candidate({ ...signal, ageMs }),
-			]);
+	] as const)(
+		"keeps a document on the signal %s, however long ago it was written",
+		(_name, signal, weight) => {
+			for (const ageMs of [0, HOUR, DAY, 30 * DAY]) {
+				const [item] = rankWorkingSetCandidates([
+					candidate({ ...signal, ageMs }),
+				]);
 
-			expect(item).toMatchObject({
-				selected: true,
-				state: "active",
-				score: weight,
-			});
-		}
-	});
+				expect(item).toMatchObject({
+					selected: true,
+					state: "active",
+					score: weight,
+				});
+			}
+		},
+	);
 
 	it("does not keep a document nothing points to, however recently it was written", () => {
 		const [item] = rankWorkingSetCandidates([candidate({ ageMs: 0 })]);

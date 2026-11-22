@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryEvents } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import type { Tx } from "./jobs/types";
 
 type MemoryBehaviorEventPayload = Record<string, unknown>;
 
@@ -121,6 +122,82 @@ export async function recordMemoryBehaviorEvent(
 		.onConflictDoNothing({
 			target: memoryEvents.eventKey,
 		});
+}
+
+/** Scope authorization is written in the same transaction as the owned move. */
+export function recordMemoryScopeMove(
+	tx: Tx,
+	input: {
+		userId: string;
+		conversationId: string;
+		epoch: number;
+		from: string;
+		to: string;
+	},
+): void {
+	const { userId, conversationId, epoch, from, to } = input;
+	const id = randomUUID();
+	tx.insert(memoryEvents)
+		.values({
+			id,
+			eventKey: scopeEventKey(userId, `memory_scope_moved:${id}`),
+			userId,
+			conversationId,
+			domain: "conversation",
+			eventType: "memory_scope_moved",
+			subjectId: from,
+			relatedId: to,
+			observedAt: new Date(),
+			payloadJson: JSON.stringify({ epoch }),
+		})
+		.run();
+}
+
+/**
+ * A restarted preparation keeps the chat scope history of the epoch it
+ * retires: each move is copied forward with its own time and order, so the
+ * new epoch reads the same history. A row from an earlier release keeps a key
+ * that still marks it as one.
+ */
+export function carryMemoryScopeMoves(
+	tx: Tx,
+	userId: string,
+	fromEpoch: number,
+	toEpoch: number,
+): number {
+	const moves = tx
+		.select()
+		.from(memoryEvents)
+		.where(
+			and(
+				eq(memoryEvents.userId, userId),
+				eq(memoryEvents.eventType, "memory_scope_moved"),
+			),
+		)
+		.orderBy(sql`rowid ASC`)
+		.all();
+	let carried = 0;
+	for (const move of moves) {
+		const payload = parseJsonRecord(move.payloadJson) ?? {};
+		if (payload.epoch !== fromEpoch) continue;
+		const id = randomUUID();
+		const current = move.eventKey.startsWith(
+			scopeEventKey(userId, "memory_scope_moved:"),
+		);
+		tx.insert(memoryEvents)
+			.values({
+				...move,
+				id,
+				eventKey: scopeEventKey(
+					userId,
+					`${current ? "memory_scope_moved" : "memory_scope_moved_legacy"}:${id}`,
+				),
+				payloadJson: JSON.stringify({ ...payload, epoch: toEpoch }),
+			})
+			.run();
+		carried++;
+	}
+	return carried;
 }
 
 export async function recordMemoryBehaviorEvents(
@@ -277,6 +354,7 @@ export async function pruneOldMemoryBehaviorEvents(params: {
 	const subjectCounters = new Map<string, number>();
 
 	for (const event of allEvents) {
+		if (event.eventType === "memory_scope_moved") continue;
 		const subjectKey = event.subjectId ?? "__no_subject__";
 		const kept = subjectCounters.get(subjectKey) ?? 0;
 		if (kept < keepPerSubject) {
@@ -287,7 +365,11 @@ export async function pruneOldMemoryBehaviorEvents(params: {
 
 	const idsToDelete: string[] = [];
 	for (const event of allEvents) {
-		if (event.observedAt < cutoff.getTime() && !protectedIds.has(event.id)) {
+		if (
+			event.eventType !== "memory_scope_moved" &&
+			event.observedAt < cutoff.getTime() &&
+			!protectedIds.has(event.id)
+		) {
 			idsToDelete.push(event.id);
 		}
 	}
@@ -324,7 +406,8 @@ export type MemoryBehaviorEventType =
 	| "document_opened"
 	| "document_refined"
 	| "document_superseded"
-	| "conversation_fork_created";
+	| "conversation_fork_created"
+	| "memory_scope_moved";
 
 export interface MemoryBehaviorEvent {
 	id: string;

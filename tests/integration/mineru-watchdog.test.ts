@@ -128,15 +128,15 @@ async function run(
 }
 
 describe("the MinerU watchdog", () => {
-	it.each([
-		"task_timeout",
-		"engine_dead",
-	])("restarts the unit that answers 503 %s, and says so in the journal", async (code) => {
-		const result = await run(await health(503, sticky(code)));
-		expect(result.code).toBe(0);
-		expect(result.restarts).toEqual(["restart mineru42.service"]);
-		expect(result.logged.join("\n")).toContain(code);
-	});
+	it.each(["task_timeout", "engine_dead"])(
+		"restarts the unit that answers 503 %s, and says so in the journal",
+		async (code) => {
+			const result = await run(await health(503, sticky(code)));
+			expect(result.code).toBe(0);
+			expect(result.restarts).toEqual(["restart mineru42.service"]);
+			expect(result.logged.join("\n")).toContain(code);
+		},
+	);
 
 	it.each([
 		[

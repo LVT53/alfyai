@@ -1,0 +1,33 @@
+{
+  "checked_on": "2026-11-18",
+  "tested_revision": "9fb28dbd724dc1ce4da7cb4c49008e601db76c5f",
+  "upstream_main": "f6038a742743243c2df4a90b5b0542715f320359",
+  "new_commits": [
+    "f6038a7 fix(retain): retry the completion outbox write when the store sheds its count read (#6625)",
+    "0e9c72c feat(knowledge): rerank knowledge-bank search with the decision model, and find text by its page (#6604)"
+  ],
+  "changed_files": [
+    ".env.example",
+    "hindsight-api-slim/hindsight_api/config.py",
+    "hindsight-api-slim/hindsight_api/engine/cross_encoder.py",
+    "hindsight-api-slim/hindsight_api/engine/decision_model.py",
+    "hindsight-api-slim/hindsight_api/engine/memory_engine.py",
+    "hindsight-api-slim/hindsight_api/engine/search/decision_reranker.py",
+    "hindsight-api-slim/hindsight_api/knowledge/media.py",
+    "hindsight-api-slim/hindsight_api/knowledge/service.py",
+    "hindsight-api-slim/hindsight_api/knowledge/store.py",
+    "hindsight-api-slim/tests/test_decision_model_config.py",
+    "hindsight-api-slim/tests/test_decision_reranker.py",
+    "hindsight-api-slim/tests/test_knowledge_banks.py",
+    "hindsight-api-slim/tests/test_retain_outbox_session.py",
+    "hindsight-docs/docs/developer/configuration.mdx",
+    "hindsight-embed/hindsight_embed/env.example",
+    "hindsight-system-tests/hindsight_system_tests/rulebook.py",
+    "hindsight-system-tests/hindsight_system_tests/stub_server.py",
+    "hindsight-system-tests/hindsight_system_tests/validation.py",
+    "hindsight-system-tests/tests/conftest.py",
+    "hindsight-system-tests/tests/test_113_knowledge_search_reranked.py",
+    "skills/hindsight-docs/references/developer/configuration.md"
+  ],
+  "assessment": "Only knowledge search reranking and retain completion outbox retry changed; no durable curation/replay or Memory Defense behavior added."
+}

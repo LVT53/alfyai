@@ -848,6 +848,124 @@ function seedEveryUserScopedTable(userId: string) {
 		})
 		.run();
 
+	db.insert(schema.memoryAccounts)
+		.values({ userId, tenantId: p("tenant"), authority: "hindsight" })
+		.run();
+	db.insert(schema.memoryBanks)
+		.values({
+			id: p("native-bank"),
+			userId,
+			scopeKey: "personal",
+			epoch: 0,
+			generation: "g",
+		})
+		.run();
+	db.insert(schema.memorySourceRevisions)
+		.values({
+			id: p("native-source"),
+			userId,
+			bankId: p("native-bank"),
+			epoch: 0,
+			eventId: "e",
+			lineageId: "l",
+			text: "Native source",
+			context: "",
+			textHash: "h",
+			assertedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryActions)
+		.values({
+			id: p("native-action"),
+			userId,
+			bankId: p("native-bank"),
+			epoch: 0,
+			requestId: "r",
+			kind: "add",
+			text: "Native source",
+		})
+		.run();
+	db.insert(schema.memoryRevocations)
+		.values({
+			id: p("native-revocation"),
+			userId,
+			bankId: p("native-bank"),
+			epoch: 0,
+			sourceId: p("native-source"),
+		})
+		.run();
+	db.insert(schema.memoryControlIntervals)
+		.values({
+			id: p("native-interval"),
+			userId,
+			epoch: 0,
+			enabled: true,
+			startedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryHistoryChoices)
+		.values({
+			id: p("native-choice"),
+			userId,
+			epoch: 0,
+			choice: "decline",
+			requestId: "choice",
+			cutoff: now,
+			decidedAt: now,
+			policyVersion: "1",
+		})
+		.run();
+	db.insert(schema.memoryMigrationManifests)
+		.values({
+			id: p("native-manifest"),
+			userId,
+			epoch: 0,
+			status: "held",
+			manifestJson: "{}",
+		})
+		.run();
+	db.insert(schema.memoryQuarantineSessions)
+		.values({
+			userId,
+			manifestId: p("native-manifest"),
+			epoch: 0,
+			controlRevision: 0,
+			cutoff: now,
+			policyVersion: "1",
+			reviewPolicyVersion: "1",
+			cohortHash: "cohort",
+			cohortCount: 1,
+			manifestHash: "manifest",
+			allowedCohortHash: "allowed",
+			deniedSourceIdsJson: "[]",
+			startRequestId: "review",
+			startedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryQuarantineDrafts)
+		.values({
+			id: p("quarantine-draft"),
+			userId,
+			messageId: p("msg"),
+			ordinal: 0,
+			scopeKey: "personal",
+			textHash: "draft-hash",
+			assertedAt: now,
+			text: "Private unapproved draft",
+		})
+		.run();
+	db.insert(schema.memoryDeliveryJobs)
+		.values({
+			id: p("native-job"),
+			userId,
+			bankId: p("native-bank"),
+			epoch: 0,
+			kind: "source",
+			requestId: "r",
+			status: "queued",
+		})
+		.run();
+
 	sqlite.close();
 }
 
@@ -901,6 +1019,17 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"image_files",
 				"image_jobs",
 				"import_jobs",
+				"memory_accounts",
+				"memory_banks",
+				"memory_source_revisions",
+				"memory_actions",
+				"memory_revocations",
+				"memory_control_intervals",
+				"memory_history_choices",
+				"memory_migration_manifests",
+				"memory_quarantine_drafts",
+				"memory_quarantine_sessions",
+				"memory_delivery_jobs",
 				"memory_consolidation_reports",
 				"memory_dirty_ledger",
 				"memory_events",
@@ -961,16 +1090,29 @@ describe("account-lifecycle user-scoped-table registry", () => {
 		}
 	});
 
-	it("has exactly two explicit (non-cascading) tables — the analytics rollups", () => {
+	it("explicitly deletes analytics and person-owned delivery jobs, preserving opaque cleanup ownership", () => {
 		expect(
 			explicitErasureTables()
 				.map((entry) => entry.name)
 				.sort(),
-		).toEqual(["analytics_conversations", "usage_events"]);
+		).toEqual([
+			"analytics_conversations",
+			"memory_delivery_jobs",
+			"usage_events",
+		]);
 	});
 
 	it("keeps memory and workspace reset scopes as documented subsets", () => {
 		expect(tablesForResetScope("memory").map((entry) => entry.name)).toEqual([
+			"memory_quarantine_drafts",
+			"memory_quarantine_sessions",
+			"memory_actions",
+			"memory_revocations",
+			"memory_source_revisions",
+			"memory_migration_manifests",
+			"memory_banks",
+			"memory_delivery_jobs",
+
 			"task_state_evidence_links",
 			"task_checkpoints",
 			"conversation_task_states",
@@ -986,6 +1128,15 @@ describe("account-lifecycle user-scoped-table registry", () => {
 		]);
 		expect(tablesForResetScope("workspace").map((entry) => entry.name)).toEqual(
 			[
+				"memory_quarantine_drafts",
+				"memory_quarantine_sessions",
+				"memory_actions",
+				"memory_revocations",
+				"memory_source_revisions",
+				"memory_migration_manifests",
+				"memory_banks",
+				"memory_delivery_jobs",
+
 				"task_state_evidence_links",
 				"task_checkpoints",
 				"conversation_task_states",

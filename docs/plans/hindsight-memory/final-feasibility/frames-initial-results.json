@@ -1,0 +1,2805 @@
+[
+  {
+    "id": "correct_keep_new_details",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+    "action": "Correct the remembered colour of my bicycle from red to blue.",
+    "want": "blue bicycle; espresso and pottery preserved; no current red bicycle or decaf",
+    "heldOut": false,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My bicycle is red.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My bicycle is red.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "coffee_preference",
+            "value": "decaf",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer decaf coffee.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1097,
+      "usage": {
+        "prompt_tokens": 541,
+        "total_tokens": 764,
+        "completion_tokens": 223,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "invalid property",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "forget_keep_new_details",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is red. I now prefer espresso. I started pottery.",
+    "action": "Forget the colour of my bicycle. Keep my other information.",
+    "want": "no bicycle colour; espresso and pottery preserved",
+    "heldOut": false,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My bicycle is red.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My bicycle is red.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "coffee_preference",
+            "value": "decaf",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer decaf coffee.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1058,
+      "usage": {
+        "prompt_tokens": 541,
+        "total_tokens": 764,
+        "completion_tokens": 223,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "invalid property",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "shared_subject_hu",
+    "previous": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk.",
+    "latest": "A párom és én is gluténérzékenyek vagyunk. Mindketten Szegeden élünk. Én most kerámiázni tanulok.",
+    "action": "Forget my food sensitivity. Preserve information about my partner and unrelated facts.",
+    "want": "partner gluten sensitivity remains; user sensitivity absent; Szeged and user pottery preserved",
+    "heldOut": false,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "status": "explicit"
+          },
+          {
+            "id": "partner",
+            "type": "person",
+            "name": "partner",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "gluten",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "change": ""
+          },
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "value": "gluten",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Szeged",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Mindketten Szegeden élünk.",
+            "change": ""
+          },
+          {
+            "entity": "partner",
+            "key": "location",
+            "value": "Szeged",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Mindketten Szegeden élünk.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2201,
+      "usage": {
+        "prompt_tokens": 554,
+        "total_tokens": 1024,
+        "completion_tokens": 470,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 342,
+      "usage": {
+        "prompt_tokens": 398,
+        "total_tokens": 449,
+        "completion_tokens": 51,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "status": "explicit"
+          },
+          {
+            "id": "partner",
+            "type": "person",
+            "name": "partner",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "gluten",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "change": ""
+          },
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "value": "gluten",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Szeged",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Mindketten Szegeden élünk.",
+            "change": ""
+          },
+          {
+            "entity": "partner",
+            "key": "location",
+            "value": "Szeged",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Mindketten Szegeden élünk.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "hobby",
+            "value": "ceramics",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Én most kerámiázni tanulok.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2442,
+      "usage": {
+        "prompt_tokens": 634,
+        "total_tokens": 1176,
+        "completion_tokens": 542,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+          "status": "explicit"
+        },
+        {
+          "id": "partner",
+          "type": "person",
+          "name": "partner",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "partner",
+          "key": "food_sensitivity",
+          "value": "gluten",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "location",
+          "value": "Szeged",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "Mindketten Szegeden élünk.",
+          "change": ""
+        },
+        {
+          "entity": "partner",
+          "key": "location",
+          "value": "Szeged",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "Mindketten Szegeden élünk.",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "hobby",
+          "value": "ceramics",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "Én most kerámiázni tanulok.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "food_sensitivity",
+        "value": "gluten",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "A párom és én is gluténérzékenyek vagyunk.",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "The user's partner — food sensitivity: gluten.",
+      "The user — location: Szeged.",
+      "The user's partner — location: Szeged.",
+      "The user — hobby: ceramics."
+    ]
+  },
+  {
+    "id": "same_word_other_owner",
+    "previous": "My nickname is Raven. My client's project is also called Raven. I prefer short emails.",
+    "latest": "My nickname is Raven. My client's project is also called Raven. I prefer concise emails with a friendly greeting.",
+    "action": "Forget my nickname. Do not remove the client's project name.",
+    "want": "user nickname absent; client project Raven and full new email preference preserved",
+    "heldOut": false,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "Raven",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My nickname is Raven.",
+            "status": "explicit"
+          },
+          {
+            "id": "project_raven",
+            "type": "project",
+            "name": "Raven",
+            "holder": "client",
+            "possession": "has",
+            "evidence": "My client's project is also called Raven.",
+            "status": "explicit"
+          },
+          {
+            "id": "client",
+            "type": "person",
+            "name": "Client",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My client's project",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "nickname",
+            "value": "Raven",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My nickname is Raven.",
+            "change": ""
+          },
+          {
+            "entity": "project_raven",
+            "key": "project_name",
+            "value": "Raven",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My client's project is also called Raven.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "communication_preference",
+            "value": "short emails",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer short emails.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2021,
+      "usage": {
+        "prompt_tokens": 549,
+        "total_tokens": 983,
+        "completion_tokens": 434,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "nickname",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 365,
+      "usage": {
+        "prompt_tokens": 360,
+        "total_tokens": 409,
+        "completion_tokens": 49,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "Raven",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My nickname is Raven.",
+            "status": "explicit"
+          },
+          {
+            "id": "client",
+            "type": "person",
+            "name": "Client",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My client's project",
+            "status": "explicit"
+          },
+          {
+            "id": "project_raven",
+            "type": "project",
+            "name": "Raven",
+            "holder": "client",
+            "possession": "has",
+            "evidence": "My client's project is also called Raven.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "nickname",
+            "value": "Raven",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My nickname is Raven.",
+            "change": ""
+          },
+          {
+            "entity": "project_raven",
+            "key": "project_name",
+            "value": "Raven",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My client's project is also called Raven.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "communication_preference",
+            "value": "concise emails with a friendly greeting",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer concise emails with a friendly greeting.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2026,
+      "usage": {
+        "prompt_tokens": 630,
+        "total_tokens": 1073,
+        "completion_tokens": 443,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "Raven",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My nickname is Raven.",
+          "status": "explicit"
+        },
+        {
+          "id": "client",
+          "type": "person",
+          "name": "Client",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My client's project",
+          "status": "explicit"
+        },
+        {
+          "id": "project_raven",
+          "type": "project",
+          "name": "Raven",
+          "holder": "client",
+          "possession": "has",
+          "evidence": "My client's project is also called Raven.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "project_raven",
+          "key": "project_name",
+          "value": "Raven",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "My client's project is also called Raven.",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "communication_preference",
+          "value": "concise emails with a friendly greeting",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I prefer concise emails with a friendly greeting.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "nickname",
+        "value": "Raven",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "My nickname is Raven.",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "Raven [project_raven] — project name: Raven.",
+      "The user — communication preference: concise emails with a friendly greeting."
+    ]
+  },
+  {
+    "id": "new_explicit_life_event",
+    "previous": "I live in Rome. I work remotely.",
+    "latest": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+    "action": "Earlier correction: the old claim that I lived in Rome was wrong; I lived in Berlin. This corrects the old statement, not future moves.",
+    "want": "current Prague and office; historical Berlin; no forced current Berlin",
+    "heldOut": false,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "I live in Rome. I work remotely.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Rome",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I live in Rome.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "work_mode",
+            "value": "remote",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I work remotely.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1112,
+      "usage": {
+        "prompt_tokens": 539,
+        "total_tokens": 761,
+        "completion_tokens": 222,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "correct",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "location",
+            "replacement": "Berlin"
+          }
+        ]
+      },
+      "ms": 363,
+      "usage": {
+        "prompt_tokens": 266,
+        "total_tokens": 317,
+        "completion_tokens": 51,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Berlin",
+            "status": "explicit",
+            "time": "past",
+            "evidence": "I previously lived in Berlin",
+            "change": "yesterday I moved to Prague"
+          },
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Prague",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "yesterday I moved to Prague",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "work_mode",
+            "value": "office",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I now work in an office",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1469,
+      "usage": {
+        "prompt_tokens": 588,
+        "total_tokens": 898,
+        "completion_tokens": 310,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "User",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "I previously lived in Berlin, and yesterday I moved to Prague. I now work in an office.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "user",
+          "key": "location",
+          "value": "Berlin",
+          "status": "explicit",
+          "time": "past",
+          "evidence": "I previously lived in Berlin",
+          "change": "yesterday I moved to Prague"
+        },
+        {
+          "entity": "user",
+          "key": "work_mode",
+          "value": "office",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I now work in an office",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [
+      {
+        "entity": "user",
+        "key": "location",
+        "value": "Prague",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "yesterday I moved to Prague",
+        "change": ""
+      }
+    ],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "location",
+        "value": "Prague",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "yesterday I moved to Prague",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "The user — location (past): Berlin.",
+      "The user — work mode: office."
+    ]
+  },
+  {
+    "id": "conflicting_target_edit",
+    "previous": "My bicycle is red. I prefer decaf coffee.",
+    "latest": "My bicycle is green. I prefer espresso.",
+    "action": "I manually corrected the remembered bicycle colour to blue. Preserve that correction when unrelated source details change. Do not silently decide a later conflicting colour edit.",
+    "want": "flag unresolved blue versus green conflict; preserve espresso; no silent chosen colour",
+    "heldOut": false,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My bicycle",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My bicycle is red",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "coffee_preference",
+            "value": "decaf",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer decaf coffee",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1106,
+      "usage": {
+        "prompt_tokens": 541,
+        "total_tokens": 762,
+        "completion_tokens": 221,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "invalid property",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "ownership_survives_colour",
+    "previous": "My bicycle is red. My daughter owns a red scooter.",
+    "latest": "My bicycle is red. My daughter owns a red scooter. I cycle to work.",
+    "action": "Forget only the colour of my bicycle; keep ownership and all other information.",
+    "want": "user owns bicycle and cycles to work; daughter red scooter; no user bicycle colour",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My bicycle is red.",
+            "status": "explicit"
+          },
+          {
+            "id": "scooter",
+            "type": "object",
+            "name": "scooter",
+            "holder": "daughter",
+            "possession": "has",
+            "evidence": "My daughter owns a red scooter.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My bicycle is red.",
+            "change": ""
+          },
+          {
+            "entity": "scooter",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My daughter owns a red scooter.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1406,
+      "usage": {
+        "prompt_tokens": 542,
+        "total_tokens": 839,
+        "completion_tokens": 297,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "unknown holder",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "medical_change_hu",
+    "previous": "Gluténérzékeny vagyok. A párom tejallergiás.",
+    "latest": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos. A párom tejallergiás.",
+    "action": "Forget my old claim of gluten sensitivity, not my partner's allergy. This does not forbid remembering a genuinely new explicit update.",
+    "want": "current user diagnosis ruled out retained; partner milk allergy; no current positive user gluten condition",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "Gluténérzékeny vagyok.",
+            "status": "explicit"
+          },
+          {
+            "id": "partner",
+            "type": "person",
+            "name": "partner",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A párom tejallergiás.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "gluten",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Gluténérzékeny vagyok.",
+            "change": ""
+          },
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "value": "milk",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom tejallergiás.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1404,
+      "usage": {
+        "prompt_tokens": 547,
+        "total_tokens": 851,
+        "completion_tokens": 304,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 333,
+      "usage": {
+        "prompt_tokens": 309,
+        "total_tokens": 360,
+        "completion_tokens": 51,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos.",
+            "status": "explicit"
+          },
+          {
+            "id": "partner",
+            "type": "person",
+            "name": "partner",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "A párom tejallergiás.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "not gluten",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos.",
+            "change": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos."
+          },
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "gluten",
+            "status": "explicit",
+            "time": "past",
+            "evidence": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos.",
+            "change": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos."
+          },
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "value": "milk",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom tejallergiás.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2048,
+      "usage": {
+        "prompt_tokens": 612,
+        "total_tokens": 1065,
+        "completion_tokens": 453,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos.",
+          "status": "explicit"
+        },
+        {
+          "id": "partner",
+          "type": "person",
+          "name": "partner",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "A párom tejallergiás.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "user",
+          "key": "food_sensitivity",
+          "value": "not gluten",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos.",
+          "change": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos."
+        },
+        {
+          "entity": "partner",
+          "key": "food_sensitivity",
+          "value": "milk",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "A párom tejallergiás.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "food_sensitivity",
+        "value": "gluten",
+        "status": "explicit",
+        "time": "past",
+        "evidence": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos.",
+        "change": "A korábbi gluténérzékenység-diagnózisomat tegnap kizárta az orvos."
+      }
+    ],
+    "statements": [
+      "The user — food sensitivity: not gluten.",
+      "The user's partner — food sensitivity: milk."
+    ]
+  },
+  {
+    "id": "historical_duplicate",
+    "previous": "I own a red bicycle. I like jazz.",
+    "latest": "The red cycle I own is in the shed. I like jazz and started piano.",
+    "action": "Forget the colour of my bicycle. Preserve ownership, location and unrelated preferences.",
+    "want": "bicycle ownership/shed; jazz/piano; no colour",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I own a red bicycle. I like jazz.",
+            "status": "explicit"
+          },
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "I own a red bicycle.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I own a red bicycle.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "hobby",
+            "value": "jazz",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I like jazz.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1386,
+      "usage": {
+        "prompt_tokens": 540,
+        "total_tokens": 835,
+        "completion_tokens": 295,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 332,
+      "usage": {
+        "prompt_tokens": 290,
+        "total_tokens": 340,
+        "completion_tokens": 50,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "The red cycle I own is in the shed. I like jazz and started piano.",
+            "status": "explicit"
+          },
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "The red cycle I own is in the shed.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "The red cycle I own is in the shed.",
+            "change": ""
+          },
+          {
+            "entity": "bicycle",
+            "key": "location",
+            "value": "shed",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "The red cycle I own is in the shed.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "hobby",
+            "value": "jazz",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I like jazz",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "hobby",
+            "value": "piano",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "started piano",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2052,
+      "usage": {
+        "prompt_tokens": 600,
+        "total_tokens": 1044,
+        "completion_tokens": 444,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "The red cycle I own is in the shed. I like jazz and started piano.",
+          "status": "explicit"
+        },
+        {
+          "id": "bicycle",
+          "type": "object",
+          "name": "bicycle",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "The red cycle I own is in the shed.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "bicycle",
+          "key": "location",
+          "value": "shed",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "The red cycle I own is in the shed.",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "hobby",
+          "value": "jazz",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I like jazz",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "hobby",
+          "value": "piano",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "started piano",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "bicycle",
+        "key": "colour",
+        "value": "red",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "The red cycle I own is in the shed.",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "The user has bicycle [bicycle].",
+      "bicycle [bicycle] — location: shed.",
+      "The user — hobby: jazz.",
+      "The user — hobby: piano."
+    ]
+  },
+  {
+    "id": "different_owner_same_number",
+    "previous": "My personal phone is 07700 900123.",
+    "latest": "My old personal number 07700 900123 is now my company's reception number. My personal number is now 07700 900789.",
+    "action": "Forget my previous personal telephone number as personal information. Do not ban this number for other owners or forget a genuinely new number I later explicitly give.",
+    "want": "company reception900123 and newpersonal900789 preserved; no current personal900123",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My personal phone",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "phone",
+            "value": "07700 900123",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My personal phone is 07700 900123.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 873,
+      "usage": {
+        "prompt_tokens": 548,
+        "total_tokens": 724,
+        "completion_tokens": 176,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "phone",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 333,
+      "usage": {
+        "prompt_tokens": 252,
+        "total_tokens": 301,
+        "completion_tokens": 49,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My personal number is now 07700 900789.",
+            "status": "explicit"
+          },
+          {
+            "id": "company",
+            "type": "organization",
+            "name": "company",
+            "holder": "company",
+            "possession": "has",
+            "evidence": "My old personal number 07700 900123 is now my company's reception number.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "phone",
+            "value": "07700 900789",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My personal number is now 07700 900789.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "phone",
+            "value": "07700 900123",
+            "status": "explicit",
+            "time": "past",
+            "evidence": "My old personal number 07700 900123",
+            "change": "is now my company's reception number"
+          },
+          {
+            "entity": "company",
+            "key": "phone",
+            "value": "07700 900123",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My old personal number 07700 900123 is now my company's reception number.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 2130,
+      "usage": {
+        "prompt_tokens": 603,
+        "total_tokens": 1073,
+        "completion_tokens": 470,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My personal number is now 07700 900789.",
+          "status": "explicit"
+        },
+        {
+          "id": "company",
+          "type": "organization",
+          "name": "company",
+          "holder": "company",
+          "possession": "has",
+          "evidence": "My old personal number 07700 900123 is now my company's reception number.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "company",
+          "key": "phone",
+          "value": "07700 900123",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "My old personal number 07700 900123 is now my company's reception number.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [
+      {
+        "entity": "user",
+        "key": "phone",
+        "value": "07700 900789",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "My personal number is now 07700 900789.",
+        "change": ""
+      }
+    ],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "phone",
+        "value": "07700 900789",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "My personal number is now 07700 900789.",
+        "change": ""
+      },
+      {
+        "entity": "user",
+        "key": "phone",
+        "value": "07700 900123",
+        "status": "explicit",
+        "time": "past",
+        "evidence": "My old personal number 07700 900123",
+        "change": "is now my company's reception number"
+      }
+    ],
+    "statements": [
+      "The user's company — phone: 07700 900123."
+    ]
+  },
+  {
+    "id": "ambiguous_colour_hu",
+    "previous": "A kerékpárom piros. Kávét iszom.",
+    "latest": "A kerékpárom zöld. Most teát iszom.",
+    "action": "A memóriában kékre javítottam a kerékpárom színét. Egy eltérő forrásszerkesztés nem írhatja ezt felül észrevétlenül.",
+    "want": "conflict green versus blue; tea retained; ownership retained; no chosen colour",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "A kerékpárom",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "piros",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "coffee_preference",
+            "value": "yes",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Kávét iszom",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1070,
+      "usage": {
+        "prompt_tokens": 545,
+        "total_tokens": 767,
+        "completion_tokens": 222,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "invalid property",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "scope_negative",
+    "previous": "My daughter owns a Pixel 9. I prefer tea.",
+    "latest": "My daughter owns a Pixel 9. I prefer coffee.",
+    "action": "Forget my own phone model if this source contains it. Do not remove my daughter's device.",
+    "want": "daughterPixel9 and coffee; actionnotapplicable, no invented personal device",
+    "heldOut": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "daughter",
+            "type": "person",
+            "name": "daughter",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "My daughter",
+            "status": "explicit"
+          },
+          {
+            "id": "pixel_9",
+            "type": "object",
+            "name": "Pixel 9",
+            "holder": "daughter",
+            "possession": "has",
+            "evidence": "My daughter owns a Pixel 9",
+            "status": "explicit"
+          },
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "drink_preference",
+            "value": "tea",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer tea",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1351,
+      "usage": {
+        "prompt_tokens": 542,
+        "total_tokens": 831,
+        "completion_tokens": 289,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": []
+      },
+      "ms": 181,
+      "usage": {
+        "prompt_tokens": 287,
+        "total_tokens": 296,
+        "completion_tokens": 9,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "daughter",
+            "type": "person",
+            "name": "daughter",
+            "holder": "daughter",
+            "possession": "unknown",
+            "evidence": "My daughter owns a Pixel 9.",
+            "status": "explicit"
+          },
+          {
+            "id": "pixel_9",
+            "type": "object",
+            "name": "Pixel 9",
+            "holder": "daughter",
+            "possession": "has",
+            "evidence": "My daughter owns a Pixel 9.",
+            "status": "explicit"
+          },
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I prefer coffee.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "drink_preference",
+            "value": "coffee",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer coffee.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1393,
+      "usage": {
+        "prompt_tokens": 600,
+        "total_tokens": 896,
+        "completion_tokens": 296,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "daughter",
+          "type": "person",
+          "name": "daughter",
+          "holder": "daughter",
+          "possession": "unknown",
+          "evidence": "My daughter owns a Pixel 9.",
+          "status": "explicit"
+        },
+        {
+          "id": "pixel_9",
+          "type": "object",
+          "name": "Pixel 9",
+          "holder": "daughter",
+          "possession": "has",
+          "evidence": "My daughter owns a Pixel 9.",
+          "status": "explicit"
+        },
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "I prefer coffee.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "user",
+          "key": "drink_preference",
+          "value": "coffee",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I prefer coffee.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [],
+    "statements": [
+      "The user's daughter has Pixel 9 [pixel_9].",
+      "The user — drink preference: coffee."
+    ]
+  },
+  {
+    "id": "shared_place_hu",
+    "previous": "Én és a húgom Debrecenben lakunk.",
+    "latest": "Én és a húgom Debrecenben lakunk. A húgom fut, én úszom.",
+    "action": "Forget only where I live.",
+    "want": "sisterDebrecen/runs; userswims; no userlocation",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "Én",
+            "status": "explicit"
+          },
+          {
+            "id": "sibling",
+            "type": "person",
+            "name": "sibling",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "a húgom",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Debrecen",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Debrecenben lakunk",
+            "change": ""
+          },
+          {
+            "entity": "sibling",
+            "key": "location",
+            "value": "Debrecen",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Debrecenben lakunk",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1374,
+      "usage": {
+        "prompt_tokens": 543,
+        "total_tokens": 835,
+        "completion_tokens": 292,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "location",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 332,
+      "usage": {
+        "prompt_tokens": 278,
+        "total_tokens": 327,
+        "completion_tokens": 49,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "Én",
+            "status": "explicit"
+          },
+          {
+            "id": "sibling",
+            "type": "person",
+            "name": "sibling",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "a húgom",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "location",
+            "value": "Debrecen",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Én és a húgom Debrecenben lakunk",
+            "change": ""
+          },
+          {
+            "entity": "sibling",
+            "key": "location",
+            "value": "Debrecen",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Én és a húgom Debrecenben lakunk",
+            "change": ""
+          },
+          {
+            "entity": "sibling",
+            "key": "hobby",
+            "value": "running",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A húgom fut",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "hobby",
+            "value": "swimming",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "én úszom",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1953,
+      "usage": {
+        "prompt_tokens": 605,
+        "total_tokens": 1041,
+        "completion_tokens": 436,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "Én",
+          "status": "explicit"
+        },
+        {
+          "id": "sibling",
+          "type": "person",
+          "name": "sibling",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "a húgom",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "sibling",
+          "key": "location",
+          "value": "Debrecen",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "Én és a húgom Debrecenben lakunk",
+          "change": ""
+        },
+        {
+          "entity": "sibling",
+          "key": "hobby",
+          "value": "running",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "A húgom fut",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "hobby",
+          "value": "swimming",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "én úszom",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "location",
+        "value": "Debrecen",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "Én és a húgom Debrecenben lakunk",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "The user's sibling — location: Debrecen.",
+      "The user's sibling — hobby: running.",
+      "The user — hobby: swimming."
+    ]
+  },
+  {
+    "id": "compound_price",
+    "previous": "My red bicycle cost 250 euros.",
+    "latest": "My red bicycle cost 250 euros and I ride it daily.",
+    "action": "Forget only the colour of my bicycle.",
+    "want": "ownership/price/daily preserved, no red",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My red bicycle",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My red bicycle",
+            "change": ""
+          },
+          {
+            "entity": "bicycle",
+            "key": "price",
+            "value": "250 euros",
+            "status": "explicit",
+            "time": "past",
+            "evidence": "cost 250 euros",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1072,
+      "usage": {
+        "prompt_tokens": 540,
+        "total_tokens": 764,
+        "completion_tokens": 224,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "translation_biography",
+    "previous": "Translate: I have two children and work as a nurse.",
+    "latest": "Translate: I have two children and work as a nurse. I prefer brief answers.",
+    "action": "Forget any personal profession claim about me, if present.",
+    "want": "no usernurse/children; briefanswers preserved",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I have two children and work as a nurse.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "job",
+            "value": "nurse",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "work as a nurse",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "children_count",
+            "value": "2",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I have two children",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1122,
+      "usage": {
+        "prompt_tokens": 542,
+        "total_tokens": 766,
+        "completion_tokens": 224,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "user",
+            "key": "job",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 301,
+      "usage": {
+        "prompt_tokens": 249,
+        "total_tokens": 290,
+        "completion_tokens": 41,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "I have two children and work as a nurse.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "job",
+            "value": "nurse",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I have two children and work as a nurse.",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "children_count",
+            "value": "2",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I have two children and work as a nurse.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1158,
+      "usage": {
+        "prompt_tokens": 585,
+        "total_tokens": 819,
+        "completion_tokens": 234,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "User",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "I have two children and work as a nurse.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "user",
+          "key": "children_count",
+          "value": "2",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I have two children and work as a nurse.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "user",
+        "key": "job",
+        "value": "nurse",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "I have two children and work as a nurse.",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "The user — children count: 2."
+    ]
+  },
+  {
+    "id": "cooker_unknown",
+    "previous": "I am comparing cookers.",
+    "latest": "I am comparing Beko cookers. My renovation has not started.",
+    "action": "Forget my cooker model if one was previously recorded.",
+    "want": "no installed cooker ownership or no-cooker claim; comparison and notstarted renovation preserved",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [],
+        "properties": []
+      },
+      "ms": 193,
+      "usage": {
+        "prompt_tokens": 536,
+        "total_tokens": 552,
+        "completion_tokens": 16,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": []
+      },
+      "ms": 167,
+      "usage": {
+        "prompt_tokens": 146,
+        "total_tokens": 155,
+        "completion_tokens": 9,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "User",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I am comparing Beko cookers. My renovation has not started.",
+            "status": "explicit"
+          },
+          {
+            "id": "beko_cooker",
+            "type": "object",
+            "name": "Beko cooker",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "I am comparing Beko cookers.",
+            "status": "explicit"
+          },
+          {
+            "id": "renovation",
+            "type": "project",
+            "name": "Renovation",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My renovation has not started.",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "user",
+            "key": "activity",
+            "value": "comparing Beko cookers",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I am comparing Beko cookers.",
+            "change": ""
+          },
+          {
+            "entity": "renovation",
+            "key": "status",
+            "value": "not started",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My renovation has not started.",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1805,
+      "usage": {
+        "prompt_tokens": 553,
+        "total_tokens": 936,
+        "completion_tokens": 383,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "User",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "I am comparing Beko cookers. My renovation has not started.",
+          "status": "explicit"
+        },
+        {
+          "id": "beko_cooker",
+          "type": "object",
+          "name": "Beko cooker",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "I am comparing Beko cookers.",
+          "status": "explicit"
+        },
+        {
+          "id": "renovation",
+          "type": "project",
+          "name": "Renovation",
+          "holder": "user",
+          "possession": "has",
+          "evidence": "My renovation has not started.",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "user",
+          "key": "activity",
+          "value": "comparing Beko cookers",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "I am comparing Beko cookers.",
+          "change": ""
+        },
+        {
+          "entity": "renovation",
+          "key": "status",
+          "value": "not started",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "My renovation has not started.",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [],
+    "statements": [
+      "The user — activity: comparing Beko cookers.",
+      "Renovation [renovation] — status: not started."
+    ]
+  },
+  {
+    "id": "different_projects",
+    "previous": "My Atlas project uses Python. My Beacon project uses Rust.",
+    "latest": "My Atlas project uses Python. My Beacon project uses Rust. Beacon now has a mobile app.",
+    "action": "Correct only Atlas to use TypeScript.",
+    "want": "AtlasTypeScript; BeaconRust/mobile",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "atlas_project",
+            "type": "project",
+            "name": "Atlas",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My Atlas project",
+            "status": "explicit"
+          },
+          {
+            "id": "beacon_project",
+            "type": "project",
+            "name": "Beacon",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My Beacon project",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "atlas_project",
+            "key": "technology",
+            "value": "Python",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My Atlas project uses Python",
+            "change": ""
+          },
+          {
+            "entity": "beacon_project",
+            "key": "technology",
+            "value": "Rust",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My Beacon project uses Rust",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1374,
+      "usage": {
+        "prompt_tokens": 542,
+        "total_tokens": 836,
+        "completion_tokens": 294,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "unknown holder",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "new_colour_event",
+    "previous": "My bicycle is red. I prefer tea.",
+    "latest": "Yesterday I repainted my blue bicycle green. I now prefer coffee.",
+    "action": "Earlier I corrected the old red colour to blue. Preserve later genuine changes.",
+    "want": "currentgreen; repaintbluehistory; coffee; no forced currentblue",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My bicycle",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "My bicycle is red",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "drink_preference",
+            "value": "tea",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "I prefer tea",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1055,
+      "usage": {
+        "prompt_tokens": 539,
+        "total_tokens": 757,
+        "completion_tokens": 218,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "invalid property",
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "conditional_colour",
+    "previous": "My bicycle is red.",
+    "latest": "My bicycle is red. I might paint it green next summer.",
+    "action": "Correct current colour to blue.",
+    "want": "currentblue; futuregreen notcurrent",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "bicycle",
+            "type": "object",
+            "name": "bicycle",
+            "holder": "user",
+            "possession": "has",
+            "evidence": "My bicycle",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "bicycle",
+            "key": "colour",
+            "value": "red",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "is red",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 775,
+      "usage": {
+        "prompt_tokens": 535,
+        "total_tokens": 687,
+        "completion_tokens": 152,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": false,
+    "errors": [
+      "unknown holder"
+    ]
+  },
+  {
+    "id": "negative_health_hu",
+    "previous": "A párom laktózérzékeny, én nem.",
+    "latest": "A párom laktózérzékeny, én nem. Mindketten szeretjük a rizst.",
+    "action": "Forget my partner's food sensitivity, not my explicit negative.",
+    "want": "usernotlactoseintolerant and bothlikerice; no partnercondition",
+    "fresh": true,
+    "before": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "én nem",
+            "status": "explicit"
+          },
+          {
+            "id": "partner",
+            "type": "person",
+            "name": "partner",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A párom",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "value": "lactose",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom laktózérzékeny",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "not lactose",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "én nem",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1405,
+      "usage": {
+        "prompt_tokens": 544,
+        "total_tokens": 837,
+        "completion_tokens": 293,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "selected": {
+      "value": {
+        "mode": "forget",
+        "targets": [
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "replacement": ""
+          }
+        ]
+      },
+      "ms": 331,
+      "usage": {
+        "prompt_tokens": 285,
+        "total_tokens": 336,
+        "completion_tokens": 51,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "after": {
+      "value": {
+        "entities": [
+          {
+            "id": "user",
+            "type": "person",
+            "name": "user",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "én nem",
+            "status": "explicit"
+          },
+          {
+            "id": "partner",
+            "type": "person",
+            "name": "partner",
+            "holder": "user",
+            "possession": "unknown",
+            "evidence": "A párom",
+            "status": "explicit"
+          }
+        ],
+        "properties": [
+          {
+            "entity": "partner",
+            "key": "food_sensitivity",
+            "value": "lactose",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "A párom laktózérzékeny",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "food_sensitivity",
+            "value": "not lactose",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "én nem",
+            "change": ""
+          },
+          {
+            "entity": "user",
+            "key": "food_preference",
+            "value": "rice",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Mindketten szeretjük a rizst",
+            "change": ""
+          },
+          {
+            "entity": "partner",
+            "key": "food_preference",
+            "value": "rice",
+            "status": "explicit",
+            "time": "current",
+            "evidence": "Mindketten szeretjük a rizst",
+            "change": ""
+          }
+        ]
+      },
+      "ms": 1956,
+      "usage": {
+        "prompt_tokens": 606,
+        "total_tokens": 1037,
+        "completion_tokens": 431,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "accepted": true,
+    "frame": {
+      "entities": [
+        {
+          "id": "user",
+          "type": "person",
+          "name": "user",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "én nem",
+          "status": "explicit"
+        },
+        {
+          "id": "partner",
+          "type": "person",
+          "name": "partner",
+          "holder": "user",
+          "possession": "unknown",
+          "evidence": "A párom",
+          "status": "explicit"
+        }
+      ],
+      "properties": [
+        {
+          "entity": "user",
+          "key": "food_sensitivity",
+          "value": "not lactose",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "én nem",
+          "change": ""
+        },
+        {
+          "entity": "user",
+          "key": "food_preference",
+          "value": "rice",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "Mindketten szeretjük a rizst",
+          "change": ""
+        },
+        {
+          "entity": "partner",
+          "key": "food_preference",
+          "value": "rice",
+          "status": "explicit",
+          "time": "current",
+          "evidence": "Mindketten szeretjük a rizst",
+          "change": ""
+        }
+      ]
+    },
+    "conflicts": [],
+    "removed": [
+      {
+        "entity": "partner",
+        "key": "food_sensitivity",
+        "value": "lactose",
+        "status": "explicit",
+        "time": "current",
+        "evidence": "A párom laktózérzékeny",
+        "change": ""
+      }
+    ],
+    "statements": [
+      "The user — food sensitivity: not lactose.",
+      "The user — food preference: rice.",
+      "The user's partner — food preference: rice."
+    ]
+  }
+]

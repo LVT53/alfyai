@@ -1,0 +1,22 @@
+{
+  "nativeRestoreApiLeftStopped": true,
+  "statuses": {
+    "GET /api/health": 503,
+    "GET /api/knowledge/memory": 503,
+    "GET /api/internal/memory-admission": 503,
+    "POST /api/knowledge/memory/actions": 503
+  },
+  "localPurpleRows": 1,
+  "unchangedQueuedJobs": 1,
+  "passed": true,
+  "localNativePurpleUnits": 2,
+  "verifiedNewerPairRelease": {
+    "health": 200,
+    "rows": 0,
+    "bankConfig": [
+      404,
+      404
+    ],
+    "passed": true
+  }
+}

@@ -303,6 +303,189 @@ afterEach(async () => {
 });
 
 describe("createAccountDataArchive", () => {
+	it("omits private pending Memory previews and grant metadata from the archive", async () => {
+		await seedArchiveUser();
+		const now = new Date();
+		await db.insert(schema.memoryAccounts).values({
+			userId: "user-1",
+			tenantId: "archive-test",
+			authority: "preparing",
+		});
+		await db.insert(schema.memoryMigrationManifests).values({
+			id: "manifest",
+			userId: "user-1",
+			epoch: 0,
+			status: "held",
+			manifestJson: "{}",
+		});
+		await db.insert(schema.memoryQuarantineSessions).values({
+			userId: "user-1",
+			manifestId: "manifest",
+			epoch: 0,
+			controlRevision: 0,
+			cutoff: now,
+			policyVersion: "1",
+			reviewPolicyVersion: "1",
+			cohortHash: "private-grant-digest",
+			cohortCount: 1,
+			manifestHash: "manifest",
+			allowedCohortHash: "allowed",
+			deniedSourceIdsJson: "[]",
+			startRequestId: "review",
+			startedAt: now,
+		});
+		await db.insert(schema.memoryQuarantineDrafts).values({
+			id: "draft",
+			userId: "user-1",
+			messageId: "msg-user",
+			ordinal: 0,
+			scopeKey: "personal",
+			textHash: "draft-hash",
+			assertedAt: now,
+			text: "Unapproved quarantine fixture content",
+		});
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+		});
+		if (result.status !== "ok") throw Error(result.status);
+		const zip = await JSZip.loadAsync(
+			await new Response(result.zipStream).arrayBuffer(),
+		);
+		const pages = await Promise.all(
+			Object.values(zip.files)
+				.filter((file) => !file.dir && file.name.endsWith(".html"))
+				.map((file) => file.async("string")),
+		);
+		expect(pages.length).toBeGreaterThan(0);
+		expect(pages.join("\n")).not.toMatch(
+			/Unapproved quarantine fixture content|private-grant-digest/,
+		);
+		expect(await db.select().from(schema.memoryQuarantineDrafts)).toHaveLength(
+			1,
+		);
+	});
+
+	it("exports accepted native memories and explicit edits without revoked content or tenant credentials", async () => {
+		await seedArchiveUser();
+		await db.insert(schema.memoryAccounts).values({
+			userId: "user-1",
+			tenantId: "opaque-private-tenant",
+			authority: "hindsight",
+		});
+		await db.insert(schema.memoryBanks).values({
+			id: "bank",
+			userId: "user-1",
+			scopeKey: "personal",
+			epoch: 0,
+			generation: "generation",
+		});
+		await db.insert(schema.memorySourceRevisions).values({
+			id: "source",
+			userId: "user-1",
+			bankId: "bank",
+			epoch: 0,
+			eventId: "event",
+			lineageId: "source",
+			text: "I use a purple kayak",
+			context: "",
+			textHash: "hash",
+			assertedAt: new Date(),
+			state: "accepted",
+			acknowledgedFactsJson: JSON.stringify([
+				{ id: "fact", text: "Purple kayak" },
+			]),
+		});
+		await db.insert(schema.memoryPublishedRows).values({
+			id: "row",
+			bankId: "bank",
+			epoch: 0,
+			generation: "generation",
+			nativeId: "native",
+			text: "Purple kayak",
+			nativeText: "Purple kayak",
+			sourceIdsJson: JSON.stringify(["fact"]),
+			sourceFingerprintsJson: JSON.stringify([
+				{ id: "fact", text: "Purple kayak" },
+			]),
+			updatedAt: new Date(),
+		});
+		await db.insert(schema.memoryActions).values({
+			id: "edit",
+			userId: "user-1",
+			bankId: "bank",
+			epoch: 0,
+			requestId: "edit",
+			kind: "edit",
+			text: "The kayak is now purple",
+			previousText: "Green kayak",
+			resultRowId: "native",
+			intentJson: JSON.stringify({
+				outcome: "accepted",
+				resultGeneration: "generation",
+			}),
+		});
+		await db.insert(schema.memoryActions).values({
+			id: "unverified-edit",
+			userId: "user-1",
+			bankId: "bank",
+			epoch: 0,
+			requestId: "unverified-edit",
+			kind: "edit",
+			text: "Unverified red kayak",
+			previousText: "Purple kayak",
+			resultRowId: "native",
+		});
+		await db.insert(schema.memoryDeliveryJobs).values({
+			id: "edit-job",
+			userId: "user-1",
+			bankId: "bank",
+			epoch: 0,
+			requestId: "edit-job",
+			kind: "action",
+			actionId: "unverified-edit",
+			status: "succeeded",
+		});
+
+		await db
+			.update(schema.users)
+			.set({ memoryEnabled: false })
+			.where(eq(schema.users.id, "user-1"));
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+		});
+		if (result.status !== "ok") throw new Error(result.status);
+		const zip = await JSZip.loadAsync(
+			await new Response(result.zipStream).arrayBuffer(),
+		);
+		const text = await zip.file("Memory/Memory.html")?.async("string");
+		expect(text).toContain("Purple kayak");
+		expect(text).toContain("The kayak is now purple");
+		expect(text).not.toContain("Unverified red kayak");
+		expect(text).not.toContain("opaque-private-tenant");
+		await db.insert(schema.memoryRevocations).values({
+			id: "revoked",
+			userId: "user-1",
+			bankId: "bank",
+			epoch: 0,
+			sourceId: "source",
+		});
+		const after = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+		});
+		if (after.status !== "ok") throw new Error(after.status);
+		const revoked = await JSZip.loadAsync(
+			await new Response(after.zipStream).arrayBuffer(),
+		);
+		expect(
+			await revoked.file("Memory/Memory.html")?.async("string"),
+		).not.toContain("Purple kayak");
+	});
 	it("creates a human-readable archive for the signed-in user only", async () => {
 		await seedArchiveUser();
 
@@ -384,6 +567,10 @@ describe("createAccountDataArchive", () => {
 		// videos switch among them (on: nobody switched it off).
 		expect(profileIndex).toContain(
 			"<tr><td>Pictures and videos</td><td>On</td></tr>",
+		);
+		// Send with Enter too (off: nobody switched it on).
+		expect(profileIndex).toContain(
+			"<tr><td>Send with Enter</td><td>Off</td></tr>",
 		);
 		expect(profileIndex).toContain("Canvas");
 		expect(profileIndex).toContain("completed");

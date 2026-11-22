@@ -157,6 +157,40 @@ describe("the context", () => {
 			'{"pages":2}',
 		);
 	});
+
+	it("commits a prepared checkpoint and its domain write together", async () => {
+		const { jobId, drained } = await startRun(async (ctx) => {
+			expect(
+				await ctx.progress({
+					prepareCheckpoint: (tx) => {
+						tx.update(testJobs)
+							.set({ label: "staged" })
+							.where(eq(testJobs.id, ctx.row.id))
+							.run();
+						return { cursor: 7 };
+					},
+				}),
+			).toBe(true);
+			expect(job(ctx.row.id)).toMatchObject({
+				label: "staged",
+				checkpoint: '{"cursor":7}',
+			});
+			await expect(
+				ctx.progress({
+					prepareCheckpoint: (tx) => {
+						tx.update(testJobs)
+							.set({ label: "uncommitted" })
+							.where(eq(testJobs.id, ctx.row.id))
+							.run();
+						throw new Error("could not prepare checkpoint");
+					},
+				}),
+			).rejects.toThrow("could not prepare checkpoint");
+			await ctx.succeed();
+		});
+		await drained;
+		expect(job(jobId)).toMatchObject({ status: "succeeded", label: "staged" });
+	});
 });
 
 describe("the heartbeat", () => {
@@ -872,4 +906,37 @@ describe("requeueing", () => {
 			h.fixture.readAttempts(row.id).map((attempt) => attempt.status),
 		).toEqual(["failed", "succeeded"]);
 	});
+});
+
+it("rejects an async checkpoint callback before invoking it", async () => {
+	const { jobId, drained } = await startRun(async (ctx) => {
+		let invoked = false;
+		await expect(
+			ctx.progress({
+				// @ts-expect-error An asynchronous callback cannot prepare a fenced checkpoint.
+				prepareCheckpoint: async () => {
+					invoked = true;
+					return { unexpected: true };
+				},
+			}),
+		).rejects.toThrow("must be synchronous");
+		expect(invoked).toBe(false);
+		await ctx.succeed();
+	});
+	await drained;
+	expect(job(jobId)).toMatchObject({ status: "succeeded", checkpoint: null });
+});
+
+it("observes an accidentally returned rejecting promise from checkpoint preparation", async () => {
+	const { jobId, drained } = await startRun(async (ctx) => {
+		await expect(
+			ctx.progress({
+				// @ts-expect-error A promise is not a serializable checkpoint.
+				prepareCheckpoint: () => Promise.reject(Error("unexpected rejection")),
+			}),
+		).rejects.toThrow("returned a promise");
+		await ctx.succeed();
+	});
+	await drained;
+	expect(job(jobId)).toMatchObject({ status: "succeeded", checkpoint: null });
 });

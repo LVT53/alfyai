@@ -32,16 +32,27 @@ import {
 	imageFiles,
 	imageJobs,
 	importJobs,
+	memoryAccounts,
+	memoryActions,
+	memoryBanks,
 	memoryConsolidationReports,
+	memoryControlIntervals,
+	memoryDeliveryJobs,
 	memoryDirtyLedger,
 	memoryEvents,
+	memoryHistoryChoices,
+	memoryMigrationManifests,
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 	memoryProjectionState,
+	memoryQuarantineDrafts,
+	memoryQuarantineSessions,
 	memoryResetGenerations,
 	memoryReviewItems,
 	memoryReviewResolutions,
+	memoryRevocations,
 	memoryReworkTelemetry,
+	memorySourceRevisions,
 	messageAnalytics,
 	projectKnowledgeLinks,
 	projects,
@@ -74,7 +85,7 @@ export type UserScopedResetScope = "memory" | "workspace";
  * How full Account Erasure removes a user-scoped table's rows:
  *
  * - `cascade` → the row is deleted automatically by the `ON DELETE CASCADE`
- *               foreign key to `users.id` when the user row is deleted. This is
+ *               foreign-key chain to `users.id` when the user row is deleted. This is
  *               the REAL erasure mechanism for the vast majority of tables.
  * - `explicit`→ the table has only a plain `user_id` column (NO foreign key to
  *               `users`), so the cascade never reaches it. Full erasure must
@@ -122,6 +133,86 @@ export interface UserScopedTable {
  * schema-derived completeness guard fails until one of the two happens.
  */
 export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
+	// Private review work expires on either reset and cascades through
+	// session → Memory account → user. The ordinary archive does not read it.
+	{
+		name: "memory_quarantine_drafts",
+		table: memoryQuarantineDrafts,
+		userColumn: memoryQuarantineDrafts.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_quarantine_sessions",
+		table: memoryQuarantineSessions,
+		userColumn: memoryQuarantineSessions.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	// Native cleanup jobs use opaque tenant ownership and survive person erasure.
+	{
+		name: "memory_actions",
+		table: memoryActions,
+		userColumn: memoryActions.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_revocations",
+		table: memoryRevocations,
+		userColumn: memoryRevocations.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_source_revisions",
+		table: memorySourceRevisions,
+		userColumn: memorySourceRevisions.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_migration_manifests",
+		table: memoryMigrationManifests,
+		userColumn: memoryMigrationManifests.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_banks",
+		table: memoryBanks,
+		userColumn: memoryBanks.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	{
+		name: "memory_accounts",
+		table: memoryAccounts,
+		userColumn: memoryAccounts.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		name: "memory_control_intervals",
+		table: memoryControlIntervals,
+		userColumn: memoryControlIntervals.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		name: "memory_history_choices",
+		table: memoryHistoryChoices,
+		userColumn: memoryHistoryChoices.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		name: "memory_delivery_jobs",
+		table: memoryDeliveryJobs,
+		userColumn: memoryDeliveryJobs.userId,
+		erasure: "explicit",
+		resets: ["memory", "workspace"],
+	},
 	// --- Memory + task/context derived state (memory-scope + workspace-scope) ---
 	{
 		name: "task_state_evidence_links",

@@ -23,11 +23,10 @@ vi.mock("dompurify", () => ({
 	}),
 }));
 
-// image_search's own results: the picture's address and Brave's resized copy of it.
+// image_search's own results: the publisher address and an older address still found in saved Markdown.
 const CAT = "https://example.com/cat.jpg";
-const THUMB =
-	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
-const CAT_RESULT = { url: CAT, thumbnail: THUMB };
+const THUMB = "https://saved-thumbnails.example/previews/pet";
+const CAT_RESULT = { url: CAT, thumbnail: CAT, savedThumbnailUrl: THUMB };
 const EXAMPLE_HOSTS = new Set(["example.com"]);
 
 describe("Markdown Rendering Service", () => {
@@ -96,7 +95,7 @@ describe("Markdown Rendering Service", () => {
 				'class="markdown-image-frame markdown-image-frame--loading"',
 			);
 			expect(html).toContain('class="markdown-image"');
-			expect(html).toContain(`src="${imageThumbnailRouteUrl(THUMB)}"`);
+			expect(html).toContain(`src="${imageThumbnailRouteUrl(CAT)}"`);
 			expect(html).toContain('alt="a diagram"');
 			// Lazy/async decoding hints stay on the image.
 			expect(html).toContain('loading="lazy"');
@@ -364,17 +363,20 @@ describe("Markdown Rendering Service", () => {
 			"<img src=x onerror=alert(1)>",
 			"js onload=alert(1)",
 			"../../etc/passwd",
-		])("falls back to an escaped plain block for hostile fence info %j", async (lang) => {
-			const rendered = await highlight("const a = 1;\n", lang);
+		])(
+			"falls back to an escaped plain block for hostile fence info %j",
+			async (lang) => {
+				const rendered = await highlight("const a = 1;\n", lang);
 
-			// Shiki has no such language, so this takes the catch branch —
-			// which was already sanitized. Nothing from the info string may
-			// reach the output as markup.
-			expect(rendered).toBe("<pre><code>const a = 1;\n</code></pre>");
-			expect(rendered).not.toContain("onmouseover");
-			expect(rendered).not.toContain("onerror");
-			expect(rendered).not.toContain("<img");
-		});
+				// Shiki has no such language, so this takes the catch branch —
+				// which was already sanitized. Nothing from the info string may
+				// reach the output as markup.
+				expect(rendered).toBe("<pre><code>const a = 1;\n</code></pre>");
+				expect(rendered).not.toContain("onmouseover");
+				expect(rendered).not.toContain("onerror");
+				expect(rendered).not.toContain("<img");
+			},
+		);
 
 		it("never lets the fence info string become an attribute", async () => {
 			// The only externally-supplied string that reaches Shiki is the fence
@@ -446,16 +448,30 @@ describe("renderMarkdown: a reply's pictures are never requested from an address
 		);
 
 		const image = parseHtml(html).querySelector("img");
-		expect(image?.getAttribute("src")).toBe(imageThumbnailRouteUrl(THUMB));
+		expect(image?.getAttribute("src")).toBe(imageThumbnailRouteUrl(CAT));
 		expect(image?.getAttribute("alt")).toBe("A cat");
 		expect(image?.getAttribute("title")).toBe("Cat title");
 		expect(image?.classList.contains("markdown-image")).toBe(true);
 		expect(html).toContain(
 			'class="markdown-image-frame markdown-image-frame--loading"',
 		);
-		// Neither the picture's own address nor Brave's is written into the page.
+		// The html never contains a direct request for a remote picture.
 		expect(html).not.toContain("https://");
-		expect(requested(html)).toEqual([`img ${imageThumbnailRouteUrl(THUMB)}`]);
+		expect(requested(html)).toEqual([`img ${imageThumbnailRouteUrl(CAT)}`]);
+	});
+
+	it("renders a Parallel preview through the app with a click-only fallback to the publisher page", async () => {
+		const mod = await import("./markdown");
+		const sourcePageUrl = "https://publisher.example/gallery";
+		const html = await mod.renderMarkdown(`![Cat](${CAT})`, false, {
+			toolImages: [{ url: CAT, thumbnail: CAT, sourcePageUrl }],
+		});
+		expect(requested(html)).toEqual([`img ${imageThumbnailRouteUrl(CAT)}`]);
+		expect(
+			parseHtml(html)
+				.querySelector(".markdown-image-fallback a")
+				?.getAttribute("href"),
+		).toBe(sourcePageUrl);
 	});
 
 	it("knows the picture by either address, and by the way a tool writes it, not the way the model does", async () => {
@@ -470,7 +486,7 @@ describe("renderMarkdown: a reply's pictures are never requested from an address
 				toolImages: [CAT_RESULT],
 			});
 			expect(requested(html), written).toEqual([
-				`img ${imageThumbnailRouteUrl(THUMB)}`,
+				`img ${imageThumbnailRouteUrl(CAT)}`,
 			]);
 		}
 	});
@@ -482,7 +498,7 @@ describe("renderMarkdown: a reply's pictures are never requested from an address
 			"https://example.com/cat.jpg/SECRET",
 			"https://secret.example.com/cat.jpg",
 			"https://example.org/cat.jpg",
-			"https://imgs.search.brave.com/other/cat.jpg",
+			"https://saved-thumbnails.example/other/cat.jpg",
 		]) {
 			const html = await mod.renderMarkdown(`![A cat](${written})`, false, {
 				toolImages: [CAT_RESULT],
@@ -627,9 +643,9 @@ describe("renderMarkdown: a reply's pictures are never requested from an address
 
 	it("gives raw HTML nothing the renderer would not write itself", async () => {
 		const mod = await import("./markdown");
-		const route = imageThumbnailRouteUrl(THUMB);
+		const route = imageThumbnailRouteUrl(CAT);
 		const other = imageThumbnailRouteUrl(
-			"https://imgs.search.brave.com/Zq3s9x/other.jpg",
+			"https://saved-thumbnails.example/Zq3s9x/other.jpg",
 		);
 		const html = await mod.renderMarkdown(
 			[
@@ -648,7 +664,7 @@ describe("renderMarkdown: a reply's pictures are never requested from an address
 		// The one thumbnail address a tool returned is what the renderer writes itself;
 		// writing it as HTML gains nothing and loses nothing. All else is gone.
 		expect(requested(html)).toEqual([`img ${route}`]);
-		expect(html).not.toMatch(/example\.com|x\.test|attacker/i);
+		expect(html).not.toMatch(/src="https?:|x\.test|attacker/i);
 	});
 });
 

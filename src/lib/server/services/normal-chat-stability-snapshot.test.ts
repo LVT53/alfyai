@@ -46,7 +46,6 @@ function config(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
 		model2TargetConstructedContext: 235_929,
 		model2MaxMessageLength: 1_048_576,
 		parallelApiKey: "parallel-key",
-		braveSearchApiKey: "brave-key",
 		fileProductionMaxOutputs: 4,
 		fileProductionSandboxTimeoutMs: 120_000,
 		fileProductionRendererTimeoutMs: 60_000,
@@ -120,7 +119,6 @@ describe("getNormalChatStabilitySnapshot", () => {
 		});
 		expect(JSON.stringify(snapshot)).not.toContain("user-1");
 		expect(JSON.stringify(snapshot)).not.toContain("not-returned");
-		expect(JSON.stringify(snapshot)).not.toContain("brave-key");
 	});
 
 	it("reports what replies were read as, content-free, without degrading the system", async () => {

@@ -1,3 +1,4 @@
+import { usesNativeMemory } from "./memory-profile/chat-delivery";
 // Everything the chat home (HomeV4A "Compact") reads, in one per-user payload:
 // the twelve weekly bars and the week's count, the three most recent
 // conversations, the cards for the projects that have been active, and the one
@@ -692,7 +693,8 @@ async function readMemoryReviewNotice(
 	userId: string,
 	homeMemoryReviewDismissedAt: Date | null,
 ): Promise<{ count: number; dismissed: boolean }> {
-	const enabled = await isUserMemoryEnabled(userId).catch(() => true);
+	if (usesNativeMemory(userId)) return { count: 0, dismissed: true };
+	const enabled = await isUserMemoryEnabled(userId).catch(() => false);
 	if (!enabled) return { count: 0, dismissed: true };
 
 	const profile = await getMemoryProfileReadModel({ userId });

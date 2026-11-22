@@ -660,10 +660,13 @@ export async function deleteConversationMessages(
 	messageIds: string[],
 	options: {
 		confirmForkedSourceHistoryMutation?: boolean;
+		editSourceMessageId?: string;
 		fetchImpl?: FetchLike;
 	} = {},
 ): Promise<number> {
 	const body: Record<string, unknown> = { messageIds };
+	if (options.editSourceMessageId)
+		body.editSourceMessageId = options.editSourceMessageId;
 	if (options.confirmForkedSourceHistoryMutation) {
 		body.confirmForkedSourceHistoryMutation = true;
 	}
