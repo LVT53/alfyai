@@ -510,6 +510,68 @@ describe("a 5 second take", () => {
 	});
 });
 
+// A text take's row has no source still, and its graph has no image path.
+describe("a take from text", () => {
+	const types = (graph: Graph) =>
+		Object.values(graph).map((node) => node.class_type);
+
+	it("submits the alt graph with no image path and uploads no still", async () => {
+		const server = await startLtx();
+		const takeId = await queueTake({
+			fromText: true,
+			sourceFileId: null,
+			explicitVariant: true,
+		});
+		await drainVideoTakes();
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		expect(promptRequests(server)).toHaveLength(1);
+		const graph = graphOf(promptRequests(server)[0]);
+		expect(types(graph)).not.toContain("LoadImage");
+		expect(
+			types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
+		).toHaveLength(0);
+		// No still to take an aspect from: the 16:9 product size, halved.
+		expect(nodeOfType(graph, "EmptyLTXVLatentVideo").inputs).toMatchObject({
+			width: 640,
+			height: 352,
+			length: 121,
+		});
+		expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+			LTX_VIDEO_UNET_ALT,
+		);
+		expect(nodeOfType(graph, "CLIPLoader").inputs.clip_name).toBe(
+			LTX_TEXT_ENCODER_ALT,
+		);
+		expect(
+			server.requests.filter((request) => request.path === "/upload/image"),
+		).toHaveLength(0);
+
+		const clip = (await storedClips())[0];
+		if (!clip) throw new Error("The take stored no clip");
+		const artifact = await artifactOf(clip.id);
+		expect(
+			parseVideoVersionBody(artifact?.newest?.body ?? null)?.sourceFileId,
+		).toBeNull();
+	});
+
+	it("keeps the image path for a picture take", async () => {
+		const server = await startLtx();
+		await queueTake({ fromText: false });
+		await drainVideoTakes();
+
+		const graph = graphOf(promptRequests(server)[0]);
+		expect(types(graph)).toContain("LoadImage");
+		expect(
+			types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
+		).toHaveLength(2);
+		expect(
+			server.requests.filter((request) => request.path === "/upload/image"),
+		).toHaveLength(1);
+	});
+});
+
 describe("a 10 second take", () => {
 	it("chains a second segment from the last decoded frame and concatenates", async () => {
 		const server = await startLtx();

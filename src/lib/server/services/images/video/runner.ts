@@ -3,14 +3,16 @@
 // them. Loaded lazily by `video-job.ts`.
 //
 // Shape of a run: read and fit the source still, upload it, then render each
-// segment (one at 5 s, two at 10 s). A segment is submitted under a prompt id
-// written to the checkpoint BEFORE the POST, followed, and its mp4 fetched;
-// segment 2 is guided by the LAST DECODED FRAME of segment 1, which is what
-// makes the chain a chain. The clips are concatenated, every frame of the
-// clip passes the explicit-picture filter (never a sample: the owner's
-// ruling), and only then is anything stored. A later attempt finds the checkpointed prompt (and every
-// finished segment's saved clip) and resumes instead of rendering it twice; a
-// ComfyUI that forgot the prompt is resubmitted once per segment.
+// segment (one at 5 s, two at 10 s). A text take has no still, so it skips both
+// and submits the same graph without the image path. A segment is submitted
+// under a prompt id written to the checkpoint BEFORE the POST, followed, and
+// its mp4 fetched; a picture take's segment 2 is guided by the LAST DECODED
+// FRAME of segment 1, which is what makes the chain a chain. The clips are
+// concatenated, every frame of the clip passes the explicit-picture filter
+// (never a sample: the owner's ruling), and only then is anything stored. A
+// later attempt finds the checkpointed prompt (and every finished segment's
+// saved clip) and resumes instead of rendering it twice; a ComfyUI that forgot
+// the prompt is resubmitted once per segment.
 //
 // A 10 s take whose second segment fails FAILS THE WHOLE TAKE: one segment is
 // never stored and served as if it were ten seconds.
@@ -66,6 +68,7 @@ import {
 import {
 	parseVideoCheckpoint,
 	parseVideoTakeRequest,
+	VIDEO_TEXT_SIZE,
 	type VideoCheckpoint,
 	type VideoSegmentRecord,
 	type VideoTakeRequest,
@@ -458,7 +461,8 @@ async function renderSegment(
 	input: {
 		request: VideoTakeRequest;
 		size: { width: number; height: number };
-		imageName: string;
+		/** The uploaded guide's name in ComfyUI's input folder; null for a text take. */
+		imageName: string | null;
 		segment: 1 | 2;
 		/** The finished segments before this one; at segment n this is length n-1. */
 		segments: readonly VideoSegmentRecord[];
@@ -489,7 +493,9 @@ async function renderSegment(
 		seed: ctx.row.seed + (input.segment - 1),
 		width: input.size.width,
 		height: input.size.height,
-		image: input.imageName,
+		// A text take's row has no image path; a picture take always has a name.
+		image: input.imageName ?? undefined,
+		fromText: input.request.fromText,
 		// The take's row decides the variant: a 10 s take is two renders
 		// minutes apart, so neither segment reads the exemption again.
 		variant: input.request.explicitVariant ? "alt" : "standard",
@@ -588,15 +594,23 @@ async function renderTake(
 		videoPlan(request.durationSeconds, await engineLooksWarm("ltx", row.id)),
 	);
 
-	const still = await readStill(ctx, request.sourceFileId);
-	const size = videoSizeForSource({
-		width: still.file.width,
-		height: still.file.height,
-	});
-	const fitted = await fitStill(still.bytes, size);
-	const uploadName = `${row.id}-1.png`;
-	const uploaded = await client.uploadImage(fitted, uploadName);
-	if (signal.aborted) return;
+	// A text take has no source still to read or upload.
+	const still = request.fromText
+		? null
+		: await readStill(ctx, request.sourceFileId);
+	const size = still
+		? videoSizeForSource({
+				width: still.file.width,
+				height: still.file.height,
+			})
+		: VIDEO_TEXT_SIZE;
+	let imageName: string | null = null;
+	if (still) {
+		const fitted = await fitStill(still.bytes, size);
+		const uploaded = await client.uploadImage(fitted, `${row.id}-1.png`);
+		if (signal.aborted) return;
+		imageName = uploaded.filename;
+	}
 
 	const segmentCount = videoSegmentCount(request.durationSeconds);
 	const saved = parseVideoCheckpoint(row.checkpoint);
@@ -606,7 +620,6 @@ async function renderTake(
 	const resumedPromptId = saved?.promptId ?? null;
 	const resumedSegment = saved?.segment ?? 1;
 	const clips: Uint8Array[] = [];
-	let imageName = uploaded.filename;
 	// The card holds one engine: free the picture servers once, before the run's
 	// first submit, so LTX loads into memory they no longer hold. A resumed run
 	// that starts at segment 2 still owes that free.
@@ -678,7 +691,8 @@ async function renderTake(
 		}
 		if (!clip) {
 			mediaOptions(ctx, startedAt);
-			if (segmentNumber === 2) {
+			// A text take has no image path, so segment 2 has no guide to upload.
+			if (segmentNumber === 2 && !request.fromText) {
 				// The chain's guide: the FIRST clip's last decoded frame.
 				const first = clips[0];
 				if (!first) {

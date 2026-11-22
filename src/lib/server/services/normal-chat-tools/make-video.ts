@@ -1,17 +1,19 @@
-// make_video: make a short clip from a still picture. The call names one of
-// the turn's numbered pictures (or an Image of this chat), turns the person's
-// motion idea into the caption LTX reads, queues a take on the video kind,
-// waits for it up to VIDEO_TOOL_WAIT_MS, and answers with ids and a sentence.
-// It hands the model no picture and no address: the card in the chat shows the
-// clip. A take that outlives the wait is not lost; it lands on its card later.
+// make_video: make a short clip from a still picture, or from the words alone
+// when no picture resolves. The call names one of the turn's numbered pictures
+// (or an Image of this chat), turns the person's motion idea into the caption
+// LTX reads, queues a take on the video kind, waits for it up to
+// VIDEO_TOOL_WAIT_MS, and answers with ids and a sentence. It hands the model
+// no picture and no address: the card in the chat shows the clip. A take that
+// outlives the wait is not lost; it lands on its card later.
 //
 // The still is resolved exactly as make_image resolves a picture (`sourcesNamed`
 // for a number or an Image id, `loadPicture` to read it), and it can be named
 // in the ways a model actually has: a number, an Image id, or the takeId
 // make_image just handed it. A call with NO picture animates the newest picture
 // THIS TURN made, else the picture open in the panel — "make me a picture and
-// animate it" works in one turn without the model knowing any id. A name that
-// resolves to nothing is refused with what the turn does offer.
+// animate it" works in one turn without the model knowing any id. When none of
+// those resolves, `isExplicitVariantAllowedFor` decides: true makes a text
+// take, false refuses with what the turn does offer.
 //
 // Everything the model reads from here is ASCII English (ruling 79); titles
 // and the person's motion idea ride inside it as their own data.
@@ -46,6 +48,7 @@ import type {
 } from "$lib/server/services/images/turn-pictures";
 import type { TurnTakes } from "$lib/server/services/images/turn-takes";
 import {
+	VIDEO_TEXT_SIZE,
 	VIDEO_TOOL_WAIT_MS,
 	type VideoDurationSeconds,
 	type VideoTakeRequest,
@@ -483,7 +486,12 @@ async function planTake(params: {
 			(await newestPictureThisTurn({ userId, conversationId, turnTakes }))
 				?.source ?? openPictureSource(turnPictures);
 	}
-	if (!source) {
+	// The exemption selects the second engine variant for the whole take, and
+	// it is also what allows a take with no picture at all. Read once here, so
+	// both captions, the size and the take's row agree.
+	const explicitVariant = await isExplicitVariantAllowedFor(userId);
+	const fromText = source === null;
+	if (fromText && !explicitVariant) {
 		return {
 			ok: false,
 			refused: refusal(
@@ -498,39 +506,41 @@ async function planTake(params: {
 			),
 		};
 	}
-	const still = unmarkedPicture(turnPictures, source);
 
-	let loaded: Awaited<ReturnType<typeof loadPicture>>;
-	try {
-		loaded = await loadPicture({ userId, conversationId, source: still });
-	} catch (error) {
-		// A picture that is gone or cannot be decoded is the model's to hear about.
-		if (error instanceof PictureUnreadableError) {
-			return {
-				ok: false,
-				refused: refusal("unknown_picture", error.message),
-			};
+	// A picture take renders a still; a text take renders the caption alone.
+	let loaded: Awaited<ReturnType<typeof loadPicture>> | null = null;
+	if (source) {
+		const still = unmarkedPicture(turnPictures, source);
+		try {
+			loaded = await loadPicture({ userId, conversationId, source: still });
+		} catch (error) {
+			// A picture that is gone or cannot be decoded is the model's to hear about.
+			if (error instanceof PictureUnreadableError) {
+				return {
+					ok: false,
+					refused: refusal("unknown_picture", error.message),
+				};
+			}
+			throw error;
 		}
-		throw error;
 	}
 
 	const durationSeconds = input.durationSeconds;
-	// The exemption selects the second engine variant for the whole take: read
-	// once here, so both captions and the take's row agree.
-	const explicitVariant = await isExplicitVariantAllowedFor(userId);
 	const variant: LtxVideoVariant = explicitVariant ? "alt" : "standard";
 	// The caption is a model call: it happens only for a take that will be made.
 	const prompt = await buildVideoPrompt(input.prompt.trim(), {
 		signal: params.signal,
 		variant,
+		fromText,
 	});
-	// A 10 s take's second segment starts on the first one's last frame: its
-	// caption goes on from there, never the first one's again (review C-2).
+	// A 10 s take's second segment follows the first: its caption goes on from
+	// there, never the first one's again (review C-2).
 	const continuationPrompt =
 		durationSeconds === 10 && !params.signal.aborted
 			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
 					signal: params.signal,
 					variant,
+					fromText,
 				})
 			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
@@ -540,26 +550,31 @@ async function planTake(params: {
 	// The take renders a picture FILE of this chat. An uploaded photo, and a
 	// picture of another chat, has no file here yet: a copy becomes the still,
 	// as a photo's first version does for a picture take.
-	let sourceFileId = loaded.fileId;
-	if (!sourceFileId) {
-		const stored = await storeImageFile({
-			userId,
-			conversationId,
-			// The still is the take's INPUT: it is what the clip is made from, and
-			// it is never a take's own result or a marked copy for eyes.
-			role: "input",
-			png: loaded.png,
-			mayBeSeeThrough: true,
-		});
-		sourceFileId = stored.id;
+	let sourceFileId: string | null = null;
+	if (loaded) {
+		sourceFileId = loaded.fileId;
+		if (!sourceFileId) {
+			const stored = await storeImageFile({
+				userId,
+				conversationId,
+				// The still is the take's INPUT: it is what the clip is made from, and
+				// it is never a take's own result or a marked copy for eyes.
+				role: "input",
+				png: loaded.png,
+				mayBeSeeThrough: true,
+			});
+			sourceFileId = stored.id;
+		}
 	}
 
 	const title = titleFor(input.title, params.requestText, TITLE_FALLBACK);
 	const summary = input.summary?.trim() ? input.summary.trim() : null;
-	const size = videoSizeForSource({
-		width: loaded.width,
-		height: loaded.height,
-	});
+	const size = loaded
+		? videoSizeForSource({
+				width: loaded.width,
+				height: loaded.height,
+			})
+		: VIDEO_TEXT_SIZE;
 	return {
 		ok: true,
 		plan: {
@@ -572,7 +587,7 @@ async function planTake(params: {
 				...(continuationPrompt ? { continuationPrompt } : {}),
 				durationSeconds,
 				sourceFileId,
-				fromText: false,
+				fromText,
 				title,
 				summary,
 				artifactId: null,

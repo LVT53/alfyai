@@ -423,7 +423,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	make_video: {
 		description:
-			'Make a short video from a still picture. With no `picture` it animates the newest picture this turn made, else the open one; `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish something would move, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, and what stays. 5 seconds by default, 10 only when asked. Do not use it for a still picture (make_image), for trimming or editing a video, or for adding sound.',
+			'Make a short video. A picture is optional. With no `picture` it animates the newest picture this turn made, else the open one; with neither it makes the clip from the words alone. `picture` may name a message picture number, an Image id from "In this chat", or a make_image takeId. Only when the user asks for a video, clip or animation in so many words; if they only wish it moved, ask with ask_user first. One at a time, minutes each. Write `prompt` in English: what moves, how the camera moves, what stays. 5 seconds by default, 10 only when asked. Do not use it for stills (make_image), video edits or sound.',
 		errorPrefix: "Making the video failed",
 	},
 	read_generated_file: {
