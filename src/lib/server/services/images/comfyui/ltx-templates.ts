@@ -26,19 +26,19 @@
  * (a multiple of 32 per side) and the first pass halves it, exactly as the
  * template's own divide-by-two primitives do.
  *
- * The second variant's LoRA is spliced rather than stored, so the file is not a
- * load dependency of the first variant.
+ * The second variant swaps both the transformer and the text encoder, and
+ * nothing else: the node set is identical to the first variant's, so neither
+ * variant can carry a node the other lacks.
  */
 
 import ltxVideoGraph from "./graphs/ltx-image-to-video.api.json";
 import {
-	LTX_LORA_ALT,
-	LTX_LORA_ALT_STRENGTH,
 	LTX_SEGMENT_FRAMES,
 	LTX_TEXT_ENCODER,
 	LTX_TEXT_ENCODER_ALT,
 	LTX_VIDEO_FPS,
 	LTX_VIDEO_UNET,
+	LTX_VIDEO_UNET_ALT,
 	type LtxVideoVariant,
 } from "./ltx-spec";
 import type { ComfyGraph } from "./types";
@@ -51,8 +51,6 @@ import type { ComfyGraph } from "./types";
  */
 export {
 	LTX_AUDIO_VAE,
-	LTX_LORA_ALT,
-	LTX_LORA_ALT_STRENGTH,
 	LTX_SEGMENT_FRAMES,
 	LTX_SIGMAS_PASS_1,
 	LTX_SIGMAS_PASS_2,
@@ -61,6 +59,7 @@ export {
 	LTX_UPSAMPLER,
 	LTX_VIDEO_FPS,
 	LTX_VIDEO_UNET,
+	LTX_VIDEO_UNET_ALT,
 	LTX_VIDEO_VAE,
 } from "./ltx-spec";
 
@@ -75,9 +74,6 @@ const NOISE_1_NODE = "14";
 const NOISE_2_NODE = "24";
 const CONDITIONING_NODE = "7";
 const CREATE_VIDEO_NODE = "32";
-const GUIDER_1_NODE = "17";
-const GUIDER_2_NODE = "27";
-const LORA_NODE = "34";
 
 export type LtxVideoGraphInput = {
 	/** The motion caption the app's model wrote, in LTX's caption style. */
@@ -107,20 +103,11 @@ export function buildLtxVideoGraph(input: LtxVideoGraphInput): ComfyGraph {
 		if (!node) throw new Error(`The LTX graph has no node ${nodeId}`);
 		node.inputs[inputName] = value;
 	};
-	put(UNET_NODE, "unet_name", LTX_VIDEO_UNET);
 	if (input.variant === "alt") {
+		put(UNET_NODE, "unet_name", LTX_VIDEO_UNET_ALT);
 		put(CLIP_NODE, "clip_name", LTX_TEXT_ENCODER_ALT);
-		graph[LORA_NODE] = {
-			class_type: "LoraLoaderModelOnly",
-			inputs: {
-				model: [UNET_NODE, 0],
-				lora_name: LTX_LORA_ALT,
-				strength_model: LTX_LORA_ALT_STRENGTH,
-			},
-		};
-		put(GUIDER_1_NODE, "model", [LORA_NODE, 0]);
-		put(GUIDER_2_NODE, "model", [LORA_NODE, 0]);
 	} else {
+		put(UNET_NODE, "unet_name", LTX_VIDEO_UNET);
 		put(CLIP_NODE, "clip_name", LTX_TEXT_ENCODER);
 	}
 	put(POSITIVE_PROMPT_NODE, "text", input.prompt);
