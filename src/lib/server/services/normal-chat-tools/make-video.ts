@@ -22,6 +22,7 @@ import { getConfig, isVideoMakingConfigured } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { imageJobs, videoJobs } from "$lib/server/db/schema";
 import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
+import type { LtxVideoVariant } from "$lib/server/services/images/comfyui/ltx-spec";
 import {
 	getImageFile,
 	storeImageFile,
@@ -30,7 +31,10 @@ import {
 	loadPicture,
 	PictureUnreadableError,
 } from "$lib/server/services/images/inputs";
-import { isExplicitFilterOnFor } from "$lib/server/services/images/picture-check/policy";
+import {
+	isExplicitFilterOnFor,
+	isExplicitVariantAllowedFor,
+} from "$lib/server/services/images/picture-check/policy";
 import { findExplicitRequestTerm } from "$lib/server/services/images/picture-check/request-terms";
 import { sourcesNamed } from "$lib/server/services/images/requests";
 import { freshSeed } from "$lib/server/services/images/seeds";
@@ -199,7 +203,12 @@ const NOT_FOR_THE_MODEL_TO_RETRY = new Set([
 const FAILURE_FALLBACK = "The video could not be made.";
 const STOPPED_MESSAGE =
 	"The user stopped the turn before this video started, so it was not made.";
-const EXPLICIT_REQUEST_MESSAGE =
+/**
+ * The refusal a take gets when the explicit-picture filter refuses its request.
+ * The video card's Another route reuses it for a new take whose cloned request
+ * is no longer allowed.
+ */
+export const EXPLICIT_REQUEST_MESSAGE =
 	"Explicit or sexual videos are not made here: the explicit-picture filter refused this request and no clip was made. Tell the user plainly that this video cannot be made. Do not call make_video again for this request.";
 
 const SUCCEEDED_NOTE =
@@ -506,9 +515,14 @@ async function planTake(params: {
 	}
 
 	const durationSeconds = input.durationSeconds;
+	// The exemption selects the second engine variant for the whole take: read
+	// once here, so both captions and the take's row agree.
+	const explicitVariant = await isExplicitVariantAllowedFor(userId);
+	const variant: LtxVideoVariant = explicitVariant ? "alt" : "standard";
 	// The caption is a model call: it happens only for a take that will be made.
 	const prompt = await buildVideoPrompt(input.prompt.trim(), {
 		signal: params.signal,
+		variant,
 	});
 	// A 10 s take's second segment starts on the first one's last frame: its
 	// caption goes on from there, never the first one's again (review C-2).
@@ -516,6 +530,7 @@ async function planTake(params: {
 		durationSeconds === 10 && !params.signal.aborted
 			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
 					signal: params.signal,
+					variant,
 				})
 			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
@@ -560,6 +575,7 @@ async function planTake(params: {
 				title,
 				summary,
 				artifactId: null,
+				explicitVariant,
 			},
 		},
 	};

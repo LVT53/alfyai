@@ -10,29 +10,6 @@ const settingsDict = {
 		"memoryCleanup.complete": "Memory deletion is complete.",
 		"memoryCleanup.retry": "Retry deletion",
 
-		"memoryImport.title": "Remember useful details from earlier chats?",
-		"memoryImport.help":
-			"Some older chats don’t record whether memory was on. You can include them in your new memory. Private chats and details you asked Alfy to forget stay excluded.",
-		"memoryImport.include": "Include earlier chats",
-		"memoryImport.decline": "Not now",
-		"memoryImport.profileTitle": "Earlier chats",
-		"memoryImport.profileHelp":
-			"Choose whether to include older chats whose memory setting wasn’t recorded.",
-		"memoryImport.included": "Earlier chats included",
-		"memoryImport.declined": "Earlier chats not included",
-		"memoryImport.change": "Change choice",
-		"memoryImport.failed": "Couldn’t save your choice. Please try again.",
-		"memoryImport.loadingFailed": "Couldn’t load your earlier-chat choice.",
-		"memoryImport.statusPending": "Waiting to import",
-		"memoryImport.statusWorking": "Importing earlier chats…",
-		"memoryImport.statusComplete": "Import complete",
-		"memoryImport.statusHeld":
-			"Some earlier chats need checking before they can be imported.",
-		"memoryImport.statusFailed":
-			"Import paused after a problem. Your current memories are still available.",
-		"memoryImport.cancel": "Cancel",
-		"memoryImport.later": "You can change this later in Profile settings.",
-
 		"admin.activeSessions": "Active sessions",
 		"admin.addModel": "Add Model",
 		"admin.addModelAlias": "Add alias",
@@ -2217,32 +2194,6 @@ const settingsDict = {
 		"memoryCleanup.loadFailed": "Nem sikerült ellenőrizni a memória törlését.",
 		"memoryCleanup.complete": "A memória törlése befejeződött.",
 		"memoryCleanup.retry": "Törlés újrapróbálása",
-
-		"memoryImport.title":
-			"Megjegyezzen hasznos részleteket a korábbi beszélgetésekből?",
-		"memoryImport.help":
-			"Néhány régebbi beszélgetésnél nem rögzítettük, hogy be volt-e kapcsolva a memória. Ezeket is bevonhatod az új memóriába. A privát beszélgetések és a korábban elfelejtetett részletek kimaradnak.",
-		"memoryImport.include": "Korábbi beszélgetések bevonása",
-		"memoryImport.decline": "Most nem",
-		"memoryImport.profileTitle": "Korábbi beszélgetések",
-		"memoryImport.profileHelp":
-			"Válaszd ki, hogy bevonjuk-e azokat a régebbi beszélgetéseket, amelyek memóriabeállítását nem rögzítettük.",
-		"memoryImport.included": "Korábbi beszélgetések bevonva",
-		"memoryImport.declined": "Korábbi beszélgetések nincsenek bevonva",
-		"memoryImport.change": "Választás módosítása",
-		"memoryImport.failed":
-			"Nem sikerült menteni a választásodat. Próbáld újra.",
-		"memoryImport.loadingFailed":
-			"Nem sikerült betölteni a korábbi beszélgetésekre vonatkozó választásodat.",
-		"memoryImport.statusPending": "Importálásra vár",
-		"memoryImport.statusWorking": "Korábbi beszélgetések importálása…",
-		"memoryImport.statusComplete": "Importálás kész",
-		"memoryImport.statusHeld":
-			"Néhány korábbi beszélgetést ellenőrizni kell az importálás előtt.",
-		"memoryImport.statusFailed":
-			"Az importálás egy probléma miatt szünetel. A jelenlegi emlékeid továbbra is elérhetők.",
-		"memoryImport.cancel": "Mégse",
-		"memoryImport.later": "Ezt később a Profil beállításainál módosíthatod.",
 
 		"admin.activeSessions": "Aktív munkamenetek",
 		"admin.addModel": "Modell hozzáadása",

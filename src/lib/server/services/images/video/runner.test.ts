@@ -27,6 +27,12 @@ import {
 	serializeVideoVersionBody,
 } from "$lib/shared/artifacts/video-body";
 import {
+	LTX_LORA_ALT,
+	LTX_LORA_ALT_STRENGTH,
+	LTX_TEXT_ENCODER,
+	LTX_TEXT_ENCODER_ALT,
+} from "../comfyui/ltx-spec";
+import {
 	createFakeComfyUi,
 	FAKE_VIDEO_BYTES,
 	type FakeComfyUi,
@@ -128,6 +134,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,
+		explicitVariant: false,
 		...overrides,
 	};
 }
@@ -359,6 +366,7 @@ async function renderSegmentOne(
 				width: 1280,
 				height: 960,
 				image: ref.filename,
+				variant: "standard",
 			}),
 			{ promptId },
 		);
@@ -402,6 +410,7 @@ async function submitSegmentOne(
 				width: 1280,
 				height: 704,
 				image: ref.filename,
+				variant: "standard",
 			}),
 			{ promptId },
 		);
@@ -574,6 +583,100 @@ describe("a 10 second take", () => {
 		expect(take.resultFileId).toBeNull();
 		expect(await storedClips()).toHaveLength(0);
 		expect(clipFilesAnyOnDisk()).toEqual([]);
+	});
+});
+
+describe("the engine variant", () => {
+	const guiders = (graph: Graph) =>
+		Object.values(graph).filter(
+			(node) => node.class_type === "LTXVDualCFGGuider",
+		);
+	const loras = (graph: Graph) =>
+		Object.values(graph).filter(
+			(node) => node.class_type === "LoraLoaderModelOnly",
+		);
+
+	it("builds the second variant's graph from the take's row", async () => {
+		const server = await startLtx();
+		await queueTake({ explicitVariant: true });
+		await drainVideoTakes();
+		const graph = graphOf(promptRequests(server)[0]);
+		expect(guiders(graph)).toHaveLength(2);
+		for (const guider of guiders(graph)) {
+			expect(guider.inputs.model).toEqual(["34", 0]);
+		}
+		const [lora] = loras(graph);
+		expect(lora?.inputs).toMatchObject({
+			model: ["1", 0],
+			lora_name: LTX_LORA_ALT,
+			strength_model: LTX_LORA_ALT_STRENGTH,
+		});
+		expect(nodeOfType(graph, "CLIPLoader").inputs.clip_name).toBe(
+			LTX_TEXT_ENCODER_ALT,
+		);
+	});
+
+	it("keeps the standard graph for a take whose row says so", async () => {
+		const server = await startLtx();
+		await queueTake({ explicitVariant: false });
+		await drainVideoTakes();
+		const graph = graphOf(promptRequests(server)[0]);
+		expect(loras(graph)).toHaveLength(0);
+		for (const guider of guiders(graph)) {
+			expect(guider.inputs.model).toEqual(["1", 0]);
+		}
+		expect(nodeOfType(graph, "CLIPLoader").inputs.clip_name).toBe(
+			LTX_TEXT_ENCODER,
+		);
+	});
+
+	it("renders both segments of a 10 s take from its stored row, never a fresh lookup", async () => {
+		// The server first: the runtime config is read when its module is first
+		// imported, and importing the policy pulls it in.
+		const server = await startLtx();
+		const policy = await import("../picture-check/policy");
+		const variantLookup = vi.spyOn(policy, "isExplicitVariantAllowedFor");
+		await queueTake({ explicitVariant: true, durationSeconds: 10 });
+		await drainVideoTakes();
+		const posts = promptRequests(server);
+		expect(posts).toHaveLength(2);
+		for (const post of posts) {
+			const graph = graphOf(post);
+			expect(loras(graph)).toHaveLength(1);
+			for (const guider of guiders(graph)) {
+				expect(guider.inputs.model).toEqual(["34", 0]);
+			}
+		}
+		// The row decides both segments: the fixture person's live value is the
+		// opposite, so a lookup here would build the other graph.
+		expect(variantLookup).not.toHaveBeenCalled();
+	});
+
+	it("frees the other engines before an alt take submits", async () => {
+		qwen = await createFakeComfyUi();
+		h3 = await createFakeComfyUi();
+		process.env.COMFYUI_URL = qwen.baseUrl;
+		process.env.COMFYUI_H3_URL = h3.baseUrl;
+		const server = await startLtx();
+		// The prompt is parked as soon as it is recorded, so everything the
+		// runner does before the POST has already happened when it is seen.
+		server.holdRequests("/prompt", true);
+		await queueTake({ explicitVariant: true });
+		const draining = drainVideoTakes();
+		try {
+			await until(
+				() => promptRequests(server).length,
+				(count) => count >= 1,
+			);
+			const frees = (target: FakeComfyUi) =>
+				target.requests.filter((request) => request.path === "/free").length;
+			expect(frees(qwen)).toBe(1);
+			expect(frees(h3)).toBe(1);
+			expect(frees(server)).toBe(0);
+		} finally {
+			server.holdRequests("/prompt", false);
+			await draining;
+		}
 	});
 });
 

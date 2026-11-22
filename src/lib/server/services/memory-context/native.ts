@@ -20,8 +20,11 @@ import {
 import { nativeMemoryClient } from "../memory-profile/hindsight-client";
 import {
 	admittedNativeFacts,
+	approvedMigrationRankFamily,
 	curatedNativeRankKeys,
+	matchVerifiedObservationRows,
 	nativeRankSupportKey,
+	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
@@ -94,23 +97,55 @@ export async function recallMemory(
 			.all();
 	const banks = readableBanks(db);
 	const rankings = new Map<string, NativeMemory[] | null>();
+	const confirmedEvidence = new Map<string, Map<string, NativeMemory>>();
 	for (const bank of banks) {
 		if (!isStillActive(db)) return [];
 		let ranking: NativeMemory[] | null = null;
 		try {
-			const matches = await nativeMemoryClient(
+			const client = nativeMemoryClient(
 				bank.id,
 				account.tenantId,
 				AbortSignal.timeout(2_000),
-			).recall(input.query, Math.max(0, Math.floor(input.tokenBudget)), () => {
-				// Capability verification and name resolution can outlast consent.
-				if (
-					!readableBanks(db).some(({ id }) => id === bank.id) ||
-					!isStillActive(db)
-				)
-					throw new NativeMemoryError("native_cancelled", false);
-			});
+			);
+			const matches = await client.recall(
+				input.query,
+				Math.max(0, Math.floor(input.tokenBudget)),
+				() => {
+					// Capability verification and name resolution can outlast consent.
+					if (
+						!readableBanks(db).some(({ id }) => id === bank.id) ||
+						!isStillActive(db)
+					)
+						throw new NativeMemoryError("native_cancelled", false);
+				},
+			);
 			ranking = matches.filter((m) => m.fact_type === "observation");
+			if (ranking.length && isStillActive(db)) {
+				const { bridge, family } = db.transaction((tx) => ({
+					bridge: curatedNativeRankKeys(tx, bank),
+					family: approvedMigrationRankFamily(
+						tx,
+						userId,
+						bank.id,
+						readPublishedMemory(userId, bank.id, undefined, tx),
+					),
+				}));
+				if (
+					ranking.some((rank) => {
+						const support = rank.source_memory_ids ?? [];
+						const key = nativeRankSupportKey(support);
+						return (
+							support.some((id) => family?.ids.has(id)) ||
+							(key && bridge.has(key))
+						);
+					})
+				) {
+					const snapshot = await client.list();
+					const unique = new Map(snapshot.map((row) => [row.id, row]));
+					if (unique.size === snapshot.length)
+						confirmedEvidence.set(bank.id, unique);
+				}
+			}
 		} catch {
 			/* Last accepted view remains useful during native outages. */
 		}
@@ -134,31 +169,97 @@ export async function recallMemory(
 			const order = new Map<string, number>();
 			if (ranking) {
 				const byId = new Map(accepted.map((row) => [row.nativeId, row]));
-				const unresolved = ranking
-					.map((rank, index) => ({ rank, index }))
-					.filter(({ rank, index }) => {
-						if (byId.get(rank.id)?.nativeText !== rank.text) return true;
-						if (!order.has(rank.id)) order.set(rank.id, index);
-						return false;
-					});
-				if (
-					unresolved.length &&
-					bank.generation &&
+				const bridge =
 					accepted[0]?.generation === bank.generation
-				) {
-					const curated = curatedNativeRankKeys(tx, bank);
-					const counts = new Map<string, number>();
-					for (const rank of ranking)
-						for (const id of rank.source_memory_ids ?? [])
-							counts.set(id, (counts.get(id) ?? 0) + 1);
-					for (const { rank, index } of unresolved) {
-						const ids = rank.source_memory_ids ?? [];
-						if (ids.some((id) => counts.get(id) !== 1)) continue;
-						const key = nativeRankSupportKey(ids);
-						const approved = key && curated.get(key);
-						if (approved && byId.has(approved) && !order.has(approved))
-							order.set(approved, index);
+						? curatedNativeRankKeys(tx, bank)
+						: new Map<string, string>();
+				const bridged = new Set(bridge.values());
+				const evidence = confirmedEvidence.get(bank.id);
+				const acceptedById = new Map(facts.map((fact) => [fact.id, fact]));
+				const family = approvedMigrationRankFamily(
+					tx,
+					userId,
+					bank.id,
+					accepted,
+				);
+				const familyRows = new Set(family?.rows.map((row) => row.nativeId));
+				const verifiedFamily =
+					family &&
+					evidence &&
+					matchVerifiedObservationRows(
+						family.rows,
+						[...evidence.values()],
+						family.approved,
+					);
+				const exactRankEvidence = (row: (typeof accepted)[number]) =>
+					readAcknowledgedFacts(row.sourceFingerprintsJson).every((fact) => {
+						const raw = evidence?.get(fact.id);
+						const source = acceptedById.get(fact.id)?.source;
+						return (
+							!!raw &&
+							raw.fact_type !== "observation" &&
+							!!source &&
+							raw.document_id === source.id &&
+							raw.text === fact.text &&
+							(raw.mentioned_at ?? null) === (fact.mentionedAt ?? null) &&
+							fact.assertedAtMs ===
+								(source.explicitEditAt ?? source.assertedAt).getTime()
+						);
+					});
+				const liveCoverage = new Map<string, number>();
+				for (const live of evidence?.values() ?? [])
+					if (live.fact_type === "observation")
+						for (const id of new Set(live.source_memory_ids ?? []))
+							liveCoverage.set(id, (liveCoverage.get(id) ?? 0) + 1);
+				for (const [index, rank] of ranking.entries()) {
+					const support = rank.source_memory_ids ?? [];
+					const key = nativeRankSupportKey(support);
+					if (!key) continue;
+					const direct = byId.get(rank.id);
+					const matchesDirect =
+						direct &&
+						direct.nativeText === rank.text &&
+						key ===
+							nativeRankSupportKey(
+								readAcknowledgedFacts(direct.sourceFingerprintsJson).map(
+									(fact) => fact.id,
+								),
+							);
+					if (
+						(direct && familyRows.has(direct.nativeId)) ||
+						support.some((id) => family?.ids.has(id))
+					) {
+						const match = verifiedFamily?.get(rank.id);
+						const live = evidence?.get(rank.id);
+						if (
+							match &&
+							match.text === match.prior.text &&
+							live?.text === rank.text &&
+							nativeRankSupportKey(live.source_memory_ids ?? []) === key &&
+							family?.rows.every(exactRankEvidence) &&
+							!order.has(match.prior.nativeId)
+						)
+							order.set(match.prior.nativeId, index);
+						continue;
 					}
+					if (matchesDirect && !bridged.has(direct.nativeId)) {
+						if (!order.has(direct.nativeId)) order.set(direct.nativeId, index);
+						continue;
+					}
+					const mapped = bridge.get(key);
+					const row = mapped ? byId.get(mapped) : undefined;
+					const live = evidence?.get(rank.id);
+					if (
+						!row ||
+						!live ||
+						live.fact_type !== "observation" ||
+						live.text !== rank.text ||
+						nativeRankSupportKey(live.source_memory_ids ?? []) !== key ||
+						order.has(row.nativeId) ||
+						support.some((id) => liveCoverage.get(id) !== 1)
+					)
+						continue;
+					if (exactRankEvidence(row)) order.set(row.nativeId, index);
 				}
 				accepted.sort(
 					(a, b) =>

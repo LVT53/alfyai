@@ -80,6 +80,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 		title: "Harbour at dusk",
 		summary: null,
 		artifactId: null,
+		explicitVariant: false,
 		...overrides,
 	};
 }
@@ -123,6 +124,25 @@ async function readTake(takeId: string) {
 		.from(schema.videoJobs)
 		.where(eq(schema.videoJobs.id, takeId))
 		.get();
+}
+
+/** The value `isExplicitVariantAllowedFor` reads for a person. */
+async function setExplicitVariantAllowed(
+	userId: string,
+	allowed: boolean,
+): Promise<void> {
+	const { db } = await import("$lib/server/db");
+	const schema = await import("$lib/server/db/schema");
+	db.update(schema.users)
+		.set({ explicitPictureFilterExempt: allowed })
+		.where(eq(schema.users.id, userId))
+		.run();
+}
+
+async function countTakes(): Promise<number> {
+	const { db } = await import("$lib/server/db");
+	const schema = await import("$lib/server/db/schema");
+	return db.select().from(schema.videoJobs).all().length;
 }
 
 function takeEvent(
@@ -222,6 +242,47 @@ describe("POST /api/images/video/cards/[cardId]/another", () => {
 		expect(
 			JSON.parse(another?.requestJson ?? "{}") as VideoTakeRequest,
 		).toMatchObject({ title: "Harbour at dusk", durationSeconds: 5 });
+	});
+
+	it("clones the alt variant while the person may still select it", async () => {
+		const { POST } = await import("./cards/[cardId]/another/+server");
+		await setExplicitVariantAllowed("u1", true);
+		const first = await insertTake({
+			status: "succeeded",
+			request: request({ explicitVariant: true }),
+		});
+		const res = (await POST(
+			takeEvent("cards", first, "u1", "?conversationId=c1"),
+		)) as Response;
+		expect(res.status).toBe(201);
+		const { takeId } = (await res.json()) as { takeId: string };
+		expect(
+			JSON.parse(
+				(await readTake(takeId))?.requestJson ?? "{}",
+			) as VideoTakeRequest,
+		).toMatchObject({ explicitVariant: true });
+	});
+
+	it("refuses another take once the person may no longer select it", async () => {
+		const { POST } = await import("./cards/[cardId]/another/+server");
+		const { EXPLICIT_REQUEST_MESSAGE } = await import(
+			"$lib/server/services/normal-chat-tools/make-video"
+		);
+		const first = await insertTake({
+			status: "succeeded",
+			request: request({ explicitVariant: true }),
+		});
+		const before = await countTakes();
+		const res = (await POST(
+			takeEvent("cards", first, "u1", "?conversationId=c1"),
+		)) as Response;
+		expect(res.status).toBe(409);
+		expect(await res.json()).toMatchObject({
+			error: EXPLICIT_REQUEST_MESSAGE,
+			code: "explicit_request",
+		});
+		// Nothing was queued: the card still holds just the take it had.
+		expect(await countTakes()).toBe(before);
 	});
 
 	it("answers 404 for another person's card", async () => {

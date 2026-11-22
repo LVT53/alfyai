@@ -431,11 +431,12 @@ export class HindsightClient {
 			};
 		});
 	}
-	async matchesArchivedFact(expected: {
-		id: string;
-		text: string;
-		sourceId: string;
-	}): Promise<boolean> {
+	async matchesArchivedFact(
+		expected: { id: string; sourceId: string } & (
+			| { text: string }
+			| { textHash: string }
+		),
+	): Promise<boolean> {
 		try {
 			const fact = await this.request(
 				`/memories/${encodeURIComponent(expected.id)}`,
@@ -445,7 +446,11 @@ export class HindsightClient {
 				fact.state === "invalidated" &&
 				(fact.type === "world" || fact.type === "experience") &&
 				fact.document_id === expected.sourceId &&
-				fact.text === expected.text
+				typeof fact.text === "string" &&
+				("text" in expected
+					? fact.text === expected.text
+					: createHash("sha256").update(fact.text).digest("hex") ===
+						expected.textHash)
 			);
 		} catch (error) {
 			if (
@@ -487,8 +492,13 @@ export class HindsightClient {
 		if (result.deleted_count !== 0)
 			throw new NativeMemoryError("memory_edit_readback_mismatch", false);
 	}
-	async deleteDocument(id: string): Promise<void> {
-		await this.request(`/documents/${encodeURIComponent(id)}`, "DELETE");
+	async deleteDocument(id: string, beforeDispatch?: () => void): Promise<void> {
+		await this.request(
+			`/documents/${encodeURIComponent(id)}`,
+			"DELETE",
+			undefined,
+			beforeDispatch,
+		);
 	}
 	async bankExists(): Promise<boolean> {
 		try {

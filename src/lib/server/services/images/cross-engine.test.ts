@@ -179,6 +179,7 @@ async function queueVideo(): Promise<string> {
 			title: "Harbour",
 			summary: null,
 			artifactId: null,
+			explicitVariant: false,
 		},
 		seed: 1,
 	});
@@ -263,6 +264,7 @@ async function videoRequeuedMidRender(promptId: string): Promise<string> {
 				width: 1280,
 				height: 960,
 				image: `${videoId}-1.png`,
+				variant: "standard",
 			}),
 			{ promptId },
 		);

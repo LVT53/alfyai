@@ -14,6 +14,11 @@ import type {
 import type { VideoTakeSnapshot } from "./make-video";
 
 const config = vi.hoisted(() => ({ video: true }));
+const captionConfig = vi.hoisted(() => ({
+	url: "",
+	model: "caption-model",
+	apiKey: "",
+}));
 const queued = vi.hoisted(() => ({
 	enqueue: vi.fn(),
 	cancel: vi.fn(),
@@ -21,6 +26,7 @@ const queued = vi.hoisted(() => ({
 	loaded: vi.fn(),
 	stored: vi.fn(),
 	explicit: vi.fn(),
+	variant: vi.fn(),
 	caption: vi.fn(),
 	continuation: vi.fn(),
 }));
@@ -28,6 +34,13 @@ const queued = vi.hoisted(() => ({
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({})),
 	isVideoMakingConfigured: () => config.video,
+	// The caption step's own configuration, for the test that runs the real
+	// caption builder instead of the stub.
+	isVideoCaptionConfigured: () =>
+		captionConfig.url.trim() !== "" && captionConfig.model.trim() !== "",
+	getLtxCaptionUrl: () => captionConfig.url,
+	getLtxCaptionModel: () => captionConfig.model,
+	getLtxCaptionApiKey: () => captionConfig.apiKey,
 }));
 
 vi.mock("$lib/server/services/images/video/video-job", () => ({
@@ -51,6 +64,7 @@ vi.mock("$lib/server/services/images/files", () => ({
 
 vi.mock("$lib/server/services/images/picture-check/policy", () => ({
 	isExplicitFilterOnFor: queued.explicit,
+	isExplicitVariantAllowedFor: queued.variant,
 }));
 
 vi.mock("$lib/server/services/video-caption", () => ({
@@ -104,12 +118,14 @@ function succeeded(over: Partial<VideoTakeSnapshot> = {}): VideoTakeSnapshot {
 
 beforeEach(() => {
 	config.video = true;
+	captionConfig.url = "";
 	queued.enqueue.mockReset();
 	queued.cancel.mockReset();
 	queued.named.mockReset();
 	queued.loaded.mockReset();
 	queued.stored.mockReset();
 	queued.explicit.mockReset();
+	queued.variant.mockReset();
 	queued.caption.mockReset();
 	queued.continuation.mockReset();
 
@@ -125,6 +141,7 @@ beforeEach(() => {
 	);
 	queued.stored.mockResolvedValue({ id: "stored-1" });
 	queued.explicit.mockResolvedValue(true);
+	queued.variant.mockResolvedValue(false);
 	queued.caption.mockImplementation(async (idea: string) => `caption: ${idea}`);
 	queued.continuation.mockImplementation(
 		async (idea: string, first: string) => `next after "${first}": ${idea}`,
@@ -366,6 +383,7 @@ describe("make_video and a request that was not for a video", () => {
 
 describe("make_video's take request", () => {
 	it("enqueues the still, the length, the words and the caption as LTX reads them", async () => {
+		queued.variant.mockResolvedValue(true);
 		const { outcome } = await run({
 			input: { durationSeconds: 10 },
 			wait: succeeded(),
@@ -381,6 +399,13 @@ describe("make_video's take request", () => {
 			"the tide comes in slowly",
 			expect.anything(),
 		);
+		expect(queued.continuation).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.any(String),
+			expect.objectContaining({ variant: "alt" }),
+		);
+		// One exemption read for the whole take, however many captions it writes.
+		expect(queued.variant).toHaveBeenCalledTimes(1);
 		expect(queued.enqueue).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId,
@@ -400,9 +425,57 @@ describe("make_video's take request", () => {
 					title: "Harbour at dawn",
 					summary: "Made the tide move",
 					artifactId: null,
+					explicitVariant: true,
 				},
 			}),
 		);
+	});
+
+	it("writes the standard variant for a person the exemption does not cover", async () => {
+		queued.variant.mockResolvedValue(false);
+		await run();
+		expect(queued.enqueue.mock.calls[0][0].request.explicitVariant).toBe(false);
+		expect(queued.caption).toHaveBeenCalledWith(
+			"the tide comes in slowly",
+			expect.objectContaining({ variant: "standard" }),
+		);
+	});
+
+	it("sends an exempt person's caption call the alt block", async () => {
+		// Through the real builder: the assertion is on the system message that
+		// leaves the process, not on the options the tool happened to pass.
+		const actual = await vi.importActual<
+			typeof import("$lib/server/services/video-caption")
+		>("$lib/server/services/video-caption");
+		const fetchImpl = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "A slow tide." } }],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+		queued.caption.mockImplementation(
+			(
+				idea: string,
+				options: { variant?: "standard" | "alt"; signal?: AbortSignal },
+			) =>
+				actual.buildVideoPrompt(idea, {
+					...options,
+					fetchImpl: fetchImpl as unknown as typeof fetch,
+				}),
+		);
+		captionConfig.url = "http://127.0.0.1:11434";
+		queued.variant.mockResolvedValue(true);
+		await run();
+		const [call] = fetchImpl.mock.calls as unknown as [string, RequestInit][];
+		const body = JSON.parse(String(call?.[1].body)) as {
+			messages: { role: string; content: string }[];
+		};
+		const system = body.messages.find((message) => message.role === "system");
+		expect(system?.content).toContain(actual.VIDEO_CAPTION_ALT_RULES);
+		expect(system?.content).not.toContain(actual.VIDEO_CAPTION_HOUSE_RULES);
 	});
 
 	it("defaults the take to 5 seconds, which has one segment and one caption", async () => {

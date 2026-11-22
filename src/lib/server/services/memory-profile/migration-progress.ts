@@ -1,9 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, like, or, sql } from "drizzle-orm";
 import type { MemoryScope } from "$lib/memory-types";
 import { db } from "$lib/server/db";
 import {
+	conversationForks,
 	conversations,
 	memoryAccounts,
+	memoryActions,
 	memoryControlIntervals,
 	memoryDeliveryJobs,
 	memoryMigrationManifests,
@@ -17,9 +19,18 @@ import {
 	projects,
 	users,
 } from "$lib/server/db/schema";
+import type { Tx } from "../jobs/types";
+import { parseActionIntent } from "./curation-intent";
 import { nativeCurationForMigration } from "./curation-lineage";
-import { historicalMemoryExclusion } from "./history-eligibility";
+import {
+	historicalMemoryExclusion,
+	usesDefaultHistoricalMemory,
+} from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import {
+	knownQuarantineWithdrawal,
+	normalizeQuarantineText,
+} from "./quarantine-policy";
 import { memoryScopeKey, memoryTextHash } from "./revisions";
 import { memoryScopeAt, readMemoryScopeMoves } from "./scope-history";
 import { parseMemoryItemMetadata } from "./types";
@@ -37,6 +48,9 @@ interface MigrationSource {
 	reason: string | null;
 	lineageId: string;
 	replayActionIds?: string[];
+	defaultHistory?: true;
+	/** Brought in by an import (a ChatGPT export), not said in this app. */
+	imported?: true;
 }
 interface MigrationAction {
 	id: string;
@@ -48,6 +62,8 @@ interface MigrationAction {
 	scope: MemoryScope | null;
 	itemId?: string;
 	reviewResolutionId?: string;
+	/** An operator approved checking this unlocated removal by meaning. */
+	curateAllHistory?: true;
 }
 const REVIEW_CURRENT_SUPPORT_MISSING = "review_current_support_missing";
 interface MigrationInventory {
@@ -74,6 +90,163 @@ function strings(value: string): string[] {
 }
 function date(value: Date | null): string | null {
 	return value && Number.isFinite(value.getTime()) ? value.toISOString() : null;
+}
+
+/**
+ * The inventory action IDs an operator approved for a meaning check, and the
+ * epoch the last new one was approved in. Anything malformed approves nothing.
+ */
+export function readUnlocatedCurationApproval(
+	checkpoint: Record<string, unknown>,
+) {
+	const ids = checkpoint.migrationCurateUnlocated;
+	const epoch = checkpoint.migrationCurateUnlocatedEpoch;
+	return {
+		actionIds: Array.isArray(ids)
+			? ids.filter((id): id is string => typeof id === "string" && !!id)
+			: [],
+		epoch: Number.isInteger(epoch) ? (epoch as number) : undefined,
+	};
+}
+
+/**
+ * A dated edit or removal with something to forget, whose provenance names a
+ * chat that no longer exists: nothing locates the history it came from.
+ */
+function unlocatedRemoval(
+	action: MigrationAction,
+	exceptions: MigrationInventory["exceptions"],
+) {
+	return (
+		(action.kind === "edit" || action.kind === "remove") &&
+		!action.sourceIds.length &&
+		action.at !== null &&
+		normalizeQuarantineText(action.before) !== "" &&
+		exceptions.some(
+			({ id, reason }) => id === action.id && reason === "missing_source",
+		)
+	);
+}
+
+/** Whether an operator may approve checking this inventory action by meaning. */
+export function unlocatedCurationApprovable(
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+	actionId: string,
+) {
+	const action = inventory.actions.find(({ id }) => id === actionId);
+	return (
+		!!action &&
+		(action.curateAllHistory === true ||
+			unlocatedRemoval(action, inventory.exceptions))
+	);
+}
+
+/**
+ * An eligible default-history chat in the scope of an approved unlocated
+ * removal (every scope when the removal has none): it goes through that
+ * removal's forget step before it publishes.
+ */
+export function unlocatedCurationCovers(
+	action: ReturnType<typeof inspectMemoryMigration>["actions"][number],
+	source: ReturnType<typeof inspectMemoryMigration>["sources"][number],
+) {
+	return (
+		action.curateAllHistory === true &&
+		source.defaultHistory === true &&
+		source.eligibility === "eligible" &&
+		(!action.scope ||
+			memoryScopeKey(action.scope) === memoryScopeKey(source.scope))
+	);
+}
+
+export function deterministicId(value: string) {
+	const h = memoryTextHash(value);
+	return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** One forget step per chat: replay sends the model every listed chat's facts. */
+export function unlocatedCurationRequestId(actionId: string, sourceId: string) {
+	return deterministicId(`migration-unlocated:${actionId}:${sourceId}`);
+}
+
+/** A per-chat forget step recorded that its final review passed for this revision. */
+function checkedRevision(
+	intentJson: string | null | undefined,
+	sourceId: string,
+) {
+	if (!intentJson) return false;
+	try {
+		return (
+			parseActionIntent(intentJson).meaningCheck?.checked.includes(sourceId) ===
+			true
+		);
+	} catch {
+		return false;
+	}
+}
+
+/** Whether a chat revision passed the forget step of one approved unlocated removal. */
+export function recordedMeaningCheck(
+	tx: Tx,
+	userId: string,
+	unlocatedActionId: string,
+	sourceId: string,
+) {
+	const step = tx
+		.select({ intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, userId),
+				eq(
+					memoryActions.requestId,
+					unlocatedCurationRequestId(unlocatedActionId, sourceId),
+				),
+			),
+		)
+		.get();
+	return checkedRevision(step?.intentJson, sourceId);
+}
+
+/**
+ * A chat revision that may not be published as it is: an approved unlocated
+ * removal covers it, or a per-chat forget step lists it, and no forget step
+ * recorded a passed final review for it.
+ */
+export function meaningCheckPending(
+	tx: Tx,
+	inventory: ReturnType<typeof inspectMemoryMigration>,
+	source: typeof memorySourceRevisions.$inferSelect,
+) {
+	const original = inventory.sources.find(({ id }) => id === source.messageId);
+	if (
+		parseJsonRecord(source.context).migrationDefaultHistory === true &&
+		original &&
+		inventory.actions.some(
+			(action) =>
+				unlocatedCurationCovers(action, original) &&
+				!recordedMeaningCheck(tx, source.userId, action.id, source.id),
+		)
+	)
+		return true;
+	return tx
+		.select({ intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, source.userId),
+				eq(memoryActions.bankId, source.bankId),
+				eq(memoryActions.epoch, source.epoch),
+				eq(memoryActions.kind, "migration_remove"),
+				sql`json_type(${memoryActions.intentJson}, '$.meaningCheck') = 'object'`,
+				or(
+					sql`exists (select 1 from json_each(${memoryActions.intentJson}, '$.sourceIds') where value = ${source.id})`,
+					sql`json_extract(${memoryActions.intentJson}, '$.addedSourceId') = ${source.id}`,
+				),
+			),
+		)
+		.all()
+		.some(({ intentJson }) => !checkedRevision(intentJson, source.id));
 }
 function records(userId: string) {
 	const user = db.select().from(users).where(eq(users.id, userId)).get();
@@ -179,6 +352,24 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 			resetAt: r.reset?.advancedAt,
 		};
 		const curation = nativeCurationForMigration(tx, userId, epoch);
+		// A ChatGPT import copies each branch of a chat into a fork of its own,
+		// shared history included; only the chat the person ended with counts.
+		const importedBranches = new Set(
+			tx
+				.select({ id: conversationForks.forkConversationId })
+				.from(conversationForks)
+				.where(
+					and(
+						eq(conversationForks.userId, userId),
+						like(
+							conversationForks.sourceAssistantMessageIdSnapshot,
+							"chatgpt:%",
+						),
+					),
+				)
+				.all()
+				.map(({ id }) => id),
+		);
 		for (const { message: m, chat } of r.msgs) {
 			if (m.role !== "user") continue;
 			const meta = parseJsonRecord(m.metadataJson);
@@ -189,13 +380,23 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 				assertedAt: m.createdAt,
 			});
 			const at = date(revision?.assertedAt ?? m.createdAt);
-			const reason = meta.forkCopy
-				? "fork_copy"
-				: historicalMemoryExclusion(controls, {
-						assertedAt:
-							revision?.explicitEditAt ?? revision?.assertedAt ?? m.createdAt,
-						incognito: chat.memoryIncognito,
-					});
+			const permissionAt =
+				revision?.explicitEditAt ?? revision?.assertedAt ?? m.createdAt;
+			// An imported message is an earlier chat like any other, judged by its
+			// own date; only the person's own words are ever sources. One the export
+			// gave no time was stored at the import's own time, after its chat was
+			// made, and has no date to judge it by.
+			const reason =
+				meta.forkCopy ||
+				(m.importSource &&
+					(meta.importedBranchCopy === true || importedBranches.has(chat.id)))
+					? "fork_copy"
+					: m.importSource && m.createdAt.getTime() >= chat.createdAt.getTime()
+						? "missing_date"
+						: historicalMemoryExclusion(controls, {
+								assertedAt: permissionAt,
+								incognito: chat.memoryIncognito,
+							});
 			result.sources.push({
 				id: m.id,
 				conversationId: chat.id,
@@ -214,10 +415,14 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 							? "excluded"
 							: "eligible",
 				reason,
+				...(!reason && usesDefaultHistoricalMemory(controls, permissionAt)
+					? { defaultHistory: true as const }
+					: {}),
+				...(m.importSource ? { imported: true as const } : {}),
 			});
 		}
-		const previous = latestManifest(userId);
-		if (previous?.epoch === epoch) {
+		const previous = epochManifest(userId, epoch);
+		if (previous) {
 			const saved: MigrationInventory = JSON.parse(previous.manifestJson);
 			for (const source of result.sources) {
 				const old = saved.sources.find((s) => s.id === source.id);
@@ -598,7 +803,14 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 		// historical evidence. It needs current support before import.
 		if (result.holdHistory)
 			result.exceptions.push(...reviewEditsWithoutCurrentSupport);
-		const historyBoundary = latestManifest(userId)?.createdAt ?? new Date();
+		const boundaryManifest = latestManifest(userId);
+		const carriedBoundary = parseJsonRecord(
+			boundaryManifest?.checkpointJson ?? null,
+		).historyBoundaryAt;
+		const historyBoundary =
+			typeof carriedBoundary === "string"
+				? new Date(carriedBoundary)
+				: (boundaryManifest?.createdAt ?? new Date());
 		if (result.holdHistory)
 			for (const s of result.sources)
 				if (
@@ -608,8 +820,59 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					s.eligibility = "held";
 					s.reason = "unknown_exclusion_boundary";
 				}
+		const currentCheckpoint = parseJsonRecord(
+			epochManifest(userId, epoch)?.checkpointJson ?? null,
+		);
+		// An approved unlocated removal no longer waits for its missing chat:
+		// preparation checks every older chat of its scope by meaning instead.
+		const approvedCuration = new Set(
+			readUnlocatedCurationApproval(currentCheckpoint).actionIds,
+		);
+		for (const action of result.actions) {
+			if (
+				!approvedCuration.has(action.id) ||
+				!unlocatedRemoval(action, result.exceptions)
+			)
+				continue;
+			result.exceptions = result.exceptions.filter(
+				({ id, reason }) => id !== action.id || reason !== "missing_source",
+			);
+			action.curateAllHistory = true;
+		}
+		const authoredConflictHolds = Array.isArray(
+			currentCheckpoint.migrationCorrectionHolds,
+		)
+			? currentCheckpoint.migrationCorrectionHolds.map((entry) =>
+					parseJsonRecord(JSON.stringify(entry)),
+				)
+			: [];
 		for (const source of result.sources) {
 			if (source.eligibility !== "eligible") continue;
+			if (source.defaultHistory) {
+				const scopeKey = memoryScopeKey(source.scope);
+				const origin = source.conversationId
+					? memoryScopeAt(
+							scopeMoves.get(source.conversationId) ?? [],
+							scopeKey,
+							new Date(source.messageAt ?? source.assertedAt),
+						)
+					: null;
+				if (origin !== scopeKey) {
+					source.eligibility = "held";
+					source.reason = "historical_scope_changed";
+					result.exceptions.push({
+						id: `historical-scope:${source.id}`,
+						reason: source.reason,
+						sourceIds: [source.id],
+					});
+					continue;
+				}
+				if (knownQuarantineWithdrawal(result, source, source.text)) {
+					source.eligibility = "excluded";
+					source.reason = "known_withdrawal";
+					continue;
+				}
+			}
 			const plan = curation.plan(
 				{
 					userId,
@@ -634,7 +897,31 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 					reason: source.reason,
 					sourceIds: [source.id],
 				});
-			} else if (plan.ids.length) source.replayActionIds = plan.ids;
+			} else if (plan.ids.length) {
+				if (source.defaultHistory) {
+					source.eligibility = "excluded";
+					source.reason = "known_withdrawal";
+				} else source.replayActionIds = plan.ids;
+			}
+			if (
+				source.eligibility === "eligible" &&
+				source.defaultHistory &&
+				authoredConflictHolds.some(
+					(hold) =>
+						hold.messageId === source.id &&
+						hold.textHash === memoryTextHash(source.text) &&
+						hold.assertedAt === source.assertedAt &&
+						hold.scopeKey === memoryScopeKey(source.scope),
+				)
+			) {
+				source.eligibility = "held";
+				source.reason = "held_conflict_with_later_correction";
+				result.exceptions.push({
+					id: `authored-conflict:${source.id}`,
+					reason: source.reason,
+					sourceIds: [source.id],
+				});
+			}
 		}
 		result.sources.sort(
 			(a, b) =>
@@ -648,6 +935,18 @@ export function inspectMemoryMigration(userId: string): MigrationInventory {
 		);
 		return result;
 	});
+}
+
+/**
+ * The manifest whose holds and edit exceptions an epoch carries: its own, or
+ * the one a restart retired while the new epoch has none yet.
+ */
+function epochManifest(userId: string, epoch: number) {
+	const latest = latestManifest(userId);
+	return latest?.epoch === epoch ||
+		(latest?.status === "restarted" && latest.epoch === epoch - 1)
+		? latest
+		: undefined;
 }
 
 export function latestManifest(userId: string) {
@@ -705,7 +1004,7 @@ function currentMigrationJobs(
 	});
 }
 export function verifyMemoryMigration(userId: string, id: string) {
-	return db.transaction(() => {
+	return db.transaction((tx) => {
 		const manifest = db
 			.select()
 			.from(memoryMigrationManifests)
@@ -779,12 +1078,60 @@ export function verifyMemoryMigration(userId: string, id: string) {
 					typeof id === "string" &&
 					sources.some((s) => s.id === id && s.state === "accepted"),
 			) ?? false;
-		const ready = accounted && !changed && !pending;
+		// A restart's retired banks must be gone from Hindsight before cutover.
+		const tenantId = db
+			.select({ tenantId: memoryAccounts.tenantId })
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get()?.tenantId;
+		const retiredCleanup = tenantId
+			? db
+					.select()
+					.from(memoryDeliveryJobs)
+					.where(
+						and(
+							eq(memoryDeliveryJobs.userId, tenantId),
+							eq(memoryDeliveryJobs.kind, "cleanup"),
+							like(memoryDeliveryJobs.requestId, "restart-erase:%"),
+						),
+					)
+					.all()
+					.filter((job) => job.status !== "succeeded")
+			: [];
+		// Chats published before a meaning-check approval never went through
+		// its forget step. Only an epoch that began after the approval has
+		// re-delivered every one of them, so a restart must come first.
+		const approval = readUnlocatedCurationApproval(checkpoint);
+		const curationSweepPending =
+			approval.actionIds.length > 0 &&
+			!(approval.epoch !== undefined && approval.epoch < manifest.epoch);
+		// Published chats that reached publication without a passed forget step.
+		const meaningCheckMissing = approval.actionIds.length
+			? sources.filter(
+					(source) =>
+						source.state === "accepted" &&
+						meaningCheckPending(tx, inventory, source),
+				).length
+			: 0;
+		const ready =
+			accounted &&
+			!changed &&
+			!pending &&
+			retiredCleanup.length === 0 &&
+			!curationSweepPending &&
+			meaningCheckMissing === 0;
 		return {
 			ready,
 			changed,
-			pending,
-			failed,
+			pending: pending + retiredCleanup.length,
+			failed:
+				failed +
+				retiredCleanup.filter(
+					(job) => job.status === "failed" || job.status === "cancelled",
+				).length,
+			retiredCleanupPending: retiredCleanup.length,
+			curationSweepPending,
+			meaningCheckMissing,
 			held: inventory.exceptions.length,
 			uncertain: inventory.sources.filter((s) => s.eligibility === "uncertain")
 				.length,

@@ -71,6 +71,14 @@ Being done now (2026-11-18, branch `claude/tool-row-words`, design doc to come u
 
 Later: the same rule for every error a person can meet outside the tool rows. Known so far: a reply that ends without an answer shows "The model stopped before writing its answer. Retry the message." whatever the cause (`no_final_answer`, chosen in `chat-turn/stream-completion.ts`), and after a step whose outcome is uncertain a blind Retry may repeat a change. Not looked at yet: uploads and imports, Settings and Admin, connections, Atlas outside its in-chat report row (the row itself is in the tool-row change), read aloud, the composer. Start the way the tool rows did: a sweep that lists every error a person can see and what the server knows about each.
 
+## Owner request (2026-11-22): video quality upgrades
+Status: **noted only** — not designed, not ranked, and not built.
+
+Three upgrades to the video pipeline: a latent temporal upscaler, RealESRGAN x4 through TensorRT, and RIFE r49 frame interpolation. TensorRT engines are built per GPU, so a new card means building them again, and each of the three adds render cost: a clip takes longer than it does today.
+
+## Shipped (2026-11-22): the second engine variant
+Status: **SHIPPED**, behind the existing per-person exemption; the H3 image engine was considered and declined.
+
 ## 1. Sidebar multi-select, with the chat actions that complete it
 Status: **SHIPPED (`efb23a553` is an ancestor of origin/main, checked 2026-11-10); built 2026-10-26. Older note: it was merged to local `dev` and not pushed at first.** Design (decisions D1-D7, copy table) and plan: `docs/plans/sidebar-multi-select/`. The owner asked for the build directly, so D1-D7 were decided without a brainstorm; any can be overturned. Built: Cmd/Ctrl-click, Shift ranges, "Select" in the row menu (touch); a sticky bar with Select all, Pin/Unpin, Move to project, Delete; `POST /api/conversations/batch` (50 ids, result per id); a delete now stops the chat's streaming reply and ends it as a Stop (single delete too). NOT built: running and unread dots (item 6 still needs them). Release gate green on the branch tip (e2e 1,298/0/0). Follow-ups found: the row menu has no keyboard navigation and Enter on a row's ⋮ also opens the chat (both pre-existing); `ensureSidebarExpanded` in tests/e2e/helpers.ts clicks while the sidebar still animates open (19 specs). Decided 2026-10-25: archive is dropped for now.
 Owner's words: "Multi-select in the sidebar and related actions to make it complete."

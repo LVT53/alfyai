@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -10,28 +10,37 @@ import {
 	memoryControlIntervals,
 	memoryDeliveryJobs,
 	memoryMigrationManifests,
+	memoryQuarantineSessions,
 	memoryResetGenerations,
 	memoryRevocations,
 	memorySourceRevisions,
 	messages,
 	users,
 } from "$lib/server/db/schema";
-import { cancelAll, retry } from "../jobs";
+import { cancelAll, enqueueAtomic, retry } from "../jobs";
 import type { Tx } from "../jobs/types";
+import { carryMemoryScopeMoves } from "../memory-behavior-log";
 import { HINDSIGHT_ENGINE_COMMIT } from "./contracts";
 import type { ActionIntentRecord } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
 import {
+	bankCleanupInputs,
 	type EnqueueMemoryDelivery,
 	enqueueMemoryMutation,
 	memoryDeliveryJob,
 } from "./delivery-job";
 import { historicalMemoryExclusion } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import { assertMigratedHistoryWithdrawalBoundary } from "./migration-observation-proof";
 import {
+	deterministicId,
 	inspectMemoryMigration,
 	latestManifest,
+	readUnlocatedCurationApproval,
 	settleMemoryMigration,
+	unlocatedCurationApprovable,
+	unlocatedCurationCovers,
+	unlocatedCurationRequestId,
 	verifyMemoryMigration,
 } from "./migration-progress";
 import {
@@ -47,15 +56,37 @@ import {
 	readMemoryScopeMoves,
 } from "./scope-history";
 
+export { unliftableUnlocatedScopes } from "./migration-observation-proof";
 export {
 	inspectMemoryMigration,
+	unlocatedCurationApprovable,
 	verifyMemoryMigration,
 } from "./migration-progress";
 
 /** The existing delivery job owns retries/checkpoints; this snapshot only inventories intent. */
-export async function prepareMemoryMigration(userId: string) {
+export async function prepareMemoryMigration(
+	userId: string,
+	restoredRewind?: {
+		bankId: string;
+		assertCurrent: (tx: Tx) => void;
+		holdCorrectionConflict: boolean;
+	},
+	options: {
+		/** The owner accepted running forget steps on a live account with an approval. */
+		acceptApprovedCuration?: boolean;
+	} = {},
+) {
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
+		restoredRewind?.assertCurrent(tx);
+		const pendingRepair = parseJsonRecord(
+			JSON.stringify(
+				parseJsonRecord(latestManifest(userId)?.checkpointJson ?? null)
+					.migrationRewind ?? {},
+			),
+		);
+		if (pendingRepair.selectiveRetain)
+			throw Error("memory_migration_recovery_unverified");
 		const personalBank = ensureMemoryBank(userId, { kind: "personal" });
 		const account = tx
 			.select()
@@ -64,6 +95,18 @@ export async function prepareMemoryMigration(userId: string) {
 			.get();
 		if (account?.lifecycleState !== "active")
 			throw Error("memory_account_unavailable");
+		// A forget step that fails for good on a live account would hold its
+		// bank with no remedy (restart and rewind need preparing), so a live
+		// account with an approved meaning check is not prepared again unless
+		// the owner accepts that for this run.
+		if (
+			account.authority === "hindsight" &&
+			options.acceptApprovedCuration !== true &&
+			readUnlocatedCurationApproval(
+				parseJsonRecord(latestManifest(userId)?.checkpointJson ?? null),
+			).actionIds.length
+		)
+			throw Error("memory_migration_live_curation_prepare_refused");
 		// Take only the legacy → preparing transition inside the same write barrier
 		// as the checkpoint. A concurrent cutover/rollback cannot be overwritten.
 		if (account.authority === "legacy")
@@ -76,6 +119,42 @@ export async function prepareMemoryMigration(userId: string) {
 					),
 				)
 				.run();
+		if (restoredRewind?.holdCorrectionConflict) {
+			const previous = latestManifest(userId);
+			const checkpoint = parseJsonRecord(previous?.checkpointJson ?? null);
+			const rewind = parseJsonRecord(
+				JSON.stringify(checkpoint.migrationRewind ?? {}),
+			);
+			if (
+				!previous ||
+				previous.epoch !== account.epoch ||
+				account.authority !== "preparing" ||
+				rewind.bankId !== restoredRewind.bankId ||
+				!Array.isArray(rewind.correctionHolds) ||
+				!rewind.correctionHolds.length
+			)
+				throw Error("memory_migration_rewind_unverified");
+			const previousHolds = Array.isArray(checkpoint.migrationCorrectionHolds)
+				? checkpoint.migrationCorrectionHolds
+				: [];
+			const holds = [
+				...new Map(
+					[...previousHolds, ...rewind.correctionHolds].map((hold) => [
+						JSON.stringify(hold),
+						hold,
+					]),
+				).values(),
+			];
+			tx.update(memoryMigrationManifests)
+				.set({
+					checkpointJson: JSON.stringify({
+						...checkpoint,
+						migrationCorrectionHolds: holds,
+					}),
+				})
+				.where(eq(memoryMigrationManifests.id, previous.id))
+				.run();
+		}
 		const user = tx.select().from(users).where(eq(users.id, userId)).get();
 		if (!user) throw Error("memory_unauthorized");
 		const intervals = tx
@@ -323,13 +402,19 @@ export async function prepareMemoryMigration(userId: string) {
 				messageTextHash: string;
 			}> = [];
 			let authority: ReturnType<typeof recordMemorySource> | undefined;
-			for (const message of contextRows) {
+			for (const message of source.defaultHistory ? [] : contextRows) {
 				if (message.id === source.id) break;
-				if (message.role === "user") authority = recorded.get(message.id);
+				// An imported message is never context: not the person's earlier
+				// words, and never ChatGPT's replies (revisions.ts checks the same).
+				if (message.role === "user")
+					authority = message.importSource
+						? undefined
+						: recorded.get(message.id);
 				if (
 					authority &&
 					(message.role === "user" ||
 						(message.role === "assistant" &&
+							!message.importSource &&
 							!parseJsonRecord(message.metadataJson).forkCopy &&
 							!hasConflictingScopeOrigin(
 								scopeMoves.get(message.conversationId) ?? [],
@@ -368,15 +453,19 @@ export async function prepareMemoryMigration(userId: string) {
 					context: JSON.stringify({
 						migration: true,
 						migrationMessageAt: source.messageAt,
-						messages: [
-							...context.slice(-5),
-							{
-								id: source.id,
-								role: "user",
-								sourceId: "$current",
-								textHash: memoryTextHash(source.text),
-							},
-						],
+						migrationDefaultHistory: source.defaultHistory,
+						...(source.imported ? { migrationImported: true } : {}),
+						messages: source.defaultHistory
+							? []
+							: [
+									...context.slice(-5),
+									{
+										id: source.id,
+										role: "user",
+										sourceId: "$current",
+										textHash: memoryTextHash(source.text),
+									},
+								],
 					}),
 					assertedAt: new Date(source.assertedAt),
 					explicitEditAt: source.explicitEditAt
@@ -495,8 +584,20 @@ export async function prepareMemoryMigration(userId: string) {
 						userId,
 						bankId: bank.id,
 						epoch: inventory.epoch,
+						// An earlier epoch may hold the bare ID: event IDs are unique
+						// per person across epochs.
 						eventId:
-							scopedRows.length || old.some((s) => s.eventId === action.id)
+							scopedRows.length ||
+							tx
+								.select({ id: memorySourceRevisions.id })
+								.from(memorySourceRevisions)
+								.where(
+									and(
+										eq(memorySourceRevisions.userId, userId),
+										eq(memorySourceRevisions.eventId, action.id),
+									),
+								)
+								.get()
 								? `authored:${bank.id}:${scopedRows.length}:${action.id}`
 								: action.id,
 						lineageId: action.id,
@@ -517,6 +618,49 @@ export async function prepareMemoryMigration(userId: string) {
 					sourceId: source.id,
 					requestId: `source:${source.id}`,
 				});
+				continue;
+			}
+			if (action.curateAllHistory) {
+				// The operator approved checking this unlocated removal by meaning.
+				// Each default-history chat of its scope gets a forget step of its
+				// own: replay hands the model the facts of every chat an action
+				// lists, so one action per chat keeps each check to its own chat.
+				for (const [messageId, row] of recorded) {
+					const original = inventoryByMessage.get(messageId);
+					if (!original || !unlocatedCurationCovers(action, original)) continue;
+					const requestId = unlocatedCurationRequestId(action.id, row.id);
+					const intent: ActionIntentRecord = {
+						request: {
+							kind: "remove",
+							requestId,
+							ref: {
+								scope: original.scope,
+								generation: "migration",
+								rowId: action.id,
+							},
+						},
+						before: action.before,
+						sourceIds: [row.id],
+						facts: [],
+						meaningCheck: { started: [], checked: [] },
+					};
+					tx.insert(memoryActions)
+						.values({
+							id: randomUUID(),
+							userId,
+							bankId: row.bankId,
+							epoch: inventory.epoch,
+							requestId,
+							kind: "migration_remove",
+							previousText: action.before,
+							intentJson: JSON.stringify(intent),
+							exclusionAcknowledged: true,
+							cleanupPending: true,
+							createdAt: new Date(action.at),
+						})
+						.onConflictDoNothing()
+						.run();
+				}
 				continue;
 			}
 			const sources = action.sourceIds
@@ -641,7 +785,14 @@ export async function prepareMemoryMigration(userId: string) {
 	settleMemoryMigration(userId);
 	return { id: manifestId, ...verifyMemoryMigration(userId, manifestId) };
 }
-export function cutoverMemoryMigration(userId: string, id: string) {
+export function cutoverMemoryMigration(
+	userId: string,
+	id: string,
+	options: {
+		/** The owner accepted cutting over before a refused forget step can be withdrawn and held. */
+		acceptApprovedCuration?: boolean;
+	} = {},
+) {
 	return db.transaction((tx) => {
 		const report = verifyMemoryMigration(userId, id);
 		if (!report.ready) throw Error("memory_migration_not_ready");
@@ -664,6 +815,24 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 		}
 		if (account.authority !== "preparing")
 			throw Error("memory_migration_not_ready");
+		// Nothing yet withdraws and holds a chat whose forget step fails on a
+		// live account, and its retained facts would stop every later
+		// publication in its bank. An approved account stays preparing until
+		// that exists, unless the owner explicitly accepts that risk for it;
+		// verify still says whether it would be ready.
+		if (
+			options.acceptApprovedCuration !== true &&
+			readUnlocatedCurationApproval(
+				parseJsonRecord(
+					tx
+						.select()
+						.from(memoryMigrationManifests)
+						.where(eq(memoryMigrationManifests.id, id))
+						.get()?.checkpointJson ?? null,
+				),
+			).actionIds.length
+		)
+			throw Error("memory_migration_cutover_curation_unsupported");
 		const banks = tx
 			.select()
 			.from(memoryBanks)
@@ -686,6 +855,11 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 			)
 		)
 			throw Error("memory_migration_not_ready");
+		assertMigratedHistoryWithdrawalBoundary(
+			tx,
+			userId,
+			banks.filter((bank) => bank.status !== "retired"),
+		);
 		tx.update(memoryAccounts)
 			.set({
 				authority: "hindsight",
@@ -716,6 +890,225 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 		return report;
 	});
 }
+function requireRestart(condition: unknown): asserts condition {
+	if (!condition) throw Error("memory_migration_restart_refused");
+}
+
+/**
+ * Start a preparation over in a fresh epoch, history first. Only an account
+ * that is still preparing qualifies: legacy Memory still serves it. The
+ * operator names the exact current manifest by its hash. The current epoch is
+ * retired the way an erasure retires one, but the reset generation is not
+ * advanced: its Hindsight banks get cleanup jobs of their own, which the
+ * person's cleanup status leaves out and verify waits for, its chat scope
+ * history and history boundary are carried forward, and its queued work is
+ * cancelled and kept for the record. One new prepare then queues the
+ * account's history before its authored statements, the order a single
+ * preparation uses; checkpoint holds and edit exceptions keep applying.
+ * A restart that stopped after its atomic step resumes with the same receipt.
+ */
+export async function restartMemoryPreparation(
+	userId: string,
+	input: { manifestId: string; manifestHash: string },
+) {
+	let retiredEpoch = -1;
+	let cleanupJobs = 0;
+	let scopeMovesCarried = 0;
+	let resumed = false;
+	await enqueueAtomic(memoryDeliveryJob, (tx) => {
+		const account = tx
+			.select()
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		const manifest = latestManifest(userId);
+		const checkpoint = parseJsonRecord(manifest?.checkpointJson ?? null);
+		requireRestart(
+			account?.lifecycleState === "active" &&
+				account.authority === "preparing" &&
+				manifest?.id === input.manifestId &&
+				/^[a-f0-9]{64}$/u.test(input.manifestHash) &&
+				createHash("sha256").update(manifest.manifestJson).digest("hex") ===
+					input.manifestHash &&
+				!checkpoint.migrationRewind &&
+				!checkpoint.cutoverAt,
+		);
+		requireRestart(
+			!tx
+				.select({ id: memoryDeliveryJobs.id })
+				.from(memoryDeliveryJobs)
+				.where(
+					and(
+						inArray(memoryDeliveryJobs.userId, [userId, account.tenantId]),
+						eq(memoryDeliveryJobs.status, "running"),
+					),
+				)
+				.get(),
+		);
+		// A quarantine review's decisions live in the epoch's own bank, and so
+		// does any action the new epoch cannot rebuild from legacy Memory and
+		// the chats. The migration's own actions and a resent chat edit it can.
+		requireRestart(
+			!tx
+				.select({ userId: memoryQuarantineSessions.userId })
+				.from(memoryQuarantineSessions)
+				.where(eq(memoryQuarantineSessions.userId, userId))
+				.get() &&
+				!tx
+					.select({ id: memoryActions.id })
+					.from(memoryActions)
+					.where(
+						and(
+							eq(memoryActions.userId, userId),
+							eq(memoryActions.epoch, account.epoch),
+							notInArray(memoryActions.kind, [
+								"migration_edit",
+								"migration_remove",
+								"source_edit",
+							]),
+						),
+					)
+					.get(),
+		);
+		if (manifest.status === "restarted") {
+			requireRestart(manifest.epoch === account.epoch - 1);
+			resumed = true;
+			retiredEpoch = manifest.epoch;
+			return [];
+		}
+		// Still draining, or stopped by a failed job; never once prepared.
+		requireRestart(
+			manifest.epoch === account.epoch &&
+				(manifest.status === "preparing" || manifest.status === "failed"),
+		);
+		const banks = tx
+			.select()
+			.from(memoryBanks)
+			.where(
+				and(
+					eq(memoryBanks.userId, userId),
+					eq(memoryBanks.epoch, account.epoch),
+				),
+			)
+			.all();
+		retiredEpoch = account.epoch;
+		tx.update(memoryAccounts)
+			.set({ epoch: account.epoch + 1 })
+			.where(
+				and(
+					eq(memoryAccounts.userId, userId),
+					eq(memoryAccounts.epoch, account.epoch),
+					eq(memoryAccounts.authority, "preparing"),
+				),
+			)
+			.run();
+		tx.update(memoryMigrationManifests)
+			.set({
+				status: "restarted",
+				checkpointJson: JSON.stringify({
+					...checkpoint,
+					historyBoundaryAt:
+						typeof checkpoint.historyBoundaryAt === "string"
+							? checkpoint.historyBoundaryAt
+							: manifest.createdAt.toISOString(),
+				}),
+			})
+			.where(eq(memoryMigrationManifests.id, manifest.id))
+			.run();
+		scopeMovesCarried = carryMemoryScopeMoves(
+			tx,
+			userId,
+			account.epoch,
+			account.epoch + 1,
+		);
+		const cleanup = bankCleanupInputs(tx, account, banks, "restart-erase");
+		cleanupJobs = cleanup.length;
+		return cleanup;
+	});
+	await cancelAll(memoryDeliveryJob, {
+		userId,
+		where: (jobs) => eq(jobs.epoch, retiredEpoch),
+	});
+	const prepared = await prepareMemoryMigration(userId);
+	return {
+		retiredEpoch,
+		resumed,
+		cleanupJobs,
+		scopeMovesCarried,
+		manifestId: prepared.id,
+		ready: prepared.ready,
+		changed: prepared.changed,
+	};
+}
+
+/**
+ * Record an operator's approval to check unlocated removals by meaning: a
+ * dated legacy edit or removal whose provenance named a chat that no longer
+ * exists. From the next prepare, every default-history chat of the removal's
+ * scope goes through the curation forget step for it before it publishes, and
+ * the removal's literal wording stays refused. The receipt names the exact
+ * current manifest by its hash. Approvals only accumulate; a new one is
+ * remembered with its epoch, because chats published before it never went
+ * through that step and only a restarted preparation sweeps them.
+ */
+export function approveUnlocatedMemoryCuration(
+	userId: string,
+	input: { manifestId: string; manifestHash: string; actionIds: string[] },
+) {
+	return db.transaction((tx) => {
+		const account = tx
+			.select()
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		const manifest = latestManifest(userId);
+		const checkpoint = parseJsonRecord(manifest?.checkpointJson ?? null);
+		const ids = input.actionIds;
+		requireCurationApproval(
+			account?.lifecycleState === "active" &&
+				account.authority === "preparing" &&
+				manifest?.id === input.manifestId &&
+				manifest.epoch === account.epoch &&
+				["preparing", "failed", "prepared"].includes(manifest.status) &&
+				/^[a-f0-9]{64}$/u.test(input.manifestHash) &&
+				createHash("sha256").update(manifest.manifestJson).digest("hex") ===
+					input.manifestHash &&
+				!checkpoint.migrationRewind &&
+				!checkpoint.cutoverAt &&
+				Array.isArray(ids) &&
+				ids.length > 0 &&
+				new Set(ids).size === ids.length,
+		);
+		const inventory = inspectMemoryMigration(userId);
+		requireCurationApproval(
+			ids.every(
+				(id) =>
+					typeof id === "string" && unlocatedCurationApprovable(inventory, id),
+			),
+		);
+		const previous = readUnlocatedCurationApproval(checkpoint);
+		const approved = [...new Set([...previous.actionIds, ...ids])].sort();
+		const added = approved.length - previous.actionIds.length;
+		tx.update(memoryMigrationManifests)
+			.set({
+				checkpointJson: JSON.stringify({
+					...checkpoint,
+					migrationCurateUnlocated: approved,
+					migrationCurateUnlocatedEpoch:
+						added || previous.epoch === undefined
+							? account.epoch
+							: previous.epoch,
+				}),
+			})
+			.where(eq(memoryMigrationManifests.id, manifest.id))
+			.run();
+		return { manifestId: manifest.id, approved: approved.length, added };
+	});
+}
+function requireCurationApproval(condition: unknown): asserts condition {
+	if (!condition) throw Error("memory_migration_unlocated_curation_refused");
+}
+
 /** Fail closed if a native-era choice cannot be represented in legacy authority. Never resurrect. */
 export function rollbackMemoryMigration(userId: string, id: string) {
 	return db.transaction((tx) => {
@@ -791,10 +1184,6 @@ function rollbackFingerprint(userId: string) {
 	);
 }
 
-function deterministicId(value: string) {
-	const h = memoryTextHash(value);
-	return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
-}
 /** Only the new-user insertion transaction calls this: missing existing accounts stay legacy. */
 export function initializeNewMemoryAccount(tx: Tx, userId: string): void {
 	if (!getConfig().hindsightNewAccountsEnabled) return;

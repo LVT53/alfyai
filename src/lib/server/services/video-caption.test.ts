@@ -22,10 +22,12 @@ vi.mock("$lib/server/config-store", () => ({
 	getLtxCaptionApiKey: () => config.apiKey,
 }));
 
+import type { LtxVideoVariant } from "$lib/server/services/images/comfyui/ltx-spec";
 import {
 	buildVideoContinuationPrompt,
 	buildVideoPrompt,
 	LTX24_I2V_INSTRUCTION,
+	VIDEO_CAPTION_ALT_RULES,
 	VIDEO_CAPTION_HOUSE_RULES,
 	VIDEO_CAPTION_MAX_CHARS,
 	videoContinuationNote,
@@ -59,6 +61,94 @@ describe("the official LTX instruction", () => {
 			"If the user wrote in another language, produce the English caption of the same content.",
 		);
 		expect(LTX24_I2V_INSTRUCTION).toContain("Output ONLY the caption text");
+	});
+});
+
+/** The one system message a builder sends, through the endpoint stub. */
+async function captureSystemMessage(
+	options: { variant?: LtxVideoVariant; first?: string } = {},
+): Promise<string> {
+	const fetchImpl = vi.fn(async () => jsonResponse("A caption."));
+	const buildOptions = {
+		fetchImpl: fetchImpl as unknown as typeof fetch,
+		...(options.variant ? { variant: options.variant } : {}),
+	};
+	if (options.first) {
+		await buildVideoContinuationPrompt("idea", options.first, buildOptions);
+	} else {
+		await buildVideoPrompt("idea", buildOptions);
+	}
+	const body = JSON.parse(
+		String(
+			(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
+		),
+	) as { messages: { role: string; content: string }[] };
+	const system = body.messages.find((message) => message.role === "system");
+	expect(system, "one system message").toBeDefined();
+	return system?.content ?? "";
+}
+
+describe("the caption request's instruction blocks", () => {
+	it("keeps the vendored instruction first in both variants", async () => {
+		for (const variant of ["standard", "alt"] as const) {
+			const sent = await captureSystemMessage({ variant });
+			expect(sent.startsWith(LTX24_I2V_INSTRUCTION)).toBe(true);
+		}
+	});
+
+	it("sends the alt rules instead of the house rules", async () => {
+		const sent = await captureSystemMessage({ variant: "alt" });
+		expect(sent).toContain(VIDEO_CAPTION_ALT_RULES);
+		// Replaced, never appended: neither block goes beside the other.
+		expect(sent).not.toContain(VIDEO_CAPTION_HOUSE_RULES);
+		expect(sent).not.toContain("No image is attached to this request");
+	});
+
+	it("defaults to the house rules", async () => {
+		const sent = await captureSystemMessage({});
+		expect(sent).toContain(VIDEO_CAPTION_HOUSE_RULES);
+		expect(sent).not.toContain(VIDEO_CAPTION_ALT_RULES);
+	});
+
+	it("puts the continuation note last, after the alt rules", async () => {
+		const first =
+			"Initially a grey cat walks across a rug toward a closed door.";
+		const sent = await captureSystemMessage({ variant: "alt", first });
+		expect(sent).toBe(
+			[
+				LTX24_I2V_INSTRUCTION,
+				VIDEO_CAPTION_ALT_RULES,
+				videoContinuationNote(first),
+			].join("\n\n"),
+		);
+	});
+
+	it("keeps the renderability rules verbatim and leaves out the house rules' image sentence", () => {
+		// Our own block, ASCII English like everything the app writes into a
+		// model request (ruling 79), and no third-party text.
+		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/^[\x20-\x7E\n]+$/);
+		// The house rules' image sentence is absent from this block.
+		expect(VIDEO_CAPTION_ALT_RULES).not.toMatch(/no image is attached/i);
+		expect(VIDEO_CAPTION_ALT_RULES).not.toMatch(/never invent/i);
+		// The renderability rules that still apply are kept word for word.
+		expect(VIDEO_CAPTION_ALT_RULES).toContain(
+			"The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.",
+		);
+		expect(VIDEO_CAPTION_ALT_RULES).toContain(
+			"Everyone and everything in the first frame stays in frame.",
+		);
+		expect(VIDEO_CAPTION_ALT_RULES).toContain(
+			"No on-screen text, titles, captions or logos.",
+		);
+		expect(VIDEO_CAPTION_ALT_RULES).toContain(
+			"The caption covers five seconds of action.",
+		);
+		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/single continuous take/i);
+		// The faithful-expansion sentences the block carries.
+		expect(VIDEO_CAPTION_ALT_RULES).toMatch(
+			/do not add people, objects or events/i,
+		);
+		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/leave out nothing it did name/i);
 	});
 });
 

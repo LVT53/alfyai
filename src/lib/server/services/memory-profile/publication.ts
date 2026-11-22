@@ -5,6 +5,7 @@ import {
 	memoryActions,
 	memoryBanks,
 	memoryDeliveryJobs,
+	memoryProfileItems,
 	memoryPublishedRows,
 	memoryRevocations,
 	memorySourceRevisions,
@@ -20,8 +21,10 @@ import {
 	assertMemoryBankAccess,
 	assertMemoryBankFence,
 	assertMemoryCurationSourceCurrent,
+	assertMemorySourceCurrent,
 	memoryTextHash,
 } from "./revisions";
+import { parseMemoryItemMetadata } from "./types";
 export interface AcknowledgedFact {
 	id: string;
 	text: string;
@@ -968,18 +971,32 @@ export function curatedNativeRankKeys(
 ) {
 	const keys = new Map<string, string>();
 	if (!bank.generation) return keys;
-	const edited = new Set(
-		acceptedEditPresentations(tx, bank).map(({ row }) => row.id),
-	);
-	if (!edited.size) return keys;
+
 	const captured = publishedRowsForGeneration(
 		tx,
 		bank.id,
 		bank.epoch,
 		bank.generation,
 	);
+	const edited = new Set(
+		acceptedEditPresentations(tx, bank).map(({ row }) => row.id),
+	);
+	let authored: ReadonlyMap<string, string>;
+	try {
+		authored = approvedMigrationObservationWording(
+			tx,
+			bank.userId,
+			bank.id,
+			readPublishedMemory(bank.userId, bank.id, bank.generation, tx),
+			true,
+		);
+	} catch {
+		authored = new Map();
+	}
+	if (!edited.size && !authored.size) return keys;
 	for (const { row, facts } of uniquePublishedSupport(captured)) {
-		if (!edited.has(row.id)) continue;
+		if (!edited.has(row.id) && authored.get(row.nativeId) !== row.text)
+			continue;
 		const support = nativeRankSupportKey(facts.map(({ id }) => id));
 		if (support) keys.set(support, row.nativeId);
 	}
@@ -1085,6 +1102,258 @@ export function curatedObservationChanges(
 }
 
 /** Called only inside the engine's fenced synchronous write. Capturing all pages happens before this transaction. */
+export function verifiedMigrationAuthoredWording(
+	tx: Tx,
+	source: typeof memorySourceRevisions.$inferSelect,
+	requiresPin: boolean,
+) {
+	const context = parseJsonRecord(source.context);
+	if (
+		source.messageId ||
+		source.predecessorSourceId ||
+		source.explicitEditAt ||
+		typeof context.migrationAuthoredId !== "string" ||
+		context.migrationAuthoredId !== source.lineageId
+	)
+		return undefined;
+	if (
+		requiresPin &&
+		context.migrationExactWording !== true &&
+		typeof context.legacyReviewResolutionId !== "string"
+	) {
+		const item =
+			typeof context.legacyItemId === "string"
+				? tx
+						.select({ metadata: memoryProfileItems.metadataJson })
+						.from(memoryProfileItems)
+						.where(
+							and(
+								eq(memoryProfileItems.userId, source.userId),
+								eq(memoryProfileItems.id, context.legacyItemId),
+							),
+						)
+						.get()
+				: undefined;
+		if (parseMemoryItemMetadata(item?.metadata).reviewResolution !== "edited")
+			return undefined;
+	}
+	const action = tx
+		.select({ id: memoryActions.id })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, source.userId),
+				eq(memoryActions.bankId, source.bankId),
+				eq(memoryActions.epoch, source.epoch),
+				inArray(memoryActions.kind, [
+					"edit",
+					"remove",
+					"migration_edit",
+					"migration_remove",
+				]),
+				sql`exists (select 1 from json_each(${memoryActions.intentJson}, '$.sourceIds') where value = ${source.id})`,
+			),
+		)
+		.get();
+	if (action) return undefined;
+	assertMemorySourceCurrent(tx, source.id, source.userId, source.bankId);
+	return source.text;
+}
+
+export function sameSupport(
+	prior: typeof memoryPublishedRows.$inferSelect,
+	observed: NativeMemory,
+	raw: ReadonlyMap<string, NativeMemory>,
+) {
+	if (observed.fact_type !== "observation") return false;
+	const support = readAcknowledgedFacts(prior.sourceFingerprintsJson);
+	const ids = new Set(observed.source_memory_ids ?? []);
+	return (
+		support.length > 0 &&
+		ids.size === support.length &&
+		observed.source_memory_ids?.length === support.length &&
+		support.every((fact) => {
+			const live = raw.get(fact.id);
+			return (
+				ids.has(fact.id) &&
+				live?.text === fact.text &&
+				(live.mentioned_at ?? null) === (fact.mentionedAt ?? null)
+			);
+		})
+	);
+}
+
+export function samePriorObservation(
+	prior: typeof memoryPublishedRows.$inferSelect,
+	observed: NativeMemory,
+	raw: ReadonlyMap<string, NativeMemory>,
+) {
+	return (
+		observed.text === prior.nativeText &&
+		sameSupport(prior, observed, raw) &&
+		splitNativeNotes(
+			observed,
+			(observed.source_memory_ids ?? []).flatMap((id) => {
+				const fact = raw.get(id);
+				return fact ? [fact] : [];
+			}),
+		) === prior.text
+	);
+}
+
+/**
+ * Reconnect only a unique, complete support match. An ordinary observation
+ * must retain its full previous presentation. A current approved authored
+ * statement may keep its own wording above that same underlying evidence.
+ * No other observation may present the prior rows' raw facts; `guarded`
+ * narrows that to the given facts (default: all of the prior rows' facts).
+ */
+export function matchVerifiedObservationRows(
+	prior: Array<typeof memoryPublishedRows.$inferSelect>,
+	memories: NativeMemory[],
+	approved: ReadonlyMap<string, string>,
+	guarded?: ReadonlySet<string>,
+) {
+	const raw = new Map(
+		memories
+			.filter((row) => row.fact_type !== "observation")
+			.map((row) => [row.id, row]),
+	);
+	const observations = memories.filter(
+		(row) => row.fact_type === "observation",
+	);
+	if (new Set(memories.map((row) => row.id)).size !== memories.length)
+		return null;
+	const matched = new Map<
+		string,
+		{ prior: (typeof prior)[number]; text: string }
+	>();
+	const sequence = [
+		...prior.filter((old) => !approved.has(old.nativeId)),
+		...prior.filter((old) => approved.has(old.nativeId)),
+	];
+	for (const old of sequence) {
+		const wording = approved.get(old.nativeId);
+		const candidates = observations.filter((row) =>
+			wording
+				? !matched.has(row.id) && sameSupport(old, row, raw)
+				: samePriorObservation(old, row, raw),
+		);
+		if (candidates.length !== 1 || matched.has(candidates[0].id)) return null;
+		matched.set(candidates[0].id, { prior: old, text: wording ?? old.text });
+	}
+	const priorRaw =
+		guarded ??
+		new Set(
+			prior.flatMap((row) =>
+				readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+					(fact) => fact.id,
+				),
+			),
+		);
+	if (
+		observations.some(
+			(row) =>
+				!matched.has(row.id) &&
+				row.source_memory_ids?.some((id) => priorRaw.has(id)),
+		)
+	)
+		return null;
+	return matched;
+}
+
+export function reconnectVerifiedObservations(
+	prior: Array<typeof memoryPublishedRows.$inferSelect>,
+	memories: NativeMemory[],
+	approved: ReadonlyMap<string, string>,
+	guarded?: ReadonlySet<string>,
+) {
+	const matches = matchVerifiedObservationRows(
+		prior,
+		memories,
+		approved,
+		guarded,
+	);
+	return (
+		matches && new Map([...matches].map(([id, match]) => [id, match.text]))
+	);
+}
+
+export function approvedMigrationObservationWording(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	prior: Array<typeof memoryPublishedRows.$inferSelect>,
+	requiresPin = false,
+) {
+	const admitted = new Map(
+		admittedNativeFacts(userId, bankId, tx).map((f) => [f.id, f]),
+	);
+	const result = new Map<string, string>();
+	for (const old of prior) {
+		const facts = readAcknowledgedFacts(old.sourceFingerprintsJson);
+		const source = admitted.get(facts[0]?.id)?.source;
+		if (
+			!source ||
+			!facts.every(
+				(fact) =>
+					admitted.get(fact.id)?.source.id === source.id &&
+					admitted.get(fact.id)?.text === fact.text &&
+					fact.assertedAtMs === source.assertedAt.getTime(),
+			)
+		)
+			continue;
+		const sourceFacts = readAcknowledgedFacts(source.acknowledgedFactsJson);
+		if (sourceFacts.length !== facts.length) continue;
+		const text = verifiedMigrationAuthoredWording(tx, source, requiresPin);
+		if (
+			text &&
+			(!requiresPin ||
+				parseJsonRecord(source.context).migrationExactWordingFamily !== true ||
+				old.text === text)
+		)
+			result.set(old.nativeId, text);
+	}
+	return result;
+}
+
+/** Companions share the source, but only the exact original edit is pinned. */
+export function approvedMigrationRankFamily(
+	tx: Tx,
+	userId: string,
+	bankId: string,
+	prior: Array<typeof memoryPublishedRows.$inferSelect>,
+) {
+	const marked = new Set(
+		admittedNativeFacts(userId, bankId, tx)
+			.filter(
+				({ source }) =>
+					parseJsonRecord(source.context).migrationExactWordingFamily === true,
+			)
+			.map(({ id }) => id),
+	);
+	if (!marked.size) return undefined;
+	const rows = prior.filter((row) =>
+		readAcknowledgedFacts(row.sourceFingerprintsJson).some((f) =>
+			marked.has(f.id),
+		),
+	);
+	if (!rows.length) return undefined;
+	const approved = approvedMigrationObservationWording(
+		tx,
+		userId,
+		bankId,
+		rows,
+		true,
+	);
+	const ids = new Set(
+		rows.flatMap((row) =>
+			readAcknowledgedFacts(row.sourceFingerprintsJson).map((f) => f.id),
+		),
+	);
+	return { rows, approved, ids };
+}
+
 export function publishNativeSnapshot(
 	tx: Tx,
 	input: {
@@ -1100,7 +1369,9 @@ export function publishNativeSnapshot(
 		verifiedCuratedDiff?: { sourceId: string; proofs: ReadonlySet<string> };
 	},
 ) {
-	const prepared = input.prepared ?? prepareNativeSnapshot(input.memories);
+	const prepared = new Map(
+		input.prepared ?? prepareNativeSnapshot(input.memories),
+	);
 	const bank = assertMemoryBankFence(
 		tx,
 		input.userId,
@@ -1142,6 +1413,109 @@ export function publishNativeSnapshot(
 			.filter((m) => m.fact_type !== "observation")
 			.map((m) => [m.id, m]),
 	);
+	const selectivelyArchived = new Map(
+		sources.flatMap((source) => {
+			const hash = parseJsonRecord(
+				source.context,
+			).migrationSelectiveArchivedHash;
+			return typeof hash === "string" ? [[source.id, hash] as const] : [];
+		}),
+	);
+	if (
+		selectivelyArchived.size &&
+		[...raw.values()].some(
+			(fact) =>
+				fact.document_id &&
+				selectivelyArchived.get(fact.document_id) === memoryTextHash(fact.text),
+		)
+	)
+		throw Error("memory_candidate_unaccepted");
+
+	if (bank.generation) {
+		const prior = readPublishedMemory(
+			input.userId,
+			bank.id,
+			bank.generation,
+			tx,
+		);
+		const approved = approvedMigrationObservationWording(
+			tx,
+			input.userId,
+			bank.id,
+			prior,
+			true,
+		);
+		const required = new Set(
+			prior
+				.filter((row) => approved.has(row.nativeId))
+				.flatMap((row) =>
+					readAcknowledgedFacts(row.sourceFingerprintsJson).map((f) => f.id),
+				),
+		);
+		if (required.size) {
+			const family = prior.filter((row) =>
+				readAcknowledgedFacts(row.sourceFingerprintsJson).some((f) =>
+					required.has(f.id),
+				),
+			);
+			const matched = reconnectVerifiedObservations(
+				family,
+				input.memories,
+				approved,
+			);
+			if (
+				!matched ||
+				family.some((row) =>
+					readAcknowledgedFacts(row.sourceFingerprintsJson).some((fact) => {
+						const source = acknowledged.get(fact.id)?.source;
+						return (
+							!source ||
+							raw.get(fact.id)?.document_id !== source.id ||
+							fact.assertedAtMs !==
+								(source.explicitEditAt ?? source.assertedAt).getTime()
+						);
+					}),
+				)
+			)
+				throw new NativeMemoryError(
+					"memory_migration_authored_observation_changed",
+					false,
+				);
+			for (const [id, text] of matched) prepared.set(id, text);
+		}
+	}
+
+	// A complete standalone authored statement is its own approved display.
+	// Never project it onto a mixed-support or ambiguous derived observation.
+	for (const source of sources) {
+		const facts = readAcknowledgedFacts(source.acknowledgedFactsJson);
+		const ids = new Set(facts.map((fact) => fact.id));
+		if (!ids.size || ids.size !== facts.length) continue;
+		if (
+			facts.some(
+				(fact) =>
+					raw.get(fact.id)?.document_id !== source.id ||
+					raw.get(fact.id)?.text !== fact.text,
+			)
+		)
+			continue;
+		const candidates = input.memories.filter(
+			(row) =>
+				row.fact_type === "observation" &&
+				row.source_memory_ids?.some((id) => ids.has(id)),
+		);
+		const [candidate] = candidates;
+		if (
+			candidates.length !== 1 ||
+			candidate.source_memory_ids?.length !== ids.size ||
+			new Set(candidate.source_memory_ids).size !== ids.size ||
+			!candidate.source_memory_ids.every((id) => ids.has(id))
+		)
+			continue;
+		const wording = verifiedMigrationAuthoredWording(tx, source, true);
+		if (wording) prepared.set(candidate.id, wording);
+	}
+
 	const correctionDates = new Map<string, number>();
 	const replayEdits = tx
 		.select()

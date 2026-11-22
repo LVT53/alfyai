@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -17,6 +18,7 @@ import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
 	type NativeMemory,
+	type NativeOperation,
 } from "./contracts";
 import { memoryResendTransitions } from "./curation-lineage";
 import { runDependencyRepair } from "./dependency-repair";
@@ -27,11 +29,25 @@ import {
 	nativeMemoryClient,
 } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
-import { settleMemoryMigration } from "./migration-progress";
 import {
+	assertDefaultHistoryWithdrawalBoundary,
+	assertHistoryPreservesAuthoredObservations,
+	reconnectVerifiedObservations,
+} from "./migration-observation-proof";
+import {
+	inspectMemoryMigration,
+	latestManifest,
+	meaningCheckPending,
+	settleMemoryMigration,
+} from "./migration-progress";
+import {
+	admittedNativeFacts,
+	approvedMigrationObservationWording,
 	assertCurationPublication,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
+	readAcknowledgedFacts,
+	readPublishedMemory,
 	verifiedSourceCleanupSnapshot,
 } from "./publication";
 import {
@@ -56,27 +72,77 @@ async function pause(signal: AbortSignal) {
 		signal.addEventListener("abort", abort, { once: true });
 	});
 }
-async function settle(
+const ENDED = ["completed", "failed", "cancelled"];
+const ENDED_BADLY = ["failed", "cancelled"];
+/**
+ * Polls until every operation has ended or, with `stopOnBadEnd`, until one has
+ * failed or been cancelled. Returns the statuses it read last.
+ */
+async function pollOperations(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
-	cleanup = false,
-) {
+	stopOnBadEnd: boolean,
+): Promise<NativeOperation[]> {
 	const deadline = Date.now() + 180000;
 	while (Date.now() < deadline) {
 		signal.throwIfAborted();
 		const ops = await Promise.all(ids.map((id) => client.operation(id)));
 		if (ops.some((o) => o.status === "not_found"))
 			throw new NativeMemoryError("native_acknowledgement_unknown", true);
-		if (!cleanup && ops.some((o) => ["failed", "cancelled"].includes(o.status)))
-			throw new NativeMemoryError("native_operation_failed", false);
-		if (
-			ops.every((o) => ["completed", "failed", "cancelled"].includes(o.status))
-		)
-			return;
+		if (stopOnBadEnd && ops.some((o) => ENDED_BADLY.includes(o.status)))
+			return ops;
+		if (ops.every((o) => ENDED.includes(o.status))) return ops;
 		await pause(signal);
 	}
 	throw new NativeMemoryError("native_operation_timeout", true);
+}
+async function settle(
+	client: HindsightClient,
+	ids: string[],
+	signal: AbortSignal,
+	cleanup = false,
+) {
+	const ops = await pollOperations(client, ids, signal, !cleanup);
+	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
+		throw new NativeMemoryError("native_operation_failed", false);
+}
+/**
+ * `settle` for a retain. An operation Hindsight reports failed comes back, as
+ * its ID, for the delivery to resubmit; a cancelled one is as terminal as ever.
+ * Null: the retain completed.
+ */
+async function settleRetain(
+	client: HindsightClient,
+	ids: string[],
+	signal: AbortSignal,
+): Promise<string | null> {
+	const ops = await pollOperations(client, ids, signal, true);
+	if (ops.some((o) => o.status === "cancelled"))
+		throw new NativeMemoryError("native_operation_failed", false);
+	return ops.find((o) => o.status === "failed")?.id ?? null;
+}
+/** Whether Hindsight reports the operation failed. One it has never heard of has not. */
+async function operationFailed(client: HindsightClient, id: string) {
+	try {
+		return (await client.operation(id)).status === "failed";
+	} catch (error) {
+		if (error instanceof NativeMemoryError && error.code === "native_not_found")
+			return false;
+		throw error;
+	}
+}
+/**
+ * Where a source's one resubmission is recorded: a key on its revision's
+ * `context`, which already holds its other per-source flags and commits in the
+ * same transaction as the new operation ID. The value is the failed operation's
+ * ID, for whoever reads Hindsight's error for it.
+ */
+const RETAIN_RESUBMITTED_FROM = "nativeRetainResubmittedFrom";
+function retainResubmitted(source: typeof memorySourceRevisions.$inferSelect) {
+	return (
+		typeof parseJsonRecord(source.context)[RETAIN_RESUBMITTED_FROM] === "string"
+	);
 }
 async function drainNative(client: HindsightClient, signal: AbortSignal) {
 	const deadline = Date.now() + 180000;
@@ -141,6 +207,16 @@ function assertDelivery(tx: Tx, row: typeof memoryDeliveryJobs.$inferSelect) {
 		source.epoch !== row.epoch
 	)
 		throw new NativeMemoryError("memory_source_control_changed", false);
+	if (parseJsonRecord(source.context).migrationDefaultHistory === true) {
+		const intended = inspectMemoryMigration(row.userId).sources.find(
+			({ id }) => id === source.messageId,
+		);
+		if (intended?.eligibility !== "eligible" || !intended.defaultHistory)
+			throw new NativeMemoryError(
+				"memory_historical_permission_changed",
+				false,
+			);
+	}
 	return { bank, source, transitions: memoryResendTransitions(tx, source) };
 }
 
@@ -172,6 +248,27 @@ export async function runMemoryDelivery(
 		const tenant = row.kind === "cleanup" ? row.tenantId : account?.tenantId;
 		if (!tenant) throw new NativeMemoryError("memory_account_missing", false);
 		if (row.kind === "cleanup") {
+			// A restart and a later erasure can each queue a cleanup for the same
+			// retired bank. Once one has deleted it and confirmed it gone, the
+			// other has nothing left to settle there.
+			if (
+				db
+					.select({ id: memoryDeliveryJobs.id })
+					.from(memoryDeliveryJobs)
+					.where(
+						and(
+							eq(memoryDeliveryJobs.userId, row.userId),
+							eq(memoryDeliveryJobs.kind, "cleanup"),
+							eq(memoryDeliveryJobs.bankId, row.bankId),
+							eq(memoryDeliveryJobs.status, "succeeded"),
+							ne(memoryDeliveryJobs.id, row.id),
+						),
+					)
+					.get()
+			) {
+				await ctx.succeed();
+				return;
+			}
 			if (!row.nativeBaseUrl || !row.nativeCredentialHash)
 				throw new NativeMemoryError("memory_cleanup_corrupt", false);
 			const client = nativeMemoryClient(row.bankId, tenant, ctx.signal, {
@@ -420,6 +517,138 @@ export async function runMemoryDelivery(
 		await drainNative(client, ctx.signal);
 		const delivery = db.transaction((tx) => assertDelivery(tx, row));
 		let source = delivery.source;
+		const migrationContext = parseJsonRecord(source.context);
+		if (
+			account?.authority === "preparing" &&
+			source.state === "accepted" &&
+			source.nativeAcknowledged &&
+			source.acceptedGeneration === bank.generation &&
+			(migrationContext.migrationDefaultHistory === true ||
+				typeof migrationContext.migrationAuthoredId === "string")
+		) {
+			const manifest = latestManifest(row.userId);
+			const checkpoint = parseJsonRecord(manifest?.checkpointJson ?? null);
+			if (
+				!source.nativeOperationId ||
+				!Array.isArray(checkpoint.requestIds) ||
+				!checkpoint.requestIds.includes(row.requestId) ||
+				!Array.isArray(checkpoint.sourceIds) ||
+				!checkpoint.sourceIds.includes(source.id)
+			)
+				throw new NativeMemoryError(
+					"memory_migration_recovery_unverified",
+					false,
+				);
+			// An accepted chat an approved unlocated removal covers must have
+			// passed its own forget step; nothing here can run it now.
+			if (
+				db.transaction((tx) =>
+					meaningCheckPending(tx, inspectMemoryMigration(row.userId), source),
+				)
+			)
+				throw new NativeMemoryError("memory_meaning_check_missing", false);
+			const replaySnapshot = await captureSettledNative(client, ctx.signal);
+			const raw = replaySnapshot.filter(
+				(fact) =>
+					fact.fact_type !== "observation" && fact.document_id === source.id,
+			);
+			const expected = readAcknowledgedFacts(source.acknowledgedFactsJson);
+			if (
+				expected.length !== raw.length ||
+				expected.some(
+					(fact) =>
+						!raw.some((live) => live.id === fact.id && live.text === fact.text),
+				)
+			)
+				throw new NativeMemoryError(
+					"memory_migration_recovery_unverified",
+					false,
+				);
+			await ctx.succeed({
+				apply: (tx) => {
+					const current = assertDelivery(tx, row);
+					assertCurationPublication(tx, bank.id, bank.epoch);
+					if (
+						current.bank.revision !== bank.revision ||
+						current.source.state !== "accepted" ||
+						current.source.acceptedGeneration !== bank.generation ||
+						current.source.acknowledgedFactsJson !==
+							source.acknowledgedFactsJson
+					)
+						throw Error("memory_migration_recovery_unverified");
+					if (
+						typeof migrationContext.migrationSelectiveArchivedHash === "string"
+					) {
+						const prior = readPublishedMemory(
+							row.userId,
+							bank.id,
+							undefined,
+							tx,
+						);
+						const expectedFacts = admittedNativeFacts(row.userId, bank.id, tx);
+						const rawRows = replaySnapshot.filter(
+							(fact) => fact.fact_type !== "observation",
+						);
+						if (
+							rawRows.length !== expectedFacts.length ||
+							expectedFacts.some(
+								(fact) =>
+									!rawRows.some(
+										(live) =>
+											live.id === fact.id &&
+											live.text === fact.text &&
+											live.document_id === fact.source.id,
+									),
+							)
+						)
+							throw Error("memory_migration_recovery_unverified");
+						assertDefaultHistoryWithdrawalBoundary(
+							tx,
+							row.userId,
+							bank.id,
+							bank.scopeKey,
+							replaySnapshot,
+						);
+						const prepared = reconnectVerifiedObservations(
+							prior,
+							replaySnapshot,
+							approvedMigrationObservationWording(
+								tx,
+								row.userId,
+								bank.id,
+								prior,
+								true,
+							),
+						);
+						if (
+							!prepared ||
+							prepared.size !== replaySnapshot.length - rawRows.length
+						)
+							throw Error("memory_migration_recovery_unverified");
+						if (
+							prior.some(
+								(previous) =>
+									!replaySnapshot.some(
+										(next) =>
+											next.fact_type === "observation" &&
+											next.id === previous.nativeId &&
+											next.text === previous.nativeText,
+									),
+							)
+						)
+							publishNativeSnapshot(tx, {
+								userId: row.userId,
+								bankId: bank.id,
+								epoch: bank.epoch,
+								expectedRevision: bank.revision,
+								memories: replaySnapshot,
+								prepared,
+							});
+					}
+				},
+			});
+			return;
+		}
 		if (!source.nativeOperationId)
 			throw new NativeMemoryError("memory_operation_identity_missing", false);
 		const predecessor = source.predecessorSourceId
@@ -564,52 +793,104 @@ export async function runMemoryDelivery(
 				}))
 			)
 				return;
-			// Recheck admission and certified facts immediately before making the retain call.
-			ctx.signal.throwIfAborted();
-			const context = db.transaction((tx) => {
-				checkPendingCuration(tx);
-				source = assertDelivery(tx, row).source;
-				if (
-					unchanged &&
-					unchangedSourceInventory(tx, source, unchanged) !== null
-				)
+			// What an earlier attempt may have sent and never saw complete.
+			const sent =
+				source.nativeSubmitted && !source.nativeAcknowledged
+					? source.nativeOperationId
+					: null;
+			const sendRetain = async () => {
+				// Recheck admission and certified facts immediately before making the retain call.
+				ctx.signal.throwIfAborted();
+				const context = db.transaction((tx) => {
+					checkPendingCuration(tx);
+					source = assertDelivery(tx, row).source;
+					if (
+						unchanged &&
+						unchangedSourceInventory(tx, source, unchanged) !== null
+					)
+						throw new NativeMemoryError(
+							"memory_unchanged_source_unverified",
+							true,
+						);
+					return resolveMemorySourceContext(tx, source);
+				});
+				if (!source.nativeOperationId)
 					throw new NativeMemoryError(
-						"memory_unchanged_source_unverified",
-						true,
+						"memory_operation_identity_missing",
+						false,
 					);
-				return resolveMemorySourceContext(tx, source);
-			});
-			if (!source.nativeOperationId)
-				throw new NativeMemoryError("memory_operation_identity_missing", false);
-			const explicitEditAt =
-				predecessor && !unchanged ? source.explicitEditAt : null;
-			const content =
-				predecessor && explicitEditAt
-					? JSON.stringify({
-							kind: "source_edit",
-							before: predecessor.text,
-							after: source.text,
-							original_asserted_at: source.assertedAt.toISOString(),
-							explicit_edit_at: explicitEditAt.toISOString(),
-						})
-					: source.text;
-			const operations = await client.retain(
-				{
-					content,
-					context: explicitEditAt
+				const explicitEditAt =
+					predecessor && !unchanged ? source.explicitEditAt : null;
+				const content =
+					predecessor && explicitEditAt
 						? JSON.stringify({
-								...parseJsonRecord(context),
-								edit_guidance: EXPLICIT_EDIT_RETENTION_GUIDANCE,
+								kind: "source_edit",
+								before: predecessor.text,
+								after: source.text,
+								original_asserted_at: source.assertedAt.toISOString(),
+								explicit_edit_at: explicitEditAt.toISOString(),
 							})
-						: context,
-					timestamp: assertedAt.toISOString(),
-					document_id: source.id,
-					tags: [source.id],
-					metadata: { source_revision: source.id, lineage: source.lineageId },
-				},
-				source.nativeOperationId,
-			);
-			await settle(client, operations, ctx.signal);
+						: source.text;
+				return client.retain(
+					{
+						content,
+						context: explicitEditAt
+							? JSON.stringify({
+									...parseJsonRecord(context),
+									edit_guidance: EXPLICIT_EDIT_RETENTION_GUIDANCE,
+								})
+							: context,
+						timestamp: assertedAt.toISOString(),
+						document_id: source.id,
+						tags: [source.id],
+						metadata: { source_revision: source.id, lineage: source.lineageId },
+					},
+					source.nativeOperationId,
+				);
+			};
+			// Hindsight reported the retain failed and does not retry it. Send the same
+			// source once more under a new operation ID, and only once.
+			const resubmitRetain = async (failedId: string) => {
+				// The first resubmission committed its marker before it sent, so an attempt
+				// that finds the new operation failed too ends here.
+				if (retainResubmitted(source))
+					throw new NativeMemoryError("native_operation_failed", false);
+				ctx.signal.throwIfAborted();
+				// A fact under this document would be replaced by the new retain, and
+				// nobody has checked what the failed one left.
+				if (
+					(await client.list()).some((fact) => fact.document_id === source.id)
+				)
+					throw new NativeMemoryError("native_operation_failed", false);
+				const freshId = randomUUID();
+				// Committed before the new call goes out: a crash after this write can only
+				// retry the new operation, never resubmit a second time.
+				return ctx.write((tx) => {
+					const current = assertDelivery(tx, row).source;
+					checkPendingCuration(tx);
+					tx.update(memorySourceRevisions)
+						.set({
+							nativeOperationId: freshId,
+							context: JSON.stringify({
+								...parseJsonRecord(current.context),
+								[RETAIN_RESUBMITTED_FROM]: failedId,
+							}),
+						})
+						.where(eq(memorySourceRevisions.id, current.id))
+						.run();
+				});
+			};
+			// Hindsight answers a retry's retain with the operation it already holds, a
+			// failed one included: ask first, and resubmit instead of sending it again.
+			ctx.signal.throwIfAborted();
+			let failed = sent && (await operationFailed(client, sent)) ? sent : null;
+			if (!failed)
+				failed = await settleRetain(client, await sendRetain(), ctx.signal);
+			if (failed) {
+				if (!(await resubmitRetain(failed))) return;
+				if (await settleRetain(client, await sendRetain(), ctx.signal))
+					throw new NativeMemoryError("native_operation_failed", false);
+			}
 			// Remote receipt TTL must not erase our knowledge that this retain finished.
 			if (
 				!(await ctx.write((tx) => {
@@ -667,8 +948,12 @@ export async function runMemoryDelivery(
 			)
 			.map(({ id, text }) => ({ id, text }));
 		const prepared = prepareNativeSnapshot(memories);
+		// A per-chat forget step checks only the deleted memory: the person's
+		// own curation still needs the new-assertion check.
 		const verifiedCuratedChanges =
-			!!curated || replayed.checks.length > 0 || repair.replays.length > 0;
+			!!curated ||
+			replayed.checks.some((check) => !check.meaningCheck) ||
+			repair.replays.length > 0;
 		const verifiedCuratedDiff =
 			verifiedCuratedChanges || unchanged
 				? undefined
@@ -676,6 +961,32 @@ export async function runMemoryDelivery(
 		await ctx.succeed({
 			apply: (tx) => {
 				const { transitions } = assertDelivery(tx, row);
+				const defaultHistory =
+					migrationContext.migrationDefaultHistory === true;
+				if (account?.authority === "preparing") {
+					if (
+						defaultHistory ||
+						migrationContext.migration === true ||
+						typeof migrationContext.migrationAuthoredId === "string"
+					)
+						assertDefaultHistoryWithdrawalBoundary(
+							tx,
+							row.userId,
+							row.bankId,
+							bank.scopeKey,
+							memories,
+							defaultHistory,
+							{ sourceId: source.id },
+						);
+					if (defaultHistory)
+						assertHistoryPreservesAuthoredObservations(
+							tx,
+							row.userId,
+							row.bankId,
+							memories,
+							{ sourceId: source.id, scopeKey: bank.scopeKey },
+						);
+				}
 				verifiedCuratedDiff?.assertCurrent(tx);
 				repair.assertContextCurrent?.(tx);
 				replayed.apply(tx, memories);

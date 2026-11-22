@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 afterEach(() => sqlite.close());
 describe("historical memory permission", () => {
-	it("does not infer historical consent from currently enabled memory", async () => {
+	it("uses enabled Memory by default without recording an earlier-chat choice", async () => {
 		const { getHistoryImportStatus } = await import("./migration-policy");
 		const { isHistoricalMemorySourceEligible } = await import(
 			"./history-eligibility"
@@ -39,7 +39,7 @@ describe("historical memory permission", () => {
 				assertedAt: new Date("2020-01-01"),
 				incognito: false,
 			}),
-		).toBe(false);
+		).toBe(true);
 	});
 	it("limits an explicit include to its cutoff and preserves known disabled intervals", async () => {
 		const { recordHistoryImportChoice } = await import("./migration-policy");
@@ -51,6 +51,10 @@ describe("historical memory permission", () => {
 			requestId: "include1",
 		});
 		expect(choice.cutoff).not.toBe(null);
+		await recordHistoryImportChoice("bob", {
+			choice: "decline",
+			requestId: "bob-opt-out",
+		});
 		expect(
 			await isHistoricalMemorySourceEligible({
 				userId: "alice",

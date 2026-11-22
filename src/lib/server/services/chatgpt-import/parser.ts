@@ -1,5 +1,8 @@
 import JSZip from "jszip";
-import { exportedConversationId } from "$lib/shared/chatgpt-export";
+import {
+	exportedConversationId,
+	readExportedConversations,
+} from "$lib/shared/chatgpt-export";
 
 export interface ChatGPTConversation {
 	id: string;
@@ -374,7 +377,8 @@ export interface ParseOptions {
 /**
  * Parse conversations from a ChatGPT export ZIP buffer.
  *
- * The ZIP must contain a `conversations.json` file at the root.
+ * The conversations are the files the export's manifest lists for them, else
+ * the one `conversations.json` at the ZIP root (`readExportedConversations`).
  * Returns parsed conversations and any per-entry errors encountered.
  */
 export async function parseConversationsJson(
@@ -394,33 +398,21 @@ export async function parseConversationsJson(
 		return { conversations, errors };
 	}
 
-	const jsonFile = zip.file("conversations.json");
-	if (!jsonFile) {
+	const read = await readExportedConversations(zip);
+	if (!read.ok) {
 		errors.push({
 			reason:
-				"No conversations.json found in the ZIP root. Ensure the file was exported as a ChatGPT data export.",
+				read.problem === "missing"
+					? read.file === "conversations.json"
+						? "No conversations.json found in the ZIP root. Ensure the file was exported as a ChatGPT data export."
+						: `The export's manifest lists ${read.file}, which the ZIP does not hold. Download the export again.`
+					: read.problem === "unreadable"
+						? `Failed to parse ${read.file}: ${read.detail ?? "Invalid JSON"}`
+						: `${read.file} is not an array. Expected a ChatGPT export format.`,
 		});
 		return { conversations, errors };
 	}
-
-	let raw: ChatGPTConversation[];
-	try {
-		const text = await jsonFile.async("text");
-		raw = JSON.parse(text);
-	} catch (err) {
-		errors.push({
-			reason: `Failed to parse conversations.json: ${err instanceof Error ? err.message : "Invalid JSON"}`,
-		});
-		return { conversations, errors };
-	}
-
-	if (!Array.isArray(raw)) {
-		errors.push({
-			reason:
-				"conversations.json is not an array. Expected a ChatGPT export format.",
-		});
-		return { conversations, errors };
-	}
+	const raw = read.entries as ChatGPTConversation[];
 
 	const wanted = options.conversationIds
 		? new Set(options.conversationIds)

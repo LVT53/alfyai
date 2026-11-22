@@ -35,6 +35,12 @@ export type VideoTakeRequest = {
 	 * null to make a new item. A take whose item is gone stores nothing.
 	 */
 	artifactId: string | null;
+	/**
+	 * The engine variant the take renders, frozen when this row is written
+	 * because a 10 s take is two renders minutes apart; a row written before
+	 * this field exists renders the first variant.
+	 */
+	explicitVariant: boolean;
 };
 
 /**
@@ -185,6 +191,7 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 		title,
 		summary,
 		artifactId,
+		explicitVariant,
 	} = value;
 	if (typeof prompt !== "string" || prompt.trim() === "") return null;
 	if (!isDurationSeconds(durationSeconds)) return null;
@@ -204,6 +211,7 @@ export function parseVideoTakeRequest(json: string): VideoTakeRequest | null {
 		title,
 		summary,
 		artifactId,
+		explicitVariant: explicitVariant === true,
 	};
 }
 

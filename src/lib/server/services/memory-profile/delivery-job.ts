@@ -45,6 +45,12 @@ export const memoryDeliveryJob = defineJobKind({
 			SELECT 1 FROM memory_delivery_jobs running
 			WHERE running.bank_id = ${jobs.bankId} AND running.status = 'running'
 		) AND (
+			${jobs.kind} = 'cleanup' OR NOT EXISTS (
+			SELECT 1 FROM memory_migration_manifests m
+			WHERE m.user_id = ${jobs.userId} AND m.epoch = ${jobs.epoch}
+			AND json_extract(m.checkpoint_json, '$.migrationRewind.bankId') = ${jobs.bankId}
+			)
+		) AND (
 			${jobs.kind} <> 'source_cleanup' OR NOT EXISTS (
 				WITH RECURSIVE resend(id, depth) AS (
 					SELECT ${jobs.sourceId}, 0
@@ -114,6 +120,8 @@ export interface EnqueueMemoryDelivery {
 	nativeBaseUrl?: string;
 	nativeCredentialHash?: string;
 	runAfter?: Date;
+	/** Lower is claimed first (the engine's default is 0). */
+	priority?: number;
 }
 export async function enqueueMemoryDelivery(input: EnqueueMemoryDelivery) {
 	const results = await enqueueMemoryMutation(() => [input]);
@@ -130,13 +138,14 @@ function deliveryInput(
 	input: EnqueueMemoryDelivery,
 	tx: Tx,
 ): import("../jobs/types").EnqueueInput<typeof memoryDeliveryJobs> {
-	const { runAfter, ...values } = input;
+	const { runAfter, priority, ...values } = input;
 	return {
 		values: {
 			...values,
 			controlRevision: getControlRevision(input.userId, tx),
 		},
 		runAfter,
+		priority,
 		idempotency: {
 			find: (tx) =>
 				tx
@@ -268,10 +277,16 @@ export async function prepareNativeMemoryErasure(
 	return token;
 }
 
-function bankCleanupInputs(
+/**
+ * The erasure's own cleanup jobs for retired banks. A restart passes its own
+ * prefix: the person's cleanup status leaves those out, and verify waits for
+ * them.
+ */
+export function bankCleanupInputs(
 	tx: Tx,
 	account: typeof memoryAccounts.$inferSelect,
 	banks: Array<typeof memoryBanks.$inferSelect>,
+	prefix: "erase" | "restart-erase" = "erase",
 ): import("../jobs/types").EnqueueInput<typeof memoryDeliveryJobs>[] {
 	return banks
 		.filter((bank) => bank.nativeBaseUrl && bank.nativeCredentialHash)
@@ -284,7 +299,7 @@ function bankCleanupInputs(
 						.where(
 							and(
 								eq(memoryDeliveryJobs.userId, account.tenantId),
-								eq(memoryDeliveryJobs.requestId, `erase:${bank.id}`),
+								eq(memoryDeliveryJobs.requestId, `${prefix}:${bank.id}`),
 							),
 						)
 						.get() ?? null,
@@ -296,7 +311,7 @@ function bankCleanupInputs(
 				bankId: bank.id,
 				epoch: bank.epoch,
 				kind: "cleanup",
-				requestId: `erase:${bank.id}`,
+				requestId: `${prefix}:${bank.id}`,
 				nativeBaseUrl: bank.nativeBaseUrl,
 				nativeCredentialHash: bank.nativeCredentialHash,
 				nativeOperationIdsJson: JSON.stringify([

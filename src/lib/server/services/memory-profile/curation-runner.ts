@@ -24,6 +24,7 @@ import {
 	type CurationModel,
 	checkMemoryEdit,
 	createCurationModel,
+	type EditedFact,
 	planMemoryEdit,
 } from "./curation";
 import {
@@ -49,6 +50,7 @@ import {
 	manualPublicationReceipts,
 	prepareNativeSnapshot,
 	publishedEditResult,
+	publishedRowsForGeneration,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
 	readPublishedMemory,
@@ -436,16 +438,48 @@ async function saveIntent(
 	actionId: string,
 	intent: ActionIntentRecord,
 ) {
+	await saveIntents(ctx, [{ actionId, intent }]);
+}
+/** Several actions' intents in one fenced write. */
+async function saveIntents(
+	ctx: Context,
+	intents: ReadonlyArray<{ actionId: string; intent: ActionIntentRecord }>,
+) {
 	if (
 		!(await ctx.write((tx) => {
 			actionFence(tx, ctx);
-			tx.update(memoryActions)
-				.set({ intentJson: JSON.stringify(intent) })
-				.where(eq(memoryActions.id, actionId))
-				.run();
+			for (const { actionId, intent } of intents)
+				tx.update(memoryActions)
+					.set({ intentJson: JSON.stringify(intent) })
+					.where(eq(memoryActions.id, actionId))
+					.run();
 		}))
 	)
 		throw new NativeMemoryError("memory_cancelled", false);
+}
+
+/**
+ * Where a per-chat forget step that already began to edit this chat stands,
+ * from its live facts: as before the edit (nothing landed, so it runs again),
+ * as the saved edit left them (it goes on from what it saved), or anything
+ * else, a partial edit say, which no review can check any more.
+ */
+function resumedMeaningCheck(
+	step: NonNullable<ActionIntentRecord["meaningCheck"]>,
+	sourceId: string,
+	live: ReadonlyArray<{ id: string; text: string }>,
+) {
+	if (!step.started.includes(sourceId)) return undefined;
+	const saved = step.edits?.find((edit) => edit.sourceId === sourceId);
+	const same = (facts: ReadonlyArray<{ id: string; text: string }>) =>
+		live.length === facts.length &&
+		facts.every((fact) =>
+			live.some(({ id, text }) => id === fact.id && text === fact.text),
+		);
+	if (saved && same(saved.baseline)) return undefined;
+	if (saved && same(saved.proposal.filter(({ text }) => text.trim())))
+		return saved;
+	throw new NativeMemoryError("memory_meaning_check_interrupted", false);
 }
 function sourcesFor(bankId: string, ids: string[]) {
 	return ids.length
@@ -469,7 +503,10 @@ async function patch(
 	mentionedAt?: ReadonlyMap<string, string>,
 	expectedSources?: ReadonlyMap<string, string>,
 	verifyInputs?: (memories: NativeMemory[]) => void,
+	/** Runs once, before the first native edit, if there is one. */
+	beforeFirstEdit?: () => Promise<void>,
 ) {
+	let firstEdit = beforeFirstEdit;
 	const live = await client.list();
 	verifyInputs?.(live);
 	const current = new Map(
@@ -498,6 +535,8 @@ async function patch(
 			actionFence(tx, ctx);
 			checkSources?.(tx);
 		});
+		await firstEdit?.();
+		firstEdit = undefined;
 		await client.editFact(
 			fact.id,
 			fact.text.trim()
@@ -506,6 +545,118 @@ async function patch(
 		);
 	}
 }
+/** A Remove can settle independently of a retained source whose own publication was held. */
+function removalPublicationSnapshot(
+	tx: Tx,
+	action: typeof memoryActions.$inferSelect,
+	bank: typeof memoryBanks.$inferSelect,
+	actionSourceIds: string[],
+	memories: NativeMemory[],
+) {
+	if (!action.exclusionAcknowledged) return memories;
+	const pending = tx
+		.select({ source: memorySourceRevisions })
+		.from(memoryDeliveryJobs)
+		.innerJoin(
+			memorySourceRevisions,
+			eq(memorySourceRevisions.id, memoryDeliveryJobs.sourceId),
+		)
+		.innerJoin(
+			memoryAccounts,
+			eq(memoryAccounts.userId, memoryDeliveryJobs.userId),
+		)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.userId, bank.userId),
+				eq(memoryDeliveryJobs.bankId, bank.id),
+				eq(memoryDeliveryJobs.epoch, bank.epoch),
+				eq(memoryDeliveryJobs.kind, "source"),
+				eq(memoryDeliveryJobs.controlRevision, memoryAccounts.controlRevision),
+				eq(memoryDeliveryJobs.status, "failed"),
+				eq(memoryDeliveryJobs.errorCode, "memory_curation_publication_held"),
+				sql`${memoryDeliveryJobs.requestId} = 'source:' || ${memorySourceRevisions.id}`,
+				eq(
+					memorySourceRevisions.controlRevision,
+					memoryDeliveryJobs.controlRevision,
+				),
+				eq(memorySourceRevisions.state, "pending"),
+				eq(memorySourceRevisions.nativeAcknowledged, true),
+				eq(memorySourceRevisions.nativeSubmitted, true),
+			),
+		)
+		.all();
+	const candidates = pending
+		.map(({ source }) => source)
+		.filter(
+			(source) =>
+				source.userId === bank.userId &&
+				source.bankId === bank.id &&
+				source.epoch === bank.epoch &&
+				source.createdAt <= action.createdAt &&
+				source.messageId &&
+				source.eventId.startsWith("message:") &&
+				source.nativeOperationId &&
+				!source.acceptedGeneration &&
+				!readAcknowledgedFacts(source.acknowledgedFactsJson).length &&
+				!actionSourceIds.includes(source.id),
+		);
+	if (!candidates.length) return memories;
+	const revocations = tx
+		.select()
+		.from(memoryRevocations)
+		.where(
+			and(
+				eq(memoryRevocations.bankId, bank.id),
+				eq(memoryRevocations.epoch, bank.epoch),
+			),
+		)
+		.all();
+	const pendingIds = new Set(
+		candidates
+			.filter(
+				(source) =>
+					!revocations.some((revocation) => revocation.sourceId === source.id),
+			)
+			.map(
+				(source) =>
+					assertMemorySourceCurrent(tx, source.id, bank.userId, bank.id).id,
+			),
+	);
+	const pendingFacts = new Set(
+		memories
+			.filter(
+				(fact) =>
+					fact.fact_type !== "observation" &&
+					fact.document_id &&
+					pendingIds.has(fact.document_id) &&
+					!revocations.some(
+						(revocation) => revocation.nativeFactId === fact.id,
+					),
+			)
+			.map(({ id }) => id),
+	);
+	if (!pendingFacts.size) return memories;
+	const prior = new Set(
+		bank.generation
+			? publishedRowsForGeneration(
+					tx,
+					bank.id,
+					bank.epoch,
+					bank.generation,
+				).map((row) => row.nativeId)
+			: [],
+	);
+	return memories.filter((row) => {
+		const support = row.source_memory_ids ?? [];
+		return (
+			row.fact_type !== "observation" ||
+			prior.has(row.id) ||
+			!support.length ||
+			!support.every((id) => pendingFacts.has(id))
+		);
+	});
+}
+
 function acceptedUpdates(
 	tx: Tx,
 	ctx: Context,
@@ -1741,13 +1892,17 @@ async function executeMemoryAction(
 			verifiedCuratedDiff?.assertCurrent(tx);
 			repaired?.assertContextCurrent?.(tx);
 			repaired?.apply(tx);
+			const publicationMemories =
+				action.kind === "remove"
+					? removalPublicationSnapshot(tx, action, bank, sourceIds, memories)
+					: memories;
 			acceptedUpdates(tx, ctx, sourceIds, memories, action.id, intent.facts);
 			const generation = publishNativeSnapshot(tx, {
 				userId: action.userId,
 				bankId: bank.id,
 				epoch: bank.epoch,
 				expectedRevision: bank.revision,
-				memories,
+				memories: publicationMemories,
 				prepared,
 				sourceIds,
 				verifiedCuratedChanges: !!repaired,
@@ -2428,18 +2583,27 @@ export async function replaySourceCuration(
 			action.kind === "migration_edit" &&
 			typeof intent.replayOriginActionId === "string" &&
 			!newFacts?.length;
-		const proposal = await applyMemoryEdit(
-			{
-				before: intent.before,
-				after: action.text ?? "",
-				intent: requirePlan(intent),
-				facts: originals.map(({ id, text }) => ({ id, text })),
-				newFacts: verifyCorrectionDates ? undefined : newFacts,
-				removalOnly: intent.removalOnly,
-				verifyCorrectionDates,
-			},
-			model,
-		);
+		// A per-chat forget step whose edit already landed goes on from what it
+		// saved: the edit is not made again, and its review compares the result
+		// with the chat's facts from before the edit.
+		const resumed = intent.meaningCheck
+			? resumedMeaningCheck(intent.meaningCheck, source.id, originals)
+			: undefined;
+		const reviewed = resumed?.baseline ?? originals;
+		const proposal: EditedFact[] =
+			resumed?.proposal ??
+			(await applyMemoryEdit(
+				{
+					before: intent.before,
+					after: action.text ?? "",
+					intent: requirePlan(intent),
+					facts: originals.map(({ id, text }) => ({ id, text })),
+					newFacts: verifyCorrectionDates ? undefined : newFacts,
+					removalOnly: intent.removalOnly,
+					verifyCorrectionDates,
+				},
+				model,
+			));
 		const dates = new Map<string, string>();
 		if (verifyCorrectionDates) {
 			const local = new Map(
@@ -2480,7 +2644,45 @@ export async function replaySourceCuration(
 				await saveIntent(ctx, action.id, intent);
 			}
 		}
-		await patch(ctx, client, proposal, assertProvenance, dates);
+		if (!resumed)
+			await patch(
+				ctx,
+				client,
+				proposal,
+				assertProvenance,
+				dates,
+				undefined,
+				undefined,
+				intent.meaningCheck
+					? async () => {
+							// Committed before the edit, so a failed attempt leaves
+							// behind what the next one needs to tell what landed. An
+							// earlier pass does not cover this edit.
+							const step = intent.meaningCheck ?? {
+								started: [],
+								checked: [],
+							};
+							intent = {
+								...intent,
+								meaningCheck: {
+									started: [...new Set([...step.started, source.id])],
+									checked: step.checked.filter((id) => id !== source.id),
+									edits: [
+										...(step.edits ?? []).filter(
+											(edit) => edit.sourceId !== source.id,
+										),
+										{
+											sourceId: source.id,
+											baseline: originals,
+											proposal: proposal.map(({ id, text }) => ({ id, text })),
+										},
+									],
+								},
+							};
+							await saveIntent(ctx, action.id, intent);
+						}
+					: undefined,
+			);
 		const applied = await client.list();
 		verifyAppliedProposal(applied, proposal);
 		for (const [id, date] of dates)
@@ -2492,13 +2694,13 @@ export async function replaySourceCuration(
 				throw new NativeMemoryError("memory_edit_date_readback", true);
 		for (const id of permitted) checkedSources.add(id);
 		if (sourceEditId) checkedSources.add(sourceEditId);
-		for (const fact of originals) expected.set(fact.id, fact.text);
+		for (const fact of reviewed) expected.set(fact.id, fact.text);
 		for (const fact of newFacts ?? []) expected.set(fact.id, fact.text);
 		for (const fact of proposal) expected.set(fact.id, fact.text);
 		updates.push({
 			sourceIds: permitted,
 			actionId: action.id,
-			originals,
+			originals: reviewed,
 			intent,
 		});
 		checks.push({
@@ -2508,12 +2710,13 @@ export async function replaySourceCuration(
 			actionOrder: entry.order,
 			replayOrder: intent.replayOrder,
 			sources: [...permitted, ...(sourceEditId ? [sourceEditId] : [])],
-			originals,
+			originals: reviewed,
 			before: intent.before,
 			after: action.text ?? "",
 			intent: requirePlan(intent),
 			chatRevision: action.kind === "source_edit",
 			assertProvenance,
+			...(intent.meaningCheck ? { meaningCheck: true as const } : {}),
 		});
 	}
 	return {
@@ -2525,33 +2728,64 @@ export async function replaySourceCuration(
 			const last = updates.at(-1)?.intent;
 			const replays = [...checks, ...(result.replays ?? [])];
 			const model = guardedModel(ctx, modelOverride);
-			await checkCandidate(
-				ctx,
-				{
-					memories: result.memories,
-					sourceIds: [
-						...new Set([...checkedSources, ...result.sourceIds, source.id]),
-					],
-					originalFacts: result.originalFacts,
-					sourceAssertions: result.sourceAssertions,
-					assertContextCurrent: result.assertContextCurrent,
-					withdrawnSourceIds: result.withdrawnSourceIds,
-					replays,
-				},
-				{
-					before: first?.before ?? "",
-					after: last
-						? last.request.kind === "remove"
-							? ""
-							: last.request.text
-						: source.text,
-					intent: last
-						? requirePlan(last)
-						: { forget: [], replace: [], preserve: [] },
-					orderedEdits: replays.length ? orderedChecks(replays) : undefined,
-				},
-				model,
+			try {
+				await checkCandidate(
+					ctx,
+					{
+						memories: result.memories,
+						sourceIds: [
+							...new Set([...checkedSources, ...result.sourceIds, source.id]),
+						],
+						originalFacts: result.originalFacts,
+						sourceAssertions: result.sourceAssertions,
+						assertContextCurrent: result.assertContextCurrent,
+						withdrawnSourceIds: result.withdrawnSourceIds,
+						replays,
+					},
+					{
+						before: first?.before ?? "",
+						after: last
+							? last.request.kind === "remove"
+								? ""
+								: last.request.text
+							: source.text,
+						intent: last
+							? requirePlan(last)
+							: { forget: [], replace: [], preserve: [] },
+						orderedEdits: replays.length ? orderedChecks(replays) : undefined,
+					},
+					model,
+				);
+			} catch (error) {
+				// A per-chat forget step the review refuses is not tried again: a
+				// retry would compare against facts it may already have edited.
+				if (
+					error instanceof NativeMemoryError &&
+					error.code === "memory_dependency_check_rejected" &&
+					updates.some(({ intent }) => intent.meaningCheck)
+				)
+					throw new NativeMemoryError(error.code, false);
+				throw error;
+			}
+			// The review passed for this revision: record it before publication,
+			// all of this delivery's marks in one write.
+			const passed = updates.filter(
+				({ intent }) =>
+					intent.meaningCheck &&
+					!intent.meaningCheck.checked.includes(source.id),
 			);
+			for (const update of passed) {
+				const meaningCheck = update.intent.meaningCheck;
+				if (!meaningCheck) continue;
+				update.intent = {
+					...update.intent,
+					meaningCheck: {
+						...meaningCheck,
+						checked: [...meaningCheck.checked, source.id],
+					},
+				};
+			}
+			if (passed.length) await saveIntents(ctx, passed);
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
 			verifySourceResult(

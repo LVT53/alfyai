@@ -50,6 +50,7 @@ vi.mock("../images/requests", () => ({
 
 vi.mock("../images/picture-check/policy", () => ({
 	isExplicitFilterOnFor: async () => false,
+	isExplicitVariantAllowedFor: async () => false,
 }));
 
 vi.mock("../video-caption", () => ({

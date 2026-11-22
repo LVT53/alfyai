@@ -192,7 +192,12 @@ export async function recordHistoryImportChoice(
 			.from(memoryResetGenerations)
 			.where(eq(memoryResetGenerations.userId, userId))
 			.get();
-		const controls = { intervals, resetAt: reset?.at, enabled: true };
+		const controls = {
+			account: { ...account, historyChoice: "decline" },
+			intervals,
+			resetAt: reset?.at,
+			enabled: true,
+		};
 		return tx
 			.select()
 			.from(memorySourceRevisions)
@@ -374,6 +379,9 @@ export async function setMemoryEnabled(
 	if (enabled) {
 		const { resumeDependencyRepairs } = await import("./delivery-job");
 		await resumeDependencyRepairs(userId);
+		// Imported chats that arrived while Memory was off are owed now.
+		const { catchUpImportedHistory } = await import("./imported-history");
+		await catchUpImportedHistory(userId, "memory_on");
 	}
 
 	if (!enabled && retiredRevision >= 0)
