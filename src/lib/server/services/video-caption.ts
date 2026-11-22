@@ -7,8 +7,10 @@
 // model's contract, not something this app may drift. What the app adds follows
 // it after a blank line, in the same system message (`VIDEO_CAPTION_HOUSE_RULES`:
 // the endpoint is never shown the still, and the feasibility study's house
-// rules). One system message, first: a chat template may refuse a system message
-// anywhere else (`captionSystemMessage`).
+// rules; or `VIDEO_CAPTION_ALT_RULES` for the second engine variant, which
+// replaces the house rules because it must describe the subject). One system
+// message, first: a chat template may refuse a system message anywhere else
+// (`captionSystemMessage`).
 //
 // The endpoint is configuration (ADR-0068): an address the app calls without a
 // click comes from the admin's settings, never from anything a model wrote.
@@ -23,6 +25,7 @@ import {
 	getLtxCaptionUrl,
 	isVideoCaptionConfigured,
 } from "$lib/server/config-store";
+import type { LtxVideoVariant } from "$lib/server/services/images/comfyui/ltx-spec";
 import { buildOpenAICompatibleUrl } from "$lib/server/services/openai-compatible-url";
 
 /**
@@ -80,6 +83,23 @@ House rules for these clips, over the instruction above:
 - The caption covers five seconds of action.`;
 
 /**
+ * The second engine variant's app block, sent INSTEAD of the house rules and
+ * never beside them: the house rules forbid describing the subject, and this
+ * variant must describe the body the person's own words ask for. The
+ * renderability rules that still apply are kept word for word; the sound
+ * belongs in the instruction's one paragraph, not a section of its own.
+ * ASCII English (ruling 79).
+ */
+export const VIDEO_CAPTION_ALT_RULES = `The user's own words set what to describe: when the request names a subject, a body, clothing, an action or a state, describe it as the request names it, and show what changes in it as the action unfolds. Stay with their request: do not add acts, participants, objects or events they did not ask for, and do not euphemise, soften or leave out what they did ask for. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
+
+House rules for these clips, over the instruction above:
+- A single continuous take, no cuts.
+- The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
+- Everyone and everything in the first frame stays in frame.
+- No on-screen text, titles, captions or logos.
+- The caption covers five seconds of action.`;
+
+/**
  * The note that makes a caption the SECOND five seconds of a ten-second clip
  * (review C-2): segment 2 starts on segment 1's last frame, so its caption goes
  * on from there. Sent the same caption, it replayed the action from its start
@@ -95,19 +115,30 @@ Continue from that last moment: describe only what happens in the next five seco
 
 /**
  * The caption request's one system message: the vendored instruction first and
- * unchanged, then the app's own words, each after a blank line. Never several
- * system messages: Qwen's chat template refuses a system message anywhere but
- * first, and the endpoint answers 400 ("System message must be at the
- * beginning."). Measured on the box on 2026-11-17, when the house rules went in
- * a second message: every caption failed and fell back to the person's words.
+ * unchanged, then the variant's own rules, each after a blank line, and the
+ * continuation note last. Never several system messages: Qwen's chat template
+ * refuses a system message anywhere but first, and the endpoint answers 400
+ * ("System message must be at the beginning."). Measured on the box on
+ * 2026-11-17, when the house rules went in a second message: every caption
+ * failed and fell back to the person's words.
  */
-function captionSystemMessage(note?: string): string {
-	return [
-		LTX24_I2V_INSTRUCTION,
-		VIDEO_CAPTION_HOUSE_RULES,
-		...(note ? [note] : []),
-	].join("\n\n");
+function captionSystemMessage(rules: string, note?: string): string {
+	return [LTX24_I2V_INSTRUCTION, rules, ...(note ? [note] : [])].join("\n\n");
 }
+
+/** The app's block for a variant: the house rules, or the alt block in their place. */
+function captionRules(variant: LtxVideoVariant): string {
+	return variant === "alt"
+		? VIDEO_CAPTION_ALT_RULES
+		: VIDEO_CAPTION_HOUSE_RULES;
+}
+
+/** What a caption call may be given: the engine variant and the caller's fetch. */
+type VideoCaptionOptions = {
+	variant?: LtxVideoVariant;
+	signal?: AbortSignal;
+	fetchImpl?: typeof fetch;
+};
 
 /**
  * A caption that speaks of an image it was not shown answered the request, not
@@ -129,7 +160,7 @@ export const VIDEO_CAPTION_TIMEOUT_MS = 15_000;
  */
 export async function buildVideoPrompt(
 	idea: string,
-	options: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+	options: VideoCaptionOptions = {},
 ): Promise<string> {
 	const motion = idea.trim();
 	if (!isVideoCaptionConfigured()) return motion;
@@ -158,7 +189,7 @@ export async function buildVideoPrompt(
 export async function buildVideoContinuationPrompt(
 	idea: string,
 	first: string,
-	options: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+	options: VideoCaptionOptions = {},
 ): Promise<string | null> {
 	if (!isVideoCaptionConfigured()) return null;
 	try {
@@ -180,7 +211,7 @@ export async function buildVideoContinuationPrompt(
 /** One OpenAI-compatible chat completion; the caption, or null for nothing usable. */
 async function requestCaption(
 	motion: string,
-	options: { signal?: AbortSignal; fetchImpl?: typeof fetch },
+	options: VideoCaptionOptions,
 	note?: string,
 ): Promise<string | null> {
 	const url = buildOpenAICompatibleUrl(
@@ -202,7 +233,13 @@ async function requestCaption(
 		body: JSON.stringify({
 			model: getLtxCaptionModel(),
 			messages: [
-				{ role: "system", content: captionSystemMessage(note) },
+				{
+					role: "system",
+					content: captionSystemMessage(
+						captionRules(options.variant ?? "standard"),
+						note,
+					),
+				},
 				{ role: "user", content: `User Raw Input Prompt: ${motion}.` },
 			],
 			temperature: 0,
