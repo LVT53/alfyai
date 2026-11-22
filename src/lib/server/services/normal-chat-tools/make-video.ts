@@ -81,7 +81,7 @@ export const makeVideoInputSchema = z.object({
 		.max(64)
 		.optional()
 		.describe(
-			'The still to animate, when the user named one: a picture number from this message ("3"), an Image id from "In this chat", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel.',
+			'The still to animate, when the user named one: a picture number from this message ("3"), an Image id from "In this chat", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel; if neither exists, the clip is made from the words alone.',
 		),
 	title: z
 		.string()

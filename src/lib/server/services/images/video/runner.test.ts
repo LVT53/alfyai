@@ -556,6 +556,44 @@ describe("a take from text", () => {
 		).toBeNull();
 	});
 
+	it("renders both segments of a 10 s text take with no image path and joins them", async () => {
+		const server = await startLtx();
+		const takeId = await queueTake({
+			fromText: true,
+			sourceFileId: null,
+			explicitVariant: true,
+			durationSeconds: 10,
+		});
+		await drainVideoTakes();
+
+		const take = await readTake(takeId);
+		expect(take.status).toBe("succeeded");
+		const posts = promptRequests(server);
+		expect(posts).toHaveLength(2);
+		for (const post of posts) {
+			const graph = graphOf(post);
+			expect(types(graph)).not.toContain("LoadImage");
+			expect(
+				types(graph).filter((type) => type === "LTXVImgToVideoInplace"),
+			).toHaveLength(0);
+			expect(nodeOfType(graph, "UNETLoader").inputs.unet_name).toBe(
+				LTX_VIDEO_UNET_ALT,
+			);
+		}
+		expect(
+			server.requests.filter((request) => request.path === "/upload/image"),
+		).toHaveLength(0);
+
+		const clips = await storedClips();
+		expect(clips).toHaveLength(1);
+		const clip = clips[0];
+		if (!clip) throw new Error("The take stored no clip");
+		expect(clip.durationMs).toBe(10000);
+		expect(await probeDurationMs(await clipBytes(clip.id))).toBeGreaterThan(
+			9_500,
+		);
+	});
+
 	it("keeps the image path for a picture take", async () => {
 		const server = await startLtx();
 		await queueTake({ fromText: false });

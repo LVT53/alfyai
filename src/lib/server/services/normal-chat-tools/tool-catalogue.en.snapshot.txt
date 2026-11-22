@@ -1346,7 +1346,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "description": "The motion idea, in English: what moves in the clip, how the camera moves, and what stays as it is. This is the idea a caption is written from, not the final caption."
           },
           "picture": {
-            "description": "The still to animate, when the user named one: a picture number from this message (\"3\"), an Image id from \"In this chat\", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel.",
+            "description": "The still to animate, when the user named one: a picture number from this message (\"3\"), an Image id from \"In this chat\", or the takeId a make_image call returned. Leave it out to animate the newest picture this turn made, else the picture open in the panel; if neither exists, the clip is made from the words alone.",
             "type": "string",
             "maxLength": 64
           },
