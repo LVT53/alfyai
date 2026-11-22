@@ -399,6 +399,11 @@ describe("make_video's take request", () => {
 			"the tide comes in slowly",
 			expect.anything(),
 		);
+		expect(queued.continuation).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.any(String),
+			expect.objectContaining({ variant: "alt" }),
+		);
 		// One exemption read for the whole take, however many captions it writes.
 		expect(queued.variant).toHaveBeenCalledTimes(1);
 		expect(queued.enqueue).toHaveBeenCalledWith(

@@ -22,6 +22,7 @@ import { getConfig, isVideoMakingConfigured } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { imageJobs, videoJobs } from "$lib/server/db/schema";
 import { UserStopReason } from "$lib/server/services/chat-turn/active-streams";
+import type { LtxVideoVariant } from "$lib/server/services/images/comfyui/ltx-spec";
 import {
 	getImageFile,
 	storeImageFile,
@@ -501,10 +502,11 @@ async function planTake(params: {
 	// The exemption selects the second engine variant for the whole take: read
 	// once here, so both captions and the take's row agree.
 	const explicitVariant = await isExplicitVariantAllowedFor(userId);
+	const variant: LtxVideoVariant = explicitVariant ? "alt" : "standard";
 	// The caption is a model call: it happens only for a take that will be made.
 	const prompt = await buildVideoPrompt(input.prompt.trim(), {
 		signal: params.signal,
-		variant: explicitVariant ? "alt" : "standard",
+		variant,
 	});
 	// A 10 s take's second segment starts on the first one's last frame: its
 	// caption goes on from there, never the first one's again (review C-2).
@@ -512,7 +514,7 @@ async function planTake(params: {
 		durationSeconds === 10 && !params.signal.aborted
 			? await buildVideoContinuationPrompt(input.prompt.trim(), prompt, {
 					signal: params.signal,
-					variant: explicitVariant ? "alt" : "standard",
+					variant,
 				})
 			: null;
 	// Stopped while the caption was written: no still is kept and nothing is
