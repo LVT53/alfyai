@@ -747,3 +747,446 @@ it("does not treat an older bound but unversioned configuration as settled", asy
 	});
 	expect(f.fetcher).not.toHaveBeenCalled();
 });
+
+type Fixture = Awaited<ReturnType<typeof setup>>;
+type RetainEnd = "completed" | "failed" | "cancelled";
+
+/**
+ * A Hindsight whose retain operations end as the test says. A POST of an
+ * operation ID it already knows changes nothing (it is idempotent on
+ * `operation_id`), an ID it has never seen is `not_found`, and what a completed
+ * retain wrote is listed from then on.
+ */
+function fakeRetains(
+	f: Fixture,
+	options: {
+		/** How the nth new operation ends. Completed unless said. */
+		endOf?: (nth: number) => RetainEnd;
+		/** Operations that exist before the test starts. */
+		known?: Record<string, RetainEnd>;
+		/** A failed operation left a fact under the document. */
+		leftBehind?: boolean;
+		/** Answer an operation it has never seen with a 404, not a `not_found` status. */
+		unknownIs404?: boolean;
+		/** Runs as a POST arrives, before Hindsight answers it. */
+		onPost?: (operationId: string) => void;
+		/** Runs as the facts are listed. */
+		onList?: () => void;
+	} = {},
+) {
+	const original = f.fetcher.getMockImplementation();
+	if (!original) throw new Error("Missing fixture fetch");
+	const operations = new Map<string, string>(
+		Object.entries(options.known ?? {}),
+	);
+	const calls: string[] = [];
+	const bodies: Array<{
+		operation_id: string;
+		items: Array<Record<string, unknown>>;
+	}> = [];
+	let created = 0;
+	f.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST") {
+			const body = JSON.parse(String(init.body));
+			calls.push(`POST ${body.operation_id}`);
+			bodies.push(body);
+			options.onPost?.(body.operation_id);
+			if (!operations.has(body.operation_id))
+				operations.set(
+					body.operation_id,
+					options.endOf?.(created++) ?? "completed",
+				);
+			return new Response(JSON.stringify({ operation_id: body.operation_id }));
+		}
+		if (path.includes("/operations/")) {
+			const id = decodeURIComponent(path.split("/operations/")[1]);
+			if (id === "consolidate-op") return original(url, init);
+			calls.push(`GET ${id}`);
+			if (options.unknownIs404 && !operations.has(id))
+				return new Response("missing", { status: 404 });
+			return new Response(
+				JSON.stringify({ status: operations.get(id) ?? "not_found" }),
+			);
+		}
+		if (path.includes("/memories/list")) {
+			options.onList?.();
+			if (
+				!options.leftBehind &&
+				![...operations.values()].includes("completed")
+			)
+				return new Response(JSON.stringify({ total: 0, offset: 0, items: [] }));
+		}
+		return original(url, init);
+	});
+	return {
+		calls,
+		bodies,
+		posted: () => bodies.map((body) => body.operation_id),
+	};
+}
+
+describe("Memory delivery when Hindsight reports a retain failed", () => {
+	const revision = (f: Fixture) =>
+		f.db.select().from(f.schema.memorySourceRevisions).get();
+	const job = (f: Fixture) =>
+		f.db.select().from(f.schema.memoryDeliveryJobs).get();
+	/** What the release before the resubmission left: sent, never acknowledged, the job failed for good. */
+	async function failedByEarlierRelease(f: Fixture) {
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true })
+			.run();
+		const queued = await f.enqueue();
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({
+				status: "failed",
+				errorCode: "native_operation_failed",
+				errorMessage: "Memory preparation could not complete.",
+				retryable: false,
+				attemptCount: 3,
+			})
+			.run();
+		return queued.row.id;
+	}
+	const reopen = (f: Fixture, jobId: string) =>
+		h.engine.reopen(f.jobs.memoryDeliveryJob, jobId, {
+			userId: h.userId,
+			from: ["failed"],
+		});
+
+	it("resubmits it once under a new operation ID and accepts the source when that completes", async () => {
+		const f = await setup();
+		const fake = fakeRetains(f, {
+			endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		const [failed, fresh] = fake.posted();
+		expect(fake.posted()).toHaveLength(2);
+		expect(fresh).not.toBe(failed);
+		// The same source goes out again: only its operation ID is new.
+		expect(fake.bodies[1].items).toEqual(fake.bodies[0].items);
+		expect(job(f)).toMatchObject({ status: "succeeded", attemptCount: 1 });
+		expect(revision(f)).toMatchObject({
+			state: "accepted",
+			nativeAcknowledged: true,
+			nativeOperationId: fresh,
+		});
+		expect(JSON.parse(revision(f)?.context ?? "")).toEqual({
+			nativeRetainResubmittedFrom: failed,
+		});
+	});
+
+	it("ends for good when the resubmitted retain fails too", async () => {
+		const f = await setup();
+		const fake = fakeRetains(f, { endOf: () => "failed" });
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(fake.posted()).toHaveLength(2);
+		expect(job(f)).toMatchObject({
+			status: "failed",
+			errorCode: "native_operation_failed",
+			retryable: false,
+			attemptCount: 1,
+		});
+		expect(revision(f)).toMatchObject({
+			nativeSubmitted: true,
+			nativeAcknowledged: false,
+			nativeOperationId: fake.posted()[1],
+		});
+	});
+
+	it("sends no third operation when that failed job is reopened", async () => {
+		const f = await setup();
+		const fake = fakeRetains(f, { endOf: () => "failed" });
+		const queued = await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(job(f)?.status).toBe("failed");
+		await reopen(f, queued.row.id);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(job(f)).toMatchObject({
+			status: "failed",
+			errorCode: "native_operation_failed",
+		});
+		// Two operations, and the reopening sent nothing: the one resubmission is spent.
+		expect(new Set(fake.posted()).size).toBe(2);
+		expect(fake.posted()).toHaveLength(2);
+		expect(revision(f)?.nativeOperationId).toBe(fake.posted()[1]);
+	});
+
+	it("stays terminal when the failed operation left a fact under the document", async () => {
+		const f = await setup();
+		const fake = fakeRetains(f, { endOf: () => "failed", leftBehind: true });
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(fake.posted()).toEqual([f.source.nativeOperationId]);
+		expect(job(f)).toMatchObject({
+			status: "failed",
+			errorCode: "native_operation_failed",
+			retryable: false,
+		});
+		// Nothing was rotated or marked: the source is as the failed attempt left it.
+		expect(revision(f)).toMatchObject({
+			nativeOperationId: f.source.nativeOperationId,
+			context: "User statement",
+		});
+	});
+
+	it("resubmits once for a job reopened after the earlier release failed it", async () => {
+		const f = await setup();
+		const failed = f.source.nativeOperationId as string;
+		const fake = fakeRetains(f, { known: { [failed]: "failed" } });
+		const jobId = await failedByEarlierRelease(f);
+		await reopen(f, jobId);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		// The failed operation is not sent again: one new ID goes out, and completes.
+		expect(fake.posted()).toHaveLength(1);
+		expect(fake.posted()[0]).not.toBe(failed);
+		expect(job(f)?.status).toBe("succeeded");
+		expect(revision(f)).toMatchObject({
+			state: "accepted",
+			nativeAcknowledged: true,
+			nativeOperationId: fake.posted()[0],
+		});
+	});
+
+	it("never resubmits twice when the process dies after the new ID is stored and before it is sent", async () => {
+		const f = await setup();
+		const failed = f.source.nativeOperationId as string;
+		let stored: { id: string | null; context: string } | undefined;
+		const fake = fakeRetains(f, {
+			endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			onPost: (operationId) => {
+				if (operationId === failed || stored) return;
+				const current = revision(f);
+				stored = {
+					id: current?.nativeOperationId ?? null,
+					context: current?.context ?? "",
+				};
+				throw Error("The process died as the call went out");
+			},
+		});
+		vi.useFakeTimers({ toFake: ["Date"] });
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		// The new ID and the marker were already committed when the call went out.
+		expect(stored?.id).toBeTruthy();
+		expect(stored?.id).not.toBe(failed);
+		expect(JSON.parse(stored?.context ?? "")).toEqual({
+			nativeRetainResubmittedFrom: failed,
+		});
+		expect(job(f)).toMatchObject({ status: "queued", retryable: true });
+		vi.setSystemTime(Date.now() + 61000);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(job(f)?.status).toBe("succeeded");
+		expect(fake.posted()).toEqual([failed, stored?.id, stored?.id]);
+		expect(revision(f)?.nativeOperationId).toBe(stored?.id);
+	});
+
+	it.each(["first attempt", "reopened job"])(
+		"keeps a cancelled operation terminal (%s)",
+		async (when) => {
+			const f = await setup();
+			const failed = f.source.nativeOperationId as string;
+			const fake = fakeRetains(
+				f,
+				when === "first attempt"
+					? { endOf: () => "cancelled" }
+					: { known: { [failed]: "cancelled" } },
+			);
+			if (when === "first attempt") await f.enqueue();
+			else await reopen(f, await failedByEarlierRelease(f));
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(fake.posted()).toEqual([failed]);
+			expect(job(f)).toMatchObject({
+				status: "failed",
+				errorCode: "native_operation_failed",
+				retryable: false,
+			});
+			expect(revision(f)).toMatchObject({
+				nativeOperationId: failed,
+				context: "User statement",
+			});
+		},
+	);
+
+	it("does not resubmit a source withdrawn while its failed operation is checked", async () => {
+		const f = await setup();
+		const failed = f.source.nativeOperationId as string;
+		const fake = fakeRetains(f, {
+			endOf: () => "failed",
+			onList: () => f.rev.revokeMemorySources(h.userId, [f.source.id]),
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(fake.posted()).toEqual([failed]);
+		expect(job(f)?.status).toBe("failed");
+		expect(revision(f)).toMatchObject({
+			state: "revoked",
+			nativeOperationId: failed,
+			context: "User statement",
+		});
+	});
+
+	it.each([
+		{ sent: false, acknowledged: false, first: "POST" },
+		{ sent: true, acknowledged: true, first: "POST" },
+		{ sent: true, acknowledged: false, first: "GET" },
+	])(
+		"asks about the operation first only for a sent, unacknowledged retain (sent $sent, acknowledged $acknowledged)",
+		async ({ sent, acknowledged, first }) => {
+			const f = await setup();
+			const id = f.source.nativeOperationId as string;
+			const fake = fakeRetains(f, { known: sent ? { [id]: "completed" } : {} });
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({ nativeSubmitted: sent, nativeAcknowledged: acknowledged })
+				.run();
+			await f.enqueue();
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(fake.calls[0]).toBe(`${first} ${id}`);
+			expect(job(f)?.status).toBe("succeeded");
+			expect(revision(f)?.nativeOperationId).toBe(id);
+		},
+	);
+
+	it.each(["a not_found status", "a 404"])(
+		"sends a retry's own ID again when Hindsight does not know the operation yet (%s)",
+		async (answer) => {
+			const f = await setup();
+			const id = f.source.nativeOperationId as string;
+			const fake = fakeRetains(f, { unknownIs404: answer === "a 404" });
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({ nativeSubmitted: true })
+				.run();
+			await f.enqueue();
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(fake.calls.slice(0, 2)).toEqual([`GET ${id}`, `POST ${id}`]);
+			expect(job(f)?.status).toBe("succeeded");
+			expect(revision(f)).toMatchObject({
+				nativeOperationId: id,
+				context: "User statement",
+			});
+		},
+	);
+
+	it("does not resubmit while a removal still has to clean up the bank", async () => {
+		const f = await setup();
+		const failed = f.source.nativeOperationId as string;
+		const fake = fakeRetains(f, {
+			endOf: () => "failed",
+			onList: () =>
+				f.db
+					.insert(f.schema.memoryActions)
+					.values({
+						id: "pending-removal",
+						userId: h.userId,
+						bankId: f.bank.id,
+						epoch: 0,
+						requestId: "pending-removal",
+						kind: "remove",
+						exclusionAcknowledged: true,
+						cleanupPending: true,
+						intentJson: JSON.stringify({ sourceIds: [] }),
+					})
+					.onConflictDoNothing()
+					.run(),
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(fake.posted()).toEqual([failed]);
+		expect(job(f)).toMatchObject({
+			status: "queued",
+			errorCode: "memory_curation_publication_held",
+		});
+		expect(revision(f)).toMatchObject({
+			nativeOperationId: failed,
+			context: "User statement",
+		});
+	});
+
+	describe("for what else reads the operation ID of a resubmitted retain", () => {
+		const fresh = "d4b6f0a2-3c1e-4b7a-9d52-6a8e1f3c7b90";
+		/** A source whose retain was resubmitted and whose process died before it was acknowledged. */
+		function resubmittedAndUnacknowledged(f: Fixture) {
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({
+					nativeSubmitted: true,
+					nativeOperationId: fresh,
+					context: JSON.stringify({
+						nativeRetainResubmittedFrom: f.source.nativeOperationId,
+					}),
+				})
+				.run();
+		}
+
+		it("settles the new operation, never the failed one, before cleaning up a withdrawn source", async () => {
+			const f = await setup();
+			const failed = f.source.nativeOperationId as string;
+			const fake = fakeRetains(f, { known: { [fresh]: "completed" } });
+			const inner = f.fetcher.getMockImplementation();
+			if (!inner) throw new Error("Missing fixture fetch");
+			f.fetcher.mockImplementation(async (url, init) =>
+				String(url).includes("/memories/list")
+					? new Response(JSON.stringify({ items: [], total: 0, offset: 0 }))
+					: inner(url, init),
+			);
+			resubmittedAndUnacknowledged(f);
+			f.rev.revokeMemorySources(h.userId, [f.source.id]);
+			f.db.update(f.schema.users).set({ memoryEnabled: false }).run();
+			await f.jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source_cleanup",
+				sourceId: f.source.id,
+				requestId: "cleanup",
+			});
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(job(f)?.status).toBe("succeeded");
+			expect(fake.calls).toEqual([`GET ${fresh}`]);
+			expect(fake.calls).not.toContain(`GET ${failed}`);
+			expect(
+				f.fetcher.mock.calls.some(
+					([url, init]) =>
+						String(url).endsWith(`/documents/${f.source.id}`) &&
+						init?.method === "DELETE",
+				),
+			).toBe(true);
+		});
+
+		it("waits for the new operation, never the failed one, before another source of the bank is sent", async () => {
+			const f = await setup();
+			const failed = f.source.nativeOperationId as string;
+			const fake = fakeRetains(f, { known: { [fresh]: "completed" } });
+			resubmittedAndUnacknowledged(f);
+			const other = f.rev.recordMemorySource({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				eventId: "other-event",
+				lineageId: "other-message",
+				text: "My oar is red",
+				context: "User statement",
+				assertedAt: new Date("2026-11-19"),
+			});
+			await f.jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: other.id,
+				requestId: "other-request",
+			});
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const sentOther = fake.calls.indexOf(`POST ${other.nativeOperationId}`);
+			expect(sentOther).toBeGreaterThan(-1);
+			expect(fake.calls.slice(0, sentOther)).toEqual([`GET ${fresh}`]);
+			expect(fake.calls).not.toContain(`GET ${failed}`);
+		});
+	});
+});

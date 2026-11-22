@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
@@ -105,6 +106,43 @@ async function settle(
 	const ops = await pollOperations(client, ids, signal, !cleanup);
 	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
 		throw new NativeMemoryError("native_operation_failed", false);
+}
+/**
+ * `settle` for a retain. An operation Hindsight reports failed comes back, as
+ * its ID, for the delivery to resubmit; a cancelled one is as terminal as ever.
+ * Null: the retain completed.
+ */
+async function settleRetain(
+	client: HindsightClient,
+	ids: string[],
+	signal: AbortSignal,
+): Promise<string | null> {
+	const ops = await pollOperations(client, ids, signal, true);
+	if (ops.some((o) => o.status === "cancelled"))
+		throw new NativeMemoryError("native_operation_failed", false);
+	return ops.find((o) => o.status === "failed")?.id ?? null;
+}
+/** Whether Hindsight reports the operation failed. One it has never heard of has not. */
+async function operationFailed(client: HindsightClient, id: string) {
+	try {
+		return (await client.operation(id)).status === "failed";
+	} catch (error) {
+		if (error instanceof NativeMemoryError && error.code === "native_not_found")
+			return false;
+		throw error;
+	}
+}
+/**
+ * Where a source's one resubmission is recorded: a key on its revision's
+ * `context`, which already holds its other per-source flags and commits in the
+ * same transaction as the new operation ID. The value is the failed operation's
+ * ID, for whoever reads Hindsight's error for it.
+ */
+const RETAIN_RESUBMITTED_FROM = "nativeRetainResubmittedFrom";
+function retainResubmitted(source: typeof memorySourceRevisions.$inferSelect) {
+	return (
+		typeof parseJsonRecord(source.context)[RETAIN_RESUBMITTED_FROM] === "string"
+	);
 }
 async function drainNative(client: HindsightClient, signal: AbortSignal) {
 	const deadline = Date.now() + 180000;
@@ -755,52 +793,104 @@ export async function runMemoryDelivery(
 				}))
 			)
 				return;
-			// Recheck admission and certified facts immediately before making the retain call.
-			ctx.signal.throwIfAborted();
-			const context = db.transaction((tx) => {
-				checkPendingCuration(tx);
-				source = assertDelivery(tx, row).source;
-				if (
-					unchanged &&
-					unchangedSourceInventory(tx, source, unchanged) !== null
-				)
+			// What an earlier attempt may have sent and never saw complete.
+			const sent =
+				source.nativeSubmitted && !source.nativeAcknowledged
+					? source.nativeOperationId
+					: null;
+			const sendRetain = async () => {
+				// Recheck admission and certified facts immediately before making the retain call.
+				ctx.signal.throwIfAborted();
+				const context = db.transaction((tx) => {
+					checkPendingCuration(tx);
+					source = assertDelivery(tx, row).source;
+					if (
+						unchanged &&
+						unchangedSourceInventory(tx, source, unchanged) !== null
+					)
+						throw new NativeMemoryError(
+							"memory_unchanged_source_unverified",
+							true,
+						);
+					return resolveMemorySourceContext(tx, source);
+				});
+				if (!source.nativeOperationId)
 					throw new NativeMemoryError(
-						"memory_unchanged_source_unverified",
-						true,
+						"memory_operation_identity_missing",
+						false,
 					);
-				return resolveMemorySourceContext(tx, source);
-			});
-			if (!source.nativeOperationId)
-				throw new NativeMemoryError("memory_operation_identity_missing", false);
-			const explicitEditAt =
-				predecessor && !unchanged ? source.explicitEditAt : null;
-			const content =
-				predecessor && explicitEditAt
-					? JSON.stringify({
-							kind: "source_edit",
-							before: predecessor.text,
-							after: source.text,
-							original_asserted_at: source.assertedAt.toISOString(),
-							explicit_edit_at: explicitEditAt.toISOString(),
-						})
-					: source.text;
-			const operations = await client.retain(
-				{
-					content,
-					context: explicitEditAt
+				const explicitEditAt =
+					predecessor && !unchanged ? source.explicitEditAt : null;
+				const content =
+					predecessor && explicitEditAt
 						? JSON.stringify({
-								...parseJsonRecord(context),
-								edit_guidance: EXPLICIT_EDIT_RETENTION_GUIDANCE,
+								kind: "source_edit",
+								before: predecessor.text,
+								after: source.text,
+								original_asserted_at: source.assertedAt.toISOString(),
+								explicit_edit_at: explicitEditAt.toISOString(),
 							})
-						: context,
-					timestamp: assertedAt.toISOString(),
-					document_id: source.id,
-					tags: [source.id],
-					metadata: { source_revision: source.id, lineage: source.lineageId },
-				},
-				source.nativeOperationId,
-			);
-			await settle(client, operations, ctx.signal);
+						: source.text;
+				return client.retain(
+					{
+						content,
+						context: explicitEditAt
+							? JSON.stringify({
+									...parseJsonRecord(context),
+									edit_guidance: EXPLICIT_EDIT_RETENTION_GUIDANCE,
+								})
+							: context,
+						timestamp: assertedAt.toISOString(),
+						document_id: source.id,
+						tags: [source.id],
+						metadata: { source_revision: source.id, lineage: source.lineageId },
+					},
+					source.nativeOperationId,
+				);
+			};
+			// Hindsight reported the retain failed and does not retry it. Send the same
+			// source once more under a new operation ID, and only once.
+			const resubmitRetain = async (failedId: string) => {
+				// The first resubmission committed its marker before it sent, so an attempt
+				// that finds the new operation failed too ends here.
+				if (retainResubmitted(source))
+					throw new NativeMemoryError("native_operation_failed", false);
+				ctx.signal.throwIfAborted();
+				// A fact under this document would be replaced by the new retain, and
+				// nobody has checked what the failed one left.
+				if (
+					(await client.list()).some((fact) => fact.document_id === source.id)
+				)
+					throw new NativeMemoryError("native_operation_failed", false);
+				const freshId = randomUUID();
+				// Committed before the new call goes out: a crash after this write can only
+				// retry the new operation, never resubmit a second time.
+				return ctx.write((tx) => {
+					const current = assertDelivery(tx, row).source;
+					checkPendingCuration(tx);
+					tx.update(memorySourceRevisions)
+						.set({
+							nativeOperationId: freshId,
+							context: JSON.stringify({
+								...parseJsonRecord(current.context),
+								[RETAIN_RESUBMITTED_FROM]: failedId,
+							}),
+						})
+						.where(eq(memorySourceRevisions.id, current.id))
+						.run();
+				});
+			};
+			// Hindsight answers a retry's retain with the operation it already holds, a
+			// failed one included: ask first, and resubmit instead of sending it again.
+			ctx.signal.throwIfAborted();
+			let failed = sent && (await operationFailed(client, sent)) ? sent : null;
+			if (!failed)
+				failed = await settleRetain(client, await sendRetain(), ctx.signal);
+			if (failed) {
+				if (!(await resubmitRetain(failed))) return;
+				if (await settleRetain(client, await sendRetain(), ctx.signal))
+					throw new NativeMemoryError("native_operation_failed", false);
+			}
 			// Remote receipt TTL must not erase our knowledge that this retain finished.
 			if (
 				!(await ctx.write((tx) => {
