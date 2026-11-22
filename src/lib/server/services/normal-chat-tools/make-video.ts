@@ -192,7 +192,12 @@ const NOT_FOR_THE_MODEL_TO_RETRY = new Set([
 const FAILURE_FALLBACK = "The video could not be made.";
 const STOPPED_MESSAGE =
 	"The user stopped the turn before this video started, so it was not made.";
-const EXPLICIT_REQUEST_MESSAGE =
+/**
+ * The refusal a take gets when the explicit-picture filter refuses its request.
+ * The video card's Another route reuses it for a new take whose cloned request
+ * is no longer allowed.
+ */
+export const EXPLICIT_REQUEST_MESSAGE =
 	"Explicit or sexual videos are not made here: the explicit-picture filter refused this request and no clip was made. Tell the user plainly that this video cannot be made. Do not call make_video again for this request.";
 
 const SUCCEEDED_NOTE =

@@ -21,5 +21,11 @@ export const POST: RequestHandler = async (event) => {
 	if (result.reason === "not_found") {
 		return createJsonErrorResponse(result.reason, 404);
 	}
+	if (result.reason === "explicit_request") {
+		return createJsonResponse(
+			{ error: result.message, code: result.reason },
+			409,
+		);
+	}
 	return createJsonErrorResponse(result.reason, 503);
 };

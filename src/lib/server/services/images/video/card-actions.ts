@@ -9,6 +9,8 @@ import { isVideoMakingConfigured } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { videoJobs } from "$lib/server/db/schema";
 import { getArtifactOwnershipScope } from "$lib/server/services/knowledge/ownership";
+import { EXPLICIT_REQUEST_MESSAGE } from "$lib/server/services/normal-chat-tools/make-video";
+import { isExplicitVariantAllowedFor } from "../picture-check/policy";
 import { freshSeed } from "../seeds";
 import { videoCardKey } from "./read-model";
 import { parseVideoTakeRequest } from "./request";
@@ -83,6 +85,7 @@ export async function anotherVideoTake(params: {
 }): Promise<
 	| { ok: true; takeId: string }
 	| { ok: false; reason: "not_found" | "not_configured" }
+	| { ok: false; reason: "explicit_request"; message: string }
 > {
 	const [first] = await db
 		.select()
@@ -124,6 +127,19 @@ export async function anotherVideoTake(params: {
 	if (!shown || !request) return { ok: false, reason: "not_found" };
 	if (!isVideoMakingConfigured()) {
 		return { ok: false, reason: "not_configured" };
+	}
+	// Another is a NEW take, not a reuse of this row: the cloned request's flag
+	// is checked against the person making the request, and a value that is no
+	// longer allowed keeps the take from being created.
+	if (
+		request.explicitVariant &&
+		!(await isExplicitVariantAllowedFor(params.userId))
+	) {
+		return {
+			ok: false,
+			reason: "explicit_request",
+			message: EXPLICIT_REQUEST_MESSAGE,
+		};
 	}
 
 	const avoidSeeds = [...new Set(group.map((take) => take.seed))];
