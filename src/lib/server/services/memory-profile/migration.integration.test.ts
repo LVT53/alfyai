@@ -8364,3 +8364,28 @@ it("cutover refuses an account with an approved meaning check, which verify stil
 	).toThrow("memory_migration_cutover_curation_unsupported");
 	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
 });
+
+it("cutover goes live for an approved account only when the owner accepts the risk", async () => {
+	const { db, s } = await unlocatedRemoval();
+	await nativeFixture();
+	const migration = await import("./migration");
+	const jobs = await import("./delivery-job");
+	const restarted = await approvedRestart();
+	// Not ready yet: the acknowledgement never skips readiness.
+	expect(() =>
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId, {
+			acceptApprovedCuration: true,
+		}),
+	).toThrow("memory_migration_not_ready");
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	expect(() =>
+		migration.cutoverMemoryMigration(h.userId, restarted.manifestId, {
+			acceptApprovedCuration: false,
+		}),
+	).toThrow("memory_migration_cutover_curation_unsupported");
+	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("preparing");
+	migration.cutoverMemoryMigration(h.userId, restarted.manifestId, {
+		acceptApprovedCuration: true,
+	});
+	expect(db.select().from(s.memoryAccounts).get()?.authority).toBe("hindsight");
+});

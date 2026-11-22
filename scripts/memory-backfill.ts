@@ -26,6 +26,7 @@ export function parseMemoryBackfillArguments(args: string[]) {
 		"--synthetic-fixture",
 		"--execute",
 		"--operator-ack",
+		"--accept-approved-curation",
 	]);
 	if (
 		args.some((arg, i) => i % 2 === 0 && !allowed.has(arg)) ||
@@ -396,7 +397,10 @@ async function main() {
 				mode === "verify"
 					? m.verifyMemoryMigration(userId, id)
 					: mode === "cutover"
-						? m.cutoverMemoryMigration(userId, id)
+						? m.cutoverMemoryMigration(userId, id, {
+								acceptApprovedCuration:
+									values.get("--accept-approved-curation") === "yes",
+							})
 						: m.rollbackMemoryMigration(userId, id);
 		}
 		console.log(JSON.stringify(summary));

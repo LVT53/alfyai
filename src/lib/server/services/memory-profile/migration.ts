@@ -769,7 +769,14 @@ export async function prepareMemoryMigration(
 	settleMemoryMigration(userId);
 	return { id: manifestId, ...verifyMemoryMigration(userId, manifestId) };
 }
-export function cutoverMemoryMigration(userId: string, id: string) {
+export function cutoverMemoryMigration(
+	userId: string,
+	id: string,
+	options: {
+		/** The owner accepted cutting over before a refused forget step can be withdrawn and held. */
+		acceptApprovedCuration?: boolean;
+	} = {},
+) {
 	return db.transaction((tx) => {
 		const report = verifyMemoryMigration(userId, id);
 		if (!report.ready) throw Error("memory_migration_not_ready");
@@ -795,8 +802,10 @@ export function cutoverMemoryMigration(userId: string, id: string) {
 		// Nothing yet withdraws and holds a chat whose forget step fails on a
 		// live account, and its retained facts would stop every later
 		// publication in its bank. An approved account stays preparing until
-		// that exists; verify still says whether it would be ready.
+		// that exists, unless the owner explicitly accepts that risk for it;
+		// verify still says whether it would be ready.
 		if (
+			options.acceptApprovedCuration !== true &&
 			readUnlocatedCurationApproval(
 				parseJsonRecord(
 					tx
