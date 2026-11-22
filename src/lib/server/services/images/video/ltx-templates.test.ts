@@ -212,6 +212,8 @@ describe("the LTX video graph", () => {
 			Object.values(graph).some((n) => n.class_type === "LoraLoaderModelOnly"),
 		).toBe(false);
 		expect(graph["2"].inputs.clip_name).toBe(LTX_TEXT_ENCODER);
+		expect(graph["17"].inputs.model).toEqual(["1", 0]);
+		expect(graph["27"].inputs.model).toEqual(["1", 0]);
 	});
 
 	it("splices the LoRA between the UNET and both guiders", () => {
