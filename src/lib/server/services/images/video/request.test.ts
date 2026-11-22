@@ -97,6 +97,16 @@ describe("a video take request", () => {
 		expect(parsed?.explicitVariant).toBe(true);
 	});
 
+	it("reads a malformed stored variant as the first variant without rejecting the row", () => {
+		for (const value of ["true", 1, {}, null]) {
+			const parsed = parseVideoTakeRequest(
+				JSON.stringify({ ...request(), explicitVariant: value }),
+			);
+			expect(parsed).not.toBeNull();
+			expect(parsed?.explicitVariant).toBe(false);
+		}
+	});
+
 	it("refuses anything that cannot stand", () => {
 		const bad = [
 			"not json",
