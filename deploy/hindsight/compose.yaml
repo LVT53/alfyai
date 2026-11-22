@@ -32,7 +32,9 @@ services:
       HINDSIGHT_API_EMBEDDINGS_PROVIDER: onnx
       HINDSIGHT_API_RERANKER_PROVIDER: flashrank
       HINDSIGHT_API_RERANKER_FLASHRANK_MODEL: ms-marco-MultiBERT-L-12
-      HINDSIGHT_API_LLM_MAX_CONCURRENT: "6"
+      # Match the admission budget (one unless overnight idle): over-budget calls get 429
+      # and exhaust the engine's three quick LLM retries, failing the whole retain.
+      HINDSIGHT_API_LLM_MAX_CONCURRENT: "1"
       HINDSIGHT_API_LLM_PROVIDER: openai
       HINDSIGHT_API_LLM_BASE_URL: http://127.0.0.1:8888/ext/alfyai/inference/v1
       HINDSIGHT_API_SKIP_LLM_VERIFICATION: "true"
