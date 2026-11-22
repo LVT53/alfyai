@@ -26,6 +26,8 @@ node --import tsx scripts/memory-backfill.ts --mode verify --database /explicit/
 
 Use the same explicit acknowledgement for cutover/rollback. Never use an implicit default database or all-user target.
 
+A retain that Hindsight reports failed (it does not retry it) is resubmitted once, automatically, under a new operation ID, provided the failed operation left no fact under the source's document. The new ID and the failed one (`nativeRetainResubmittedFrom`, in the source revision's `context`) are committed before the new call goes out, so a restart never sends a second resubmission. A second failure, or a failed operation that left a fact, ends the delivery as `native_operation_failed` (not retryable; reopening the job sends nothing more) and needs the owner. A cancelled retain stays terminal. This applies to every account, live chat deliveries included.
+
 ## Eligibility and live changes
 
 Unknown historical on/off periods remain out of native requests until the user explicitly includes them, with a fixed cutoff/version. Known off intervals, incognito, deleted sources and pre-reset statements remain excluded. The optional choice is available while preparing and after cutover; native functionality can activate with uncertain history still held. Including/declining later resumes the existing manifest. Source permissions are checked again at native dispatch/publication, and withdrawal revokes queued historical sources before acknowledgement.
