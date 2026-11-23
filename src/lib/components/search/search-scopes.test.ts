@@ -1,218 +1,127 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildSearchScopeChips,
-	filterRowsByScope,
-	isScopeAvailable,
+	formatScopeCount,
 	resolveActiveScope,
 	rowMatchesScope,
-	type ScopeableRow,
 	SEARCH_SCOPE_ORDER,
-	summariseScopedResults,
+	summariseTotals,
 } from "./search-scopes";
 
-const conversation: ScopeableRow = { id: "c1", kind: "conversation" };
-const otherConversation: ScopeableRow = { id: "c2", kind: "conversation" };
-const uploaded: ScopeableRow = {
-	id: "d1",
-	kind: "document",
-	documentOrigin: "uploaded",
-};
-const skillNote: ScopeableRow = {
-	id: "d2",
-	kind: "document",
-	documentOrigin: "skill_note",
-};
-const generated: ScopeableRow = {
-	id: "d3",
-	kind: "document",
-	documentOrigin: "generated",
-};
-const overflow: ScopeableRow = { id: "overflow", kind: "knowledge-overflow" };
+const totals = (
+	overrides: Partial<{
+		chats: number;
+		memory: number;
+		documents: number;
+		media: number;
+		apps: number;
+	}> = {},
+) => ({ chats: 0, memory: 0, documents: 0, media: 0, apps: 0, ...overrides });
 
-const rows = [
-	conversation,
-	otherConversation,
-	uploaded,
-	skillNote,
-	generated,
-	overflow,
-];
-
-describe("SEARCH_SCOPE_ORDER", () => {
-	it("leads with All and ends with the two new kinds", () => {
+describe("the scope chips", () => {
+	it("are All, Chats, Memory, Documents, Pictures & videos and Apps, in that order", () => {
 		expect(SEARCH_SCOPE_ORDER).toEqual([
 			"all",
-			"conversations",
+			"chats",
+			"memory",
 			"documents",
-			"reports",
-			"connections",
+			"media",
+			"apps",
 		]);
-	});
-});
-
-describe("isScopeAvailable", () => {
-	it("marks connections as the one scope nothing indexes", () => {
-		expect(isScopeAvailable("all")).toBe(true);
-		expect(isScopeAvailable("conversations")).toBe(true);
-		expect(isScopeAvailable("documents")).toBe(true);
-		expect(isScopeAvailable("reports")).toBe(true);
-		expect(isScopeAvailable("connections")).toBe(false);
-	});
-});
-
-describe("rowMatchesScope", () => {
-	it("keeps everything under All", () => {
-		for (const row of rows) {
-			expect(rowMatchesScope(row, "all")).toBe(true);
-		}
-	});
-
-	it("narrows conversations to conversation rows", () => {
-		expect(rowMatchesScope(conversation, "conversations")).toBe(true);
-		expect(rowMatchesScope(uploaded, "conversations")).toBe(false);
-		expect(rowMatchesScope(overflow, "conversations")).toBe(false);
-	});
-
-	it("keeps the Knowledge overflow row with the documents it leads to", () => {
-		expect(rowMatchesScope(overflow, "documents")).toBe(true);
-		expect(rowMatchesScope(overflow, "reports")).toBe(false);
-	});
-
-	it("files a generated document under Reports, not Documents", () => {
-		expect(rowMatchesScope(generated, "documents")).toBe(false);
-		expect(rowMatchesScope(uploaded, "documents")).toBe(true);
-		expect(rowMatchesScope(skillNote, "documents")).toBe(true);
-	});
-
-	it("treats a generated document as the report it is", () => {
-		expect(rowMatchesScope(generated, "reports")).toBe(true);
-		expect(rowMatchesScope(uploaded, "reports")).toBe(false);
-		expect(rowMatchesScope(skillNote, "reports")).toBe(false);
-		expect(rowMatchesScope(conversation, "reports")).toBe(false);
-	});
-
-	it("matches nothing under connections, because nothing is indexed", () => {
-		for (const row of rows) {
-			expect(rowMatchesScope(row, "connections")).toBe(false);
-		}
-	});
-});
-
-describe("filterRowsByScope", () => {
-	it("returns a copy under All rather than the same array", () => {
-		const filtered = filterRowsByScope(rows, "all");
-		expect(filtered).toEqual(rows);
-		expect(filtered).not.toBe(rows);
-	});
-
-	it("narrows to documents including the overflow row, excluding reports", () => {
-		expect(filterRowsByScope(rows, "documents").map((row) => row.id)).toEqual([
-			"d1",
-			"d2",
-			"overflow",
-		]);
-	});
-
-	it("narrows to reports", () => {
-		expect(filterRowsByScope(rows, "reports").map((row) => row.id)).toEqual([
-			"d3",
-		]);
-	});
-});
-
-describe("buildSearchScopeChips", () => {
-	it("counts each scope over the loaded results", () => {
-		const chips = buildSearchScopeChips(rows);
-		const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip]));
-		// The overflow row is a way out, not a result — never counted.
-		expect(byId.all.count).toBe(5);
-		expect(byId.conversations.count).toBe(2);
-		expect(byId.documents.count).toBe(2);
-		expect(byId.reports.count).toBe(1);
-		// Documents and Reports partition the document results, so the named
-		// scopes add up to All rather than double-counting a generated report.
 		expect(
-			byId.conversations.count + byId.documents.count + byId.reports.count,
-		).toBe(byId.all.count);
+			buildSearchScopeChips(totals(), true).map((chip) => chip.id),
+		).toEqual(["all", "chats", "memory", "documents", "media", "apps"]);
 	});
 
-	it("draws connections greyed with no count", () => {
-		const chips = buildSearchScopeChips(rows);
-		const connections = chips.find((chip) => chip.id === "connections");
-		expect(connections).toEqual({
-			id: "connections",
-			count: 0,
-			available: false,
+	it("carry the server's count of each kind", () => {
+		const chips = buildSearchScopeChips(
+			totals({ chats: 2, memory: 3, documents: 5, media: 2, apps: 1 }),
+			true,
+		);
+		expect(
+			Object.fromEntries(chips.map((chip) => [chip.id, chip.count])),
+		).toEqual({
+			all: 13,
+			chats: 2,
+			memory: 3,
+			documents: 5,
+			media: 2,
+			apps: 1,
 		});
 	});
 
-	it("returns every scope even with nothing loaded", () => {
-		const chips = buildSearchScopeChips([]);
-		expect(chips.map((chip) => chip.id)).toEqual([...SEARCH_SCOPE_ORDER]);
-		expect(chips.every((chip) => chip.count === 0)).toBe(true);
+	it("make All the sum of the kinds", () => {
+		expect(
+			buildSearchScopeChips(totals({ chats: 40, documents: 7 }), true)[0],
+		).toEqual({ id: "all", count: 47 });
+	});
+
+	it("hide the Memory chip when memory is not searchable", () => {
+		const chips = buildSearchScopeChips(totals({ chats: 1, memory: 0 }), false);
+		expect(chips.map((chip) => chip.id)).toEqual([
+			"all",
+			"chats",
+			"documents",
+			"media",
+			"apps",
+		]);
+		// And what memory holds is never added to All.
+		expect(chips[0].count).toBe(1);
+	});
+
+	it("never include Connections or Reports", () => {
+		const ids = buildSearchScopeChips(totals(), true).map((chip) => chip.id);
+		expect(ids).not.toContain("connections");
+		expect(ids).not.toContain("reports");
+	});
+
+	it("show 99+ at the cap and the number below it", () => {
+		expect(formatScopeCount(0)).toBe("0");
+		expect(formatScopeCount(99)).toBe("99");
+		expect(formatScopeCount(100)).toBe("99+");
+		expect(formatScopeCount(412)).toBe("99+");
 	});
 });
 
 describe("resolveActiveScope", () => {
-	const chips = buildSearchScopeChips(rows);
+	const chips = buildSearchScopeChips(totals({ chats: 4, memory: 0 }), true);
 
-	it("keeps a scope that has results", () => {
-		expect(resolveActiveScope("reports", chips)).toBe("reports");
+	it("keeps a picked scope that has something in it", () => {
+		expect(resolveActiveScope("chats", chips)).toBe("chats");
+		expect(resolveActiveScope("all", chips)).toBe("all");
 	});
 
-	it("falls back to All for the unavailable scope", () => {
-		expect(resolveActiveScope("connections", chips)).toBe("all");
-	});
-
-	it("falls back to All once a scope empties out", () => {
-		const emptied = buildSearchScopeChips([conversation]);
-		expect(resolveActiveScope("documents", emptied)).toBe("all");
-	});
-
-	it("leaves All alone", () => {
-		expect(resolveActiveScope("all", buildSearchScopeChips([]))).toBe("all");
+	it("falls back to All for a scope that has nothing, or is not a chip any more", () => {
+		expect(resolveActiveScope("memory", chips)).toBe("all");
+		expect(
+			resolveActiveScope("memory", buildSearchScopeChips(totals(), false)),
+		).toBe("all");
 	});
 });
 
-describe("summariseScopedResults", () => {
-	it("counts results across kinds, ignoring the overflow row", () => {
-		expect(summariseScopedResults(rows)).toEqual({ results: 5, kinds: 3 });
-	});
+describe("rowMatchesScope", () => {
+	const chat = { id: "c", kind: "conversation" } as const;
+	const memory = { id: "m", kind: "memory" } as const;
+	const doc = { id: "d", kind: "document", searchKind: "documents" } as const;
+	const picture = { id: "p", kind: "document", searchKind: "media" } as const;
+	const app = { id: "a", kind: "document", searchKind: "apps" } as const;
 
-	it("counts one kind when only conversations came back", () => {
-		expect(summariseScopedResults([conversation, otherConversation])).toEqual({
-			results: 2,
-			kinds: 1,
-		});
-	});
-
-	it("is empty for no rows", () => {
-		expect(summariseScopedResults([])).toEqual({ results: 0, kinds: 0 });
+	it("sorts each row by its own kind", () => {
+		const scopesOf = (row: Parameters<typeof rowMatchesScope>[0]) =>
+			SEARCH_SCOPE_ORDER.filter((scope) => rowMatchesScope(row, scope));
+		expect(scopesOf(chat)).toEqual(["all", "chats"]);
+		expect(scopesOf(memory)).toEqual(["all", "memory"]);
+		expect(scopesOf(doc)).toEqual(["all", "documents"]);
+		expect(scopesOf(picture)).toEqual(["all", "media"]);
+		expect(scopesOf(app)).toEqual(["all", "apps"]);
 	});
 });
 
-// Slice 7 (Feature 2, ADR-0066): the mockup's own legend says "no new search
-// scope needed" — a Document/App/Canvas/Slides row's `documentOrigin` is
-// unset (`mapArtifactFamilyRow` never sets it), so `isReportRow` already
-// returns false for it and it already lands in "documents", never "reports",
-// with zero code change to this file. This is a regression test proving that
-// claim rather than assuming it — kept isolated from the shared `rows`
-// fixture above so it does not shift any of that block's exact counts.
-describe("an artifact-family row (Feature 2, ADR-0066) needs no new scope", () => {
-	const artifactFamilyRow: ScopeableRow = { id: "art-1", kind: "document" };
-
-	it("lands in the documents scope", () => {
-		expect(rowMatchesScope(artifactFamilyRow, "documents")).toBe(true);
-	});
-
-	it("never lands in the reports scope", () => {
-		expect(rowMatchesScope(artifactFamilyRow, "reports")).toBe(false);
-	});
-
-	it("is counted under documents, not reports, by the chip row", () => {
-		const chips = buildSearchScopeChips([artifactFamilyRow]);
-		const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip]));
-		expect(byId.documents.count).toBe(1);
-		expect(byId.reports.count).toBe(0);
+describe("summariseTotals", () => {
+	it("adds the kinds up and counts the kinds that hold something", () => {
+		expect(
+			summariseTotals(totals({ chats: 2, memory: 3, documents: 5, apps: 1 })),
+		).toEqual({ results: 11, kinds: 4 });
+		expect(summariseTotals(totals())).toEqual({ results: 0, kinds: 0 });
 	});
 });

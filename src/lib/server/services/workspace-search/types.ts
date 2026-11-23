@@ -158,6 +158,4 @@ export interface WorkspaceSearchResponse {
 	memorySearchable: boolean;
 	/** The cursor for the next page of the chosen kind, null at the end. */
 	nextCursor: string | null;
-	documentOverflow: boolean;
-	knowledgeHref: string | null;
 }

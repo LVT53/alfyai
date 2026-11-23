@@ -35,8 +35,6 @@ describe("GET /api/workspace-search", () => {
 			mode: "query",
 			conversations: [],
 			documents: [],
-			documentOverflow: false,
-			knowledgeHref: null,
 		});
 	});
 
@@ -56,8 +54,6 @@ describe("GET /api/workspace-search", () => {
 			mode: "query",
 			conversations: [],
 			documents: [],
-			documentOverflow: false,
-			knowledgeHref: null,
 		});
 	});
 
@@ -86,8 +82,6 @@ describe("GET /api/workspace-search", () => {
 					match: { type: "name", snippet: null },
 				},
 			],
-			documentOverflow: false,
-			knowledgeHref: null,
 		});
 
 		const response = await GET(

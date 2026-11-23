@@ -1,4 +1,5 @@
 import type { AdmittedMemoryEvidence } from "$lib/memory-types";
+import { ageBucket } from "$lib/shared/age-buckets";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
 /**
@@ -28,20 +29,14 @@ export const RECALL_TIMES_NOTE =
 export const RECALL_EARLIER_NOTE =
 	"An entry marked earlier was true when it was said but may have ended or changed since: treat it as past unless the person says it still holds, and bring it up only when the conversation is about it.";
 
-const DAY_MS = 86_400_000;
-
 function lastSaid(lastMentionedAt: string | null, now: Date): string | null {
 	if (lastMentionedAt === null) return null;
 	const at = Date.parse(lastMentionedAt);
 	if (Number.isNaN(at)) return null;
-	// Whole days elapsed; a date after `now` counts as today.
-	const days = Math.max(0, Math.floor((now.getTime() - at) / DAY_MS));
-	if (days === 0) return "said less than a day ago";
-	if (days === 1) return "said 1 day ago";
-	if (days < 14) return `said ${days} days ago`;
-	if (days < 60) return `said ${Math.floor(days / 7)} weeks ago`;
-	if (days < 730) return `said ${Math.floor(days / 30)} months ago`;
-	return `said ${Math.floor(days / 365)} years ago`;
+	const bucket = ageBucket(at, now.getTime());
+	if (bucket.unit === "today") return "said less than a day ago";
+	if (bucket.unit === "yesterday") return "said 1 day ago";
+	return `said ${bucket.count} ${bucket.unit} ago`;
 }
 
 /** The row's line, then one line per earlier state under it (the tool's). */

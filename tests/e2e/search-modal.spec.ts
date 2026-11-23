@@ -87,7 +87,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("search modal appears centered in viewport", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -155,7 +155,9 @@ test.describe("Search Modal Visual Tests", () => {
 			await page.reload({ waitUntil: "networkidle" });
 			await waitForHydration(page);
 			await page
-				.getByRole("button", { name: "Search conversations and documents" })
+				.getByRole("button", {
+					name: "Search chats, memory, documents and more",
+				})
 				.click();
 			const modal = page.getByRole("dialog", { name: "Search workspace" });
 			await modal.waitFor({ state: "visible" });
@@ -185,7 +187,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("search modal has correct z-index above sidebar", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -207,7 +209,7 @@ test.describe("Search Modal Visual Tests", () => {
 		});
 
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -230,7 +232,7 @@ test.describe("Search Modal Visual Tests", () => {
 		});
 
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -259,7 +261,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("search modal closes on escape key", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -272,7 +274,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("search modal closes on backdrop click", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -286,7 +288,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("search input is focused when modal opens", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -298,7 +300,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("the scope chips say what is searchable", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -313,7 +315,7 @@ test.describe("Search Modal Visual Tests", () => {
 		page,
 	}) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -329,7 +331,7 @@ test.describe("Search Modal Visual Tests", () => {
 
 	test("the footer states the keys that already work", async ({ page }) => {
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
@@ -390,7 +392,9 @@ test.describe("Search Modal Visual Tests", () => {
 
 		try {
 			await page
-				.getByRole("button", { name: "Search conversations and documents" })
+				.getByRole("button", {
+					name: "Search chats, memory, documents and more",
+				})
 				.click();
 			const modal = page.getByRole("dialog", { name: "Search workspace" });
 			await modal.waitFor({ state: "visible" });

@@ -8,8 +8,6 @@ describe("workspace search client API", () => {
 			mode: "query",
 			conversations: [],
 			documents: [],
-			documentOverflow: false,
-			knowledgeHref: null,
 		};
 		const fetchImpl = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify(payload), {

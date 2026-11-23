@@ -899,7 +899,9 @@ test.describe("everyday redesign screens", () => {
 			await setTheme(page, theme);
 
 			await page
-				.getByRole("button", { name: "Search conversations and documents" })
+				.getByRole("button", {
+					name: "Search chats, memory, documents and more",
+				})
 				.click();
 			const modal = page.getByRole("dialog", { name: "Search workspace" });
 			await modal.waitFor({ state: "visible" });

@@ -28,14 +28,6 @@ function readCursorOffset(cursor: string | null | undefined): number {
 	return match ? Number(match[1]) : 0;
 }
 
-// Until the "View all in Knowledge" row goes (it is replaced by the chips and
-// "Show all"), the response still says whether more documents exist.
-function buildKnowledgeHref(query: string): string {
-	const url = new URL("/knowledge", "http://localhost");
-	url.searchParams.set("query", query);
-	return `${url.pathname}${url.search}`;
-}
-
 /**
  * What a kind returns for the chosen scope: "All" shows a few of each kind from
  * the top, a kind's own scope shows its page from the cursor, any other kind
@@ -89,8 +81,6 @@ export async function searchWorkspace(
 			},
 			memorySearchable: memory.searchable,
 			nextCursor: null,
-			documentOverflow: false,
-			knowledgeHref: null,
 		};
 	}
 
@@ -115,12 +105,6 @@ export async function searchWorkspace(
 		searchMemories(userId, terms, query, windowFor("memory", scope, offset)),
 	]);
 
-	const shown = documentResults.results.length;
-	const documentTotal =
-		documentResults.totals.documents +
-		documentResults.totals.media +
-		documentResults.totals.apps;
-	const overflow = documentTotal > shown;
 	let nextCursor: string | null = null;
 	if (scope === "chats" && chatResults.hasMore) {
 		nextCursor = `o:${chatWindow.offset + chatWindow.limit}`;
@@ -143,7 +127,5 @@ export async function searchWorkspace(
 		},
 		memorySearchable: memoryResults.searchable,
 		nextCursor,
-		documentOverflow: overflow,
-		knowledgeHref: overflow ? buildKnowledgeHref(query) : null,
 	};
 }

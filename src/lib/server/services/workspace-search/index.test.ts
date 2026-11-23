@@ -362,15 +362,4 @@ describe("searchWorkspace", () => {
 		expect(result.memories).toEqual([]);
 		expect(result.totals.memory).toBe(0);
 	});
-
-	it("still says whether more documents exist, for the row that links to Knowledge", async () => {
-		mockSearchDocuments.mockResolvedValue({
-			results: [document("d1")],
-			totals: { documents: 5, media: 0, apps: 0 },
-			hasMore: false,
-		});
-		const result = await searchWorkspace("user-1", { query: "plan" });
-		expect(result.documentOverflow).toBe(true);
-		expect(result.knowledgeHref).toBe("/knowledge?query=plan");
-	});
 });

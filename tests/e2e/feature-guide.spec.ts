@@ -299,9 +299,9 @@ const SHOW_ME: readonly ShowMeRow[] = [
 		spotlight: "sidebar.search",
 		control: (page, where) =>
 			where.rail
-				? page
-						.locator(".collapsed-rail")
-						.getByRole("button", { name: "Search conversations and documents" })
+				? page.locator(".collapsed-rail").getByRole("button", {
+						name: "Search chats, memory, documents and more",
+					})
 				: page.locator("aside .search-pill"),
 	},
 	{
