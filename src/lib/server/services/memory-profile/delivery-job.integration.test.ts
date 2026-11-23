@@ -727,6 +727,50 @@ it("keeps an unconfirmed checkpoint after a lost first submission and never rese
 	});
 });
 
+it("publishing a snapshot records its facts' labels and event dates", async () => {
+	const f = await setup();
+	const original = f.fetcher.getMockImplementation();
+	if (!original) throw Error("fixture");
+	f.fetcher.mockImplementation(async (url, init) => {
+		if (String(url).includes("/memories/list"))
+			return Response.json({
+				total: 2,
+				offset: 0,
+				items: [
+					{
+						id: "f",
+						text: "Green kayak",
+						fact_type: "world",
+						consolidated_at: "2026-11-18T00:00:00Z",
+						document_id: f.source.id,
+						tags: [f.source.id, "kind:lasting", "subject:interests"],
+						occurred_start: null,
+						occurred_end: null,
+					},
+					{
+						id: "o",
+						text: "Green kayak",
+						fact_type: "observation",
+						source_memory_ids: ["f"],
+					},
+				],
+			});
+		return original(url, init);
+	});
+	await f.enqueue();
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+		"succeeded",
+	);
+	const { readFactLabels } = await import("./fact-labels");
+	expect(readFactLabels(f.db, f.bank.id).get("f")).toEqual({
+		kind: "lasting",
+		subject: "interests",
+		eventAt: null,
+		origin: "extraction",
+	});
+});
+
 describe("bank configuration 2 reaches every bank", () => {
 	async function boundAt(version: string, live: unknown) {
 		const f = await setup();

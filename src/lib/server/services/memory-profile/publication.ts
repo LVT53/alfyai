@@ -13,6 +13,7 @@ import {
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { type ActionIntentRecord, parseActionIntent } from "./curation-intent";
+import { recordNativeFactLabels } from "./fact-labels";
 import { NativeMemoryError } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
 import { splitNativeNotes } from "./presentation";
@@ -1664,6 +1665,14 @@ export function publishNativeSnapshot(
 			),
 		)
 		.run();
+	// The labels Hindsight's extraction wrote, and each fact's event date,
+	// go where recall and the page read them.
+	recordNativeFactLabels(
+		tx,
+		bank.id,
+		bank.scopeKey === "personal" ? "personal" : "project",
+		input.memories,
+	);
 	return generation;
 }
 /** Revocations are read on every page/detail/recall, including old generation references. */

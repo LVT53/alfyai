@@ -35,6 +35,7 @@ const requiredExistingTables = [
 	"memory_banks",
 	"memory_source_revisions",
 	"memory_published_rows",
+	"memory_fact_labels",
 	"memory_revocations",
 	"memory_actions",
 	"memory_control_intervals",

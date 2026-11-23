@@ -3430,6 +3430,30 @@ export const memoryPublishedRows = sqliteTable(
 		),
 	}),
 );
+/**
+ * A native fact's kind and subject, and the date of its event (Memory part 2).
+ * Keyed by bank and Hindsight fact id, so it goes with its bank. Publication
+ * copies the labels Hindsight's extraction wrote into a fact's tags; the
+ * classifier (the label migration, the fallback) writes the rest. Recall and
+ * the Memory page read labels here and nowhere else.
+ */
+export const memoryFactLabels = sqliteTable(
+	"memory_fact_labels",
+	{
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		nativeFactId: text("native_fact_id").notNull(),
+		kind: text("kind"),
+		subject: text("subject"),
+		origin: text("origin", { enum: ["extraction", "classifier"] }).notNull(),
+		eventAt: integer("event_at", { mode: "timestamp_ms" }),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [primaryKey({ columns: [table.bankId, table.nativeFactId] })],
+);
 export const memoryRevocations = sqliteTable(
 	"memory_revocations",
 	{
