@@ -833,6 +833,45 @@ export function admittedNativeFacts(
 			);
 	});
 }
+/**
+ * When each admitted fact was last said, in milliseconds: the newest of its
+ * sources' dates, where an explicit edit counts as the day it was said again.
+ * A fact several sources acknowledge has the newest of them.
+ */
+export function factSaidTimes(
+	facts: ReadonlyArray<{
+		id: string;
+		source: { assertedAt: Date; explicitEditAt: Date | null };
+	}>,
+): Map<string, number> {
+	const times = new Map<string, number>();
+	for (const fact of facts) {
+		const said = (
+			fact.source.explicitEditAt ?? fact.source.assertedAt
+		).getTime();
+		const known = times.get(fact.id);
+		if (known === undefined || said > known) times.set(fact.id, said);
+	}
+	return times;
+}
+
+/**
+ * When the person last said an entry, as an ISO date: the newest of its
+ * facts' times (`factSaidTimes`), null when none of them is admitted. Recall
+ * puts it after each entry, and Workspace Search shows it on a memory row, so
+ * both give one answer.
+ */
+export function entryLastSaidAt(
+	sourceFactIds: readonly string[],
+	saidAt: ReadonlyMap<string, number>,
+): string | null {
+	let newest: number | null = null;
+	for (const id of sourceFactIds) {
+		const said = saidAt.get(id);
+		if (said !== undefined && (newest === null || said > newest)) newest = said;
+	}
+	return newest === null ? null : new Date(newest).toISOString();
+}
 export function prepareNativeSnapshot(memories: NativeMemory[]) {
 	const ids = new Set<string>();
 	for (const memory of memories) {

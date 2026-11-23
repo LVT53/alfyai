@@ -35,6 +35,8 @@ import {
 	admittedNativeFacts,
 	approvedMigrationRankFamily,
 	curatedNativeRankKeys,
+	entryLastSaidAt,
+	factSaidTimes,
 	matchVerifiedObservationRows,
 	nativeRankSupportKey,
 	readAcknowledgedFacts,
@@ -428,9 +430,10 @@ export async function recallMemory(
 					).getTime(),
 					authored: isAuthoredMemorySource(fact.source),
 				}));
-				const lastMentionedAt = said.length
-					? new Date(Math.max(...said.map((f) => f.saidAtMs))).toISOString()
-					: null;
+				const lastMentionedAt = entryLastSaidAt(
+					ids.filter((id): id is string => typeof id === "string"),
+					factSaidTimes(supporting),
+				);
 				const labelled = entryLabels(said, labels);
 				const states = input.core
 					? []

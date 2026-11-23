@@ -5,6 +5,7 @@ import {
 } from "$lib/shared/workspace-search-text";
 import { recentChats, searchChats } from "./chats";
 import { recentDocuments, searchDocuments } from "./documents";
+import { searchMemories } from "./memories";
 import {
 	SEARCH_ALL_PER_KIND,
 	SEARCH_PAGE_SIZE,
@@ -65,9 +66,10 @@ export async function searchWorkspace(
 		terms.join("").length >= SEARCH_MIN_QUERY_CHARS ? "query" : "default";
 
 	if (mode === "default") {
-		const [conversations, documents] = await Promise.all([
+		const [conversations, documents, memory] = await Promise.all([
 			recentChats(userId, SEARCH_ALL_PER_KIND),
 			recentDocuments(userId, SEARCH_ALL_PER_KIND),
+			searchMemories(userId, [], query, { offset: 0, limit: 0 }),
 		]);
 		const countOf = (kind: "documents" | "media" | "apps") =>
 			documents.filter((row) => row.searchKind === kind).length;
@@ -85,7 +87,7 @@ export async function searchWorkspace(
 				media: countOf("media"),
 				apps: countOf("apps"),
 			},
-			memorySearchable: false,
+			memorySearchable: memory.searchable,
 			nextCursor: null,
 			documentOverflow: false,
 			knowledgeHref: null,
@@ -102,7 +104,7 @@ export async function searchWorkspace(
 	const documentWindow = documentKind
 		? windowFor(documentKind, scope, offset)
 		: windowFor("documents", scope, offset);
-	const [chatResults, documentResults] = await Promise.all([
+	const [chatResults, documentResults, memoryResults] = await Promise.all([
 		searchChats(userId, { terms, words: typedSearchWords(query) }, chatWindow),
 		searchDocuments(
 			userId,
@@ -110,6 +112,7 @@ export async function searchWorkspace(
 			scope,
 			documentWindow,
 		),
+		searchMemories(userId, terms, query, windowFor("memory", scope, offset)),
 	]);
 
 	const shown = documentResults.results.length;
@@ -121,6 +124,8 @@ export async function searchWorkspace(
 	let nextCursor: string | null = null;
 	if (scope === "chats" && chatResults.hasMore) {
 		nextCursor = `o:${chatWindow.offset + chatWindow.limit}`;
+	} else if (scope === "memory" && memoryResults.hasMore) {
+		nextCursor = `o:${offset + SEARCH_PAGE_SIZE}`;
 	} else if (documentKind && documentResults.hasMore) {
 		nextCursor = `o:${documentWindow.offset + documentWindow.limit}`;
 	}
@@ -129,10 +134,14 @@ export async function searchWorkspace(
 		mode,
 		scope,
 		conversations: chatResults.results,
-		memories: [],
+		memories: memoryResults.results,
 		documents: documentResults.results,
-		totals: { chats: chatResults.total, memory: 0, ...documentResults.totals },
-		memorySearchable: false,
+		totals: {
+			chats: chatResults.total,
+			memory: memoryResults.total,
+			...documentResults.totals,
+		},
+		memorySearchable: memoryResults.searchable,
 		nextCursor,
 		documentOverflow: overflow,
 		knowledgeHref: overflow ? buildKnowledgeHref(query) : null,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	WorkspaceSearchConversationResult,
 	WorkspaceSearchDocumentResult,
+	WorkspaceSearchMemoryResult,
 } from "./types";
 
 // `searchWorkspace` is the wiring between the kinds: what it asks each of them
@@ -13,17 +14,21 @@ const {
 	mockRecentDocuments,
 	mockSearchChats,
 	mockSearchDocuments,
+	mockSearchMemories,
 } = vi.hoisted(() => ({
 	mockRecentChats: vi.fn(),
 	mockRecentDocuments: vi.fn(),
 	mockSearchChats: vi.fn(),
 	mockSearchDocuments: vi.fn(),
+	mockSearchMemories: vi.fn(),
 }));
 
 vi.mock("./chats", () => ({
 	recentChats: mockRecentChats,
 	searchChats: mockSearchChats,
 }));
+
+vi.mock("./memories", () => ({ searchMemories: mockSearchMemories }));
 
 vi.mock("./documents", () => ({
 	recentDocuments: mockRecentDocuments,
@@ -77,6 +82,19 @@ function document(
 	};
 }
 
+function memory(id: string): WorkspaceSearchMemoryResult {
+	return {
+		id,
+		scope: { kind: "personal" },
+		projectName: null,
+		text: `Memory ${id}`,
+		lastSaidAt: "2026-11-01T00:00:00.000Z",
+		href: `/knowledge?tab=memory&memoryEntry=${id}`,
+	};
+}
+
+const NO_MEMORY = { results: [], total: 0, hasMore: false, searchable: false };
+
 const NO_DOCUMENTS = {
 	results: [],
 	totals: { documents: 0, media: 0, apps: 0 },
@@ -89,6 +107,7 @@ beforeEach(() => {
 	mockRecentDocuments.mockResolvedValue([]);
 	mockSearchChats.mockResolvedValue({ results: [], total: 0, hasMore: false });
 	mockSearchDocuments.mockResolvedValue(NO_DOCUMENTS);
+	mockSearchMemories.mockResolvedValue(NO_MEMORY);
 });
 
 describe("searchWorkspace", () => {
@@ -98,11 +117,17 @@ describe("searchWorkspace", () => {
 			document("d3"),
 			document("p1", "media"),
 		]);
+		mockSearchMemories.mockResolvedValue({ ...NO_MEMORY, searchable: true });
 
 		const result = await searchWorkspace("user-1", { query: "" });
 
 		expect(mockRecentChats).toHaveBeenCalledWith("user-1", 3);
 		expect(mockRecentDocuments).toHaveBeenCalledWith("user-1", 3);
+		// Nothing is searched, but the Memory chip needs to know it may show.
+		expect(mockSearchMemories).toHaveBeenCalledWith("user-1", [], "", {
+			offset: 0,
+			limit: 0,
+		});
 		expect(mockSearchChats).not.toHaveBeenCalled();
 		expect(mockSearchDocuments).not.toHaveBeenCalled();
 		expect(result).toMatchObject({
@@ -110,7 +135,7 @@ describe("searchWorkspace", () => {
 			mode: "default",
 			scope: "all",
 			memories: [],
-			memorySearchable: false,
+			memorySearchable: true,
 			nextCursor: null,
 			totals: { chats: 3, memory: 0, documents: 1, media: 1, apps: 0 },
 		});
@@ -144,6 +169,12 @@ describe("searchWorkspace", () => {
 			totals: { documents: 4, media: 0, apps: 1 },
 			hasMore: false,
 		});
+		mockSearchMemories.mockResolvedValue({
+			results: [memory("m1")],
+			total: 3,
+			hasMore: false,
+			searchable: true,
+		});
 
 		const result = await searchWorkspace("user-1", {
 			query: "  Kitchen   PLAN ",
@@ -160,13 +191,21 @@ describe("searchWorkspace", () => {
 			"all",
 			{ offset: 0, limit: 3 },
 		);
+		expect(mockSearchMemories).toHaveBeenCalledWith(
+			"user-1",
+			["kitchen", "plan"],
+			"Kitchen   PLAN",
+			{ offset: 0, limit: 3 },
+		);
 		expect(result).toMatchObject({
 			query: "Kitchen   PLAN",
 			mode: "query",
 			scope: "all",
 			nextCursor: null,
-			totals: { chats: 43, memory: 0, documents: 4, media: 0, apps: 1 },
+			memorySearchable: true,
+			totals: { chats: 43, memory: 3, documents: 4, media: 0, apps: 1 },
 		});
+		expect(result.memories.map((row) => row.id)).toEqual(["m1"]);
 	});
 
 	it("pages chats from the cursor and only counts the other kinds", async () => {
@@ -195,6 +234,12 @@ describe("searchWorkspace", () => {
 			"user-1",
 			expect.anything(),
 			"chats",
+			{ offset: 0, limit: 0 },
+		);
+		expect(mockSearchMemories).toHaveBeenCalledWith(
+			"user-1",
+			expect.anything(),
+			"hello",
 			{ offset: 0, limit: 0 },
 		);
 		expect(result.scope).toBe("chats");
@@ -270,8 +315,31 @@ describe("searchWorkspace", () => {
 		}
 	});
 
-	it("reads nothing but the counts for the memory scope", async () => {
-		await searchWorkspace("user-1", { query: "thesis", scope: "memory" });
+	it("pages memory from the cursor and only counts the other kinds", async () => {
+		mockSearchChats.mockResolvedValue({
+			results: [],
+			total: 4,
+			hasMore: false,
+		});
+		mockSearchMemories.mockResolvedValue({
+			results: [memory("m21")],
+			total: 60,
+			hasMore: true,
+			searchable: true,
+		});
+
+		const result = await searchWorkspace("user-1", {
+			query: "thesis",
+			scope: "memory",
+			cursor: "o:20",
+		});
+
+		expect(mockSearchMemories).toHaveBeenCalledWith(
+			"user-1",
+			["thesis"],
+			"thesis",
+			{ offset: 20, limit: 20 },
+		);
 		expect(mockSearchChats).toHaveBeenCalledWith("user-1", expect.anything(), {
 			offset: 0,
 			limit: 0,
@@ -282,6 +350,17 @@ describe("searchWorkspace", () => {
 			"memory",
 			{ offset: 0, limit: 0 },
 		);
+		expect(result.scope).toBe("memory");
+		expect(result.nextCursor).toBe("o:40");
+		expect(result.memories.map((row) => row.id)).toEqual(["m21"]);
+		expect(result.totals.memory).toBe(60);
+	});
+
+	it("shows no memory and no Memory chip when memory is not searchable", async () => {
+		const result = await searchWorkspace("user-1", { query: "thesis" });
+		expect(result.memorySearchable).toBe(false);
+		expect(result.memories).toEqual([]);
+		expect(result.totals.memory).toBe(0);
 	});
 
 	it("still says whether more documents exist, for the row that links to Knowledge", async () => {
