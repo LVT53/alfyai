@@ -12,9 +12,38 @@ describe("memory v2 config", () => {
 			"MEMORY_JUDGE_IDLE_MINUTES",
 			"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
 			"MEMORY_JUDGE_DRY_RUN",
+			"MEMORY_RECALL_CORE_PERCENT",
+			"MEMORY_RECALL_PROJECT_PERCENT",
 		])
 			delete process.env[k];
 	});
+
+	it("recall shares default to a quarter for the basics and half for a project", async () => {
+		const { getMemoryRecallShares } = await import("./config-store");
+		expect(getMemoryRecallShares()).toEqual({
+			corePercent: 25,
+			projectPercent: 50,
+		});
+	});
+
+	it("recall shares come from the environment and ignore values outside 0 to 100", async () => {
+		process.env.MEMORY_RECALL_CORE_PERCENT = "40";
+		process.env.MEMORY_RECALL_PROJECT_PERCENT = "250";
+		const { getMemoryRecallShares } = await import("./config-store");
+		expect(getMemoryRecallShares()).toEqual({
+			corePercent: 40,
+			projectPercent: 50,
+		});
+	});
+
+	it.each(["abc", "-1", "2.5", "40abc", ""])(
+		"a recall share that is not a whole percent (%j) keeps its default",
+		async (value) => {
+			process.env.MEMORY_RECALL_CORE_PERCENT = value;
+			const { getMemoryRecallShares } = await import("./config-store");
+			expect(getMemoryRecallShares().corePercent).toBe(25);
+		},
+	);
 
 	it("defaults", async () => {
 		const { getConfig } = await import("./config-store");

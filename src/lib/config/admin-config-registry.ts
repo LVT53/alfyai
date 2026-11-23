@@ -410,6 +410,20 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "restart",
 	},
 	{
+		// Read by native recall on every search; no percent unit exists, so the
+		// labels carry "(%)".
+		key: "MEMORY_RECALL_CORE_PERCENT",
+		group: "memory",
+		control: int(0, 100),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_RECALL_PROJECT_PERCENT",
+		group: "memory",
+		control: int(0, 100),
+		effect: "live",
+	},
+	{
 		key: "WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 		group: "memory",
 		control: int(100, undefined, "tokens"),

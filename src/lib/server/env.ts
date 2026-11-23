@@ -86,6 +86,10 @@ interface Config {
 	memoryJudgeIdleMinutes: number;
 	memoryConsolidationIntervalMinutes: number;
 	memoryJudgeDryRun: boolean;
+	// Native Memory recall: percent of each chat's memory space kept for the
+	// person's basics, and in a project chat for the project's own memories.
+	memoryRecallCorePercent: number;
+	memoryRecallProjectPercent: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -387,6 +391,18 @@ function normalizeConfiguredModelId(value: unknown): ModelId {
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+/**
+ * A whole percent from 0 to 100 written as digits, or null for anything else
+ * (text, a fraction, a sign, a value above 100), so the caller keeps what it
+ * had: the environment its default, an admin override the current value.
+ */
+export function parseWholePercent(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d{1,3}$/.test(trimmed)) return null;
+	const percent = Number(trimmed);
+	return percent <= 100 ? percent : null;
 }
 
 /**
@@ -747,6 +763,10 @@ function readConfig(): Config {
 			parseIntegerEnv(process.env.MEMORY_CONSOLIDATION_INTERVAL_MINUTES, 1440),
 		),
 		memoryJudgeDryRun: process.env.MEMORY_JUDGE_DRY_RUN === "true",
+		memoryRecallCorePercent:
+			parseWholePercent(process.env.MEMORY_RECALL_CORE_PERCENT) ?? 25,
+		memoryRecallProjectPercent:
+			parseWholePercent(process.env.MEMORY_RECALL_PROJECT_PERCENT) ?? 50,
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
 			1,

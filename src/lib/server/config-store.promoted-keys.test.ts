@@ -118,6 +118,41 @@ describe("promoted admin config keys", () => {
 		expect(getConfig().concurrentStreamLimit).toBe(3);
 	});
 
+	it("applies a recall share override and ignores one that is not a whole percent from 0 to 100", async () => {
+		const {
+			ADMIN_CONFIG_KEYS,
+			getMemoryRecallShares,
+			getResolvedAdminConfigValues,
+			refreshConfig,
+		} = await import("./config-store");
+		expect(ADMIN_CONFIG_KEYS as readonly string[]).toEqual(
+			expect.arrayContaining([
+				"MEMORY_RECALL_CORE_PERCENT",
+				"MEMORY_RECALL_PROJECT_PERCENT",
+			]),
+		);
+		rows.push({ key: "MEMORY_RECALL_PROJECT_PERCENT", value: "60" });
+		await refreshConfig();
+		expect(getMemoryRecallShares()).toEqual({
+			corePercent: 25,
+			projectPercent: 60,
+		});
+		expect(
+			(getResolvedAdminConfigValues() as Record<string, string>)
+				.MEMORY_RECALL_PROJECT_PERCENT,
+		).toBe("60");
+		for (const value of ["abc", "101", "2.5", "-1"]) {
+			rows.length = 0;
+			rows.push({ key: "MEMORY_RECALL_PROJECT_PERCENT", value });
+			await refreshConfig();
+			expect(getMemoryRecallShares().projectPercent, value).toBe(50);
+		}
+		rows.length = 0;
+		rows.push({ key: "MEMORY_RECALL_CORE_PERCENT", value: "0" });
+		await refreshConfig();
+		expect(getMemoryRecallShares().corePercent).toBe(0);
+	});
+
 	it("reads a fractional Parallel free allowance as written", async () => {
 		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "2.5" });
 

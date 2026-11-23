@@ -11,7 +11,7 @@ import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
 import type { ImageModel, ModelConfig } from "./env";
-import { config as envConfig } from "./env";
+import { config as envConfig, parseWholePercent } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
 	getAvailableModelsWithProvidersForSettings,
@@ -137,6 +137,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_CONSOLIDATION_MODEL",
 	"MEMORY_JUDGE_IDLE_MINUTES",
 	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"MEMORY_RECALL_CORE_PERCENT",
+	"MEMORY_RECALL_PROJECT_PERCENT",
 	"HINDSIGHT_URL",
 	"HINDSIGHT_WORKER_ENABLED",
 	"HINDSIGHT_CONCURRENCY",
@@ -256,6 +258,8 @@ export interface RuntimeConfig {
 	memoryJudgeIdleMinutes: number;
 	memoryConsolidationIntervalMinutes: number;
 	memoryJudgeDryRun: boolean;
+	memoryRecallCorePercent: number;
+	memoryRecallProjectPercent: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -421,6 +425,8 @@ function buildDefaultConfig(): RuntimeConfig {
 		memoryConsolidationIntervalMinutes:
 			envConfig.memoryConsolidationIntervalMinutes,
 		memoryJudgeDryRun: envConfig.memoryJudgeDryRun,
+		memoryRecallCorePercent: envConfig.memoryRecallCorePercent,
+		memoryRecallProjectPercent: envConfig.memoryRecallProjectPercent,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -1117,6 +1123,16 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (Number.isFinite(n) && n > 0)
 			config.memoryConsolidationIntervalMinutes = n;
 	},
+	// A share that is not a whole percent from 0 to 100 leaves the current
+	// value: a typo must not hand the whole recall budget to one lane.
+	MEMORY_RECALL_CORE_PERCENT: (config, value) => {
+		const percent = parseWholePercent(value);
+		if (percent !== null) config.memoryRecallCorePercent = percent;
+	},
+	MEMORY_RECALL_PROJECT_PERCENT: (config, value) => {
+		const percent = parseWholePercent(value);
+		if (percent !== null) config.memoryRecallProjectPercent = percent;
+	},
 	HINDSIGHT_CURATION_MODEL: (config, value) => {
 		config.hindsightCurationModel = /^(model[12]|provider:[^:]+:[^:]+)$/.test(
 			value.trim(),
@@ -1647,6 +1663,22 @@ export function getParallelFreeMonthlyUsd(): number {
 }
 
 /**
+ * Admin-configurable. The shares of each chat's memory space that native
+ * Memory recall keeps: `corePercent` for the person's basics and, in a project
+ * chat, `projectPercent` for that project's own memories. Whole percents from
+ * 0 to 100; what the message is about fills the rest.
+ */
+export function getMemoryRecallShares(): {
+	corePercent: number;
+	projectPercent: number;
+} {
+	return {
+		corePercent: runtimeConfig.memoryRecallCorePercent,
+		projectPercent: runtimeConfig.memoryRecallProjectPercent,
+	};
+}
+
+/**
  * ADR 0063: the model configured for each Atlas v3 task. A `null` entry means
  * the task inherits ATLAS_SYNTHESIS_MODEL or ATLAS_AUDIT_MODEL; the inheritance
  * itself lives in `atlas-v3/config.ts` so the choice of which key a task falls
@@ -1926,6 +1958,8 @@ export function getResolvedAdminConfigValues(
 		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
 			config.memoryConsolidationIntervalMinutes,
 		),
+		MEMORY_RECALL_CORE_PERCENT: String(config.memoryRecallCorePercent),
+		MEMORY_RECALL_PROJECT_PERCENT: String(config.memoryRecallProjectPercent),
 		HINDSIGHT_URL: config.hindsightUrl,
 		HINDSIGHT_WORKER_ENABLED: String(config.hindsightWorkerEnabled),
 		HINDSIGHT_CONCURRENCY: String(config.hindsightConcurrency),

@@ -1718,6 +1718,14 @@ const settingsDict = {
 			"Consolidation sweep",
 		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.meaning":
 			"How often stored memories are merged and tidied.",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.label":
+			"Basics share of recall (%)",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.meaning":
+			"Percent of each chat's memory space kept for the person's basics.",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.label":
+			"Project share of recall (%)",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
+			"In a project chat, percent of the memory space kept for that project's own memories.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Maintenance sweep",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":
@@ -3941,6 +3949,14 @@ const settingsDict = {
 			"Összevonási körút",
 		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.meaning":
 			"Milyen gyakran vonjuk össze és rendezzük a tárolt emlékeket.",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.label":
+			"Alapadatok aránya (%)",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.meaning":
+			"A beszélgetésenkénti memóriakeret hány százaléka jut a személy alapadataira.",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.label":
+			"Projekt aránya (%)",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
+			"Projektbeszélgetésben a memóriakeret hány százaléka jut a projekt saját emlékeire.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Karbantartási körút",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":

@@ -140,6 +140,8 @@ AlfyAI runs a local, judge-gated long-term memory pipeline (ADRs
 | `MEMORY_CONSOLIDATION_INTERVAL_MINUTES` | No | `1440` | Minutes between nightly consolidation sweeps | Lower it for more frequent consolidation | `0` disables the consolidation scheduler |
 | `MEMORY_JUDGE_DRY_RUN` | No | `false` | When `true`, the judge logs decisions without writing memory-profile changes | Turn it on to observe judge behavior without mutating memory | Boolean; only `true` enables dry-run |
 | `MEMORY_MAINTENANCE_INTERVAL_MINUTES` | No | `0` | Minutes between per-user memory maintenance sweeps (e.g. embedding backfill) | Set it to a positive number to turn on the maintenance scheduler | `0` disables the scheduler entirely |
+| `MEMORY_RECALL_CORE_PERCENT` | No | `25` | Percent of each chat's memory space native Memory recall keeps for the person's basics | Raise it when chats miss the person's standing preferences; lower it to leave more room for what the message is about | Whole number from `0` to `100`; anything else keeps the default. Can also be overridden in admin config |
+| `MEMORY_RECALL_PROJECT_PERCENT` | No | `50` | In a project chat, percent of the memory space native Memory recall keeps for that project's own memories | Raise it when project chats miss project memories; lower it to leave more room for personal ones | Whole number from `0` to `100`; anything else keeps the default. If the two shares add up to more than 100, the project's share fills first. Can also be overridden in admin config |
 
 ## Optional TEI / Semantic Retrieval
 
