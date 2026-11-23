@@ -10,24 +10,27 @@
 // every frame (about 4 s per 5 s of clip) and stores the clip.
 
 import type { EtaPlan } from "../take-eta";
-import {
-	type VideoDurationSeconds,
-	videoFramesFor,
-	videoSegmentCount,
-} from "./request";
+import type { VideoDurationSeconds } from "./request";
 
-/** Staging the encoder and the transformer from disk. */
-const COLD_LOAD_SECONDS = 22;
-/** Staging them again from memory, as every later prompt does. */
-const WARM_LOAD_SECONDS = 6;
-/** The first pass's eight steps at half size, and the second's three at full size. */
-const FIRST_PASS_SECONDS = 5;
-const SECOND_PASS_SECONDS = 4;
-/** The conv VAE's decode of a segment's 121 frames. */
-const DECODE_SECONDS = 5;
-/** Between segments: the first clip's last frame, read and uploaded as the next guide. */
-const CHAIN_SECONDS = 1;
-/** The explicit-picture check of every frame, per 5 s segment. */
+/**
+ * What a clip's render costs now, measured on the production card with the
+ * sharpen pass and the x2 upscale both in the graph (journal, 2026-11-22):
+ * five seconds is ~56 s and ten seconds is ~114 s, steady across repeats. Both
+ * are ONE render, so the numbers are the whole render and not a per-segment
+ * share.
+ */
+const WARM_RENDER_SECONDS: Record<VideoDurationSeconds, number> = {
+	5: 56,
+	10: 114,
+};
+/** Staging the encoder and the transformer from memory, and from disk when cold. */
+const LOAD_SECONDS = 6;
+const COLD_EXTRA_SECONDS = 5;
+/** The share of the render the first pass, the second pass and the decode take. */
+const FIRST_PASS_SHARE = 0.36;
+const SECOND_PASS_SHARE = 0.28;
+const DECODE_SHARE = 0.36;
+/** The explicit-picture check of every frame, per five seconds of clip. */
 const CHECK_SECONDS_PER_SEGMENT = 4;
 /** The poster, the thumbnail and the store. */
 const STORE_SECONDS = 1;
@@ -41,33 +44,20 @@ export function videoPlan(
 	durationSeconds: VideoDurationSeconds,
 	warm: boolean,
 ): EtaPlan {
-	const segments = videoSegmentCount(durationSeconds);
-	// A take is one render at 121 frames for five seconds or 241 for ten, so the
-	// sampling and decode scale with the frame count. The constants themselves
-	// were measured at 121 frames WITHOUT the sharpen pass and the x2 upscale,
-	// so this keeps the countdown's shape right while its absolute numbers stay
-	// a known calibration gap.
-	const frames = videoFramesFor(durationSeconds);
-	const scale = frames / 121;
-	const plan: Array<EtaPlan[number]> = [];
-	for (let segment = 1; segment <= segments; segment += 1) {
-		const last = segment === segments;
-		plan.push(
-			{
-				kind: "load",
-				seconds: segment === 1 && !warm ? COLD_LOAD_SECONDS : WARM_LOAD_SECONDS,
-			},
-			{ kind: "sample", seconds: FIRST_PASS_SECONDS * scale },
-			{ kind: "sample", seconds: SECOND_PASS_SECONDS * scale },
-			{
-				kind: "finish",
-				seconds: last
-					? DECODE_SECONDS * scale +
-						CHECK_SECONDS_PER_SEGMENT * segments +
-						STORE_SECONDS
-					: DECODE_SECONDS * scale + CHAIN_SECONDS,
-			},
-		);
-	}
-	return plan;
+	// One render per take: the measured render, split across the three stages it
+	// is made of, plus what the app does afterwards.
+	const load = LOAD_SECONDS + (warm ? 0 : COLD_EXTRA_SECONDS);
+	const body = WARM_RENDER_SECONDS[durationSeconds] - LOAD_SECONDS;
+	return [
+		{ kind: "load", seconds: load },
+		{ kind: "sample", seconds: body * FIRST_PASS_SHARE },
+		{ kind: "sample", seconds: body * SECOND_PASS_SHARE },
+		{
+			kind: "finish",
+			seconds:
+				body * DECODE_SHARE +
+				CHECK_SECONDS_PER_SEGMENT * (durationSeconds / 5) +
+				STORE_SECONDS,
+		},
+	];
 }

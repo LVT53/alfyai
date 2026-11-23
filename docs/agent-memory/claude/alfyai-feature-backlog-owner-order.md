@@ -79,6 +79,12 @@ Three upgrades to the video pipeline: a latent temporal upscaler, RealESRGAN x4 
 ## Shipped (2026-11-22): the second engine variant
 Status: **SHIPPED**, behind the existing per-person exemption; the H3 image engine was considered and declined.
 
+## Owner request (2026-11-23): frame-rate and clip-length options for video
+Status: **noted only** — not designed, not ranked, and not built.
+Owner's words: *"The user should be able to ask for a wide range of FPS and lengths options for generation."*
+
+Today a take is five or ten seconds at a fixed 24 fps, one render either way (121 or 241 frames). The ask is for a wide range on both axes: other frame rates, and lengths beyond ten seconds. Open questions for the design: which frame counts the model still renders well past 241, whether a frame rate other than 24 is a graph setting or a post-pass, and how the size, the render time and the upscale cost scale with both.
+
 ## 1. Sidebar multi-select, with the chat actions that complete it
 Status: **SHIPPED (`efb23a553` is an ancestor of origin/main, checked 2026-11-10); built 2026-10-26. Older note: it was merged to local `dev` and not pushed at first.** Design (decisions D1-D7, copy table) and plan: `docs/plans/sidebar-multi-select/`. The owner asked for the build directly, so D1-D7 were decided without a brainstorm; any can be overturned. Built: Cmd/Ctrl-click, Shift ranges, "Select" in the row menu (touch); a sticky bar with Select all, Pin/Unpin, Move to project, Delete; `POST /api/conversations/batch` (50 ids, result per id); a delete now stops the chat's streaming reply and ends it as a Stop (single delete too). NOT built: running and unread dots (item 6 still needs them). Release gate green on the branch tip (e2e 1,298/0/0). Follow-ups found: the row menu has no keyboard navigation and Enter on a row's ⋮ also opens the chat (both pre-existing); `ensureSidebarExpanded` in tests/e2e/helpers.ts clicks while the sidebar still animates open (19 specs). Decided 2026-10-25: archive is dropped for now.
 Owner's words: "Multi-select in the sidebar and related actions to make it complete."

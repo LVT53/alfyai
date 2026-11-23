@@ -25,30 +25,26 @@ describe("videoPlan", () => {
 		expect(videoPlan(10, false)).toHaveLength(4);
 	});
 
-	it("starts a cold 5 s clip near the 40 s a cold take shows, a warm one well under", () => {
-		expect(total(videoPlan(5, false))).toBeGreaterThanOrEqual(36);
-		expect(total(videoPlan(5, false))).toBeLessThanOrEqual(46);
+	it("counts a 5 s clip down from the measured render, cold a little above warm", () => {
+		// Measured on the production card with the sharpen pass and the x2
+		// upscale both in the graph: ~56 s a render, plus the check and store
+		// the plan adds on top.
+		expect(total(videoPlan(5, false))).toBeGreaterThanOrEqual(56);
+		expect(total(videoPlan(5, false))).toBeLessThanOrEqual(72);
 		expect(total(videoPlan(5, true))).toBeLessThan(total(videoPlan(5, false)));
-		expect(total(videoPlan(5, true))).toBeLessThanOrEqual(28);
+		expect(total(videoPlan(5, true))).toBeLessThanOrEqual(64);
 	});
 
-	it("scales a 10 s clip's sampling and decode with its frame count", () => {
+	it("scales a 10 s clip with its measured render, not with a segment count", () => {
 		const five = videoPlan(5, false);
 		const ten = videoPlan(10, false);
-		// One render twice as long: the load is paid once, the rest doubles.
-		// The load is paid once and does not scale; both sample passes and the
-		// decode scale by 241/121.
+		// The load is paid once and does not scale. The render does: measured
+		// 56 s at 121 frames and 114 s at 241, so the total roughly doubles.
 		expect(ten[0]?.seconds).toBe(five[0]?.seconds);
-		expect(ten[1]?.seconds).toBeCloseTo(
-			(five[1]?.seconds ?? 0) * (241 / 121),
-			5,
-		);
-		expect(ten[2]?.seconds).toBeCloseTo(
-			(five[2]?.seconds ?? 0) * (241 / 121),
-			5,
-		);
 		expect(total(ten)).toBeGreaterThan(total(five));
-		expect(ten.at(-1)?.seconds).toBeGreaterThan(five.at(-1)?.seconds ?? 0);
+		expect(total(ten) / total(five)).toBeGreaterThan(1.8);
+		expect(total(ten) / total(five)).toBeLessThan(2.2);
+		expect(total(ten)).toBeLessThanOrEqual(140);
 	});
 
 	it("counts a 10 s take down through its single render without a jump up", () => {
