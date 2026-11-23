@@ -101,9 +101,9 @@ export const NATIVE_KIND_LABEL = {
 		"How this fact ages over time. When unsure, choose lasting. Choose by what the fact says, never by how recently it was said.",
 	values: {
 		lasting:
-			"Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, possessions, lasting health conditions, and their current situation such as where they live, study or work and their family home.",
+			"Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, possessions, lasting health conditions, and their current situation, such as where they live, the school or university they attend, what they study, where they work and their family home. For a project: its goals, decisions, requirements, people, facts and figures.",
 		ongoing:
-			"An activity like a project that the person keeps working on for weeks or months: a thesis, an app, a house or a business being built, a course or a tool being learned, a training plan.",
+			"An activity the person themselves keeps doing for weeks or months, which will end: writing a thesis, building an app, a house or a business, learning an instrument or a tool, a training plan, a renovation. Being enrolled somewhere, having a job, and a project's goals, decisions, people, facts and figures are lasting, not ongoing.",
 		temporary:
 			"A state or event with a natural end: being ill, an injury, a toothache, an exam, a trip, a visit, an appointment, a deadline, plans for one particular day or week.",
 	},
@@ -190,7 +190,7 @@ export function nativeBankConfig(
 ): NativeBankConfig & { entity_labels: NativeLabelGroup[] } {
 	return {
 		...PREVIOUS_NATIVE_BANK_CONFIG,
-		retain_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.retain_mission} Requests to the assistant, reactions to its suggestions and the intermediate steps of a brainstorm or a choice are not memories; an explicit personal statement inside them still is. When a choice settles, remember its outcome if it is likely to matter beyond this chat.`,
+		retain_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.retain_mission} Requests to the assistant and what the user wants from this chat are not memories, for example not "The user needs a name for a band" or "The user is looking for a weekend trip". While the user and the assistant brainstorm or weigh options, the options, the user's reactions to them and the reasons for those reactions are not memories either, for example not "The user thinks Static Owls sounds too silly" or "The user finds the second flat too small". A lasting fact about the user stated along the way, such as an allergy or where they live, is still a memory; a liking or dislike of one of the options is not. When the choice settles, keep only its outcome, and only if it is likely to matter beyond this chat, for example "The user's band is called Low Tide".`,
 		observations_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.observations_mission} When a later statement settles an earlier wish or plan about the same thing, keep only the settled state. When something really changes in the world, such as a move or a new job, state the new value as current and keep the old value only as earlier history in the same observation; never write an end date or any date the person did not state.`,
 		entity_labels: [
 			labelGroup("kind", NATIVE_KIND_LABEL, MEMORY_KINDS),

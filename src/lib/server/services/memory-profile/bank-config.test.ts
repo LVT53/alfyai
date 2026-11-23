@@ -83,9 +83,14 @@ describe("bank configuration 2", () => {
 				PREVIOUS_NATIVE_BANK_CONFIG.retain_mission,
 			);
 			expect(config.retain_mission).toMatch(
-				/requests to the assistant, reactions to its suggestions and the intermediate steps of a brainstorm or a choice are not memories/i,
+				/requests to the assistant and what the user wants from this chat are not memories/i,
 			);
-			expect(config.retain_mission).toMatch(/when a choice settles/i);
+			expect(config.retain_mission).toMatch(
+				/the options, the user's reactions to them and the reasons for those reactions are not memories/i,
+			);
+			expect(config.retain_mission).toMatch(
+				/when the choice settles, keep only its outcome/i,
+			);
 			expect(config.observations_mission).toContain(
 				"For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change.",
 			);
