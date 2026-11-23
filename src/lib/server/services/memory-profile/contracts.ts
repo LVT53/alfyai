@@ -71,14 +71,6 @@ export const PREVIOUS_NATIVE_BANK_CONFIG = {
 
 /** Stored in `memory_banks.native_config_version` once a bank's config 2 is verified. */
 export const NATIVE_BANK_CONFIG_VERSION = "alfyai-bank-config-2";
-/**
- * Stored before the one PATCH that moves a verified config 1 bank to config 2.
- * Unlike `NATIVE_BANK_CONFIG_PENDING` (a bank being created, by either
- * release), its readback must show config 2: the bank existed before it, so
- * only config 2 proves the PATCH landed.
- */
-export const NATIVE_BANK_CONFIG_UPGRADE_PENDING =
-	"alfyai-bank-config-upgrade-pending";
 /** Whether a stored version names a config that was verified by readback. */
 export function isVerifiedNativeBankConfigVersion(
 	version: string | null,
@@ -161,6 +153,7 @@ export interface NativeBankConfig {
 	retain_extraction_mode: string;
 	consolidation_llm_batch_size: number;
 	entity_labels?: NativeLabelGroup[];
+	entities_allow_free_form?: boolean;
 }
 
 function labelGroup(
@@ -192,6 +185,9 @@ export function nativeBankConfig(
 		...PREVIOUS_NATIVE_BANK_CONFIG,
 		retain_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.retain_mission} Requests to the assistant and what the user wants from this chat are not memories, for example not "The user needs a name for a band" or "The user is looking for a weekend trip". While the user and the assistant brainstorm or weigh options, the options, the user's reactions to them and the reasons for those reactions are not memories either, for example not "The user thinks Static Owls sounds too silly" or "The user finds the second flat too small". A lasting fact about the user stated along the way, such as an allergy or where they live, is still a memory; a liking or dislike of one of the options is not. When the choice settles, keep only its outcome, and only if it is likely to matter beyond this chat, for example "The user's band is called Low Tide".`,
 		observations_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.observations_mission} When a later statement settles an earlier wish or plan about the same thing, keep only the settled state. When something really changes in the world, such as a move or a new job, state the new value as current and keep the old value only as earlier history in the same observation; never write an end date or any date the person did not state.`,
+		// Pinned so a changed engine default cannot switch a bank to labels-only
+		// extraction, which would drop every named entity.
+		entities_allow_free_form: true,
 		entity_labels: [
 			labelGroup("kind", NATIVE_KIND_LABEL, MEMORY_KINDS),
 			labelGroup(

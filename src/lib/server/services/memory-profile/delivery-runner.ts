@@ -11,14 +11,12 @@ import {
 import type { JobRunContext, Tx } from "../jobs/types";
 import {
 	ensureConfiguredBank,
-	submittedConfigsFor,
 	verifySubmittedBankConfig,
 } from "./bank-configuration";
 import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
-	NATIVE_BANK_CONFIG_UPGRADE_PENDING,
 	type NativeMemory,
 	type NativeOperation,
 } from "./contracts";
@@ -285,27 +283,16 @@ export async function runMemoryDelivery(
 			);
 			if (legacyConfigUnknown)
 				throw new NativeMemoryError("native_config_unconfirmed", true);
-			const pendingConfig = [
-				NATIVE_BANK_CONFIG_PENDING,
-				NATIVE_BANK_CONFIG_UPGRADE_PENDING,
-			].find((sentinel) => ids.includes(sentinel));
+			const pendingConfig = ids.includes(NATIVE_BANK_CONFIG_PENDING);
 			if (ids.length === 0 && !(await client.bankExists())) {
 				await ctx.succeed();
 				return;
 			}
 			if (!row.cleanupSettled) {
-				if (pendingConfig)
-					await verifySubmittedBankConfig(
-						client,
-						submittedConfigsFor(pendingConfig),
-					);
+				if (pendingConfig) await verifySubmittedBankConfig(client);
 				await settle(
 					client,
-					ids.filter(
-						(id) =>
-							id !== NATIVE_BANK_CONFIG_PENDING &&
-							id !== NATIVE_BANK_CONFIG_UPGRADE_PENDING,
-					),
+					ids.filter((id) => id !== NATIVE_BANK_CONFIG_PENDING),
 					ctx.signal,
 					true,
 				);

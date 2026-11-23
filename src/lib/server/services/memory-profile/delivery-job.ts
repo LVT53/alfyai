@@ -16,7 +16,6 @@ import type { Tx } from "../jobs/types";
 import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
-	NATIVE_BANK_CONFIG_UPGRADE_PENDING,
 	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 } from "./contracts";
 import {
@@ -316,9 +315,8 @@ export function bankCleanupInputs(
 				nativeBaseUrl: bank.nativeBaseUrl,
 				nativeCredentialHash: bank.nativeCredentialHash,
 				nativeOperationIdsJson: JSON.stringify([
-					...(bank.nativeConfigVersion === NATIVE_BANK_CONFIG_PENDING ||
-					bank.nativeConfigVersion === NATIVE_BANK_CONFIG_UPGRADE_PENDING
-						? [bank.nativeConfigVersion]
+					...(bank.nativeConfigVersion === NATIVE_BANK_CONFIG_PENDING
+						? [NATIVE_BANK_CONFIG_PENDING]
 						: bank.nativeConfigVersion === null
 							? [NATIVE_BANK_CONFIG_LEGACY_UNKNOWN]
 							: []),

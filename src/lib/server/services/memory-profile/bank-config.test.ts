@@ -125,6 +125,8 @@ describe("bank configuration 2", () => {
 				"temporary",
 			]);
 			expect(kind.description).toMatch(/when unsure.*lasting/i);
+			// Named entities stay on: labels come in addition to them.
+			expect(config.entities_allow_free_form).toBe(true);
 			expect(subject.values.map((v) => v.value)).toEqual([...subjects]);
 		}
 		expect(NATIVE_BANK_CONFIG).toEqual(nativeBankConfig("personal"));

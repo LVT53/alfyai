@@ -788,8 +788,13 @@ describe("bank configuration 2 reaches every bank", () => {
 		};
 		const original = f.fetcher.getMockImplementation();
 		if (!original) throw Error("fixture");
+		let deleted = false;
 		f.fetcher.mockImplementation(async (url, init) => {
 			const path = String(url);
+			if (init?.method === "DELETE" && !path.includes("/documents/"))
+				deleted = true;
+			if (path.endsWith("/config") && deleted)
+				return new Response("missing", { status: 404 });
 			if (path.endsWith("/config") && init?.method === "PATCH") {
 				state.versionAtPatch = f.db
 					.select()
@@ -807,7 +812,7 @@ describe("bank configuration 2 reaches every bank", () => {
 		return { f, state, patches };
 	}
 
-	it("upgrades a bank configured by the previous release, once, behind the pending fence", async () => {
+	it("upgrades a bank configured by the previous release with one PATCH, and no sentinel", async () => {
 		const native = await import("./contracts");
 		const { f, state, patches } = await boundAt(
 			native.HINDSIGHT_ENGINE_COMMIT,
@@ -822,9 +827,9 @@ describe("bank configuration 2 reaches every bank", () => {
 		expect(JSON.parse(String(patches()[0][1]?.body)).updates).toEqual(
 			native.nativeBankConfig("personal"),
 		);
-		expect(state.versionAtPatch).toBe(
-			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
-		);
+		// The bank holds the person's data, so it stays at config 1 until the
+		// readback proves config 2: nothing can hold it in between.
+		expect(state.versionAtPatch).toBe(native.HINDSIGHT_ENGINE_COMMIT);
 		expect(
 			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
 		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
@@ -844,7 +849,21 @@ describe("bank configuration 2 reaches every bank", () => {
 		expect(patches()).toHaveLength(0);
 	});
 
-	it("settles a creation the previous release left pending, then upgrades it once", async () => {
+	it("refuses a bank on config 2 whose live config is another kind's", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_VERSION,
+			native.nativeBankConfig("project"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_mismatch" },
+		);
+		expect(patches()).toHaveLength(0);
+	});
+
+	it("settles a creation the previous release left pending, then upgrades it", async () => {
 		const native = await import("./contracts");
 		const { f, state, patches } = await boundAt(
 			native.NATIVE_BANK_CONFIG_PENDING,
@@ -856,51 +875,67 @@ describe("bank configuration 2 reaches every bank", () => {
 			"succeeded",
 		);
 		expect(patches()).toHaveLength(1);
-		expect(state.versionAtPatch).toBe(
-			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
-		);
+		expect(state.versionAtPatch).toBe(native.HINDSIGHT_ENGINE_COMMIT);
 		expect(
 			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
 		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
 	});
 
-	it("holds an upgrade whose PATCH did not land, and never sends it again", async () => {
+	/** The first upgrade PATCH is lost before Hindsight reads it. */
+	async function lostUpgrade() {
 		const native = await import("./contracts");
-		const { f, patches } = await boundAt(
-			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
+		const bound = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
 			native.PREVIOUS_NATIVE_BANK_CONFIG,
 		);
+		const upgrading = bound.f.fetcher.getMockImplementation();
+		if (!upgrading) throw Error("fixture");
+		let lose = true;
+		bound.f.fetcher.mockImplementation(async (url, init) => {
+			if (String(url).endsWith("/config") && init?.method === "PATCH" && lose) {
+				lose = false;
+				throw Error("synthetic loss before native received the request");
+			}
+			return upgrading(url, init);
+		});
+		return { ...bound, native };
+	}
+
+	it("sends an upgrade again when its PATCH did not land, until it does", async () => {
+		const { f, patches, native } = await lostUpgrade();
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
-		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
-			{ errorCode: "native_config_unconfirmed", retryable: true },
+		vi.useFakeTimers({ toFake: ["Date"] });
+		for (let i = 0; i < 3; i++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			vi.setSystemTime(Date.now() + 16000);
+		}
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
 		);
-		expect(patches()).toHaveLength(0);
+		expect(patches()).toHaveLength(2);
 		expect(
 			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
-		).toBe(native.NATIVE_BANK_CONFIG_UPGRADE_PENDING);
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
 	});
 
-	it("makes a reset wait for an upgrade that may still land", async () => {
-		const native = await import("./contracts");
-		const { f } = await boundAt(
-			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
-			native.PREVIOUS_NATIVE_BANK_CONFIG,
-		);
+	it("a reset deletes a bank whose upgrade did not land", async () => {
+		const { f } = await lostUpgrade();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
 		await f.jobs.prepareNativeMemoryErasure(h.userId);
 		await h.engine.drain(f.jobs.memoryDeliveryJob);
-		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
-			{
-				kind: "cleanup",
-				errorCode: "native_config_unconfirmed",
-				nativeOperationIdsJson: JSON.stringify([
-					native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
-				]),
-			},
-		);
+		const cleanup = f.db
+			.select()
+			.from(f.schema.memoryDeliveryJobs)
+			.all()
+			.find((job) => job.kind === "cleanup");
+		expect(cleanup?.status).toBe("succeeded");
 		expect(
-			f.fetcher.mock.calls.filter(([, init]) => init?.method === "DELETE"),
-		).toHaveLength(0);
+			f.fetcher.mock.calls.filter(
+				([url, init]) =>
+					init?.method === "DELETE" && !String(url).includes("/documents/"),
+			),
+		).toHaveLength(1);
 	});
 });
 
