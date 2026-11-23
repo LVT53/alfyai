@@ -152,7 +152,8 @@ export interface NativeBankConfig {
 	default_observation_scopes: string;
 	retain_extraction_mode: string;
 	consolidation_llm_batch_size: number;
-	entity_labels?: NativeLabelGroup[];
+	/** `null` clears the bank's labels (Hindsight's tombstone for an override). */
+	entity_labels?: NativeLabelGroup[] | null;
 	entities_allow_free_form?: boolean;
 }
 

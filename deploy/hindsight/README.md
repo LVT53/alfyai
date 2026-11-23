@@ -64,6 +64,17 @@ The app durably records the approved binding before its single native configurat
 
 Automatic pending retries are bounded by the existing job engine. An absent or partial configuration can remain unresolved if the request never reached Hindsight or failed partway. Verify quiescence of the original bound service and reconcile there before recording completion. A status poll showing 404 is insufficient. In this window the app's second fence prevents user text from entering the unconfirmed bank.
 
+## Bank config 2 (Memory part 2)
+
+Bank config 2 (`nativeBankConfig` in `src/lib/server/services/memory-profile/contracts.ts`) adds part 2's mission sentences and two `entity_labels` groups, `kind` and `subject`, so extraction labels every new fact. A bank the previous release configured (stored version `9fb28dbd…`, config 1) is upgraded by its next delivery or Memory edit: the app checks that the live config is one it set, sends one PATCH, and records `alfyai-bank-config-2` only after a readback shows config 2. The bank keeps its old version until then, so a lost PATCH is simply sent again by the next attempt; it never holds deliveries, edits, Clear Memory or erasure. The PATCH makes no model call. A bank with no delivery keeps config 1 until its next one, which changes nothing it already holds.
+
+The release is one-way for banks it upgraded: the previous release compares config 1's keys one by one, so it fails every config 2 bank with `native_config_mismatch` (deliveries and edits stop until a roll forward). To roll back:
+
+1. Stop the app's Memory workers (`HINDSIGHT_WORKER_ENABLED=false`, or stop the app).
+2. From this release's checkout, with the app's environment loaded, inspect: `npx tsx scripts/memory-bank-config-restore.ts` prints how many live banks hold each config version (counts only).
+3. Restore: `npx tsx scripts/memory-bank-config-restore.ts --execute restore-bank-config-1` puts every live config 2 bank back on config 1 with its labels cleared, verified by readback, and its stored version back to `9fb28dbd…`. A bank that fails stays on config 2 and is counted by error code; run it again.
+4. Start the previous release. The label rows in `memory_fact_labels` stay for a roll forward; the previous release never reads them.
+
 ## Backup, restore and upgrades
 
 Back up the PostgreSQL database (all tenant schemas), AlfyAI SQLite database and secret bundle together, while Memory delivery is paused and no native operation is outstanding. Preserve the exact tested image digest. A database-only backup loses the app's source revisions, erasure fences and credential bindings. A SQLite-only restore can point at mismatched native state. Restore into isolated private endpoints and keep the restored app unable to reach the original native service. Stop the original before reusing its endpoint. Preserve its worker ID and opaque IDs/key versions, then test capability identity, two-tenant isolation, publication and pending delivery/erasure recovery before enabling workers. Keep Memory inaccessible until post-backup erasures, resets and revocations have been reapplied from verified current records. Leave it inaccessible if that history is unavailable.

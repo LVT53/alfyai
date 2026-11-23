@@ -122,6 +122,21 @@ export async function ensureConfiguredBank(
 	await moveVersion(NATIVE_BANK_CONFIG_PENDING, NATIVE_BANK_CONFIG_VERSION);
 }
 
+/**
+ * For a rollback to the previous release (operator step,
+ * `scripts/memory-bank-config-restore.ts`): puts a bank back on config 1
+ * and clears its labels, verified by readback. The previous release compares
+ * config 1's keys one by one and fails a bank on config 2, so every bank this
+ * release upgraded needs this before the old code serves Memory again; its
+ * stored version then goes back to `HINDSIGHT_ENGINE_COMMIT`.
+ */
+export async function restorePreviousNativeBankConfig(client: HindsightClient) {
+	await client.configure(
+		{ ...PREVIOUS_NATIVE_BANK_CONFIG, entity_labels: null },
+		async () => {},
+	);
+}
+
 async function holdsPreviousConfig(client: HindsightClient) {
 	try {
 		await client.verifyConfig([PREVIOUS_NATIVE_BANK_CONFIG]);

@@ -253,3 +253,59 @@ describe("native fact fields", () => {
 		});
 	});
 });
+
+describe("rolling back to the previous release", () => {
+	it("restores config 1 and clears the labels, verified by readback", async () => {
+		const { restorePreviousNativeBankConfig } = await import(
+			"./bank-configuration"
+		);
+		let live: Record<string, unknown> = { ...nativeBankConfig("project") };
+		const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+			if (init?.method === "PATCH") {
+				const updates = JSON.parse(String(init.body)).updates;
+				live = { ...live, ...updates };
+			}
+			return Response.json({ config: live });
+		});
+		const client = new HindsightClient({
+			baseUrl: "http://native",
+			apiKey: "key",
+			bankId: "b",
+			fetcher,
+		});
+		await restorePreviousNativeBankConfig(client);
+		const sent = JSON.parse(
+			String(
+				fetcher.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]
+					?.body,
+			),
+		).updates;
+		expect(sent).toEqual({
+			...PREVIOUS_NATIVE_BANK_CONFIG,
+			entity_labels: null,
+		});
+		// The previous release compares config 1's keys one by one.
+		for (const [key, value] of Object.entries(PREVIOUS_NATIVE_BANK_CONFIG))
+			expect(live[key]).toBe(value);
+		expect(live.entity_labels).toBeNull();
+	});
+
+	it("refuses a bank whose readback is not config 1 afterwards", async () => {
+		const { restorePreviousNativeBankConfig } = await import(
+			"./bank-configuration"
+		);
+		const client = new HindsightClient({
+			baseUrl: "http://native",
+			apiKey: "key",
+			bankId: "b",
+			fetcher: vi.fn<typeof fetch>(async () =>
+				Response.json({ config: nativeBankConfig("personal") }),
+			),
+		});
+		await expect(restorePreviousNativeBankConfig(client)).rejects.toMatchObject(
+			{
+				code: "native_config_mismatch",
+			},
+		);
+	});
+});
