@@ -401,6 +401,8 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
 	// The turn's one clock: each remembered entry says how long ago it was said.
 	now: Date;
+	// The person's message: native recall searches with it beside the basics.
+	message: string;
 }): Promise<ActiveMemoryProfilePromptSection | null> {
 	// Read-side master gate. isMemoryActiveForConversation is the single source
 	// of truth (users.memoryEnabled AND not conversations.memoryIncognito). When
@@ -421,7 +423,9 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	if (usesNativeMemory(params.userId)) {
 		const recalled = await recallMemory(params.userId, {
 			conversationId: params.conversationId,
-			query: "Relevant user preferences, constraints and current context",
+			query: params.message,
+			// The per-turn section keeps a core of the person's basics.
+			core: true,
 			// The section goes into the prompt whole: the note and the rows
 			// together fit its budget.
 			tokenBudget: Math.max(
@@ -1665,6 +1669,7 @@ async function buildShallowConstructedContext(params: {
 				}),
 				modelContextBudget: params.modelContextBudget,
 				now: params.now,
+				message: params.message,
 			}),
 		),
 		projectFilesPromise,
@@ -2387,6 +2392,7 @@ export async function buildConstructedContext(params: {
 			}),
 			modelContextBudget,
 			now,
+			message: params.message,
 		}),
 	]);
 

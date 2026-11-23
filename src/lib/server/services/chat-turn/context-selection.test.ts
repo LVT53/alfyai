@@ -751,6 +751,38 @@ describe("buildConstructedContext", () => {
 		);
 	});
 
+	it.each([
+		// "plan" takes the deep path; a thank-you takes the shallow one.
+		"Remind me of the plan for my kitchen.",
+		"Thanks, that helps.",
+	])(
+		"searches memory with the person's message and the core of basics (%s)",
+		async (message) => {
+			resetConstructedContextMocks();
+			mocks.usesNativeMemory.mockReturnValue(true);
+			mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+			mocks.recallMemory.mockClear();
+			mocks.recallMemory.mockResolvedValue([]);
+
+			await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message,
+				modelId: "local-model",
+				contextLimits: {
+					maxModelContext: 16_000,
+					compactionUiThreshold: 12_000,
+					targetConstructedContext: 8_000,
+				},
+			});
+
+			expect(mocks.recallMemory).toHaveBeenCalledWith(
+				"user-1",
+				expect.objectContaining({ query: message, core: true }),
+			);
+		},
+	);
+
 	it("withholds baseline memory when the control store is unavailable", async () => {
 		resetConstructedContextMocks();
 		mocks.isMemoryActiveForConversation.mockRejectedValue(
