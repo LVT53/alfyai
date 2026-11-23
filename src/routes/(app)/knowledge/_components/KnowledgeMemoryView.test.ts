@@ -700,3 +700,153 @@ it("offers private review in preparing authority while leaving ordinary Add unav
 	).toBeDisabled();
 	expect(api.saveMemoryQuarantine).not.toHaveBeenCalled();
 });
+
+// A link from Workspace Search opens one entry: the Memory tab with that entry's
+// detail, or, when the entry has changed since, the scope's list with the
+// search filled in. The scope, entry and query are read once, when the view
+// mounts; `openLink` does the same for a view that is already showing.
+describe("a link to one entry", () => {
+	const personal = { kind: "personal" } as const;
+	const fifty = Array.from({ length: 50 }, (_, index) => ({
+		...row,
+		ref: { ...ref, rowId: `other-${index}` },
+		text: `Other entry ${index}`,
+	}));
+
+	it("opens the linked entry's detail", async () => {
+		render(KnowledgeMemoryView, {
+			memoryEnabled: true,
+			initialScope: personal,
+			initialEntryId: "kayak",
+			initialQuery: "kayak",
+		});
+
+		expect(await screen.findByTestId("memory-detail")).toBeVisible();
+		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
+		expect(screen.getByText(row.text)).toBeVisible();
+	});
+
+	it("finds a linked entry past the first fifty", async () => {
+		api.fetchMemoryPage.mockImplementation(
+			async (request: { cursor?: string }) =>
+				request.cursor === "page2"
+					? { ...page, rows: [row] }
+					: { ...page, rows: fifty, nextCursor: "page2" },
+		);
+
+		render(KnowledgeMemoryView, {
+			memoryEnabled: true,
+			initialScope: personal,
+			initialEntryId: "kayak",
+			initialQuery: "kayak",
+		});
+
+		expect(await screen.findByTestId("memory-detail")).toBeVisible();
+		expect(api.fetchMemoryPage).toHaveBeenCalledWith({
+			scope: personal,
+			cursor: "page2",
+		});
+		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
+	});
+
+	it("falls back to the filled-in list when the entry has changed", async () => {
+		api.fetchMemoryPage.mockImplementation(
+			async (request: { query?: string }) =>
+				request.query
+					? { ...page, rows: [row] }
+					: { ...page, rows: fifty.slice(0, 3) },
+		);
+
+		const { container } = render(KnowledgeMemoryView, {
+			memoryEnabled: true,
+			initialScope: personal,
+			initialEntryId: "no-longer-there",
+			initialQuery: "kayak",
+		});
+
+		// The list shows what the filled-in search finds, and no detail opens.
+		expect(
+			await screen.findByRole("button", { name: /You own a green/ }),
+		).toBeVisible();
+		expect(
+			container.querySelector<HTMLInputElement>("[data-memory-search]")?.value,
+		).toBe("kayak");
+		expect(screen.queryByTestId("memory-detail")).toBeNull();
+		expect(api.fetchMemoryDetail).not.toHaveBeenCalled();
+		expect(api.fetchMemoryPage).toHaveBeenCalledWith(
+			{ scope: personal, query: "kayak" },
+			expect.anything(),
+		);
+	});
+
+	it("shows the scope's list with no search for a link that names no entry", async () => {
+		const { container } = render(KnowledgeMemoryView, {
+			memoryEnabled: true,
+			initialScope: personal,
+			initialQuery: "kayak",
+		});
+		await screen.findByRole("button", { name: /You own a green/ });
+		expect(
+			container.querySelector<HTMLInputElement>("[data-memory-search]")?.value,
+		).toBe("kayak");
+		expect(api.fetchMemoryDetail).not.toHaveBeenCalled();
+	});
+
+	it("reads the linked project's bank, not the personal one", async () => {
+		const project = { kind: "project", projectId: "p1" } as const;
+		api.fetchMemoryPage.mockImplementation(
+			async (request: { scope: unknown }) => ({
+				...page,
+				scope: request.scope,
+				rows: [{ ...row, ref: { ...ref, scope: project } }],
+			}),
+		);
+		render(KnowledgeMemoryView, {
+			memoryEnabled: true,
+			initialScope: project,
+			initialEntryId: "kayak",
+		});
+		expect(await screen.findByTestId("memory-detail")).toBeVisible();
+		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(
+			{ ...ref, scope: project },
+			expect.anything(),
+		);
+		for (const [request] of api.fetchMemoryPage.mock.calls) {
+			expect(request.scope).toEqual(project);
+		}
+	});
+
+	it("goes back from the opened entry to the scope's whole list", async () => {
+		const { container } = render(KnowledgeMemoryView, {
+			memoryEnabled: true,
+			initialScope: personal,
+			initialEntryId: "kayak",
+			initialQuery: "kayak",
+		});
+		await screen.findByTestId("memory-detail");
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Back to memories" }),
+		);
+		expect(
+			await screen.findByRole("button", { name: /You own a green/ }),
+		).toBeVisible();
+		expect(
+			container.querySelector<HTMLInputElement>("[data-memory-search]")?.value,
+		).toBe("");
+	});
+
+	it("opens another link in a view that is already showing", async () => {
+		const view = render(KnowledgeMemoryView, { memoryEnabled: true });
+		await screen.findByRole("button", { name: /You own a green/ });
+		expect(api.fetchMemoryDetail).not.toHaveBeenCalled();
+
+		await view.component.openLink({
+			scope: personal,
+			entryId: "kayak",
+			query: "kayak",
+		});
+
+		expect(await screen.findByTestId("memory-detail")).toBeVisible();
+		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
+	});
+});

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, tick } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { fly } from "svelte/transition";
 import { ArrowLeft, Check, Info } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
@@ -35,7 +35,23 @@ import MemoryDetail from "./MemoryDetail.svelte";
 import MemoryEditor from "./MemoryEditor.svelte";
 import MemoryRemoveDialog from "./MemoryRemoveDialog.svelte";
 import "./memory-replacement.css";
-let { memoryEnabled }: { memoryEnabled: boolean | null } = $props();
+let {
+	memoryEnabled,
+	initialScope,
+	initialEntryId,
+	initialQuery,
+}: {
+	memoryEnabled: boolean | null;
+	/** A link from search: the scope, the entry and the search to open on. Read once, when the view mounts. */
+	initialScope?: MemoryScope;
+	initialEntryId?: string;
+	initialQuery?: string;
+} = $props();
+const linked = untrack(() =>
+	initialScope
+		? { scope: initialScope, entryId: initialEntryId, query: initialQuery }
+		: null,
+);
 let view = $state<"list" | "detail" | "edit" | "add" | "remove">("list");
 let scopeValue = $state("personal");
 let query = $state("");
@@ -661,6 +677,51 @@ async function reconcileDetached() {
 			detachedTimer = setTimeout(() => void reconcileDetached(), 3000);
 	}
 }
+/**
+ * Opens what a link from search names: that entry's detail, found wherever it
+ * sits in the scope's list, or, when the entry has changed since (no such row
+ * now), the scope's list with the search filled in. The same code runs when the
+ * view mounts with a link and when another link arrives while it is showing.
+ */
+export async function openLink(link: {
+	scope: MemoryScope;
+	entryId?: string | null;
+	query?: string;
+}) {
+	invalidateNavigation();
+	const epoch = navigationEpoch;
+	clearTimeout(searchTimer);
+	page = null;
+	detail = null;
+	draft = "";
+	notice = "";
+	resetRecordFeedback();
+	scopeValue = scopeKey(link.scope);
+	query = "";
+	pagesLoaded = 1;
+	view = "list";
+	if (!alive) return;
+	if (link.entryId) {
+		let found: MemoryRow | null = null;
+		try {
+			found = await findCurrentRow(
+				{ scope: link.scope, generation: "", rowId: link.entryId },
+				() => alive && epoch === navigationEpoch,
+			);
+		} catch {
+			// Not finding the row is the same as the row having changed.
+		}
+		if (!alive || epoch !== navigationEpoch) return;
+		if (found) {
+			// The list is read behind the detail, for Back.
+			void load();
+			await open(found);
+			if (!alive || epoch !== navigationEpoch || view === "detail") return;
+		}
+	}
+	query = link.query ?? "";
+	await load();
+}
 export function capture(): MemoryVisit {
 	return {
 		scopeValue,
@@ -709,7 +770,8 @@ export async function restore(value: MemoryVisit) {
 }
 onMount(() => {
 	alive = true;
-	void load();
+	if (linked) void openLink(linked);
+	else void load();
 	if (pending) void poll();
 	if (detached.length) void reconcileDetached();
 	const refresh = () => {
