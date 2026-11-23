@@ -1481,3 +1481,35 @@ it("an entry the person wrote never ages", async () => {
 	expect(result).toHaveLength(1);
 	expect(result[0].timeState).toBe("current");
 });
+
+it("puts lasting entries first in the core once labels exist", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Has a cold this week", kind: "temporary", said: [2] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: [], core: rank([0, 1]) } });
+	const row = (text: string, kind: "temporary" | "lasting", days: number) =>
+		recallLineTokens(
+			{
+				ref: { scope: { kind: "personal" }, generation: "g", rowId: text },
+				text,
+				sources: [],
+				lastMentionedAt: ago(days).toISOString(),
+				kind,
+			},
+			NOW,
+		);
+	const one = Math.max(
+		row("Has a cold this week", "temporary", 2),
+		row("Lives in Graz", "lasting", 400),
+	);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: MESSAGE,
+		tokenBudget: N + one,
+		core: true,
+		now: NOW,
+	});
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});

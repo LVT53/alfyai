@@ -493,11 +493,22 @@ export async function recallMemory(
 					.slice(0, EARLIER_PER_TURN)
 					.map(({ key }) => key),
 			);
-			for (const kind of ["personal", "project"] as const)
+			// Once labels exist the core leads with lasting entries (spec, part 1):
+			// a current temporary or ongoing entry the basics search ranked higher
+			// waits behind them. Unlabelled entries count as lasting.
+			const lasting = ({ key }: RecallCandidate) => {
+				const kind = offered.get(key)?.entry.kind;
+				return !kind || kind === "lasting" ? 0 : 1;
+			};
+			for (const kind of ["personal", "project"] as const) {
 				rows[kind].message = rows[kind].message.filter(
 					({ key }) =>
 						kept.has(key) || offered.get(key)?.entry.timeState !== "earlier",
 				);
+				rows[kind].core = [...rows[kind].core].sort(
+					(a, b) => lasting(a) - lasting(b),
+				);
+			}
 		}
 		// The section goes into the prompt whole, so the budget holds every
 		// formatted line, the line on what the times mean, the line on Earlier
