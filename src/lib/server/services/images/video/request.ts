@@ -104,7 +104,7 @@ export {
 };
 export const VIDEO_SEGMENT_DURATION_MS = 5_000;
 
-/** The product length of one segment, and of the whole take. */
+/** The product length of the whole take. */
 export function videoDurationMs(durationSeconds: VideoDurationSeconds): number {
 	return durationSeconds === 10 ? 10_000 : VIDEO_SEGMENT_DURATION_MS;
 }

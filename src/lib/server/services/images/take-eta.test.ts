@@ -117,8 +117,8 @@ describe("a take that is faster than planned", () => {
 	});
 });
 
-describe("passes and segments", () => {
-	const VIDEO: EtaPlan = [
+describe("passes and later prompts", () => {
+	const TWO_PROMPTS: EtaPlan = [
 		{ kind: "load", seconds: 20 },
 		{ kind: "sample", seconds: 6 },
 		{ kind: "sample", seconds: 4 },
@@ -130,7 +130,7 @@ describe("passes and segments", () => {
 	];
 
 	it("counts every later stage, and a node reset moves to the next pass", () => {
-		const eta = createTakeEta(VIDEO);
+		const eta = createTakeEta(TWO_PROMPTS);
 		expect(left(eta.start(at(0)), at(0))).toBe(78);
 		// The first pass: eight steps of 0.75 s, as planned. The second starts
 		// again at 1/3, one planned step (4 s / 3) later.
@@ -142,7 +142,7 @@ describe("passes and segments", () => {
 	});
 
 	it("does not take a node reset for negative progress", () => {
-		const eta = createTakeEta(VIDEO);
+		const eta = createTakeEta(TWO_PROMPTS);
 		const published = [eta.start(at(0))];
 		published.push(eta.progress({ value: 8, max: 8 }, at(26)));
 		published.push(eta.progress({ value: 1, max: 3 }, at(27)));
@@ -153,15 +153,15 @@ describe("passes and segments", () => {
 		expect(left(published.at(-1) ?? 0, at(28))).toBeGreaterThan(40);
 	});
 
-	it("takes the next segment's load when ComfyUI starts its prompt", () => {
-		const eta = createTakeEta(VIDEO);
+	it("takes the next prompt's load when ComfyUI starts it", () => {
+		const eta = createTakeEta(TWO_PROMPTS);
 		eta.start(at(0));
 		eta.progress({ value: 8, max: 8 }, at(26));
 		eta.progress({ value: 3, max: 3 }, at(30));
 		eta.enter("finish", at(30));
-		// The second segment's prompt starts: its load, and all after it.
-		const segmentTwo = eta.start(at(36));
-		expect(left(segmentTwo, at(36))).toBe(42);
+		// The second prompt starts: its load, and all after it.
+		const second = eta.start(at(36));
+		expect(left(second, at(36))).toBe(42);
 	});
 });
 

@@ -113,7 +113,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
- * The graph one segment renders. A deep copy every time: the JSON module is
+ * The graph a take renders. A deep copy every time: the JSON module is
  * shared, and a mutation would leak into the next take.
  *
  * The second pass's seed is `seed + 1`, so a retake varies both passes; the

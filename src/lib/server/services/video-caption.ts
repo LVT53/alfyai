@@ -124,6 +124,7 @@ House rules for these clips, over the instruction above:
  * (review C-2): segment 2 starts on segment 1's last frame, so its caption goes
  * on from there. Sent the same caption, it replayed the action from its start
  * and spoke the same dialogue twice. `first` is segment 1's caption, data.
+ * No take asks for one since a ten-second clip became one render.
  */
 export function videoContinuationNote(first: string): string {
 	return `This caption is for the SECOND five seconds of a ten-second clip. Its first frame is the last frame of the first five seconds, which were captioned as follows:
@@ -216,6 +217,7 @@ export async function buildVideoPrompt(
  * A 10 s take's second segment's caption: what happens next, from where the
  * first five seconds (`first`) end. Null when there is no caption endpoint or
  * it gives nothing usable: the segment then renders the first prompt again.
+ * No take asks for one since a ten-second clip became one render.
  */
 export async function buildVideoContinuationPrompt(
 	idea: string,
