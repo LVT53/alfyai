@@ -52,9 +52,9 @@ SQLite persistence — all in a single Node deployment.
   with. Leave `COMFYUI_H3_URL` empty and H3 pictures are off.
 - **Video** — `COMFYUI_LTX_URL` points Alfy at a ComfyUI server running LTX-2.5; leave it empty and
   video making is off. A video take is its own job kind (one at a time, because LTX and H3 cannot
-  be resident on the card together). A 5 s clip is one render at 1280x704 (704x1280 for a portrait
-  still, both sides multiples of 32); a 10 s clip is two 5 s segments chained last-frame to
-  first-frame and joined, so the second segment starts exactly where the first ended. The clip is
+  be resident on the card together). A clip is one render at 1280x704 (704x1280 for a portrait
+  still, both sides multiples of 32), 121 frames for 5 s and 241 for 10 s at 24 fps, sharpened and
+  upscaled x2 before it is encoded. The clip is
   stored as an mp4 with a poster and a thumbnail, and the explicit-picture filter checks **every
   frame** of it before anything is kept: one pass writes the frames at the classifier's size and
   batches of 16 run on one session — 8 inference runs for a 5 s clip (≈3.7–4.2 s on the app host)
