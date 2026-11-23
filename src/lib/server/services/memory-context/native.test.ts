@@ -1108,3 +1108,82 @@ it("logs one content-free line per bank", async () => {
 		info.mockRestore();
 	}
 }, 10_000);
+/**
+ * Separate core and message rankings for the share tests: the person's core
+ * search ranks their entries 00-19 and the message search 20-39; the
+ * project's message search ranks its entries 00-09 and its core search 10-19.
+ */
+function seedShareRankings() {
+	const project = projectTexts(20);
+	seedBankRows("bp", "personal", personalTexts);
+	seedBankRows("bj", "project:p", project);
+	const range = (from: number, to: number) =>
+		Array.from({ length: to - from }, (_, i) => from + i);
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) => {
+			const core = query === CORE_MEMORY_QUERY;
+			return bankId === "bp"
+				? ranked("bp", personalTexts, core ? range(0, 20) : range(20, 40))
+				: ranked("bj", project, core ? range(10, 20) : range(0, 10));
+		},
+	);
+}
+it.each([
+	{
+		corePercent: 25,
+		expected: [...personalTexts.slice(0, 5), ...personalTexts.slice(20, 35)],
+	},
+	{
+		corePercent: 50,
+		expected: [...personalTexts.slice(0, 10), ...personalTexts.slice(20, 30)],
+	},
+])(
+	"keeps the basics to their share in a personal chat (core $corePercent%)",
+	async ({ corePercent, expected }) => {
+		shares = { corePercent, projectPercent: 50 };
+		seedShareRankings();
+		const L = recallLineTokens("Personal fact 00");
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "personal",
+			query: "What should I cook tonight?",
+			tokenBudget: 20 * L,
+			core: true,
+		});
+		expect(result.map(({ text }) => text)).toEqual(expected);
+	},
+);
+it.each([
+	{
+		chosen: { corePercent: 25, projectPercent: 50 },
+		personal: [...personalTexts.slice(0, 5), ...personalTexts.slice(20, 25)],
+		project: projectTexts(10),
+	},
+	{
+		chosen: { corePercent: 50, projectPercent: 80 },
+		personal: personalTexts.slice(0, 4),
+		project: projectTexts(16),
+	},
+])(
+	"gives a project chat's lanes their shares (project $chosen.projectPercent%, core $chosen.corePercent%)",
+	async ({ chosen, personal, project }) => {
+		shares = chosen;
+		seedShareRankings();
+		const L = recallLineTokens("Personal fact 00");
+		const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "c",
+			query: "What should I cook tonight?",
+			tokenBudget: 20 * L + H,
+			core: true,
+		});
+		// Project lane, then the basics, then the message lane in turn.
+		expect(result.map(({ text }) => text)).toEqual([...personal, ...project]);
+	},
+);
