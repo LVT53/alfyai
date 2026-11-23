@@ -43,12 +43,18 @@ vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
 					})
 				: {
 						recall: (query: string, budget: number) =>
-							recall(query, budget, signal),
+							recall(query, budget, signal, bankId),
 						list: () => list(),
 					},
 	};
 });
+let shares = { corePercent: 25, projectPercent: 50 };
+vi.mock("$lib/server/config-store", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/config-store")>()),
+	getMemoryRecallShares: () => shares,
+}));
 beforeEach(() => {
+	shares = { corePercent: 25, projectPercent: 50 };
 	sqlite = new Database(":memory:");
 	sqlite.pragma("foreign_keys=ON");
 	const db = drizzle(sqlite, { schema });
@@ -109,6 +115,80 @@ function seed(bankId: string, scopeKey: string, text: string) {
 			updatedAt: new Date(),
 		})
 		.run();
+}
+/** One bank with one accepted source, fact and published row per text. */
+function seedBankRows(bankId: string, scopeKey: string, texts: string[]) {
+	const db = drizzle(sqlite, { schema });
+	db.insert(schema.memoryBanks)
+		.values({ id: bankId, userId: "u", scopeKey, epoch: 0, generation: "g" })
+		.run();
+	for (const [i, text] of texts.entries()) {
+		const fact = { id: `f-${bankId}-${i}`, text };
+		db.insert(schema.memorySourceRevisions)
+			.values({
+				id: `s-${bankId}-${i}`,
+				bankId,
+				userId: "u",
+				epoch: 0,
+				eventId: `${bankId}-${i}`,
+				lineageId: `${bankId}-${i}`,
+				text,
+				context: "",
+				textHash: "hash",
+				assertedAt: new Date(),
+				state: "accepted",
+				acknowledgedFactsJson: JSON.stringify([fact]),
+			})
+			.run();
+		db.insert(schema.memoryPublishedRows)
+			.values({
+				id: `r-${bankId}-${i}`,
+				bankId,
+				generation: "g",
+				epoch: 0,
+				nativeId: `n-${bankId}-${i}`,
+				text,
+				nativeText: text,
+				sourceIdsJson: JSON.stringify([fact.id]),
+				sourceFingerprintsJson: JSON.stringify([fact]),
+				updatedAt: new Date(),
+			})
+			.run();
+	}
+}
+/** The observations Hindsight would rank for those rows: direct matches. */
+const ranked = (bankId: string, texts: string[], indices: number[]) =>
+	indices.map((i) => ({
+		id: `n-${bankId}-${i}`,
+		text: texts[i],
+		fact_type: "observation",
+		source_memory_ids: [`f-${bankId}-${i}`],
+	}));
+const personalTexts = Array.from(
+	{ length: 40 },
+	(_, i) => `Personal fact ${String(i).padStart(2, "0")}`,
+);
+const projectTexts = (n: number) =>
+	Array.from(
+		{ length: n },
+		(_, i) => `Project fact ${String(i).padStart(2, "0")}`,
+	);
+/** Personal bank `bp` and project bank `bj`, each ranked whole and in order. */
+function seedFairSplit(projectCount: number) {
+	const project = projectTexts(projectCount);
+	seedBankRows("bp", "personal", personalTexts);
+	seedBankRows("bj", "project:p", project);
+	recall.mockImplementation(
+		async (
+			_query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) =>
+			bankId === "bp"
+				? ranked("bp", personalTexts, [...personalTexts.keys()])
+				: ranked("bj", project, [...project.keys()]),
+	);
 }
 it("recalls accepted personal and own-project only when native is offline", async () => {
 	seed("b1", "personal", "Personal preference");
@@ -225,10 +305,77 @@ it("fits the formatted section in its budget", async () => {
 		query: "preferences",
 		tokenBudget: budget - 1,
 	});
-	expect(tight.map(({ text }) => text)).toEqual(["Personal preference"]);
+	// The project's share fills first, so the one entry that fits is the
+	// project's own.
+	expect(tight.map(({ text }) => text)).toEqual(["Project decision"]);
 	expect(
 		estimateTokenCount(formatRecalledMemory(tight, new Date())),
 	).toBeLessThanOrEqual(budget - 1);
+});
+it("gives a project chat's own entries their share even when the person's entries alone would fill it", async () => {
+	const L = recallLineTokens("Personal fact 00");
+	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+	expect(L).toBe(recallLineTokens("Project fact 00"));
+	seedFairSplit(20);
+	const budget = 20 * L + H;
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "facts",
+		tokenBudget: budget,
+	});
+	// Ten from the project's share, then both banks in turn: five each.
+	expect(result.map(({ text }) => text)).toEqual([
+		...personalTexts.slice(0, 5),
+		...projectTexts(15),
+	]);
+	expect(result.filter(({ ref }) => ref.scope.kind === "project")).toHaveLength(
+		15,
+	);
+	expect(
+		estimateTokenCount(formatRecalledMemory(result, new Date())),
+	).toBeLessThanOrEqual(budget);
+});
+it("fills the rest with personal entries when the project has few", async () => {
+	const L = recallLineTokens("Personal fact 00");
+	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+	expect(L).toBe(recallLineTokens("Project fact 00"));
+	seedFairSplit(2);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "facts",
+		tokenBudget: 20 * L + H,
+	});
+	expect(result.map(({ text }) => text)).toEqual([
+		...personalTexts.slice(0, 18),
+		...projectTexts(2),
+	]);
+});
+it("keeps a personal chat's recall in ranking order", async () => {
+	const L = recallLineTokens("Personal fact 00");
+	seedFairSplit(20);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "facts",
+		tokenBudget: 10 * L,
+	});
+	expect(result.map(({ text }) => text)).toEqual(personalTexts.slice(0, 10));
+});
+it("writes nothing while recalling", async () => {
+	seedFairSplit(5);
+	const changes = () =>
+		(sqlite.prepare("select total_changes() as n").get() as { n: number }).n;
+	const before = changes();
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "facts",
+		tokenBudget: 1000,
+	});
+	expect(result.length).toBeGreaterThan(0);
+	expect(changes()).toBe(before);
 });
 it("does not expose native raw/source expansion or an unaccepted changed observation", async () => {
 	seed("b1", "personal", "Accepted");

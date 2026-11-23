@@ -4,6 +4,7 @@ import type {
 	MemoryScope,
 	MemorySource,
 } from "$lib/memory-types";
+import { getMemoryRecallShares } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
 	conversations,
@@ -28,7 +29,21 @@ import {
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
+import {
+	allocateRecall,
+	type RecallCandidate,
+	type RecallLane,
+} from "./recall-allocation";
 import { RECALL_PROJECT_HEADING, recallLineTokens } from "./recall-format";
+
+/** An accepted row recall may offer, with what its entry is built from. */
+interface OfferedRow {
+	row: ReturnType<typeof readPublishedMemory>[number];
+	scope: MemoryScope;
+	facts: ReturnType<typeof admittedNativeFacts>;
+	ids: unknown[];
+}
+
 /** Native ranking can select only exact, still-admitted accepted observations. */
 export async function recallMemory(
 	userId: string,
@@ -156,14 +171,16 @@ export async function recallMemory(
 	return db.transaction((tx) => {
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
-		const output: AdmittedMemoryEvidence[] = [];
 		// The section goes into the prompt whole, so the budget holds every
 		// formatted line and, in a project chat, the project's heading.
-		let remaining = Math.max(
+		const budget = Math.max(
 			0,
 			Math.floor(input.tokenBudget) -
 				(chat.projectId ? estimateTokenCount(RECALL_PROJECT_HEADING) : 0),
 		);
+		const offered = new Map<string, OfferedRow>();
+		const personalRows: RecallCandidate[] = [];
+		const projectRows: RecallCandidate[] = [];
 		for (const bank of banks) {
 			if (!readableIds.has(bank.id)) continue;
 			const ranking = rankings.get(bank.id) ?? null;
@@ -274,57 +291,80 @@ export async function recallMemory(
 						(order.get(b.nativeId) ?? Infinity),
 				);
 			}
+			// The verified ranking's order, or every accepted row in stored order.
+			const rows = scope.kind === "personal" ? personalRows : projectRows;
 			for (const row of accepted) {
 				if (ranking && !order.has(row.nativeId)) continue;
-				const tokens = recallLineTokens(row.text);
-				if (tokens > remaining) continue;
 				const ids: unknown = JSON.parse(row.sourceIdsJson);
 				if (!Array.isArray(ids)) continue;
-				const sources: MemorySource[] = [];
-				const seen = new Set<string>();
-				let lastMentionedMs: number | null = null;
-				for (const fact of facts.filter((f) => ids.includes(f.id))) {
-					const source = fact.source;
-					const saidMs = (source.explicitEditAt ?? source.assertedAt).getTime();
-					if (lastMentionedMs === null || saidMs > lastMentionedMs)
-						lastMentionedMs = saidMs;
-					if (seen.has(source.id)) continue;
-					seen.add(source.id);
-					const origin = source.conversationId
-						? tx
-								.select()
-								.from(conversations)
-								.where(
-									and(
-										eq(conversations.id, source.conversationId),
-										eq(conversations.userId, userId),
-									),
-								)
-								.get()
-						: null;
-					// Do not expand source text into recall; the accepted row is the entire model-facing text.
-					sources.push({
-						id: source.id,
-						conversationId: origin?.id ?? null,
-						messageId: origin ? source.messageId : null,
-						title: origin?.title ?? "Memory",
-						quote: "",
-						assertedAt: source.assertedAt.toISOString(),
-						available: source.conversationId === null || Boolean(origin),
-					});
-				}
-				output.push({
-					ref: { scope, generation: row.generation, rowId: row.nativeId },
-					text: row.text,
-					sources,
-					lastMentionedAt:
-						lastMentionedMs === null
-							? null
-							: new Date(lastMentionedMs).toISOString(),
-				});
-				remaining -= tokens;
+				const key = `${bank.id}:${row.nativeId}`;
+				offered.set(key, { row, scope, facts, ids });
+				rows.push({ key, tokens: recallLineTokens(row.text) });
 			}
 		}
-		return output;
+		// In a project chat the project's own entries get their share first,
+		// then both banks take turns; a share left unused passes on.
+		const { projectPercent } = getMemoryRecallShares();
+		const lanes: RecallLane[] = chat.projectId
+			? [
+					{
+						lists: [projectRows],
+						capTokens: Math.floor((budget * projectPercent) / 100),
+					},
+					{ lists: [personalRows, projectRows], capTokens: budget },
+				]
+			: [{ lists: [personalRows], capTokens: budget }];
+		const chosen = allocateRecall(lanes, budget).flatMap((key) => {
+			const entry = offered.get(key);
+			return entry ? [entry] : [];
+		});
+		// The person's entries first, then the project's, each in the order chosen.
+		return [
+			...chosen.filter(({ scope }) => scope.kind === "personal"),
+			...chosen.filter(({ scope }) => scope.kind === "project"),
+		].map(({ row, scope, facts, ids }): AdmittedMemoryEvidence => {
+			const sources: MemorySource[] = [];
+			const seen = new Set<string>();
+			let lastMentionedMs: number | null = null;
+			for (const fact of facts.filter((f) => ids.includes(f.id))) {
+				const source = fact.source;
+				const saidMs = (source.explicitEditAt ?? source.assertedAt).getTime();
+				if (lastMentionedMs === null || saidMs > lastMentionedMs)
+					lastMentionedMs = saidMs;
+				if (seen.has(source.id)) continue;
+				seen.add(source.id);
+				const origin = source.conversationId
+					? tx
+							.select()
+							.from(conversations)
+							.where(
+								and(
+									eq(conversations.id, source.conversationId),
+									eq(conversations.userId, userId),
+								),
+							)
+							.get()
+					: null;
+				// Do not expand source text into recall; the accepted row is the entire model-facing text.
+				sources.push({
+					id: source.id,
+					conversationId: origin?.id ?? null,
+					messageId: origin ? source.messageId : null,
+					title: origin?.title ?? "Memory",
+					quote: "",
+					assertedAt: source.assertedAt.toISOString(),
+					available: source.conversationId === null || Boolean(origin),
+				});
+			}
+			return {
+				ref: { scope, generation: row.generation, rowId: row.nativeId },
+				text: row.text,
+				sources,
+				lastMentionedAt:
+					lastMentionedMs === null
+						? null
+						: new Date(lastMentionedMs).toISOString(),
+			};
+		});
 	});
 }
