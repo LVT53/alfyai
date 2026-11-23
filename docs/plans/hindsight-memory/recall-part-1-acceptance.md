@@ -64,3 +64,14 @@ The owner then chose to try a note on what the times mean before taking the ages
 Commit `901701c67` adds one line that opens the recalled rows whenever a row has a time. It says the time is when the person last mentioned the entry, not when it happened. It says facts that do not change stay true however long ago they were said. And it says the times only choose between entries that disagree. Recall reserves the line's tokens like the project heading's.
 
 Every turn got a reply, and every per-turn check held. The phrase list flagged one reply, but read by hand it is a false positive: "since then" refers to the device being replaced since it was fitted, not to the memory's age. Read by hand, no reply remarks on a fact's age or doubts it, so run 3 passes with 0 real remarks against the bar of 2. The ages stay in part 1, with the note.
+
+### Commit ids on main
+
+The runs above name commits on the build branch, `claude/memory-recall-part-1-42a4af`. On 23 November 2026 the branch was rebased onto main with every patch unchanged, so on main the same changes carry these ids:
+
+| Build branch | Main | Change |
+|---|---|---|
+| `f5a3b4368` | `6f4027447` | Add live and size checks for fair, message-aware recall |
+| `6c7c906dc` | `7ce7834ec` | Add the age probe for the said-ago wording |
+| `0f875d378` | `cf3b2f38d` | Give the age probe one consistent person and no sandbox tool |
+| `901701c67` | `477fda68e` | Say what the recalled entries' times mean |
