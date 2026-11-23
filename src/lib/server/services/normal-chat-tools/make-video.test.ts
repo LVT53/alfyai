@@ -410,9 +410,12 @@ describe("make_video's take request", () => {
 		);
 	});
 
-	it("sends an exempt person's caption call the alt block", async () => {
-		// Through the real builder: the assertion is on the system message that
-		// leaves the process, not on the options the tool happened to pass.
+	/**
+	 * Runs the tool through the REAL caption builder, against a stub endpoint, and
+	 * answers the one system message that leaves the process: what the caption
+	 * model is told, not the options the tool happened to pass.
+	 */
+	async function systemMessageOfTheCaptionCall(options: RunOptions = {}) {
 		const actual = await vi.importActual<
 			typeof import("$lib/server/services/video-caption")
 		>("$lib/server/services/video-caption");
@@ -425,27 +428,43 @@ describe("make_video's take request", () => {
 					{ status: 200, headers: { "content-type": "application/json" } },
 				),
 		);
-		queued.caption.mockImplementation(
-			(
-				idea: string,
-				options: { variant?: "standard" | "alt"; signal?: AbortSignal },
-			) =>
-				actual.buildVideoPrompt(idea, {
-					...options,
-					fetchImpl: fetchImpl as unknown as typeof fetch,
-				}),
+		queued.caption.mockImplementation((idea: string, captionOptions: object) =>
+			actual.buildVideoPrompt(idea, {
+				...captionOptions,
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+			}),
 		);
 		captionConfig.url = "http://127.0.0.1:11434";
-		queued.variant.mockResolvedValue(true);
-		await run();
+		await run(options);
 		const [call] = fetchImpl.mock.calls as unknown as [string, RequestInit][];
 		const body = JSON.parse(String(call?.[1].body)) as {
 			messages: { role: string; content: string }[];
 		};
 		const system = body.messages.find((message) => message.role === "system");
-		expect(system?.content).toContain(actual.VIDEO_CAPTION_ALT_RULES);
-		expect(system?.content).not.toContain(actual.VIDEO_CAPTION_HOUSE_RULES);
+		return { actual, system: system?.content ?? "" };
+	}
+
+	it("sends an exempt person's caption call the alt block", async () => {
+		queued.variant.mockResolvedValue(true);
+		const { actual, system } = await systemMessageOfTheCaptionCall();
+		expect(system).toContain(actual.VIDEO_CAPTION_ALT_RULES);
+		expect(system).not.toContain(actual.VIDEO_CAPTION_HOUSE_RULES);
 	});
+
+	it.each([
+		[5, "five"],
+		[10, "ten"],
+	] as const)(
+		"tells the caption model a %i s take covers %s seconds",
+		async (seconds, said) => {
+			const { system } = await systemMessageOfTheCaptionCall({
+				input: { durationSeconds: seconds },
+			});
+			expect(system).toContain(
+				`- The caption covers ${said} seconds of action.`,
+			);
+		},
+	);
 
 	it("defaults the take to 5 seconds with one caption", async () => {
 		await run();

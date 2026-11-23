@@ -71,6 +71,7 @@ async function captureSystemMessage(
 		variant?: LtxVideoVariant;
 		fromText?: boolean;
 		first?: string;
+		durationSeconds?: 5 | 10;
 	} = {},
 ): Promise<string> {
 	const fetchImpl = vi.fn(async () => jsonResponse("A caption."));
@@ -78,6 +79,9 @@ async function captureSystemMessage(
 		fetchImpl: fetchImpl as unknown as typeof fetch,
 		...(options.variant ? { variant: options.variant } : {}),
 		...(options.fromText !== undefined ? { fromText: options.fromText } : {}),
+		...(options.durationSeconds
+			? { durationSeconds: options.durationSeconds }
+			: {}),
 	};
 	if (options.first) {
 		await buildVideoContinuationPrompt("idea", options.first, buildOptions);
@@ -276,6 +280,59 @@ describe("the caption request's instruction blocks", () => {
 		);
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/leave out nothing it did name/i);
 	});
+});
+
+describe("the length the caption is told it covers", () => {
+	// A take is one render of five or ten seconds, so it is captioned once, and
+	// the caption model is told how much of the clip that caption covers.
+	const BLOCKS = [
+		{ name: "the house rules", variant: "standard", fromText: false },
+		{ name: "the alt rules", variant: "alt", fromText: false },
+		{ name: "the text-take rules", variant: "alt", fromText: true },
+	] as const;
+
+	it.each(BLOCKS)(
+		"tells the model a 10 s take covers ten seconds: $name",
+		async ({ variant, fromText }) => {
+			const sent = await captureSystemMessage({
+				variant,
+				fromText,
+				durationSeconds: 10,
+			});
+			expect(sent).toContain("- The caption covers ten seconds of action.");
+			expect(sent).not.toMatch(/five seconds of action/i);
+		},
+	);
+
+	it.each(BLOCKS)(
+		"changes nothing else in $name for a 10 s take",
+		async ({ variant, fromText }) => {
+			const five = await captureSystemMessage({
+				variant,
+				fromText,
+				durationSeconds: 5,
+			});
+			const ten = await captureSystemMessage({
+				variant,
+				fromText,
+				durationSeconds: 10,
+			});
+			expect(ten).toBe(
+				five.replace("covers five seconds", "covers ten seconds"),
+			);
+		},
+	);
+
+	it.each(BLOCKS)(
+		"tells the model a take that states no length covers five seconds: $name",
+		async ({ variant, fromText }) => {
+			const sent = await captureSystemMessage({ variant, fromText });
+			expect(sent).toContain("- The caption covers five seconds of action.");
+			expect(sent).toBe(
+				await captureSystemMessage({ variant, fromText, durationSeconds: 5 }),
+			);
+		},
+	);
 });
 
 describe("buildVideoPrompt", () => {
