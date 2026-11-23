@@ -61,11 +61,11 @@ What a read of the code found (23 November 2026, `workspace-search.ts`, `SearchM
 | Memory entry (native accounts) | Memory | none | the entry's text as the Memory page shows it | the entry in Knowledge > Memory |
 | Document, Slides, Canvas | Documents | Document, Slides, Canvas | name; a Document's and a Slides' text; a canvas's block text | as today (Knowledge hand-off) |
 | Uploaded file (not a picture or video) | Documents | Uploaded | name, extracted text | as today |
-| Generated file | Documents | File | name, label, its text | as today, with the source-chat button |
+| Generated file | Documents | Generated | name, label, its text | as today, with the source-chat button |
 | Research report (Atlas) | Documents | Report | name, its text | as today |
 | Skill Note | Documents | Skill Note | name, text | as today |
-| Picture (made or uploaded) | Pictures & videos | Picture | title, the prompt it was made from, what Alfy saw in an uploaded one (`image_descriptions`) | as today |
-| Video | Pictures & videos | Video | title, the prompt | as today |
+| Picture (made or uploaded) | Pictures & videos | Image | title, the prompt it was made from, what Alfy saw in an uploaded one (`image_descriptions`) | as today |
+| Video | Pictures & videos | Video | title, the prompt (kept on the job that made it) | as today |
 | App | Apps | App | name, summary (never its code) | as today |
 
 ### 2. Chips, counts and paging
@@ -85,27 +85,35 @@ What a read of the code found (23 November 2026, `workspace-search.ts`, `SearchM
 
 ### 4. Matching
 
-- The query is split into words; a result must contain every word, in any order, anywhere in one of its matched fields, inside a longer word too ("ajánlat" finds "szállásajánlatok").
-- Case and accents are folded on both sides, so "arviz", "árvíz" and "ÁRVÍZ" find "Árvíztűrő".
-- The query needs at least two characters, as today; at most eight words count.
+- The query is split into words; a result must contain every word, in any order, inside longer words too ("ajánlat" finds "szállásajánlatok"). Different words may sit in different matched fields of the same item, and, for a chat, in its title, its project's name or different messages.
+- Case and accents are folded on both sides, so "arviz", "árvíz" and "ÁRVÍZ" find "Árvíztűrő" (long text gets full accent folding in Stage B; see 6).
+- The query needs at least two characters, as today; at most eight words count; a query with no words once punctuation is trimmed shows the empty-query view.
+- Kind badges reuse the app's own words (`artifacts.type.*`: Image, Video, Slides, Canvas, which is "Tábla" in Hungarian; the search's own Uploaded, Generated and Skill note), and a report's job id is never matched.
 - A JSON body is read through its own reader (picture and video prompts, canvas block text) and never matched as raw JSON; an App's code is never searched.
 - Ranking keeps today's field weights (a title or name above a summary above body text) and breaks ties by recency.
 
 ### 5. Memory results
 
 - Only for an account on native Memory with Memory switched on; searched across the personal bank and every project bank the person owns, using the same visibility rules as the Memory page (an entry shows only when the page would show it).
-- A memory result opens `/knowledge?tab=memory&scope=<personal|project:id>&entry=<rowId>&q=<query>`. The Memory view opens that entry's detail; if the entry has changed since (a new generation without that row), it opens the scope's list with the search filled in. The parameters are then removed from the address.
+- A memory result opens `/knowledge?tab=memory&memoryScope=<personal|project:id>&memoryEntry=<rowId>&memoryQuery=<query>` (the page's `q` would turn it to Documents). The Memory view opens that entry's detail, finding it past the first page of 50; if the entry has changed since (a new generation without that row), it opens the scope's list with the search filled in. The address is then replaced with `?tab=memory`.
+- A bank that cannot be read (retired, blocked, a stale generation) is skipped, so one bad bank never hides the rest. The Memory page's own search uses the same matcher, so the filled-in list finds what search found.
 - Legacy-authority accounts get no memory results (after the Memory redesign's part 5 there are none).
 
 ### 6. The engine, in two stages
 
 **Stage A (no database change).** Short fields (chat titles, project names, document names, labels and summaries, memory entries, picture descriptions, prompts and canvas text) are matched in the server with the folding above. Message and document bodies keep SQL `LIKE` candidate selection with a hard cap, one clause per word with its typed, lower-case, capitalised and upper-case spellings, so accented capitals match; the candidates are then checked with the folding above. In Stage A, typing without accents finds titles, names and memory but not body text.
 
-**Stage B (a full-text index).** Two SQLite FTS5 tables with the trigram tokenizer and diacritics removed (`tokenize="trigram remove_diacritics 1"`): one over `messages.content`, one over `artifacts` name, summary and content text. Both are external-content tables kept in step by insert, update and delete triggers, so no writer changes, and are filled once by the migration (`'rebuild'`). Words of three or more characters are matched through the index; shorter ones are checked on the candidates. Trigram keeps today's anywhere-in-the-word matching, which Hungarian compounds need; the word tokenizer (`unicode61 remove_diacritics 2`) is smaller but cannot find "ajánlat" inside "szállásajánlatok". Checked on the bundled SQLite 3.53.2: both tokenizers exist, and trigram finds every case above.
+**Stage B (a full-text index), in its own plan.** SQLite FTS5 tables with the trigram tokenizer and diacritics removed (`tokenize="trigram remove_diacritics 1"`), over messages and over the artifacts that hold text, kept in step by triggers so no writer changes. Trigram keeps today's anywhere-in-the-word matching, which Hungarian compounds need; the word tokenizer (`unicode61 remove_diacritics 2`) is smaller but cannot find "ajánlat" inside "szállásajánlatok". Checked on the bundled SQLite 3.53.2: both tokenizers exist, trigram finds every case above, and the app runs no `VACUUM` while its backups use SQLite's online backup API, which keeps row ids.
 
-Stage B goes ahead only after a count-only measurement of how much text the two tables would index on production (owner-approved): a trigram index is roughly three times the indexed text. The owner then chooses trigram, the smaller word tokenizer, or staying on Stage A.
+Stage B goes ahead only after a count-only measurement of exactly the text it would index on production (owner-approved; a trigram index is roughly three times that text). The owner then chooses trigram, the smaller word tokenizer, or staying on Stage A. The independent review of 23 November found what its plan must handle:
 
-The app runs no `VACUUM` and its backups use SQLite's online backup API, which keeps row ids, so an index keyed by row id stays valid; a migration that rebuilds `messages` or `artifacts` must recreate the triggers and rebuild the index, and a test fails if the index stops following its table after all migrations.
+- An external-content table's `'delete'` with values that differ from what was indexed throws `SQLITE_CORRUPT_VTAB`, which would break message edits, chat deletes and account erasure, not only search. Prefer `contentless_delete=1` tables keyed by row id, which delete by row id alone, and repair by refilling from the base tables.
+- Index only rows that hold text (never App code or picture, video and canvas JSON), with the same condition on every trigger.
+- `INSERT OR REPLACE` skips delete triggers: none on `messages` or `artifacts`. A `"` inside a `MATCH` phrase is doubled. `'optimize'` runs after an account erasure.
+- The containment test's table list (`incognito-artifact-containment.test.ts:1960-1976`) and the e2e `wipeUserData` (`e2e-servers.ts:172`) must know the new tables and leave the shadow tables alone; drizzle-kit gets a `tablesFilter`.
+- The deploy's `PRAGMA integrity_check` (`deploy-lib.sh:185`) opens FTS5 tables on SQLite 3.44 and later: confirm the box's `sqlite3` has FTS5 and is 3.45 or newer first.
+- Migrations here are written by hand (`1777140000139_…`, `when` equal to that number); a generated one would be skipped. Every statement ends with `--> statement-breakpoint`, and the number is agreed with the Memory redesign's own migrations.
+- Its speed check uses several users and newest-first ordering by row id.
 
 ### 7. Fixes along the way
 
@@ -126,13 +134,14 @@ The app runs no `VACUUM` and its backups use SQLite's online backup API, which k
 ## Calls I made (the owner may change any of them)
 
 1. Chips: All, Chats, Memory, Documents, Pictures & videos, Apps. "Chats" replaces "Conversations" in English (Hungarian keeps "Beszélgetések"). Canvases and Slides sit under Documents; Apps get their own chip; Memory comes second.
-2. Reports become a badge under Documents and mean research reports only.
+2. Reports become a badge under Documents and mean research reports only; badges reuse the app's existing words ("Image", "Generated", "Tábla" for a canvas in Hungarian) rather than new ones.
 3. Counts stop at 100 ("99+"); "All" shows three per kind; a chip shows 20 per page.
 4. Matching folds case and accents, takes words in any order and finds them inside longer words.
-5. Two stages, the index only after the size measurement, trigram as the default tokenizer.
-6. Memory results only for native accounts; the link removes its parameters after use; a changed entry falls back to the filled-in list.
+5. Two stages: Stage A ships first; Stage B gets its own plan after the size measurement, trigram as the default tokenizer.
+6. Memory results only for native accounts; the link has its own parameter names and leaves the address at `?tab=memory`; a changed entry falls back to the filled-in list; the Memory page's own search adopts the same matcher.
 7. The Knowledge overflow row is removed.
 8. An uploaded picture sits under Pictures & videos, not Documents.
+9. Different words of a query may sit in different fields of one item, and in different messages of one chat.
 
 ## Left to the builder
 
