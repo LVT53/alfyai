@@ -1,7 +1,11 @@
 import { expect, it } from "vitest";
 import type { AdmittedMemoryEvidence } from "$lib/memory-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
-import { formatRecalledMemory, recallLineTokens } from "./recall-format";
+import {
+	formatRecalledMemory,
+	RECALL_TIMES_NOTE,
+	recallLineTokens,
+} from "./recall-format";
 
 const now = new Date("2026-11-23T12:00:00Z");
 const daysAgo = (d: number) =>
@@ -30,6 +34,7 @@ it("says when each entry was last said", () => {
 		),
 	).toBe(
 		[
+			RECALL_TIMES_NOTE,
 			"- d0 (said less than a day ago)",
 			"- d1 (said 1 day ago)",
 			"- d3 (said 3 days ago)",
@@ -53,7 +58,9 @@ it("gives an undated entry no age and counts a future date as less than a day", 
 			],
 			now,
 		),
-	).toBe("- undated\n- bad\n- future (said less than a day ago)");
+	).toBe(
+		`${RECALL_TIMES_NOTE}\n- undated\n- bad\n- future (said less than a day ago)`,
+	);
 });
 
 it("puts the project's entries after the person's, under their own line", () => {
@@ -70,20 +77,52 @@ it("puts the project's entries after the person's, under their own line", () => 
 });
 
 it("never costs more than recallLineTokens for a row", () => {
+	// A timed row brings the note on the times, which recall reserves apart.
+	const note = estimateTokenCount(RECALL_TIMES_NOTE);
 	for (const d of [null, 0, 1, 5, 20, 100, 800]) {
-		const line = formatRecalledMemory(
+		const out = formatRecalledMemory(
 			[item("Prefers green tea", d === null ? null : daysAgo(d))],
 			now,
 		);
-		expect(estimateTokenCount(line)).toBeLessThanOrEqual(
-			recallLineTokens("Prefers green tea"),
-		);
+		expect(
+			estimateTokenCount(out) - (d === null ? 0 : note),
+		).toBeLessThanOrEqual(recallLineTokens("Prefers green tea"));
 	}
 	expect(
 		estimateTokenCount(
 			formatRecalledMemory([item("Prefers green tea", daysAgo(0))], now),
-		),
+		) - note,
 	).toBe(recallLineTokens("Prefers green tea"));
+});
+
+it("opens timed rows with one line on what the times mean", () => {
+	const out = formatRecalledMemory(
+		[
+			item("Likes tea", daysAgo(400)),
+			item("Undated", null),
+			item("Project A", daysAgo(3), "project"),
+		],
+		now,
+	);
+	const lines = out.split("\n");
+	expect(lines[0]).toBe(RECALL_TIMES_NOTE);
+	expect(lines.filter((line) => line === RECALL_TIMES_NOTE)).toHaveLength(1);
+	expect(lines.slice(1)).toEqual([
+		"- Likes tea (said 13 months ago)",
+		"- Undated",
+		"Remembered for this project:",
+		"- Project A (said 3 days ago)",
+	]);
+});
+
+it("writes no line on the times without a timed row", () => {
+	expect(formatRecalledMemory([], now)).toBe("");
+	expect(
+		formatRecalledMemory(
+			[item("Undated", null), item("Bad", "not a date")],
+			now,
+		),
+	).not.toContain(RECALL_TIMES_NOTE);
 });
 
 it("adds only ASCII words that name no language and give no reply instruction", () => {

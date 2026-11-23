@@ -34,7 +34,11 @@ import {
 	type RecallCandidate,
 	type RecallLane,
 } from "./recall-allocation";
-import { RECALL_PROJECT_HEADING, recallLineTokens } from "./recall-format";
+import {
+	RECALL_PROJECT_HEADING,
+	RECALL_TIMES_NOTE,
+	recallLineTokens,
+} from "./recall-format";
 import { CORE_MEMORY_QUERY, messageRecallQuery } from "./recall-query";
 
 /** An accepted row recall may offer, with what its entry is built from. */
@@ -236,10 +240,12 @@ export async function recallMemory(
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
 		// The section goes into the prompt whole, so the budget holds every
-		// formatted line and, in a project chat, the project's heading.
+		// formatted line, the line on what the times mean and, in a project
+		// chat, the project's heading.
 		const sectionBudget = Math.max(
 			0,
 			budget -
+				estimateTokenCount(RECALL_TIMES_NOTE) -
 				(chat.projectId ? estimateTokenCount(RECALL_PROJECT_HEADING) : 0),
 		);
 		const offered = new Map<string, OfferedRow>();

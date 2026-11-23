@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RECALL_TIMES_NOTE } from "./memory-context/recall-format";
 
 const mockGetPersonaSummary = vi.fn();
 const mockGetActiveMemoryProfileContext = vi.fn();
@@ -342,6 +343,8 @@ describe("memory-context persona recall v2", () => {
 		});
 		if (res.mode !== "persona") throw new Error("expected persona");
 		expect(res.source).toBe("hindsight");
-		expect(res.content).toBe("- Prefers green tea (said 1 day ago)");
+		expect(res.content).toBe(
+			`${RECALL_TIMES_NOTE}\n- Prefers green tea (said 1 day ago)`,
+		);
 	});
 });

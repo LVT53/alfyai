@@ -9,9 +9,13 @@ import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	formatRecalledMemory,
 	RECALL_PROJECT_HEADING,
+	RECALL_TIMES_NOTE,
 	recallLineTokens,
 } from "./recall-format";
 import { CORE_MEMORY_QUERY } from "./recall-query";
+
+/** The line on what the times mean: recall reserves it like the heading. */
+const N = estimateTokenCount(RECALL_TIMES_NOTE);
 
 let sqlite: Database.Database;
 vi.mock("$lib/server/db", () => ({
@@ -289,7 +293,8 @@ it("fits the formatted section in its budget", async () => {
 	const budget =
 		recallLineTokens("Personal preference") +
 		recallLineTokens("Project decision") +
-		estimateTokenCount(RECALL_PROJECT_HEADING);
+		estimateTokenCount(RECALL_PROJECT_HEADING) +
+		N;
 	const { recallMemory } = await import("./native");
 	const both = await recallMemory("u", {
 		conversationId: "c",
@@ -300,6 +305,8 @@ it("fits the formatted section in its budget", async () => {
 		"Personal preference",
 		"Project decision",
 	]);
+	// The line on what the times mean is part of what must fit.
+	expect(formatRecalledMemory(both, new Date())).toContain(RECALL_TIMES_NOTE);
 	expect(
 		estimateTokenCount(formatRecalledMemory(both, new Date())),
 	).toBeLessThanOrEqual(budget);
@@ -320,7 +327,7 @@ it("gives a project chat's own entries their share even when the person's entrie
 	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
 	expect(L).toBe(recallLineTokens("Project fact 00"));
 	seedFairSplit(20);
-	const budget = 20 * L + H;
+	const budget = 20 * L + H + N;
 	const { recallMemory } = await import("./native");
 	const result = await recallMemory("u", {
 		conversationId: "c",
@@ -348,7 +355,7 @@ it("fills the rest with personal entries when the project has few", async () => 
 	const result = await recallMemory("u", {
 		conversationId: "c",
 		query: "facts",
-		tokenBudget: 20 * L + H,
+		tokenBudget: 20 * L + H + N,
 	});
 	expect(result.map(({ text }) => text)).toEqual([
 		...personalTexts.slice(0, 18),
@@ -362,7 +369,7 @@ it("keeps a personal chat's recall in ranking order", async () => {
 	const result = await recallMemory("u", {
 		conversationId: "personal",
 		query: "facts",
-		tokenBudget: 10 * L,
+		tokenBudget: 10 * L + N,
 	});
 	expect(result.map(({ text }) => text)).toEqual(personalTexts.slice(0, 10));
 });
@@ -1033,7 +1040,7 @@ it("brings the project entry whose text the message quotes", async () => {
 		conversationId: "c",
 		query: "Project fact 07",
 		// The person's entries alone would fill this budget.
-		tokenBudget: 4 * L + H,
+		tokenBudget: 4 * L + H + N,
 	});
 	expect(result.map(({ text }) => text)).toContain("Project fact 07");
 });
@@ -1152,7 +1159,7 @@ it.each([
 		const result = await recallMemory("u", {
 			conversationId: "personal",
 			query: "What should I cook tonight?",
-			tokenBudget: 20 * L,
+			tokenBudget: 20 * L + N,
 			core: true,
 		});
 		expect(result.map(({ text }) => text)).toEqual(expected);
@@ -1180,7 +1187,7 @@ it.each([
 		const result = await recallMemory("u", {
 			conversationId: "c",
 			query: "What should I cook tonight?",
-			tokenBudget: 20 * L + H,
+			tokenBudget: 20 * L + H + N,
 			core: true,
 		});
 		// Project lane, then the basics, then the message lane in turn.
