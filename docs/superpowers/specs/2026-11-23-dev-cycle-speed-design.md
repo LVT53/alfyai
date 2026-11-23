@@ -1,6 +1,6 @@
 # A faster development cycle: design
 
-Date: 2026-11-23. Status: **draft, waiting for the owner's approval**. Nothing in it is built yet. The builder check raised three questions, about the background clamp, measured runs and Codex. All three are settled here as design calls 9–11 in section 12. Code facts are from origin/main `652f7f3f0`. Vitest is 4.1.12 and Playwright 1.59.1.
+Date: 2026-11-23. Status: **approved by the owner on 2026-11-23**. The implementation plan is `docs/superpowers/plans/2026-11-23-dev-cycle-speed.md`. Nothing in it is built yet. The builder check raised three questions, about the background clamp, measured runs and Codex. All three are settled here as design calls 9–11 in section 12. Code facts are from origin/main `652f7f3f0`. Vitest is 4.1.12 and Playwright 1.59.1.
 
 ## 1. Intent
 
