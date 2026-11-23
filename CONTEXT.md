@@ -39,7 +39,7 @@ The compact no-query state of **Workspace Search**, showing a small set of recen
 _Avoid_: full recent history, library table, sidebar duplicate
 
 **Workspace Search Result Limits**:
-The compact caps that keep **Workspace Search** a fast navigation surface rather than a full results page. Under All, each kind shows at most three results, in the order Chats, Memory, Documents, Pictures & videos, Apps, with a "Show all N" link when there are more; a kind's own chip shows twenty at a time with "Load more". Every chip carries the true number of matches of its kind, counted up to 100 and shown as "99+" above that, and a candidate read stops at 400 rows of its own kind. Counts and pages are of chats, not messages.
+The compact caps that keep **Workspace Search** a fast navigation surface rather than a full results page. Under All, each kind shows at most three results, in the order Chats, Memory, Documents, Pictures & videos, Apps, with a "Show all N" link when there are more; a kind's own chip shows twenty at a time with "Load more". Every chip carries the true number of matches of its kind, counted up to 100 and shown as "99+" above that, and a candidate read stops at 400 rows of its own kind, taking the strongest matches first (every word in the title or name, then in the project, label or summary, then only in the text; newest first within each), so a crowd of newer mentions never hides the chat or document the words name. Counts and pages are of chats, not messages.
 _Avoid_: unlimited modal results, full search page, transcript listing
 
 **Workspace Search Query Threshold**:

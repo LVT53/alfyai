@@ -894,6 +894,46 @@ describe("searchDocuments", () => {
 		expect(await foundIds("orchard")).toEqual(["mine"]);
 	});
 
+	it("keeps the best matches when a full cap of newer rows only mention the word", async () => {
+		// The upload named for the word and the report labelled with it are old.
+		// Newer rows have it only in their summary (405) or only in their text
+		// (405 more). The cap keeps the strongest matches, not the newest.
+		addUpload("by-name", "Budget 2024.pdf", "application/pdf", {
+			updatedAt: minutes(0),
+		});
+		addGenerated("by-label", "Q3 report.pdf", { label: "Budget", minutes: 1 });
+		addArtifacts([
+			...Array.from({ length: 405 }, (_, index) => ({
+				id: `summary-${index}`,
+				type: "artifact",
+				name: `Review ${index}`,
+				metadata: { artifactType: "document" },
+				summary: "Where the budget went",
+				contentText: "numbers",
+				updatedAt: minutes(100 + index),
+			})),
+			...Array.from({ length: 405 }, (_, index) => ({
+				id: `mention-${index}`,
+				type: "artifact",
+				name: `Note ${index}`,
+				metadata: { artifactType: "document" },
+				contentText: "the budget is tight",
+				updatedAt: minutes(600 + index),
+			})),
+		]);
+		const found = await find("budget", "documents");
+		expect(
+			found.results
+				.slice(0, 3)
+				.map((row) => [row.displayArtifactId, row.match.type]),
+		).toEqual([
+			["by-name", "name"],
+			["by-label", "label"],
+			["summary-404", "summary"],
+		]);
+		expect(found.totals.documents).toBe(100);
+	});
+
 	it("never lets a JSON body or an app's code fill the candidate cap", async () => {
 		addFamily("real-board", "canvas", "Fruit board", {
 			contentText: JSON.stringify({

@@ -300,6 +300,34 @@ function wordClause(
 	return sql`(${sql.join(parts, sql` or `)})`;
 }
 
+/**
+ * How well a row's name, label and summary hold the words, read in SQL as
+ * `matchFields` weighs them in code: 0 when every word is in the name, 1 in the
+ * name or label, 2 in the name, label or summary, else 3 (the row's own text or
+ * body). The candidate read sorts by it first, so the cap keeps the strongest
+ * matches and never only the newest.
+ */
+function strengthSql(group: CandidateGroup, terms: readonly string[]): SQL {
+	const holdsEvery = (fields: (glob: string) => SQL[]): SQL =>
+		sql.join(
+			terms.map((term) => {
+				const glob = foldedGlob(term);
+				return sql`(${sql.join(fields(glob), sql` or `)})`;
+			}),
+			sql` and `,
+		);
+	const name = (glob: string) => sql`${artifacts.name} glob ${glob}`;
+	const label = (glob: string) =>
+		group.hasLabel ? [sql`${documentLabelSql} glob ${glob}`] : [];
+	const summary = (glob: string) => sql`${artifacts.summary} glob ${glob}`;
+	return sql`case
+		when ${holdsEvery((glob) => [name(glob)])} then 0
+		when ${holdsEvery((glob) => [name(glob), ...label(glob)])} then 1
+		when ${holdsEvery((glob) => [name(glob), ...label(glob), summary(glob)])} then 2
+		else 3
+	end`;
+}
+
 async function loadCandidates(
 	userId: string,
 	query: DocumentQuery,
@@ -326,7 +354,11 @@ async function loadCandidates(
 						),
 					),
 				)
-				.orderBy(desc(artifacts.updatedAt), artifacts.id)
+				.orderBy(
+					strengthSql(group, query.terms),
+					desc(artifacts.updatedAt),
+					artifacts.id,
+				)
 				.limit(SEARCH_CANDIDATE_CAP);
 			return rows.map((row) => ({ row, hasBody: group.hasBody }));
 		}),

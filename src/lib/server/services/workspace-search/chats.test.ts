@@ -199,6 +199,42 @@ describe("searchChats", () => {
 		]);
 	});
 
+	it("keeps the best matches when a full cap of newer chats only mention the words", async () => {
+		// The chats the person means are old; 405 newer ones merely say the words
+		// in a message. The cap must keep the strongest matches, not the newest.
+		addChat({
+			id: "by-title",
+			title: "Python notes",
+			messages: ["x"],
+			updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+		});
+		addProject("p-python", OWNER, "Python course");
+		addChat({
+			id: "by-project",
+			title: "Notes",
+			projectId: "p-python",
+			messages: ["x"],
+			updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+		});
+		for (let index = 0; index < 405; index++) {
+			addChat({
+				id: `mention-${index}`,
+				messages: ["my python notes"],
+				updatedAt: new Date(BASE.getTime() + index * 60_000),
+			});
+		}
+		const { results, total } = await searchChats(
+			OWNER,
+			words("python notes"),
+			PAGE,
+		);
+		expect(results.slice(0, 2).map((row) => [row.id, row.match.type])).toEqual([
+			["by-title", "title"],
+			["by-project", "project"],
+		]);
+		expect(total).toBe(100);
+	});
+
 	it("reports the newest message that holds the word", async () => {
 		addChat({
 			id: "c1",

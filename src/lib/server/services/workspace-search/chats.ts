@@ -135,6 +135,28 @@ function holdsWord(term: string, word: string): SQL {
 	)`;
 }
 
+/**
+ * How well a chat's title and project hold the words, read in SQL as `rankChat`
+ * reads it in code: 0 when every word is in the title, 1 when every word is in
+ * the title or the project, else 2. The candidate read sorts by it first, so the
+ * cap keeps the strongest matches and never only the newest.
+ */
+function strengthSql(terms: readonly string[]): SQL {
+	const globs = terms.map(foldedGlob);
+	const inTitle = sql.join(
+		globs.map((glob) => sql`${conversations.title} glob ${glob}`),
+		sql` and `,
+	);
+	const inTitleOrProject = sql.join(
+		globs.map(
+			(glob) =>
+				sql`(${conversations.title} glob ${glob} or ${projects.name} glob ${glob})`,
+		),
+		sql` and `,
+	);
+	return sql`case when ${inTitle} then 0 when ${inTitleOrProject} then 1 else 2 end`;
+}
+
 async function loadCandidateRows(
 	userId: string,
 	query: ChatQuery,
@@ -158,7 +180,11 @@ async function loadCandidateRows(
 				),
 			),
 		)
-		.orderBy(desc(conversations.updatedAt), conversations.id)
+		.orderBy(
+			strengthSql(query.terms),
+			desc(conversations.updatedAt),
+			conversations.id,
+		)
 		.limit(SEARCH_CANDIDATE_CAP);
 	return rows.map(normaliseRow);
 }
