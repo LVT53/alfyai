@@ -32,6 +32,7 @@ The probe runs 20 synthetic turns on Flash-Next (`qwen3-6-27b` through `inferenc
 | --- | --- | --- | ---: | ---: | --- |
 | 1 | 23 Nov 2026, 18:04 | `6c7c906dc` | 15 of 20 | 4 (3 / 1) | does not count |
 | 2 | 23 Nov 2026, 18:16 | `0f875d378` | 20 of 20 | 4 (2 / 2) | fail |
+| 3 | 23 Nov 2026, 18:31 | `901701c67` | 20 of 20 | 1 (0 / 1) | pass |
 
 ### Why run 1 does not count
 
@@ -56,4 +57,10 @@ Every turn got a reply, and every per-turn check held. Read by hand, all four fl
 
 No unflagged reply mentions the age.
 
-Nothing was changed after run 2: changing the wording is the owner's call.
+The owner then chose to try a note on what the times mean before taking the ages out (run 3).
+
+### Run 3
+
+Commit `901701c67` adds one line that opens the recalled rows whenever a row has a time. It says the time is when the person last mentioned the entry, not when it happened. It says facts that do not change stay true however long ago they were said. And it says the times only choose between entries that disagree. Recall reserves the line's tokens like the project heading's.
+
+Every turn got a reply, and every per-turn check held. The phrase list flagged one reply, but read by hand it is a false positive: "since then" refers to the device being replaced since it was fitted, not to the memory's age. Read by hand, no reply remarks on a fact's age or doubts it, so run 3 passes with 0 real remarks against the bar of 2. The ages stay in part 1, with the note.
