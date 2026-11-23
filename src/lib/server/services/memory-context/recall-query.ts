@@ -8,7 +8,7 @@ import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
 export const CORE_MEMORY_QUERY =
 	"Relevant user preferences, constraints and current context";
 
-/** A message shorter than this many words borrows the chat's title. */
+/** A message of at most this many words borrows the chat's title. */
 const SHORT_MESSAGE_WORDS = 4;
 const MAX_QUERY_CHARS = 500;
 const HEAD_CHARS = 300;
@@ -31,7 +31,7 @@ export function messageRecallQuery(
 		chatTitle !== "" && chatTitle !== DEFAULT_CONVERSATION_TITLE;
 	const wordCount = words === "" ? 0 : words.split(" ").length;
 	const query =
-		titleCounts && wordCount < SHORT_MESSAGE_WORDS
+		titleCounts && wordCount <= SHORT_MESSAGE_WORDS
 			? words
 				? `${chatTitle}: ${words}`
 				: chatTitle

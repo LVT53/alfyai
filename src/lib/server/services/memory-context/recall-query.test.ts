@@ -14,6 +14,18 @@ describe("messageRecallQuery", () => {
 		);
 	});
 
+	it("adds the chat's title to a follow-up of four words, not five", () => {
+		expect(messageRecallQuery("and the second one?", "Kitchen plan")).toBe(
+			"Kitchen plan: and the second one?",
+		);
+		expect(messageRecallQuery("Mi a helyzet vele?", "Konyhaterv")).toBe(
+			"Konyhaterv: Mi a helyzet vele?",
+		);
+		expect(
+			messageRecallQuery("what about the second one?", "Kitchen plan"),
+		).toBe("what about the second one?");
+	});
+
 	it("leaves a short message alone in a chat with no title yet", () => {
 		expect(messageRecallQuery("yes, do that", "New Conversation")).toBe(
 			"yes, do that",
