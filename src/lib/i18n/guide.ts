@@ -152,7 +152,7 @@ const guideDict = {
 			"Folders with their own instructions and files.",
 		"guide.entry.search.name": "Search",
 		"guide.entry.search.line":
-			"Find any chat or document; Ctrl/⌘+K on a keyboard.",
+			"Find any chat, memory, document, picture, video or app; Ctrl/⌘+K on a keyboard.",
 		"guide.entry.tidySidebar.name": "Tidy the sidebar",
 		"guide.entry.tidySidebar.line":
 			"Pin, drag into folders, or select many at once.",
@@ -329,7 +329,7 @@ const guideDict = {
 		"guide.entry.projects.line": "Mappák saját utasításokkal és fájlokkal.",
 		"guide.entry.search.name": "Keresés",
 		"guide.entry.search.line":
-			"Bármelyik beszélgetést vagy dokumentumot megtalálod; billentyűzeten: Ctrl/⌘+K.",
+			"Bármelyik beszélgetést, emléket, dokumentumot, képet, videót vagy alkalmazást megtalálod; billentyűzeten Ctrl/⌘+K.",
 		"guide.entry.tidySidebar.name": "Rendezd az oldalsávot",
 		"guide.entry.tidySidebar.line":
 			"Rögzíts, húzz mappákba, vagy jelölj ki egyszerre többet.",

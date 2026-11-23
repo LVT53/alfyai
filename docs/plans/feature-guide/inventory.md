@@ -70,7 +70,7 @@ Bring in what you already have.
 | Entry | What it covers | Door |
 |---|---|---|
 | Projects | Folders with their own instructions, files and a page of their own; drag a chat in, "Move to project", or start a chat inside one | button |
-| Search | Ctrl/⌘+K finds chats, documents and reports; scope chips | button |
+| Search | Ctrl/⌘+K finds chats, Memory entries, documents, pictures, videos and apps; chips for each kind with true counts | button |
 | Tidy the sidebar | Pin, drag into folders, select many (Select all, Pin, Move, Delete), collapse | button |
 | Incognito | A chat nothing is learned from; chosen before the first message, and it cannot be undone | button |
 | Home | Greeting and your week, Recent and Running now, your projects | button |
@@ -139,7 +139,7 @@ This is the consolidation list: the same thing named differently, or different t
 - The context ring's dialog is named "Context focus panel" but has no focus controls left. Its "What AlfyAI remembers" is a count of recent turns, not Memory. "Compaction: Deterministic / LLM fallback" is jargon.
 - Hungarian "chats": `sidebar.chatCount` says "beszélgetés" and `projects.listHeading` says "csevegés".
 - Hungarian Checklist: "Feladatlista" in Documents, "Ellenőrzőlista" in Canvas.
-- The Search placeholder says "Search conversations and documents" in English and "Keresés a munkaterületen" ("Search the workspace") in Hungarian.
+- The Search box says "Search chats, memory, documents and more" in English and "Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol" in Hungarian, on the sidebar's pill and in the modal's own box.
 - There are three "recent" lists: Home, Search's default and the sidebar.
 - "Project" vs "Project folder" and "No folder" (ChatGPT import).
 
@@ -163,7 +163,7 @@ Reported by the agents, not yet checked:
 - A permanently disabled History button, "History arrives with documents." (`artifacts.history.comingWithDocument`), sits in the older panel header for uploaded documents and Atlas reports (`DocumentWorkspace.svelte`).
 - The Memory tab has no "Memory is off" state.
 - The version badge does nothing when no release or welcome is published (`(app)/+layout.svelte`).
-- Search shows a disabled "Connections" chip, "Coming soon" (`search-scopes.ts`); Contacts cannot be connected on their own (`provider-catalog.ts`).
+- Search has no Connections scope: nothing indexes connections, so there is no chip for them (`search-scopes.ts`); Contacts cannot be connected on their own (`provider-catalog.ts`).
 - Browser notifications live only on the Atlas bell, with nothing in Settings (`MessageInput.svelte`).
 - A project's page lists only its newest 20 chats (`projects/[projectId]/+page.server.ts`); the way into a project is a new-chat icon labelled "Open {name}" (`ProjectItem.svelte`).
 - Pins and folders can be reordered only by dragging.
