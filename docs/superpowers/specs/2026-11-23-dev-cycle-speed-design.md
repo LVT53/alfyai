@@ -1,6 +1,6 @@
 # A faster development cycle: design
 
-Date: 2026-11-23. Status: **draft, waiting for the owner's approval**. Nothing in it is built yet. Code facts are from origin/main `652f7f3f0`. Vitest is 4.1.12 and Playwright 1.59.1.
+Date: 2026-11-23. Status: **draft, waiting for the owner's approval**. Nothing in it is built yet. The builder check raised three questions, about the background clamp, measured runs and Codex. All three are settled here as design calls 9–11 in section 12. Code facts are from origin/main `652f7f3f0`. Vitest is 4.1.12 and Playwright 1.59.1.
 
 ## 1. Intent
 
@@ -87,6 +87,8 @@ These numbers come from 452 gate summaries in the Claude and Codex session logs,
 - The e2e harness gives each worker its own server, port (`E2E_PORT + N`) and SQLite file. Specs seed rows through the app's own services in the Playwright process. `tests/e2e/e2e-env.ts` and `tests/e2e/global-setup.ts` describe this.
 - Claude and Codex sessions both run `scripts/gates.sh`, from the main checkout and from worktrees. At most two working sessions run at once (the owner's rule, 2026-11-17).
 - While the Claude app is not in front, it clamps a session's processes to priority 4: efficiency cores and throttled I/O. `taskpolicy` cannot lift the clamp. The memory note `alfyai-dev-process-speed` has the details.
+  - The app (`com.anthropic.claudefordesktop`) has no `NSAppSleepDisabled` setting, so App Nap is free to act on it. Whether App Nap is what causes the clamp has not been checked.
+  - Agents never change system or app settings themselves; only the owner does.
 - The docs check: these sessions have no Context7 or Svelte MCP, so use the official docs. vitest.dev now documents version 5, so check 4.1 behaviour against v4.vitest.dev or the installed package.
 
 ## 8. The design
@@ -102,13 +104,22 @@ Before anything else changes, one release gate runs on an otherwise idle Mac as 
 - **Unit tests.** Vitest's per-file times, from its JSON reporter, and its summary split: environment, import, tests, transform, setup.
 - **The Mac.**
   - Peak swap use and lowest free memory during the run, sampled every few seconds.
-  - The gate's own scheduling priority at the start. When it shows the background clamp, the summary says so, so a slow run explains itself.
+  - The gate's own scheduling priority, at the start and while it runs. When it shows the background clamp, the summary says so, so a slow run explains itself.
 - **History.**
-  - Each run appends its numbers to a small history file outside the repo.
+  - Each run appends its numbers, clamped or not, to a small history file in the repo's shared git directory (see Part 4's queue).
   - The release gate's summary shows its counts and times next to the previous release gate's.
   - It names the five slowest spec files.
 
 Every later part is judged by these numbers, against the baseline.
+
+**Measured runs.** These are the baseline, the re-measure before splitting spec files, the three final release gates and the three sample agent runs.
+- A measured run counts only if its summary shows three things:
+  - it ran alone, with the queue held and no other Playwright or vitest run going;
+  - it was not clamped at any point;
+  - no swap was in use when it started.
+- Agents start these runs themselves whenever those conditions hold. They don't book time with the owner.
+- A run that misses a condition is kept in the history, labelled as not counting, and repeated later.
+- If the clamp keeps blocking measured runs, that is Part 4's case for asking the owner.
 
 ### Part 1: Agent runs become selective
 
@@ -165,9 +176,12 @@ Every later part is judged by these numbers, against the baseline.
 ### Part 4: A polite Mac
 
 - **One heavy run at a time.**
-  - `gates.mjs` takes a machine-wide lock before it starts. Every checkout shares it, Claude's and Codex's alike, because they all go through `scripts/gates.sh`.
+  - `gates.mjs` takes a lock before it starts. The lock and the history file live in the repo's shared git directory (`git rev-parse --git-common-dir`, the main checkout's `.git`).
+  - Every worktree, Claude's under `.claude/worktrees` and Codex's under `~/.codex/worktrees`, shares that directory. A session can't commit unless it can write there.
+  - `$TMPDIR` can't be used: a Codex session may have a temp folder of its own.
   - A second gate waits. It prints whose run it is waiting for and how long that run has been going.
   - A lock whose process is gone is taken over.
+  - If a session can't take the lock, its gate says so on a line of its own and runs anyway. A Codex session must never be blocked by the queue.
   - AGENTS.md says a whole-suite or many-spec test run goes through the gate. Single files stay free.
 - **Leave headroom.** Cap the gate's footprint so a few performance cores and enough memory always stay free for the owner's apps.
   - The big users are svelte-check's 6 GB heap, vitest's workers, and the browser workers. Don't run them all at full width at once.
@@ -176,6 +190,10 @@ Every later part is judged by these numbers, against the baseline.
   - Try running the gate's processes at a lower priority (`nice`), so the owner's foreground apps win.
   - Keep it only if two things hold: a measured release gate on an idle Mac is no slower, and the timing-sensitive specs are no flakier with ordinary apps in front.
   - Never use background QoS (`taskpolicy -b` or `-c background`). It pins the work to the four efficiency cores.
+- **The background clamp: count it first, then ask.**
+  - After a week of Part 0's history, count how many gates were clamped, and how much slower and flakier they were.
+  - If clamped gates are a real share, an agent brings the owner the numbers and a one-time fix, and the owner decides. One candidate: turning off App Nap for the Claude app (`defaults write com.anthropic.claudefordesktop NSAppSleepDisabled -bool YES`, undone with `defaults delete`). Another: a launchd job that runs gates outside the app's process tree.
+  - Before proposing either, confirm with a controlled test that it actually lifts the clamp. Then measure again with this part's limits and priority in place, so an unclamped gate stays polite.
 
 ### Part 5: Keeping it fast
 
@@ -218,6 +236,7 @@ This order is the design session's call; the plan may refine it.
 - **A config change visibly falls back** to the whole unit suite.
 - **The always-run set catches a planted break.** A missing Hungarian string, or a tool reason code with no words, fails an agent run that never imports the file it sits in.
 - **The Mac holds up during a release gate:** swap does not grow, and a second gate started meanwhile waits its turn.
+- **Codex shares the queue.** The first gate a Codex session runs after the change appears in the history file, having either taken the lock or said why it couldn't.
 - **Two weeks later**, weekly gate hours and the release gate's failure rate are well below the numbers in section 3.
 
 ## 11. Left to the builder
@@ -227,7 +246,7 @@ This order is the design session's call; the plan may refine it.
 - The base ref for `--changed`, and how an agent overrides it.
 - The footprint numbers, and whether `nice` earns its place.
 - Which spec files to split, and where.
-- The history file's format and location.
+- The history file's format. Its place is decided: the shared git directory.
 - The details of failing fast, such as what counts as "still running".
 - Whether `login()` gains a `goto` option for tests that leave `/` at once. Only if the measurements say it is worth touching many specs.
 
@@ -241,3 +260,6 @@ This order is the design session's call; the plan may refine it.
 6. **The 10-minute target**, and treating a run over it like a build warning.
 7. **The order of work**, with the browser-test and unit-test changes as parallel tracks.
 8. **No Vitest 5 upgrade, no `isolate: false`, and no threads pool** in this round.
+9. **The background clamp is counted first.** The owner is asked about a one-time fix only if a week of numbers shows clamped gates matter. Agents never change the setting themselves.
+10. **Agents start the measured runs themselves**, whenever the gate can show it ran alone, unclamped and without swap. No booking time with the owner.
+11. **The queue's lock and the history live in the shared git directory**, and fail open: a session that can't take the lock runs anyway and says so.
