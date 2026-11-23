@@ -245,7 +245,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("returns capped recent conversations and openable documents for empty search", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		mockConversationRows.push(
 			{
 				id: "conv-4",
@@ -331,7 +331,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("searches conversation title, project metadata, and body with focus navigation", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		queueSelectChains(
 			[
 				{
@@ -404,7 +404,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("finds old conversation title matches outside the recent sidebar scan", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		const recentNonMatches = Array.from({ length: 200 }, (_, index) => ({
 			id: `recent-${index}`,
 			title: `Recent notes ${index}`,
@@ -445,7 +445,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("scopes project-name joins to the requesting user", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		queueSelectChains([], [], []);
 
 		await searchWorkspace("user-1", { query: "zephyr" });
@@ -454,7 +454,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("keeps at most one body match per conversation before ranking results", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		const busyMessages = Array.from({ length: 500 }, (_, index) => ({
 			id: "busy-conv",
 			title: "Busy import",
@@ -501,7 +501,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("uses body relevance before recency when choosing a conversation body match", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		queueSelectChains(
 			[],
 			[
@@ -553,7 +553,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("searches openable document metadata and content without returning full content", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		const promptDocTextRow = {
 			id: "prompt-doc",
 			contentText:
@@ -620,7 +620,7 @@ describe("searchWorkspace", () => {
 	});
 
 	it("uses bounded logical document and content candidates instead of loading every document", async () => {
-		const { searchWorkspace } = await import("./workspace-search");
+		const { searchWorkspace } = await import("./index");
 		const metadataDocument = makeDocument({
 			id: "metadata-doc",
 			displayArtifactId: "metadata-doc",
@@ -733,7 +733,7 @@ describe("searchWorkspace", () => {
 	// implementation here — see the module mock's own comment).
 	describe("the artifact family's typed-query candidates", () => {
 		it("finds a row by name and carries its kind on the result", async () => {
-			const { searchWorkspace } = await import("./workspace-search");
+			const { searchWorkspace } = await import("./index");
 			const familyRow = {
 				id: "art-canvas-1",
 				userId: "user-1",
@@ -771,7 +771,7 @@ describe("searchWorkspace", () => {
 		});
 
 		it("never surfaces an App from its body content alone — the re-score guard refuses to read it (Review Focus #3)", async () => {
-			const { searchWorkspace } = await import("./workspace-search");
+			const { searchWorkspace } = await import("./index");
 			// Simulates the defence-in-depth case: even if a row like this
 			// somehow became a candidate, `scoreDocument`'s own App guard must
 			// still refuse to score it by content — the candidate loader's SQL
@@ -810,7 +810,7 @@ describe("searchWorkspace", () => {
 		});
 
 		it("excludes a candidate that isArtifactCanonicallyOwned refuses, mirroring the other two loaders", async () => {
-			const { searchWorkspace } = await import("./workspace-search");
+			const { searchWorkspace } = await import("./index");
 			const foreignRow = {
 				id: "art-foreign-1",
 				userId: "someone-else",
@@ -836,7 +836,7 @@ describe("searchWorkspace", () => {
 		});
 
 		it("already includes an artifact-family row in the default (empty-query) view, with no further code change", async () => {
-			const { searchWorkspace } = await import("./workspace-search");
+			const { searchWorkspace } = await import("./index");
 			mockListLogicalDocumentsPage.mockResolvedValue({
 				documents: [
 					makeDocument({

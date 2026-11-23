@@ -626,7 +626,7 @@ const ALLOWED_WITHOUT_SCOPE: Record<string, string> = {
 	// person who had it. The sidebar even marks it with a badge, and none of
 	// these three is on a model path — they answer `/api/workspace-search` and
 	// `/api/home/summary` and nothing else.
-	"services/workspace-search.ts":
+	"services/workspace-search/index.ts":
 		"the user's own search over their own chats; its ARTIFACT halves are scoped, its conversation halves are a listing",
 	"services/home-summary.ts":
 		"the home screen's weekly bars, recent list and projects row, rendered for the user, never fed to a model",
