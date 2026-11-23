@@ -677,6 +677,9 @@ async function reconcileDetached() {
 			detachedTimer = setTimeout(() => void reconcileDetached(), 3000);
 	}
 }
+// `view` changes while `open` awaits; a function reads it afresh where a
+// comparison would be narrowed to the last thing this function assigned.
+const detailIsOpen = () => view === "detail";
 /**
  * Opens what a link from search names: that entry's detail, found wherever it
  * sits in the scope's list, or, when the entry has changed since (no such row
@@ -716,7 +719,7 @@ export async function openLink(link: {
 			// The list is read behind the detail, for Back.
 			void load();
 			await open(found);
-			if (!alive || epoch !== navigationEpoch || view === "detail") return;
+			if (!alive || epoch !== navigationEpoch || detailIsOpen()) return;
 		}
 	}
 	query = link.query ?? "";
