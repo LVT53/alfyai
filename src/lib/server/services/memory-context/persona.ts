@@ -12,6 +12,7 @@ import { shortlistSemanticMatchesBySubject } from "$lib/server/services/semantic
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
 import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import { recallMemory } from "./native";
+import { formatRecalledMemory } from "./recall-format";
 import { buildMemoryReadSanitizer } from "./sanitize";
 import {
 	recordMemoryPromptTelemetry,
@@ -173,7 +174,7 @@ export async function getPersonaMemoryContext(
 			status: recalled.length ? "available" : "empty",
 			source: "hindsight",
 			content: recalled.length
-				? recalled.map((item) => `- ${item.text}`).join("\n")
+				? formatRecalledMemory(recalled, new Date())
 				: null,
 			evidenceCandidates:
 				params.includeEvidenceCandidates === false

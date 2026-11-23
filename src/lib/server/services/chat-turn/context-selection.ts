@@ -97,6 +97,7 @@ import {
 } from "../linked-context-sources";
 import { recallMemory } from "../memory-context/native";
 import { retrievePersonaMemory } from "../memory-context/persona";
+import { formatRecalledMemory } from "../memory-context/recall-format";
 import {
 	recordMemoryPromptTelemetry,
 	summarizeActiveMemoryProfileTelemetry,
@@ -398,6 +399,8 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	conversationId: string;
 	applicableScopes?: MemoryProfileScope[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
+	// The turn's one clock: each remembered entry says how long ago it was said.
+	now: Date;
 }): Promise<ActiveMemoryProfilePromptSection | null> {
 	// Read-side master gate. isMemoryActiveForConversation is the single source
 	// of truth (users.memoryEnabled AND not conversations.memoryIncognito). When
@@ -419,10 +422,16 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		const recalled = await recallMemory(params.userId, {
 			conversationId: params.conversationId,
 			query: "Relevant user preferences, constraints and current context",
-			tokenBudget: baselineMemoryProfileBudget.totalBudget,
+			// The section goes into the prompt whole: the note and the rows
+			// together fit its budget.
+			tokenBudget: Math.max(
+				0,
+				baselineMemoryProfileBudget.totalBudget -
+					estimateTokenCount(ACTIVE_MEMORY_PROFILE_NOTE),
+			),
 		});
 		if (!recalled.length) return null;
-		const content = recalled.map((item) => `- ${item.text}`).join("\n");
+		const content = formatRecalledMemory(recalled, params.now);
 		return {
 			section: {
 				title: "Remembered information",
@@ -1555,6 +1564,7 @@ async function buildShallowConstructedContext(params: {
 	maxModelContext: number;
 	historyToolMessages: HistoryToolMessagesMode;
 	historyBeforeMessageId?: string;
+	now: Date;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1654,6 +1664,7 @@ async function buildShallowConstructedContext(params: {
 					projectId,
 				}),
 				modelContextBudget: params.modelContextBudget,
+				now: params.now,
 			}),
 		),
 		projectFilesPromise,
@@ -1899,6 +1910,10 @@ export async function buildConstructedContext(params: {
 	// message, which is the person's own. That message and every later row (the
 	// segments the reply was saved as) come back as the run's continuation.
 	historyBeforeMessageId?: string;
+	// The turn's one clock (normal-chat-context.ts reads it once per turn), so a
+	// rebuild after automatic compression writes the same memory ages. Without
+	// it the clock is read once here.
+	now?: Date;
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
@@ -1911,6 +1926,7 @@ export async function buildConstructedContext(params: {
 	turnPictures: TurnPictureIndex;
 	_reuseData?: ConstructedContextReuseData;
 }> {
+	const now = params.now ?? new Date();
 	const historyToolMessages = params.historyToolMessages ?? "native";
 	const attachmentIds = params.attachmentIds ?? [];
 	const targetBudget =
@@ -1954,6 +1970,7 @@ export async function buildConstructedContext(params: {
 			maxModelContext,
 			historyToolMessages,
 			historyBeforeMessageId: params.historyBeforeMessageId,
+			now,
 		});
 	}
 	const projectIdPromise = getConversationProjectId(
@@ -2369,6 +2386,7 @@ export async function buildConstructedContext(params: {
 				],
 			}),
 			modelContextBudget,
+			now,
 		}),
 	]);
 

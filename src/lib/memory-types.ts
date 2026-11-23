@@ -82,6 +82,12 @@ export interface AdmittedMemoryEvidence {
 	ref: MemoryRef;
 	text: string;
 	sources: MemorySource[];
+	/**
+	 * When the entry was last said: the newest `explicitEditAt ?? assertedAt`
+	 * among the sources of its admitted supporting facts, as an ISO 8601
+	 * instant, or null when it has none (never an invented "now").
+	 */
+	lastMentionedAt: string | null;
 }
 
 export interface MemoryQuarantineCandidate {

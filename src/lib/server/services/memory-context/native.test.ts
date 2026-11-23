@@ -5,6 +5,12 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import {
+	formatRecalledMemory,
+	RECALL_PROJECT_HEADING,
+	recallLineTokens,
+} from "./recall-format";
 
 let sqlite: Database.Database;
 vi.mock("$lib/server/db", () => ({
@@ -124,6 +130,105 @@ it("recalls accepted personal and own-project only when native is offline", asyn
 		tokenBudget: 1000,
 	});
 	expect(personal.map((x) => x.text)).toEqual(["Personal preference"]);
+});
+it("reports the newest date among an entry's sources", async () => {
+	const db = drizzle(sqlite, { schema });
+	db.insert(schema.memoryBanks)
+		.values({
+			id: "b1",
+			userId: "u",
+			scopeKey: "personal",
+			epoch: 0,
+			generation: "g",
+		})
+		.run();
+	const facts = [
+		{ id: "f1", text: "Drinks green tea" },
+		{ id: "f2", text: "Drinks it hot" },
+	];
+	const source = {
+		bankId: "b1",
+		userId: "u",
+		epoch: 0,
+		context: "",
+		textHash: "hash",
+		state: "accepted",
+	};
+	db.insert(schema.memorySourceRevisions)
+		.values([
+			{
+				...source,
+				id: "s1",
+				eventId: "e-b1-1",
+				lineageId: "e-b1-1",
+				text: facts[0].text,
+				assertedAt: new Date("2026-10-01T00:00:00Z"),
+				acknowledgedFactsJson: JSON.stringify([facts[0]]),
+			},
+			{
+				...source,
+				id: "s2",
+				eventId: "e-b1-2",
+				lineageId: "e-b1-2",
+				text: facts[1].text,
+				assertedAt: new Date("2026-11-01T00:00:00Z"),
+				explicitEditAt: new Date("2026-11-10T00:00:00Z"),
+				acknowledgedFactsJson: JSON.stringify([facts[1]]),
+			},
+		])
+		.run();
+	db.insert(schema.memoryPublishedRows)
+		.values({
+			id: "r-b1",
+			bankId: "b1",
+			generation: "g",
+			epoch: 0,
+			nativeId: "n-b1",
+			text: "Drinks green tea hot",
+			nativeText: "Drinks green tea hot",
+			sourceIdsJson: JSON.stringify(["f1", "f2"]),
+			sourceFingerprintsJson: JSON.stringify(facts),
+			updatedAt: new Date(),
+		})
+		.run();
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "tea",
+		tokenBudget: 1000,
+	});
+	expect(result.map(({ text }) => text)).toEqual(["Drinks green tea hot"]);
+	expect(result[0].lastMentionedAt).toBe("2026-11-10T00:00:00.000Z");
+});
+it("fits the formatted section in its budget", async () => {
+	seed("b1", "personal", "Personal preference");
+	seed("b2", "project:p", "Project decision");
+	const budget =
+		recallLineTokens("Personal preference") +
+		recallLineTokens("Project decision") +
+		estimateTokenCount(RECALL_PROJECT_HEADING);
+	const { recallMemory } = await import("./native");
+	const both = await recallMemory("u", {
+		conversationId: "c",
+		query: "preferences",
+		tokenBudget: budget,
+	});
+	expect(both.map(({ text }) => text)).toEqual([
+		"Personal preference",
+		"Project decision",
+	]);
+	expect(
+		estimateTokenCount(formatRecalledMemory(both, new Date())),
+	).toBeLessThanOrEqual(budget);
+	const tight = await recallMemory("u", {
+		conversationId: "c",
+		query: "preferences",
+		tokenBudget: budget - 1,
+	});
+	expect(tight.map(({ text }) => text)).toEqual(["Personal preference"]);
+	expect(
+		estimateTokenCount(formatRecalledMemory(tight, new Date())),
+	).toBeLessThanOrEqual(budget - 1);
 });
 it("does not expose native raw/source expansion or an unaccepted changed observation", async () => {
 	seed("b1", "personal", "Accepted");

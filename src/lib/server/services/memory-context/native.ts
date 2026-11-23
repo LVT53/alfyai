@@ -28,6 +28,7 @@ import {
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
+import { RECALL_PROJECT_HEADING, recallLineTokens } from "./recall-format";
 /** Native ranking can select only exact, still-admitted accepted observations. */
 export async function recallMemory(
 	userId: string,
@@ -156,7 +157,13 @@ export async function recallMemory(
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
 		const output: AdmittedMemoryEvidence[] = [];
-		let remaining = Math.max(0, Math.floor(input.tokenBudget));
+		// The section goes into the prompt whole, so the budget holds every
+		// formatted line and, in a project chat, the project's heading.
+		let remaining = Math.max(
+			0,
+			Math.floor(input.tokenBudget) -
+				(chat.projectId ? estimateTokenCount(RECALL_PROJECT_HEADING) : 0),
+		);
 		for (const bank of banks) {
 			if (!readableIds.has(bank.id)) continue;
 			const ranking = rankings.get(bank.id) ?? null;
@@ -269,14 +276,18 @@ export async function recallMemory(
 			}
 			for (const row of accepted) {
 				if (ranking && !order.has(row.nativeId)) continue;
-				const tokens = estimateTokenCount(row.text);
+				const tokens = recallLineTokens(row.text);
 				if (tokens > remaining) continue;
 				const ids: unknown = JSON.parse(row.sourceIdsJson);
 				if (!Array.isArray(ids)) continue;
 				const sources: MemorySource[] = [];
 				const seen = new Set<string>();
+				let lastMentionedMs: number | null = null;
 				for (const fact of facts.filter((f) => ids.includes(f.id))) {
 					const source = fact.source;
+					const saidMs = (source.explicitEditAt ?? source.assertedAt).getTime();
+					if (lastMentionedMs === null || saidMs > lastMentionedMs)
+						lastMentionedMs = saidMs;
 					if (seen.has(source.id)) continue;
 					seen.add(source.id);
 					const origin = source.conversationId
@@ -306,6 +317,10 @@ export async function recallMemory(
 					ref: { scope, generation: row.generation, rowId: row.nativeId },
 					text: row.text,
 					sources,
+					lastMentionedAt:
+						lastMentionedMs === null
+							? null
+							: new Date(lastMentionedMs).toISOString(),
 				});
 				remaining -= tokens;
 			}
