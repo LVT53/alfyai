@@ -90,6 +90,11 @@ interface Config {
 	// person's basics, and in a project chat for the project's own memories.
 	memoryRecallCorePercent: number;
 	memoryRecallProjectPercent: number;
+	// Native Memory aging, in whole days: when a temporary entry becomes
+	// Earlier, and when an ongoing one goes quiet and then Earlier.
+	memoryTemporaryEarlierDays: number;
+	memoryOngoingQuietDays: number;
+	memoryOngoingEarlierDays: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -403,6 +408,18 @@ export function parseWholePercent(value: string | undefined): number | null {
 	if (!/^\d{1,3}$/.test(trimmed)) return null;
 	const percent = Number(trimmed);
 	return percent <= 100 ? percent : null;
+}
+
+/**
+ * A whole number of days from 1 to 3650 written as digits, or null for
+ * anything else, so the caller keeps what it had (a default, or the current
+ * value for an admin override). Zero is refused: an entry would age at once.
+ */
+export function parseWholeDays(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d{1,4}$/.test(trimmed)) return null;
+	const days = Number(trimmed);
+	return days >= 1 && days <= 3650 ? days : null;
 }
 
 /**
@@ -767,6 +784,12 @@ function readConfig(): Config {
 			parseWholePercent(process.env.MEMORY_RECALL_CORE_PERCENT) ?? 25,
 		memoryRecallProjectPercent:
 			parseWholePercent(process.env.MEMORY_RECALL_PROJECT_PERCENT) ?? 50,
+		memoryTemporaryEarlierDays:
+			parseWholeDays(process.env.MEMORY_TEMPORARY_EARLIER_DAYS) ?? 21,
+		memoryOngoingQuietDays:
+			parseWholeDays(process.env.MEMORY_ONGOING_QUIET_DAYS) ?? 21,
+		memoryOngoingEarlierDays:
+			parseWholeDays(process.env.MEMORY_ONGOING_EARLIER_DAYS) ?? 90,
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
 			1,

@@ -1726,6 +1726,18 @@ const settingsDict = {
 			"Project share of recall (%)",
 		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
 			"In a project chat, percent of the memory space kept for that project's own memories.",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.label":
+			"Temporary memories fade after",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.meaning":
+			"Days after a temporary memory was last mentioned, or after its event if that is later, before it counts as earlier and is no longer brought up on its own.",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.label":
+			"Ongoing memories go quiet after",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.meaning":
+			"Days without anything new about an ongoing activity before it is marked quiet.",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.label":
+			"Ongoing memories fade after",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.meaning":
+			"Days without anything new about an ongoing activity before it counts as earlier and is no longer brought up on its own.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Maintenance sweep",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":
@@ -3957,6 +3969,18 @@ const settingsDict = {
 			"Projekt aránya (%)",
 		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
 			"Projektbeszélgetésben a memóriakeret hány százaléka jut a projekt saját emlékeire.",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.label":
+			"Átmeneti emlékek elhalványulása",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.meaning":
+			"Hány nappal az utolsó említés után (vagy az esemény után, ha az későbbi) számít egy átmeneti emlék korábbinak, és nem kerül elő magától.",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.label":
+			"Folyamatban lévő emlékek csendessé válása",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.meaning":
+			"Hány nap kell új hír nélkül ahhoz, hogy egy folyamatban lévő tevékenység csendesnek számítson.",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.label":
+			"Folyamatban lévő emlékek elhalványulása",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.meaning":
+			"Hány nap kell új hír nélkül ahhoz, hogy egy folyamatban lévő tevékenység korábbinak számítson, és ne kerüljön elő magától.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Karbantartási körút",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":

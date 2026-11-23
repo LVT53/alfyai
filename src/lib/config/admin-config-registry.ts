@@ -424,6 +424,25 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// Read whenever recall or the Memory page decides what is Earlier.
+		key: "MEMORY_TEMPORARY_EARLIER_DAYS",
+		group: "memory",
+		control: int(1, 3650, "days"),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_ONGOING_QUIET_DAYS",
+		group: "memory",
+		control: int(1, 3650, "days"),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_ONGOING_EARLIER_DAYS",
+		group: "memory",
+		control: int(1, 3650, "days"),
+		effect: "live",
+	},
+	{
 		key: "WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 		group: "memory",
 		control: int(100, undefined, "tokens"),

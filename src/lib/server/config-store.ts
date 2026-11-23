@@ -11,7 +11,7 @@ import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
 import type { ImageModel, ModelConfig } from "./env";
-import { config as envConfig, parseWholePercent } from "./env";
+import { config as envConfig, parseWholeDays, parseWholePercent } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
 	getAvailableModelsWithProvidersForSettings,
@@ -139,6 +139,9 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
 	"MEMORY_RECALL_CORE_PERCENT",
 	"MEMORY_RECALL_PROJECT_PERCENT",
+	"MEMORY_TEMPORARY_EARLIER_DAYS",
+	"MEMORY_ONGOING_QUIET_DAYS",
+	"MEMORY_ONGOING_EARLIER_DAYS",
 	"HINDSIGHT_URL",
 	"HINDSIGHT_WORKER_ENABLED",
 	"HINDSIGHT_CONCURRENCY",
@@ -260,6 +263,9 @@ export interface RuntimeConfig {
 	memoryJudgeDryRun: boolean;
 	memoryRecallCorePercent: number;
 	memoryRecallProjectPercent: number;
+	memoryTemporaryEarlierDays: number;
+	memoryOngoingQuietDays: number;
+	memoryOngoingEarlierDays: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -427,6 +433,9 @@ function buildDefaultConfig(): RuntimeConfig {
 		memoryJudgeDryRun: envConfig.memoryJudgeDryRun,
 		memoryRecallCorePercent: envConfig.memoryRecallCorePercent,
 		memoryRecallProjectPercent: envConfig.memoryRecallProjectPercent,
+		memoryTemporaryEarlierDays: envConfig.memoryTemporaryEarlierDays,
+		memoryOngoingQuietDays: envConfig.memoryOngoingQuietDays,
+		memoryOngoingEarlierDays: envConfig.memoryOngoingEarlierDays,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -1133,6 +1142,20 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		const percent = parseWholePercent(value);
 		if (percent !== null) config.memoryRecallProjectPercent = percent;
 	},
+	// An aging threshold that is not a whole day count from 1 to 3650 leaves
+	// the current value: a typo must not make every entry Earlier at once.
+	MEMORY_TEMPORARY_EARLIER_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryTemporaryEarlierDays = days;
+	},
+	MEMORY_ONGOING_QUIET_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryOngoingQuietDays = days;
+	},
+	MEMORY_ONGOING_EARLIER_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryOngoingEarlierDays = days;
+	},
 	HINDSIGHT_CURATION_MODEL: (config, value) => {
 		config.hindsightCurationModel = /^(model[12]|provider:[^:]+:[^:]+)$/.test(
 			value.trim(),
@@ -1679,6 +1702,25 @@ export function getMemoryRecallShares(): {
 }
 
 /**
+ * Admin-configurable. When native Memory entries age, in whole days: a
+ * temporary entry is Earlier `temporaryEarlierDays` after the later of its
+ * last mention and its event; an ongoing one is quiet `ongoingQuietDays` and
+ * Earlier `ongoingEarlierDays` after its last mention
+ * (`memory-profile/entry-time.ts`).
+ */
+export function getMemoryAgingThresholds(): {
+	temporaryEarlierDays: number;
+	ongoingQuietDays: number;
+	ongoingEarlierDays: number;
+} {
+	return {
+		temporaryEarlierDays: runtimeConfig.memoryTemporaryEarlierDays,
+		ongoingQuietDays: runtimeConfig.memoryOngoingQuietDays,
+		ongoingEarlierDays: runtimeConfig.memoryOngoingEarlierDays,
+	};
+}
+
+/**
  * ADR 0063: the model configured for each Atlas v3 task. A `null` entry means
  * the task inherits ATLAS_SYNTHESIS_MODEL or ATLAS_AUDIT_MODEL; the inheritance
  * itself lives in `atlas-v3/config.ts` so the choice of which key a task falls
@@ -1960,6 +2002,9 @@ export function getResolvedAdminConfigValues(
 		),
 		MEMORY_RECALL_CORE_PERCENT: String(config.memoryRecallCorePercent),
 		MEMORY_RECALL_PROJECT_PERCENT: String(config.memoryRecallProjectPercent),
+		MEMORY_TEMPORARY_EARLIER_DAYS: String(config.memoryTemporaryEarlierDays),
+		MEMORY_ONGOING_QUIET_DAYS: String(config.memoryOngoingQuietDays),
+		MEMORY_ONGOING_EARLIER_DAYS: String(config.memoryOngoingEarlierDays),
 		HINDSIGHT_URL: config.hindsightUrl,
 		HINDSIGHT_WORKER_ENABLED: String(config.hindsightWorkerEnabled),
 		HINDSIGHT_CONCURRENCY: String(config.hindsightConcurrency),

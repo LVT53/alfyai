@@ -153,6 +153,40 @@ describe("promoted admin config keys", () => {
 		expect(getMemoryRecallShares().corePercent).toBe(0);
 	});
 
+	it("applies an aging threshold override and ignores one that is not a whole day count from 1 to 3650", async () => {
+		const {
+			ADMIN_CONFIG_KEYS,
+			getMemoryAgingThresholds,
+			getResolvedAdminConfigValues,
+			refreshConfig,
+		} = await import("./config-store");
+		expect(ADMIN_CONFIG_KEYS as readonly string[]).toEqual(
+			expect.arrayContaining([
+				"MEMORY_TEMPORARY_EARLIER_DAYS",
+				"MEMORY_ONGOING_QUIET_DAYS",
+				"MEMORY_ONGOING_EARLIER_DAYS",
+			]),
+		);
+		rows.push({ key: "MEMORY_ONGOING_EARLIER_DAYS", value: "120" });
+		rows.push({ key: "MEMORY_TEMPORARY_EARLIER_DAYS", value: "10" });
+		await refreshConfig();
+		expect(getMemoryAgingThresholds()).toEqual({
+			temporaryEarlierDays: 10,
+			ongoingQuietDays: 21,
+			ongoingEarlierDays: 120,
+		});
+		expect(
+			(getResolvedAdminConfigValues() as Record<string, string>)
+				.MEMORY_ONGOING_EARLIER_DAYS,
+		).toBe("120");
+		for (const value of ["abc", "0", "3651", "2.5", "-1"]) {
+			rows.length = 0;
+			rows.push({ key: "MEMORY_ONGOING_QUIET_DAYS", value });
+			await refreshConfig();
+			expect(getMemoryAgingThresholds().ongoingQuietDays, value).toBe(21);
+		}
+	});
+
 	it("reads a fractional Parallel free allowance as written", async () => {
 		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "2.5" });
 
