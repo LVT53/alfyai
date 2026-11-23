@@ -1,6 +1,6 @@
 # Memory redesign: a native Memory that stays useful (2026-11-22)
 
-Status: design, agreed with the owner in conversation on 21 and 22 November 2026; a builder check's nine questions are answered in place (see "Calls I made"). Not built. One owner decision is open: the tester account when part 5 retires the legacy system.
+Status: design, agreed with the owner in conversation from 21 to 23 November 2026; a builder check's nine questions are answered in place (see "Calls I made"). Not built.
 
 ## Why
 
@@ -30,6 +30,7 @@ The owner's goal: settle a working system that can ship and be left alone for a 
 - The Memory page uses **layout C, a subject index** (mockups in `docs/design/memory-redesign/`: phone 3 and 4, the Overview sheet 6 and 7, desktop 8 to 10).
 - **An Overview of the person comes back**, behind one row at the top, written only when opened, never refreshed in the background and never fed to chats (mockups 6, 7 and 10).
 - **The new subjects need a migration for every user's existing entries. The tester account (tester@tester.com) is excluded from it, and from every Memory migration, forever.**
+- When the legacy system is retired, the tester account starts fresh on native Memory with nothing carried over (decided 23 November 2026).
 - Recall must be fair to projects; model calls must wait their turn instead of failing; jobs must wait for Hindsight to finish; migration follow-ups only matter while accounts move between systems.
 - Order: (1) fair, time-aware recall; (2) what is remembered, the labels and the page; (3) model access that waits and jobs that wait; (4) retiring what migration no longer needs.
 - Ruled out: Hindsight mental models and Reflect for this purpose (they summarise on top and remove nothing; refreshes keep up to 50 stored versions including removed text; Reflect cannot be limited to given entries and bypasses our filtered recall), TTL or expiry jobs, nightly reconciliation, a merge or canonicaliser engine, entry caps, the validator veto hook, and any hosted helper.
@@ -158,10 +159,10 @@ The mockups' subject names and counts are examples (this document's lists govern
 After the last rollback window closes (sales: 22 December 2026; verify each account's `rollbackUntil` first):
 
 - Remove the legacy memory system's code (judge, nightly consolidation, the projection's write paths) and the migration-only machinery and operator scripts (prepare and rewind for migration, correction holds, the meaning-check approval tooling, `cc-*` scripts), keeping everything live accounts use: per-turn delivery, curation (edit, remove, add), publication, recall, the imported-history take-up and the history rules it relies on, Clear Memory and erasure.
-- This part removes code, not data. Dropping the legacy tables is a separate decision, after the tester question below.
+- This part removes code, not data. Dropping the legacy tables is a separate, later decision; until then the tester's legacy rows stay where they are.
 - New accounts start on native Memory.
 - The meaning-check follow-ups (withdraw-and-hold for a permanent forget failure; two approvals against the wrong baseline; a recorded pass surviving a return to baseline; fresh evidence for the new-assertion check; the repeated plan call) are retired with the tooling. If any new approval is needed before retirement, fix "two approvals against the wrong baseline" first.
-- **The tester account (the owner's decision, open).** It is excluded from every migration, so it is probably the last account on the legacy system this part removes. Options: (a) start it fresh on native Memory, empty, with its legacy rows left untouched: no migration touches it and the legacy code can go (recommended); (b) switch its Memory off; (c) keep the legacy system for this one account, which keeps the legacy code alive.
+- **The tester account starts fresh on native Memory (the owner's decision, 23 November 2026).** It is excluded from every migration, so it is likely the last account on the legacy system. Before the legacy code goes, it is switched to native Memory with empty banks. Nothing is carried over: no legacy rows, no chat history, no take-up of past or imported chats. Its legacy rows are left untouched and its own Memory settings stay as they are; from then on its new chats are delivered like anyone's. The switch is an operator step with a paired backup and the owner's go-ahead. It moves no data, so it is not a migration.
 - **The permanent tester rule.** A stored flag on the account, set once for tester@tester.com by a schema migration and keyed by user id from then on. One guard reads it; every migration of existing Memory data calls the guard (the label migration, the operator tools, any future migration), and each has a test showing the tester is skipped. The flag exists before the first label-migration run. Ordinary operation (delivery, bank configuration for new facts) is not a migration.
 
 ## The label migration for existing entries
