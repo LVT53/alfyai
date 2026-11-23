@@ -43,120 +43,170 @@ vi.mock("./hindsight-client", async (importOriginal) => ({
 	}),
 }));
 
+// The probe measures the wording, not the sandbox. run_python cannot reach
+// Docker on this Mac, and a run_python call that fails ends the turn without
+// a reply (it is not a read-only tool), so the probe's turns are offered every
+// tool but run_python. The app has no path of its own that leaves it out: a
+// degraded sandbox only adds a note to the tool's description. The system
+// prompt and the memory section are untouched.
+vi.mock("$lib/server/services/normal-chat-tools", async (importOriginal) => {
+	const original =
+		await importOriginal<
+			typeof import("$lib/server/services/normal-chat-tools")
+		>();
+	return {
+		...original,
+		createNormalChatTools: (
+			...args: Parameters<typeof original.createNormalChatTools>
+		) => {
+			const pack = original.createNormalChatTools(...args);
+			const { run_python: _sandboxOnly, ...tools } = pack.tools;
+			return { ...pack, tools } as typeof pack;
+		},
+	};
+});
+
 interface AgeTurn {
 	language: "en" | "hu";
+	/**
+	 * Facts on one topic never share a memory section, so each section holds
+	 * exactly one fact on its question's subject.
+	 */
+	topic: string;
 	/** A lasting fact: it does not go stale with time. */
 	fact: string;
 	/** A question that needs the fact. */
 	question: string;
 }
 
+// One invented person, consistent across both languages: every fact is the
+// only one on its subject, so no reply can meet two values for one thing.
 const TURNS: AgeTurn[] = [
 	{
 		language: "en",
+		topic: "blood type",
 		fact: "The user's blood type is A negative.",
 		question: "I'm filling in a blood donor form. What's my blood type?",
 	},
 	{
 		language: "en",
+		topic: "allergy",
 		fact: "The user is allergic to penicillin.",
 		question:
-			"My doctor wants to prescribe me an antibiotic. Is there anything I should mention?",
+			"My doctor wants to prescribe me an antibiotic. Is there one I must avoid?",
 	},
 	{
 		language: "en",
+		topic: "children",
 		fact: "The user's daughter is called Hanna.",
 		question:
 			"Write a two-line birthday card message for my daughter, with her name in it.",
 	},
 	{
 		language: "en",
+		topic: "birth",
 		fact: "The user was born in Pécs.",
 		question: "A form asks for my place of birth. What should I write?",
 	},
 	{
 		language: "en",
+		topic: "family dates",
 		fact: "The user's wedding anniversary is on 14 June.",
 		question:
 			"When is our wedding anniversary? I want to book a restaurant in time.",
 	},
 	{
 		language: "en",
+		topic: "eyesight",
 		fact: "The user has red-green colour blindness.",
 		question: "Which colour pairs should I avoid in charts I make for myself?",
 	},
 	{
 		language: "en",
+		topic: "handedness",
 		fact: "The user is left-handed.",
 		question:
 			"I'm buying new scissors and a computer mouse. Anything I should keep in mind?",
 	},
 	{
 		language: "en",
+		topic: "diet",
 		fact: "The user is lactose intolerant.",
 		question: "Can you suggest a dessert I could make for myself tonight?",
 	},
 	{
 		language: "en",
+		topic: "family dates",
 		fact: "The user's mother's birthday is on 2 May.",
 		question: "When should I order flowers for my mother's birthday?",
 	},
 	{
 		language: "en",
+		topic: "body size",
 		fact: "The user is 192 cm tall.",
 		question: "What frame size should I look for in a new road bike?",
 	},
 	{
 		language: "hu",
-		fact: "A felhasználó vércsoportja 0 pozitív.",
-		question: "Véradásra jelentkezem. Mi a vércsoportom?",
-	},
-	{
-		language: "hu",
-		fact: "A felhasználó allergiás a mogyoróra.",
-		question: "Milyen süteményt süssek magamnak a hétvégére?",
-	},
-	{
-		language: "hu",
+		topic: "children",
 		fact: "A felhasználó fiát Bencének hívják.",
 		question:
 			"Írj két soros születésnapi üdvözletet a fiamnak, a nevével együtt!",
 	},
 	{
 		language: "hu",
-		fact: "A felhasználó Debrecenben született.",
-		question: "Egy űrlap a születési helyemet kérdezi. Mit írjak be?",
-	},
-	{
-		language: "hu",
-		fact: "A felhasználó házassági évfordulója október 3-án van.",
-		question:
-			"Mikor van a házassági évfordulónk? Időben szeretnék asztalt foglalni.",
-	},
-	{
-		language: "hu",
+		topic: "diet",
 		fact: "A felhasználónak 1-es típusú cukorbetegsége van.",
 		question: "Milyen reggelit javasolsz nekem holnapra?",
 	},
 	{
 		language: "hu",
-		fact: "A felhasználó balkezes.",
-		question: "Új ollót és egeret veszek. Mire figyeljek?",
-	},
-	{
-		language: "hu",
+		topic: "diet",
 		fact: "A felhasználó lisztérzékeny.",
 		question: "Milyen kenyeret vegyek magamnak a pékségben?",
 	},
 	{
 		language: "hu",
+		topic: "family dates",
 		fact: "A felhasználó édesapja március 12-én született.",
 		question: "Mikor rendeljek ajándékot az édesapám születésnapjára?",
 	},
 	{
 		language: "hu",
-		fact: "A felhasználó 165 cm magas.",
-		question: "Mekkora vázméretű országúti biciklit keressek?",
+		topic: "body size",
+		fact: "A felhasználó cipőmérete 44.",
+		question: "Milyen méretű túracipőt rendeljek magamnak?",
+	},
+	{
+		language: "hu",
+		topic: "fears",
+		fact: "A felhasználó tériszonyos.",
+		question: "Kilátós túrát tervezek a barátaimmal. Mire figyeljek?",
+	},
+	{
+		language: "hu",
+		topic: "heart",
+		fact: "A felhasználónak szívritmus-szabályozója van.",
+		question:
+			"MRI-vizsgálatra hívtak. Mit mondjak el előtte az asszisztensnek?",
+	},
+	{
+		language: "hu",
+		topic: "birth",
+		fact: "A felhasználó 1985-ben született.",
+		question: "Hány éves leszek jövőre?",
+	},
+	{
+		language: "hu",
+		topic: "allergy",
+		fact: "A felhasználó allergiás a kutyaszőrre.",
+		question: "Kutyát szeretnénk a családba. Milyen fajtát javasolsz?",
+	},
+	{
+		language: "hu",
+		topic: "school",
+		fact: "A felhasználó a Kossuth Lajos utcai általános iskolába járt.",
+		question: "Melyik általános iskolába jártam? Osztálytalálkozót szerveznek.",
 	},
 ];
 
@@ -274,6 +324,23 @@ function sentText(body: string): string {
 	return out.join("\n");
 }
 
+/** Whether a chat request offered the model the run_python tool. */
+function offersRunPython(body: string): boolean {
+	try {
+		const tools = (JSON.parse(body) as { tools?: unknown }).tools;
+		return (
+			Array.isArray(tools) &&
+			tools.some(
+				(tool) =>
+					(tool as { function?: { name?: unknown } })?.function?.name ===
+					"run_python",
+			)
+		);
+	} catch {
+		return false;
+	}
+}
+
 const escapeRegExp = (text: string) =>
 	text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -387,10 +454,20 @@ describe.runIf(process.env.HINDSIGHT_NATIVE_ACCEPTANCE === "1")(
 				const verdicts: { language: "en" | "hu"; remark: string | null }[] = [];
 				let unanswered = 0;
 				for (const [index, turn] of TURNS.entries()) {
-					// The turn's own fact first, then three other old facts.
-					ranking = [0, 5, 10, 15].map(
-						(offset) => observations[(index + offset) % observations.length],
-					);
+					// The turn's own fact first, then three old facts on other
+					// topics, no two sharing one: exactly one fact on the
+					// question's subject.
+					const section = [index];
+					for (
+						let step = 1;
+						section.length < 4 && step < TURNS.length;
+						step++
+					) {
+						const other = (index + step * 7) % TURNS.length;
+						if (!section.some((i) => TURNS[i].topic === TURNS[other].topic))
+							section.push(other);
+					}
+					ranking = section.map((i) => observations[i]);
 					const before = sent.length;
 					const conversation = await createConversation(userId);
 					const result = await runPlainNormalChatSendModel({
@@ -419,10 +496,25 @@ describe.runIf(process.env.HINDSIGHT_NATIVE_ACCEPTANCE === "1")(
 					const aged = new RegExp(
 						`- ${escapeRegExp(turn.fact)} \\(said \\d+ (?:months|years) ago\\)`,
 					);
+					const turnBodies = sent.slice(before);
 					expect(
-						sent.slice(before).some((body) => aged.test(sentText(body))),
+						turnBodies.some((body) => aged.test(sentText(body))),
 						`turn ${index + 1} sent the fact with its age`,
 					).toBe(true);
+					// No second fact on the question's topic, and no run_python.
+					const sameTopic = TURNS.filter(
+						(other, i) => i !== index && other.topic === turn.topic,
+					);
+					expect(
+						turnBodies.some((body) =>
+							sameTopic.some((other) => sentText(body).includes(other.fact)),
+						),
+						`turn ${index + 1} sent another fact on its topic`,
+					).toBe(false);
+					expect(
+						turnBodies.some((body) => offersRunPython(body)),
+						`turn ${index + 1} offered run_python`,
+					).toBe(false);
 					const reply = result.text.trim();
 					if (!reply) unanswered += 1;
 					const remark = reply ? ageRemark(reply) : null;

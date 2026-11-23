@@ -440,7 +440,6 @@ const ROOMS_EN = [
 	"terrace",
 	"storeroom",
 ];
-const ITEMS_HU = ["pult", "csempe", "lámpák", "székek", "hűtőpult"];
 const CITIES_EN = ["Pécs", "Győr", "Szeged", "Eger", "Sopron"];
 
 const PERSONAL_FILLERS: Record<LiveLanguage, Filler[]> = {
@@ -477,13 +476,12 @@ const PROJECT_FILLERS: Record<
 			(m, n) =>
 				`For the café renovation, ${m} quoted ${1200 + n * 37} euros for the ${pick(ROOMS_EN, n)}.`,
 			(m, n) =>
-				`The café's ${pick(ROOMS_EN, n)} will be painted in a colour called ${m}.`,
+				`One of the paint samples we tried for the café's ${pick(ROOMS_EN, n)} is a colour called ${m}.`,
 			(m, n) =>
 				`We named a new pastry on the café menu the ${m}, priced at ${3 + (n % 5)} euros.`,
 		],
 		hu: [
-			(m, n) =>
-				`A kávézó felújításához a ${m} céget választottuk a ${pick(ITEMS_HU, n)} beszállítójának.`,
+			(m) => `A kávézó felújításához a ${m} cégtől is kértünk ajánlatot.`,
 			(m, n) =>
 				`A ${m} nevű villanyszerelő ${900 + n * 41} eurós árajánlatot adott a kávézóra.`,
 		],
@@ -495,12 +493,11 @@ const PROJECT_FILLERS: Record<
 			(m, n) =>
 				`For the language camp we priced a hostel called ${m} at ${20 + (n % 9)} euros a night.`,
 			(m, n) =>
-				`The camp's ${pick(["drama", "singing", "quiz", "film", "debate"], n)} session will take place in a room called ${m}.`,
+				`One of the rooms we looked at for the camp's ${pick(["drama", "singing", "quiz", "film", "debate"], n)} sessions is called ${m}.`,
 		],
 		hu: [
 			(m) => `A nyelvi tábor ${m} nevű csoportját egy önkéntes vezeti.`,
-			(m, n) =>
-				`A táborhoz a ${m} nevű szállót néztük ki ${2 + (n % 5)} éjszakára.`,
+			(m) => `A táborhoz a ${m} nevű szállót is megnéztük.`,
 		],
 	},
 };
@@ -564,11 +561,14 @@ export function buildLiveAccount(): LiveAccount {
 		const templates =
 			scope === "personal" ? PERSONAL_FILLERS : PROJECT_FILLERS[scope];
 		const own = makers.filter((maker) => maker.scope === scope).length;
+		// Each language takes its templates in turn, so every template is used.
+		const uses: Record<LiveLanguage, number> = { en: 0, hu: 0 };
 		for (let i = 0; own + i < SCOPE_SIZES[scope]; i++) {
 			// About a third in Hungarian.
 			const language: LiveLanguage = i % 3 === 2 ? "hu" : "en";
-			const fill = pick(templates[language], i);
-			const n = Math.floor(i / 3);
+			const use = uses[language]++;
+			const fill = pick(templates[language], use);
+			const n = Math.floor(use / templates[language].length);
 			makers.push({ scope, language, make: (m) => fill(m, n) });
 		}
 	}
