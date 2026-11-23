@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { estimateTokenCount } from "$lib/utils/tokens";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
+import { RECALL_TIMES_NOTE } from "../memory-context/recall-format";
+
+// Room for a few recalled rows, plus the line on what their times mean, which
+// recall reserves before any row once a row has a time. Without it these
+// recalls would find no room for a row and come back empty whatever their
+// scope, and an empty answer could no longer show Memory switched off.
+const RECALL_TEST_BUDGET = 100 + estimateTokenCount(RECALL_TIMES_NOTE);
 
 let h: EngineHarness;
 beforeEach(async () => {
@@ -2805,7 +2813,7 @@ it.each(["delete source", "decline history"] as const)(
 				await recallMemory(h.userId, {
 					conversationId,
 					query: "Memory",
-					tokenBudget: 100,
+					tokenBudget: RECALL_TEST_BUDGET,
 				})
 			)
 				.map(({ text }) => text)
@@ -3348,7 +3356,7 @@ it("reuses the accepted project source when history is included again after a ro
 		await recallMemory(h.userId, {
 			conversationId: "chat",
 			query: "Memory",
-			tokenBudget: 100,
+			tokenBudget: RECALL_TEST_BUDGET,
 		}),
 	).toEqual([]);
 	expect(
