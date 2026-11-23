@@ -426,6 +426,8 @@ async function buildActiveMemoryProfilePromptSection(params: {
 			query: params.message,
 			// The per-turn section keeps a core of the person's basics.
 			core: true,
+			// The turn's one clock decides what is Earlier.
+			now: params.now,
 			// The section goes into the prompt whole: the note and the rows
 			// together fit its budget.
 			tokenBudget: Math.max(

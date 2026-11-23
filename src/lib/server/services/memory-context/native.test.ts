@@ -16,6 +16,17 @@ import { CORE_MEMORY_QUERY } from "./recall-query";
 
 /** The line on what the times mean: recall reserves it like the heading. */
 const N = estimateTokenCount(RECALL_TIMES_NOTE);
+/** What an unlabelled row said today costs: the most a part 1 row cost. */
+const todayLine = (text: string) =>
+	recallLineTokens(
+		{
+			ref: { scope: { kind: "personal" }, generation: "g", rowId: text },
+			text,
+			sources: [],
+			lastMentionedAt: new Date().toISOString(),
+		},
+		new Date(),
+	);
 
 let sqlite: Database.Database;
 vi.mock("$lib/server/db", () => ({
@@ -291,8 +302,8 @@ it("fits the formatted section in its budget", async () => {
 	seed("b1", "personal", "Personal preference");
 	seed("b2", "project:p", "Project decision");
 	const budget =
-		recallLineTokens("Personal preference") +
-		recallLineTokens("Project decision") +
+		todayLine("Personal preference") +
+		todayLine("Project decision") +
 		estimateTokenCount(RECALL_PROJECT_HEADING) +
 		N;
 	const { recallMemory } = await import("./native");
@@ -323,9 +334,9 @@ it("fits the formatted section in its budget", async () => {
 	).toBeLessThanOrEqual(budget - 1);
 });
 it("gives a project chat's own entries their share even when the person's entries alone would fill it", async () => {
-	const L = recallLineTokens("Personal fact 00");
+	const L = todayLine("Personal fact 00");
 	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
-	expect(L).toBe(recallLineTokens("Project fact 00"));
+	expect(L).toBe(todayLine("Project fact 00"));
 	seedFairSplit(20);
 	const budget = 20 * L + H + N;
 	const { recallMemory } = await import("./native");
@@ -347,9 +358,9 @@ it("gives a project chat's own entries their share even when the person's entrie
 	).toBeLessThanOrEqual(budget);
 });
 it("fills the rest with personal entries when the project has few", async () => {
-	const L = recallLineTokens("Personal fact 00");
+	const L = todayLine("Personal fact 00");
 	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
-	expect(L).toBe(recallLineTokens("Project fact 00"));
+	expect(L).toBe(todayLine("Project fact 00"));
 	seedFairSplit(2);
 	const { recallMemory } = await import("./native");
 	const result = await recallMemory("u", {
@@ -363,7 +374,7 @@ it("fills the rest with personal entries when the project has few", async () => 
 	]);
 });
 it("keeps a personal chat's recall in ranking order", async () => {
-	const L = recallLineTokens("Personal fact 00");
+	const L = todayLine("Personal fact 00");
 	seedFairSplit(20);
 	const { recallMemory } = await import("./native");
 	const result = await recallMemory("u", {
@@ -1014,7 +1025,7 @@ it("cuts a long message before searching", async () => {
 		expect(Array.from(String(query)).length).toBeLessThanOrEqual(505);
 });
 it("brings the project entry whose text the message quotes", async () => {
-	const L = recallLineTokens("Personal fact 00");
+	const L = todayLine("Personal fact 00");
 	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
 	seedFairSplit(20);
 	const project = projectTexts(20);
@@ -1093,6 +1104,7 @@ it("logs one content-free line per bank", async () => {
 			slowestMs: expect.any(Number),
 			fallback: false,
 			rows: 2,
+			earlier: 0,
 		});
 		expect(byBank.get("project")).toEqual(
 			expect.objectContaining({
@@ -1154,7 +1166,7 @@ it.each([
 	async ({ corePercent, expected }) => {
 		shares = { corePercent, projectPercent: 50 };
 		seedShareRankings();
-		const L = recallLineTokens("Personal fact 00");
+		const L = todayLine("Personal fact 00");
 		const { recallMemory } = await import("./native");
 		const result = await recallMemory("u", {
 			conversationId: "personal",
@@ -1181,7 +1193,7 @@ it.each([
 	async ({ chosen, personal, project }) => {
 		shares = chosen;
 		seedShareRankings();
-		const L = recallLineTokens("Personal fact 00");
+		const L = todayLine("Personal fact 00");
 		const H = estimateTokenCount(RECALL_PROJECT_HEADING);
 		const { recallMemory } = await import("./native");
 		const result = await recallMemory("u", {
@@ -1194,3 +1206,278 @@ it.each([
 		expect(result.map(({ text }) => text)).toEqual([...personal, ...project]);
 	},
 );
+
+// Part 2: labels and Earlier, on one fixed clock.
+const NOW = new Date("2026-11-23T12:00:00Z");
+const ago = (days: number) => new Date(NOW.getTime() - days * 86_400_000);
+interface LabelledRow {
+	text: string;
+	kind?: "lasting" | "ongoing" | "temporary" | null;
+	/** Days ago each supporting fact was said. */
+	said: number[];
+	eventInDays?: number;
+	nativeText?: string;
+	authored?: boolean;
+}
+/** One bank whose rows carry labelled, dated facts. */
+function seedLabelled(bankId: string, scopeKey: string, rows: LabelledRow[]) {
+	const db = drizzle(sqlite, { schema });
+	db.insert(schema.memoryBanks)
+		.values({ id: bankId, userId: "u", scopeKey, epoch: 0, generation: "g" })
+		.run();
+	const ranking: Array<{
+		id: string;
+		text: string;
+		fact_type: string;
+		source_memory_ids: string[];
+	}> = [];
+	for (const [i, row] of rows.entries()) {
+		const facts = row.said.map((_, j) => ({
+			id: `f-${bankId}-${i}-${j}`,
+			text: `${row.text} (${j})`,
+		}));
+		for (const [j, fact] of facts.entries()) {
+			db.insert(schema.memorySourceRevisions)
+				.values({
+					id: `s-${bankId}-${i}-${j}`,
+					bankId,
+					userId: "u",
+					epoch: 0,
+					eventId: row.authored
+						? `manual:${bankId}-${i}-${j}`
+						: `${bankId}-${i}-${j}`,
+					lineageId: `${bankId}-${i}-${j}`,
+					text: fact.text,
+					context: "",
+					textHash: "hash",
+					assertedAt: ago(row.said[j]),
+					state: "accepted",
+					acknowledgedFactsJson: JSON.stringify([fact]),
+				})
+				.run();
+			db.insert(schema.memoryFactLabels)
+				.values({
+					bankId,
+					nativeFactId: fact.id,
+					kind: row.kind ?? null,
+					subject: null,
+					origin: "extraction",
+					eventAt:
+						row.eventInDays === undefined
+							? null
+							: new Date(NOW.getTime() + row.eventInDays * 86_400_000),
+				})
+				.run();
+		}
+		const nativeText = row.nativeText ?? row.text;
+		db.insert(schema.memoryPublishedRows)
+			.values({
+				id: `r-${bankId}-${i}`,
+				bankId,
+				generation: "g",
+				epoch: 0,
+				nativeId: `n-${bankId}-${i}`,
+				text: row.text,
+				nativeText,
+				sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
+				sourceFingerprintsJson: JSON.stringify(facts),
+				updatedAt: NOW,
+			})
+			.run();
+		ranking.push({
+			id: `n-${bankId}-${i}`,
+			text: nativeText,
+			fact_type: "observation",
+			source_memory_ids: facts.map(({ id }) => id),
+		});
+	}
+	return (indices: number[]) => indices.map((i) => ranking[i]);
+}
+/** Each bank's message and core rankings. */
+function rankings(
+	byBank: Record<string, { message: unknown[]; core?: unknown[] }>,
+) {
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) =>
+			query === CORE_MEMORY_QUERY
+				? (byBank[bankId]?.core ?? [])
+				: (byBank[bankId]?.message ?? []),
+	);
+}
+const MESSAGE = "What should I bring to the dentist on Friday?";
+async function turn(conversationId = "personal") {
+	const { recallMemory } = await import("./native");
+	return recallMemory("u", {
+		conversationId,
+		query: MESSAGE,
+		tokenBudget: 4000,
+		core: true,
+		now: NOW,
+	});
+}
+
+it("keeps Earlier entries out of the core", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: [], core: rank([0, 1]) } });
+	const result = await turn();
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});
+
+it("admits an Earlier entry only from the top three of its bank's ranking", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+		{ text: "Speaks Spanish", kind: "lasting", said: [30] },
+		{ text: "Had the flu", kind: "temporary", said: [50] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2, 3, 4]) } });
+	const result = await turn();
+	expect(result.map(({ text }) => text)).toEqual([
+		"Had a toothache",
+		"Lives in Graz",
+		"Plays chess",
+		"Speaks Spanish",
+	]);
+	expect(result[0]).toMatchObject({ kind: "temporary", timeState: "earlier" });
+	expect(formatRecalledMemory(result, NOW)).toContain(
+		"- Had a toothache (earlier, temporary, said 5 weeks ago)",
+	);
+});
+
+it("keeps at most three Earlier entries in a turn, the best ranked first", async () => {
+	const personal = seedLabelled("bp", "personal", [
+		{ text: "Had a cold", kind: "temporary", said: [60] },
+		{ text: "Had a sprain", kind: "temporary", said: [61] },
+		{ text: "Had a fever", kind: "temporary", said: [62] },
+	]);
+	const project = seedLabelled("bj", "project:p", [
+		{ text: "Old sprint deadline", kind: "temporary", said: [70] },
+		{ text: "Old review meeting", kind: "temporary", said: [71] },
+	]);
+	rankings({
+		bp: { message: personal([0, 1, 2]) },
+		bj: { message: project([0, 1]) },
+	});
+	const result = await turn("c");
+	expect(
+		result
+			.filter(({ timeState }) => timeState === "earlier")
+			.map(({ text }) => text),
+	).toEqual(["Had a cold", "Had a sprain", "Old sprint deadline"]);
+});
+
+it("never brings an Earlier entry when the bank's searches all failed", async () => {
+	seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	recall.mockRejectedValue(new Error("offline"));
+	const result = await turn();
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});
+
+it("the tool returns Earlier entries and earlier states, marked", async () => {
+	const rows: LabelledRow[] = [
+		{ text: "Lives in Gyor", kind: "lasting", said: [20] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+		{ text: "Speaks Spanish", kind: "lasting", said: [30] },
+		{ text: "Reads novels", kind: "lasting", said: [10] },
+		{ text: "Had the flu", kind: "temporary", said: [50] },
+		{
+			text: "Works at Kertesz Ltd.",
+			kind: "lasting",
+			said: [5],
+			nativeText:
+				"Works at Kertesz Ltd. (2025-06-01 10:00: The user worked at Harbor Bank.)",
+		},
+	];
+	const rank = seedLabelled("bp", "personal", rows);
+	rankings({ bp: { message: rank([0, 1, 2, 3, 4, 5]) } });
+	const { recallMemory } = await import("./native");
+	const tool = await recallMemory("u", {
+		conversationId: "personal",
+		query: "where did I work before",
+		tokenBudget: 4000,
+		now: NOW,
+	});
+	expect(tool.find(({ text }) => text === "Had the flu")).toMatchObject({
+		timeState: "earlier",
+	});
+	expect(
+		tool.find(({ text }) => text === "Works at Kertesz Ltd.")?.earlierStates,
+	).toEqual([
+		{
+			text: "The user worked at Harbor Bank.",
+			saidAt: "2025-06-01T10:00:00.000Z",
+		},
+	]);
+	const content = formatRecalledMemory(tool, NOW);
+	expect(content).toContain(
+		"- Had the flu (earlier, temporary, said 7 weeks ago)",
+	);
+	expect(content).toContain(
+		"  - earlier: The user worked at Harbor Bank. (said 18 months ago)",
+	);
+	// The per-turn section shows no earlier states.
+	const section = await turn();
+	expect(section.some(({ earlierStates }) => earlierStates?.length)).toBe(
+		false,
+	);
+});
+
+it("a new fact makes an ongoing entry current again; recall itself never does", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Builds a boat", kind: "ongoing", said: [120, 2] },
+		{ text: "Learns the cello", kind: "ongoing", said: [120] },
+	]);
+	rankings({ bp: { message: [], core: rank([0, 1]) } });
+	const first = await turn();
+	expect(first.map(({ text }) => text)).toEqual(["Builds a boat"]);
+	expect(first[0]).toMatchObject({ kind: "ongoing", timeState: "current" });
+	// Being recalled changed nothing: the quiet one is still left out.
+	expect((await turn()).map(({ text }) => text)).toEqual(["Builds a boat"]);
+});
+
+it("a labelled row reaches the model with its kind, an unlabelled one without", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{
+			text: "Has an exam on Friday",
+			kind: "temporary",
+			said: [10],
+			eventInDays: 4,
+		},
+		{ text: "Likes tea", kind: null, said: [3] },
+	]);
+	rankings({ bp: { message: rank([0, 1]) } });
+	const result = await turn();
+	expect(result.map(({ kind }) => kind ?? null)).toEqual(["temporary", null]);
+	const content = formatRecalledMemory(result, NOW);
+	expect(content).toContain(
+		"- Has an exam on Friday (temporary, said 10 days ago)",
+	);
+	expect(content).toContain("- Likes tea (said 3 days ago)");
+});
+
+it("an entry the person wrote never ages", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{
+			text: "Is recovering from surgery",
+			kind: "temporary",
+			said: [200],
+			authored: true,
+		},
+	]);
+	rankings({ bp: { message: [], core: rank([0]) } });
+	const result = await turn();
+	expect(result).toHaveLength(1);
+	expect(result[0].timeState).toBe("current");
+});

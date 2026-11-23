@@ -123,6 +123,12 @@ export interface AdmittedMemoryEvidence {
 	 * instant, or null when it has none (never an invented "now").
 	 */
 	lastMentionedAt: string | null;
+	/** The entry's kind once labelled (part 2); absent or null before labels. */
+	kind?: MemoryKind | null;
+	/** Earlier rows reach a turn only when its message is about them. */
+	timeState?: "current" | "quiet" | "earlier";
+	/** The states Hindsight kept before the current one, for the memory_context tool only. */
+	earlierStates?: Array<{ text: string; saidAt: string | null }>;
 }
 
 export interface MemoryQuarantineCandidate {

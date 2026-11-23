@@ -171,7 +171,22 @@ describe.runIf(process.env.HINDSIGHT_NATIVE_ACCEPTANCE === "1")(
 				// would fill it twice over.
 				const budget = Math.floor(
 					published.personal.reduce(
-						(sum, row) => sum + recallLineTokens(row.text),
+						(sum, row) =>
+							sum +
+							// An unlabelled row said today: the most part 1 budgeted per row.
+							recallLineTokens(
+								{
+									ref: {
+										scope: { kind: "personal" },
+										generation: row.generation,
+										rowId: row.nativeId,
+									},
+									text: row.text,
+									sources: [],
+									lastMentionedAt: new Date().toISOString(),
+								},
+								new Date(),
+							),
 						0,
 					) / 2,
 				);

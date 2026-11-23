@@ -4,7 +4,10 @@ import type {
 	MemoryScope,
 	MemorySource,
 } from "$lib/memory-types";
-import { getMemoryRecallShares } from "$lib/server/config-store";
+import {
+	getMemoryAgingThresholds,
+	getMemoryRecallShares,
+} from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
 	conversations,
@@ -18,6 +21,15 @@ import {
 	type NativeMemory,
 	NativeMemoryError,
 } from "../memory-profile/contracts";
+import {
+	type MemoryTimeState,
+	memoryEntryTimeState,
+} from "../memory-profile/entry-time";
+import {
+	entryLabels,
+	isAuthoredMemorySource,
+	readFactLabels,
+} from "../memory-profile/fact-labels";
 import { nativeMemoryClient } from "../memory-profile/hindsight-client";
 import {
 	admittedNativeFacts,
@@ -35,6 +47,8 @@ import {
 	type RecallLane,
 } from "./recall-allocation";
 import {
+	parseEarlierStates,
+	RECALL_EARLIER_NOTE,
 	RECALL_PROJECT_HEADING,
 	RECALL_TIMES_NOTE,
 	recallLineTokens,
@@ -48,7 +62,14 @@ interface OfferedRow {
 	scope: MemoryScope;
 	facts: ReturnType<typeof admittedNativeFacts>;
 	ids: unknown[];
+	/** The entry as the model would read it, without its sources. */
+	entry: AdmittedMemoryEvidence & { timeState: MemoryTimeState };
 }
+
+/** An Earlier entry reaches a turn only from these top places of its bank's message ranking. */
+const EARLIER_TOP_PLACES = 3;
+/** And at most this many reach one turn. */
+const EARLIER_PER_TURN = 3;
 
 /** The searches recall runs on a bank: the message's, and the basics'. */
 type RecallList = "message" | "core";
@@ -74,8 +95,11 @@ export async function recallMemory(
 		query: string;
 		tokenBudget: number;
 		core?: boolean;
+		/** The turn's one clock: it decides what is Earlier and each row's age. */
+		now?: Date;
 	},
 ): Promise<AdmittedMemoryEvidence[]> {
+	const now = input.now ?? new Date();
 	if (
 		!(await isMemoryActiveForConversation({
 			userId,
@@ -236,19 +260,14 @@ export async function recallMemory(
 		}
 	}
 	// Every eligible bank shares one live snapshot, including holds set during a native call.
+	const thresholds = getMemoryAgingThresholds();
 	const entries = db.transaction((tx) => {
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
-		// The section goes into the prompt whole, so the budget holds every
-		// formatted line, the line on what the times mean and, in a project
-		// chat, the project's heading.
-		const sectionBudget = Math.max(
-			0,
-			budget -
-				estimateTokenCount(RECALL_TIMES_NOTE) -
-				(chat.projectId ? estimateTokenCount(RECALL_PROJECT_HEADING) : 0),
-		);
 		const offered = new Map<string, OfferedRow>();
+		// The per-turn path's Earlier rows, each at its place in its bank's
+		// message ranking: at most `EARLIER_PER_TURN` of them stay.
+		const earlier: { key: string; place: number; personal: boolean }[] = [];
 		const rows: Record<
 			MemoryScope["kind"],
 			Record<RecallList, RecallCandidate[]>
@@ -261,6 +280,10 @@ export async function recallMemory(
 			const search = searched.get(bank.id);
 			const accepted = readPublishedMemory(userId, bank.id, undefined, tx);
 			const facts = admittedNativeFacts(userId, bank.id, tx);
+			const factsById = new Map<string, typeof facts>();
+			for (const fact of facts)
+				factsById.set(fact.id, [...(factsById.get(fact.id) ?? []), fact]);
+			const labels = readFactLabels(tx, bank.id);
 			const scope: MemoryScope =
 				bank.scopeKey === "personal"
 					? { kind: "personal" }
@@ -389,20 +412,112 @@ export async function recallMemory(
 							(order.get(b.row.nativeId) ?? 0),
 					);
 			};
+			// The entry as the model reads it: when it was last said (its newest
+			// source), its kind once labelled, and whether it is Earlier now.
+			const entryOf = (
+				row: (typeof accepted)[number],
+				ids: unknown[],
+			): OfferedRow["entry"] => {
+				const supporting = ids.flatMap((id) =>
+					typeof id === "string" ? (factsById.get(id) ?? []) : [],
+				);
+				const said = supporting.map((fact) => ({
+					id: fact.id,
+					saidAtMs: (
+						fact.source.explicitEditAt ?? fact.source.assertedAt
+					).getTime(),
+					authored: isAuthoredMemorySource(fact.source),
+				}));
+				const lastMentionedAt = said.length
+					? new Date(Math.max(...said.map((f) => f.saidAtMs))).toISOString()
+					: null;
+				const labelled = entryLabels(said, labels);
+				const states = input.core
+					? []
+					: parseEarlierStates(row.nativeText, row.text);
+				return {
+					ref: { scope, generation: row.generation, rowId: row.nativeId },
+					text: row.text,
+					sources: [],
+					lastMentionedAt,
+					kind: labelled.kind,
+					timeState: memoryEntryTimeState(
+						{ ...labelled, lastMentionedAt },
+						now,
+						thresholds,
+					),
+					...(states.length ? { earlierStates: states } : {}),
+				};
+			};
 			const lists: RecallList[] = input.core
 				? ["message", "core"]
 				: ["message"];
 			for (const list of lists)
-				for (const { row, ids } of listRows(list)) {
+				for (const [place, { row, ids }] of listRows(list).entries()) {
 					const key = `${bank.id}:${row.nativeId}`;
-					if (!offered.has(key))
-						offered.set(key, { bankId: bank.id, row, scope, facts, ids });
+					const offer = offered.get(key) ?? {
+						bankId: bank.id,
+						row,
+						scope,
+						facts,
+						ids,
+						entry: entryOf(row, ids),
+					};
+					offered.set(key, offer);
+					if (offer.entry.timeState === "earlier") {
+						// Earlier entries never enter the core; in a turn one comes
+						// only when it ranks at the top for the person's message.
+						if (list === "core") continue;
+						if (input.core) {
+							if (!answered || place >= EARLIER_TOP_PLACES) continue;
+							earlier.push({
+								key,
+								place,
+								personal: scope.kind === "personal",
+							});
+						}
+					}
 					rows[scope.kind][list].push({
 						key,
-						tokens: recallLineTokens(row.text),
+						tokens: recallLineTokens(offer.entry, now),
 					});
 				}
 		}
+		if (input.core) {
+			const kept = new Set(
+				[...earlier]
+					.sort(
+						(a, b) =>
+							a.place - b.place || Number(b.personal) - Number(a.personal),
+					)
+					.slice(0, EARLIER_PER_TURN)
+					.map(({ key }) => key),
+			);
+			for (const kind of ["personal", "project"] as const)
+				rows[kind].message = rows[kind].message.filter(
+					({ key }) =>
+						kept.has(key) || offered.get(key)?.entry.timeState !== "earlier",
+				);
+		}
+		// The section goes into the prompt whole, so the budget holds every
+		// formatted line, the line on what the times mean, the line on Earlier
+		// entries when one may come and, in a project chat, the project's heading.
+		const marked = [
+			...rows.personal.message,
+			...rows.personal.core,
+			...rows.project.message,
+			...rows.project.core,
+		].some(({ key }) => {
+			const entry = offered.get(key)?.entry;
+			return entry?.timeState === "earlier" || !!entry?.earlierStates;
+		});
+		const sectionBudget = Math.max(
+			0,
+			budget -
+				estimateTokenCount(RECALL_TIMES_NOTE) -
+				(marked ? estimateTokenCount(RECALL_EARLIER_NOTE) : 0) -
+				(chat.projectId ? estimateTokenCount(RECALL_PROJECT_HEADING) : 0),
+		);
 		// The project's own entries get their share first, then the person's
 		// basics theirs; what the message is about fills the rest, both banks
 		// in turn, and a share left unused passes on.
@@ -436,15 +551,11 @@ export async function recallMemory(
 		return [
 			...chosen.filter(({ scope }) => scope.kind === "personal"),
 			...chosen.filter(({ scope }) => scope.kind === "project"),
-		].map(({ bankId, row, scope, facts, ids }) => {
+		].map(({ bankId, facts, ids, entry: offeredEntry }) => {
 			const sources: MemorySource[] = [];
 			const seen = new Set<string>();
-			let lastMentionedMs: number | null = null;
 			for (const fact of facts.filter((f) => ids.includes(f.id))) {
 				const source = fact.source;
-				const saidMs = (source.explicitEditAt ?? source.assertedAt).getTime();
-				if (lastMentionedMs === null || saidMs > lastMentionedMs)
-					lastMentionedMs = saidMs;
 				if (seen.has(source.id)) continue;
 				seen.add(source.id);
 				const origin = source.conversationId
@@ -470,15 +581,7 @@ export async function recallMemory(
 					available: source.conversationId === null || Boolean(origin),
 				});
 			}
-			const entry: AdmittedMemoryEvidence = {
-				ref: { scope, generation: row.generation, rowId: row.nativeId },
-				text: row.text,
-				sources,
-				lastMentionedAt:
-					lastMentionedMs === null
-						? null
-						: new Date(lastMentionedMs).toISOString(),
-			};
+			const entry: AdmittedMemoryEvidence = { ...offeredEntry, sources };
 			return { bankId, entry };
 		});
 	});
@@ -498,6 +601,10 @@ export async function recallMemory(
 			slowestMs: search.slowestMs,
 			fallback: count("answered") === 0,
 			rows: entries.filter(({ bankId }) => bankId === bank.id).length,
+			earlier: entries.filter(
+				({ bankId, entry }) =>
+					bankId === bank.id && entry.timeState === "earlier",
+			).length,
 		});
 	}
 	return entries.map(({ entry }) => entry);
