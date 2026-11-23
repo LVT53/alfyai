@@ -62,10 +62,12 @@ export type {
 	LogicalDocumentArtifactRow,
 } from "./store/documents";
 export {
+	attachImagePreviews,
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
 	getArtifactVersionNumbers,
 	getLogicalDocumentForArtifact,
+	getLogicalDocumentsForArtifacts,
 	listLogicalDocuments,
 	listLogicalDocumentsPage,
 	mapArtifactFamilyRow,

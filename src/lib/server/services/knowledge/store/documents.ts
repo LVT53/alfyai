@@ -1227,7 +1227,7 @@ async function loadArtifactFamilyDocumentEntries(params: {
  * Image rows, already owner-checked, read theirs in one query; an Image body is
  * a few hundred bytes of JSON, of which only the file and its shape travel.
  */
-async function attachImagePreviews(
+export async function attachImagePreviews(
 	userId: string,
 	items: KnowledgeDocumentItem[],
 ): Promise<KnowledgeDocumentItem[]> {
@@ -1433,6 +1433,154 @@ export async function getLogicalDocumentForArtifact(
 		) ?? null;
 
 	return targetRecord ? mapLogicalDocumentItem(targetRecord) : null;
+}
+
+/** Ids per `IN` list, and rows grouped per pass, well inside SQLite's limits. */
+const BATCH_CHUNK = 200;
+
+function chunked<T>(items: readonly T[], size = BATCH_CHUNK): T[][] {
+	const chunks: T[][] = [];
+	for (let start = 0; start < items.length; start += size) {
+		chunks.push(items.slice(start, start + size));
+	}
+	return chunks;
+}
+
+/**
+ * `getLogicalDocumentForArtifact` for many ids at once. The single reader reads
+ * the person's chats (the ownership scope) on every call, and Workspace Search
+ * materialises up to hundreds of candidates; this reads them once for the whole
+ * batch, takes the artifact family's rows in one query and groups the legacy
+ * rows (an upload with its text, a generated file's versions, a Skill Note) in
+ * the same passes `listLogicalDocuments` uses. Each id maps to exactly the item
+ * the single reader gives it; an id that opens nothing (another person's, an
+ * incognito or deleted chat's, a process output) is absent. Keys are trimmed ids.
+ */
+export async function getLogicalDocumentsForArtifacts(
+	userId: string,
+	artifactIds: readonly string[],
+): Promise<Map<string, KnowledgeDocumentItem>> {
+	const found = new Map<string, KnowledgeDocumentItem>();
+	const ids = Array.from(
+		new Set(artifactIds.map((id) => id.trim()).filter(Boolean)),
+	);
+	if (ids.length === 0) return found;
+
+	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const visibility = buildArtifactVisibilityCondition({
+		userId,
+		ownershipScope,
+	});
+	const isOwned = (row: LogicalDocumentArtifactRow) =>
+		isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row });
+
+	// The artifact family has no source/normalized pairing and no derived-link
+	// walk: one row in, one item out, as `selectSingleArtifactFamilyRow` does it.
+	const familyRows: LogicalDocumentArtifactRow[] = [];
+	for (const chunk of chunked(ids)) {
+		familyRows.push(
+			...(await db
+				.select(knowledgeArtifactListSelection)
+				.from(artifacts)
+				.where(
+					and(
+						inArray(artifacts.id, chunk),
+						eq(artifacts.type, "artifact"),
+						visibility,
+					),
+				)),
+		);
+	}
+	const ownedFamilyRows = familyRows.filter(isOwned);
+	const latestVersions = await getArtifactLatestVersions(
+		ownedFamilyRows.map((row) => row.id),
+	);
+	for (const row of ownedFamilyRows) {
+		const newest = latestVersions.get(row.id);
+		found.set(
+			row.id,
+			mapArtifactFamilyRow(
+				row,
+				newest?.versionNumber ?? null,
+				newest?.latest ?? null,
+			),
+		);
+	}
+
+	// The legacy four types, grouped as the single reader groups them.
+	const targetRows: LogicalDocumentArtifactRow[] = [];
+	for (const chunk of chunked(ids.filter((id) => !found.has(id)))) {
+		targetRows.push(
+			...(await db
+				.select(knowledgeArtifactListSelection)
+				.from(artifacts)
+				.where(
+					and(
+						visibility,
+						inArray(artifacts.id, chunk),
+						inArray(artifacts.type, [
+							"source_document",
+							"normalized_document",
+							"generated_output",
+							"skill_note",
+						]),
+					),
+				)),
+		);
+	}
+	for (const targets of chunked(targetRows.filter(isOwned))) {
+		const normalizedIds = targets
+			.filter((row) => row.type === "normalized_document")
+			.map((row) => row.id);
+		const sourceLinks =
+			normalizedIds.length === 0
+				? []
+				: await db
+						.select({ sourceArtifactId: artifactLinks.relatedArtifactId })
+						.from(artifactLinks)
+						.where(
+							and(
+								eq(artifactLinks.userId, userId),
+								inArray(artifactLinks.artifactId, normalizedIds),
+								eq(artifactLinks.linkType, "derived_from"),
+							),
+						);
+		const sourceRows = await selectRowsByArtifactIds(
+			sourceLinks
+				.map((row) => row.sourceArtifactId)
+				.filter((value): value is string => Boolean(value)),
+		);
+		const detailRows = await expandLogicalDocumentCandidateRows({
+			userId,
+			rows: [...targets, ...sourceRows],
+			includeGeneratedOutputs: true,
+			ownershipScope,
+		});
+		const records = await buildLogicalDocumentRecordsFromRows({
+			userId,
+			rows: detailRows,
+			includeGeneratedOutputs: true,
+		});
+		// The first record, in order, that shows the id as its display, its
+		// prompt text or any member of its family: the single reader's `find`.
+		const recordByArtifactId = new Map<string, LogicalDocumentRecord>();
+		for (const record of records) {
+			for (const id of [
+				record.displayArtifact.id,
+				record.promptArtifactId,
+				...record.familyArtifactIds,
+			]) {
+				if (id && !recordByArtifactId.has(id)) {
+					recordByArtifactId.set(id, record);
+				}
+			}
+		}
+		for (const row of targets) {
+			const record = recordByArtifactId.get(row.id);
+			if (record) found.set(row.id, mapLogicalDocumentItem(record));
+		}
+	}
+	return found;
 }
 
 function buildArtifactSearchBody(artifact: Artifact): string {
