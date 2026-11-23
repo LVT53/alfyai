@@ -1,12 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import {
-	artifacts,
-	conversations,
-	messages,
-	projects,
-} from "$lib/server/db/schema";
-import type { Conversation } from "$lib/server/services/conversations";
+import { artifacts } from "$lib/server/db/schema";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -17,13 +11,25 @@ import {
 	listLogicalDocumentsPage,
 	mapArtifactFamilyRow,
 } from "$lib/server/services/knowledge/store";
-import type {
-	ArtifactType,
-	KnowledgeDocumentItem,
-	WorkingDocumentFamilyStatus,
-} from "$lib/server/services/knowledge/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
-import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	SEARCH_MIN_QUERY_CHARS,
+	searchTerms,
+	typedSearchWords,
+} from "$lib/shared/workspace-search-text";
+import { buildChatHref, recentChats, searchChats } from "./chats";
+import {
+	SEARCH_ALL_PER_KIND,
+	SEARCH_PAGE_SIZE,
+	type WorkspaceSearchDocumentMatchType,
+	type WorkspaceSearchDocumentResult,
+	type WorkspaceSearchKind,
+	type WorkspaceSearchResponse,
+	type WorkspaceSearchScope,
+} from "./types";
+
+export * from "./types";
 
 const DEFAULT_LIMIT = 3;
 const QUERY_LIMIT = 6;
@@ -33,23 +39,6 @@ const DOCUMENT_CONTENT_CANDIDATE_LIMIT = 24;
  *  policy decision, a consistency one. */
 const DOCUMENT_FAMILY_CANDIDATE_LIMIT = 24;
 const SNIPPET_RADIUS = 64;
-
-type ConversationRow = {
-	id: string;
-	title: string;
-	projectId: string | null;
-	projectName: string | null;
-	status: string;
-	sealedAt: Date | null;
-	updatedAt: Date;
-};
-
-type MessageMatchRow = ConversationRow & {
-	messageId: string;
-	messageRole: string;
-	messageContent: string;
-	messageCreatedAt: Date;
-};
 
 type ArtifactTextRow = {
 	id: string;
@@ -70,24 +59,8 @@ type ArtifactOwnershipScope = Awaited<
 	ReturnType<typeof getArtifactOwnershipScope>
 >;
 
-type MessageBodyScore = {
-	score: number;
-	occurrences: number;
-	index: number;
-};
-
-type ConversationCandidate = {
-	row: ConversationRow | MessageMatchRow;
-	score: number;
-	match: WorkspaceSearchConversationResult["match"];
-};
-
 function normalizeQuery(value: string | null | undefined): string {
 	return (value ?? "").trim();
-}
-
-function isQueryMode(query: string): boolean {
-	return query.replace(/\s+/g, "").length >= 2;
 }
 
 function normalizeSearchText(value: string | null | undefined): string {
@@ -96,21 +69,6 @@ function normalizeSearchText(value: string | null | undefined): string {
 
 function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
-function toUnixSeconds(value: Date | null | undefined): number | null {
-	return value instanceof Date ? value.getTime() / 1000 : null;
-}
-
-function buildChatHref(
-	conversationId: string,
-	messageId?: string | null,
-): string {
-	const url = new URL(`/chat/${conversationId}`, "http://localhost");
-	if (messageId) {
-		url.searchParams.set("focus_message", messageId);
-	}
-	return `${url.pathname}${url.search}`;
 }
 
 function buildKnowledgeHref(query: string): string {
@@ -180,37 +138,6 @@ function termScore(
 	return target === needle ? weight + 4 : weight;
 }
 
-function scoreMessageBody(
-	value: string | null | undefined,
-	query: string,
-): MessageBodyScore {
-	const target = normalizeSearchText(value);
-	const needle = normalizeSearchText(query);
-	if (!needle) {
-		return { score: 0, occurrences: 0, index: -1 };
-	}
-
-	const firstIndex = target.indexOf(needle);
-	if (firstIndex < 0) {
-		return { score: 0, occurrences: 0, index: -1 };
-	}
-
-	let occurrences = 0;
-	let index = firstIndex;
-	while (index >= 0) {
-		occurrences += 1;
-		index = target.indexOf(needle, index + needle.length);
-	}
-
-	const earlyMatchBoost =
-		firstIndex === 0 ? 3 : Math.max(0, 2 - firstIndex / 80);
-	return {
-		score: 12 + Math.min(occurrences - 1, 4) * 2 + earlyMatchBoost,
-		occurrences,
-		index: firstIndex,
-	};
-}
-
 function compareByScoreThenRecent<
 	T extends { score: number; updatedAt: number; id: string },
 >(left: T, right: T): number {
@@ -219,177 +146,6 @@ function compareByScoreThenRecent<
 		right.updatedAt - left.updatedAt ||
 		left.id.localeCompare(right.id)
 	);
-}
-
-function getConversationCandidateTieTime(
-	candidate: ConversationCandidate,
-): number {
-	if (candidate.match.type === "body" && "messageCreatedAt" in candidate.row) {
-		return candidate.row.messageCreatedAt.getTime();
-	}
-
-	return candidate.row.updatedAt.getTime();
-}
-
-function shouldKeepConversationCandidate(params: {
-	existing: ConversationCandidate | undefined;
-	nextScore: number;
-	nextTieTime: number;
-}): boolean {
-	const { existing, nextScore, nextTieTime } = params;
-	if (!existing) return false;
-	if (existing.score > nextScore) return true;
-	if (existing.score < nextScore) return false;
-
-	return getConversationCandidateTieTime(existing) >= nextTieTime;
-}
-
-function mapConversationResult(
-	row: ConversationRow,
-	match: WorkspaceSearchConversationResult["match"],
-): WorkspaceSearchConversationResult {
-	return {
-		id: row.id,
-		title: row.title,
-		projectId: row.projectId ?? null,
-		projectName: row.projectName ?? null,
-		status: row.status === "sealed" ? "sealed" : "open",
-		sealedAt: toUnixSeconds(row.sealedAt),
-		updatedAt: toUnixSeconds(row.updatedAt) ?? 0,
-		href: buildChatHref(row.id, match.messageId),
-		match,
-	};
-}
-
-async function loadVisibleConversationRows(
-	userId: string,
-	limit: number,
-): Promise<ConversationRow[]> {
-	return db
-		.select({
-			id: conversations.id,
-			title: conversations.title,
-			projectId: conversations.projectId,
-			projectName: projects.name,
-			status: conversations.status,
-			sealedAt: conversations.sealedAt,
-			updatedAt: conversations.updatedAt,
-		})
-		.from(conversations)
-		.leftJoin(
-			projects,
-			and(
-				eq(projects.id, conversations.projectId),
-				eq(projects.userId, userId),
-			),
-		)
-		.where(
-			and(
-				eq(conversations.userId, userId),
-				sql`exists (
-					select 1 from ${messages}
-					where ${messages.conversationId} = ${conversations.id}
-					limit 1
-				)`,
-			),
-		)
-		.orderBy(desc(conversations.updatedAt), conversations.id)
-		.limit(limit);
-}
-
-async function loadMatchingConversationRows(
-	userId: string,
-	query: string,
-): Promise<ConversationRow[]> {
-	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
-	const rows = await db
-		.select({
-			id: conversations.id,
-			title: conversations.title,
-			projectId: conversations.projectId,
-			projectName: projects.name,
-			status: conversations.status,
-			sealedAt: conversations.sealedAt,
-			updatedAt: conversations.updatedAt,
-		})
-		.from(conversations)
-		.leftJoin(
-			projects,
-			and(
-				eq(projects.id, conversations.projectId),
-				eq(projects.userId, userId),
-			),
-		)
-		.where(
-			and(
-				eq(conversations.userId, userId),
-				sql`exists (
-					select 1 from ${messages}
-					where ${messages.conversationId} = ${conversations.id}
-					limit 1
-				)`,
-				sql`(
-					lower(${conversations.title}) like ${likeQuery} escape '\\'
-					or lower(${projects.name}) like ${likeQuery} escape '\\'
-				)`,
-			),
-		)
-		.orderBy(desc(conversations.updatedAt), conversations.id);
-
-	return rows.map((row) => ({
-		...row,
-		projectId: row.projectId ?? null,
-		projectName: row.projectName ?? null,
-		sealedAt: row.sealedAt ?? null,
-	}));
-}
-
-async function loadMatchingMessageRows(
-	userId: string,
-	query: string,
-): Promise<MessageMatchRow[]> {
-	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
-	const rows = await db
-		.select({
-			id: conversations.id,
-			title: conversations.title,
-			projectId: conversations.projectId,
-			projectName: projects.name,
-			status: conversations.status,
-			sealedAt: conversations.sealedAt,
-			updatedAt: conversations.updatedAt,
-			messageId: messages.id,
-			messageRole: messages.role,
-			messageContent: messages.content,
-			messageCreatedAt: messages.createdAt,
-		})
-		.from(messages)
-		.leftJoin(conversations, eq(conversations.id, messages.conversationId))
-		.leftJoin(
-			projects,
-			and(
-				eq(projects.id, conversations.projectId),
-				eq(projects.userId, userId),
-			),
-		)
-		.where(
-			and(
-				eq(conversations.userId, userId),
-				sql`lower(${messages.content}) like ${likeQuery} escape '\\'`,
-			),
-		)
-		.orderBy(desc(messages.createdAt), messages.id);
-
-	return rows
-		.filter((row): row is MessageMatchRow =>
-			Boolean(row.id && row.title && row.status && row.updatedAt),
-		)
-		.map((row) => ({
-			...row,
-			projectId: row.projectId ?? null,
-			projectName: row.projectName ?? null,
-			sealedAt: row.sealedAt ?? null,
-		}));
 }
 
 async function loadArtifactTextRows(
@@ -543,65 +299,6 @@ async function loadMatchingArtifactFamilyCandidateRows(
 	);
 }
 
-function rankConversationRows(
-	rows: ConversationRow[],
-	messageRows: MessageMatchRow[],
-	query: string,
-): WorkspaceSearchConversationResult[] {
-	const candidates = new Map<string, ConversationCandidate>();
-
-	for (const row of rows) {
-		const titleScore = termScore(row.title, query, 30);
-		const projectScore = termScore(row.projectName, query, 22);
-		const score = Math.max(titleScore, projectScore);
-		if (score <= 0) continue;
-		candidates.set(row.id, {
-			row,
-			score,
-			match: {
-				type: titleScore >= projectScore ? "title" : "project",
-				snippet: null,
-				messageId: null,
-				messageRole: null,
-			},
-		});
-	}
-
-	for (const messageRow of messageRows) {
-		const bodyScore = scoreMessageBody(messageRow.messageContent, query);
-		const score = bodyScore.score;
-		if (score <= 0) continue;
-		if (
-			shouldKeepConversationCandidate({
-				existing: candidates.get(messageRow.id),
-				nextScore: score,
-				nextTieTime: messageRow.messageCreatedAt.getTime(),
-			})
-		) {
-			continue;
-		}
-		candidates.set(messageRow.id, {
-			row: messageRow,
-			score,
-			match: {
-				type: "body",
-				snippet: clipAroundQuery(messageRow.messageContent, query),
-				messageId: messageRow.messageId,
-				messageRole: messageRow.messageRole,
-			},
-		});
-	}
-
-	return Array.from(candidates.values())
-		.map((candidate) => ({
-			...mapConversationResult(candidate.row, candidate.match),
-			score: candidate.score,
-		}))
-		.sort(compareByScoreThenRecent)
-		.slice(0, QUERY_LIMIT)
-		.map(({ score: _score, ...result }) => result);
-}
-
 function getDocumentTextByArtifactId(
 	rows: ArtifactTextRow[],
 ): Map<string, ArtifactTextRow> {
@@ -703,6 +400,12 @@ function mapDocumentResult(
 		href: buildKnowledgeWorkspaceHref(document),
 		sourceHref: buildDocumentSourceHref(document),
 		kind: document.kind,
+		// Until documents.ts classifies each kind (Task 5), every row is a plain document.
+		searchKind: "documents",
+		badge: "document",
+		originConversationTitle: null,
+		preview: null,
+		durationMs: null,
 		match,
 	};
 }
@@ -788,30 +491,51 @@ async function loadDefaultDocuments(
 	};
 }
 
+const CURSOR_PATTERN = /^o:(\d{1,6})$/;
+
+/** A cursor is "o:<offset>"; one that cannot be read counts as none. */
+function readCursorOffset(cursor: string | null | undefined): number {
+	const match = CURSOR_PATTERN.exec(cursor ?? "");
+	return match ? Number(match[1]) : 0;
+}
+
+function emptyTotals(): Record<WorkspaceSearchKind, number> {
+	return { chats: 0, memory: 0, documents: 0, media: 0, apps: 0 };
+}
+
 export async function searchWorkspace(
 	userId: string,
-	options: { query?: string | null } = {},
+	options: {
+		query?: string | null;
+		scope?: WorkspaceSearchScope | null;
+		cursor?: string | null;
+	} = {},
 ): Promise<WorkspaceSearchResponse> {
 	const query = normalizeQuery(options.query);
-	const mode = isQueryMode(query) ? "query" : "default";
+	const terms = searchTerms(query);
+	// A query with no words once cleaned ("!!") shows the empty-query view.
+	const mode =
+		terms.join("").length >= SEARCH_MIN_QUERY_CHARS ? "query" : "default";
 
 	if (mode === "default") {
-		const [conversationRows, documentResults] = await Promise.all([
-			loadVisibleConversationRows(userId, DEFAULT_LIMIT),
+		const [conversationResults, documentResults] = await Promise.all([
+			recentChats(userId, SEARCH_ALL_PER_KIND),
 			loadDefaultDocuments(userId),
 		]);
 		return {
 			query,
 			mode,
-			conversations: conversationRows.map((row) =>
-				mapConversationResult(row, {
-					type: "recent",
-					snippet: null,
-					messageId: null,
-					messageRole: null,
-				}),
-			),
+			scope: "all",
+			conversations: conversationResults,
+			memories: [],
 			documents: documentResults.results,
+			totals: {
+				...emptyTotals(),
+				chats: conversationResults.length,
+				documents: documentResults.results.length,
+			},
+			memorySearchable: false,
+			nextCursor: null,
 			documentOverflow: documentResults.overflow,
 			knowledgeHref: documentResults.overflow
 				? buildKnowledgeHref(query)
@@ -819,95 +543,41 @@ export async function searchWorkspace(
 		};
 	}
 
-	const [conversationRows, messageRows, documentResults] = await Promise.all([
-		loadMatchingConversationRows(userId, query),
-		loadMatchingMessageRows(userId, query),
-		searchDocuments(userId, query),
+	const scope = options.scope ?? "all";
+	const chatWindow =
+		scope === "chats"
+			? { offset: readCursorOffset(options.cursor), limit: SEARCH_PAGE_SIZE }
+			: { offset: 0, limit: SEARCH_ALL_PER_KIND };
+	const [chatResults, documentResults] = await Promise.all([
+		scope === "all" || scope === "chats"
+			? searchChats(
+					userId,
+					{ terms, words: typedSearchWords(query) },
+					chatWindow,
+				)
+			: null,
+		scope === "all" || scope === "documents"
+			? searchDocuments(userId, query)
+			: null,
 	]);
 	return {
 		query,
 		mode,
-		conversations: rankConversationRows(conversationRows, messageRows, query),
-		documents: documentResults.results,
-		documentOverflow: documentResults.overflow,
-		knowledgeHref: documentResults.overflow ? buildKnowledgeHref(query) : null,
+		scope,
+		conversations: chatResults?.results ?? [],
+		memories: [],
+		documents: documentResults?.results ?? [],
+		totals: {
+			...emptyTotals(),
+			chats: chatResults?.total ?? 0,
+			documents: documentResults?.results.length ?? 0,
+		},
+		memorySearchable: false,
+		nextCursor:
+			scope === "chats" && chatResults?.hasMore
+				? `o:${chatWindow.offset + chatWindow.limit}`
+				: null,
+		documentOverflow: documentResults?.overflow ?? false,
+		knowledgeHref: documentResults?.overflow ? buildKnowledgeHref(query) : null,
 	};
-}
-
-// Relocated out of the former src/lib/types.ts god-module
-// (architecture-deepening T1); these types carry no behavior change, only
-// a new home next to the workspace-search service that owns them.
-
-export type WorkspaceSearchMode = "default" | "query";
-
-export type WorkspaceSearchConversationMatchType =
-	| "recent"
-	| "title"
-	| "project"
-	| "body";
-
-export type WorkspaceSearchDocumentMatchType =
-	| "recent"
-	| "name"
-	| "label"
-	| "role"
-	| "summary"
-	| "content";
-
-export interface WorkspaceSearchConversationResult {
-	id: string;
-	title: string;
-	projectId: string | null;
-	projectName: string | null;
-	status: Conversation["status"];
-	sealedAt: number | null;
-	updatedAt: number;
-	href: string;
-	match: {
-		type: WorkspaceSearchConversationMatchType;
-		snippet: string | null;
-		messageId: string | null;
-		messageRole: string | null;
-	};
-}
-
-export interface WorkspaceSearchDocumentResult {
-	id: string;
-	type?: ArtifactType;
-	displayArtifactId: string;
-	promptArtifactId: string | null;
-	familyArtifactIds: string[];
-	name: string;
-	mimeType: string | null;
-	sizeBytes: number | null;
-	conversationId: string | null;
-	summary: string | null;
-	documentOrigin?: KnowledgeDocumentItem["documentOrigin"];
-	documentFamilyId?: string | null;
-	documentFamilyStatus?: WorkingDocumentFamilyStatus | null;
-	documentLabel?: string | null;
-	documentRole?: string | null;
-	versionNumber?: number | null;
-	originConversationId?: string | null;
-	originAssistantMessageId?: string | null;
-	sourceChatFileId?: string | null;
-	updatedAt: number;
-	href: string;
-	sourceHref: string | null;
-	/** The artifact family kind (ADR-0066). Present for a Document/App/Canvas/
-	 *  Slides row, absent for every existing kind. */
-	kind?: ArtifactKind;
-	match: {
-		type: WorkspaceSearchDocumentMatchType;
-		snippet: string | null;
-	};
-}
-
-export interface WorkspaceSearchResponse {
-	query: string;
-	mode: WorkspaceSearchMode;
-	conversations: WorkspaceSearchConversationResult[];
-	documents: WorkspaceSearchDocumentResult[];
-	documentOverflow: boolean;
-	knowledgeHref: string | null;
 }

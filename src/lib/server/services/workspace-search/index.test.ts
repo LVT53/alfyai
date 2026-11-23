@@ -11,6 +11,7 @@ const {
 	mockIsArtifactCanonicallyOwned,
 	mockListLogicalDocuments,
 	mockListLogicalDocumentsPage,
+	mockSearchChats,
 	mockSelect,
 } = vi.hoisted(() => {
 	const mockBuildArtifactVisibilityCondition = vi.fn((params: unknown) => ({
@@ -29,6 +30,7 @@ const {
 	const mockIsArtifactCanonicallyOwned = vi.fn();
 	const mockListLogicalDocuments = vi.fn();
 	const mockListLogicalDocumentsPage = vi.fn();
+	const mockSearchChats = vi.fn();
 	const mockSelect = vi.fn();
 
 	return {
@@ -41,9 +43,18 @@ const {
 		mockIsArtifactCanonicallyOwned,
 		mockListLogicalDocuments,
 		mockListLogicalDocumentsPage,
+		mockSearchChats,
 		mockSelect,
 	};
 });
+
+// Chat matching is SQL over real tables; chats.test.ts runs it on a real
+// database. The recent-chats view stays real here and reads through the mocked
+// select chain below, like the documents' loaders do.
+vi.mock("./chats", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./chats")>()),
+	searchChats: mockSearchChats,
+}));
 
 vi.mock("$lib/server/db", () => ({
 	db: {
@@ -240,6 +251,12 @@ describe("searchWorkspace", () => {
 			documents: [],
 			totalItems: 0,
 		});
+		mockSearchChats.mockReset();
+		mockSearchChats.mockResolvedValue({
+			results: [],
+			total: 0,
+			hasMore: false,
+		});
 		mockSelect.mockReset();
 		mockSelect.mockImplementation(() => makeSelectChain(mockConversationRows));
 	});
@@ -330,228 +347,6 @@ describe("searchWorkspace", () => {
 		});
 	});
 
-	it("searches conversation title, project metadata, and body with focus navigation", async () => {
-		const { searchWorkspace } = await import("./index");
-		queueSelectChains(
-			[
-				{
-					id: "conv-title",
-					title: "Zephyr launch plan",
-					projectId: null,
-					projectName: null,
-					status: "open",
-					sealedAt: null,
-					updatedAt: new Date("2026-04-04T10:00:00Z"),
-				},
-				{
-					id: "conv-project",
-					title: "Weekly notes",
-					projectId: "project-1",
-					projectName: "Zephyr Folder",
-					status: "open",
-					sealedAt: null,
-					updatedAt: new Date("2026-04-05T10:00:00Z"),
-				},
-			],
-			[
-				{
-					id: "conv-body",
-					title: "Imported chat",
-					projectId: null,
-					projectName: null,
-					status: "sealed",
-					sealedAt: new Date("2026-04-06T10:00:00Z"),
-					updatedAt: new Date("2026-04-06T10:00:00Z"),
-					messageId: "message-1",
-					messageRole: "assistant",
-					messageContent:
-						"Long background before the body match. The key Zephyr decision lives in this assistant message and should be clipped.",
-					messageCreatedAt: new Date("2026-04-06T10:01:00Z"),
-				},
-			],
-			// No document candidates in this fixture: metadata, content, and
-			// artifact-family candidate queries all come back empty.
-			[],
-			[],
-			[],
-		);
-
-		const result = await searchWorkspace("user-1", { query: "zephyr" });
-
-		expect(result.mode).toBe("query");
-		expect(result.conversations.map((item) => item.id)).toEqual([
-			"conv-title",
-			"conv-project",
-			"conv-body",
-		]);
-		expect(result.conversations[0].match).toMatchObject({
-			type: "title",
-			messageId: null,
-		});
-		expect(result.conversations[1].match).toMatchObject({
-			type: "project",
-		});
-		expect(result.conversations[2]).toMatchObject({
-			href: "/chat/conv-body?focus_message=message-1",
-			status: "sealed",
-			match: {
-				type: "body",
-				messageId: "message-1",
-				messageRole: "assistant",
-			},
-		});
-		expect(result.conversations[2].match.snippet).toContain("Zephyr");
-	});
-
-	it("finds old conversation title matches outside the recent sidebar scan", async () => {
-		const { searchWorkspace } = await import("./index");
-		const recentNonMatches = Array.from({ length: 200 }, (_, index) => ({
-			id: `recent-${index}`,
-			title: `Recent notes ${index}`,
-			projectId: null,
-			projectName: null,
-			status: "open",
-			sealedAt: null,
-			updatedAt: new Date(
-				`2026-04-${String((index % 20) + 1).padStart(2, "0")}T10:00:00Z`,
-			),
-		}));
-		queueSelectChains(
-			[
-				...recentNonMatches,
-				{
-					id: "old-title",
-					title: "Zephyr archive plan",
-					projectId: null,
-					projectName: null,
-					status: "open",
-					sealedAt: null,
-					updatedAt: new Date("2025-01-01T10:00:00Z"),
-				},
-			],
-			[],
-			[],
-		);
-
-		const result = await searchWorkspace("user-1", { query: "zephyr" });
-
-		expect(result.conversations.map((item) => item.id)).toContain("old-title");
-		expect(
-			result.conversations.find((item) => item.id === "old-title")?.match,
-		).toMatchObject({
-			type: "title",
-			messageId: null,
-		});
-	});
-
-	it("scopes project-name joins to the requesting user", async () => {
-		const { searchWorkspace } = await import("./index");
-		queueSelectChains([], [], []);
-
-		await searchWorkspace("user-1", { query: "zephyr" });
-
-		expect(mockEq).toHaveBeenCalledWith({ name: "project.userId" }, "user-1");
-	});
-
-	it("keeps at most one body match per conversation before ranking results", async () => {
-		const { searchWorkspace } = await import("./index");
-		const busyMessages = Array.from({ length: 500 }, (_, index) => ({
-			id: "busy-conv",
-			title: "Busy import",
-			projectId: null,
-			projectName: null,
-			status: "open",
-			sealedAt: null,
-			updatedAt: new Date("2026-04-10T10:00:00Z"),
-			messageId: `busy-message-${index}`,
-			messageRole: "user",
-			messageContent: `Atlas note ${index}`,
-			messageCreatedAt: new Date(
-				`2026-04-10T10:${String(index % 60).padStart(2, "0")}:00Z`,
-			),
-		}));
-		queueSelectChains(
-			[],
-			[
-				...busyMessages,
-				{
-					id: "other-conv",
-					title: "Other conversation",
-					projectId: null,
-					projectName: null,
-					status: "open",
-					sealedAt: null,
-					updatedAt: new Date("2026-03-01T10:00:00Z"),
-					messageId: "other-message",
-					messageRole: "assistant",
-					messageContent: "Atlas appears in a quieter conversation too.",
-					messageCreatedAt: new Date("2026-03-01T10:01:00Z"),
-				},
-			],
-			[],
-		);
-
-		const result = await searchWorkspace("user-1", { query: "atlas" });
-
-		expect(result.conversations.map((item) => item.id)).toContain("busy-conv");
-		expect(result.conversations.map((item) => item.id)).toContain("other-conv");
-		expect(
-			result.conversations.filter((item) => item.id === "busy-conv"),
-		).toHaveLength(1);
-	});
-
-	it("uses body relevance before recency when choosing a conversation body match", async () => {
-		const { searchWorkspace } = await import("./index");
-		queueSelectChains(
-			[],
-			[
-				{
-					id: "conv-body",
-					title: "Imported notes",
-					projectId: null,
-					projectName: null,
-					status: "open",
-					sealedAt: null,
-					updatedAt: new Date("2026-04-10T10:00:00Z"),
-					messageId: "newer-weak",
-					messageRole: "assistant",
-					messageContent:
-						"Late follow-up with a single Atlas mention near the end.",
-					messageCreatedAt: new Date("2026-04-10T10:20:00Z"),
-				},
-				{
-					id: "conv-body",
-					title: "Imported notes",
-					projectId: null,
-					projectName: null,
-					status: "open",
-					sealedAt: null,
-					updatedAt: new Date("2026-04-10T10:00:00Z"),
-					messageId: "older-strong",
-					messageRole: "user",
-					messageContent:
-						"Atlas Atlas Atlas planning details should be the body match.",
-					messageCreatedAt: new Date("2026-04-10T10:05:00Z"),
-				},
-			],
-			[],
-		);
-
-		const result = await searchWorkspace("user-1", { query: "atlas" });
-
-		expect(result.conversations).toHaveLength(1);
-		expect(result.conversations[0]).toMatchObject({
-			id: "conv-body",
-			href: "/chat/conv-body?focus_message=older-strong",
-			match: {
-				type: "body",
-				messageId: "older-strong",
-				messageRole: "user",
-			},
-		});
-		expect(result.conversations[0]?.match.snippet).toContain("Atlas Atlas");
-	});
-
 	it("searches openable document metadata and content without returning full content", async () => {
 		const { searchWorkspace } = await import("./index");
 		const promptDocTextRow = {
@@ -561,8 +356,6 @@ describe("searchWorkspace", () => {
 			summary: "Contract notes",
 		};
 		queueSelectChains(
-			[],
-			[],
 			[],
 			[promptDocTextRow],
 			// No artifact-family candidates in this fixture.
@@ -638,8 +431,6 @@ describe("searchWorkspace", () => {
 			normalizedAvailable: true,
 		});
 		queueSelectChains(
-			[],
-			[],
 			[
 				{
 					id: "metadata-doc",
@@ -748,8 +539,6 @@ describe("searchWorkspace", () => {
 				updatedAt: new Date("2026-04-05T10:00:00Z"),
 			};
 			queueSelectChains(
-				[], // conversation title/project
-				[], // conversation body
 				[], // legacy metadata candidates
 				[], // legacy content candidates
 				[familyRow], // artifact-family candidates
@@ -792,8 +581,6 @@ describe("searchWorkspace", () => {
 			queueSelectChains(
 				[],
 				[],
-				[],
-				[],
 				[appRow],
 				[
 					{
@@ -824,7 +611,7 @@ describe("searchWorkspace", () => {
 				createdAt: new Date("2026-04-05T10:00:00Z"),
 				updatedAt: new Date("2026-04-05T10:00:00Z"),
 			};
-			queueSelectChains([], [], [], [], [foreignRow]);
+			queueSelectChains([], [], [foreignRow]);
 			mockIsArtifactCanonicallyOwned.mockImplementation(
 				(params: { artifact: { id: string } }) =>
 					params.artifact.id !== "art-foreign-1",

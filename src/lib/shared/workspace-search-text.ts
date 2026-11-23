@@ -10,6 +10,11 @@
 
 export const SEARCH_MIN_QUERY_CHARS = 2;
 export const SEARCH_MAX_TERMS = 8;
+/**
+ * A kind's count is the true number of matches up to this many, so a count at
+ * the cap reads "99+".
+ */
+export const SEARCH_COUNT_CAP = 100;
 
 const SEARCH_MAX_TERM_CHARS = 64;
 const SNIPPET_DEFAULT_CHARS = 160;
