@@ -478,6 +478,177 @@ describe("searchDocuments", () => {
 		}
 	});
 
+	it("finds a canvas by the text of every kind of block, edge and note", async () => {
+		const at = { x: 0, y: 0 };
+		addFamily("canvas-1", "canvas", "Workshop board", {
+			contentText: JSON.stringify({
+				version: 1,
+				nodes: [
+					{
+						id: "n-sticky",
+						type: "sticky",
+						position: at,
+						data: { kind: "sticky", text: "dovetail joints", tone: "yellow" },
+					},
+					{
+						id: "n-frame",
+						type: "frame",
+						position: at,
+						data: { kind: "frame", label: "Joinery", width: 300, height: 200 },
+					},
+					{
+						id: "n-list",
+						type: "checklist",
+						position: at,
+						data: {
+							kind: "checklist",
+							label: "Shopping",
+							items: [{ id: "i1", text: "order birch plywood", done: false }],
+						},
+					},
+					{
+						id: "n-chart",
+						type: "chart",
+						position: at,
+						data: {
+							kind: "chart",
+							label: "Costs",
+							subtitle: "per month in forints",
+							code: "{}",
+						},
+					},
+					{
+						id: "n-app",
+						type: "app",
+						position: at,
+						data: { kind: "app", artifactId: "app-9", title: "Cut calculator" },
+					},
+					{
+						id: "n-photo",
+						type: "photo",
+						position: at,
+						data: {
+							kind: "photo",
+							items: [
+								{
+									id: "p1",
+									imageUrl: "/api/knowledge/photo-9/thumbnail",
+									alt: "walnut offcuts",
+								},
+							],
+						},
+					},
+					{
+						id: "n-web",
+						type: "liveweb",
+						position: at,
+						data: {
+							kind: "liveweb",
+							query: "chisel sharpening",
+							sources: [],
+							fetchedAt: 1,
+						},
+					},
+					{
+						id: "n-map",
+						type: "map",
+						position: at,
+						data: {
+							kind: "map",
+							route: "workshop to timber yard",
+							map: {
+								bounds: { minLat: 0, minLng: 0, maxLat: 1, maxLng: 1 },
+								attribution: "OpenStreetMap",
+							},
+						},
+					},
+					{
+						id: "n-file",
+						type: "file",
+						position: at,
+						data: {
+							kind: "file",
+							fileId: "file-9",
+							name: "cut-list.pdf",
+							mime: "application/pdf",
+							bytes: 10,
+							label: "PDF",
+						},
+					},
+				],
+				edges: [
+					{ id: "e1", source: "n-sticky", target: "n-list", label: "then buy" },
+				],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [
+					{
+						id: "a1",
+						kind: "text",
+						color: "red",
+						size: 2,
+						at,
+						text: "check the grain",
+					},
+				],
+			}),
+		});
+		for (const word of [
+			"dovetail",
+			"joinery",
+			"plywood",
+			"shopping",
+			"forints",
+			"calculator",
+			"walnut",
+			"chisel",
+			"timber yard",
+			"cut-list",
+			"then buy",
+			"grain",
+		]) {
+			expect(await foundIds(word), word).toEqual(["canvas-1"]);
+		}
+		// The words are the board's own, never its structure.
+		for (const jsonWord of [
+			"checklist",
+			"liveweb",
+			"imageUrl",
+			"fileId",
+			"artifactId",
+			"tone",
+			"edges",
+			"thumbnail",
+			"OpenStreetMap",
+		]) {
+			expect(await foundIds(jsonWord), jsonWord).toEqual([]);
+		}
+	});
+
+	it("is not undone by a board whose nodes are not objects", async () => {
+		addFamily("odd-board", "canvas", "Odd board", {
+			contentText: JSON.stringify({
+				version: 1,
+				nodes: ["a stray string", 5, null],
+				edges: [],
+				annotations: [],
+			}),
+		});
+		addFamily("garden-board", "canvas", "Garden board", {
+			contentText: JSON.stringify({
+				version: 1,
+				nodes: [
+					{
+						id: "n1",
+						type: "sticky",
+						position: { x: 0, y: 0 },
+						data: { kind: "sticky", text: "compost heap", tone: "mint" },
+					},
+				],
+			}),
+		});
+		expect(await foundIds("compost")).toEqual(["garden-board"]);
+	});
+
 	it("finds a video by its prompt", async () => {
 		addFamily("video-1", "video", "Clip seven", { contentText: videoBody() });
 		addVideoJob(

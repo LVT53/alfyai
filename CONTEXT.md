@@ -27,7 +27,7 @@ A **Workspace Search Result** that matches text inside a conversation message ra
 _Avoid_: transcript browser row, message database hit, conversation title match
 
 **Lexical Workspace Search**:
-Workspace search behavior that finds every word the user typed, in any order and inside longer words, in the literal text of workspace material rather than in conceptually related material. Case is folded everywhere, and accents are folded in short text (titles, names, prompts, descriptions, Memory entries), so "arviz" finds "Árvíztűrő"; long text (message and document bodies) is matched with the accents as typed until a full-text index folds them too. A JSON body or an App's code is never searched as text. It is the expected baseline for navigation when a user remembers words, names, or titles from their workspace.
+Workspace search behavior that finds every word the user typed, in any order and inside longer words, in the literal text of workspace material rather than in conceptually related material. Case is folded everywhere, and accents are folded in short text (titles, names, prompts, descriptions, Memory entries), so "arviz" finds "Árvíztűrő"; long text (message and document bodies) is matched with the accents as typed until a full-text index folds them too. A JSON body or an App's code is never searched as text; a canvas is found by the words in its blocks, edge labels and notes, never by its structure. It is the expected baseline for navigation when a user remembers words, names, or titles from their workspace.
 _Avoid_: semantic workspace search, fuzzy memory search, related-content discovery
 
 **Workspace Search Metadata Match**:

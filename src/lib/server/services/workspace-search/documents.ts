@@ -109,7 +109,35 @@ const noFieldText = () => sql`null`;
 
 const imagePromptSql = sql`case when json_valid(${artifacts.contentText}) then json_extract(${artifacts.contentText}, '$.prompt') end`;
 
-const canvasNodesSql = sql`json_each(case when json_valid(${artifacts.contentText}) then ${artifacts.contentText} else '{}' end, '$.nodes')`;
+/**
+ * The keys a board keeps its words under: a note's or text block's `text`, a
+ * checklist item's `text`, a frame's, chart's, checklist's, map's or photo
+ * block's `label`, an App block's `title`, a chart's `subtitle`, a file
+ * block's `name`, a photo's `alt`, a web block's `query`, a map's `route`, and
+ * an edge's `label` and a note's `text`. Never a coordinate, a kind or an id.
+ */
+const CANVAS_TEXT_KEYS = [
+	"text",
+	"label",
+	"title",
+	"subtitle",
+	"name",
+	"alt",
+	"query",
+	"route",
+] as const;
+
+/**
+ * Every text of the board under one of those keys, wherever it sits in the
+ * body. A text is read as a text and never parsed, so a node that is not an
+ * object (a hand-edited or damaged body) cannot make the whole search fail.
+ */
+const canvasWordsSql = sql`json_tree(case when json_valid(${artifacts.contentText}) then ${artifacts.contentText} else '{}' end)`;
+
+const canvasWordsWhereSql = sql`word.type = 'text' and word.key in (${sql.join(
+	CANVAS_TEXT_KEYS.map((key) => sql`${key}`),
+	sql`, `,
+)})`;
 
 /** A video's prompts: the takes that made it, never another person's. */
 const videoPromptSql = sql`case when json_valid(${videoJobs.requestJson}) and json_extract(${videoJobs.requestJson}, '$.v') = 1 then json_extract(${videoJobs.requestJson}, '$.prompt') end`;
@@ -170,21 +198,16 @@ const GROUPS: readonly CandidateGroup[] = [
 		rows: familyOfKind("canvas"),
 		hasBody: false,
 		hasLabel: false,
-		extra: (_userId, term) => {
-			const glob = foldedGlob(term);
-			return [
-				sql`exists (
-					select 1 from ${canvasNodesSql} as node
-					where json_extract(node.value, '$.data.text') glob ${glob}
-					or json_extract(node.value, '$.data.label') glob ${glob}
+		extra: (_userId, term) => [
+			sql`exists (
+					select 1 from ${canvasWordsSql} as word
+					where ${canvasWordsWhereSql} and word.value glob ${foldedGlob(term)}
 				)`,
-			];
-		},
+		],
 		fieldText: () =>
-			sql`(select group_concat(
-				coalesce(json_extract(node.value, '$.data.text'), '') || char(10) || coalesce(json_extract(node.value, '$.data.label'), ''),
-				char(10)
-			) from ${canvasNodesSql} as node)`,
+			sql`(select group_concat(word.value, char(10))
+					from ${canvasWordsSql} as word
+					where ${canvasWordsWhereSql})`,
 	},
 	{
 		// An App is found by its name and summary, never by its code.
