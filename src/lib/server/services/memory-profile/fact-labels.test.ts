@@ -184,6 +184,26 @@ describe("the fact label store", () => {
 		expect([...f.read().keys()]).toEqual(["b"]);
 	});
 
+	it("reads a stored value off the lists as no label", async () => {
+		const f = await fixture();
+		f.db
+			.insert(f.schema.memoryFactLabels)
+			.values({
+				bankId: f.bank.id,
+				nativeFactId: "odd",
+				kind: "forever",
+				subject: "pets",
+				origin: "classifier",
+			})
+			.run();
+		expect(f.read().get("odd")).toEqual({
+			kind: null,
+			subject: null,
+			eventAt: null,
+			origin: "classifier",
+		});
+	});
+
 	it("labels go with their bank", async () => {
 		const f = await fixture();
 		f.record([f.fact("a", ["kind:lasting"])]);

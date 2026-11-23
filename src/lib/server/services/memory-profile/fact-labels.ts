@@ -77,6 +77,11 @@ function eventDate(fact: NativeMemory): Date | null {
 }
 
 const DELETE_CHUNK = 500;
+/** Every subject either bank kind can hold; anything else reads as no label. */
+const KNOWN_SUBJECTS: ReadonlySet<string> = new Set([
+	...memorySubjectsFor("personal"),
+	...memorySubjectsFor("project"),
+]);
 
 /**
  * Copies a published snapshot's labels and event dates into the store: each
@@ -198,7 +203,9 @@ export function readFactLabels(
 					kind: (MEMORY_KINDS as readonly string[]).includes(row.kind ?? "")
 						? (row.kind as MemoryKind)
 						: null,
-					subject: (row.subject as MemorySubject | null) ?? null,
+					subject: KNOWN_SUBJECTS.has(row.subject ?? "")
+						? (row.subject as MemorySubject)
+						: null,
 					eventAt: row.eventAt?.toISOString() ?? null,
 					origin: row.origin,
 				},

@@ -72,8 +72,10 @@ function labelSchema(scope: MemoryScope["kind"]) {
  * Labels the facts, one call per `FACT_LABEL_BATCH_SIZE`. A fact the model
  * leaves out, or labels off the lists, is not in the result (it stays
  * unlabelled, which reads as lasting); the first answer for a fact wins. A
- * call that fails, or an answer that cannot be read, throws
- * `memory_label_unavailable` (retryable) and labels nothing from its batch.
+ * call that fails, or an answer that cannot be read, labels nothing from its
+ * batch and the other batches go on, so a caller labels the rest next time;
+ * only when every batch failed does it throw `memory_label_unavailable`
+ * (retryable).
  */
 export async function classifyMemoryFacts(
 	input: {
@@ -89,6 +91,8 @@ export async function classifyMemoryFacts(
 		string,
 		{ kind: MemoryKind; subject: MemorySubject }
 	>();
+	let batches = 0;
+	let failed = 0;
 	for (
 		let start = 0;
 		start < input.facts.length;
@@ -96,6 +100,7 @@ export async function classifyMemoryFacts(
 	) {
 		const batch = input.facts.slice(start, start + FACT_LABEL_BATCH_SIZE);
 		const byShortId = new Map(batch.map((fact, i) => [`F${i + 1}`, fact.id]));
+		batches++;
 		let answer: unknown;
 		try {
 			answer = await model(
@@ -107,14 +112,17 @@ export async function classifyMemoryFacts(
 				"off",
 			);
 		} catch {
-			throw new NativeMemoryError("memory_label_unavailable", true);
+			failed++;
+			continue;
 		}
 		const rows =
 			answer && typeof answer === "object" && !Array.isArray(answer)
 				? (answer as { labels?: unknown }).labels
 				: undefined;
-		if (!Array.isArray(rows))
-			throw new NativeMemoryError("memory_label_unavailable", true);
+		if (!Array.isArray(rows)) {
+			failed++;
+			continue;
+		}
 		for (const row of rows) {
 			if (!row || typeof row !== "object") continue;
 			const { id, kind, subject } = row as Record<string, unknown>;
@@ -126,5 +134,7 @@ export async function classifyMemoryFacts(
 			labels.set(factId, { kind: knownKind, subject: knownSubject });
 		}
 	}
+	if (batches && failed === batches)
+		throw new NativeMemoryError("memory_label_unavailable", true);
 	return labels;
 }

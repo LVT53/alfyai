@@ -140,6 +140,31 @@ describe("the fact classifier", () => {
 		}
 	});
 
+	it("keeps the labels of the batches that answered when another fails", async () => {
+		let calls = 0;
+		const model = vi.fn<CurationModel>(async (_prompt, input) => {
+			if (++calls === 2) throw new Error("gateway down");
+			return {
+				labels: (input as { facts: Array<{ id: string }> }).facts.map(
+					({ id }) => ({
+						id,
+						kind: "lasting",
+						subject: "other",
+					}),
+				),
+			};
+		});
+		const labels = await classifyMemoryFacts(
+			{ scope: "personal", facts: facts(FACT_LABEL_BATCH_SIZE * 2 + 1) },
+			model,
+		);
+		expect(model).toHaveBeenCalledTimes(3);
+		expect(labels.size).toBe(FACT_LABEL_BATCH_SIZE + 1);
+		expect(labels.has("fact-0")).toBe(true);
+		expect(labels.has(`fact-${FACT_LABEL_BATCH_SIZE}`)).toBe(false);
+		expect(labels.has(`fact-${FACT_LABEL_BATCH_SIZE * 2}`)).toBe(true);
+	});
+
 	it("its prompt is ASCII English, names no language and leans toward lasting", () => {
 		for (const scope of ["personal", "project"] as const) {
 			const prompt = factLabelPrompt(scope);
