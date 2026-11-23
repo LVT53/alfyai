@@ -727,6 +727,139 @@ it("keeps an unconfirmed checkpoint after a lost first submission and never rese
 	});
 });
 
+describe("bank configuration 2 reaches every bank", () => {
+	async function boundAt(version: string, live: unknown) {
+		const f = await setup();
+		f.db
+			.update(f.schema.memoryBanks)
+			.set({
+				nativeBaseUrl: "http://synthetic",
+				nativeCredentialHash: "synthetic-hash",
+				nativeConfigVersion: version,
+			})
+			.run();
+		const state = {
+			live,
+			versionAtPatch: undefined as string | null | undefined,
+		};
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw Error("fixture");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (path.endsWith("/config") && init?.method === "PATCH") {
+				state.versionAtPatch = f.db
+					.select()
+					.from(f.schema.memoryBanks)
+					.get()?.nativeConfigVersion;
+				state.live = JSON.parse(String(init.body)).updates;
+				return Response.json({ config: state.live });
+			}
+			if (path.endsWith("/config") && init?.method !== "DELETE")
+				return Response.json({ config: state.live });
+			return original(url, init);
+		});
+		const patches = () =>
+			f.fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH");
+		return { f, state, patches };
+	}
+
+	it("upgrades a bank configured by the previous release, once, behind the pending fence", async () => {
+		const native = await import("./contracts");
+		const { f, state, patches } = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(JSON.parse(String(patches()[0][1]?.body)).updates).toEqual(
+			native.nativeBankConfig("personal"),
+		);
+		expect(state.versionAtPatch).toBe(
+			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
+		);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("verifies a bank already on config 2 without a PATCH", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_VERSION,
+			native.nativeBankConfig("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(0);
+	});
+
+	it("settles a creation the previous release left pending, then upgrades it once", async () => {
+		const native = await import("./contracts");
+		const { f, state, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(state.versionAtPatch).toBe(
+			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
+		);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("holds an upgrade whose PATCH did not land, and never sends it again", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_unconfirmed", retryable: true },
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_UPGRADE_PENDING);
+	});
+
+	it("makes a reset wait for an upgrade that may still land", async () => {
+		const native = await import("./contracts");
+		const { f } = await boundAt(
+			native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.jobs.prepareNativeMemoryErasure(h.userId);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{
+				kind: "cleanup",
+				errorCode: "native_config_unconfirmed",
+				nativeOperationIdsJson: JSON.stringify([
+					native.NATIVE_BANK_CONFIG_UPGRADE_PENDING,
+				]),
+			},
+		);
+		expect(
+			f.fetcher.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+		).toHaveLength(0);
+	});
+});
+
 it("does not treat an older bound but unversioned configuration as settled", async () => {
 	const f = await setup();
 	const { NATIVE_BANK_CONFIG_LEGACY_UNKNOWN } = await import("./contracts");

@@ -51,6 +51,9 @@ async function fixture() {
 
 import { eq as awaitEq } from "drizzle-orm";
 
+/** What each fake bank was last configured with. */
+const fakeBankConfigs = new Map<string, unknown>();
+
 it.each([false, true])(
 	"recovers an independent reply after late context withdrawal (sibling cleanup: %s)",
 	async (siblingCleanup) => {
@@ -603,9 +606,15 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 	const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
 		const path = String(url);
 		let data: unknown = {};
-		if (path.endsWith("/config"))
-			data = { config: contracts.NATIVE_BANK_CONFIG };
-		else if (path.includes("/documents/") && init?.method === "DELETE") {
+		if (path.endsWith("/config")) {
+			// A bank answers with the config it was last sent (config 2 is per bank kind).
+			const bank = new URL(path).pathname.split("/")[4];
+			if (init?.method === "PATCH")
+				fakeBankConfigs.set(bank, JSON.parse(String(init.body)).updates);
+			data = {
+				config: fakeBankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+			};
+		} else if (path.includes("/documents/") && init?.method === "DELETE") {
 			const id = decodeURIComponent(path.split("/documents/")[1]);
 			deleted.push(id);
 			for (const [key, fact] of facts)

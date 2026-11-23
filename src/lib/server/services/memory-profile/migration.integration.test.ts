@@ -248,6 +248,7 @@ async function nativeFixture(
 		source_memory_ids: string[];
 	}> = [];
 	const deletedBanks = new Set<string>();
+	const bankConfigs = new Map<string, unknown>();
 	const fetcher = vi.fn(
 		async (url: RequestInfo | URL, options?: RequestInit) => {
 			const path = String(url);
@@ -258,9 +259,14 @@ async function nativeFixture(
 			if (options?.method === "DELETE" && segments.length === 5) {
 				deletedBanks.add(bank);
 				for (const [key, f] of facts) if (f.bank === bank) facts.delete(key);
-			} else if (path.endsWith("/config"))
-				data = { config: contracts.NATIVE_BANK_CONFIG };
-			else if (path.endsWith("/memories") && options?.method === "POST") {
+			} else if (path.endsWith("/config")) {
+				// A bank answers with the config it was last sent (config 2 is per bank kind).
+				if (options?.method === "PATCH")
+					bankConfigs.set(bank, JSON.parse(String(options.body)).updates);
+				data = {
+					config: bankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+				};
+			} else if (path.endsWith("/memories") && options?.method === "POST") {
 				const body = JSON.parse(String(options.body));
 				const again =
 					fixtureOptions.retainOnce &&
@@ -1987,6 +1993,7 @@ async function migrationReplayNative() {
 		after: unknown;
 		facts: Array<{ id: string; text: string }>;
 	}> = [];
+	const bankConfigs = new Map<string, unknown>();
 	const fetcher = async (url: RequestInfo | URL, options?: RequestInit) => {
 		const path = new URL(String(url));
 		const [, , , , bank, leaf, encodedId] = path.pathname.split("/");
@@ -1996,8 +2003,10 @@ async function migrationReplayNative() {
 		banks.set(bank, facts);
 		const body = options?.body ? JSON.parse(String(options.body)) : {};
 		let data: unknown = {};
-		if (leaf === "config") data = { config: NATIVE_BANK_CONFIG };
-		else if (leaf === "operations")
+		if (leaf === "config") {
+			if (options?.method === "PATCH") bankConfigs.set(bank, body.updates);
+			data = { config: bankConfigs.get(bank) ?? NATIVE_BANK_CONFIG };
+		} else if (leaf === "operations")
 			data = id ? { status: "completed" } : { operations: [] };
 		else if (leaf === "consolidate") data = { operation_id: "consolidate" };
 		else if (leaf === "memories" && options?.method === "POST") {

@@ -3,6 +3,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
 import { withDatedNativeFacts } from "./curation.test-support";
 
+/** What each fake bank was last configured with. */
+const fakeBankConfigs = new Map<string, unknown>();
+
 let h: EngineHarness;
 beforeEach(async () => {
 	h = await bootEngine("memory-actions");
@@ -161,9 +164,15 @@ async function nativeFixture(
 	const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
 		const path = String(url);
 		let data: unknown = {};
-		if (path.endsWith("/config"))
-			data = { config: contracts.NATIVE_BANK_CONFIG };
-		else if (path.includes("/operations?")) data = { operations: [] };
+		if (path.endsWith("/config")) {
+			// A bank answers with the config it was last sent (config 2 is per bank kind).
+			const bank = new URL(path).pathname.split("/")[4];
+			if (init?.method === "PATCH")
+				fakeBankConfigs.set(bank, JSON.parse(String(init.body)).updates);
+			data = {
+				config: fakeBankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+			};
+		} else if (path.includes("/operations?")) data = { operations: [] };
 		else if (path.includes("/operations/")) data = { status: "completed" };
 		else if (path.endsWith("/memories") && init?.method === "POST")
 			data = { operation_id: JSON.parse(String(init.body)).operation_id };

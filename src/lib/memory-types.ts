@@ -2,6 +2,41 @@
 export type MemoryScope =
 	| { kind: "personal" }
 	| { kind: "project"; projectId: string };
+
+/**
+ * How an entry ages (design spec, part 2): lasting is kept until replaced,
+ * ongoing goes quiet and then Earlier without a new fact, temporary is Earlier
+ * a while after its mention or its event. An unlabelled entry reads as lasting.
+ */
+export const MEMORY_KINDS = ["lasting", "ongoing", "temporary"] as const;
+export type MemoryKind = (typeof MEMORY_KINDS)[number];
+/** Storage slugs of the subject index ("Calls I made" 1); the page words are keyed by them. */
+export const PERSONAL_MEMORY_SUBJECTS = [
+	"about_you",
+	"home_family",
+	"work_study",
+	"health",
+	"projects",
+	"interests",
+	"other",
+] as const;
+export const PROJECT_MEMORY_SUBJECTS = [
+	"goals_decisions",
+	"people",
+	"facts_figures",
+	"plans_status",
+	"other",
+] as const;
+export type MemorySubject =
+	| (typeof PERSONAL_MEMORY_SUBJECTS)[number]
+	| (typeof PROJECT_MEMORY_SUBJECTS)[number];
+export function memorySubjectsFor(
+	kind: MemoryScope["kind"],
+): readonly MemorySubject[] {
+	return kind === "project"
+		? PROJECT_MEMORY_SUBJECTS
+		: PERSONAL_MEMORY_SUBJECTS;
+}
 export interface MemoryRef {
 	scope: MemoryScope;
 	generation: string;

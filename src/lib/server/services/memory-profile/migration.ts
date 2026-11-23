@@ -20,7 +20,7 @@ import {
 import { cancelAll, enqueueAtomic, retry } from "../jobs";
 import type { Tx } from "../jobs/types";
 import { carryMemoryScopeMoves } from "../memory-behavior-log";
-import { HINDSIGHT_ENGINE_COMMIT } from "./contracts";
+import { isVerifiedNativeBankConfigVersion } from "./contracts";
 import type { ActionIntentRecord } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
 import {
@@ -850,7 +850,7 @@ export function cutoverMemoryMigration(
 					b.status !== "retired" &&
 					(!b.nativeBaseUrl ||
 						!b.nativeCredentialHash ||
-						b.nativeConfigVersion !== HINDSIGHT_ENGINE_COMMIT ||
+						!isVerifiedNativeBankConfigVersion(b.nativeConfigVersion) ||
 						b.status !== "ready"),
 			)
 		)
