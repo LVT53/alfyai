@@ -384,11 +384,11 @@ function parseArtifactFamilyKind(
  * The artifact-family row → `KnowledgeDocumentItem` mapper. No second DB
  * round trip: every field it needs is already on the row selected via
  * `knowledgeArtifactListSelection` (`core.ts`) — everything but
- * `contentText`, which only the Workspace Search candidate loader needs.
+ * `contentText`, which Workspace Search reads for the rows on its page only.
  *
- * Exported for `workspace-search.ts`'s own artifact-family candidate loader
- * (Task 2), which needs the exact same mapping — shared behaviour should
- * exist once, not be copied between the two callers.
+ * Shared by the single and the batch reader (`getLogicalDocumentForArtifact`,
+ * `getLogicalDocumentsForArtifacts`) and the library's page: the mapping exists
+ * once, not once per caller.
  */
 export function mapArtifactFamilyRow(
 	row: LogicalDocumentArtifactRow,
@@ -443,11 +443,10 @@ export interface ArtifactLatestMoment {
  * `max()` the values of the row that holds the maximum (documented behaviour, and the
  * only database this app runs on), so `author` and `summary` are the NEWEST row's.
  *
- * Exported for `workspace-search.ts`'s artifact-family candidate loader
- * (Task 2) through `getArtifactVersionNumbers`, which batches the same lookup for
- * its own candidate set.
+ * One lookup for a whole batch of artifact ids: the library's page and both
+ * document readers take their family rows' version numbers from it.
  */
-export async function getArtifactLatestVersions(
+async function getArtifactLatestVersions(
 	artifactIds: string[],
 ): Promise<
 	Map<string, { versionNumber: number; latest: ArtifactLatestMoment | null }>
@@ -484,16 +483,6 @@ export async function getArtifactLatestVersions(
 					},
 				] as const;
 			}),
-	);
-}
-
-/** Just the numbers of `getArtifactLatestVersions`: what a caller that does not print a moment needs. */
-export async function getArtifactVersionNumbers(
-	artifactIds: string[],
-): Promise<Map<string, number>> {
-	const latest = await getArtifactLatestVersions(artifactIds);
-	return new Map(
-		[...latest].map(([artifactId, entry]) => [artifactId, entry.versionNumber]),
 	);
 }
 
@@ -566,9 +555,8 @@ function tallyCountsByFileFamily(
  * kind (title/label/role/summary, never body content —
  * `scoreLogicalDocumentRecordForSearch` doesn't read `contentText` either).
  * This slice does not deepen the Documents tab's own search, only widens
- * which kinds it covers. Never reads an App's body — Review Focus #3's
- * concern is about `workspace-search.ts`'s content-scoring loop, which this
- * function has no equivalent of.
+ * which kinds it covers. Never reads an App's body: Workspace Search's rule
+ * that an App's code is never searched has no equivalent to keep here.
  */
 function scoreArtifactFamilyRowForSearch(
 	item: KnowledgeDocumentItem,

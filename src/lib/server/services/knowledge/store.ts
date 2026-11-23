@@ -65,7 +65,6 @@ export {
 	attachImagePreviews,
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
-	getArtifactVersionNumbers,
 	getLogicalDocumentForArtifact,
 	getLogicalDocumentsForArtifacts,
 	listLogicalDocuments,

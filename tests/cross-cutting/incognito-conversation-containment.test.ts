@@ -628,6 +628,8 @@ const ALLOWED_WITHOUT_SCOPE: Record<string, string> = {
 	// `/api/home/summary` and nothing else.
 	"services/workspace-search/chats.ts":
 		"the user's own search over their own chats; its ARTIFACT halves are scoped, its conversation halves are a listing",
+	"services/workspace-search/documents.ts":
+		"the title of the chat an owned document was made in, read by id for the rows of one page; the ids come from the ownership-scoped artifact query, so an incognito chat's artifact, and with it its chat's title, never gets here",
 	"services/home-summary.ts":
 		"the home screen's weekly bars, recent list and projects row, rendered for the user, never fed to a model",
 	// Administration: deletion, export, erasure and orphan sweeps must see
