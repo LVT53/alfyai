@@ -1276,13 +1276,14 @@ describe("the estimate", () => {
 		const takeId = await queueTake();
 		const samples = await recordEta(takeId, drainVideoTakes);
 		expect(samples.length).toBeGreaterThanOrEqual(1);
-		// Written with the "starting" stamp: the whole plan of a cold 5 s clip
-		// (`videoPlan(5, false)`, 41 s) is ahead of it.
+		// Written with the "starting" stamp: the whole plan of a cold 5 s clip is
+		// ahead of it. The constants are the measured render now (~56 s at 121
+		// frames with the sharpen and the x2 upscale), not the old 41 s.
 		const first = samples[0];
 		expect(first?.phase).toBe("starting");
 		const ahead = ((first?.etaAt ?? 0) - (first?.phaseAt ?? 0)) / 1000;
-		expect(ahead).toBeGreaterThan(40);
-		expect(ahead).toBeLessThan(42);
+		expect(ahead).toBeGreaterThan(60);
+		expect(ahead).toBeLessThan(72);
 		// The take is done: the row no longer claims a time.
 		expect((await readTake(takeId)).etaAt).toBeNull();
 	}, 20_000);
