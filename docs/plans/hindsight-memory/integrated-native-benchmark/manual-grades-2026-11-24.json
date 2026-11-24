@@ -1,0 +1,608 @@
+[
+ {
+  "profile": "p01",
+  "index": 0,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Not yet; trip starts Friday September 4; 'leave York' on September 7 is explicitly the return, which recall states."
+ },
+ {
+  "profile": "p01",
+  "index": 1,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "York; outbound and return dates as recalled; no invented workshop timing."
+ },
+ {
+  "profile": "p01",
+  "index": 2,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Back home after September 7; Bristol."
+ },
+ {
+  "profile": "p01",
+  "index": 3,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Nikon Z5 is the everyday device"
+  ],
+  "reason": "Transfers the sold device's everyday-use habit to the replacement (consolidation merged old and new device into one observation); graded as the recorded run graded p03/03. Required and forbidden details are otherwise right."
+ },
+ {
+  "profile": "p01",
+  "index": 4,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Profession and boat/car ownership unknown."
+ },
+ {
+  "profile": "p01",
+  "index": 5,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Bristol; relocation undecided pending approval, as recalled with its September 13 date."
+ },
+ {
+  "profile": "p01",
+  "index": 6,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Short informal Cedar rule; the general two-sentence format is named as general."
+ },
+ {
+  "profile": "p01",
+  "index": 7,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Copy approved, pricing postponed, keyboard signup testing next."
+ },
+ {
+  "profile": "p01",
+  "index": 8,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Two connected sentences, no list."
+ },
+ {
+  "profile": "p01",
+  "index": 9,
+  "pass": true,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [],
+  "reason": "Two quick vegetarian lunches without mushrooms or peanuts; the project-only allergy was not in scope (ingredient-level success, as recorded)."
+ },
+ {
+  "profile": "p01",
+  "index": 10,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "No record of a food allergy (unqualified)"
+  ],
+  "reason": "Allergy is Atlas-only and correctly withheld; the answer broadens the scoped gap into an unqualified statement."
+ },
+ {
+  "profile": "p01",
+  "index": 11,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Codename, swimming, Wednesday."
+ },
+ {
+  "profile": "p02",
+  "index": 0,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Not yet; trip begins September 4; return September 7."
+ },
+ {
+  "profile": "p02",
+  "index": 1,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Oxford; trip dates as recalled."
+ },
+ {
+  "profile": "p02",
+  "index": 2,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Back home; Exeter."
+ },
+ {
+  "profile": "p02",
+  "index": 3,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "ROG Ally X is the everyday device"
+  ],
+  "reason": "Transfers the sold device's everyday-use habit to the replacement (consolidation merged old and new device into one observation); graded as the recorded run graded p03/03. Required and forbidden details are otherwise right."
+ },
+ {
+  "profile": "p02",
+  "index": 4,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Profession and ownership unknown; fiction identified."
+ },
+ {
+  "profile": "p02",
+  "index": 5,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Exeter; 2027 move undecided and conditional."
+ },
+ {
+  "profile": "p02",
+  "index": 6,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Short informal Cedar rule plus the general format."
+ },
+ {
+  "profile": "p02",
+  "index": 7,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Copy approved, pricing postponed, keyboard testing next."
+ },
+ {
+  "profile": "p02",
+  "index": 8,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Two connected sentences, no list."
+ },
+ {
+  "profile": "p02",
+  "index": 9,
+  "pass": true,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [],
+  "reason": "Two quick vegetarian lunches without olives or peanuts; no dairy/egg embellishment."
+ },
+ {
+  "profile": "p02",
+  "index": 10,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "Has not mentioned any food allergies (unqualified)"
+  ],
+  "reason": "Allergy is Atlas-only; unqualified 'not mentioned' claim, as graded in p03 then."
+ },
+ {
+  "profile": "p02",
+  "index": 11,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Codename, cycling, Tuesday."
+ },
+ {
+  "profile": "p03",
+  "index": 0,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Not yet; departs Chester Friday September 4; return September 7. Answers the departure correctly (failed then)."
+ },
+ {
+  "profile": "p03",
+  "index": 1,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Durham; travel dates, no workshop timing."
+ },
+ {
+  "profile": "p03",
+  "index": 2,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Not back home on September 9"
+  ],
+  "reason": "Recall states the September 7 return; the answer says the user is not back home. Answer error with sufficient evidence."
+ },
+ {
+  "profile": "p03",
+  "index": 3,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Creality K1C is the everyday device"
+  ],
+  "reason": "Transfers the sold device's everyday-use habit to the replacement (consolidation merged old and new device into one observation); graded as the recorded run graded p03/03. Required and forbidden details are otherwise right. Same failure as the recorded run."
+ },
+ {
+  "profile": "p03",
+  "index": 4,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Profession and ownership unknown."
+ },
+ {
+  "profile": "p03",
+  "index": 5,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Residence in Chester is temporary"
+  ],
+  "reason": "Chester and an undecided conditional move are right, but the answer hedges that living in Chester 'is marked as temporary': the entry's kind flipped to temporary when the conditional-move message joined it (label derivation)."
+ },
+ {
+  "profile": "p03",
+  "index": 6,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Short informal Cedar rule plus the general format."
+ },
+ {
+  "profile": "p03",
+  "index": 7,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Copy approved, pricing postponed, keyboard testing next."
+ },
+ {
+  "profile": "p03",
+  "index": 8,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Two connected sentences, no list."
+ },
+ {
+  "profile": "p03",
+  "index": 9,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "Prefers eggs and dairy"
+  ],
+  "reason": "Two quick vegetarian lunches without aubergine, but embellishes accepted eggs and dairy into a preference, as graded then."
+ },
+ {
+  "profile": "p03",
+  "index": 10,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "No recorded food allergies (unqualified)"
+  ],
+  "reason": "Allergy is Atlas-only; unqualified claim."
+ },
+ {
+  "profile": "p03",
+  "index": 11,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Codename, climbing, Thursday."
+ },
+ {
+  "profile": "p04",
+  "index": 0,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Not yet; trip starts September 4; home to Szeged September 7."
+ },
+ {
+  "profile": "p04",
+  "index": 1,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Pécs; travel dates, no course timing (failed then)."
+ },
+ {
+  "profile": "p04",
+  "index": 2,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Back home; Szeged."
+ },
+ {
+  "profile": "p04",
+  "index": 3,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Nikon Z50 II is used daily"
+  ],
+  "reason": "Transfers the sold device's everyday-use habit to the replacement (consolidation merged old and new device into one observation); graded as the recorded run graded p03/03. Required and forbidden details are otherwise right."
+ },
+ {
+  "profile": "p04",
+  "index": 4,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "No information about profession, boat or car (failed then on a quotation conflation)."
+ },
+ {
+  "profile": "p04",
+  "index": 5,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Szeged; 2027 move undecided pending remote-work approval. Third-person voice, as the recorded answer's first-person slip passed."
+ },
+ {
+  "profile": "p04",
+  "index": 6,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Short informal Cedar rule, said not to be general; the extra approved-copy remark is supported."
+ },
+ {
+  "profile": "p04",
+  "index": 7,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Copy done and approved, pricing postponed, keyboard testing next."
+ },
+ {
+  "profile": "p04",
+  "index": 8,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Two connected sentences, no list."
+ },
+ {
+  "profile": "p04",
+  "index": 9,
+  "pass": true,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [],
+  "reason": "Two quick vegetarian lunches without mushrooms; describes an egg-and-dairy-inclusive diet, which the user's acceptance supports (the recorded fail claimed a requirement)."
+ },
+ {
+  "profile": "p04",
+  "index": 10,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "Affirms an allergy question with a food dislike"
+  ],
+  "reason": "Answers 'yes' and lists the mushroom dislike; the Atlas-only allergy is out of scope."
+ },
+ {
+  "profile": "p04",
+  "index": 11,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Codename, swimming, Wednesday."
+ },
+ {
+  "profile": "p05",
+  "index": 0,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Not yet; starts tomorrow September 4; the trip lasts to September 7 because of the course (trip span, not course timing)."
+ },
+ {
+  "profile": "p05",
+  "index": 1,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Course runs September 4-7"
+  ],
+  "reason": "Eger is right, but names a September 4-7 course: consolidation wrote the trip as one range, as then."
+ },
+ {
+  "profile": "p05",
+  "index": 2,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [
+   "Course ran September 4-7"
+  ],
+  "reason": "Home in Győr is right, but again dates the course by the travel span, as then."
+ },
+ {
+  "profile": "p05",
+  "index": 3,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Sold the Samsung and bought the Lenovo; iPad belongs to the brother."
+ },
+ {
+  "profile": "p05",
+  "index": 4,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "No information about profession, boat or car; residence and conditional move are supported."
+ },
+ {
+  "profile": "p05",
+  "index": 5,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Győr; move undecided and conditional (first-person slip, content right)."
+ },
+ {
+  "profile": "p05",
+  "index": 6,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Short informal Cedar rule."
+ },
+ {
+  "profile": "p05",
+  "index": 7,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Copy done, pricing postponed, keyboard testing next."
+ },
+ {
+  "profile": "p05",
+  "index": 8,
+  "pass": false,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Three sentences although recall holds the two-sentence preference: answer error with sufficient evidence."
+ },
+ {
+  "profile": "p05",
+  "index": 9,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "Egg and dairy content as the reason the meals suit the user"
+  ],
+  "reason": "Two quick vegetarian lunches without olives, but presents egg and dairy content as what suits the user's taste, as graded then."
+ },
+ {
+  "profile": "p05",
+  "index": 10,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [],
+  "reason": "States no knowledge of an allergy; the Atlas-only allergy is out of scope."
+ },
+ {
+  "profile": "p05",
+  "index": 11,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Codename, cycling, Tuesday."
+ },
+ {
+  "profile": "p06",
+  "index": 0,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Not yet; departs Friday September 4; home Monday September 7."
+ },
+ {
+  "profile": "p06",
+  "index": 1,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Sopron; trip dates, no course timing (failed then)."
+ },
+ {
+  "profile": "p06",
+  "index": 2,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Home after arriving September 7; Debrecen (failed then)."
+ },
+ {
+  "profile": "p06",
+  "index": 3,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Kindle is the father's; Kobo sold and PocketBook Era bought September 9."
+ },
+ {
+  "profile": "p06",
+  "index": 4,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Only that an employer exists; no boat or car information."
+ },
+ {
+  "profile": "p06",
+  "index": 5,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Debrecen; 2027 move conditional and undecided."
+ },
+ {
+  "profile": "p06",
+  "index": 6,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Short informal Cedar rule; general format kept general (failed then)."
+ },
+ {
+  "profile": "p06",
+  "index": 7,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Copy done and approved, pricing postponed, keyboard testing next (failed then on the omitted approval)."
+ },
+ {
+  "profile": "p06",
+  "index": 8,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Two connected sentences, no list."
+ },
+ {
+  "profile": "p06",
+  "index": 9,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [
+   "Likes dairy; dairy-containing requirement"
+  ],
+  "reason": "Two quick vegetarian lunches without aubergine, but states the user likes dairy and requires dairy-containing meals."
+ },
+ {
+  "profile": "p06",
+  "index": 10,
+  "pass": false,
+  "retrievalSufficient": false,
+  "unsupportedClaims": [],
+  "reason": "States no knowledge of an allergy; out of scope."
+ },
+ {
+  "profile": "p06",
+  "index": 11,
+  "pass": true,
+  "retrievalSufficient": true,
+  "unsupportedClaims": [],
+  "reason": "Codename, climbing, Thursday."
+ }
+]

@@ -1,0 +1,1697 @@
+{
+  "summary": {
+    "en": {
+      "pass": 37,
+      "fail": 0,
+      "info": 2
+    },
+    "hu": {
+      "pass": 37,
+      "fail": 0,
+      "info": 2
+    },
+    "cancel": {
+      "pass": 7,
+      "fail": 0,
+      "info": 13
+    },
+    "privacy": {
+      "pass": 14,
+      "fail": 0,
+      "info": 0
+    },
+    "faults": {
+      "pass": 4,
+      "fail": 0,
+      "info": 6
+    },
+    "er-en-fresh": {
+      "pass": 28,
+      "fail": 1,
+      "info": 0
+    },
+    "er-hu-regression": {
+      "pass": 2,
+      "fail": 26,
+      "info": 1
+    },
+    "er-hu-fresh": {
+      "pass": 28,
+      "fail": 5,
+      "info": 1
+    },
+    "er-remove": {
+      "pass": 13,
+      "fail": 1,
+      "info": 0
+    },
+    "carry-hu": {
+      "pass": 5,
+      "fail": 3,
+      "info": 2
+    },
+    "carry-en-metronome": {
+      "pass": 8,
+      "fail": 0,
+      "info": 2
+    },
+    "carry-en-lamp": {
+      "pass": 8,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-tea": {
+      "pass": 12,
+      "fail": 0,
+      "info": 2
+    }
+  },
+  "checks": [
+    {
+      "case": "en",
+      "check": "record finished after-restart without failures",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "add applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "en",
+      "check": "edit applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "en",
+      "check": "partial-remove applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "en",
+      "check": "whole-remove applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "en",
+      "check": "conversation cards quote the exact original message",
+      "result": "pass",
+      "detail": "3 quotes"
+    },
+    {
+      "case": "en",
+      "check": "original shows 'bronze' in every layer",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "edit shows 'walnut' in every layer",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "edit leaves no 'bronze'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "history after Edit (recorded as a gap)",
+      "result": "info",
+      "detail": "origin=conversation versions=0 sources=1"
+    },
+    {
+      "case": "en",
+      "check": "edit keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "en",
+      "check": "edit leaves no 'bronze'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "partial-remove keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "en",
+      "check": "partial-remove leaves no 'bronze'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "unchanged-resend keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "en",
+      "check": "unchanged-resend leaves no 'bronze'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "forced-native-reextraction keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "en",
+      "check": "forced-native-reextraction leaves no 'bronze'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "partial removal leaves no 'walnut'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "partial removal keeps 'metronome' ownership",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "unchanged-resend keeps the unrelated facts' dates",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "en",
+      "check": "unchanged-resend leaves no 'walnut'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "forced-native-reextraction keeps the unrelated facts' dates",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "en",
+      "check": "forced-native-reextraction leaves no 'walnut'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "restart ran in a new process",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "restart keeps raw identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "restart keeps observations identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "restart keeps published identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "restart keeps details identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "restart keeps admitted recall (entries, without their age)",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "restart: recall lines differ only in age",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "en",
+      "check": "Remove acknowledged: old detail 409",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "en",
+      "check": "Remove acknowledged: hidden from publication, page and recall at once",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "whole-remove leaves no 'metronome'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "post-remove-unchanged-resend leaves no 'metronome'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "newer assertion admitted ('maple')",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "newer assertion brings back no removed material",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "en",
+      "check": "newer assertion: every fact keeps its own date",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "record finished after-restart without failures",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "add applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "hu",
+      "check": "edit applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "hu",
+      "check": "partial-remove applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "hu",
+      "check": "whole-remove applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "hu",
+      "check": "conversation cards quote the exact original message",
+      "result": "pass",
+      "detail": "4 quotes"
+    },
+    {
+      "case": "hu",
+      "check": "original shows 'réz' in every layer",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "edit shows 'alumínium' in every layer",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "edit leaves no 'réz'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "history after Edit (recorded as a gap)",
+      "result": "info",
+      "detail": "origin=conversation versions=1 sources=1"
+    },
+    {
+      "case": "hu",
+      "check": "edit keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "edit leaves no 'réz'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "partial-remove keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "partial-remove leaves no 'réz'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "unchanged-resend keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "unchanged-resend leaves no 'réz'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "forced-native-reextraction keeps the unrelated facts",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "forced-native-reextraction leaves no 'réz'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "partial removal leaves no 'alumínium'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "partial removal keeps 'távcs' ownership",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "unchanged-resend keeps the unrelated facts' dates",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "unchanged-resend leaves no 'alumínium'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "forced-native-reextraction keeps the unrelated facts' dates",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "hu",
+      "check": "forced-native-reextraction leaves no 'alumínium'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "restart ran in a new process",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "restart keeps raw identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "restart keeps observations identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "restart keeps published identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "restart keeps details identical",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "restart keeps admitted recall (entries, without their age)",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "restart: recall lines differ only in age",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "hu",
+      "check": "Remove acknowledged: old detail 409",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "hu",
+      "check": "Remove acknowledged: hidden from publication, page and recall at once",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "whole-remove leaves no 'távcs'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "post-remove-unchanged-resend leaves no 'távcs'",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "newer assertion admitted ('titán')",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "newer assertion brings back no removed material",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "hu",
+      "check": "newer assertion: every fact keeps its own date",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "cancel",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "cancel",
+      "check": "baseline has the seed library",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "cancel",
+      "check": "the edit reached a native PATCH (dirty cancellation exercised)",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "after-dirty-cancellation: no Monday or Friday schedule shown",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "cancel",
+      "check": "after-dirty-cancellation operation",
+      "result": "info",
+      "detail": "status=failed error=None retryable=True cleanup=True"
+    },
+    {
+      "case": "cancel",
+      "check": "source-deleted-while-off: no Monday or Friday schedule shown",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "cancel",
+      "check": "source-deleted-while-off operation",
+      "result": "info",
+      "detail": "status=failed error=None retryable=True cleanup=True"
+    },
+    {
+      "case": "cancel",
+      "check": "reenabled-dependent-repair: no Monday or Friday schedule shown",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "cancel",
+      "check": "reenabled-dependent-repair operation",
+      "result": "info",
+      "detail": "status=failed error=memory_edit_cancelled retryable=False cleanup=False"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-publication-after-cancellation: no Monday or Friday schedule shown",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-publication-after-cancellation operation",
+      "result": "info",
+      "detail": "status=failed error=memory_edit_cancelled retryable=False cleanup=False"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-add-after-cancellation: no Monday or Friday schedule shown",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-add-after-cancellation operation",
+      "result": "info",
+      "detail": "status=applied error=None retryable=False cleanup=False"
+    },
+    {
+      "case": "cancel",
+      "check": "reenabled-dependent-repair: seed library in recall",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "reenabled-dependent-repair: paper maps in recall",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-publication-after-cancellation: seed library in recall",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-publication-after-cancellation: paper maps in recall",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-add-after-cancellation: seed library in recall",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated-add-after-cancellation: paper maps in recall",
+      "result": "info",
+      "detail": "True"
+    },
+    {
+      "case": "cancel",
+      "check": "unrelated Add after cancellation",
+      "result": "info",
+      "detail": "submission=200 operation=applied"
+    },
+    {
+      "case": "privacy",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "privacy",
+      "check": "scope applicationRecall: own fact, nothing foreign",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "scope projectA: own fact, nothing foreign",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "scope projectB: own fact, nothing foreign",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "scope otherUser: own fact, nothing foreign",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "foreign project list and detail 404",
+      "result": "pass",
+      "detail": "404 404"
+    },
+    {
+      "case": "privacy",
+      "check": "off: recall empty and every list off",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "disabled-during-native-retain: no late or stale fact learned",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "privacy",
+      "check": "reenabled-after-late-native-retain: no late or stale fact learned",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "privacy",
+      "check": "reset-during-native-retain: no late or stale fact learned",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "privacy",
+      "check": "reset reported pending cleanup, then settled",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "reset: old detail gone, chat kept",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "reset: other account keeps its recall",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "privacy",
+      "check": "reset: three retired banks absent",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "faults",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "faults",
+      "check": "curation-outage operation",
+      "result": "info",
+      "detail": "status=failed error=memory_curation_unavailable retryable=True cleanup=False"
+    },
+    {
+      "case": "faults",
+      "check": "outage-retry-with-slow-response operation",
+      "result": "info",
+      "detail": "status=applied error=None retryable=False cleanup=False"
+    },
+    {
+      "case": "faults",
+      "check": "malformed-curation-output operation",
+      "result": "info",
+      "detail": "status=applied error=None retryable=False cleanup=False"
+    },
+    {
+      "case": "faults",
+      "check": "dirty-edit-final-check-fault operation",
+      "result": "info",
+      "detail": "status=applied error=None retryable=False cleanup=False"
+    },
+    {
+      "case": "faults",
+      "check": "persistent-dirty-fault-exhaustion operation",
+      "result": "info",
+      "detail": "status=failed error=memory_preparation_failed retryable=False cleanup=False"
+    },
+    {
+      "case": "faults",
+      "check": "outage: the edit fails, earlier facts stay",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "faults",
+      "check": "final-check fault: no replaced colour shown",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "faults",
+      "check": "final-check fault: raw annotation names the replaced colour (recorded as a false acceptance)",
+      "result": "info",
+      "detail": "False"
+    },
+    {
+      "case": "faults",
+      "check": "a later unrelated turn is admitted",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit-0 applied",
+      "result": "fail",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit-1 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit-2 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit: bicycle colour (red) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit: old kayak colour (green) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit: kayak is yellow kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit: folding bicycle owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit: stored in the shed kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-edit: brother cycles to work kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-replay: bicycle colour (red) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-replay: old kayak colour (green) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-replay: kayak is yellow kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-replay: folding bicycle owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-replay: stored in the shed kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-replay: brother cycles to work kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-reprocess: bicycle colour (red) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-reprocess: old kayak colour (green) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-reprocess: kayak is yellow kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-reprocess: folding bicycle owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-reprocess: stored in the shed kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-reprocess: brother cycles to work kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-new-explicit: bicycle colour (red) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-new-explicit: old kayak colour (green) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-new-explicit: kayak is yellow kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-new-explicit: folding bicycle owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-new-explicit: stored in the shed kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "er-new-explicit: brother cycles to work kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "later statement admitted: purple bicycle",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit-0 applied",
+      "result": "fail",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-remove-1 applied",
+      "result": "fail",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "a card was already changed by an earlier edit",
+      "result": "info",
+      "detail": "Luca (a felhasználó húga) gluténmentesen étkezik."
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user', 'A felhasználó és a húga, Luca gluténmentesen étkeznek. | Involving: user, Luca (a felhasználó húga)'], 'native_observations': ['A felhasználó gluténmentesen étkezik.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza', 'A felhasználónak két macskája van: Mák fekete, Bodza fehér. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete, Bodza fehér.'], 'published': ['A felhasználónak két"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Bodza's old colour (white) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza', 'A felhasználónak két macskája van: Mák fekete, Bodza fehér. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete, Bodza fehér.'], 'published': ['A felhasználónak két"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Bodza is grey kept",
+      "result": "fail",
+      "detail": "['raw', 'native_observations', 'published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user', 'A felhasználó és a húga, Luca gluténmentesen étkeznek. | Involving: user, Luca (a felhasználó húga)'], 'native_observations': ['A felhasználó gluténmentesen étkezik.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza', 'A felhasználónak két macskája van: Mák fekete, Bodza fehér. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete, Bodza fehér.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Bodza's old colour (white) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza', 'A felhasználónak két macskája van: Mák fekete, Bodza fehér. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete, Bodza fehér.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: two cats kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Bodza is grey kept",
+      "result": "fail",
+      "detail": "['raw', 'native_observations', 'published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user'], 'native_observations': ['A felhasználó gluténmentes étrendet követ.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza'], 'native_observations': ['A felhasználó Mák nevű macskája fekete.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Bodza's old colour (white) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza'], 'native_observations': ['A felhasználó Bodza nevű macskája fehér.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: two cats kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Bodza is grey kept",
+      "result": "fail",
+      "detail": "['raw', 'native_observations', 'published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user'], 'native_observations': ['A felhasználó gluténmentes étrendet követ.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza'], 'native_observations': ['A felhasználó Mák nevű macskája fekete.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Bodza's old colour (white) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza fehér. | Involving: user, Mák, Bodza'], 'native_observations': ['A felhasználó Bodza nevű macskája fehér.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: two cats kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Bodza is grey kept",
+      "result": "fail",
+      "detail": "['raw', 'native_observations', 'published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "later statement admitted: Mák's brown fur",
+      "result": "fail",
+      "detail": "['raw', 'native_observations', 'published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit-0 applied",
+      "result": "fail",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit-1 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit-2 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "a card was already changed by an earlier edit",
+      "result": "info",
+      "detail": "A felhasználó nem eszik húst."
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: the user's vegetarian diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó és a bátyja, Márton nem esznek húst. | Involving: user, Márton (a felhasználó bátyja)', 'A felhasználó és a bátyja, Márton vegetáriánusok. | Involving: user, Márton (a felhasználó bátyja)'], 'native_observations': ['A felhasználó és a bátyja, Márton nem esznek húst.'], 'publi"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: guitar colour (blue) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: piano's old colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: Márton's diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: Márton lives in Szeged kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: guitar owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-edit: piano is brown kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: the user's vegetarian diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó és a bátyja, Márton nem esznek húst. | Involving: user, Márton (a felhasználó bátyja)', 'A felhasználó és a bátyja, Márton vegetáriánusok. | Involving: user, Márton (a felhasználó bátyja)'], 'native_observations': ['A felhasználó és a bátyja, Márton nem esznek húst.'], 'publi"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: guitar colour (blue) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: piano's old colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: Márton's diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: Márton lives in Szeged kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: guitar owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-replay: piano is brown kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: the user's vegetarian diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó és a bátyja, Márton nem esznek húst. | Involving: user, Márton (a felhasználó bátyja)', 'A felhasználó és a bátyja, Márton vegetáriánusok. | Involving: user, Márton (a felhasználó bátyja)'], 'native_observations': ['A felhasználó és a bátyja, Márton nem esznek húst.'], 'publi"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: guitar colour (blue) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: piano's old colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: Márton's diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: Márton lives in Szeged kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: guitar owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-reprocess: piano is brown kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: the user's vegetarian diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó és a bátyja, Márton nem esznek húst. | Involving: user, Márton (a felhasználó bátyja)', 'A felhasználó és a bátyja, Márton vegetáriánusok. | Involving: user, Márton (a felhasználó bátyja)'], 'native_observations': ['A felhasználó és a bátyja, Márton nem esznek húst.'], 'publi"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: guitar colour (blue) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: piano's old colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: Márton's diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: Márton lives in Szeged kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: guitar owned kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "er-new-explicit: piano is brown kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "later statement admitted: white guitar",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-remove-0 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-edit: the user's telescope gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-edit: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-edit: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-replay: the user's telescope gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-replay: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-replay: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-reprocess: the user's telescope gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-reprocess: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-reprocess: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-new-explicit: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-new-explicit: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "later statement admitted: blue telescope",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "carry-hu",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-hu",
+      "check": "manual correction",
+      "result": "info",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "carry-hu",
+      "check": "exact resend: accepted with 0 retains and 0 document deletes",
+      "result": "fail",
+      "detail": "job=failed error=memory_unchanged_source_fact_missing retains=0 deletes=0"
+    },
+    {
+      "case": "carry-hu",
+      "check": "exact resend: same native facts and observations",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-hu",
+      "check": "exact resend: Memory still shows the chat's facts",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "carry-hu",
+      "check": "dependent reply: one retain, accepted",
+      "result": "pass",
+      "detail": "job=succeeded retains=1"
+    },
+    {
+      "case": "carry-hu",
+      "check": "changed append",
+      "result": "info",
+      "detail": "job=failed error=memory_dependency_check_rejected retains=2"
+    },
+    {
+      "case": "carry-hu",
+      "check": "plain deletion: the original chat's document deleted",
+      "result": "fail",
+      "detail": ""
+    },
+    {
+      "case": "carry-hu",
+      "check": "stale edit pointer: 0 retains",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-hu",
+      "check": "never-submitted message: one first retain at its own date",
+      "result": "pass",
+      "detail": "['2026-08-16T12:00:00.000Z']"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "manual correction",
+      "result": "info",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "exact resend: accepted with 0 retains and 0 document deletes",
+      "result": "pass",
+      "detail": "job=succeeded error=None retains=0 deletes=0"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "exact resend: same native facts and observations",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "exact resend: Memory still shows the chat's facts",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "dependent reply: one retain, accepted",
+      "result": "pass",
+      "detail": "job=succeeded retains=1"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "changed append",
+      "result": "info",
+      "detail": "job=succeeded error=None retains=2"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "plain deletion: the original chat's document deleted",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "stale edit pointer: 0 retains",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "never-submitted message: one first retain at its own date",
+      "result": "pass",
+      "detail": "['2026-08-16T12:00:00.000Z']"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "exact resend: accepted with 0 retains and 0 document deletes",
+      "result": "pass",
+      "detail": "job=succeeded error=None retains=0 deletes=0"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "exact resend: same native facts and observations",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "exact resend: Memory still shows the chat's facts",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "dependent reply: one retain, accepted",
+      "result": "pass",
+      "detail": "job=succeeded retains=1"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "changed append",
+      "result": "info",
+      "detail": "job=failed error=memory_dependency_check_rejected retains=2"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "plain deletion: the original chat's document deleted",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "stale edit pointer: 0 retains",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "never-submitted message: one first retain at its own date",
+      "result": "pass",
+      "detail": "['2026-08-16T12:00:00.000Z']"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "manual correction",
+      "result": "info",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "exact resend: accepted with 0 retains and 0 document deletes",
+      "result": "pass",
+      "detail": "job=succeeded error=None retains=0 deletes=0"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "exact resend: same native facts and observations",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "exact resend: Memory still shows the chat's facts",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "dependent reply: one retain, accepted",
+      "result": "pass",
+      "detail": "job=succeeded retains=1"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "changed append",
+      "result": "info",
+      "detail": "job=succeeded error=None retains=1"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "plain deletion: the original chat's document deleted",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "stale edit pointer: 0 retains",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "never-submitted message: one first retain at its own date",
+      "result": "pass",
+      "detail": "['2026-08-16T12:00:00.000Z']"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "carry-changed-append: the jasmine correction holds, no Earl Grey (recorded as resurrected)",
+      "result": "pass",
+      "detail": "missing jasmine in [], Earl Grey in []"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "carry-plain-deletion: the jasmine correction holds, no Earl Grey (recorded as resurrected)",
+      "result": "pass",
+      "detail": "missing jasmine in [], Earl Grey in []"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "carry-stale-edit-pointer: the jasmine correction holds, no Earl Grey (recorded as resurrected)",
+      "result": "pass",
+      "detail": "missing jasmine in [], Earl Grey in []"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "carry-unsubmitted-first-retain: the jasmine correction holds, no Earl Grey (recorded as resurrected)",
+      "result": "pass",
+      "detail": "missing jasmine in [], Earl Grey in []"
+    }
+  ]
+}

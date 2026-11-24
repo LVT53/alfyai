@@ -1,0 +1,90 @@
+{
+ "run": "2026-11-24 regression run: today's code (local main 67e70edfe) on pinned Hindsight 9fb28dbd with ONNX embeddings and FlashRank, Flash-Next qwen3-6-27b at most 3 calls in flight",
+ "answers": {
+  "all72": {
+   "today": 54,
+   "recorded": 50
+  },
+  "scopeCompatible60": {
+   "today": 51,
+   "recorded": 47
+  },
+  "byFamily": {
+   "today": {
+    "future_plan": "6/6",
+    "current_plan": "5/6",
+    "past_plan": "4/6",
+    "ownership": "2/6",
+    "fiction_attribution": "6/6",
+    "conditional_change": "5/6",
+    "project_preference": "6/6",
+    "project_continuity": "6/6",
+    "preference_correction": "5/6",
+    "personalization": "3/6",
+    "cross_project_personal_fact": "0/6",
+    "identity_continuity": "6/6"
+   },
+   "recorded": {
+    "future_plan": "4/6",
+    "current_plan": "1/6",
+    "past_plan": "4/6",
+    "ownership": "5/6",
+    "fiction_attribution": "5/6",
+    "conditional_change": "6/6",
+    "project_preference": "5/6",
+    "project_continuity": "5/6",
+    "preference_correction": "6/6",
+    "personalization": "3/6",
+    "cross_project_personal_fact": "0/6",
+    "identity_continuity": "6/6"
+   }
+  },
+  "unsupportedClaims": {
+   "today": {
+    "claims": 15,
+    "answers": 15
+   },
+   "recorded": {
+    "claims": 20,
+    "answers": 19
+   }
+  },
+  "retrievalSufficient": {
+   "today": 60,
+   "recorded": 59
+  },
+  "lenientOwnership": "Counting the replacement device's carried-over everyday-use habit as a supported inference gives 57/72 and 54/60 (p01/03, p02/03, p04/03 pass)."
+ },
+ "sources": {
+  "jobs": 102,
+  "statuses": {
+   "succeeded": 102
+  },
+  "attemptsPerJob": {
+   "1": 102
+  },
+  "medianSettleMs": 28843.0
+ },
+ "recall": {
+  "admittedRows": 915,
+  "scopeViolations": 0,
+  "medianRecallMs": 209.5
+ },
+ "answerCalls": {
+  "count": 72,
+  "medianMs": 3521.5,
+  "meanInputTokens": 722
+ },
+ "labels": {
+  "publishedEntries": 124,
+  "entriesMixingALastingFactWithATemporaryOrOngoingOne": 11
+ },
+ "entryKindFix": {
+  "commit": "79b27f80c",
+  "checksRerun": 54,
+  "recallTextsChanged": 54,
+  "onlyChange": "each mixed entry's label annotation (earlier, temporary -> lasting; temporary -> ongoing); no entry text or order changed",
+  "targetedAnswer": "p03/05 no longer says living in Chester 'is marked as temporary' (FAIL -> PASS)",
+  "otherAnswerFlips": "p04/09 and p05/04 got worse and p05/08 better with unchanged evidence lines (answer variance at temperature 0); p06/03 read the purchase entry, still temporary from extraction, as a temporary device"
+ }
+}

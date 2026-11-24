@@ -1,0 +1,6 @@
+[
+  {"card": "Márton, a felhasználó bátyja, nem eszik húst.", "action": "edit", "text": "Márton vegetáriánus."},
+  {"card": "A felhasználónak van egy kék gitárja.", "action": "edit", "text": "A felhasználónak van egy gitárja."},
+  {"card": "A felhasználónak van egy fekete zongorája.", "action": "edit", "text": "A felhasználónak van egy barna zongorája."},
+  {"card": "A felhasználó nem eszik húst.", "action": "remove"}
+]

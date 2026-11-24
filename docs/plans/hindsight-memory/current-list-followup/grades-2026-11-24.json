@@ -1,0 +1,2027 @@
+{
+	"suite": "current-list regression 2026-11-24: grades",
+	"gradedAt": "2026-11-24T12:05:36.829Z",
+	"basis": {
+		"graded": "results-2026-11-24.json: the single official run (tenant e08a661e-85c3-4258-aee7-9c2717e4df17, started 2026-11-24T11:46:34.595Z, 143 s wall, status complete, no case or stage errored; 80 model calls during it (18 extraction, 62 consolidation), all HTTP 200 and none queued, per the bridge trace).",
+		"criteria": [
+			"manual-grades.json (2026-11-18): green/espresso/canoe/sister preserved through replay, pending discard and rebuild; Hungarian green/detailed/kayak/sister; holdout Cork/Galway/Belfast/drill/Nora, same after rebuild.",
+			"current-list-followup-results.md: Rhodia edit changes the observation; removing the single fact removes its observation without losing other information.",
+			"The task's own rule: a correction must leave no trace of the wrong value; earlier history for a real change and kind/subject labels are accepted differences, not failures by themselves."
+		],
+		"method": "Every stage's `visible` rows were read in full against the raw facts and observations the results file keeps as GET /memories/list returned them. `visible` is built as in the recorded run (verified on all 22 recorded stage records): observations whose source facts all come from accepted documents; while a source from the unaccepted `pending` document exists, the previous complete snapshot stays published and the live row is shown under `rejected`. A regex pass only located candidate rows; every verdict below is a reading of the rows. `mixed` is unused for the official run because each defect is graded as its own criterion (H2, H8).",
+		"model": "qwen3-6-27b through the scratch bridge (regression-2026-11-24/start.py and bridge.cjs); the bridge trace shows the serving fingerprint vllm-0.34.0-a3da6d34, the same as the 2026-11-18 model-calls.jsonl, so the model backend is the same build; sampling is not deterministic.",
+		"scale": "pass | fail | mixed",
+		"oneRunIsASample": "One run of a nondeterministic model is a sample. Four further full runs of the same script were made only to tell systematic effects from noise; the official verdicts come from the first run, unselected, and the others only qualify them (supplementaryRuns)."
+	},
+	"overall": {
+		"en": {
+			"pass": 10,
+			"fail": 0,
+			"mixed": 0,
+			"verdict": "pass",
+			"sentence": "All ten English criteria (E1 to E9 with E1b) pass in the official run and in all five full runs: green backpack, espresso, canoe and sister survive replay, pending removal and rebuild, and the correction leaves no teal anywhere."
+		},
+		"hu": {
+			"pass": 9,
+			"fail": 2,
+			"mixed": 0,
+			"verdict": "mixed",
+			"sentence": "Green bicycle, kayak, sister, edit and removal pass, but the detailed-answers preference is not kept at all (part 2's retain mission drops it, and in 3 of 5 runs a stale short-answers row stays current instead) and the list shows the bicycle twice (or folds the kayak into it) in four of five runs between the pending document's deletion and the full rebuild."
+		},
+		"holdout": {
+			"pass": 6,
+			"fail": 0,
+			"mixed": 0,
+			"verdict": "pass",
+			"sentence": "All six holdout criteria pass in the official run; four of five full runs pass in both stages, one (repeat4) lacks a current Cork row in the batch stage until the rebuild."
+		}
+	},
+	"accountedDifferences": [
+		{
+			"id": 1,
+			"difference": "Earlier history is kept inside the observation for a real-world change, never with an invented end date.",
+			"finding": "Observed as the engine's own dated old-source notes, not as the mission's 'previously ...' wording: across the five full runs 142 of 511 observation rows (counted once per stage snapshot) carry a note of the form \"(2026-11-01 12:00: <old source sentence>)\" and 0 use 'previously', 'formerly', 'earlier', 'korábban' or similar. The 2026-11-18 run produced the same note format, so this difference is not visible in the rows. The dates in the notes are the old source's own assertion time, never an invented end date. Examples: \"User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)\", \"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)\".",
+			"grade": "accepted, not a failure",
+			"minorDeviation": "Two of the five runs (repeat1, repeat2) also wrote a date into the Cork rows' main text (\"As of November 12, 2026, user lives in Cork.\"), which is the message's date rather than a date the person stated; it is not an end date, and the official run does not have it."
+		},
+		{
+			"id": 2,
+			"difference": "Facts are labelled with kind and subject entities.",
+			"finding": "Every raw fact the official run created carries both labels as tags and as entity strings (en: 12 of 12; hu: 9 of 9; holdout: 8 of 8), e.g. tags [\"old\",\"kind:lasting\",\"subject:home_family\"] with entities \"green tea, kind:lasting, subject:home_family, user's sister\". The label strings never reach the visible row text and never changed a row's value. Kinds are sensible where they vary (the Belfast possibility is kind:temporary, one commute fact kind:ongoing, the rest lasting); the subject drifts for the same entry (the Hungarian bicycle row is lasting/interests at original, lasting/other at newer and lasting/home_family from the correction on), which no criterion depends on.",
+			"grade": "accepted, not a failure"
+		},
+		{
+			"id": 3,
+			"difference": "NOT in the two the caller listed: part 2's retain mission now says requests to the assistant and what the user wants from this chat are not memories.",
+			"finding": "This changes extraction before consolidation sees anything: the Hungarian answer-length sentences ('Rövid válaszokat kérek.', 'Most részletes válaszokat kérek.') are dropped or retained by chance, and the later one never (5 of 5 runs). It is graded as H2 (fail) because the recorded criterion needs a current detailed-answers row.",
+			"grade": "fail on H2; a design decision for the owner rather than a consolidation defect"
+		}
+	],
+	"en": {
+		"counts": {
+			"pass": 10,
+			"fail": 0,
+			"mixed": 0
+		},
+		"recordedGrade2026_11_18": "pass: latest green/espresso, ownership and sister preference preserved through replay, pending discard and rebuild (manual-grades.json)",
+		"versusRecorded": "unchanged: pass",
+		"criteria": [
+			{
+				"id": "E1",
+				"criterion": "Green backpack is the current value from the correction on, never reverting to amber, teal (or the pending orange).",
+				"verdict": "pass",
+				"evidence": "From the correction stage to the last, the backpack row's current text is green (correction: \"The user's hiking backpack is green.\"; full-native-rebuild: \"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)\") and amber appears only inside the dated old-source note, teal and orange in no visible row.",
+				"quotes": [
+					{
+						"stage": "correction",
+						"row": "The user's hiking backpack is green."
+					},
+					{
+						"stage": "old-replay",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "pending-removed",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "insert",
+						"row": "User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					}
+				]
+			},
+			{
+				"id": "E1b",
+				"criterion": "The correction leaves no trace of the wrong value ('previously teal' is a defect).",
+				"verdict": "pass",
+				"evidence": "No observation, visible or live, from the correction stage on contains \"teal\" (the correction row is \"The user's hiking backpack is green.\"), so there is no \"previously teal\" defect in the list.",
+				"quotes": [
+					{
+						"stage": "newer",
+						"row": "The user's hiking backpack is teal."
+					},
+					{
+						"stage": "correction",
+						"row": "The user's hiking backpack is green."
+					},
+					{
+						"stage": "old-replay",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					}
+				],
+				"note": "Only the raw layer, which the list never shows, still names teal: the extracted correction fact reads \"User's hiking backpack is green; the earlier teal description was wrong and the backpack has not changed color. | When: 2026-11-12 | Involving: user | Correction of an earlier incorrect teal description.\" (the recorded run's raw correction fact did the same)."
+			},
+			{
+				"id": "E2",
+				"criterion": "Espresso is the current coffee preference (never reverting to decaf).",
+				"verdict": "pass",
+				"evidence": "The espresso row is current from the newer stage on (\"The user prefers espresso.\") and decaf survives only as the engine's dated old-source note (\"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)\").",
+				"quotes": [
+					{
+						"stage": "newer",
+						"row": "The user prefers espresso."
+					},
+					{
+						"stage": "correction",
+						"row": "The user prefers espresso."
+					},
+					{
+						"stage": "old-replay",
+						"row": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					},
+					{
+						"stage": "pending-removed",
+						"row": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					},
+					{
+						"stage": "insert",
+						"row": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					}
+				]
+			},
+			{
+				"id": "E3",
+				"criterion": "White canoe ownership is preserved through old-replay, pending removal and the full rebuild.",
+				"verdict": "pass",
+				"evidence": "\"The user owns a white canoe.\" is a standalone row at old-replay, \"The user owns a white canoe.\" at pending-removed and \"User owns a white canoe.\" after the full rebuild (the recorded run had folded the canoe into the backpack row at pending-removed).",
+				"quotes": [
+					{
+						"stage": "original",
+						"row": "The user owns a white canoe."
+					},
+					{
+						"stage": "old-replay",
+						"row": "The user owns a white canoe."
+					},
+					{
+						"stage": "pending-removed",
+						"row": "The user owns a white canoe."
+					},
+					{
+						"stage": "single-removed",
+						"row": "The user owns a white canoe."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User owns a white canoe."
+					},
+					{
+						"stage": "insert",
+						"row": "User owns a white canoe."
+					}
+				]
+			},
+			{
+				"id": "E4",
+				"criterion": "The sister's green-tea preference is preserved through old-replay, pending removal and the full rebuild.",
+				"verdict": "pass",
+				"evidence": "\"The user's sister prefers green tea.\" is present at old-replay and pending-removed, and \"User's sister prefers green tea.\" after the full rebuild.",
+				"quotes": [
+					{
+						"stage": "original",
+						"row": "The user's sister prefers green tea."
+					},
+					{
+						"stage": "old-replay",
+						"row": "The user's sister prefers green tea."
+					},
+					{
+						"stage": "pending-removed",
+						"row": "The user's sister prefers green tea."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User's sister prefers green tea."
+					},
+					{
+						"stage": "insert",
+						"row": "User's sister prefers green tea."
+					}
+				]
+			},
+			{
+				"id": "E5",
+				"criterion": "Editing the single notebook fact Leuchtturm -> Rhodia changes its observation.",
+				"verdict": "pass",
+				"evidence": "\"The user's preferred notebook brand is Leuchtturm.\" became \"The user prefers Rhodia notebooks.\" as a new observation id on the same source fact, and no visible row names Leuchtturm after the edit.",
+				"quotes": [
+					{
+						"stage": "single-added",
+						"row": "The user's preferred notebook brand is Leuchtturm."
+					},
+					{
+						"stage": "single-edited",
+						"row": "The user prefers Rhodia notebooks."
+					}
+				]
+			},
+			{
+				"id": "E6",
+				"criterion": "Removing that single fact removes its observation without losing other information.",
+				"verdict": "pass",
+				"evidence": "After the invalidation the notebook row is gone and the four remaining rows (backpack, espresso, sister, canoe) are exactly those of pending-removed, e.g. \"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)\".",
+				"quotes": [
+					{
+						"stage": "single-removed",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "The user's sister prefers green tea."
+					},
+					{
+						"stage": "single-removed",
+						"row": "The user owns a white canoe."
+					}
+				]
+			},
+			{
+				"id": "E7",
+				"criterion": "A source that is not accepted yet (pending) never reaches the published list, and its removal does not bring old values back.",
+				"verdict": "pass",
+				"evidence": "At pending the live backpack row read \"The user's hiking backpack is orange.\" and was rejected for resting on document pending while the published rows stayed on the previous snapshot, and after the deletion the regenerated row is \"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)\" with no orange.",
+				"quotes": [
+					{
+						"stage": "pending",
+						"row": "The user's hiking backpack is orange.",
+						"kind": "live row, rejected, not published"
+					},
+					{
+						"stage": "pending",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "pending-removed",
+						"row": "The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					}
+				]
+			},
+			{
+				"id": "E8",
+				"criterion": "A full native observation rebuild reproduces the same information.",
+				"verdict": "pass",
+				"evidence": "The rebuild deleted every raw fact's observations and re-consolidated them into four new observation ids with the same content as before (\"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)\", \"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)\", \"User's sister prefers green tea.\", \"User owns a white canoe.\").",
+				"quotes": [
+					{
+						"stage": "full-native-rebuild",
+						"row": "User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User's sister prefers green tea."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "User owns a white canoe."
+					}
+				]
+			},
+			{
+				"id": "E9",
+				"criterion": "A new fact inserted last joins the list without disturbing the others.",
+				"verdict": "pass",
+				"evidence": "\"User owns a copper kettle.\" joined the four unchanged rows.",
+				"quotes": [
+					{
+						"stage": "insert",
+						"row": "User owns a copper kettle."
+					},
+					{
+						"stage": "insert",
+						"row": "User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)"
+					},
+					{
+						"stage": "insert",
+						"row": "User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)"
+					},
+					{
+						"stage": "insert",
+						"row": "User's sister prefers green tea."
+					},
+					{
+						"stage": "insert",
+						"row": "User owns a white canoe."
+					}
+				]
+			}
+		],
+		"stageComparison": [
+			{
+				"stage": "original",
+				"today": [
+					"The user's sister prefers green tea.",
+					"The user prefers decaf coffee.",
+					"The user owns a white canoe.",
+					"The user owns an amber hiking backpack."
+				],
+				"recorded": [
+					"User's sister prefers green tea.",
+					"User prefers decaf coffee.",
+					"User owns a white canoe.",
+					"User owns an amber hiking backpack."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same four rows (sister tea, decaf, canoe, amber backpack); only the 'The user' phrasing differs."
+			},
+			{
+				"stage": "newer",
+				"today": [
+					"The user prefers espresso.",
+					"The user's hiking backpack is teal.",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"User prefers espresso.",
+					"User owns a teal hiking backpack.",
+					"User's sister prefers green tea.",
+					"User owns a white canoe."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same four rows (espresso, teal backpack as then current, sister tea, canoe), decaf gone in both; wording only ('The user's hiking backpack is teal.' vs 'User owns a teal hiking backpack.')."
+			},
+			{
+				"stage": "correction",
+				"today": [
+					"The user's hiking backpack is green.",
+					"The user prefers espresso.",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"User owns a green hiking backpack.",
+					"User prefers espresso.",
+					"User's sister prefers green tea.",
+					"User owns a white canoe."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same content in both (green, espresso, sister, canoe); neither shows teal; wording only."
+			},
+			{
+				"stage": "old-replay",
+				"today": [
+					"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea.",
+					"User owns a white canoe."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same four rows and the same dated-note mechanism; today's backpack note repeats the whole old source sentence ('... amber hiking backpack and a white canoe.') where the recorded note held only 'amber hiking backpack.'; the canoe keeps its own row in both."
+			},
+			{
+				"stage": "pending",
+				"today": [
+					"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea.",
+					"User owns a white canoe."
+				],
+				"todayVisibleIsHeldSnapshot": true,
+				"todayLiveRowNotPublished": [
+					"The user's hiking backpack is orange."
+				],
+				"difference": "Identical behaviour: the live backpack row is contaminated ('The user's hiking backpack is orange.', recorded 'User owns an orange hiking backpack.'), rejected as resting on the unaccepted source, and the published rows stay on the previous snapshot."
+			},
+			{
+				"stage": "pending-removed",
+				"today": [
+					"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Different grouping, same information: today four rows with a standalone canoe row, recorded three rows with the canoe folded into the backpack row ('User owns a green hiking backpack and a white canoe. (...)') and no canoe row of its own."
+			},
+			{
+				"stage": "single-added",
+				"today": [
+					"The user's preferred notebook brand is Leuchtturm.",
+					"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"The user's preferred notebook brand is Leuchtturm.",
+					"User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Today five rows (Leuchtturm + four), recorded four (backpack and canoe folded together); the same information."
+			},
+			{
+				"stage": "single-edited",
+				"today": [
+					"The user prefers Rhodia notebooks.",
+					"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"The user prefers Rhodia notebooks.",
+					"User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "As single-added with the Rhodia row; same information."
+			},
+			{
+				"stage": "single-removed",
+				"today": [
+					"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"recorded": [
+					"User owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Today four rows, recorded three (backpack and canoe folded together); the notebook row is gone in both and nothing else is lost."
+			},
+			{
+				"stage": "full-native-rebuild",
+				"today": [
+					"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea.",
+					"User owns a white canoe."
+				],
+				"recorded": [
+					"The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same four rows and content; today 'User ...' phrasing against the recorded 'The user ...'; today's backpack note is the longer old-source sentence."
+			},
+			{
+				"stage": "insert",
+				"today": [
+					"User owns a copper kettle.",
+					"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+					"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"User's sister prefers green tea.",
+					"User owns a white canoe."
+				],
+				"recorded": [
+					"The user owns a copper kettle.",
+					"The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack.)",
+					"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+					"The user's sister prefers green tea.",
+					"The user owns a white canoe."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same five rows with the kettle added; wording only."
+			}
+		]
+	},
+	"hu": {
+		"counts": {
+			"pass": 9,
+			"fail": 2,
+			"mixed": 0
+		},
+		"recordedGrade2026_11_18": "pass: latest green/detailed, kayak and sister residence preserved through replay, pending discard and rebuild (manual-grades.json)",
+		"versusRecorded": "regression: mixed (detailed answers not kept at all; duplicate bicycle rows between the pending deletion and the rebuild)",
+		"criteria": [
+			{
+				"id": "H1",
+				"criterion": "Green bicycle is the current value from the correction on, never reverting to red or blue (or the pending orange).",
+				"verdict": "pass",
+				"evidence": "From the correction stage on the bicycle row says green (correction: \"A felhasználónak van egy zöld kerékpárja.\"; full-native-rebuild: \"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)\") and red (piros) appears only inside the dated old-source note, blue (kék) and orange (narancs) in no visible row.",
+				"quotes": [
+					{
+						"stage": "correction",
+						"row": "A felhasználónak van egy zöld kerékpárja."
+					},
+					{
+						"stage": "old-replay",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "pending-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "insert",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					}
+				],
+				"note": "The value is right in every stage; the duplicate bicycle rows of pending-removed to single-removed are graded separately as H8."
+			},
+			{
+				"id": "H1b",
+				"criterion": "The correction leaves no trace of the wrong value ('previously blue' is a defect).",
+				"verdict": "pass",
+				"evidence": "No observation, visible or live, from the correction stage on contains \"kék\" (correction row: \"A felhasználónak van egy zöld kerékpárja.\"), so the blue description leaves no trace.",
+				"quotes": [
+					{
+						"stage": "newer",
+						"row": "A felhasználónak van egy kék kerékpárja."
+					},
+					{
+						"stage": "correction",
+						"row": "A felhasználónak van egy zöld kerékpárja."
+					},
+					{
+						"stage": "old-replay",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					}
+				]
+			},
+			{
+				"id": "H2",
+				"criterion": "The detailed-answers preference ('Most részletes válaszokat kérek') is the current answer-style preference, never reverting to the short-answers one.",
+				"verdict": "fail",
+				"evidence": "No answer-style row exists at any stage: at newer the visible rows are \"A felhasználónak van egy kék kerékpárja.\", \"A felhasználó húga Győrben él.\", \"A felhasználónak van egy fehér kajakja.\", where the recorded run also showed \"A felhasználó részletes válaszokat kér.\", because the extraction dropped the sentence under part 2's retain sentence \"Requests to the assistant and what the user wants from this chat are not memories\" (the extraction model's own reasoning quotes it) and not because consolidation lost it.",
+				"quotes": [
+					{
+						"stage": "original",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "original",
+						"row": "A felhasználónak van egy piros kerékpárja."
+					},
+					{
+						"stage": "original",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "newer",
+						"row": "A felhasználónak van egy kék kerékpárja."
+					},
+					{
+						"stage": "newer",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "newer",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználónak van egy fehér kajakja."
+					}
+				],
+				"note": "Extraction trace (/tmp/alfyai-regression-20261124/model-calls.jsonl, this run's calls at 11:46:42Z and 11:47:03Z): for \"Most részletes válaszokat kérek.\" the model reasons: \"requests to assistant and what user wants from this chat are not memories ... Probably not extract.\" and returns only [\"A felhasználó kerékpárja kék.\"]; for \"Rövid válaszokat kérek.\" in the old message it returned only the bicycle/kayak and sister facts. Across the five full runs 'részletes' was never extracted (5 of 5) and 'rövid' was extracted in 3 of 5, after which the stale short-answers row stayed current in every later stage (see supplementaryRuns). Not a consolidation fault: a product decision in the part-2 retain mission that the owner may want to revisit for response-style preferences."
+			},
+			{
+				"id": "H3",
+				"criterion": "White kayak is preserved through old-replay, pending removal and the full rebuild.",
+				"verdict": "pass",
+				"evidence": "\"A felhasználónak van egy fehér kajakja.\" is a standalone row in all eleven stages, at old-replay, pending-removed and after the full rebuild included.",
+				"quotes": [
+					{
+						"stage": "original",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "old-replay",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "pending-removed",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "insert",
+						"row": "A felhasználónak van egy fehér kajakja."
+					}
+				]
+			},
+			{
+				"id": "H4",
+				"criterion": "The sister living in Győr is preserved through old-replay, pending removal and the full rebuild.",
+				"verdict": "pass",
+				"evidence": "\"A felhasználó húga Győrben él.\" is present in all eleven stages, at old-replay, pending-removed and after the full rebuild included.",
+				"quotes": [
+					{
+						"stage": "original",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "old-replay",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "pending-removed",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "insert",
+						"row": "A felhasználó húga Győrben él."
+					}
+				]
+			},
+			{
+				"id": "H5",
+				"criterion": "Editing the single notebook fact Leuchtturm -> Rhodia changes its observation.",
+				"verdict": "pass",
+				"evidence": "\"A felhasználó kedvenc füzetmárkája a Leuchtturm.\" became \"A felhasználó a Rhodia füzeteket kedveli.\" as a new observation id on the same source fact, and no visible row names Leuchtturm after the edit.",
+				"quotes": [
+					{
+						"stage": "single-added",
+						"row": "A felhasználó kedvenc füzetmárkája a Leuchtturm."
+					},
+					{
+						"stage": "single-edited",
+						"row": "A felhasználó a Rhodia füzeteket kedveli."
+					}
+				]
+			},
+			{
+				"id": "H6",
+				"criterion": "Removing that single fact removes its observation without losing other information.",
+				"verdict": "pass",
+				"evidence": "After the invalidation the notebook row is gone and single-removed holds the same rows as single-edited minus the Rhodia row (\"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)\", \"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)\", \"A felhasználónak van egy fehér kajakja.\", \"A felhasználó húga Győrben él.\"), so nothing else was lost.",
+				"quotes": [
+					{
+						"stage": "single-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "A felhasználónak van egy fehér kajakja."
+					},
+					{
+						"stage": "single-removed",
+						"row": "A felhasználó húga Győrben él."
+					}
+				],
+				"note": "The duplicate bicycle rows (H8) are still there at this stage; the removal neither caused nor cured them."
+			},
+			{
+				"id": "H7",
+				"criterion": "A source that is not accepted yet (pending) never reaches the published list, and its removal does not bring old values back.",
+				"verdict": "pass",
+				"evidence": "At pending the live bicycle row read \"A felhasználó kerékpárja narancssárga.\" and was rejected while the published rows stayed on the previous snapshot, and after the deletion no row says narancssárga (pending-removed: \"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)\").",
+				"quotes": [
+					{
+						"stage": "pending",
+						"row": "A felhasználó kerékpárja narancssárga.",
+						"kind": "live row, rejected, not published"
+					},
+					{
+						"stage": "pending",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "pending-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					}
+				]
+			},
+			{
+				"id": "H8",
+				"criterion": "List hygiene: no row appears twice (the recorded run never showed a duplicate).",
+				"verdict": "fail",
+				"evidence": "After the pending document's deletion the same bicycle row appears twice, \"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)\", at pending-removed, single-added, single-edited and single-removed, where the recorded run had one row at each of these stages; the full native rebuild cleared it.",
+				"quotes": [
+					{
+						"stage": "pending-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "pending-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-added",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-added",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-edited",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-edited",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "single-removed",
+						"row": "A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					}
+				],
+				"note": "Two distinct observation ids (31932633 and bcb33394) carry identical text and the same four supporting facts, and the standalone kayak observation was re-created under a new id (17ac8925) whose listed sources are the newer and old-replay documents. Not a stale-value problem (both rows are green). Four of five full runs showed a bicycle/kayak row anomaly at these stages (see supplementaryRuns); the rebuild cleared it every time."
+			},
+			{
+				"id": "H9",
+				"criterion": "A full native observation rebuild reproduces the same information (and does not reintroduce old values).",
+				"verdict": "pass",
+				"evidence": "The rebuild produced three clean rows with new ids (\"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)\", \"A felhasználó húga Győrben él.\", \"A felhasználónak van egy fehér kajakja.\"), no duplicates, green still current, missing only the answer-style row of H2.",
+				"quotes": [
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "full-native-rebuild",
+						"row": "A felhasználónak van egy fehér kajakja."
+					}
+				]
+			},
+			{
+				"id": "H10",
+				"criterion": "A new fact inserted last joins the list without disturbing the others.",
+				"verdict": "pass",
+				"evidence": "\"A felhasználónak van egy réz üstje.\" joined the bicycle, sister and kayak rows unchanged (the recorded run's wording was \"réz vízforralója\", a translation choice for \"copper kettle\").",
+				"quotes": [
+					{
+						"stage": "insert",
+						"row": "A felhasználónak van egy réz üstje."
+					},
+					{
+						"stage": "insert",
+						"row": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)"
+					},
+					{
+						"stage": "insert",
+						"row": "A felhasználó húga Győrben él."
+					},
+					{
+						"stage": "insert",
+						"row": "A felhasználónak van egy fehér kajakja."
+					}
+				]
+			}
+		],
+		"stageComparison": [
+			{
+				"stage": "original",
+				"today": [
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy piros kerékpárja.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználó húga Győrben él.",
+					"A felhasználó rövid válaszokat kér.",
+					"A felhasználónak van egy fehér kajakja.",
+					"A felhasználónak van egy piros kerékpárja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Today three rows: the recorded 'A felhasználó rövid válaszokat kér.' is missing (retain mission: requests to the assistant are not memories); the other three rows are equal."
+			},
+			{
+				"stage": "newer",
+				"today": [
+					"A felhasználónak van egy kék kerékpárja.",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználó részletes válaszokat kér.",
+					"A felhasználónak van egy kék kerékpárja.",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Today three rows: the recorded 'A felhasználó részletes válaszokat kér.' is missing (never extracted); blue bicycle, sister, kayak equal."
+			},
+			{
+				"stage": "correction",
+				"today": [
+					"A felhasználónak van egy zöld kerékpárja.",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználónak van egy zöld kerékpárja.",
+					"A felhasználó részletes válaszokat kér.",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Green bicycle, sister, kayak equal; the answer-style row (recorded: részletes) is missing."
+			},
+			{
+				"stage": "old-replay",
+				"today": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Green bicycle row with the same dated note (piros kerékpár és fehér kajak), sister and kayak equal; the answer-style row (recorded: részletes with a note about rövid) is missing."
+			},
+			{
+				"stage": "pending",
+				"today": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": true,
+				"todayLiveRowNotPublished": [
+					"A felhasználó kerékpárja narancssárga."
+				],
+				"difference": "Same behaviour: the live bicycle row ('A felhasználó kerékpárja narancssárga.') is rejected and the published rows stay on the previous snapshot; the answer-style row is missing."
+			},
+			{
+				"stage": "pending-removed",
+				"today": [
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználónak van egy fehér kajakja.",
+					"A felhasználó húga Győrben él."
+				],
+				"recorded": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "DEFECT: the green bicycle row appears twice with identical text (two observation ids); the recorded run had one bicycle row here. Answer-style row missing; kayak and sister equal."
+			},
+			{
+				"stage": "single-added",
+				"today": [
+					"A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználónak van egy fehér kajakja.",
+					"A felhasználó húga Győrben él."
+				],
+				"recorded": [
+					"A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Leuchtturm row present as recorded, but the duplicated bicycle row persists; answer-style row missing."
+			},
+			{
+				"stage": "single-edited",
+				"today": [
+					"A felhasználó a Rhodia füzeteket kedveli.",
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználónak van egy fehér kajakja.",
+					"A felhasználó húga Győrben él."
+				],
+				"recorded": [
+					"A felhasználó a Rhodia füzeteket kedveli.",
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Rhodia row as recorded; duplicated bicycle row persists; answer-style row missing."
+			},
+			{
+				"stage": "single-removed",
+				"today": [
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználónak van egy fehér kajakja.",
+					"A felhasználó húga Győrben él."
+				],
+				"recorded": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Notebook row gone as recorded; duplicated bicycle row persists; answer-style row missing."
+			},
+			{
+				"stage": "full-native-rebuild",
+				"today": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Clean three rows (bicycle with note, sister, kayak): the duplicate is gone; the recorded rebuild also kept the answer-style row."
+			},
+			{
+				"stage": "insert",
+				"today": [
+					"A felhasználónak van egy réz üstje.",
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"recorded": [
+					"A felhasználónak van egy réz vízforralója.",
+					"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+					"A felhasználó részletes válaszokat kér. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+					"A felhasználó húga Győrben él.",
+					"A felhasználónak van egy fehér kajakja."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Kettle row added ('réz üstje' against the recorded 'réz vízforralója', a translation choice), bicycle, sister, kayak unchanged; answer-style row missing."
+			}
+		]
+	},
+	"holdout": {
+		"counts": {
+			"pass": 6,
+			"fail": 0,
+			"mixed": 0
+		},
+		"recordedGrade2026_11_18": "pass: Cork current, Galway 2020 historical, Belfast undecided future, user not drill owner and colleague Nora owner; same semantics after rebuild (manual-grades.json)",
+		"versusRecorded": "unchanged: pass in the official run (4 of 5 runs)",
+		"criteria": [
+			{
+				"id": "O1",
+				"criterion": "Cork is the current residence (Dublin is not current).",
+				"verdict": "pass",
+				"evidence": "\"User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)\" makes Cork current and keeps Dublin only as the dated earlier note, in the batch and in the rebuild stage.",
+				"quotes": [
+					{
+						"stage": "batch",
+						"row": "User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+					},
+					{
+						"stage": "rebuild",
+						"row": "User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+					}
+				]
+			},
+			{
+				"id": "O2",
+				"criterion": "Galway stays explicitly historical (2020).",
+				"verdict": "pass",
+				"evidence": "\"User lived in Galway in 2020.\" stays a past-tense, dated row (its raw fact is dated 2020-01-01 to 2020-12-31) in both stages and is never presented as current.",
+				"quotes": [
+					{
+						"stage": "batch",
+						"row": "User lived in Galway in 2020."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User lived in Galway in 2020."
+					}
+				]
+			},
+			{
+				"id": "O3",
+				"criterion": "Belfast stays an undecided future move.",
+				"verdict": "pass",
+				"evidence": "\"User might move to Belfast in summer 2027, but has not decided.\" keeps the move an undecided future possibility (labelled kind temporary) in both stages.",
+				"quotes": [
+					{
+						"stage": "batch",
+						"row": "User might move to Belfast in summer 2027, but has not decided."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User might move to Belfast in summer 2027, but has not decided."
+					}
+				]
+			},
+			{
+				"id": "O4",
+				"criterion": "The user does NOT own a drill.",
+				"verdict": "pass",
+				"evidence": "\"User does not own a drill.\" is a row of its own in both stages and the question's ownership is never attributed to the user.",
+				"quotes": [
+					{
+						"stage": "batch",
+						"row": "User does not own a drill."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User does not own a drill."
+					}
+				]
+			},
+			{
+				"id": "O5",
+				"criterion": "Colleague Nora owns a drill.",
+				"verdict": "pass",
+				"evidence": "\"Nora owns a drill.\" and \"Nora is the user's colleague.\" attribute the drill to Nora in both stages.",
+				"quotes": [
+					{
+						"stage": "batch",
+						"row": "Nora owns a drill."
+					},
+					{
+						"stage": "batch",
+						"row": "Nora is the user's colleague."
+					},
+					{
+						"stage": "rebuild",
+						"row": "Nora owns a drill."
+					},
+					{
+						"stage": "rebuild",
+						"row": "Nora is the user's colleague."
+					}
+				]
+			},
+			{
+				"id": "O6",
+				"criterion": "The same holds after the full native rebuild.",
+				"verdict": "pass",
+				"evidence": "The rebuild stage holds the same seven row texts as the batch stage on new observation ids (\"Nora owns a drill.\", \"Nora is the user's colleague.\", \"User does not own a drill.\", \"User might move to Belfast in summer 2027, but has not decided.\", \"User lived in Galway in 2020.\", \"User commutes by train.\", \"User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)\").",
+				"quotes": [
+					{
+						"stage": "rebuild",
+						"row": "Nora owns a drill."
+					},
+					{
+						"stage": "rebuild",
+						"row": "Nora is the user's colleague."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User does not own a drill."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User might move to Belfast in summer 2027, but has not decided."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User lived in Galway in 2020."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User commutes by train."
+					},
+					{
+						"stage": "rebuild",
+						"row": "User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+					}
+				]
+			}
+		],
+		"stageComparison": [
+			{
+				"stage": "batch",
+				"today": [
+					"Nora owns a drill.",
+					"Nora is the user's colleague.",
+					"User does not own a drill.",
+					"User might move to Belfast in summer 2027, but has not decided.",
+					"User lived in Galway in 2020.",
+					"User commutes by train.",
+					"User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+				],
+				"recorded": [
+					"Nora is the user's colleague.",
+					"Nora owns a drill.",
+					"The user does not own a drill.",
+					"The user has not decided whether to move to Belfast in summer 2027.",
+					"The user lived in Galway in 2020.",
+					"The user lives in Cork.",
+					"The user commutes by train."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Same seven facts as recorded (Nora colleague, Nora owns a drill, user does not own a drill, Belfast undecided, Galway 2020, commutes by train, Cork). Differences: the Cork row now carries the dated Dublin note ('User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)', recorded 'The user lives in Cork.' without a note) and the Belfast wording is 'might move ... but has not decided' (recorded 'has not decided whether to move to Belfast in summer 2027')."
+			},
+			{
+				"stage": "rebuild",
+				"today": [
+					"Nora owns a drill.",
+					"Nora is the user's colleague.",
+					"User does not own a drill.",
+					"User might move to Belfast in summer 2027, but has not decided.",
+					"User lived in Galway in 2020.",
+					"User commutes by train.",
+					"User lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+				],
+				"recorded": [
+					"Nora is the user's colleague.",
+					"Nora owns a drill.",
+					"User does not own a drill.",
+					"User has not decided whether to move to Belfast in summer 2027.",
+					"User lived in Galway in 2020.",
+					"User commutes by train.",
+					"User lives in Cork."
+				],
+				"todayVisibleIsHeldSnapshot": false,
+				"difference": "Identical to today's batch stage (same seven row texts on new ids); the recorded rebuild also matched its own batch stage in content (only the leading 'The' of some rows changed)."
+			}
+		]
+	},
+	"notRebuilt": [
+		"The recorded run's 11 deterministic 'mechanical checks' (presentation.cjs: the dated-note formatter, pinned pagination, the revocation filter) tested prototype app logic that is now product code covered by its own unit tests; they were not rebuilt.",
+		"The API-restart comparison was skipped because the shared Hindsight instance must not restart.",
+		"The recorded native recall, observation tree and semantic-search reads were not repeated; one cheap native text search for the old value (q=amber, q=piros, q=Dublin) is kept under nativeSearchOldValue in the results file and, as recorded, still finds the current row through its dated note (q=amber returns \"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)\")."
+	],
+	"notReproducedExactly": [
+		"The 2026-11-18 scripts were never committed: inputs came from model-calls.jsonl (the extraction chunk of every retain: texts, event dates, chat/message ids of the pending, notebook and insert events, which the results' `events` lack), the raw facts' context/tags/metadata, and the PATCH responses in serial-api.jsonl (edit texts); stage operations and their order came from serial-api.jsonl.",
+		"serial-api.jsonl records responses only, so the exact edit/removal request bodies are inferred: the edit sends {text}, the removal {state:'invalidated', reason:'Explicit user memory removal'} as the app does (the recorded response shows 'Synthetic user Remove').",
+		"Bank creation follows today's client (one PATCH /config {updates}, which creates the bank, then a by-value readback of every key) instead of the recorded PUT plus two PATCHes; the retain carries a client-supplied operation_id as today's client does.",
+		"Waiting: the recorded script polled the operation list until nothing was running; this one waits for the retain/consolidation operation by id and then until no operation is pending or processing and every valid raw fact is consolidated, on two polls in a row (no safety consolidation and no failed operation occurred in any stage of the official run).",
+		"The recorded `visible` came from the uncommitted presentation.cjs; its rule was recovered from the recorded data and applied unchanged (held previous snapshot while a source of the pending document exists). Observation text is shown verbatim as `current`; no dated note is separated, as in the recorded serial results.",
+		"The three banks ran side by side (one tenant, three banks, 143 s wall) where the recorded run went English, Hungarian, holdout in sequence; the recorded holdout left auto-consolidation off after its rebuild, this run switched it back on, as the recorded English and Hungarian rebuilds did.",
+		"The recorded config differs from today's in exactly the way configAgainstRecorded in the results file lists (both missions keep the recorded text and append part 2's sentences; entities_allow_free_form and entity_labels are new override keys). Compared in full, the 64 resolved config keys read back from the bank differ from the recorded ones in exactly three: entity_labels (null then, the kind and subject groups now), observations_mission and retain_mission; entities_allow_free_form is true in both, now set explicitly."
+	],
+	"supplementaryRuns": {
+		"note": "Four further full runs of regression-2026-11-24.ts (fresh tenants, same inputs, run side by side after the official one; their result files are in the session scratchpad, not in the repository, so their visible rows are kept here). They qualify the official verdicts; none replaces them.",
+		"runs": [
+			{
+				"label": "repeat1",
+				"tenant": "93080c7f-5c77-42aa-93bb-22f1cd2b6c43",
+				"started": "2026-11-24T11:50:14.426Z",
+				"wallSeconds": 230,
+				"status": "complete",
+				"erroredCases": [],
+				"en": {
+					"allCriteriaMet": "E1-E9 all met",
+					"rowStructure": "unchanged: four standalone rows"
+				},
+				"hu": {
+					"answerStyleAfterNewer": "STALE short-answers row stays current: \"A felhasználó rövid válaszokat kér.\"",
+					"rowStructureAfterPendingDeletion": {
+						"pending-removed": "bicycle in 2 rows; kayak only inside the bicycle row",
+						"single-added": "bicycle in 2 rows; kayak only inside the bicycle row",
+						"single-edited": "bicycle in 2 rows; kayak only inside the bicycle row",
+						"single-removed": "bicycle in 2 rows; kayak only inside the bicycle row"
+					}
+				},
+				"holdoutBatch": [
+					"Nora owns a drill.",
+					"Nora is the user's colleague.",
+					"The user does not own a drill.",
+					"User is considering moving to Belfast in summer 2027 but has not decided.",
+					"User lived in Galway in 2020.",
+					"As of November 12, 2026, user commutes by train. (2026-11-01 12:00: User lives in Dublin and commutes by train.)",
+					"As of November 12, 2026, user lives in Cork. (2026-11-01 12:00: User lives in Dublin and commutes by train.)"
+				],
+				"holdoutRebuild": [
+					"Nora owns a drill.",
+					"Nora is the user's colleague.",
+					"The user does not own a drill.",
+					"User is considering moving to Belfast in summer 2027 but has not decided.",
+					"User lived in Galway in 2020.",
+					"As of November 12, 2026, user commutes by train.",
+					"As of November 12, 2026, user lives in Cork. (2026-11-01 12:00: User lives in Dublin and commutes by train.)"
+				]
+			},
+			{
+				"label": "repeat2",
+				"tenant": "74a0f056-0bbe-4b10-a4b9-71ffc8813c3c",
+				"started": "2026-11-24T11:50:14.426Z",
+				"wallSeconds": 205,
+				"status": "complete",
+				"erroredCases": [],
+				"en": {
+					"allCriteriaMet": "E1-E9 all met",
+					"rowStructure": "unchanged: four standalone rows"
+				},
+				"hu": {
+					"answerStyleAfterNewer": "STALE short-answers row stays current: \"A felhasználó rövid válaszokat kér.\"",
+					"rowStructureAfterPendingDeletion": {
+						"pending-removed": "clean",
+						"single-added": "clean",
+						"single-edited": "clean",
+						"single-removed": "clean"
+					}
+				},
+				"holdoutBatch": [
+					"Nora owns a drill.",
+					"Nora is the user's colleague.",
+					"The user does not own a drill.",
+					"The user is considering moving to Belfast around summer 2027, but has not decided.",
+					"The user lived in Galway in 2020.",
+					"The user commutes by train as of November 12, 2026. (2026-11-01 12:00: User commutes by train.)",
+					"The user lives in Cork as of November 12, 2026. (2026-11-01 12:00: User lives in Dublin.)"
+				],
+				"holdoutRebuild": [
+					"Nora is the user's colleague.",
+					"Nora owns a drill.",
+					"The user does not own a drill.",
+					"The user is considering moving to Belfast around summer 2027, but has not decided.",
+					"The user lived in Galway in 2020.",
+					"The user commutes by train as of November 12, 2026.",
+					"The user lives in Cork as of November 12, 2026. (2026-11-01 12:00: User lives in Dublin.)"
+				]
+			},
+			{
+				"label": "repeat3",
+				"tenant": "e2ab6c13-f120-4cd6-8940-8f004e6afc20",
+				"started": "2026-11-24T11:54:34.260Z",
+				"wallSeconds": 185,
+				"status": "complete",
+				"erroredCases": [],
+				"en": {
+					"allCriteriaMet": "E1-E9 all met (information kept)",
+					"rowStructure": [
+						"pending-removed: canoe not a standalone row (folded into the backpack row)",
+						"single-added: canoe not a standalone row (folded into the backpack row)",
+						"single-edited: canoe not a standalone row (folded into the backpack row)",
+						"single-removed: canoe not a standalone row (folded into the backpack row)"
+					]
+				},
+				"hu": {
+					"answerStyleAfterNewer": "STALE short-answers row stays current: \"A felhasználó rövid válaszokat preferál.\"",
+					"rowStructureAfterPendingDeletion": {
+						"pending-removed": "kayak only inside the bicycle row",
+						"single-added": "kayak only inside the bicycle row",
+						"single-edited": "kayak only inside the bicycle row",
+						"single-removed": "kayak only inside the bicycle row"
+					}
+				},
+				"holdoutBatch": [
+					"Nora, the user's colleague, owns a drill.",
+					"The user does not own a drill.",
+					"The user is considering moving to Belfast in summer 2027 but has not decided.",
+					"The user lived in Galway in 2020.",
+					"The user commutes by train.",
+					"The user lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+				],
+				"holdoutRebuild": [
+					"Nora is the user's colleague.",
+					"Nora owns a drill.",
+					"The user does not own a drill.",
+					"The user is considering moving to Belfast in summer 2027 but has not decided.",
+					"The user lived in Galway in 2020.",
+					"The user commutes by train.",
+					"The user lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+				]
+			},
+			{
+				"label": "repeat4",
+				"tenant": "dd5216d6-5ae9-4cee-a346-9958c90ef2fb",
+				"started": "2026-11-24T11:54:34.261Z",
+				"wallSeconds": 193,
+				"status": "complete",
+				"erroredCases": [],
+				"en": {
+					"allCriteriaMet": "E1-E9 all met",
+					"rowStructure": "unchanged: four standalone rows"
+				},
+				"hu": {
+					"answerStyleAfterNewer": "no answer-style row at all",
+					"rowStructureAfterPendingDeletion": {
+						"pending-removed": "bicycle in 2 rows; kayak only inside the bicycle row",
+						"single-added": "bicycle in 2 rows; kayak only inside the bicycle row",
+						"single-edited": "bicycle in 2 rows; kayak only inside the bicycle row",
+						"single-removed": "bicycle in 2 rows; kayak only inside the bicycle row"
+					}
+				},
+				"holdoutBatch": [
+					"Nora owns a drill.",
+					"The user does not own a drill.",
+					"Nora is the user's colleague.",
+					"The user might move to Belfast in summer 2027, but has not decided. (2026-11-12 12:00: User now lives in Cork.) (2026-11-01 12:00: User lives in Dublin.)",
+					"The user lived in Galway in 2020.",
+					"The user commutes by train."
+				],
+				"holdoutRebuild": [
+					"Nora, the user's colleague, owns a drill.",
+					"The user does not own a drill.",
+					"The user might move to Belfast in summer 2027, but has not decided.",
+					"The user lived in Galway in 2020.",
+					"The user commutes by train.",
+					"The user lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+				]
+			}
+		],
+		"summary": {
+			"en": "5 of 5 runs meet E1-E9. Row structure: four standalone rows in 4 of 5; in repeat3 the canoe is folded into the backpack row at pending-removed to single-removed (information kept), as the recorded run did.",
+			"hu": "H1, H1b, H3, H4, H5, H6, H7, H9, H10 hold in 5 of 5. H2 fails in 5 of 5: 'részletes' is never extracted; 'rövid' is retained in repeat1, repeat2 and repeat3 and then stays current as a stale row at every later stage, in the official run and repeat4 no answer-style row exists. H8: between the pending document's deletion and the rebuild the list shows an identical duplicate bicycle row (official), the bicycle in two rows with the kayak folded into one (repeat1, repeat4), or the kayak folded into the bicycle row (repeat3); only repeat2 stays clean; the full rebuild cleared it in 5 of 5.",
+			"holdout": "O1-O6 hold in both stages in 4 of 5 runs. In repeat4 the batch stage has no Cork row: Cork survives only as a note inside the Belfast row ('The user might move to Belfast in summer 2027, but has not decided. (2026-11-12 12:00: User now lives in Cork.) (2026-11-01 12:00: User lives in Dublin.)'); its rebuild stage is correct."
+		},
+		"visibleRowsByRun": {
+			"repeat1": {
+				"en": {
+					"original": [
+						"User's sister prefers green tea.",
+						"User prefers decaf coffee.",
+						"User owns a white canoe.",
+						"User owns an amber hiking backpack."
+					],
+					"newer": [
+						"User prefers espresso.",
+						"User's hiking backpack is teal.",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"correction": [
+						"User's hiking backpack is green.",
+						"User prefers espresso.",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"old-replay": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"pending": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"pending-removed": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"single-added": [
+						"User's preferred notebook brand is Leuchtturm.",
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"single-edited": [
+						"User prefers Rhodia notebooks.",
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"single-removed": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"full-native-rebuild": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"insert": [
+						"User owns a copper kettle.",
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					]
+				},
+				"hu": {
+					"original": [
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja.",
+						"A felhasználónak van egy piros kerékpárja."
+					],
+					"newer": [
+						"A felhasználónak van egy kék kerékpárja.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"correction": [
+						"A felhasználónak van egy zöld kerékpárja.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"old-replay": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending-removed": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér."
+					],
+					"single-added": [
+						"A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér."
+					],
+					"single-edited": [
+						"A felhasználó a Rhodia füzeteket kedveli.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér."
+					],
+					"single-removed": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér."
+					],
+					"full-native-rebuild": [
+						"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"insert": [
+						"A felhasználónak van egy réz vízforralója.",
+						"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					]
+				},
+				"holdout": {
+					"batch": [
+						"Nora owns a drill.",
+						"Nora is the user's colleague.",
+						"The user does not own a drill.",
+						"User is considering moving to Belfast in summer 2027 but has not decided.",
+						"User lived in Galway in 2020.",
+						"As of November 12, 2026, user commutes by train. (2026-11-01 12:00: User lives in Dublin and commutes by train.)",
+						"As of November 12, 2026, user lives in Cork. (2026-11-01 12:00: User lives in Dublin and commutes by train.)"
+					],
+					"rebuild": [
+						"Nora owns a drill.",
+						"Nora is the user's colleague.",
+						"The user does not own a drill.",
+						"User is considering moving to Belfast in summer 2027 but has not decided.",
+						"User lived in Galway in 2020.",
+						"As of November 12, 2026, user commutes by train.",
+						"As of November 12, 2026, user lives in Cork. (2026-11-01 12:00: User lives in Dublin and commutes by train.)"
+					]
+				}
+			},
+			"repeat2": {
+				"en": {
+					"original": [
+						"User's sister prefers green tea.",
+						"User prefers decaf coffee.",
+						"User owns a white canoe.",
+						"User owns an amber hiking backpack."
+					],
+					"newer": [
+						"User prefers espresso.",
+						"User's hiking backpack is teal.",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"correction": [
+						"User's hiking backpack is green.",
+						"User prefers espresso.",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"old-replay": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"pending": [
+						"User's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"pending-removed": [
+						"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"single-added": [
+						"The user's preferred notebook brand is Leuchtturm.",
+						"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"single-edited": [
+						"The user prefers Rhodia notebooks.",
+						"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"single-removed": [
+						"User owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"User prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"User's sister prefers green tea.",
+						"User owns a white canoe."
+					],
+					"full-native-rebuild": [
+						"The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"insert": [
+						"The user owns a copper kettle.",
+						"The user owns a green hiking backpack. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					]
+				},
+				"hu": {
+					"original": [
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy piros kerékpárja.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"newer": [
+						"A felhasználónak van egy kék kerékpárja.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"correction": [
+						"A felhasználónak van egy zöld kerékpárja.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"old-replay": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending-removed": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"single-added": [
+						"A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"single-edited": [
+						"A felhasználó a Rhodia füzeteket kedveli.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"single-removed": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"full-native-rebuild": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"insert": [
+						"A felhasználónak van egy réz vízforralója.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat kér.",
+						"A felhasználónak van egy fehér kajakja."
+					]
+				},
+				"holdout": {
+					"batch": [
+						"Nora owns a drill.",
+						"Nora is the user's colleague.",
+						"The user does not own a drill.",
+						"The user is considering moving to Belfast around summer 2027, but has not decided.",
+						"The user lived in Galway in 2020.",
+						"The user commutes by train as of November 12, 2026. (2026-11-01 12:00: User commutes by train.)",
+						"The user lives in Cork as of November 12, 2026. (2026-11-01 12:00: User lives in Dublin.)"
+					],
+					"rebuild": [
+						"Nora is the user's colleague.",
+						"Nora owns a drill.",
+						"The user does not own a drill.",
+						"The user is considering moving to Belfast around summer 2027, but has not decided.",
+						"The user lived in Galway in 2020.",
+						"The user commutes by train as of November 12, 2026.",
+						"The user lives in Cork as of November 12, 2026. (2026-11-01 12:00: User lives in Dublin.)"
+					]
+				}
+			},
+			"repeat3": {
+				"en": {
+					"original": [
+						"The user's sister prefers green tea.",
+						"The user prefers decaf coffee.",
+						"The user owns a white canoe.",
+						"The user owns an amber hiking backpack."
+					],
+					"newer": [
+						"The user prefers espresso.",
+						"The user's hiking backpack is teal.",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"correction": [
+						"The user's hiking backpack is green.",
+						"The user prefers espresso.",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"old-replay": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"pending": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"pending-removed": [
+						"The user owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea."
+					],
+					"single-added": [
+						"The user's preferred notebook brand is Leuchtturm.",
+						"The user owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea."
+					],
+					"single-edited": [
+						"The user prefers Rhodia notebooks.",
+						"The user owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea."
+					],
+					"single-removed": [
+						"The user owns a green hiking backpack and a white canoe. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea."
+					],
+					"full-native-rebuild": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"insert": [
+						"The user owns a copper kettle.",
+						"The user's hiking backpack is green. (2026-11-01 12:00: User owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: User prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					]
+				},
+				"hu": {
+					"original": [
+						"A felhasználó rövid válaszokat preferál.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy piros kerékpárja.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"newer": [
+						"A felhasználónak van egy kék kerékpárja.",
+						"A felhasználó rövid válaszokat preferál.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"correction": [
+						"A felhasználónak van egy zöld kerékpárja.",
+						"A felhasználó rövid válaszokat preferál.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"old-replay": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending-removed": [
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználó húga Győrben él."
+					],
+					"single-added": [
+						"A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználó húga Győrben él."
+					],
+					"single-edited": [
+						"A felhasználó a Rhodia füzeteket kedveli.",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználó húga Győrben él."
+					],
+					"single-removed": [
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználó húga Győrben él."
+					],
+					"full-native-rebuild": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"insert": [
+						"A felhasználónak van egy réz vízforralója.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználó rövid válaszokat preferál. (2026-11-01 12:00: A felhasználó rövid válaszokat kér.)",
+						"A felhasználónak van egy fehér kajakja."
+					]
+				},
+				"holdout": {
+					"batch": [
+						"Nora, the user's colleague, owns a drill.",
+						"The user does not own a drill.",
+						"The user is considering moving to Belfast in summer 2027 but has not decided.",
+						"The user lived in Galway in 2020.",
+						"The user commutes by train.",
+						"The user lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+					],
+					"rebuild": [
+						"Nora is the user's colleague.",
+						"Nora owns a drill.",
+						"The user does not own a drill.",
+						"The user is considering moving to Belfast in summer 2027 but has not decided.",
+						"The user lived in Galway in 2020.",
+						"The user commutes by train.",
+						"The user lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+					]
+				}
+			},
+			"repeat4": {
+				"en": {
+					"original": [
+						"The user's sister prefers green tea.",
+						"The user prefers decaf coffee.",
+						"The user owns a white canoe.",
+						"The user owns an amber hiking backpack."
+					],
+					"newer": [
+						"The user prefers espresso.",
+						"The user's hiking backpack is teal.",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"correction": [
+						"The user's hiking backpack is green.",
+						"The user prefers espresso.",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"old-replay": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"pending": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"pending-removed": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"single-added": [
+						"The user's preferred notebook brand is Leuchtturm.",
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"single-edited": [
+						"The user prefers Rhodia notebooks.",
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"single-removed": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"full-native-rebuild": [
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					],
+					"insert": [
+						"The user owns a copper kettle.",
+						"The user's hiking backpack is green. (2026-11-01 12:00: The user owns an amber hiking backpack and a white canoe.)",
+						"The user prefers espresso. (2026-11-01 12:00: The user prefers decaf coffee.)",
+						"The user's sister prefers green tea.",
+						"The user owns a white canoe."
+					]
+				},
+				"hu": {
+					"original": [
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy piros kerékpárja.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"newer": [
+						"A felhasználónak van egy kék kerékpárja.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"correction": [
+						"A felhasználónak van egy zöld kerékpárja.",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"old-replay": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"pending-removed": [
+						"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él."
+					],
+					"single-added": [
+						"A felhasználó kedvenc füzetmárkája a Leuchtturm.",
+						"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él."
+					],
+					"single-edited": [
+						"A felhasználó a Rhodia füzeteket kedveli.",
+						"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él."
+					],
+					"single-removed": [
+						"A felhasználó kerékpárja zöld. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él."
+					],
+					"full-native-rebuild": [
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					],
+					"insert": [
+						"A felhasználónak van egy réz vízforralója.",
+						"A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja.)",
+						"A felhasználó húga Győrben él.",
+						"A felhasználónak van egy fehér kajakja."
+					]
+				},
+				"holdout": {
+					"batch": [
+						"Nora owns a drill.",
+						"The user does not own a drill.",
+						"Nora is the user's colleague.",
+						"The user might move to Belfast in summer 2027, but has not decided. (2026-11-12 12:00: User now lives in Cork.) (2026-11-01 12:00: User lives in Dublin.)",
+						"The user lived in Galway in 2020.",
+						"The user commutes by train."
+					],
+					"rebuild": [
+						"Nora, the user's colleague, owns a drill.",
+						"The user does not own a drill.",
+						"The user might move to Belfast in summer 2027, but has not decided.",
+						"The user lived in Galway in 2020.",
+						"The user commutes by train.",
+						"The user lives in Cork. (2026-11-01 12:00: User lives in Dublin.)"
+					]
+				}
+			}
+		}
+	}
+}
