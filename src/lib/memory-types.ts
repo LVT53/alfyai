@@ -66,6 +66,64 @@ export interface MemoryPage {
 	status: MemoryUpdateStatus;
 	total: number;
 }
+/** A state Hindsight kept before the entry's current one, with when it was said (null when undated). */
+export interface MemoryEarlierState {
+	text: string;
+	saidAt: string | null;
+}
+/** One entry of the subject index's page (layout C), as recall reads it. */
+export interface MemorySubjectEntry {
+	ref: MemoryRef;
+	text: string;
+	/** Unlabelled, or labelled for the other bank kind: "other". */
+	subject: MemorySubject;
+	kind: MemoryKind | null;
+	/** Quiet is an ongoing entry not mentioned for a while: still shown as current. */
+	timeState: "current" | "quiet" | "earlier";
+	/** When the person last mentioned it (its newest fact), ISO; null when no fact has a date. */
+	lastMentionedAt: string | null;
+	/** Whole weeks since the last mention, for a quiet entry only. */
+	quietWeeks: number | null;
+	/** Hindsight's dated earlier-state notes only, newest first; never Previous versions. */
+	earlierStates: MemoryEarlierState[];
+}
+/** One row of the subject index: a subject with at least one current entry. */
+export interface MemorySubjectSummary {
+	subject: MemorySubject;
+	/** Current entries, quiet ones included. */
+	count: number;
+	/** The most recently mentioned current entry. */
+	preview: string;
+	/** The Projects row's tag: an ongoing entry that is current. False for every other row. */
+	active: boolean;
+	earlierCount: number;
+	/** Up to three of the subject's Earlier entries, most recently mentioned first. */
+	earlierPreview: string[];
+}
+export interface MemorySubjectIndex {
+	authority: "legacy" | "preparing" | "hindsight";
+	scope: MemoryScope;
+	generation: string;
+	status: MemoryUpdateStatus;
+	/** In the bank kind's list order; a subject with no current entry is left out. */
+	subjects: MemorySubjectSummary[];
+	/** Every Earlier entry, across subjects. */
+	earlier: { count: number; preview: string[] };
+	/** Every current entry, quiet ones included: what the Overview is written from. */
+	currentCount: number;
+}
+/** A subject's slug, or every subject. */
+export type MemorySubjectKey = MemorySubject | "all";
+export interface MemorySubjectPage {
+	scope: MemoryScope;
+	generation: string;
+	subject: MemorySubjectKey;
+	state: "current" | "earlier";
+	/** Most recently mentioned first. */
+	entries: MemorySubjectEntry[];
+	total: number;
+	nextCursor: string | null;
+}
 /** quote is original authorized source text, never a generated native fact. */
 export interface MemorySource {
 	id: string;

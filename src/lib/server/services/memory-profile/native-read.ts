@@ -138,7 +138,7 @@ function legacySupportingDates(
 	}
 	return dates;
 }
-function authorityOf(
+export function authorityOf(
 	account: { authority: string } | undefined,
 ): MemoryPage["authority"] {
 	return account?.authority === "hindsight"
@@ -147,8 +147,8 @@ function authorityOf(
 			? "preparing"
 			: "legacy";
 }
-/** The rows the Memory page shows for a bank: the page's own read, which search shares. */
-function rowsFor(userId: string, bankId: string, generation?: string) {
+/** The rows the Memory page shows for a bank: the page's own read, which search and the subject index share. */
+export function rowsFor(userId: string, bankId: string, generation?: string) {
 	try {
 		return readPublishedMemory(userId, bankId, generation);
 	} catch (error) {
@@ -156,6 +156,52 @@ function rowsFor(userId: string, bankId: string, generation?: string) {
 			throw new MemoryRequestError("stale_memory", 409);
 		throw error;
 	}
+}
+/** Whether the bank's Memory is being updated, or an update failed: the page's status line. */
+export function memoryBankStatus(
+	userId: string,
+	bank: { id: string; epoch: number },
+): MemoryPage["status"] {
+	const jobs = db
+		.select({
+			status: memoryDeliveryJobs.status,
+			kind: memoryDeliveryJobs.kind,
+			actionId: memoryDeliveryJobs.actionId,
+		})
+		.from(memoryDeliveryJobs)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.userId, userId),
+				eq(memoryDeliveryJobs.bankId, bank.id),
+				eq(memoryDeliveryJobs.epoch, bank.epoch),
+			),
+		)
+		.all();
+	const outstandingCleanup = new Set(
+		db
+			.select({ id: memoryActions.id })
+			.from(memoryActions)
+			.where(
+				and(
+					eq(memoryActions.bankId, bank.id),
+					eq(memoryActions.cleanupPending, true),
+				),
+			)
+			.all()
+			.map((a) => a.id),
+	);
+	return jobs.some((j) => j.status === "running")
+		? "working"
+		: jobs.some((j) => j.status === "queued")
+			? "queued"
+			: jobs.some(
+						(j) =>
+							(j.status === "failed" && j.kind !== "action") ||
+							((j.status === "failed" || j.status === "cancelled") &&
+								outstandingCleanup.has(j.actionId ?? "")),
+					)
+				? "failed"
+				: "ready";
 }
 interface Cursor {
 	bank: string;
@@ -228,46 +274,7 @@ export function listMemory(
 		const page = visible.slice(0, 50);
 		const legacyDates = legacySupportingDates(userId, bank.id, page);
 		const last = page.at(-1);
-		const jobs = db
-			.select({
-				status: memoryDeliveryJobs.status,
-				kind: memoryDeliveryJobs.kind,
-				actionId: memoryDeliveryJobs.actionId,
-			})
-			.from(memoryDeliveryJobs)
-			.where(
-				and(
-					eq(memoryDeliveryJobs.userId, userId),
-					eq(memoryDeliveryJobs.bankId, bank.id),
-					eq(memoryDeliveryJobs.epoch, bank.epoch),
-				),
-			)
-			.all();
-		const outstandingCleanup = new Set(
-			db
-				.select({ id: memoryActions.id })
-				.from(memoryActions)
-				.where(
-					and(
-						eq(memoryActions.bankId, bank.id),
-						eq(memoryActions.cleanupPending, true),
-					),
-				)
-				.all()
-				.map((a) => a.id),
-		);
-		const status = jobs.some((j) => j.status === "running")
-			? "working"
-			: jobs.some((j) => j.status === "queued")
-				? "queued"
-				: jobs.some(
-							(j) =>
-								(j.status === "failed" && j.kind !== "action") ||
-								((j.status === "failed" || j.status === "cancelled") &&
-									outstandingCleanup.has(j.actionId ?? "")),
-						)
-					? "failed"
-					: "ready";
+		const status = memoryBankStatus(userId, bank);
 		const sourceIndex = new Map<string, Set<string>>();
 		const sources = conversationSources(userId, bank.id, bank.epoch);
 		const history = publishedMemoryHistory(

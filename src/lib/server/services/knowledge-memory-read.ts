@@ -380,3 +380,7 @@ export {
 	MemoryRequestError,
 	parseMemoryScope,
 } from "./memory-profile/native-read";
+export {
+	listMemorySubject,
+	readMemorySubjectIndex,
+} from "./memory-profile/subject-read";

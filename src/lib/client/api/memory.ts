@@ -7,6 +7,9 @@ import type {
 	MemoryQuarantineRequest,
 	MemoryRef,
 	MemoryScope,
+	MemorySubjectIndex,
+	MemorySubjectKey,
+	MemorySubjectPage,
 } from "$lib/memory-types";
 import { type FetchLike, requestJson } from "./http";
 
@@ -92,6 +95,101 @@ export async function fetchMemoryPage(
 				String(v.status),
 			) &&
 			(v.nextCursor === null || typeof v.nextCursor === "string"),
+	);
+}
+function stringArray(value: unknown): boolean {
+	return (
+		Array.isArray(value) && value.every((item) => typeof item === "string")
+	);
+}
+const AUTHORITIES = ["legacy", "preparing", "hindsight"];
+const STATUSES = ["ready", "queued", "working", "failed", "off"];
+function validSubjectEntry(value: unknown): boolean {
+	return (
+		record(value) &&
+		validRef(value.ref) &&
+		typeof value.text === "string" &&
+		typeof value.subject === "string" &&
+		nullableString(value.kind) &&
+		["current", "quiet", "earlier"].includes(String(value.timeState)) &&
+		nullableString(value.lastMentionedAt) &&
+		(value.quietWeeks === null || typeof value.quietWeeks === "number") &&
+		Array.isArray(value.earlierStates) &&
+		value.earlierStates.every(
+			(state) =>
+				record(state) &&
+				typeof state.text === "string" &&
+				nullableString(state.saidAt),
+		)
+	);
+}
+/** The subject index of a scope (layout C). */
+export async function fetchMemorySubjectIndex(
+	scope: MemoryScope,
+	signal?: AbortSignal,
+	fetcher?: FetchLike,
+): Promise<MemorySubjectIndex> {
+	const result = await requestJson<unknown>(
+		`/api/knowledge/memory/subjects?${scopeParams(scope)}`,
+		{ signal },
+		"Unable to load memory",
+		fetcher,
+	);
+	return validate<MemorySubjectIndex>(
+		result,
+		(v) =>
+			AUTHORITIES.includes(String(v.authority)) &&
+			validScope(v.scope) &&
+			typeof v.generation === "string" &&
+			STATUSES.includes(String(v.status)) &&
+			typeof v.currentCount === "number" &&
+			record(v.earlier) &&
+			typeof v.earlier.count === "number" &&
+			stringArray(v.earlier.preview) &&
+			Array.isArray(v.subjects) &&
+			v.subjects.every(
+				(item) =>
+					record(item) &&
+					typeof item.subject === "string" &&
+					typeof item.count === "number" &&
+					typeof item.preview === "string" &&
+					typeof item.active === "boolean" &&
+					typeof item.earlierCount === "number" &&
+					stringArray(item.earlierPreview),
+			),
+	);
+}
+/** One subject's current or Earlier entries (`all`: every subject's), a page at a time. */
+export async function fetchMemorySubject(
+	options: {
+		scope: MemoryScope;
+		subject: MemorySubjectKey;
+		state: "current" | "earlier";
+		cursor?: string;
+	},
+	signal?: AbortSignal,
+	fetcher?: FetchLike,
+): Promise<MemorySubjectPage> {
+	const params = scopeParams(options.scope);
+	params.set("state", options.state);
+	if (options.cursor) params.set("cursor", options.cursor);
+	const result = await requestJson<unknown>(
+		`/api/knowledge/memory/subjects/${encodeURIComponent(options.subject)}?${params}`,
+		{ signal },
+		"Unable to load memory",
+		fetcher,
+	);
+	return validate<MemorySubjectPage>(
+		result,
+		(v) =>
+			validScope(v.scope) &&
+			typeof v.generation === "string" &&
+			typeof v.subject === "string" &&
+			(v.state === "current" || v.state === "earlier") &&
+			typeof v.total === "number" &&
+			nullableString(v.nextCursor) &&
+			Array.isArray(v.entries) &&
+			v.entries.every(validSubjectEntry),
 	);
 }
 export async function fetchMemoryDetail(
