@@ -233,6 +233,35 @@ describe("SearchModal", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("lights no letters in the view before a query", async () => {
+		// "a!" is two characters but one letter of words: the server answers with
+		// the empty-query view, whose recents must not light every "a".
+		fetchWorkspaceSearch.mockResolvedValue(
+			answer({
+				mode: "default",
+				query: "a!",
+				conversations: [chat("conv-a", "A banana plan")],
+				totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+			}),
+		);
+		render(SearchModal, { props: { isOpen: true } });
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: "a!" } });
+		await waitFor(
+			() => {
+				expect(fetchWorkspaceSearch).toHaveBeenCalledWith(
+					expect.objectContaining({ query: "a!" }),
+				);
+				// `document` here is this file's row helper, so the page is window.document.
+				expect(window.document.body.textContent).toContain("A banana plan");
+			},
+			{ timeout: 750 },
+		);
+		expect(window.document.querySelectorAll(".search-highlight")).toHaveLength(
+			0,
+		);
+	});
+
 	it("shows a keep-typing hint instead of recents for a 1-char query", async () => {
 		render(SearchModal, {
 			props: {

@@ -282,8 +282,11 @@ const activeResultElementId = $derived(
 	activeRowId ? searchResultElementId(activeRowId) : undefined,
 );
 // The words of the query, folded the way the server matched them, so a word typed
-// without accents or in another order is lit in the text it found.
-const highlightTerms = $derived(searchTerms(searchResponse?.query ?? ""));
+// without accents or in another order is lit in the text it found. The view
+// before a query matched nothing, so it lights nothing.
+const highlightTerms = $derived(
+	isQueryMode ? searchTerms(searchResponse?.query ?? "") : [],
+);
 
 function portal(node: HTMLElement) {
 	document.body.appendChild(node);
