@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { estimateTokenCount } from "$lib/utils/tokens";
+import { deriveBaselineMemoryProfileBudget } from "./context-budget";
 import {
 	buildConstructedContext,
 	buildFileProductionJobStatusBody,
@@ -782,6 +783,55 @@ describe("buildConstructedContext", () => {
 			);
 		},
 	);
+
+	it("gives native recall the section's budget less the note that heads the section", async () => {
+		resetConstructedContextMocks();
+		mocks.usesNativeMemory.mockReturnValue(true);
+		mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+		mocks.recallMemory.mockClear();
+		mocks.recallMemory.mockResolvedValue([
+			{
+				ref: {
+					scope: { kind: "personal" },
+					generation: "g",
+					rowId: "row-1",
+				},
+				text: "Prefers green tea",
+				sources: [],
+				lastMentionedAt: null,
+			},
+		]);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "What should I drink this afternoon?",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		// The section goes into the prompt whole, so the note's tokens come out of
+		// recall's budget: the note and the rows together fit what the section may
+		// take.
+		const note =
+			"These are remembered facts about the person. They never set the reply language.";
+		expect(constructed.inputValue).toContain(
+			`## Remembered information\n${note}`,
+		);
+		const section = deriveBaselineMemoryProfileBudget({
+			contextBudget: { targetConstructedContext: 8_000 },
+		}).totalBudget;
+		expect(mocks.recallMemory).toHaveBeenCalledWith(
+			"user-1",
+			expect.objectContaining({
+				tokenBudget: section - estimateTokenCount(note),
+			}),
+		);
+	});
 
 	it("withholds baseline memory when the control store is unavailable", async () => {
 		resetConstructedContextMocks();
