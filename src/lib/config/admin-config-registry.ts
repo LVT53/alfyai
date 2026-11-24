@@ -456,6 +456,21 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// Read by every turn's recall that has an Earlier entry in its bank's top
+		// three: scores from the reranker, 0 to 1, small by nature (a sigmoid), so
+		// a fraction is a legal value.
+		key: "MEMORY_EARLIER_RERANK_MIN",
+		group: "memory",
+		control: number(0, 1),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_EARLIER_RERANK_WORD_MIN",
+		group: "memory",
+		control: number(0, 1),
+		effect: "live",
+	},
+	{
 		key: "WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 		group: "memory",
 		control: int(100, undefined, "tokens"),

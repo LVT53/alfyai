@@ -2,6 +2,11 @@
 // earlier-rerank.ts`): from the environment, as admin_config rows, and read as
 // one pair the gate can trust.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	ADVANCED_KEY_SPEC_BY_KEY,
+	validateAdminConfigValue,
+} from "$lib/config/admin-config-registry";
+import settingsDict from "$lib/i18n/settings";
 
 const rows: Array<{ key: string; value: string }> = [];
 
@@ -112,5 +117,55 @@ describe("the Earlier reranker floors", () => {
 				wordMin: 0.0005,
 			});
 		}
+	});
+});
+
+describe("the Advanced page's rows for the floors", () => {
+	const spec = (key: string) => {
+		const found = ADVANCED_KEY_SPEC_BY_KEY.get(key);
+		if (!found) throw new Error(`no row for ${key}`);
+		return found;
+	};
+
+	it.each(KEYS)(
+		"shows %s as a live decimal from 0 to 1 under Memory",
+		(key) => {
+			expect(spec(key)).toMatchObject({
+				group: "memory",
+				effect: "live",
+				control: { kind: "number", min: 0, max: 1 },
+			});
+		},
+	);
+
+	it("takes a fraction as small as the defaults and refuses one outside 0 to 1", () => {
+		const row = spec("MEMORY_EARLIER_RERANK_WORD_MIN");
+		expect(validateAdminConfigValue(row, "0.0005")).toEqual({
+			ok: true,
+			value: "0.0005",
+		});
+		expect(validateAdminConfigValue(row, ".002")).toEqual({
+			ok: true,
+			value: "0.002",
+		});
+		expect(validateAdminConfigValue(row, "1.5")).toMatchObject({
+			ok: false,
+			reason: "above-max",
+		});
+		expect(validateAdminConfigValue(row, "-0.1")).toMatchObject({ ok: false });
+		expect(validateAdminConfigValue(row, "1e-3")).toMatchObject({
+			ok: false,
+			reason: "not-a-number",
+		});
+	});
+
+	it.each(KEYS)("words %s in English and Hungarian", (key) => {
+		for (const language of ["en", "hu"] as const)
+			for (const part of ["label", "meaning"] as const) {
+				const text = (settingsDict[language] as Record<string, string>)[
+					`admin.system.keys.${key}.${part}`
+				];
+				expect(text, `${language} ${part} of ${key}`).toBeTruthy();
+			}
 	});
 });
