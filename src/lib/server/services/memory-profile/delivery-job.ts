@@ -16,8 +16,8 @@ import type { Tx } from "../jobs/types";
 import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
-	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 } from "./contracts";
+import { decideMemoryDeliveryFailure } from "./delivery-policy";
 import {
 	type RepairPlan,
 	readDependencyRepairPlan,
@@ -95,10 +95,9 @@ export const memoryDeliveryJob = defineJobKind({
 		code: "memory_worker_lost",
 		message: "Memory preparation was interrupted.",
 	}),
+	// Waiting on Hindsight spends no attempt; see delivery-policy.ts.
 	onFailure: (failure, history) =>
-		failure.retryable && history.attempts < NATIVE_DELIVERY_ATTEMPT_LIMIT
-			? { requeue: true, delayMs: Math.min(60_000, 5_000 * history.attempts) }
-			: { requeue: false, retryable: failure.retryable },
+		decideMemoryDeliveryFailure(failure, history),
 	userRetry: { from: ["failed"], requireRetryable: true },
 	handler: () => import("./delivery-runner").then((m) => m.runMemoryDelivery),
 });

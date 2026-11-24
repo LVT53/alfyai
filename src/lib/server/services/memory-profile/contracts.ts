@@ -8,6 +8,12 @@ export class NativeMemoryError extends Error {
 	constructor(
 		public code: string,
 		public retryable: boolean,
+		/**
+		 * For the job's failure policy (`delivery-policy.ts`): when a wait on
+		 * Hindsight began, and how long to hold the job back before its next
+		 * attempt. Numbers only, never content.
+		 */
+		public details: { waitStartedAt?: number; retryAfterMs?: number } = {},
 	) {
 		super(code);
 		this.name = "NativeMemoryError";

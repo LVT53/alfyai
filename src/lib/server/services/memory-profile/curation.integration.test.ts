@@ -5230,7 +5230,10 @@ it.each([
 						? [JSON.parse(String(init.body)).operation_id]
 						: [],
 			);
-			expect(retainOperations).toEqual([nativeOperationId]);
+			// The retain was acknowledged before the job failed: the retry
+			// continues from there and never sends it, or any new operation, again.
+			expect(retainOperations).toEqual([]);
+			expect(nativeOperationId).toBeTruthy();
 		}
 	},
 );

@@ -8352,6 +8352,14 @@ it.each([
 		await h.engine.drain(t.jobs.memoryDeliveryJob);
 		const id = t.source()?.id;
 		expect(t.meaningCheck()?.checked).toEqual([id]);
+		if (first === "edited, then Hindsight restored the chat") {
+			// Hindsight brings the chat's own facts back (a re-extraction). The
+			// delivery's retry never sends its acknowledged retain again, so the
+			// restore is made here, where the re-sent retain used to make it.
+			const fact = t.f.facts.get(`${id}:fact`);
+			if (!fact) throw Error("test_fact_missing");
+			fact.text = chatsOwnFacts;
+		}
 		expect(await t.retry()).toBe(true);
 		// The new edit withdrew the earlier pass and saved what it was given.
 		expect(t.meaningCheck()).toMatchObject({

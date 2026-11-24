@@ -34,6 +34,7 @@ import {
 	type ReplayCheck,
 } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
+import { countedDeliveryAttempt } from "./delivery-policy";
 import {
 	type NativeSettlement,
 	runDependencyRepair,
@@ -755,7 +756,8 @@ export async function runMemoryAction(
 		// An older receipt can still hold a staged Edit after exhausting retries.
 		// When reclaimed, compensate before applying that proposal again.
 		if (
-			ctx.attempt.number > NATIVE_DELIVERY_ATTEMPT_LIMIT &&
+			countedDeliveryAttempt(ctx.row, ctx.attempt.number) >
+				NATIVE_DELIVERY_ATTEMPT_LIMIT &&
 			initial?.kind === "edit" &&
 			initial.cleanupPending &&
 			saved?.proposal &&
@@ -811,7 +813,8 @@ export async function runMemoryAction(
 			!intent.outcome &&
 			(terminal ||
 				(code === collectiveRejection &&
-					ctx.attempt.number >= NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
+					countedDeliveryAttempt(ctx.row, ctx.attempt.number) >=
+						NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
 			code !== "memory_control_changed" &&
 			code !== "memory_cancelled"
 		) {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
+import { getMemoryNativeWaits } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -21,6 +22,7 @@ import {
 	type NativeOperation,
 } from "./contracts";
 import { memoryResendTransitions } from "./curation-lineage";
+import type { NativeWaitKind } from "./delivery-policy";
 import { runDependencyRepair } from "./dependency-repair";
 import {
 	configuredNativeBinding,
@@ -75,17 +77,54 @@ async function pause(signal: AbortSignal) {
 const ENDED = ["completed", "failed", "cancelled"];
 const ENDED_BADLY = ["failed", "cancelled"];
 /**
+ * The longest one attempt waits on Hindsight before it hands the job back.
+ * Hindsight finishes on its own clock (minutes per retain under one local
+ * model), so a wait is cut into slices: at a slice's end, with Hindsight still
+ * working, the attempt ends under a waiting code that the job's failure policy
+ * requeues without counting, until that kind's whole wait from config-store
+ * has passed (`delivery-policy.ts`). Between slices the job's claim is free,
+ * so a restart or a cancel never finds it holding a worker for an hour.
+ */
+export const NATIVE_WAIT_SLICE_MS = 300_000;
+/** One wait on Hindsight: its kind, when it began, and when this slice ends. */
+interface NativeWait {
+	kind: NativeWaitKind;
+	startedAt: number;
+	deadline: number;
+}
+function beginWait(kind: NativeWaitKind): NativeWait {
+	const waits = getMemoryNativeWaits();
+	const startedAt = Date.now();
+	return {
+		kind,
+		startedAt,
+		deadline:
+			startedAt +
+			Math.min(
+				NATIVE_WAIT_SLICE_MS,
+				kind === "retain" ? waits.retainMs : waits.consolidationMs,
+			),
+	};
+}
+/** Hindsight is still working when the slice ends: hand the job back, not a failure. */
+function stillWaiting(wait: NativeWait) {
+	return new NativeMemoryError(`native_${wait.kind}_waiting`, true, {
+		waitStartedAt: wait.startedAt,
+	});
+}
+/**
  * Polls until every operation has ended or, with `stopOnBadEnd`, until one has
- * failed or been cancelled. Returns the statuses it read last.
+ * failed or been cancelled. Returns the statuses it read last. At the end of
+ * the wait's slice it throws its waiting code.
  */
 async function pollOperations(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
 	stopOnBadEnd: boolean,
+	wait: NativeWait,
 ): Promise<NativeOperation[]> {
-	const deadline = Date.now() + 180000;
-	while (Date.now() < deadline) {
+	while (Date.now() < wait.deadline) {
 		signal.throwIfAborted();
 		const ops = await Promise.all(ids.map((id) => client.operation(id)));
 		if (ops.some((o) => o.status === "not_found"))
@@ -95,15 +134,20 @@ async function pollOperations(
 		if (ops.every((o) => ENDED.includes(o.status))) return ops;
 		await pause(signal);
 	}
-	throw new NativeMemoryError("native_operation_timeout", true);
+	throw stillWaiting(wait);
 }
+/**
+ * Waits until the operations end. A consolidation's wait by default; pass the
+ * retain's for retains, so each waits as long as its own setting allows.
+ */
 async function settle(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
 	cleanup = false,
+	wait: NativeWait = beginWait("consolidation"),
 ) {
-	const ops = await pollOperations(client, ids, signal, !cleanup);
+	const ops = await pollOperations(client, ids, signal, !cleanup, wait);
 	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
 		throw new NativeMemoryError("native_operation_failed", false);
 }
@@ -117,7 +161,13 @@ async function settleRetain(
 	ids: string[],
 	signal: AbortSignal,
 ): Promise<string | null> {
-	const ops = await pollOperations(client, ids, signal, true);
+	const ops = await pollOperations(
+		client,
+		ids,
+		signal,
+		true,
+		beginWait("retain"),
+	);
 	if (ops.some((o) => o.status === "cancelled"))
 		throw new NativeMemoryError("native_operation_failed", false);
 	return ops.find((o) => o.status === "failed")?.id ?? null;
@@ -144,9 +194,10 @@ function retainResubmitted(source: typeof memorySourceRevisions.$inferSelect) {
 		typeof parseJsonRecord(source.context)[RETAIN_RESUBMITTED_FROM] === "string"
 	);
 }
+/** Waits until the bank has no pending operation, chained consolidation rounds included. */
 async function drainNative(client: HindsightClient, signal: AbortSignal) {
-	const deadline = Date.now() + 180000;
-	while (Date.now() < deadline) {
+	const wait = beginWait("consolidation");
+	while (Date.now() < wait.deadline) {
 		const pending = await client.pendingOperations();
 		if (!pending.length) return;
 		await settle(
@@ -154,10 +205,11 @@ async function drainNative(client: HindsightClient, signal: AbortSignal) {
 			pending.map((o) => o.id),
 			signal,
 			true,
+			wait,
 		);
 		await pause(signal);
 	}
-	throw new NativeMemoryError("native_bank_busy", true);
+	throw stillWaiting(wait);
 }
 /** Two identical complete captures bracketed by bank quiescence, including chained consolidation rounds. */
 export async function captureSettledNative(
@@ -295,6 +347,7 @@ export async function runMemoryDelivery(
 					ids.filter((id) => id !== NATIVE_BANK_CONFIG_PENDING),
 					ctx.signal,
 					true,
+					beginWait("retain"),
 				);
 				await drainNative(client, ctx.signal);
 				if (
@@ -383,7 +436,13 @@ export async function runMemoryDelivery(
 				return;
 			if (source.nativeSubmitted) {
 				if (!source.nativeAcknowledged && source.nativeOperationId)
-					await settle(client, [source.nativeOperationId], ctx.signal, true);
+					await settle(
+						client,
+						[source.nativeOperationId],
+						ctx.signal,
+						true,
+						beginWait("retain"),
+					);
 				await drainNative(client, ctx.signal);
 				await client.deleteDocument(source.id);
 			}
@@ -513,6 +572,7 @@ export async function runMemoryDelivery(
 			outstanding.map((s) => s.nativeOperationId as string),
 			ctx.signal,
 			true,
+			beginWait("retain"),
 		);
 		await drainNative(client, ctx.signal);
 		const delivery = db.transaction((tx) => assertDelivery(tx, row));
@@ -712,7 +772,13 @@ export async function runMemoryDelivery(
 			);
 			if (source.nativeSubmitted) {
 				if (!source.nativeAcknowledged)
-					await settle(client, [source.nativeOperationId], ctx.signal, true);
+					await settle(
+						client,
+						[source.nativeOperationId],
+						ctx.signal,
+						true,
+						beginWait("retain"),
+					);
 				db.transaction((tx) => assertDelivery(tx, row));
 				await client.deleteDocument(source.id);
 			}
@@ -781,7 +847,11 @@ export async function runMemoryDelivery(
 		}
 		const assertedAt =
 			unchanged?.explicitEditAt ?? source.explicitEditAt ?? source.assertedAt;
-		{
+		// A retain an earlier attempt saw finish is never sent or asked about again.
+		// A job requeued while it waits on Hindsight comes back here, and Hindsight
+		// forgets an operation's receipt in time: a POST of the same ID then would
+		// retain the source anew, regenerating its facts under new IDs.
+		if (!(source.nativeSubmitted && source.nativeAcknowledged)) {
 			if (
 				!(await ctx.write((tx) => {
 					source = assertDelivery(tx, row).source;
@@ -1033,6 +1103,11 @@ export async function runMemoryDelivery(
 			code: native.code,
 			message: "Memory preparation could not complete.",
 			retryable: native.retryable,
+			retryAfterMs: native.details.retryAfterMs,
+			diagnostics:
+				native.details.waitStartedAt === undefined
+					? undefined
+					: { waitStartedAt: native.details.waitStartedAt },
 		});
 	} finally {
 		// The job engine remains the lifecycle owner; manifests only summarize settled delivery.

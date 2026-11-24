@@ -1267,10 +1267,11 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 
 	it.each([
 		{ sent: false, acknowledged: false, first: "POST" },
-		{ sent: true, acknowledged: true, first: "POST" },
+		// Acknowledged: the retain finished, and nothing about it is sent or asked again.
+		{ sent: true, acknowledged: true, first: null },
 		{ sent: true, acknowledged: false, first: "GET" },
 	])(
-		"asks about the operation first only for a sent, unacknowledged retain (sent $sent, acknowledged $acknowledged)",
+		"asks about the operation first only for a sent, unacknowledged retain, and never sends an acknowledged one (sent $sent, acknowledged $acknowledged)",
 		async ({ sent, acknowledged, first }) => {
 			const f = await setup();
 			const id = f.source.nativeOperationId as string;
@@ -1281,11 +1282,31 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 				.run();
 			await f.enqueue();
 			await h.engine.drain(f.jobs.memoryDeliveryJob);
-			expect(fake.calls[0]).toBe(`${first} ${id}`);
+			expect(fake.calls[0] ?? null).toBe(first && `${first} ${id}`);
 			expect(job(f)?.status).toBe("succeeded");
 			expect(revision(f)?.nativeOperationId).toBe(id);
 		},
 	);
+
+	it("never sends an acknowledged retain again, even once Hindsight has forgotten its operation", async () => {
+		const f = await setup();
+		const id = f.source.nativeOperationId as string;
+		// Hindsight no longer knows the operation: a POST would retain the source anew.
+		const fake = fakeRetains(f);
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(fake.posted()).toEqual([]);
+		expect(fake.calls).toEqual([]);
+		expect(job(f)?.status).toBe("succeeded");
+		expect(revision(f)).toMatchObject({
+			state: "accepted",
+			nativeOperationId: id,
+		});
+	});
 
 	it.each(["a not_found status", "a 404"])(
 		"sends a retry's own ID again when Hindsight does not know the operation yet (%s)",
@@ -1423,5 +1444,130 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			expect(fake.calls.slice(0, sentOther)).toEqual([`GET ${fresh}`]);
 			expect(fake.calls).not.toContain(`GET ${failed}`);
 		});
+	});
+});
+
+/**
+ * A Hindsight that takes its time, on a faked clock: every status read of an
+ * operation moves the clock on by `stepMs`, and an operation is done once the
+ * clock passes its time. The pending list shows the consolidation while it runs.
+ */
+function slowHindsight(
+	f: Fixture,
+	options: {
+		stepMs: number;
+		retainDoneAt: number;
+		consolidationDoneAt: number;
+	},
+) {
+	const original = f.fetcher.getMockImplementation();
+	if (!original) throw new Error("Missing fixture fetch");
+	const posted: string[] = [];
+	let consolidations = 0;
+	const status = (id: string) =>
+		id.startsWith("slow-consolidation")
+			? Date.now() >= options.consolidationDoneAt
+				? "completed"
+				: "processing"
+			: Date.now() >= options.retainDoneAt
+				? "completed"
+				: "processing";
+	f.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST") {
+			const body = JSON.parse(String(init.body));
+			posted.push(body.operation_id);
+			return new Response(JSON.stringify({ operation_id: body.operation_id }));
+		}
+		if (path.endsWith("/consolidate"))
+			return new Response(
+				JSON.stringify({
+					operation_id: `slow-consolidation-${++consolidations}`,
+				}),
+			);
+		if (path.includes("/operations?")) {
+			const running = [...Array(consolidations).keys()]
+				.map((n) => `slow-consolidation-${n + 1}`)
+				.filter((id) => status(id) !== "completed");
+			return new Response(
+				JSON.stringify({
+					operations: path.includes("status=processing")
+						? running.map((id) => ({ id, status: "processing" }))
+						: [],
+				}),
+			);
+		}
+		if (path.includes("/operations/")) {
+			const id = decodeURIComponent(path.split("/operations/")[1]);
+			vi.setSystemTime(Date.now() + options.stepMs);
+			return new Response(JSON.stringify({ status: status(id) }));
+		}
+		return original(url, init);
+	});
+	return { posted };
+}
+
+describe("Memory delivery waits for Hindsight without spending attempts", () => {
+	const job = (f: Fixture) =>
+		f.db.select().from(f.schema.memoryDeliveryJobs).get();
+	/** Drains, moving the clock past each requeue's delay, until the job settles. */
+	async function untilSettled(f: Fixture, rounds = 40) {
+		const seen: Array<{ status: string; code: string | null }> = [];
+		for (let i = 0; i < rounds; i++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const row = job(f);
+			if (!row) throw new Error("Missing job");
+			seen.push({ status: row.status, code: row.errorCode });
+			if (row.status === "succeeded" || row.status === "failed") return seen;
+			vi.setSystemTime(Date.now() + 61_000);
+		}
+		throw new Error("The job never settled");
+	}
+
+	it("keeps waiting while Hindsight works on a retain, past the attempt limit, and then delivers", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		const fake = slowHindsight(f, {
+			stepMs: 3 * 60_000,
+			retainDoneAt: start + 27 * 60_000,
+			consolidationDoneAt: 0,
+		});
+		await f.enqueue();
+		const seen = await untilSettled(f);
+		expect(seen.at(-1)).toEqual({ status: "succeeded", code: null });
+		// Every handback was a wait, never a failure.
+		expect(
+			seen.slice(0, -1).every((s) => s.code === "native_retain_waiting"),
+		).toBe(true);
+		const row = job(f);
+		const { NATIVE_DELIVERY_ATTEMPT_LIMIT } = await import("./contracts");
+		expect(row?.attemptCount).toBeGreaterThan(NATIVE_DELIVERY_ATTEMPT_LIMIT);
+		// The one operation was sent again only under its own ID.
+		expect(new Set(fake.posted)).toEqual(new Set([f.source.nativeOperationId]));
+	});
+
+	it("ends a delivery native_operation_timeout only once the consolidation's whole wait has passed", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		slowHindsight(f, {
+			stepMs: 6 * 60_000,
+			retainDoneAt: 0,
+			consolidationDoneAt: Number.POSITIVE_INFINITY,
+		});
+		await f.enqueue();
+		const seen = await untilSettled(f);
+		const last = seen.at(-1);
+		expect(last).toEqual({
+			status: "failed",
+			code: "native_operation_timeout",
+		});
+		expect(job(f)?.retryable).toBe(true);
+		// The default consolidation wait is an hour: nothing ended before it.
+		expect(Date.now() - start).toBeGreaterThanOrEqual(60 * 60_000);
+		expect(
+			seen.slice(0, -1).every((s) => s.code === "native_consolidation_waiting"),
+		).toBe(true);
 	});
 });
