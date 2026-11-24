@@ -138,3 +138,68 @@ Not run tonight. Each of the three needs the app itself as Hindsight's admission
 - The integrated benchmark (`docs/plans/hindsight-memory/integrated-native-benchmark/run.ts p01` to `p06`): 102 authored messages for each of six profiles, about 600 deliveries, each a retain and a consolidation; well over a thousand model calls, which at three in flight is an overnight run on its own.
 
 The label entities' effect on recall (the spec: "its effect on recall must be measured") belongs to the integrated benchmark, run once with config 1 and once with config 2: it was not measured tonight. Part of the correction guarantee is covered below at the engine level (Consolidation, corrections).
+
+## Config 3 (2026-11-24)
+
+Bank config 3 (`nativeBankConfig` in `contracts.ts`; config 2 is kept word for word as `nativeBankConfig2`) changes two things, both found by the 2026-11-24 regression runs: **a purchase or an acquisition is lasting** (config 2's extraction labelled a dated purchase temporary, so a phone the person bought aged into Earlier) and **a stated preference about how the assistant should answer is kept as a lasting preference even when phrased as a plain request** (config 2's "requests are not memories" rule dropped it). Its words: the `kind` label's lasting and temporary descriptions (the classifier reads the same), and one retain-mission sentence. The observation mission is unchanged. Files: [part-2-acceptance/config-3/](part-2-acceptance/config-3/) (`fixtures.json`, `run.ts`, `start.py`, `relabel-acceptance.ts`, `results/`). Counts only here; every chat, fact and person is invented.
+
+### Method
+
+The same as above (Hindsight at the pin `9fb28dbd`, Flash-Next `qwen3-6-27b`, retain thinking on, `dry-run-extract` and scratch-bank retains), with two differences. The model was reached through the shared bridge (`regression-2026-11-24/bridge.cjs`), which holds the key and keeps every process of the run together, two helper sessions' calls included, at three in flight at most (peak 3, every call HTTP 200). And part 2's fixtures were run again as they are, with three new sets: **20 purchases and acquisitions** (10 English, 10 Hungarian: a phone, a puppy, a guitar given as a gift, a flat, a bike, a car, an adopted cat, a 3D printer, a standing desk ordered), **20 plain answer-preference requests** (10 and 10: "Please keep your answers short", "Rövid válaszokat kérek.", bullet points, a language, a tone, no emojis, a table for comparisons; each also said right after a long assistant reply, the way the app sends the previous reply as context), and **10 task requests** that look like preferences but ask for one piece of work ("Write me a short summary of the French Revolution", "Meg tudnád rövidíteni ezt a bekezdést?"), which must leave nothing. Config 2 ran the new sets and the question set in the same session as the baseline of the new targets; its other numbers are part 2's recorded ones above. Extraction labels are Hindsight's own (`kind:` and `subject:` tags of the facts naming the item); the classifier is `classifyMemoryFacts` with config 3's words. A purchase item passes when every fact naming it is labelled lasting; a preference passes when a fact names it and is labelled lasting.
+
+### Summary
+
+| Target | Config 2 | Config 3 | Target | Result |
+| --- | --- | --- | --- | --- |
+| Question-only chats leave nothing | 20/20 (recorded; again 20/20) | 20/20 (EN 10/10, HU 10/10) | at least 18/20 | **pass** |
+| No new false keeps: task requests that look like preferences leave nothing | 10/10 | 10/10 (EN 5/5, HU 5/5) | none new | **pass** |
+| Plainly stated lasting facts kept | 20/20 | 20/20 | at least today | **pass** |
+| Kind right (extraction labels) | 81/84, 96% | 81/84, 96% (EN 42/44, HU 39/40) | at least 85% | **pass** |
+| Subject right | 70/84, 83% | 72/84, 86% (EN 36/44, HU 36/40) | at least 80% | **pass** |
+| Lasting facts labelled temporary or ongoing | 1/34, 3% | 1/34, 3% (EN 1/17, HU 0/17) | at most 1 in 20 | **pass** |
+| A real change: new state current, old one kept as earlier | 16/20 automatic, 18/20 by hand | 16/20 automatic (EN 10/10, HU 6/10), 17/20 by hand; new state current 20/20 | at least 16/20 | **pass** |
+| A correction leaves no trace of the wrong value | 18/20 (EN 9/10, HU 9/10) | 17/20 automatic (EN 9/10, HU 8/10), 18/20 by hand | no worse | **pass** |
+| A settled brainstorm leaves only its outcome, by hand | 10/20 (EN 4/10, HU 6/10) | 10/20 (EN 5/10, HU 5/10) | today's 10/20 | **at today's number** (below the spec's 16/20, an open item since part 2) |
+| **New:** purchases and acquisitions labelled lasting, by extraction | 7/20 (EN 3/10, HU 4/10; 13 of 20 had a temporary fact) | **18/20 (EN 9/10, HU 9/10)**; 2 of 20 have a temporary fact | at least 9 of 10, each language | **pass** |
+| **New:** the same facts through the classifier (config 3's words) | | 43/43 lasting (the 21 facts config 3 extracted, the 22 config 2 extracted) | at least 9 of 10 | **pass** |
+| **New:** a plain answer-preference request kept as a lasting preference | 18/20 (EN 10/10, HU 8/10) | **20/20 (EN 10/10, HU 10/10)**; after a long assistant reply also 20/20 (config 2 18/20) | at least 8 of 10 | **pass** |
+
+No wording was revised: the first config 3 wording met every target, so there was nothing to choose between.
+
+### Extraction
+
+- **Purchases.** Config 3 misses two: "my parents gave me a guitar for my birthday on Saturday" (the gift reads as part of a birthday event) and "I ordered a standing desk" (Hungarian: an order not yet delivered reads as an errand). Both are ambiguous by nature; config 2 had 13 of 20 purchase items with a temporary fact.
+- **Preferences.** Config 2 already kept most of them in this harness, English 10/10; its Hungarian misses were "Kérlek, pontokba szedve válaszolj." (bullet points) and "Magyarázd el egyszerűen, mintha kezdő lennék." (explain simply), with and without a preceding assistant reply. "Rövid válaszokat kérek." alone was kept by both configs here (as "A felhasználó rövid válaszokat kér."), so the 2026-11-24 regression miss, which came in a longer scenario, is not reproduced by a bare message; config 3 keeps all 40 variants, each labelled lasting.
+- **Brainstorms by hand** (the criterion above: nothing left may be a request, an option or a reaction to one; background facts pass): passes EN b-en-01, 02, 04, 07, 08 and HU b-hu-02, 05, 08, 09, 10; fails EN 03 ("has not decided on a colour", a request), 05 ("the subject is golden, not dark", a reaction), 06 (the request and a reaction to a laptop), 09 ("might send it on Sundays", an option), 10 ("Bubbles is what everyone calls theirs", a remark on an option) and HU 01 (the name "should sound natural", a request), 03 ("can't choose a colour"), 04 (a plan for the hike and "the Kékes is too far"), 06 (the need), 07 ("the name Délibáb is taken", a reason). Automatic: no fact keeps a dropped option 15/20 (config 2 14/20), the outcome is kept 19/20 (19/20), 53 facts from the 20 brainstorms (56).
+
+### Labels and the classifier
+
+Hindsight's labels on part 2's 84 facts are in the summary. The classifier (`classifyMemoryFacts`, config 3's words, temperature 0, thinking off) on the same facts: kind 81/84, subject 71/84 (EN 42/44 and 36/44, HU 39/40 and 35/40), lasting facts labelled temporary or ongoing 0/34: as part 2 measured it.
+
+**What a relabel would change** (the classifier with config 3's words, on facts config 2's extraction labelled temporary): all **13** purchase facts become lasting (EN 7, HU 6); **0 of the 21** truly temporary facts (an exam, a visit, a trip) move; the 4 project facts labelled temporary stay; the one fixture "ongoing" fact config 2 had labelled temporary stays temporary in this run (in the end-to-end run below it moved to ongoing in one of two runs).
+
+**End to end** ([relabel-acceptance.ts](part-2-acceptance/config-3/relabel-acceptance.ts), `results/relabel-acceptance.json`): a fresh app database built by the app's own migrations (146 included), two synthetic accounts (one with the label migration's classifier labels, one new with extraction's) and a tester-flagged one, each holding the 86 facts config 2's extraction wrote for part 2's fixtures and this round's purchases, labelled as config 2 labelled them, one entry per fact said long ago. Real classifier through the bridge: per account **35 temporary facts, 13 moved to lasting** (all purchases; in the first run one more, the mislabelled ongoing fact, moved to ongoing), 21 left temporary, **entries Earlier 35 → 21**; 4 model calls for both accounts, 11 to 13 seconds, every other table byte for byte as before, the tester never read and its labels unchanged, a second run asks nothing (`nothing_to_relabel`, 0 calls), the rollback restores the original label rows exactly (14 changed, 21 only looked at, a second rollback refused with `label_relabel_not_run`), and a run after the rollback asks the same facts again and reaches the same result.
+
+### Consolidation
+
+The observation mission is config 2's, so this is a check that config 3's retain sentence and kind words changed nothing there. One scratch bank per scenario, 40 scenarios, same grading as above.
+
+| | Config 2 | Config 3 |
+| --- | --- | --- |
+| Change: the new state is current | 20/20 | 20/20 |
+| Change: new state current, old kept only as earlier (automatic) | 16/20 (EN 8/10, HU 8/10) | 16/20 (EN 10/10, HU 6/10) |
+| Change: the same, read by hand | 18/20 (EN 8/10, HU 10/10) | 17/20 (EN 10/10, HU 7/10) |
+| Correction: the right value, no trace of the wrong one | 18/20 by hand | 17/20 automatic, 18/20 by hand |
+
+By hand, config 3's Hungarian misses are c-hu-04 (the violin lessons stay current beside the guitar), c-hu-05 (the old phone is gone, not kept as earlier) and c-hu-06 (the old university is gone and the new one appears twice); c-hu-10 passes by hand (past tense "járt ... amíg fel nem mondta", which the grader misses). The three correction misses are x-en-05 (the correction's pronoun lost its subject: "An unidentified male lives in Montreal" beside Daniel in Toronto), x-hu-08 ("Máté tanár" stays beside the new partner's name) and x-hu-03, which passes by hand (the observations are in English: "The user's niece is nine years old"). Hungarian changes vary from run to run at ten scenarios each; they differ from config 2's in which scenario fails, not in kind, and the target holds.
+
+### Reproduce
+
+```sh
+# The engine and the bridge (see regression-2026-11-24.md "Reproduce" for the pinned install), then:
+ALFYAI_BRIDGE_PORT=18891 ALFYAI_BRIDGE_LIMIT=3 ALFYAI_NATIVE_MODEL_TRACE=<synthetic trace file> node docs/plans/hindsight-memory/regression-2026-11-24/bridge.cjs &
+/tmp/alfyai-hindsight-eval/venv/bin/python docs/plans/hindsight-memory/part-2-acceptance/config-3/start.py 18990 alfyai-config3 &
+export PATH=/opt/homebrew/opt/node@22/bin:$PATH
+for phase in setup extraction classifier consolidation report; do node --import tsx docs/plans/hindsight-memory/part-2-acceptance/config-3/run.ts $phase; done
+node --import tsx docs/plans/hindsight-memory/part-2-acceptance/config-3/relabel-acceptance.ts
+```

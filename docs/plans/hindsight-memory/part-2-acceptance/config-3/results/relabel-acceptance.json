@@ -1,0 +1,260 @@
+{
+	"facts": 86,
+	"dryRun": {
+		"outcome": "dry_run",
+		"totals": {
+			"accounts": 3,
+			"skipped": {
+				"excluded": 1
+			},
+			"banks": 2,
+			"facts": 172,
+			"temporary": 70,
+			"alreadyRelabelled": 0,
+			"toRelabel": 70,
+			"estimatedCalls": 4,
+			"calls": 0,
+			"reclassified": 0,
+			"moved": 0,
+			"relabelled": 0,
+			"failed": 0,
+			"entries": 172,
+			"earlierEntries": 70
+		},
+		"accounts": [
+			{
+				"outcome": "skipped",
+				"skipped": "excluded",
+				"facts": 0,
+				"temporary": 0,
+				"toRelabel": 0,
+				"calls": 0,
+				"reclassified": 0,
+				"moved": {},
+				"stillTemporary": 0,
+				"unanswered": 0
+			},
+			{
+				"outcome": "dry_run",
+				"facts": 86,
+				"temporary": 35,
+				"toRelabel": 35,
+				"calls": 0,
+				"reclassified": 0,
+				"moved": {},
+				"stillTemporary": 0,
+				"unanswered": 0,
+				"before": {
+					"entries": 86,
+					"earlierEntries": 35
+				},
+				"after": {
+					"entries": 86,
+					"earlierEntries": 35
+				}
+			},
+			{
+				"outcome": "dry_run",
+				"facts": 86,
+				"temporary": 35,
+				"toRelabel": 35,
+				"calls": 0,
+				"reclassified": 0,
+				"moved": {},
+				"stillTemporary": 0,
+				"unanswered": 0,
+				"before": {
+					"entries": 86,
+					"earlierEntries": 35
+				},
+				"after": {
+					"entries": 86,
+					"earlierEntries": 35
+				}
+			}
+		]
+	},
+	"run": {
+		"outcome": "done",
+		"totals": {
+			"accounts": 3,
+			"skipped": {
+				"excluded": 1
+			},
+			"banks": 2,
+			"facts": 172,
+			"temporary": 70,
+			"alreadyRelabelled": 0,
+			"toRelabel": 70,
+			"estimatedCalls": 4,
+			"calls": 4,
+			"reclassified": 70,
+			"moved": 26,
+			"relabelled": 2,
+			"failed": 0,
+			"entries": 172,
+			"earlierEntries": 44
+		},
+		"accounts": [
+			{
+				"outcome": "skipped",
+				"skipped": "excluded",
+				"facts": 0,
+				"temporary": 0,
+				"toRelabel": 0,
+				"calls": 0,
+				"reclassified": 0,
+				"moved": {},
+				"stillTemporary": 0,
+				"unanswered": 0
+			},
+			{
+				"outcome": "relabelled",
+				"facts": 86,
+				"temporary": 35,
+				"toRelabel": 35,
+				"calls": 2,
+				"reclassified": 35,
+				"moved": {
+					"lasting": 13
+				},
+				"stillTemporary": 22,
+				"unanswered": 0,
+				"before": {
+					"entries": 86,
+					"earlierEntries": 35
+				},
+				"after": {
+					"entries": 86,
+					"earlierEntries": 22
+				},
+				"verification": {
+					"factsAccounted": true,
+					"factsUnchanged": true,
+					"publishedRowsUnchanged": true,
+					"fewUnanswered": true,
+					"plausible": true
+				}
+			},
+			{
+				"outcome": "relabelled",
+				"facts": 86,
+				"temporary": 35,
+				"toRelabel": 35,
+				"calls": 2,
+				"reclassified": 35,
+				"moved": {
+					"lasting": 13
+				},
+				"stillTemporary": 22,
+				"unanswered": 0,
+				"before": {
+					"entries": 86,
+					"earlierEntries": 35
+				},
+				"after": {
+					"entries": 86,
+					"earlierEntries": 22
+				},
+				"verification": {
+					"factsAccounted": true,
+					"factsUnchanged": true,
+					"publishedRowsUnchanged": true,
+					"fewUnanswered": true,
+					"plausible": true
+				}
+			}
+		],
+		"seconds": 13,
+		"modelCalls": 4,
+		"maxInFlight": 2
+	},
+	"everyOtherTableUnchanged": true,
+	"temporaryFactsMoved": {
+		"purchase": [
+			26,
+			26
+		],
+		"temporaryFixtures": [
+			0,
+			42
+		],
+		"other": [
+			0,
+			2
+		]
+	},
+	"movedDetail": {
+		"purchase (fixture says lasting) -> lasting": 26
+	},
+	"tester": {
+		"read": false,
+		"labelsUnchanged": true,
+		"verifiedStillAsSeeded": true
+	},
+	"resumed": {
+		"skipped": {
+			"excluded": 1,
+			"nothing_to_relabel": 2
+		},
+		"modelCalls": 0
+	},
+	"rollback": {
+		"dryRun": {
+			"userId": "dde80e4c-7995-4ea6-960c-710442deb19d",
+			"execute": false,
+			"outcome": "dry_run",
+			"banks": 1,
+			"changed": 13,
+			"toRestore": 13,
+			"restored": 0,
+			"leftAlone": 0,
+			"lookedAt": 22
+		},
+		"done": {
+			"userId": "dde80e4c-7995-4ea6-960c-710442deb19d",
+			"execute": true,
+			"outcome": "done",
+			"banks": 1,
+			"changed": 13,
+			"toRestore": 13,
+			"restored": 13,
+			"leftAlone": 0,
+			"lookedAt": 22
+		},
+		"restoredExactly": true,
+		"secondTime": {
+			"outcome": "refused",
+			"code": "label_relabel_not_run"
+		},
+		"cLabelsStillRelabelled": true,
+		"rerunAfterRollback": {
+			"outcome": "relabelled",
+			"facts": 86,
+			"temporary": 35,
+			"toRelabel": 35,
+			"calls": 2,
+			"reclassified": 35,
+			"moved": {
+				"lasting": 13
+			},
+			"stillTemporary": 22,
+			"unanswered": 0,
+			"before": {
+				"entries": 86,
+				"earlierEntries": 35
+			},
+			"after": {
+				"entries": 86,
+				"earlierEntries": 22
+			},
+			"verification": {
+				"factsAccounted": true,
+				"factsUnchanged": true,
+				"publishedRowsUnchanged": true,
+				"fewUnanswered": true,
+				"plausible": true
+			}
+		}
+	}
+}
