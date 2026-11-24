@@ -22,7 +22,7 @@ def main():
         out = json.load(open(os.path.join(scr, "%s.json" % rd)))
         texts = {"%s/%s/%s" % (r["scope"], r["language"], r["run"]): r["text"] for r in out["results"] if "text" in r}
         print("=== %s" % rd)
-        print("cell            n | sentences chars | nowhere (of N) | grouped | subjects (of S) | all subjects | loans left (per paragraph) | E other | U | I | L | P | W")
+        print("cell            n | sentences chars | nowhere (of N) | grouped | subjects (of S) | all subjects | loans left (per paragraph) | invented | E other | U | I | L | P | W")
         for scope in ("personal", "project"):
             ids = [k for k in SUBJECT_OF if k.startswith("p" if scope == "personal" else "j")]
             subjects = sorted({SUBJECT_OF[k] for k in ids})
@@ -41,9 +41,10 @@ def main():
                 loans = {}
                 for k in keys:
                     for l in reading[rd][k]["loans"]: loans[l] = loans.get(l, 0) + 1
-                print("%-9s %-3s %3d | %9.1f %5d | %5.1f of %-3d (%2d) | %7d | %5.1f of %d | %2d of %d | %s (%.1f) | %d | %d | %d | %d | %d | %d" % (
+                invented = "-" if not any("invented" in reading[rd][k] for k in keys) else str(tot(lambda r: len(r.get("invented", []))))
+                print("%-9s %-3s %3d | %9.1f %5d | %5.1f of %-3d (%2d) | %7d | %5.1f of %d | %2d of %d | %s (%.1f) | %s | %d | %d | %d | %d | %d | %d" % (
                     scope, lang, n, sent, chars, missing / n, len(ids), missing, grouped, subj, len(subjects), allsub, n,
-                    dict(sorted(loans.items())) or "-", sum(loans.values()) / n,
+                    dict(sorted(loans.items())) or "-", sum(loans.values()) / n, invented,
                     tot(lambda r: len(r["E"])), tot(lambda r: len(r["U"])), tot(lambda r: len(r["I"])),
                     tot(lambda r: r["L"]), tot(lambda r: r["P"]), tot(lambda r: r["W"])))
 

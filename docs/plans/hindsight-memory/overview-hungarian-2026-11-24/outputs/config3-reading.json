@@ -707,6 +707,310 @@
 			"missing": []
 		}
 	},
+	"config3-after3": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 2,
+			"Wnotes": [
+				"embléma",
+				"arculat"
+			],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"'having moved to Gyor from Szeged' hung on the preference sentence"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"a cat named Mak, and her brother Bence lives in Szeged (broken list)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/4": {
+			"E": [],
+			"I": [
+				"though she is looking for a new apartment there (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 2,
+			"Wnotes": [
+				"grafikus",
+				"logó"
+			],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/5": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/1": {
+			"E": [],
+			"I": [
+				"szinten ott el ('also' there)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"kovasz kenyeret (kovaszos)",
+				"hetente ketszer boulder (no verb)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/3": {
+			"E": [],
+			"I": [
+				"knee, alcohol, visit and trip listed as 'temporary tasks'"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"boulderzik (mangled)",
+				"Jelenlegi ideiglenes feladatai kozze tartozik, hogy ... gyogytornara jar ... (garbled)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/4": {
+			"E": [],
+			"I": [
+				"lives in the flat 'because' she looks for a new one (invented cause)"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"Bakonyban (no article)",
+				"most Gyorben lakik ..., mert uj lakast keres (garbled cause)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/5": {
+			"E": [],
+			"I": [
+				"'A szegedi evek ota' misstates the move from Szeged"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"A szegedi evek ota Gyorben lakik (garbled)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [
+				"jelkep-terv (coined for logoterv)"
+			],
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": []
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/4": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/5": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/2": {
+			"E": [],
+			"I": [
+				"ezert fabol epitik meg (cause link)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/3": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"the goal said twice"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/4": {
+			"E": [],
+			"I": [
+				"de a kunyho ajtaja (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		}
+	},
 	"config3-before": {
 		"personal/en/1": {
 			"E": [],
