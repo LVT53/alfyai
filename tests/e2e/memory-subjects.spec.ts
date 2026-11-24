@@ -9,6 +9,7 @@ import type {
 import { setUiLanguage } from "./artifact-document-polish-helpers";
 import { login, waitForHydration, waitForMotionToSettle } from "./helpers";
 import { keepAdminOnTodaysMemoryPage } from "./memory-helpers";
+import { lastMentionedWords, mentionedAt } from "./memory-subjects-dates";
 
 // The Memory page once an account's labels are verified (Memory part 3,
 // layout C), with browser contract fixtures as memory-replacement.spec.ts
@@ -77,7 +78,9 @@ const degree = {
 	subject: "work_study" as const,
 	kind: "lasting" as const,
 	timeState: "current" as const,
-	lastMentionedAt: "2026-10-14T12:00:00.000Z",
+	// Dated from today, and its words computed (memory-subjects-dates.ts): the
+	// page adds the year to a date outside this one, so no fixed day stays right.
+	lastMentionedAt: mentionedAt(),
 	quietWeeks: null,
 	earlierStates: [
 		{ text: "Lived in Budapest", saidAt: "2025-03-14T09:30:00.000Z" },
@@ -153,7 +156,7 @@ const WORDS = {
 		hint: "Written when you open it",
 		search: "Search Memory",
 		pane: "Work and study",
-		lastMentioned: "Last mentioned 14 October",
+		lastMentioned: lastMentionedWords("en"),
 		earlierState: "Earlier: Lived in Budapest · said March 2025",
 		quiet: "quiet 4 weeks",
 		fold: "Earlier in Work and study · 2",
@@ -173,7 +176,7 @@ const WORDS = {
 		hint: "Megnyitáskor készül",
 		search: "Keresés a Memóriában",
 		pane: "Munka és tanulás",
-		lastMentioned: "Utoljára említve: október 14.",
+		lastMentioned: lastMentionedWords("hu"),
 		earlierState: "Korábban: Lived in Budapest · 2025. március",
 		quiet: "4 hete csendes",
 		fold: "Korábbiak: Munka és tanulás · 2",
