@@ -4,14 +4,39 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { deriveBaselineMemoryProfileBudget } from "../chat-turn/context-budget";
 
 // The app's side of recall at size, on this machine only: the normal gates
 // skip it. In-memory SQLite and a fake native client whose every ranking
 // returns all of a bank's rows, so the time measured is the app's own work
-// (reads, verification, sharing, formatting), never Hindsight's search.
+// (reads, verification, sharing, formatting), never Hindsight's search. Every
+// source belongs to a chat, as a person's do, so each row recall chooses looks
+// its chat up, and recall gets the budget a turn gives it.
 const PERSONAL_ROWS = 5_000;
 const PROJECT_ROWS = 1_000;
+/** Facts a chat gave: a chat of a few messages yields a few facts. */
+const FACTS_PER_CHAT = 5;
 const RECALLS = 20;
+
+/** The line that opens the memory section, which `context-selection.ts` writes. */
+const SECTION_NOTE =
+	"These are remembered facts about the person. They never set the reply language.";
+/**
+ * What a turn hands recall (`context-selection.ts`): the baseline memory
+ * budget for the turn's target context, less the line that opens the section.
+ */
+const turnBudget = (targetConstructedContext: number) =>
+	deriveBaselineMemoryProfileBudget({
+		contextBudget: { targetConstructedContext },
+	}).totalBudget - estimateTokenCount(SECTION_NOTE);
+const BUDGETS = [
+	// A model of the default size builds to 236,000 tokens, where the budget
+	// sits at its 8,000 floor: what production passes.
+	{ name: "floor", tokens: turnBudget(236_000) },
+	// The most a turn can pass, for a window of 1.6 million tokens or more.
+	{ name: "ceiling", tokens: turnBudget(2_000_000) },
+];
 
 let sqlite: Database.Database;
 vi.mock("$lib/server/db", () => ({
@@ -27,14 +52,27 @@ vi.mock("../memory-profile/hindsight-client", () => ({
 	}),
 }));
 
-/** One bank of synthetic rows, each an accepted source, fact and published row. */
+/**
+ * One bank of synthetic rows, each an accepted source, fact and published row,
+ * the source said in one of the chats made for the bank.
+ */
 function seedBank(bankId: string, scopeKey: string, count: number) {
 	const db = drizzle(sqlite, { schema });
 	db.insert(schema.memoryBanks)
 		.values({ id: bankId, userId: "u", scopeKey, epoch: 0, generation: "g" })
 		.run();
 	const ranking: unknown[] = [];
+	const chats = Math.ceil(count / FACTS_PER_CHAT);
 	db.transaction((tx) => {
+		for (let chat = 0; chat < chats; chat++)
+			tx.insert(schema.conversations)
+				.values({
+					id: `chat-${bankId}-${chat}`,
+					title: `Synthetic chat ${chat} of ${bankId}`,
+					userId: "u",
+					projectId: scopeKey === "personal" ? null : "p",
+				})
+				.run();
 		for (let i = 0; i < count; i++) {
 			const text = `Synthetic fact ${i} of ${bankId}: option ${i % 7} suits task ${i % 50}.`;
 			const fact = { id: `f-${bankId}-${i}`, text };
@@ -46,6 +84,8 @@ function seedBank(bankId: string, scopeKey: string, count: number) {
 					epoch: 0,
 					eventId: `${bankId}-${i}`,
 					lineageId: `${bankId}-${i}`,
+					conversationId: `chat-${bankId}-${Math.floor(i / FACTS_PER_CHAT)}`,
+					messageId: `message-${bankId}-${i}`,
 					text,
 					context: "",
 					textHash: "hash",
@@ -117,31 +157,42 @@ describe.runIf(process.env.MEMORY_RECALL_SIZE_CHECK === "1")(
 			sqlite?.close();
 		});
 
-		it("keeps the app's side of a per-turn recall under 500 ms at the 95th percentile", async () => {
-			const { recallMemory } = await import("./native");
-			const timings: number[] = [];
-			const info = vi.spyOn(console, "info").mockImplementation(() => {});
-			try {
-				for (let turn = 0; turn < RECALLS; turn++) {
-					const started = performance.now();
-					const recalled = await recallMemory("u", {
-						conversationId: "c",
-						query: `What did we settle for task ${turn} of the project?`,
-						tokenBudget: 4_000,
-						core: true,
-					});
-					timings.push(performance.now() - started);
-					expect(recalled.length).toBeGreaterThan(0);
+		it.each(BUDGETS)(
+			"keeps the app's side of a per-turn recall under 500 ms at the 95th percentile ($name budget)",
+			async ({ name, tokens }) => {
+				const { recallMemory } = await import("./native");
+				const timings: number[] = [];
+				let rows = 0;
+				const info = vi.spyOn(console, "info").mockImplementation(() => {});
+				try {
+					for (let turn = 0; turn < RECALLS; turn++) {
+						const started = performance.now();
+						const recalled = await recallMemory("u", {
+							conversationId: "c",
+							query: `What did we settle for task ${turn} of the project?`,
+							tokenBudget: tokens,
+							core: true,
+						});
+						timings.push(performance.now() - started);
+						expect(recalled.length).toBeGreaterThan(0);
+						// Each row's source resolved its chat: the lookup is measured.
+						for (const { sources } of recalled)
+							expect(sources.some(({ conversationId }) => conversationId)).toBe(
+								true,
+							);
+						rows = recalled.length;
+					}
+				} finally {
+					info.mockRestore();
 				}
-			} finally {
-				info.mockRestore();
-			}
-			const median = percentile(timings, 0.5);
-			const p95 = percentile(timings, 0.95);
-			console.log(
-				`[recall-size] personal=${PERSONAL_ROWS} project=${PROJECT_ROWS} recalls=${RECALLS} medianMs=${median.toFixed(1)} p95Ms=${p95.toFixed(1)}`,
-			);
-			expect(p95).toBeLessThan(500);
-		}, 300_000);
+				const median = percentile(timings, 0.5);
+				const p95 = percentile(timings, 0.95);
+				console.log(
+					`[recall-size] budget=${name}:${tokens} personal=${PERSONAL_ROWS} project=${PROJECT_ROWS} chats=${Math.ceil(PERSONAL_ROWS / FACTS_PER_CHAT) + Math.ceil(PROJECT_ROWS / FACTS_PER_CHAT)} recalls=${RECALLS} rows=${rows} medianMs=${median.toFixed(1)} p95Ms=${p95.toFixed(1)}`,
+				);
+				expect(p95).toBeLessThan(500);
+			},
+			300_000,
+		);
 	},
 );
