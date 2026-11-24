@@ -1,6 +1,7 @@
 <script lang="ts">
 /**
- * The Knowledge Memory list and scope selector sit beside Settings > Profile.
+ * The Memory page's subject index (scope, Add, the Overview row, search,
+ * subjects and the Earlier row) sits beside Settings > Profile.
  * The Memory spot lights the Knowledge list and the settings switch. The other
  * spots follow the model, style, instructions, Pictures and videos, and Skills rows.
  */

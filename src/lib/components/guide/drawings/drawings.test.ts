@@ -110,9 +110,10 @@ describe("the guide's drawings", () => {
 	// Documents chip), both keys are listed and the word is on screen twice.
 	//
 	// It knows you: the Knowledge Base's tabs (`knowledge/+page.svelte`), the
-	// Memory Profile's summary head and Needs Review card (`PersonaSummaryCard`,
-	// `KnowledgeMemoryView`), and Settings > Profile's Preferences and Assistant
-	// behaviour rows (`SettingsProfileTab`).
+	// Memory page's subject index (`MemorySubjectIndex`: scope, Add, the Overview
+	// row, search, two subjects with the Projects row's tag, the Earlier row),
+	// and Settings > Profile's Preferences and Assistant behaviour rows
+	// (`SettingsProfileTab`).
 	// Your things: the Documents tab's kind chips (`DocumentsList`), Settings'
 	// tabs and the Connections tab's "Add a connection" card, the "+" menu's
 	// first two rows, and the "Send this email?" permission card
@@ -139,8 +140,14 @@ describe("the guide's drawings", () => {
 			"memory.title",
 			"knowledge.documents",
 			"memoryNew.personal",
-			"memoryNew.add",
-			"memoryNew.search",
+			"memorySubjects.add",
+			"memorySubjects.overviewPersonal",
+			"memorySubjects.overviewHint",
+			"memorySubjects.search",
+			"memorySubjects.subject.about_you",
+			"memorySubjects.subject.projects",
+			"memorySubjects.active",
+			"memorySubjects.earlier",
 			"settings_defaultModel",
 			"settings_conversationStyle",
 			"profileTab.personalInstructions",
