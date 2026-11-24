@@ -194,9 +194,42 @@ export async function recallMemory(
 			: []),
 	];
 	const searched = new Map<string, BankSearch>();
+	// One line per bank searched, with the rows it gave the model. Content-free
+	// (services/AGENTS.md): no query, entry text or id.
+	const logSearched = (
+		returned: readonly { bankId: string; entry: AdmittedMemoryEvidence }[],
+	) => {
+		for (const bank of banks) {
+			const search = searched.get(bank.id);
+			if (!search) continue;
+			const count = (outcome: BankSearch["outcomes"][number]) =>
+				search.outcomes.filter((ended) => ended === outcome).length;
+			console.info("[KNOWLEDGE_MEMORY] Recall", {
+				mode: input.core ? "turn" : "tool",
+				bank: bank.scopeKey === "personal" ? "personal" : "project",
+				searches: searches.length,
+				answered: count("answered"),
+				timedOut: count("timed_out"),
+				failed: count("failed"),
+				slowestMs: search.slowestMs,
+				fallback: count("answered") === 0,
+				snapshot: search.snapshot,
+				rows: returned.filter(({ bankId }) => bankId === bank.id).length,
+				earlier: returned.filter(
+					({ bankId, entry }) =>
+						bankId === bank.id && entry.timeState === "earlier",
+				).length,
+			});
+		}
+	};
 	const confirmedEvidence = new Map<string, Map<string, NativeMemory>>();
 	for (const bank of banks) {
-		if (!isStillActive(db)) return [];
+		if (!isStillActive(db)) {
+			// Consent changed mid-recall: nothing is returned, and the banks
+			// already searched still say so.
+			logSearched([]);
+			return [];
+		}
 		const search: BankSearch = {
 			rankings: new Map(),
 			outcomes: [],
@@ -622,28 +655,6 @@ export async function recallMemory(
 			return { bankId, entry };
 		});
 	});
-	for (const bank of banks) {
-		const search = searched.get(bank.id);
-		if (!search) continue;
-		const count = (outcome: BankSearch["outcomes"][number]) =>
-			search.outcomes.filter((ended) => ended === outcome).length;
-		// Content-free (services/AGENTS.md): no query, entry text or id.
-		console.info("[KNOWLEDGE_MEMORY] Recall", {
-			mode: input.core ? "turn" : "tool",
-			bank: bank.scopeKey === "personal" ? "personal" : "project",
-			searches: searches.length,
-			answered: count("answered"),
-			timedOut: count("timed_out"),
-			failed: count("failed"),
-			slowestMs: search.slowestMs,
-			fallback: count("answered") === 0,
-			snapshot: search.snapshot,
-			rows: entries.filter(({ bankId }) => bankId === bank.id).length,
-			earlier: entries.filter(
-				({ bankId, entry }) =>
-					bankId === bank.id && entry.timeState === "earlier",
-			).length,
-		});
-	}
+	logSearched(entries);
 	return entries.map(({ entry }) => entry);
 }

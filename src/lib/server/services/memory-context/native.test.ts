@@ -1189,6 +1189,48 @@ it.each([
 		expect(JSON.stringify(lines)).not.toContain("kayak");
 	},
 );
+it.each([false, true])(
+	"still logs the banks it searched when consent changes before the next bank (core: %s)",
+	async (core) => {
+		seed("b1", "personal", "Personal preference");
+		seed("b2", "project:p", "Project decision");
+		recall.mockImplementation(async () => {
+			// The person turns the chat incognito while the first bank is searched.
+			drizzle(sqlite, { schema })
+				.update(schema.conversations)
+				.set({ memoryIncognito: true })
+				.where(eq(schema.conversations.id, "c"))
+				.run();
+			return [
+				{
+					id: "n-b1",
+					text: "Personal preference",
+					fact_type: "observation",
+					source_memory_ids: ["f-b1"],
+				},
+			];
+		});
+		const { recallMemory } = await import("./native");
+		let result: unknown;
+		const lines = await recallLines(async () => {
+			result = await recallMemory("u", {
+				conversationId: "c",
+				query: "preferences",
+				tokenBudget: 1000,
+				core,
+			});
+		});
+		expect(result).toEqual([]);
+		// The first bank was searched and says so; the second never was.
+		expect(lines).toEqual([
+			expect.objectContaining({
+				bank: "personal",
+				answered: core ? 2 : 1,
+				rows: 0,
+			}),
+		]);
+	},
+);
 /**
  * Separate core and message rankings for the share tests: the person's core
  * search ranks their entries 00-19 and the message search 20-39; the
