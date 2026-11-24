@@ -553,6 +553,112 @@ describe("the label migration", () => {
 		expect(fake.listed).not.toContain(next.id);
 	});
 
+	it("stops calling the model after three batches in a row fail", async () => {
+		const fake = fakeNative(() => {
+			throw new Error("busy");
+		});
+		await seedAccount("user-1", fake.facts, { count: 100 });
+		const { migration, verified } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		// Five batches, each asked twice, without the stop: ten calls.
+		expect(fake.batches).toHaveLength(3);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "model_unavailable",
+			unlabelled: { model_unavailable: 100 },
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	/** A model whose first call lets `change` happen before the next one is due. */
+	async function changedMidRun(change: () => void | Promise<void>) {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 45 });
+		const { migration, verified } = await modules();
+		let calls = 0;
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				model:
+					(userId, signal) =>
+					async (...args) => {
+						calls++;
+						const answer = await fake.model(userId, signal)(...args);
+						if (calls === 1) await change();
+						return answer;
+					},
+			},
+		);
+		return { report, calls, bank, verified };
+	}
+
+	it("the tester flag set mid-run: no further fact of the account is sent", async () => {
+		const { report, calls, verified } = await changedMidRun(() => {
+			h.sqlite
+				.prepare(
+					"UPDATE users SET memory_migration_excluded = 1 WHERE id = 'user-1'",
+				)
+				.run();
+		});
+		expect(calls).toBe(1);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "memory_migration_excluded",
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("Memory turned off mid-run: the batch answered is not written, and nothing more is sent", async () => {
+		const { report, calls, bank, verified } = await changedMidRun(() => {
+			h.sqlite
+				.prepare("UPDATE users SET memory_enabled = 0 WHERE id = 'user-1'")
+				.run();
+		});
+		expect(calls).toBe(1);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "memory_fence_stale",
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(0);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("Clear Memory mid-run (a new epoch): nothing more is sent or written", async () => {
+		const { report, calls, bank } = await changedMidRun(() => {
+			h.sqlite
+				.prepare(
+					"UPDATE memory_accounts SET epoch = 1 WHERE user_id = 'user-1'",
+				)
+				.run();
+		});
+		expect(calls).toBe(1);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "memory_fence_stale",
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(0);
+	});
+
+	it("erasure mid-run: nothing more is sent or written", async () => {
+		const { report, calls, bank } = await changedMidRun(() => {
+			h.sqlite
+				.prepare(
+					"UPDATE memory_accounts SET lifecycle_state = 'erasing' WHERE user_id = 'user-1'",
+				)
+				.run();
+		});
+		expect(calls).toBe(1);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "memory_fence_stale",
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(0);
+	});
+
 	it("published rows that change during the run fail verification", async () => {
 		const fake = fakeNative();
 		await seedAccount("user-1", fake.facts, { count: 3 });

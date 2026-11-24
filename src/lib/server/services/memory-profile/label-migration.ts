@@ -21,6 +21,7 @@ import {
 	revokeMemoryLabelsVerified,
 } from "./labels-verified";
 import {
+	assertMemoryMigrationAllowed,
 	MEMORY_MIGRATION_EXCLUDED,
 	memoryMigrationGuard,
 } from "./migration-guard";
@@ -152,6 +153,8 @@ const MAX_UNLABELLED_SHARE = 1 / 20;
  */
 const MIN_LASTING_SHARE = 0.15;
 const PLAUSIBILITY_MIN_FACTS = 20;
+/** Batches failing one after another before the account stops asking (`model_unavailable`). */
+const MAX_FAILED_BATCHES_IN_A_ROW = 3;
 
 class AccountFailure extends Error {
 	constructor(public code: string) {
@@ -357,23 +360,62 @@ async function migrateAccount(
 		/** Each fact this run labelled, by id: a hash of the text it was labelled from. */
 		const labelledText = new Map<string, string>();
 		let unavailable = 0;
+		let failedInARow = 0;
 		for (const { bank, todo } of banksRead) {
 			const scope: MemoryScope["kind"] =
 				bank.scopeKey === "personal" ? "personal" : "project";
+			// As curation does: the tester rule and the bank's fence are asked
+			// again before each batch and right before its call is sent (after
+			// the admission queue's wait), so no fact goes out once the person
+			// turned Memory off, cleared or erased it, or the account was excluded.
+			const fence = () =>
+				database.transaction((tx) => {
+					assertMemoryMigrationAllowed(userId, tx);
+					assertMemoryBankFence(tx, userId, bank.id, account.epoch);
+				});
+			const bankModel: CurationModel = (
+				prompt,
+				input,
+				schema,
+				thinkingMode,
+				assertCurrent,
+				call,
+			) => {
+				fence();
+				return model(
+					prompt,
+					input,
+					schema,
+					thinkingMode,
+					() => {
+						fence();
+						assertCurrent?.();
+					},
+					call,
+				);
+			};
 			// One pass in batches, then one more for what it left unlabelled.
 			let left = todo;
 			for (let pass = 0; pass < 2 && left.length; pass++) {
 				const missing: Fact[] = [];
 				const failed: Fact[] = [];
 				await inBatches(left, concurrency, signal, async (batch) => {
+					fence();
 					let labels: Map<string, { kind: MemoryKind; subject: MemorySubject }>;
 					try {
 						entry.calls++;
-						labels = await classifyMemoryFacts({ scope, facts: batch }, model);
+						labels = await classifyMemoryFacts(
+							{ scope, facts: batch },
+							bankModel,
+						);
 					} catch {
 						failed.push(...batch);
+						// A model that is down fails every batch: stop asking.
+						if (++failedInARow >= MAX_FAILED_BATCHES_IN_A_ROW)
+							throw new AccountFailure("model_unavailable");
 						return;
 					}
+					failedInARow = 0;
 					// Each answered batch is written at once, fenced like any
 					// Memory write: an interrupted run keeps it.
 					database.transaction((tx) => {
@@ -465,6 +507,10 @@ async function migrateAccount(
 	} catch (error) {
 		entry.outcome = "failed";
 		entry.failure = failureCode(error);
+		// Stopped early: every fact not labelled yet waits for the model.
+		if (entry.failure === "model_unavailable")
+			entry.unlabelled.model_unavailable =
+				entry.toLabel - entry.labelled - (entry.unlabelled.no_label ?? 0);
 		if (!execute) entry.outcome = "dry_run";
 		return entry;
 	}
