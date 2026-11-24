@@ -75,6 +75,43 @@ describe("memory v2 config", () => {
 		});
 	});
 
+	it.each([
+		["120", "90", 90],
+		["3650", "1", 1],
+		["91", "90", 90],
+	] as const)(
+		"an ongoing entry is never quiet later than it is Earlier: quiet %s with Earlier %s reads as %s",
+		async (quiet, earlier, expectedQuiet) => {
+			process.env.MEMORY_ONGOING_QUIET_DAYS = quiet;
+			process.env.MEMORY_ONGOING_EARLIER_DAYS = earlier;
+			const { getMemoryAgingThresholds } = await import("./config-store");
+			expect(getMemoryAgingThresholds()).toEqual({
+				temporaryEarlierDays: 21,
+				ongoingQuietDays: expectedQuiet,
+				ongoingEarlierDays: Number(earlier),
+			});
+		},
+	);
+
+	it("a lowered Earlier threshold also holds the default quiet threshold down", async () => {
+		process.env.MEMORY_ONGOING_EARLIER_DAYS = "10";
+		const { getMemoryAgingThresholds } = await import("./config-store");
+		expect(getMemoryAgingThresholds()).toMatchObject({
+			ongoingQuietDays: 10,
+			ongoingEarlierDays: 10,
+		});
+	});
+
+	it("a quiet threshold at or below the Earlier threshold is kept as set", async () => {
+		process.env.MEMORY_ONGOING_QUIET_DAYS = "90";
+		process.env.MEMORY_ONGOING_EARLIER_DAYS = "90";
+		const { getMemoryAgingThresholds } = await import("./config-store");
+		expect(getMemoryAgingThresholds()).toMatchObject({
+			ongoingQuietDays: 90,
+			ongoingEarlierDays: 90,
+		});
+	});
+
 	it.each(["0", "3651", "abc", "-1", "2.5", "14days", ""])(
 		"an aging threshold that is not a whole day count from 1 to 3650 (%j) keeps its default",
 		async (value) => {

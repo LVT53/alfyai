@@ -1727,7 +1727,10 @@ export function getMemoryRecallShares(): {
  * temporary entry is Earlier `temporaryEarlierDays` after the later of its
  * last mention and its event; an ongoing one is quiet `ongoingQuietDays` and
  * Earlier `ongoingEarlierDays` after its last mention
- * (`memory-profile/entry-time.ts`).
+ * (`memory-profile/entry-time.ts`). An entry is never quiet after it is
+ * Earlier: a quiet threshold above the Earlier one (set so, or left behind by
+ * lowering Earlier below quiet's default) reads as the Earlier threshold, and
+ * such an entry goes from current straight to Earlier.
  */
 export function getMemoryAgingThresholds(): {
 	temporaryEarlierDays: number;
@@ -1736,7 +1739,10 @@ export function getMemoryAgingThresholds(): {
 } {
 	return {
 		temporaryEarlierDays: runtimeConfig.memoryTemporaryEarlierDays,
-		ongoingQuietDays: runtimeConfig.memoryOngoingQuietDays,
+		ongoingQuietDays: Math.min(
+			runtimeConfig.memoryOngoingQuietDays,
+			runtimeConfig.memoryOngoingEarlierDays,
+		),
 		ongoingEarlierDays: runtimeConfig.memoryOngoingEarlierDays,
 	};
 }
