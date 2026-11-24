@@ -9,11 +9,16 @@
 // headers are sent. No key is read, printed or stored. Synthetic data only.
 //
 //   OVERVIEW_PROBE_LABEL=<name> [OVERVIEW_PROBE_RUNS=5] [OVERVIEW_PROBE_OUT=<dir>] [OVERVIEW_PROBE_BRIDGE=<url>] \
+//     [OVERVIEW_PROBE_ENTRIES=en] \
 //     npx vitest run -c docs/plans/hindsight-memory/overview-hungarian-2026-11-24/vitest.config.ts
+//
+// `OVERVIEW_PROBE_ENTRIES=en` reads `personal.en.json` and `project.en.json` (the same facts worded as an
+// English account's entries) and writes only the `en` paragraphs: an English account over English entries.
 //
 // It writes `<out>/<label>.json` (default out: `outputs/` beside this file), after every call: the prompts the
 // model received, one sample request body (so the sampling and the schema can be read off it), and a result
-// per call: scope, language, run, milliseconds, the paragraph (or the error).
+// per call: scope, language, run, milliseconds, the paragraph (or the error) and whatever else the model
+// answered besides the paragraph (`extras`: the borrowed-words list, from Config 3 round 2 on).
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,7 +44,8 @@ const RUNS = Number(process.env.OVERVIEW_PROBE_RUNS ?? "5");
 const OUT = process.env.OVERVIEW_PROBE_OUT ?? join(HERE, "outputs");
 const BRIDGE = process.env.OVERVIEW_PROBE_BRIDGE ?? "http://127.0.0.1:18891/v1";
 const MODEL_NAME = "qwen3-6-27b";
-const LANGUAGES = ["hu", "en"] as const;
+const ENTRIES = process.env.OVERVIEW_PROBE_ENTRIES ?? "";
+const LANGUAGES = ENTRIES === "en" ? (["en"] as const) : (["hu", "en"] as const);
 const SCOPES = ["personal", "project"] as const;
 const CALL_TIMEOUT_MS = 600_000;
 
@@ -58,12 +64,14 @@ describe("the Overview probe (calls a model; not part of npm test)", () => {
 		"writes the scopes' paragraphs with the app's own prompt",
 		async () => {
 			if (!LABEL) throw new Error("set OVERVIEW_PROBE_LABEL");
+			const suffix = ENTRIES === "en" ? ".en" : "";
 			const scopes = {
-				personal: loadScope("personal.json"),
-				project: loadScope("project.json"),
+				personal: loadScope(`personal${suffix}.json`),
+				project: loadScope(`project${suffix}.json`),
 			};
 			const prompts = new Set<string>();
 			let sampleRequest: unknown = null;
+			let lastExtras: unknown = null;
 			const model: CurationModel = async (
 				prompt,
 				input,
@@ -102,7 +110,10 @@ describe("the Overview probe (calls a model; not part of npm test)", () => {
 					options,
 					CALL_TIMEOUT_MS,
 				);
-				return JSON.parse(result.text);
+				const answer = JSON.parse(result.text) as Record<string, unknown>;
+				const { overview: _paragraph, ...extras } = answer;
+				lastExtras = extras;
+				return answer;
 			};
 
 			const results: Array<Record<string, unknown>> = [];
@@ -135,6 +146,7 @@ describe("the Overview probe (calls a model; not part of npm test)", () => {
 								run,
 								ms: Date.now() - started,
 								text,
+								extras: lastExtras,
 							});
 						} catch (error) {
 							results.push({

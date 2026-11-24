@@ -259,6 +259,373 @@
 			"missing": []
 		}
 	},
+	"config3-after1-english-entries": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"short sight (for short-sighted)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		}
+	},
+	"config3-after2": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"hawaii guitar (ukulele)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"plant-eater",
+				"climbs rocks"
+			],
+			"W": 2,
+			"Wnotes": [
+				"tudomanyos-fantasztikus",
+				"tejcukor"
+			],
+			"loans": [],
+			"missing": [
+				"p21"
+			]
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/4": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/5": {
+			"E": [],
+			"I": [
+				"small guitar (ukulele)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"independent designer",
+				"client emblem",
+				"climbing on rocks"
+			],
+			"W": 1,
+			"Wnotes": [
+				"tudomanyos-fantasztikus"
+			],
+			"loans": [],
+			"missing": [
+				"p07"
+			]
+		},
+		"personal/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"jelkeptervet (coinage for logo design)",
+				"japan nyelvbol (calque)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [
+				"boulder"
+			],
+			"missing": [
+				"p08"
+			]
+		},
+		"personal/hu/2": {
+			"E": [],
+			"I": [
+				"konyvesbolt jelkeptervezesen (brand identity -> logo design)",
+				"hawaii gitaron (ukulele -> another instrument)"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"Onallo tervezokent (for szabaduszo grafikus)",
+				"jelkeptervezes (coinage)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/3": {
+			"E": [],
+			"I": [
+				"hawaii gitaron"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"onallo grafikuskent",
+				"jelkepet (coinage)",
+				"sziklazik (non-word)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/4": {
+			"E": [],
+			"I": [
+				"mikozben ... kunyhot epit (simultaneity)",
+				"de penteken le kell adnia (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"jelkepi arculat / jelkeptervet (coinage)",
+				"onallo grafikuskent",
+				"japan nyelvbol",
+				"sziklazik (non-word)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p08"
+			]
+		},
+		"personal/hu/5": {
+			"E": [],
+			"I": [
+				"onallo kepzomuvesz (graphic designer -> fine artist)",
+				"tejtermekerzekeny (lactose -> dairy)",
+				"hawaii gitaron"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"magyar anyanyelvu ... husmentes etrendet koveto onallo kepzomuvesz (chain)",
+				"masodfoku kepzesre",
+				"jelkepet (coinage)",
+				"sziklazik (non-word)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"single covering (single-pitch roof)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a tetofedo lemezek (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/2": {
+			"E": [],
+			"I": [
+				"ezert a szerkezet fabol keszul (cause link)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/3": {
+			"E": [],
+			"I": [
+				"konnyen megmunkalhato szerkezet (easy to work moved from the wood to the structure)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a beton alapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"betonaljat (a railway sleeper, not a foundation)",
+				"mig (contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		}
+	},
 	"config3-before": {
 		"personal/en/1": {
 			"E": [],
@@ -633,6 +1000,128 @@
 				"j04",
 				"j11"
 			]
+		}
+	},
+	"config3-before-english-entries": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p01",
+				"p02",
+				"p03",
+				"p04",
+				"p05",
+				"p15",
+				"p21",
+				"p23",
+				"p24",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"though she is looking for a larger flat (contrast)",
+				"playing the ukulele (learning -> plays)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p01",
+				"p03",
+				"p04",
+				"p05",
+				"p15",
+				"p21",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [
+				"though she is temporarily attending physiotherapy (contrast with hobbies)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p01",
+				"p03",
+				"p04",
+				"p05",
+				"p09",
+				"p15",
+				"p21",
+				"p24",
+				"p25",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [
+				"though the paint colour (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"j11"
+			]
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"j03",
+				"j09"
+			]
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [
+				"but the paint colour (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
 		}
 	}
 }
