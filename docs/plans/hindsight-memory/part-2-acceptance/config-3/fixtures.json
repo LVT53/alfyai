@@ -1,0 +1,826 @@
+{
+	"purchase": [
+		{
+			"id": "purchase-en-1",
+			"lang": "en",
+			"user": "I bought a new phone last week, a Pixel 9, and I'm really happy with the camera.",
+			"markers": [
+				"pixel",
+				"phone"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-2",
+			"lang": "en",
+			"user": "We got a puppy two weeks ago, a beagle called Biscuit.",
+			"markers": [
+				"biscuit",
+				"puppy",
+				"beagle"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-3",
+			"lang": "en",
+			"user": "My parents gave me a guitar for my birthday on Saturday, a Fender Stratocaster.",
+			"markers": [
+				"guitar",
+				"stratocaster",
+				"fender"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-4",
+			"lang": "en",
+			"user": "I ordered a standing desk for my home office, a FlexiSpot E7.",
+			"markers": [
+				"desk",
+				"flexispot"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-5",
+			"lang": "en",
+			"user": "We bought a flat in Leeds in March.",
+			"markers": [
+				"flat",
+				"leeds"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-6",
+			"lang": "en",
+			"user": "I picked up a second-hand road bike on Saturday, a Giant Defy.",
+			"markers": [
+				"road bike",
+				"giant",
+				"bike"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-7",
+			"lang": "en",
+			"user": "Yesterday I bought a Kindle Paperwhite.",
+			"markers": [
+				"kindle"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-8",
+			"lang": "en",
+			"user": "I've just got a new car, a blue Skoda Octavia.",
+			"markers": [
+				"skoda",
+				"octavia",
+				"car"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-9",
+			"lang": "en",
+			"user": "I adopted a cat from the shelter last month, her name is Pepper.",
+			"markers": [
+				"pepper",
+				"cat"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-en-10",
+			"lang": "en",
+			"user": "I bought a 3D printer this week, a Bambu Lab A1.",
+			"markers": [
+				"3d printer",
+				"bambu",
+				"printer"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-1",
+			"lang": "hu",
+			"user": "Múlt héten vettem egy új telefont, egy Samsung Galaxy S24-et, és nagyon elégedett vagyok a kamerájával.",
+			"markers": [
+				"samsung",
+				"telefon",
+				"phone"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-2",
+			"lang": "hu",
+			"user": "Két hete kaptunk egy kiskutyát, egy beagle-t, Morzsa a neve.",
+			"markers": [
+				"morzsa",
+				"kiskutya",
+				"beagle",
+				"puppy"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-3",
+			"lang": "hu",
+			"user": "A szüleimtől kaptam egy gitárt a születésnapomra szombaton, egy Yamaha-t.",
+			"markers": [
+				"gitár",
+				"yamaha",
+				"guitar"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-4",
+			"lang": "hu",
+			"user": "Rendeltem egy állítható magasságú íróasztalt az otthoni irodámba, egy FlexiSpot E7-et.",
+			"markers": [
+				"íróasztal",
+				"flexispot",
+				"desk"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-5",
+			"lang": "hu",
+			"user": "Márciusban vettünk egy lakást Debrecenben.",
+			"markers": [
+				"lakás",
+				"debrecen",
+				"flat",
+				"apartment"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-6",
+			"lang": "hu",
+			"user": "Szombaton vettem egy használt országúti kerékpárt, egy Giant Defy-t.",
+			"markers": [
+				"kerékpár",
+				"giant",
+				"bike"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-7",
+			"lang": "hu",
+			"user": "Tegnap vettem egy Kindle Paperwhite-ot.",
+			"markers": [
+				"kindle"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-8",
+			"lang": "hu",
+			"user": "Most vettem egy új autót, egy kék Skoda Octavia-t.",
+			"markers": [
+				"skoda",
+				"octavia",
+				"autó",
+				"car"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-9",
+			"lang": "hu",
+			"user": "Múlt hónapban befogadtam egy cicát a menhelyről, Csilla a neve.",
+			"markers": [
+				"csilla",
+				"cica",
+				"macska",
+				"cat"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "purchase-hu-10",
+			"lang": "hu",
+			"user": "Ezen a héten vettem egy 3D nyomtatót, egy Bambu Lab A1-et.",
+			"markers": [
+				"3d nyomtató",
+				"bambu",
+				"printer"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		}
+	],
+	"preference": [
+		{
+			"id": "preference-en-1",
+			"lang": "en",
+			"user": "Please keep your answers short, I don't have much time to read.",
+			"markers": [
+				"short",
+				"brief",
+				"concise"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-2",
+			"lang": "en",
+			"user": "I'd like answers in bullet points, please.",
+			"markers": [
+				"bullet",
+				"list"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-3",
+			"lang": "en",
+			"user": "Could you reply in Hungarian when I write in Hungarian? Thanks.",
+			"markers": [
+				"hungarian",
+				"magyar"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-4",
+			"lang": "en",
+			"user": "Keep a casual, friendly tone with me, no formal language please.",
+			"markers": [
+				"casual",
+				"friendly",
+				"informal",
+				"formal",
+				"tone"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-5",
+			"lang": "en",
+			"user": "Please don't use emojis in your replies.",
+			"markers": [
+				"emoji"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-6",
+			"lang": "en",
+			"user": "Give me detailed answers with examples, I like to really understand things.",
+			"markers": [
+				"detail",
+				"example"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-7",
+			"lang": "en",
+			"user": "Please explain things simply, like I'm a beginner.",
+			"markers": [
+				"simpl",
+				"beginner"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-8",
+			"lang": "en",
+			"user": "Just give me the code without long explanations, please.",
+			"markers": [
+				"code",
+				"explanation"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-9",
+			"lang": "en",
+			"user": "When you compare things, a table would be great.",
+			"markers": [
+				"table"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-en-10",
+			"lang": "en",
+			"user": "Please answer in English even if I write to you in another language.",
+			"markers": [
+				"english",
+				"angol"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-1",
+			"lang": "hu",
+			"user": "Rövid válaszokat kérek.",
+			"markers": [
+				"rövid",
+				"short",
+				"brief",
+				"concise"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-2",
+			"lang": "hu",
+			"user": "Kérlek, pontokba szedve válaszolj.",
+			"markers": [
+				"pont",
+				"felsorol",
+				"lista",
+				"bullet",
+				"list"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-3",
+			"lang": "hu",
+			"user": "Légy szíves, magyarul válaszolj nekem.",
+			"markers": [
+				"magyar",
+				"hungarian"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-4",
+			"lang": "hu",
+			"user": "Kérlek, tegezz, és légy közvetlen velem.",
+			"markers": [
+				"tegez",
+				"közvetlen",
+				"informal",
+				"casual",
+				"direct"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-5",
+			"lang": "hu",
+			"user": "Ne használj emojikat a válaszaidban, kérlek.",
+			"markers": [
+				"emoji"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-6",
+			"lang": "hu",
+			"user": "Részletes válaszokat szeretnék példákkal.",
+			"markers": [
+				"részletes",
+				"példa",
+				"detail",
+				"example"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-7",
+			"lang": "hu",
+			"user": "Magyarázd el egyszerűen, mintha kezdő lennék.",
+			"markers": [
+				"egyszerű",
+				"kezdő",
+				"simpl",
+				"beginner"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-8",
+			"lang": "hu",
+			"user": "Csak a kódot add, hosszú magyarázat nélkül, kérlek.",
+			"markers": [
+				"kód",
+				"magyarázat",
+				"code",
+				"explanation"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-9",
+			"lang": "hu",
+			"user": "Összehasonlításnál táblázatot kérek.",
+			"markers": [
+				"táblázat",
+				"table"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "preference-hu-10",
+			"lang": "hu",
+			"user": "Kérlek, angolul válaszolj, akkor is, ha magyarul írok.",
+			"markers": [
+				"angol",
+				"english"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		}
+	],
+	"task": [
+		{
+			"id": "task-en-1",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Write me a short summary of the French Revolution."
+				}
+			]
+		},
+		{
+			"id": "task-en-2",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Can you make this paragraph shorter? \"The meeting that we had yesterday was about the plans for the new office and the budget that we need.\""
+				}
+			]
+		},
+		{
+			"id": "task-en-3",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Translate into German: I would like a table for two, please."
+				}
+			]
+		},
+		{
+			"id": "task-en-4",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Give me a short list of three tapas bars in Madrid."
+				}
+			]
+		},
+		{
+			"id": "task-en-5",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Explain in simple terms how a mortgage works."
+				}
+			]
+		},
+		{
+			"id": "task-hu-1",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Írj egy rövid összefoglalót a francia forradalomról."
+				}
+			]
+		},
+		{
+			"id": "task-hu-2",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Meg tudnád rövidíteni ezt a bekezdést? \"A tegnapi megbeszélés az új iroda terveiről és a szükséges költségvetésről szólt.\""
+				}
+			]
+		},
+		{
+			"id": "task-hu-3",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Fordítsd le angolra: Szeretnék egy asztalt két főre."
+				}
+			]
+		},
+		{
+			"id": "task-hu-4",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Adj egy rövid listát három madridi tapasbárról."
+				}
+			]
+		},
+		{
+			"id": "task-hu-5",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Magyarázd el egyszerűen, hogyan működik egy jelzáloghitel."
+				}
+			]
+		}
+	],
+	"preferenceReply": [
+		{
+			"id": "preference-reply-en-1",
+			"lang": "en",
+			"user": "Please keep your answers short, I don't have much time to read.",
+			"markers": [
+				"short",
+				"brief",
+				"concise"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-2",
+			"lang": "en",
+			"user": "I'd like answers in bullet points, please.",
+			"markers": [
+				"bullet",
+				"list"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-3",
+			"lang": "en",
+			"user": "Could you reply in Hungarian when I write in Hungarian? Thanks.",
+			"markers": [
+				"hungarian",
+				"magyar"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-4",
+			"lang": "en",
+			"user": "Keep a casual, friendly tone with me, no formal language please.",
+			"markers": [
+				"casual",
+				"friendly",
+				"informal",
+				"formal",
+				"tone"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-5",
+			"lang": "en",
+			"user": "Please don't use emojis in your replies.",
+			"markers": [
+				"emoji"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-6",
+			"lang": "en",
+			"user": "Give me detailed answers with examples, I like to really understand things.",
+			"markers": [
+				"detail",
+				"example"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-7",
+			"lang": "en",
+			"user": "Please explain things simply, like I'm a beginner.",
+			"markers": [
+				"simpl",
+				"beginner"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-8",
+			"lang": "en",
+			"user": "Just give me the code without long explanations, please.",
+			"markers": [
+				"code",
+				"explanation"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-9",
+			"lang": "en",
+			"user": "When you compare things, a table would be great.",
+			"markers": [
+				"table"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-en-10",
+			"lang": "en",
+			"user": "Please answer in English even if I write to you in another language.",
+			"markers": [
+				"english",
+				"angol"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+		},
+		{
+			"id": "preference-reply-hu-1",
+			"lang": "hu",
+			"user": "Rövid válaszokat kérek.",
+			"markers": [
+				"rövid",
+				"short",
+				"brief",
+				"concise"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-2",
+			"lang": "hu",
+			"user": "Kérlek, pontokba szedve válaszolj.",
+			"markers": [
+				"pont",
+				"felsorol",
+				"lista",
+				"bullet",
+				"list"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-3",
+			"lang": "hu",
+			"user": "Légy szíves, magyarul válaszolj nekem.",
+			"markers": [
+				"magyar",
+				"hungarian"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-4",
+			"lang": "hu",
+			"user": "Kérlek, tegezz, és légy közvetlen velem.",
+			"markers": [
+				"tegez",
+				"közvetlen",
+				"informal",
+				"casual",
+				"direct"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-5",
+			"lang": "hu",
+			"user": "Ne használj emojikat a válaszaidban, kérlek.",
+			"markers": [
+				"emoji"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-6",
+			"lang": "hu",
+			"user": "Részletes válaszokat szeretnék példákkal.",
+			"markers": [
+				"részletes",
+				"példa",
+				"detail",
+				"example"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-7",
+			"lang": "hu",
+			"user": "Magyarázd el egyszerűen, mintha kezdő lennék.",
+			"markers": [
+				"egyszerű",
+				"kezdő",
+				"simpl",
+				"beginner"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-8",
+			"lang": "hu",
+			"user": "Csak a kódot add, hosszú magyarázat nélkül, kérlek.",
+			"markers": [
+				"kód",
+				"magyarázat",
+				"code",
+				"explanation"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-9",
+			"lang": "hu",
+			"user": "Összehasonlításnál táblázatot kérek.",
+			"markers": [
+				"táblázat",
+				"table"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		},
+		{
+			"id": "preference-reply-hu-10",
+			"lang": "hu",
+			"user": "Kérlek, angolul válaszolj, akkor is, ha magyarul írok.",
+			"markers": [
+				"angol",
+				"english"
+			],
+			"kind": "lasting",
+			"subject": "other",
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+		}
+	]
+}

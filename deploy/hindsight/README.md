@@ -107,9 +107,26 @@ The release is one-way for banks it upgraded: the previous release compares conf
 
 1. Stop the app's Memory workers (`HINDSIGHT_WORKER_ENABLED=false`, or stop the app).
 2. From this release's checkout, with the app's environment loaded, inspect: `npx tsx scripts/memory-bank-config-restore.ts` prints how many live banks hold each config version (counts only).
-3. Restore: `npx tsx scripts/memory-bank-config-restore.ts --execute restore-bank-config-1` puts every live config 2 bank back on config 1 with its labels cleared, verified by readback, and its stored version back to `9fb28dbd…`. A bank that fails stays on config 2 and is counted by error code; run it again. It also returns every native account but the tester's to today's Memory page (`unverified`, the count of accounts): an account goes back when one of its banks is restored, and every account once a run leaves no bank on config 2, because the previous release writes facts without labels into any account's banks.
+3. Restore: `npx tsx scripts/memory-bank-config-restore.ts --execute restore-bank-config-1` puts every live config 2 (and config 3) bank back on config 1 with its labels cleared, verified by readback, and its stored version back to `9fb28dbd…`. A bank that fails stays on config 2 and is counted by error code; run it again. It also returns every native account but the tester's to today's Memory page (`unverified`, the count of accounts): an account goes back when one of its banks is restored, and every account once a run leaves no bank on config 2, because the previous release writes facts without labels into any account's banks.
 4. Start the previous release. The label rows in `memory_fact_labels` stay for a roll forward; the previous release never reads them.
 5. After the roll forward, run the label migration again (runbook, "Label migration"): it labels what the previous release wrote and verifies each account again. It is resumable, and facts it labelled before are skipped.
+
+## Bank config 3 (Memory config 3)
+
+Bank config 3 (`nativeBankConfig` in `src/lib/server/services/memory-profile/contracts.ts`; config 2 is kept word for word as `nativeBankConfig2`, recorded in `docs/plans/hindsight-memory/part-2-acceptance/bank-config-2.json`) changes two things in what Hindsight's extraction is told, and nothing else:
+
+- **The kind words** (the `kind` entity label, which the classifier reads too, so both label alike): something the person bought, got, was given or owns now is lasting however recently it happened, and only a passing event is temporary. Config 2 read a dated purchase as a passing event, so a phone the person bought aged into Earlier.
+- **The retain mission** keeps a stated preference about how the assistant should answer in general (its length, format, language or tone) as a lasting preference even when it is phrased as a plain request ("Please keep answers short"), while a request for one piece of work still leaves nothing.
+
+A bank on config 1 or config 2 is upgraded by its next delivery or Memory edit exactly as config 2 upgraded config 1: the app checks that the live config is one it set, sends one PATCH, and records `alfyai-bank-config-3` only after a readback shows config 3; until then the bank keeps its old version, so a lost PATCH is sent again by the next attempt and never holds deliveries, edits, Clear Memory or erasure. The PATCH makes no model call. A config 2 bank already labels every new fact, so moving it to config 3 changes nothing about its accounts' label verification (a config 1 bank still marks its epoch as before). A bank with no delivery stays as it is. Paths that only verify accept config 1, 2 and 3. Facts a bank already holds are not touched by the PATCH: existing temporary labels change only through the relabel (`docs/plans/hindsight-memory/migration-runbook.md`, "Relabel").
+
+To roll back one release (to the config 2 release), with the app's Memory workers stopped, from this release's checkout:
+
+1. `npx tsx scripts/memory-bank-config-restore.ts` prints how many live banks hold each version (`config3`, `config2`, `config1`, `pending`, `other`; counts only).
+2. `npx tsx scripts/memory-bank-config-restore.ts --execute restore-bank-config-2` puts every config 3 bank back on its own kind's config 2, verified by readback, and its stored version back to `alfyai-bank-config-2`. A bank that fails stays on config 3 and is counted by error code; run it again. Config 2 labels every new fact, so the labels and every account's label verification stay as they are.
+3. Start the config 2 release. The label rows and the relabel's record (`memory_label_relabels`) stay for a roll forward; the config 2 release never reads them, and a relabelled fact keeps its new label there unless `--relabel --rollback` puts the old one back (runbook, "Relabel"). After a roll forward the relabel is run again: facts the config 2 release labelled temporary in between are asked about, and facts it asked about before are not.
+
+To roll back two releases (to the first release), `restore-bank-config-1` puts every config 3 and config 2 bank back on config 1 with its labels cleared and its stored version back to `9fb28dbd…`, takes back every account's label verification, and is followed by the steps under "Bank config 2" (the label migration after the roll forward).
 
 ## Backup, restore and upgrades
 
