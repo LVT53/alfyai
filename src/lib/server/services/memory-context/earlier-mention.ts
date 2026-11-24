@@ -5,10 +5,10 @@ import { foldForSearch } from "$lib/shared/workspace-search-text";
  * gate an Earlier entry passes, besides its rank, to join a turn (spec:
  * Earlier things come back "only when mentioned"). A turn judges by the
  * reranker's score first (`earlier-rerank.ts`) and asks this rule as the second
- * voice for a lower score; with no score this rule decides alone. Hindsight's recall gives no relevance score at
- * the pin, and part 2 measured that rank alone puts a temporary entry in a
- * small bank's top three for 9 of 10 unrelated messages, so the mention is
- * read from the words: the message mentions the entry when the words they
+ * voice for a lower score; with no score this rule decides alone. Hindsight's
+ * recall gives no relevance score at the pin, and part 2 measured that rank
+ * alone puts a temporary entry in a small bank's top three for 9 of 10
+ * unrelated messages, so the mention is read from the words: the message mentions the entry when the words they
  * share weigh as much as one rare word of the person's bank. A word weighs
  * one unless many of the bank's entries hold it (`mentionBank`): one held by
  * more than two of them and more than a tenth weighs less, in proportion, so

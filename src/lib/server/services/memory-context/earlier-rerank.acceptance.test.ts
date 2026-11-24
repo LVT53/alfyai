@@ -82,7 +82,7 @@ describe("the Earlier gate on the blind set", () => {
 		expect(result.unrelated / 40).toBeLessThanOrEqual(0.1);
 	});
 
-	it("is the reranker alone at 0.005: the same unrelated rate, fewer wrong extras, no word rule's about", () => {
+	it("is the reranker alone at 0.005: 53% about, 8% with a wrong extra entry, 5% unrelated and 70% cross-language", () => {
 		const alone = { min: 0.005, wordMin: 0.005 };
 		expect(
 			measure((score, mentioned) =>
