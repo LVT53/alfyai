@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +18,7 @@ import {
 	parseBuildLog,
 	parseCheckLog,
 	parseChunksLog,
+	parsePythonLog,
 	parseVitestLog,
 	readPlaywrightReport,
 	runSteps,
@@ -391,6 +398,163 @@ describe("the chunks step", () => {
 				"[artifact-chunks] No build manifest at x — run `npm run build` first.",
 			).ok,
 		).toBe(false);
+	});
+});
+
+// The admission queue's Python tests in deploy/hindsight, which need the standard library alone,
+// run with plain python3: every test_admission_*.py file there. The other Python tests in that
+// folder need the pinned Hindsight image (test_admission.py imports fastapi and the engine), so
+// the pattern must leave them out.
+describe("the python step", () => {
+	it("runs the admission queue's tests with plain python3 and writes no bytecode", () => {
+		const step = defineSteps(options).python;
+		expect(step.cmd).toEqual([
+			"python3",
+			"-B",
+			"-m",
+			"unittest",
+			"discover",
+			"-v",
+			"-s",
+			"deploy/hindsight",
+			"-t",
+			"deploy/hindsight",
+			"-p",
+			"test_admission_*.py",
+		]);
+		expect(step.env).toEqual({ PYTHONDONTWRITEBYTECODE: "1" });
+	});
+
+	it("picks the files that need the standard library alone and not test_admission.py, which needs the image", () => {
+		const { cmd } = defineSteps(options).python;
+		const pattern: string = cmd[cmd.indexOf("-p") + 1];
+		const glob = new RegExp(
+			`^${pattern.replaceAll(".", "\\.").replaceAll("*", ".*")}$`,
+		);
+		const picked = readdirSync(
+			join(import.meta.dirname, "..", "deploy", "hindsight"),
+		).filter((name) => glob.test(name));
+		expect(picked).toEqual(
+			expect.arrayContaining([
+				"test_admission_queue.py",
+				"test_admission_acceptance.py",
+			]),
+		);
+		expect(picked).not.toContain("test_admission.py");
+	});
+});
+
+// What `python3 -m unittest discover -v` writes, as Python 3.15 wrote it on this Mac (stderr; the
+// step's log keeps both streams).
+const PYTHON_RULE = "-".repeat(70);
+const pythonLog = (lines: string[], ran: string, verdict: string) =>
+	[...lines, "", PYTHON_RULE, ran, "", verdict, ""].join("\n");
+const PYTHON_PASSED = pythonLog(
+	[
+		"test_a_call_over_the_budget_waits_for_the_slot_instead_of_being_refused (test_admission_queue.WaitingTests.test_a_call_over_the_budget_waits_for_the_slot_instead_of_being_refused) ... ok",
+		"test_twenty_four_calls_behind_a_busy_model_all_get_their_turn (test_admission_acceptance.HeldBusyTests.test_twenty_four_calls_behind_a_busy_model_all_get_their_turn) ... ok",
+	],
+	"Ran 34 tests in 1.074s",
+	"OK",
+);
+const PYTHON_FAILED = pythonLog(
+	[
+		"test_boom (test_admission_queue.Queue.test_boom) ... ERROR",
+		"test_fine (test_admission_queue.Queue.test_fine) ... ok",
+		"test_order (test_admission_queue.Queue.test_order) ... FAIL",
+		"",
+		"=".repeat(70),
+		"ERROR: test_boom (test_admission_queue.Queue.test_boom)",
+		PYTHON_RULE,
+		"Traceback (most recent call last):",
+		'  File "deploy/hindsight/test_admission_queue.py", line 4, in test_boom',
+		"RuntimeError: synthetic",
+		"",
+		"=".repeat(70),
+		"FAIL: test_order (test_admission_queue.Queue.test_order)",
+		PYTHON_RULE,
+		"Traceback (most recent call last):",
+		'  File "deploy/hindsight/test_admission_queue.py", line 3, in test_order',
+		"AssertionError: Lists differ: [1, 2] != [2, 1]",
+	],
+	"Ran 3 tests in 0.000s",
+	"FAILED (failures=1, errors=1)",
+);
+// A file the pattern picked that imports what only the image has.
+const PYTHON_IMPORT_ERROR = pythonLog(
+	[
+		"test_admission_image (unittest.loader._FailedTest.test_admission_image) ... ERROR",
+		"",
+		"=".repeat(70),
+		"ERROR: test_admission_image (unittest.loader._FailedTest.test_admission_image)",
+		PYTHON_RULE,
+		"ImportError: Failed to import test module: test_admission_image",
+		"ModuleNotFoundError: No module named 'fastapi'",
+	],
+	"Ran 1 test in 0.000s",
+	"FAILED (errors=1)",
+);
+
+describe("the python step's log", () => {
+	it("passes a run that ran its tests and said OK, and counts them", () => {
+		expect(parsePythonLog(PYTHON_PASSED)).toEqual({
+			ok: true,
+			text: "34 tests ok",
+		});
+		expect(parsePythonLog(pythonLog([], "Ran 1 test in 0.001s", "OK"))).toEqual(
+			{ ok: true, text: "1 test ok" },
+		);
+	});
+
+	it("passes a run with skipped tests and says how many", () => {
+		expect(
+			parsePythonLog(pythonLog([], "Ran 2 tests in 0.000s", "OK (skipped=1)")),
+		).toEqual({ ok: true, text: "2 tests ok (skipped=1)" });
+	});
+
+	it("reads the colours Python 3.14 and later may print", () => {
+		const coloured = pythonLog(
+			[],
+			"Ran 2 tests in 0.000s",
+			`${ESC}[32mOK${ESC}[0m (${ESC}[33mskipped=1${ESC}[0m)`,
+		);
+		expect(parsePythonLog(coloured)).toEqual({
+			ok: true,
+			text: "2 tests ok (skipped=1)",
+		});
+	});
+
+	it("fails a run that said FAILED, and names each failed test", () => {
+		expect(parsePythonLog(PYTHON_FAILED)).toEqual({
+			ok: false,
+			text: [
+				"FAILED (failures=1, errors=1) in 3 tests",
+				"      ERROR: test_boom (test_admission_queue.Queue.test_boom)",
+				"      FAIL: test_order (test_admission_queue.Queue.test_order)",
+			].join("\n"),
+		});
+	});
+
+	it("fails a run in which a picked file could not be imported", () => {
+		const { ok, text } = parsePythonLog(PYTHON_IMPORT_ERROR);
+		expect(ok).toBe(false);
+		expect(text).toContain("FAILED (errors=1) in 1 test");
+		expect(text).toContain("ERROR: test_admission_image");
+	});
+
+	it("fails a run that ran no test, as Python 3.12 and later say it and as older ones did", () => {
+		for (const verdict of ["NO TESTS RAN", "OK"]) {
+			expect(
+				parsePythonLog(pythonLog([], "Ran 0 tests in 0.000s", verdict)),
+			).toEqual({ ok: false, text: "no tests ran" });
+		}
+	});
+
+	it("fails, with the log's last line, when unittest never got to its summary", () => {
+		expect(parsePythonLog("env: python3: No such file or directory\n")).toEqual(
+			{ ok: false, text: "env: python3: No such file or directory" },
+		);
+		expect(parsePythonLog("")).toEqual({ ok: false, text: "no output" });
 	});
 });
 
@@ -824,7 +988,7 @@ describe("the schedule", () => {
 				expect(steps.playwright.after).toContain("build");
 			});
 
-			it.each(["biome", "migrations", "fallow"])(
+			it.each(["biome", "migrations", "python", "fallow"])(
 				"starts %s with the build: it never touches .svelte-kit/",
 				(name) => {
 					expect(steps[name].after ?? []).toEqual([]);
@@ -905,7 +1069,7 @@ describe("running the steps", () => {
 	 * One run of the steps as `defineSteps` makes them, for the arguments after `agent <out-dir>`.
 	 * `exits` and `logs` say how a step's stand-in command ends and what it wrote, by step name; a
 	 * step reads its log as fine unless `real` names it, so a test about which steps run does not
-	 * need a believable log for each of the eight.
+	 * need a believable log for each of the nine.
 	 */
 	async function gate(
 		argv: string[],
@@ -975,7 +1139,7 @@ describe("running the steps", () => {
 			expect(lines).toContain(`${name.padEnd(10)} FAIL not run: build failed`);
 		}
 		// Those that never needed the build still ran.
-		for (const name of ["biome", "migrations", "fallow"]) {
+		for (const name of ["biome", "migrations", "python", "fallow"]) {
 			expect(started).toContain(name);
 		}
 		expect(passed).toBe(false);
@@ -1017,6 +1181,7 @@ describe("running the steps", () => {
 			"check",
 			"biome",
 			"migrations",
+			"python",
 			"vitest",
 			"build",
 			"chunks",
@@ -1073,7 +1238,8 @@ describe("running the steps", () => {
 
 	// AGENTS.md ("Fallow Audit Gate") tells an agent to run the Fallow step alone with this command.
 	// The test holds both the text there and what the command does.
-	const fallowAlone = "check,biome,migrations,vitest,build,chunks,playwright";
+	const fallowAlone =
+		"check,biome,migrations,python,vitest,build,chunks,playwright";
 	it("still runs Fallow alone with the command AGENTS.md documents", async () => {
 		const agents = readFileSync(
 			join(import.meta.dirname, "..", "AGENTS.md"),

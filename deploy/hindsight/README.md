@@ -84,6 +84,13 @@ The native global semaphore (`HINDSIGHT_API_LLM_MAX_CONCURRENT`) caps Hindsight'
 
 Measure on the non-production Hindsight (built from this folder with its own secret bundle and worker ID), never on production. Hold the model busy overnight with background work and read `/ext/alfyai/inference/status` through the night. Raise `HINDSIGHT_API_LLM_MAX_CONCURRENT` one step at a time, a night per step, and only while `refused_full` and `refused_wait` stay 0 and the mean wait of a queued call (`wait_ms / waited`; nearly all of them are background calls) stays under half of `HINDSIGHT_API_HTTP_ADMISSION_NATIVE_WAIT_S`. Bring `HINDSIGHT_API_LLM_MAX_RETRIES` back toward the engine's default of 3 only after a week with no refusals. Each change is an operator step the owner approves; record the readings with it.
 
+### Python tests
+
+- The repository gate (`scripts/gates.sh`, its `python` step) runs every `test_admission_*.py` file here, today `test_admission_queue` and `test_admission_acceptance`, with plain `python3` and nothing installed: `python3 -B -m unittest discover -v -s deploy/hindsight -t deploy/hindsight -p "test_admission_*.py"` from the repository root. A file named that way must need the standard library alone.
+- `test_admission`, `test_tenant` and `test_effective_config` import the pinned engine (`hindsight_api`) and its dependencies, so they need the built image.
+- `test_tei_transport` needs `fastapi` and `httpx`. On the Mac, unpack them from a local wheel cache into one folder and run `PYTHONPATH=<that folder> python3.12 -m unittest test_tei_transport` in this folder.
+- `test_provision` needs the standard library alone. Its Compose check needs the Docker CLI (not the daemon) and is skipped without it.
+
 ## Pending bank configuration
 
 The app durably records the approved binding before its single native configuration PATCH. If that request's outcome is unknown, readback of the exact expected configuration settles it. A missing bank or an existing bank with incomplete configuration leaves cleanup pending, because an accepted write can commit after the read. The app never resends an unconfirmed configuration mutation. Older bound banks without a configuration receipt may have multiple unresolved writes and remain held for operator reconciliation.
