@@ -56,6 +56,8 @@ import {
 	assertMemoryBankFence,
 	assertMemorySourceCurrent,
 	isEditResendWithdrawal,
+	RETAIN_ENDED,
+	RETAIN_RESUBMITTED_FROM,
 	resolveMemorySourceContext,
 } from "./revisions";
 
@@ -151,16 +153,14 @@ async function settle(
 	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
 		throw new NativeMemoryError("native_operation_failed", false);
 }
-/**
- * `settle` for a retain. An operation Hindsight reports failed comes back, as
- * its ID, for the delivery to resubmit; a cancelled one is as terminal as ever.
- * Null: the retain completed.
- */
+/** How a retain ended, once Hindsight reports it no longer running. */
+type RetainOutcome = "completed" | "failed" | "cancelled";
+/** `settle` for a retain: how it ended, failed and cancelled included. */
 async function settleRetain(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
-): Promise<string | null> {
+): Promise<RetainOutcome> {
 	const ops = await pollOperations(
 		client,
 		ids,
@@ -168,17 +168,20 @@ async function settleRetain(
 		true,
 		beginWait("retain"),
 	);
-	if (ops.some((o) => o.status === "cancelled"))
-		throw new NativeMemoryError("native_operation_failed", false);
-	return ops.find((o) => o.status === "failed")?.id ?? null;
+	if (ops.some((o) => o.status === "cancelled")) return "cancelled";
+	if (ops.some((o) => o.status === "failed")) return "failed";
+	return "completed";
 }
-/** Whether Hindsight reports the operation failed. One it has never heard of has not. */
-async function operationFailed(client: HindsightClient, id: string) {
+/** What Hindsight says of an operation: `not_found` for one it has never heard of (or forgot). */
+async function operationStatus(
+	client: HindsightClient,
+	id: string,
+): Promise<string> {
 	try {
-		return (await client.operation(id)).status === "failed";
+		return (await client.operation(id)).status;
 	} catch (error) {
 		if (error instanceof NativeMemoryError && error.code === "native_not_found")
-			return false;
+			return "not_found";
 		throw error;
 	}
 }
@@ -186,14 +189,47 @@ async function operationFailed(client: HindsightClient, id: string) {
  * Where a source's one resubmission is recorded: a key on its revision's
  * `context`, which already holds its other per-source flags and commits in the
  * same transaction as the new operation ID. The value is the failed operation's
- * ID, for whoever reads Hindsight's error for it.
+ * ID, for whoever reads Hindsight's error for it. Context resolution reads only
+ * the envelope's messages, so no bookkeeping key ever reaches Hindsight, and
+ * dependency repair leaves these keys out of a replacement's context.
  */
-const RETAIN_RESUBMITTED_FROM = "nativeRetainResubmittedFrom";
 function retainResubmitted(source: typeof memorySourceRevisions.$inferSelect) {
 	return (
 		typeof parseJsonRecord(source.context)[RETAIN_RESUBMITTED_FROM] === "string"
 	);
 }
+/**
+ * Where a retain's terminal end is recorded (S2): `{ operationId, reason }` on
+ * the revision's context, written before the delivery fails for good. An
+ * attempt that finds it for the source's current operation ends at once and
+ * asks Hindsight nothing, so a forgotten operation can never be sent again.
+ * Only the operator's resend (a new operation ID) moves past it.
+ */
+type RetainEndReason = "resubmit_failed" | "cancelled" | "facts_left_behind";
+/**
+ * Each terminal end of a retain has its own code (N1), apart from
+ * `native_operation_failed`, which a failed consolidation, a repair and every
+ * Add or Edit retain also end with.
+ */
+const RETAIN_END_CODES: Readonly<Record<RetainEndReason, string>> = {
+	resubmit_failed: "native_retain_resubmit_failed",
+	cancelled: "native_retain_cancelled",
+	facts_left_behind: "native_retain_left_facts",
+};
+function retainEnd(
+	source: typeof memorySourceRevisions.$inferSelect,
+): { operationId: string; reason: RetainEndReason } | null {
+	const value = parseJsonRecord(source.context)[RETAIN_ENDED];
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const { operationId, reason } = value as Record<string, unknown>;
+	return typeof operationId === "string" &&
+		typeof reason === "string" &&
+		reason in RETAIN_END_CODES
+		? { operationId, reason: reason as RetainEndReason }
+		: null;
+}
+/** How long a failed retain is held back before its one resubmission (S1). */
+const RETAIN_RESUBMIT_DELAY_MS = 60_000;
 /** Waits until the bank has no pending operation, chained consolidation rounds included. */
 async function drainNative(client: HindsightClient, signal: AbortSignal) {
 	const wait = beginWait("consolidation");
@@ -868,6 +904,13 @@ export async function runMemoryDelivery(
 				source.nativeSubmitted && !source.nativeAcknowledged
 					? source.nativeOperationId
 					: null;
+			// S2: a retain whose end was recorded ends here, asking Hindsight nothing.
+			const recordedEnd = retainEnd(source);
+			if (recordedEnd && recordedEnd.operationId === source.nativeOperationId)
+				throw new NativeMemoryError(
+					RETAIN_END_CODES[recordedEnd.reason],
+					false,
+				);
 			const sendRetain = async () => {
 				// Recheck admission and certified facts immediately before making the retain call.
 				ctx.signal.throwIfAborted();
@@ -918,20 +961,46 @@ export async function runMemoryDelivery(
 					source.nativeOperationId,
 				);
 			};
-			// Hindsight reported the retain failed and does not retry it. Send the same
-			// source once more under a new operation ID, and only once.
-			const resubmitRetain = async (failedId: string) => {
+			/**
+			 * Records the retain's terminal end on the revision (S2), fenced, and
+			 * gives back the error the delivery fails with.
+			 */
+			const endRetain = async (
+				operationId: string,
+				reason: RetainEndReason,
+			) => {
+				await ctx.write((tx) => {
+					const current = assertDelivery(tx, row).source;
+					tx.update(memorySourceRevisions)
+						.set({
+							context: JSON.stringify({
+								...parseJsonRecord(current.context),
+								[RETAIN_ENDED]: { operationId, reason },
+							}),
+						})
+						.where(eq(memorySourceRevisions.id, current.id))
+						.run();
+				});
+				return new NativeMemoryError(RETAIN_END_CODES[reason], false);
+			};
+			/**
+			 * Hindsight reported the retain failed and does not retry it: record the
+			 * source's one resubmission, a new operation ID and the marker, in one
+			 * fenced write before the new call goes out. False: the attempt no
+			 * longer owns the job.
+			 */
+			const recordResubmission = async (failedOperationId: string) => {
 				// The first resubmission committed its marker before it sent, so an attempt
 				// that finds the new operation failed too ends here.
 				if (retainResubmitted(source))
-					throw new NativeMemoryError("native_operation_failed", false);
+					throw await endRetain(failedOperationId, "resubmit_failed");
 				ctx.signal.throwIfAborted();
 				// A fact under this document would be replaced by the new retain, and
 				// nobody has checked what the failed one left.
 				if (
 					(await client.list()).some((fact) => fact.document_id === source.id)
 				)
-					throw new NativeMemoryError("native_operation_failed", false);
+					throw await endRetain(failedOperationId, "facts_left_behind");
 				const freshId = randomUUID();
 				// Committed before the new call goes out: a crash after this write can only
 				// retry the new operation, never resubmit a second time.
@@ -943,23 +1012,52 @@ export async function runMemoryDelivery(
 							nativeOperationId: freshId,
 							context: JSON.stringify({
 								...parseJsonRecord(current.context),
-								[RETAIN_RESUBMITTED_FROM]: failedId,
+								[RETAIN_RESUBMITTED_FROM]: failedOperationId,
 							}),
 						})
 						.where(eq(memorySourceRevisions.id, current.id))
 						.run();
 				});
 			};
-			// Hindsight answers a retry's retain with the operation it already holds, a
-			// failed one included: ask first, and resubmit instead of sending it again.
+			// Hindsight answers a POST of an ID it holds with that operation, whatever
+			// became of it: ask first about a retain an earlier attempt sent, and act on
+			// the answer (N3). One it never heard of, or has forgotten, is sent again
+			// under its own ID; one still running is waited for.
 			ctx.signal.throwIfAborted();
-			let failed = sent && (await operationFailed(client, sent)) ? sent : null;
-			if (!failed)
-				failed = await settleRetain(client, await sendRetain(), ctx.signal);
-			if (failed) {
-				if (!(await resubmitRetain(failed))) return;
-				if (await settleRetain(client, await sendRetain(), ctx.signal))
-					throw new NativeMemoryError("native_operation_failed", false);
+			const earlier = sent ? await operationStatus(client, sent) : null;
+			let outcome: RetainOutcome =
+				earlier === "completed" ||
+				earlier === "failed" ||
+				earlier === "cancelled"
+					? earlier
+					: sent && (earlier === "pending" || earlier === "processing")
+						? await settleRetain(client, [sent], ctx.signal)
+						: await settleRetain(client, await sendRetain(), ctx.signal);
+			if (outcome === "cancelled")
+				throw await endRetain(source.nativeOperationId as string, "cancelled");
+			if (outcome === "failed") {
+				const failedOperationId = source.nativeOperationId as string;
+				// S1: a retain this attempt saw fail is held back a minute before its one
+				// resubmission, so the refusal that failed it has passed. The hold-back is
+				// a wait, not an attempt, and nothing is rotated yet: the next attempt
+				// finds the operation failed and records and sends the new one together.
+				if (earlier !== "failed" && !retainResubmitted(source))
+					throw new NativeMemoryError("native_retain_resubmit_due", true, {
+						retryAfterMs: RETAIN_RESUBMIT_DELAY_MS,
+						waitStartedAt: Date.now(),
+					});
+				if (!(await recordResubmission(failedOperationId))) return;
+				outcome = await settleRetain(client, await sendRetain(), ctx.signal);
+				if (outcome === "cancelled")
+					throw await endRetain(
+						source.nativeOperationId as string,
+						"cancelled",
+					);
+				if (outcome === "failed")
+					throw await endRetain(
+						source.nativeOperationId as string,
+						"resubmit_failed",
+					);
 			}
 			// Remote receipt TTL must not erase our knowledge that this retain finished.
 			if (

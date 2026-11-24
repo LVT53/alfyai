@@ -213,13 +213,23 @@ describe("Memory delivery through real job engine", () => {
 		const original = f.fetcher.getMockImplementation();
 		if (!original) throw new Error("fixture");
 		let failures = 3;
+		let received = false;
 		const identities: string[] = [];
 		f.fetcher.mockImplementation(async (url, init) => {
 			if (String(url).endsWith("/memories") && init?.method === "POST") {
 				identities.push(JSON.parse(String(init.body)).operation_id);
 				if (failures-- > 0)
 					return new Response("lost acknowledgement", { status: 503 });
+				received = true;
 			}
+			// Hindsight never received the lost ones: it does not know the operation,
+			// so each try asks and then sends the same ID again.
+			if (
+				!received &&
+				String(url).includes("/operations/") &&
+				!String(url).includes("consolidate-op")
+			)
+				return new Response(JSON.stringify({ status: "not_found" }));
 			return original(url, init);
 		});
 		const job = await f.enqueue();
@@ -1007,6 +1017,8 @@ function fakeRetains(
 		onPost?: (operationId: string) => void;
 		/** Runs as the facts are listed. */
 		onList?: () => void;
+		/** Until a retain completes, the bank holds one fact, under another document. */
+		otherDocument?: boolean;
 	} = {},
 ) {
 	const original = f.fetcher.getMockImplementation();
@@ -1050,7 +1062,25 @@ function fakeRetains(
 				!options.leftBehind &&
 				![...operations.values()].includes("completed")
 			)
-				return new Response(JSON.stringify({ total: 0, offset: 0, items: [] }));
+				return new Response(
+					JSON.stringify(
+						options.otherDocument
+							? {
+									total: 1,
+									offset: 0,
+									items: [
+										{
+											id: "other-fact",
+											text: "Another chat's fact",
+											fact_type: "world",
+											consolidated_at: "2026-11-18T00:00:00Z",
+											document_id: "another-source",
+										},
+									],
+								}
+							: { total: 0, offset: 0, items: [] },
+					),
+				);
 		}
 		return original(url, init);
 	});
@@ -1058,6 +1088,8 @@ function fakeRetains(
 		calls,
 		bodies,
 		posted: () => bodies.map((body) => body.operation_id),
+		/** Hindsight forgets an operation, as it does once a receipt expires. */
+		forget: (id: string) => operations.delete(id),
 	};
 }
 
@@ -1090,20 +1122,55 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			userId: h.userId,
 			from: ["failed"],
 		});
+	/**
+	 * Drains, lets the one-minute hold-back before a resubmission pass, and
+	 * drains again. Needs `vi.useFakeTimers({ toFake: ["Date"] })`.
+	 */
+	async function drainPastHoldBack(f: Fixture) {
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		vi.setSystemTime(Date.now() + 61_000);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+	}
+	const ended = (f: Fixture) =>
+		JSON.parse(revision(f)?.context ?? "{}").nativeRetainEnded;
 
-	it("resubmits it once under a new operation ID and accepts the source when that completes", async () => {
+	it("holds a failed retain back a minute, then resubmits it once under a new operation ID", async () => {
 		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const fake = fakeRetains(f, {
 			endOf: (nth) => (nth === 0 ? "failed" : "completed"),
 		});
 		await f.enqueue();
+		const failedAt = Date.now();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		// S1: nothing is rotated or sent until the refusal that failed it has had a minute to pass.
+		expect(fake.posted()).toEqual([f.source.nativeOperationId]);
+		expect(job(f)).toMatchObject({
+			status: "queued",
+			errorCode: "native_retain_resubmit_due",
+			retryable: true,
+		});
+		// run_after is kept in whole seconds.
+		expect(job(f)?.runAfter?.getTime()).toBeGreaterThanOrEqual(
+			Math.floor((failedAt + 60_000) / 1000) * 1000,
+		);
+		expect(revision(f)).toMatchObject({
+			nativeOperationId: f.source.nativeOperationId,
+			context: "User statement",
+		});
+		vi.setSystemTime(Date.now() + 61_000);
 		await h.engine.drain(f.jobs.memoryDeliveryJob);
 		const [failed, fresh] = fake.posted();
 		expect(fake.posted()).toHaveLength(2);
 		expect(fresh).not.toBe(failed);
 		// The same source goes out again: only its operation ID is new.
 		expect(fake.bodies[1].items).toEqual(fake.bodies[0].items);
-		expect(job(f)).toMatchObject({ status: "succeeded", attemptCount: 1 });
+		expect(job(f)).toMatchObject({ status: "succeeded", attemptCount: 2 });
+		// The hold-back was a wait: no attempt of the job's three was spent on it.
+		const { parseDeliveryRetryState } = await import("./delivery-policy");
+		expect(
+			parseDeliveryRetryState(JSON.parse(job(f)?.retryState ?? "null")).waits,
+		).toBe(1);
 		expect(revision(f)).toMatchObject({
 			state: "accepted",
 			nativeAcknowledged: true,
@@ -1114,58 +1181,110 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 		});
 	});
 
-	it("ends for good when the resubmitted retain fails too", async () => {
+	it("ends for good when the resubmitted retain fails too, and records that end", async () => {
 		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const fake = fakeRetains(f, { endOf: () => "failed" });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toHaveLength(2);
+		// N1: its own code, so an operator never mistakes a failed consolidation for it.
 		expect(job(f)).toMatchObject({
 			status: "failed",
-			errorCode: "native_operation_failed",
+			errorCode: "native_retain_resubmit_failed",
 			retryable: false,
-			attemptCount: 1,
+			attemptCount: 2,
 		});
 		expect(revision(f)).toMatchObject({
 			nativeSubmitted: true,
 			nativeAcknowledged: false,
 			nativeOperationId: fake.posted()[1],
 		});
+		// S2: the end is on the revision, whatever Hindsight later remembers.
+		expect(ended(f)).toEqual({
+			operationId: fake.posted()[1],
+			reason: "resubmit_failed",
+		});
 	});
 
-	it("sends no third operation when that failed job is reopened", async () => {
+	it.each(["remembers", "has forgotten"])(
+		"sends no third operation when that failed job is reopened and Hindsight %s the resubmitted one",
+		async (memory) => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const fake = fakeRetains(f, { endOf: () => "failed" });
+			const queued = await f.enqueue();
+			await drainPastHoldBack(f);
+			expect(job(f)?.status).toBe("failed");
+			if (memory === "has forgotten") fake.forget(fake.posted()[1]);
+			const callsBefore = fake.calls.length;
+			await reopen(f, queued.row.id);
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(job(f)).toMatchObject({
+				status: "failed",
+				errorCode: "native_retain_resubmit_failed",
+			});
+			// S2: the recorded end decides before Hindsight is asked anything.
+			expect(fake.calls.slice(callsBefore)).toEqual([]);
+			expect(new Set(fake.posted()).size).toBe(2);
+			expect(fake.posted()).toHaveLength(2);
+			expect(revision(f)?.nativeOperationId).toBe(fake.posted()[1]);
+		},
+	);
+
+	it("resubmits although the bank holds another document's facts", async () => {
 		const f = await setup();
-		const fake = fakeRetains(f, { endOf: () => "failed" });
-		const queued = await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
-		expect(job(f)?.status).toBe("failed");
-		await reopen(f, queued.row.id);
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
-		expect(job(f)).toMatchObject({
-			status: "failed",
-			errorCode: "native_operation_failed",
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const fake = fakeRetains(f, {
+			endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			otherDocument: true,
 		});
-		// Two operations, and the reopening sent nothing: the one resubmission is spent.
-		expect(new Set(fake.posted()).size).toBe(2);
+		await f.enqueue();
+		await drainPastHoldBack(f);
+		// N2: only a fact under this source's own document stops the resubmission.
 		expect(fake.posted()).toHaveLength(2);
-		expect(revision(f)?.nativeOperationId).toBe(fake.posted()[1]);
+		expect(job(f)?.status).toBe("succeeded");
+	});
+
+	it("accepts a sent retain Hindsight reports completed without sending it again", async () => {
+		const f = await setup();
+		const id = f.source.nativeOperationId as string;
+		const fake = fakeRetains(f, { known: { [id]: "completed" } });
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true })
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		// N3: the answer to the GET is enough; no POST of a finished operation.
+		expect(fake.calls).toEqual([`GET ${id}`]);
+		expect(fake.posted()).toEqual([]);
+		expect(job(f)?.status).toBe("succeeded");
+		expect(revision(f)).toMatchObject({
+			state: "accepted",
+			nativeAcknowledged: true,
+		});
 	});
 
 	it("stays terminal when the failed operation left a fact under the document", async () => {
 		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const fake = fakeRetains(f, { endOf: () => "failed", leftBehind: true });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toEqual([f.source.nativeOperationId]);
 		expect(job(f)).toMatchObject({
 			status: "failed",
-			errorCode: "native_operation_failed",
+			errorCode: "native_retain_left_facts",
 			retryable: false,
 		});
-		// Nothing was rotated or marked: the source is as the failed attempt left it.
-		expect(revision(f)).toMatchObject({
-			nativeOperationId: f.source.nativeOperationId,
-			context: "User statement",
+		// Nothing was rotated: only the end is recorded (S2).
+		expect(revision(f)?.nativeOperationId).toBe(f.source.nativeOperationId);
+		expect(JSON.parse(revision(f)?.context ?? "{}")).toEqual({
+			nativeRetainEnded: {
+				operationId: f.source.nativeOperationId,
+				reason: "facts_left_behind",
+			},
 		});
 	});
 
@@ -1205,7 +1324,7 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 		});
 		vi.useFakeTimers({ toFake: ["Date"] });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		// The new ID and the marker were already committed when the call went out.
 		expect(stored?.id).toBeTruthy();
 		expect(stored?.id).not.toBe(failed);
@@ -1234,16 +1353,15 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			if (when === "first attempt") await f.enqueue();
 			else await reopen(f, await failedByEarlierRelease(f));
 			await h.engine.drain(f.jobs.memoryDeliveryJob);
-			expect(fake.posted()).toEqual([failed]);
+			// N3: a reopened job asks first and sends nothing to a cancelled operation.
+			expect(fake.posted()).toEqual(when === "first attempt" ? [failed] : []);
 			expect(job(f)).toMatchObject({
 				status: "failed",
-				errorCode: "native_operation_failed",
+				errorCode: "native_retain_cancelled",
 				retryable: false,
 			});
-			expect(revision(f)).toMatchObject({
-				nativeOperationId: failed,
-				context: "User statement",
-			});
+			expect(revision(f)?.nativeOperationId).toBe(failed);
+			expect(ended(f)).toEqual({ operationId: failed, reason: "cancelled" });
 		},
 	);
 
@@ -1254,8 +1372,9 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			endOf: () => "failed",
 			onList: () => f.rev.revokeMemorySources(h.userId, [f.source.id]),
 		});
+		vi.useFakeTimers({ toFake: ["Date"] });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toEqual([failed]);
 		expect(job(f)?.status).toBe("failed");
 		expect(revision(f)).toMatchObject({
@@ -1351,8 +1470,9 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 					.onConflictDoNothing()
 					.run(),
 		});
+		vi.useFakeTimers({ toFake: ["Date"] });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toEqual([failed]);
 		expect(job(f)).toMatchObject({
 			status: "queued",
@@ -1361,6 +1481,115 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 		expect(revision(f)).toMatchObject({
 			nativeOperationId: failed,
 			context: "User statement",
+		});
+	});
+
+	describe("with a real chat context envelope", () => {
+		/**
+		 * The source as a chat delivers it: the envelope chat-delivery.ts writes,
+		 * with the assistant's reply as context, in a real conversation.
+		 */
+		async function chatSource(f: Fixture) {
+			const { memoryTextHash } = await import("./revisions");
+			f.db
+				.insert(f.schema.conversations)
+				.values({ id: "chat", userId: h.userId, title: "Synthetic chat" })
+				.run();
+			f.db
+				.insert(f.schema.messages)
+				.values([
+					{
+						id: "user-message",
+						conversationId: "chat",
+						role: "user",
+						content: "My kayak is green",
+						messageSequence: 1,
+					},
+					{
+						id: "reply",
+						conversationId: "chat",
+						role: "assistant",
+						content: "A green kayak sounds lovely.",
+						messageSequence: 2,
+					},
+				])
+				.run();
+			const envelope = {
+				messageSequence: 1,
+				conversationId: "chat",
+				sourceRole: "user",
+				guidance:
+					"Only the source user message is a new assertion. Other messages are context for attribution and dependent replies; assistant claims are not user facts.",
+				messages: [
+					{
+						id: "reply",
+						role: "assistant",
+						sourceId: "$current",
+						textHash: memoryTextHash("My kayak is green"),
+						messageTextHash: memoryTextHash("A green kayak sounds lovely."),
+					},
+				],
+			};
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({
+					conversationId: "chat",
+					messageId: "user-message",
+					context: JSON.stringify(envelope),
+				})
+				.run();
+			return envelope;
+		}
+
+		it("keeps every key of the envelope through a resubmission and adds only its marker", async () => {
+			const f = await setup();
+			const envelope = await chatSource(f);
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const fake = fakeRetains(f, {
+				endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			});
+			await f.enqueue();
+			await drainPastHoldBack(f);
+			expect(job(f)?.status).toBe("succeeded");
+			const [failed] = fake.posted();
+			expect(JSON.parse(revision(f)?.context ?? "{}")).toEqual({
+				...envelope,
+				nativeRetainResubmittedFrom: failed,
+			});
+		});
+
+		it("sends the same context both times, the reply included, and never the marker", async () => {
+			const f = await setup();
+			await chatSource(f);
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const fake = fakeRetains(f, {
+				endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			});
+			await f.enqueue();
+			await drainPastHoldBack(f);
+			const [first, second] = fake.bodies.map(
+				(body) => body.items[0].context as string,
+			);
+			expect(second).toBe(first);
+			// The resolved context is real: the assistant's reply reached Hindsight.
+			expect(first).toContain("A green kayak sounds lovely.");
+			expect(first).not.toContain("nativeRetain");
+		});
+
+		it("records a cancelled retain's end without losing the envelope", async () => {
+			const f = await setup();
+			const envelope = await chatSource(f);
+			fakeRetains(f, { endOf: () => "cancelled" });
+			await f.enqueue();
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(job(f)?.errorCode).toBe("native_retain_cancelled");
+			expect(JSON.parse(revision(f)?.context ?? "{}")).toEqual({
+				...envelope,
+				nativeRetainEnded: {
+					operationId: f.source.nativeOperationId,
+					reason: "cancelled",
+				},
+			});
 		});
 	});
 

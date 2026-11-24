@@ -67,6 +67,22 @@ it.each([false, true])(
 			[root.id, context.id],
 			"I keep a community seed library.",
 		);
+		// The reply's own retain was resubmitted once and its end recorded: that
+		// bookkeeping belongs to its operation, never to a replacement (N4).
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
+				context: JSON.stringify({
+					...JSON.parse(reply.context),
+					nativeRetainResubmittedFrom: "failed-operation",
+					nativeRetainEnded: {
+						operationId: "failed-operation",
+						reason: "cancelled",
+					},
+				}),
+			})
+			.where(awaitEq(f.s.memorySourceRevisions.id, reply.id))
+			.run();
 		const survivor = f.source([], "My sister plays the bassoon.");
 		for (const source of [root, context, reply, survivor]) f.seed(source);
 		const { publishNativeSnapshot, readPublishedMemory } = await import(
@@ -121,6 +137,16 @@ it.each([false, true])(
 			vi.useRealTimers();
 		}
 		expect(JSON.stringify(forwarded)).not.toContain("RUSTFINCH");
+		const replacementRows = f.db
+			.select()
+			.from(f.s.memorySourceRevisions)
+			.all()
+			.filter(
+				(row) => row.lineageId === reply.lineageId && row.id !== reply.id,
+			);
+		if (!siblingCleanup) expect(replacementRows.length).toBeGreaterThan(0);
+		for (const row of replacementRows)
+			expect(row.context).not.toContain("nativeRetain");
 		const replacements = f.retained.slice(1);
 		expect(replacements.length).toBeGreaterThan(0);
 		expect(JSON.stringify(replacements)).not.toContain("RUSTFINCH");
