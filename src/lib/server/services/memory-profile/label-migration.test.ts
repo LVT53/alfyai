@@ -553,6 +553,76 @@ describe("the label migration", () => {
 		expect(fake.listed).not.toContain(next.id);
 	});
 
+	it("never sends a fact the person removed: a revoked source's, or one a revocation names", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const removed = [
+			{
+				id: "fact-of-deleted-chat",
+				text: "removed one",
+				fact_type: "world",
+				document_id: "deleted-chat-source",
+			},
+			{ id: "fact-removed-by-name", text: "removed two", fact_type: "world" },
+			{
+				id: "fact-of-revoked-source",
+				text: "removed three",
+				fact_type: "world",
+				document_id: "revoked-source",
+			},
+		];
+		fake.facts.get(bank.id)?.push(...removed);
+		const insertSource = h.sqlite.prepare(
+			"INSERT INTO memory_source_revisions (id, bank_id, user_id, epoch, event_id, lineage_id, text, context, text_hash, asserted_at, state, acknowledged_facts_json) VALUES (?, ?, 'user-1', 0, ?, ?, 'synthetic', '{}', 'hash', 1767225600, ?, ?)",
+		);
+		insertSource.run(
+			"deleted-chat-source",
+			bank.id,
+			"event-a",
+			"lineage-a",
+			"accepted",
+			JSON.stringify([{ id: "fact-of-deleted-chat", text: "removed one" }]),
+		);
+		insertSource.run(
+			"revoked-source",
+			bank.id,
+			"event-b",
+			"lineage-b",
+			"revoked",
+			JSON.stringify([{ id: "fact-of-revoked-source", text: "removed three" }]),
+		);
+		const revoke = h.sqlite.prepare(
+			"INSERT INTO memory_revocations (id, user_id, bank_id, epoch, source_id, native_fact_id) VALUES (?, 'user-1', ?, 0, ?, ?)",
+		);
+		revoke.run("revocation-a", bank.id, "deleted-chat-source", null);
+		revoke.run("revocation-b", bank.id, null, "fact-removed-by-name");
+		const { migration, verified } = await modules();
+		const dry = await migration.runLabelMigration(
+			{ execute: false },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(dry.accounts[0]).toMatchObject({ facts: 3, removed: 3, toLabel: 3 });
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(fake.batches.flat()).toEqual([
+			"likes tea 0",
+			"likes tea 1",
+			"likes tea 2",
+		]);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "verified",
+			facts: 3,
+			removed: 3,
+			labelled: 3,
+		});
+		expect(
+			labelRows(bank.id).map(({ native_fact_id }) => native_fact_id),
+		).not.toContain("fact-removed-by-name");
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+	});
+
 	it("stops calling the model after three batches in a row fail", async () => {
 		const fake = fakeNative(() => {
 			throw new Error("busy");

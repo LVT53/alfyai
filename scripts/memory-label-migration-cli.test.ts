@@ -221,6 +221,7 @@ describe("the label migration's report lines", () => {
 					banks: 1,
 					configOneBanks: 0,
 					facts: 25,
+					removed: 1,
 					alreadyLabelled: 0,
 					toLabel: 25,
 					estimatedCalls: 2,
@@ -231,7 +232,10 @@ describe("the label migration's report lines", () => {
 					unlabelled: {},
 					verification: {
 						factsAccounted: true,
+						factsUnchanged: true,
 						publishedRowsUnchanged: true,
+						fewUnlabelled: true,
+						labelsPlausible: true,
 					},
 				},
 				{
@@ -242,6 +246,7 @@ describe("the label migration's report lines", () => {
 					banks: 0,
 					configOneBanks: 0,
 					facts: 0,
+					removed: 0,
 					alreadyLabelled: 0,
 					toLabel: 0,
 					estimatedCalls: 0,
@@ -254,7 +259,7 @@ describe("the label migration's report lines", () => {
 			],
 		};
 		expect(labelMigrationLines(report)).toEqual([
-			"account u1 verified banks=1 configOneBanks=0 facts=25 alreadyLabelled=0 toLabel=25 estimatedCalls=2 calls=2 labelled=25 kind.temporary=25 subject.health=25 verification=passed",
+			"account u1 verified banks=1 configOneBanks=0 facts=25 removed=1 alreadyLabelled=0 toLabel=25 estimatedCalls=2 calls=2 labelled=25 kind.temporary=25 subject.health=25 verification=passed",
 			"account u3 skipped excluded",
 			"totals accounts=3 skipped.excluded=1 banks=2 facts=30 alreadyLabelled=2 toLabel=28 estimatedCalls=3 calls=3 labelled=25 verified=1 failed=1",
 			"outcome: stopped at u2",

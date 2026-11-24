@@ -7,6 +7,7 @@ import {
 	memoryBanks,
 	memoryFactLabels,
 	memoryPublishedRows,
+	memoryRevocations,
 	memorySourceRevisions,
 	users,
 } from "$lib/server/db/schema";
@@ -26,7 +27,7 @@ import {
 	memoryMigrationGuard,
 } from "./migration-guard";
 import { readAcknowledgedFacts, readPublishedMemory } from "./publication";
-import { assertMemoryBankFence } from "./revisions";
+import { assertMemoryBankFence, memoryTextHash } from "./revisions";
 
 /**
  * The label migration (Memory redesign, "The label migration for existing
@@ -69,8 +70,10 @@ export interface LabelMigrationAccount {
 	banks: number;
 	/** Banks still on config 1: labelled like the rest (only a delivery upgrades a bank, never this run). */
 	configOneBanks: number;
-	/** Raw facts Hindsight holds in these banks (observations are not facts). */
+	/** Raw facts Hindsight holds in these banks (observations are not facts), the removed ones left out. */
 	facts: number;
+	/** Raw facts the person removed (a revoked source's, or one a revocation names): never sent, never labelled. */
+	removed: number;
 	alreadyLabelled: number;
 	toLabel: number;
 	estimatedCalls: number;
@@ -232,6 +235,7 @@ function emptyEntry(
 		banks: 0,
 		configOneBanks: 0,
 		facts: 0,
+		removed: 0,
 		alreadyLabelled: 0,
 		toLabel: 0,
 		estimatedCalls: 0,
@@ -314,12 +318,18 @@ async function migrateAccount(
 			const result: {
 				bank: Bank;
 				facts: Fact[];
+				removed: number;
 				todo: Fact[];
 				kinds: Partial<Record<MemoryKind, number>>;
 			}[] = [];
 			for (const bank of banks) {
-				const facts = (await listFacts(bank.id, account.tenantId, signal))
-					.filter((fact) => fact.fact_type !== "observation")
+				const listed = (
+					await listFacts(bank.id, account.tenantId, signal)
+				).filter((fact) => fact.fact_type !== "observation");
+				// Text the person removed is never sent: Hindsight may still list it.
+				const removed = removedByPerson(database, bank.id);
+				const facts = listed
+					.filter((fact) => !removed(fact))
 					.map(({ id, text }) => ({ id, text }));
 				const labels = readFactLabels(database, bank.id);
 				const todo = facts.filter((fact) => !labels.get(fact.id)?.kind);
@@ -328,13 +338,20 @@ async function migrateAccount(
 					const kind = labels.get(fact.id)?.kind;
 					if (kind) kinds[kind] = (kinds[kind] ?? 0) + 1;
 				}
-				result.push({ bank, facts, todo, kinds });
+				result.push({
+					bank,
+					facts,
+					removed: listed.length - facts.length,
+					todo,
+					kinds,
+				});
 			}
 			return result;
 		};
 		const banksRead = await read();
-		for (const { facts, todo } of banksRead) {
+		for (const { facts, removed, todo } of banksRead) {
 			entry.facts += facts.length;
+			entry.removed += removed;
 			entry.alreadyLabelled += facts.length - todo.length;
 			entry.toLabel += todo.length;
 			entry.estimatedCalls += Math.ceil(todo.length / FACT_LABEL_BATCH_SIZE);
@@ -429,7 +446,7 @@ async function migrateAccount(
 							continue;
 						}
 						entry.labelled++;
-						labelledText.set(fact.id, textHash(fact.text));
+						labelledText.set(fact.id, memoryTextHash(fact.text));
 						entry.byKind[label.kind] = (entry.byKind[label.kind] ?? 0) + 1;
 						entry.bySubject[label.subject] =
 							(entry.bySubject[label.subject] ?? 0) + 1;
@@ -464,7 +481,7 @@ async function migrateAccount(
 		// was chosen for that text.
 		const listedAfter = new Map(
 			after.flatMap(({ facts }) =>
-				facts.map((fact) => [fact.id, textHash(fact.text)] as const),
+				facts.map((fact) => [fact.id, memoryTextHash(fact.text)] as const),
 			),
 		);
 		const factsUnchanged = [...labelledText].every(
@@ -569,8 +586,57 @@ async function inBatches(
 	if (signal.aborted) throw new AccountFailure("label_migration_aborted");
 }
 
-function textHash(text: string): string {
-	return createHash("sha256").update(text).digest("hex");
+/**
+ * The raw facts the person removed, which the migration never sends or
+ * labels, as `admittedNativeFacts` keeps them out of every entry: a fact a
+ * revocation names (by id, and by its text when the revocation holds a hash),
+ * and a fact of a source that is revoked or that a revocation names, unless a
+ * source the person kept still acknowledges it.
+ */
+function removedByPerson(
+	database: DatabaseInstance,
+	bankId: string,
+): (fact: NativeMemory) => boolean {
+	const revocations = database
+		.select()
+		.from(memoryRevocations)
+		.where(eq(memoryRevocations.bankId, bankId))
+		.all();
+	const sources = database
+		.select({
+			id: memorySourceRevisions.id,
+			state: memorySourceRevisions.state,
+			facts: memorySourceRevisions.acknowledgedFactsJson,
+		})
+		.from(memorySourceRevisions)
+		.where(eq(memorySourceRevisions.bankId, bankId))
+		.all();
+	const revokedSources = new Set<string>();
+	for (const { sourceId } of revocations)
+		if (sourceId) revokedSources.add(sourceId);
+	for (const source of sources)
+		if (source.state === "revoked") revokedSources.add(source.id);
+	const ofRevoked = new Set<string>();
+	const kept = new Set<string>();
+	for (const source of sources)
+		for (const { id } of readAcknowledgedFacts(source.facts))
+			if (revokedSources.has(source.id)) ofRevoked.add(id);
+			else if (source.state === "accepted") kept.add(id);
+	const named = new Map<string, (string | null)[]>();
+	for (const { nativeFactId, nativeTextHash } of revocations)
+		if (nativeFactId)
+			named.set(nativeFactId, [
+				...(named.get(nativeFactId) ?? []),
+				nativeTextHash,
+			]);
+	return (fact) =>
+		(named
+			.get(fact.id)
+			?.some((hash) => hash === null || hash === memoryTextHash(fact.text)) ??
+			false) ||
+		(!kept.has(fact.id) &&
+			(ofRevoked.has(fact.id) ||
+				(!!fact.document_id && revokedSources.has(fact.document_id))));
 }
 
 /**

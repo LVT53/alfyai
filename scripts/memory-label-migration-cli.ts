@@ -221,7 +221,7 @@ export function labelMigrationAccountLine(
 	return [
 		`account ${account.userId} ${account.outcome}`,
 		...(account.failure ? [`failure=${account.failure}`] : []),
-		`banks=${account.banks} configOneBanks=${account.configOneBanks} facts=${account.facts} alreadyLabelled=${account.alreadyLabelled} toLabel=${account.toLabel} estimatedCalls=${account.estimatedCalls} calls=${account.calls} labelled=${account.labelled}`,
+		`banks=${account.banks} configOneBanks=${account.configOneBanks} facts=${account.facts} removed=${account.removed} alreadyLabelled=${account.alreadyLabelled} toLabel=${account.toLabel} estimatedCalls=${account.estimatedCalls} calls=${account.calls} labelled=${account.labelled}`,
 		...counts("kind.", account.byKind),
 		...counts("subject.", account.bySubject),
 		...counts("unlabelled.", account.unlabelled),
