@@ -192,8 +192,12 @@ describe("bank configuration 3", () => {
 			expect(config.retain_mission).toMatch(
 				/preference about how the assistant should answer/i,
 			);
+			expect(config.retain_mission).toMatch(/its length, format or tone/i);
+			// Ruling 79: remembered facts never set the reply language, so a request
+			// about it is not a preference to keep (chat-turn/AGENTS.md).
+			expect(config.retain_mission).not.toMatch(/format, language or tone/i);
 			expect(config.retain_mission).toMatch(
-				/length, format, language or tone/i,
+				/language the assistant replies in is not such a preference and is not a memory/i,
 			);
 			expect(config.retain_mission).toMatch(
 				/even when it is phrased as a request/i,

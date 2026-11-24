@@ -266,11 +266,14 @@
 			"lang": "en",
 			"user": "Could you reply in Hungarian when I write in Hungarian? Thanks.",
 			"markers": [
-				"hungarian",
-				"magyar"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
-			"subject": "other"
+			"subject": "other",
+			"replyLanguage": true
 		},
 		{
 			"id": "preference-en-4",
@@ -344,11 +347,14 @@
 			"lang": "en",
 			"user": "Please answer in English even if I write to you in another language.",
 			"markers": [
-				"english",
-				"angol"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
-			"subject": "other"
+			"subject": "other",
+			"replyLanguage": true
 		},
 		{
 			"id": "preference-hu-1",
@@ -382,11 +388,14 @@
 			"lang": "hu",
 			"user": "Légy szíves, magyarul válaszolj nekem.",
 			"markers": [
-				"magyar",
-				"hungarian"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
-			"subject": "other"
+			"subject": "other",
+			"replyLanguage": true
 		},
 		{
 			"id": "preference-hu-4",
@@ -467,11 +476,14 @@
 			"lang": "hu",
 			"user": "Kérlek, angolul válaszolj, akkor is, ha magyarul írok.",
 			"markers": [
-				"angol",
-				"english"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
-			"subject": "other"
+			"subject": "other",
+			"replyLanguage": true
 		}
 	],
 	"task": [
@@ -597,12 +609,15 @@
 			"lang": "en",
 			"user": "Could you reply in Hungarian when I write in Hungarian? Thanks.",
 			"markers": [
-				"hungarian",
-				"magyar"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
 			"subject": "other",
-			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like.",
+			"replyLanguage": true
 		},
 		{
 			"id": "preference-reply-en-4",
@@ -682,12 +697,15 @@
 			"lang": "en",
 			"user": "Please answer in English even if I write to you in another language.",
 			"markers": [
-				"english",
-				"angol"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
 			"subject": "other",
-			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like."
+			"assistant": "Photosynthesis is the process by which plants, algae and some bacteria turn light, water and carbon dioxide into sugar and oxygen. It happens in two linked stages inside the chloroplasts. In the light reactions, chlorophyll absorbs sunlight and uses its energy to split water, releasing oxygen and storing energy in ATP and NADPH. In the Calvin cycle, the plant uses that stored energy to fix carbon dioxide into glucose. Factors such as light intensity, temperature and the amount of carbon dioxide all change how fast the process runs. I can go through any step in more detail if you like.",
+			"replyLanguage": true
 		},
 		{
 			"id": "preference-reply-hu-1",
@@ -723,12 +741,15 @@
 			"lang": "hu",
 			"user": "Légy szíves, magyarul válaszolj nekem.",
 			"markers": [
-				"magyar",
-				"hungarian"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
 			"subject": "other",
-			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést.",
+			"replyLanguage": true
 		},
 		{
 			"id": "preference-reply-hu-4",
@@ -815,12 +836,15 @@
 			"lang": "hu",
 			"user": "Kérlek, angolul válaszolj, akkor is, ha magyarul írok.",
 			"markers": [
-				"angol",
-				"english"
+				"repl",
+				"answer",
+				"respond",
+				"válasz"
 			],
 			"kind": "lasting",
 			"subject": "other",
-			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
+			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést.",
+			"replyLanguage": true
 		}
 	],
 	"plan": [

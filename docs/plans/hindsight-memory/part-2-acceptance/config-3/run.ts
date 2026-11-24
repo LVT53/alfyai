@@ -62,6 +62,8 @@ interface LabelledItem {
 	markers: string[];
 	kind: string;
 	subject: string;
+	/** A request about the language of the assistant's replies: ruling 79, remembered facts never set it, so it is not kept. */
+	replyLanguage?: boolean;
 }
 interface Fixtures {
 	question: Array<{ id: string; lang: Lang; turns: Turn[] }>;
@@ -532,6 +534,10 @@ function report() {
 	};
 	const ok = (entries: Array<{ facts?: DraftFact[] } | undefined>) =>
 		entries.every((entry) => entry?.facts) ? entries.flatMap((entry) => entry?.facts ?? []) : null;
+	// The preference targets cover the answer-style requests (length, format, tone); a request about
+	// the reply language is graded the other way round: it must NOT be kept (ruling 79).
+	const styleOnly = <T extends { replyLanguage?: boolean }>(items: T[]) =>
+		items.filter((item) => !item.replyLanguage);
 	for (const config of ["v2", "v3"] as const) {
 		summary[`question-${config}`] = lang(fixtures.question, (chat: Fixtures["question"][number]) => {
 			const facts = ok(factsOf(config, "question", chat.id));
@@ -573,21 +579,31 @@ function report() {
 						.some((fact) => labelsFromNativeTags(fact.entities, "personal").kind === "lasting")
 				: null,
 		);
-		summary[`preference-kept-${config}`] = lang(fixtures.preference, (item: LabelledItem) => {
+		summary[`preference-kept-${config}`] = lang(styleOnly(fixtures.preference), (item: LabelledItem) => {
 			const facts = ok(factsOf(config, "preference", item.id));
 			return facts === null ? null : facts.some((fact) => mentions(fact.text, item.markers));
 		});
-		summary[`preference-kept-lasting-${config}`] = lang(fixtures.preference, (item: LabelledItem) => {
+		summary[`preference-kept-lasting-${config}`] = lang(styleOnly(fixtures.preference), (item: LabelledItem) => {
 			const facts = ok(factsOf(config, "preference", item.id));
 			if (facts === null) return null;
 			const kept = facts.filter((fact) => mentions(fact.text, item.markers));
 			return kept.length > 0 && kept.every((fact) => labelsFromNativeTags(fact.entities, "personal").kind === "lasting");
 		});
-		summary[`preference-after-reply-kept-${config}`] = lang(fixtures.preferenceReply, (item: LabelledItem) => {
+		summary[`preference-after-reply-kept-${config}`] = lang(styleOnly(fixtures.preferenceReply), (item: LabelledItem) => {
 			const facts = ok(factsOf(config, "preferenceReply", item.id));
 			return facts === null ? null : facts.some((fact) => mentions(fact.text, item.markers));
 		});
-		summary[`preference-after-reply-kept-lasting-${config}`] = lang(fixtures.preferenceReply, (item: LabelledItem) => {
+		const languageOnly = <T extends { replyLanguage?: boolean }>(items: T[]) =>
+			items.filter((item) => item.replyLanguage);
+		for (const [name, set, items] of [
+			["preference-language-not-kept", "preference", languageOnly(fixtures.preference)],
+			["preference-after-reply-language-not-kept", "preferenceReply", languageOnly(fixtures.preferenceReply)],
+		] as const)
+			summary[`${name}-${config}`] = lang(items, (item: LabelledItem) => {
+				const facts = ok(factsOf(config, set, item.id));
+				return facts === null ? null : !facts.some((fact) => mentions(fact.text, item.markers));
+			});
+		summary[`preference-after-reply-kept-lasting-${config}`] = lang(styleOnly(fixtures.preferenceReply), (item: LabelledItem) => {
 			const facts = ok(factsOf(config, "preferenceReply", item.id));
 			if (facts === null) return null;
 			const kept = facts.filter((fact) => mentions(fact.text, item.markers));
