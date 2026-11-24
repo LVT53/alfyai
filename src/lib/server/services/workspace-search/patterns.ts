@@ -25,21 +25,38 @@ function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
+// toUpperCase, not toLocaleUpperCase: the host's locale must not change a
+// spelling (a Turkish locale would capitalise "i" as "İ").
 function capitalise(word: string): string {
 	const [first = "", ...rest] = Array.from(word);
-	return first.toLocaleUpperCase() + rest.join("");
+	return first.toUpperCase() + rest.join("");
 }
 
 /** The spellings a word is looked for in: as typed, capitalised, in capitals. */
 export function wordSpellings(word: string): string[] {
-	return Array.from(
-		new Set([word, capitalise(word), word.toLocaleUpperCase()]),
-	);
+	return Array.from(new Set([word, capitalise(word), word.toUpperCase()]));
 }
 
-/** `LIKE` patterns, with `\` as the escape character, for each spelling. */
+/** A spelling as `LIKE` compares it: ASCII letters in either case are one. */
+function likeKey(spelling: string): string {
+	return spelling.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+/**
+ * `LIKE` patterns, with `\` as the escape character, for each spelling `LIKE`
+ * tells apart: it folds ASCII case itself, so an ASCII word is one pattern and
+ * one scan, and "új" needs only "új" and "Új" ("ÚJ" is "Új" to `LIKE`).
+ */
 export function likeSpellings(word: string): string[] {
-	return wordSpellings(word).map((spelling) => `%${escapeLike(spelling)}%`);
+	const distinct = new Map<string, string>();
+	for (const spelling of wordSpellings(word)) {
+		const key = likeKey(spelling);
+		if (!distinct.has(key)) distinct.set(key, spelling);
+	}
+	return Array.from(
+		distinct.values(),
+		(spelling) => `%${escapeLike(spelling)}%`,
+	);
 }
 
 // Letters that fold to one character: ASCII, Latin-1 Supplement, Latin

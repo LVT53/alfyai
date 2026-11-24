@@ -52,6 +52,16 @@ describe("likeSpellings", () => {
 		expect(likeSpellings("100%_\\")).toEqual(["%100\\%\\_\\\\%"]);
 	});
 
+	it("scans a word once per spelling LIKE tells apart: it folds ASCII case itself", () => {
+		expect(likeSpellings("ai")).toEqual(["%ai%"]);
+		expect(likeSpellings("kitchen")).toEqual(["%kitchen%"]);
+		expect(likeSpellings("új")).toEqual(["%új%", "%Új%"]);
+		expect(likeHits("the AI said", "ai")).toBe(true);
+		expect(likeHits("Ai said", "ai")).toBe(true);
+		expect(likeHits("ÚJ HÍR", "új")).toBe(true);
+		expect(likeHits("egy új hír", "új")).toBe(true);
+	});
+
 	it("matches the typed, capitalised and capital spellings in SQLite", () => {
 		expect(likeHits("Az Árvíztűrő tükörfúrógép", "árvíz")).toBe(true);
 		expect(likeHits("AZ ÁRVÍZTŰRŐ", "árvíz")).toBe(true);
