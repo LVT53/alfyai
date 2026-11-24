@@ -1,8 +1,9 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { OperatorReport } from "../src/lib/server/services/memory-profile/operator-tools";
 import {
 	parseOperatorArguments,
 	printOperatorReport,
+	runOperatorCli,
 } from "./memory-operator-cli";
 
 it("reads a dry run by default and --execute only when given", () => {
@@ -38,6 +39,44 @@ it.each([
 ] as const)("refuses %j for a %s tool with %s", (args, needs, code) => {
 	expect(() => parseOperatorArguments([...args], needs)).toThrow(code);
 });
+
+it.each([
+	[["--user", "u1"], "job", "job_required"],
+	[
+		["--user", "u1", "--job", "j1", "--execute", "now"],
+		"job",
+		"invalid_arguments",
+	],
+	[
+		["--user", "u1", "--max-minutes", "0", "--execute"],
+		"drain",
+		"invalid_max_minutes",
+	],
+] as const)(
+	"never runs the tool for %j, says why and exits 2",
+	async (args, needs, code) => {
+		const argv = process.argv;
+		const exitCode = process.exitCode;
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const run = vi.fn(async (): Promise<OperatorReport> => {
+			throw Error("the tool ran");
+		});
+		try {
+			process.argv = ["node", "memory-tool.ts", ...args];
+			await runOperatorCli(needs, "usage: memory-tool", run);
+			expect(run).not.toHaveBeenCalled();
+			expect(process.exitCode).toBe(2);
+			expect(error).toHaveBeenCalledWith(`${code}\nusage: memory-tool`);
+			expect(log).not.toHaveBeenCalled();
+		} finally {
+			process.argv = argv;
+			process.exitCode = exitCode;
+			error.mockRestore();
+			log.mockRestore();
+		}
+	},
+);
 
 it("prints one line per step, the skipped jobs, then the report, and says how it ended", () => {
 	const lines: string[] = [];
