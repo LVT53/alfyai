@@ -730,6 +730,23 @@ const RETAIN_BOOKKEEPING_KEYS: readonly string[] = [
 	RETAIN_ENDED,
 	RETAIN_RESENT_FROM,
 ];
+/**
+ * Whether the revision's current retain has a recorded terminal end: it will
+ * never be sent again, and its end is known, so nothing waits on or asks
+ * Hindsight about that operation (which Hindsight may have forgotten).
+ */
+export function retainEndRecorded(source: {
+	context: string;
+	nativeOperationId: string | null;
+}): boolean {
+	const end = parseJsonRecord(source.context)[RETAIN_ENDED];
+	return (
+		!!source.nativeOperationId &&
+		!!end &&
+		typeof end === "object" &&
+		(end as Record<string, unknown>).operationId === source.nativeOperationId
+	);
+}
 /** A revision's context envelope without its retain bookkeeping. */
 export function withoutRetainBookkeeping(
 	envelope: Record<string, unknown>,

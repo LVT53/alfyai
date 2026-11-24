@@ -1644,6 +1644,47 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			).toBe(true);
 		});
 
+		it("does not wait on a retain whose end is recorded, even once Hindsight has forgotten it", async () => {
+			const f = await setup();
+			const ended = f.source.nativeOperationId as string;
+			// Hindsight no longer knows the ended operation: asking about it would be unanswerable.
+			const fake = fakeRetains(f);
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({
+					nativeSubmitted: true,
+					context: JSON.stringify({
+						nativeRetainEnded: {
+							operationId: ended,
+							reason: "resubmit_failed",
+						},
+					}),
+				})
+				.run();
+			const other = f.rev.recordMemorySource({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				eventId: "other-event",
+				lineageId: "other-message",
+				text: "My oar is red",
+				context: "User statement",
+				assertedAt: new Date("2026-11-19"),
+			});
+			await f.jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: other.id,
+				requestId: "other-request",
+			});
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			// The other chat's retain goes out; the ended one is never asked about.
+			expect(fake.calls).toContain(`POST ${other.nativeOperationId}`);
+			expect(fake.calls).not.toContain(`GET ${ended}`);
+		});
+
 		it("waits for the new operation, never the failed one, before another source of the bank is sent", async () => {
 			const f = await setup();
 			const failed = f.source.nativeOperationId as string;

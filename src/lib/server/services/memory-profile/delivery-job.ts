@@ -27,6 +27,7 @@ import {
 import {
 	assertMemoryBankFence,
 	assertMemoryDependencySourceCurrent,
+	retainEndRecorded,
 } from "./revisions";
 
 /** Whether Memory jobs may run in this process: the worker switch, and no restore hold. */
@@ -332,6 +333,8 @@ export function bankCleanupInputs(
 							),
 						)
 						.all()
+						// An ended retain is never sent again: nothing to settle.
+						.filter((source) => !retainEndRecorded(source))
 						.map((source) => source.nativeOperationId)
 						.filter(Boolean),
 				]),

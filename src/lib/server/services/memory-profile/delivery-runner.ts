@@ -59,6 +59,7 @@ import {
 	RETAIN_ENDED,
 	RETAIN_RESUBMITTED_FROM,
 	resolveMemorySourceContext,
+	retainEndRecorded,
 } from "./revisions";
 
 async function pause(signal: AbortSignal) {
@@ -471,7 +472,11 @@ export async function runMemoryDelivery(
 			)
 				return;
 			if (source.nativeSubmitted) {
-				if (!source.nativeAcknowledged && source.nativeOperationId)
+				if (
+					!source.nativeAcknowledged &&
+					source.nativeOperationId &&
+					!retainEndRecorded(source)
+				)
 					await settle(
 						client,
 						[source.nativeOperationId],
@@ -601,7 +606,9 @@ export async function runMemoryDelivery(
 					!s.nativeAcknowledged &&
 					s.state !== "accepted" &&
 					s.id !== row.sourceId &&
-					s.nativeOperationId,
+					s.nativeOperationId &&
+					// An ended retain is never sent again and its end is known.
+					!retainEndRecorded(s),
 			);
 		await settle(
 			client,
