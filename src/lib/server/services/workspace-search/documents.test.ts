@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -6,6 +7,7 @@ import {
 import * as schema from "$lib/server/db/schema";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
+import { SHIPPED_ARTIFACT_KINDS } from "$lib/shared/artifacts/kinds";
 import { serializeVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import {
 	searchTerms,
@@ -25,9 +27,13 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
-const { recentDocuments, searchDocuments, searchKindAndBadge } = await import(
-	"./documents"
-);
+const {
+	JSON_BODY_KINDS,
+	TEXT_BODY_KINDS,
+	recentDocuments,
+	searchDocuments,
+	searchKindAndBadge,
+} = await import("./documents");
 
 const OWNER = "owner";
 const STRANGER = "stranger";
@@ -325,6 +331,40 @@ beforeEach(() => {
 
 afterEach(() => {
 	memory.close();
+});
+
+/** The kinds a SQL text keeps out with NOT IN (...), one sorted list per use. */
+function notInLists(sqlText: string): string[][] {
+	return [
+		...sqlText.matchAll(/NOT IN \(\s*('[^']*'(?:\s*,\s*'[^']*')*)\s*\)/gi),
+	].map((match) =>
+		match[1]
+			.split(",")
+			.map((kind) => kind.trim().replace(/'/g, ""))
+			.sort(),
+	);
+}
+
+describe("what each kind's body is", () => {
+	it("classes every kind of the artifact family as text or JSON, as the index does", () => {
+		const classed = new Set<string>([...TEXT_BODY_KINDS, ...JSON_BODY_KINDS]);
+		expect(SHIPPED_ARTIFACT_KINDS.filter((kind) => !classed.has(kind))).toEqual(
+			[],
+		);
+		// Migration 145 and the index's upkeep keep exactly the JSON kinds out of
+		// the index; a new JSON kind needs a migration that keeps it out too.
+		const jsonKinds = [...JSON_BODY_KINDS].sort();
+		for (const file of [
+			"drizzle/1777140000145_workspace_search_index.sql",
+			"src/lib/server/services/workspace-search/search-index-sql.ts",
+		]) {
+			const lists = notInLists(readFileSync(file, "utf8"));
+			expect(lists.length, file).toBeGreaterThan(0);
+			for (const list of lists) expect(list, file).toEqual(jsonKinds);
+		}
+		// The check itself: a list that lacks a JSON kind is caught.
+		expect(notInLists("x NOT IN ('image', 'video')")[0]).not.toEqual(jsonKinds);
+	});
 });
 
 describe("searchKindAndBadge", () => {

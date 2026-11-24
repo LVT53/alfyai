@@ -18,6 +18,7 @@ import { buildArtifactCanonicalOwnershipCondition } from "$lib/server/services/k
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { parseVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import {
 	foldForSearch,
@@ -82,16 +83,34 @@ const generatedFileSql = sql`(
 	and coalesce(${metadataValue("$.artifactExport")}, 0) = 0
 )`;
 
-/** The artifact family's rows whose body is JSON or code, never prose. */
-const JSON_KINDS = ["image", "video", "canvas", "app"] as const;
+/**
+ * Every kind of the artifact family by what its body is: prose the search reads
+ * (and the full-text index holds), or JSON and code it never reads as text. A
+ * new kind goes on one list (documents.test.ts fails until it does); a JSON
+ * one also needs a migration that keeps it out of the index, whose triggers
+ * name these four (migration 145, search-index-sql.ts).
+ */
+export const TEXT_BODY_KINDS = [
+	"document",
+	"slides",
+] as const satisfies readonly ArtifactKind[];
+export const JSON_BODY_KINDS = [
+	"image",
+	"video",
+	"canvas",
+	"app",
+] as const satisfies readonly ArtifactKind[];
 
-const familyOfKind = (kind: (typeof JSON_KINDS)[number]): SQL =>
+const familyOfKind = (kind: (typeof JSON_BODY_KINDS)[number]): SQL =>
 	sql`(${artifacts.type} = 'artifact' and ${artifactKindSql} = ${kind})`;
 
 /** Documents and Slides, and a row this slice cannot classify (it lists as a document). */
 const textFamilySql = sql`(
 	${artifacts.type} = 'artifact'
-	and coalesce(${artifactKindSql}, 'document') not in ('image', 'video', 'canvas', 'app')
+	and coalesce(${artifactKindSql}, 'document') not in (${sql.join(
+		JSON_BODY_KINDS.map((kind) => sql`${kind}`),
+		sql`, `,
+	)})
 )`;
 
 const textRowsSql = sql`(
@@ -265,7 +284,7 @@ const GROUPS: readonly CandidateGroup[] = [
 
 /** Every row a document list shows, for the newest few. */
 const ANY_DOCUMENT_ROWS_SQL = sql`(${textRowsSql} or ${sql.join(
-	JSON_KINDS.map(familyOfKind),
+	JSON_BODY_KINDS.map(familyOfKind),
 	sql` or `,
 )})`;
 
