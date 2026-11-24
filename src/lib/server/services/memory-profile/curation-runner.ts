@@ -49,6 +49,7 @@ import {
 	admittedNativeFacts,
 	assertCurationPublication,
 	curatedObservationChanges,
+	excludedNativeEvidence,
 	manualPublicationReceipts,
 	prepareNativeSnapshot,
 	publishedEditResult,
@@ -57,6 +58,7 @@ import {
 	readAcknowledgedFacts,
 	readPublishedMemory,
 	republishRenumberedNativeObservations,
+	withoutExcludedEvidence,
 } from "./publication";
 import {
 	acceptedCorrectionSources,
@@ -159,6 +161,18 @@ async function checkCandidate(
 	>,
 	model: CurationModel,
 ) {
+	// The checker judges exactly what publication would show: an item a
+	// refused Remove or a held source left out is not part of the candidate.
+	const { bank, memories } = db.transaction((tx) => {
+		const bank = actionFence(tx, ctx);
+		return {
+			bank,
+			memories: withoutExcludedEvidence(
+				candidate.memories,
+				excludedNativeEvidence(tx, bank),
+			),
+		};
+	});
 	const replays = candidate.replays ?? [];
 	const sourceIds = new Set([
 		...candidate.sourceIds,
@@ -171,14 +185,13 @@ async function checkCandidate(
 			),
 		).values(),
 	];
-	const proposedFacts = candidate.memories.filter(
+	const proposedFacts = memories.filter(
 		(m) => m.fact_type !== "observation" && sourceIds.has(m.document_id ?? ""),
 	);
 	const affected = new Set([
 		...originalFacts.map((f) => f.id),
 		...proposedFacts.map((f) => f.id),
 	]);
-	const bank = db.transaction((tx) => actionFence(tx, ctx));
 	const previousRows = bank.generation
 		? db
 				.select()
@@ -193,13 +206,13 @@ async function checkCandidate(
 		: [];
 	const previousById = new Map(previousRows.map((row) => [row.nativeId, row]));
 	const raw = new Map(
-		candidate.memories
+		memories
 			.filter((m) => m.fact_type !== "observation")
 			.map((m) => [m.id, m.text]),
 	);
-	const prepared = prepareNativeSnapshot(candidate.memories);
+	const prepared = prepareNativeSnapshot(memories);
 	const changedRows = new Set<string>();
-	const observations = candidate.memories.flatMap((row) => {
+	const observations = memories.flatMap((row) => {
 		if (row.fact_type !== "observation") return [];
 		const previous = previousById.get(row.id);
 		const ids = row.source_memory_ids ?? [];
@@ -220,7 +233,7 @@ async function checkCandidate(
 		return [{ id: row.id, text, sourceFactIds: ids }];
 	});
 	const liveIds = new Set(
-		candidate.memories
+		memories
 			.filter((row) => row.fact_type === "observation")
 			.map((row) => row.id),
 	);
@@ -2307,19 +2320,35 @@ export function prepareUnchangedSourceCuration(
 	accepted: NonNullable<ReturnType<typeof unchangedSourceInventory>>,
 ) {
 	const sourceIds = accepted.owners.map((owner) => owner.id);
-	function verify(memories: NativeMemory[]) {
+	const bankRef = {
+		id: source.bankId,
+		userId: source.userId,
+		epoch: source.epoch,
+	};
+	/**
+	 * Hindsight's snapshot and the facts the resend carries, as publication
+	 * reads them: what a refused Remove or a held source left out is neither
+	 * required nor published, and never makes the resend wait.
+	 */
+	function shown(memories: NativeMemory[], tx?: Tx) {
+		const excluded = tx
+			? excludedNativeEvidence(tx, bankRef)
+			: db.transaction((read) => excludedNativeEvidence(read, bankRef));
+		return {
+			memories: withoutExcludedEvidence(memories, excluded),
+			facts: accepted.facts.filter(({ id }) => !excluded.factIds.has(id)),
+		};
+	}
+	function verify(live: NativeMemory[], tx?: Tx) {
+		const { memories, facts } = shown(live, tx);
 		try {
-			verifySourceResult(memories, sourceIds, accepted.facts);
+			verifySourceResult(memories, sourceIds, facts);
 			const raw = new Map(
 				memories
 					.filter((fact) => fact.fact_type !== "observation")
 					.map((fact) => [fact.id, fact]),
 			);
-			if (
-				accepted.facts.some(
-					(fact) => raw.get(fact.id)?.document_id !== fact.sourceId,
-				)
-			)
+			if (facts.some((fact) => raw.get(fact.id)?.document_id !== fact.sourceId))
 				throw new Error("memory_unchanged_source_owner_mismatch");
 		} catch {
 			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
@@ -2336,17 +2365,18 @@ export function prepareUnchangedSourceCuration(
 	 */
 	function verifyUnchangedDisplay(
 		tx: Tx,
-		memories: NativeMemory[],
+		live: NativeMemory[],
 		dependencyChanged: boolean,
 	) {
 		const bank = actionFence(tx, ctx);
 		if (!bank.generation) return true;
+		const { memories, facts } = shown(live, tx);
 		const raw = new Map(
 			memories
 				.filter((fact) => fact.fact_type !== "observation")
 				.map((fact) => [fact.id, fact]),
 		);
-		const acceptedIds = new Set(accepted.facts.map((fact) => fact.id));
+		const acceptedIds = new Set(facts.map((fact) => fact.id));
 		const previous = tx
 			.select()
 			.from(memoryPublishedRows)
@@ -2478,7 +2508,7 @@ export function prepareUnchangedSourceCuration(
 			return { keepGeneration: false };
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
-			verify(memories);
+			verify(memories, tx);
 			assertCurrent(tx);
 			for (const owner of accepted.owners) {
 				if (owner.id !== predecessor.id) continue;

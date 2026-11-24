@@ -1,3 +1,4 @@
+import { eq as eqId } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
 
@@ -173,6 +174,211 @@ describe("accepted native publication", () => {
 		expect(() => f.pub.readPublishedMemory(h.userId, f.bank.id, old)).toThrow(
 			"memory_generation_stale",
 		);
+	});
+	/**
+	 * A second, independent fact beside the fixture's kayak, published once,
+	 * so a later publication has something unrelated to keep.
+	 */
+	async function withUnrelatedFact(f: Awaited<ReturnType<typeof fixture>>) {
+		const { eq } = await import("drizzle-orm");
+		const other = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "other-event",
+			lineageId: "other-message",
+			text: "I collect maps",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				state: "accepted",
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "maps", text: "Collects maps" },
+				]),
+			})
+			.where(eq(f.schema.memorySourceRevisions.id, other.id))
+			.run();
+		f.memories.push(
+			{
+				id: "maps",
+				text: "Collects maps",
+				fact_type: "world",
+				consolidated_at: "2026-11-19T00:00:00Z",
+				document_id: other.id,
+			},
+			{
+				id: "observation-maps",
+				text: "Collects maps",
+				fact_type: "observation",
+				source_memory_ids: ["maps"],
+			},
+		);
+		f.publish();
+		return other;
+	}
+	/** Hindsight holds `memories`; publication is asked again at the bank's revision. */
+	const republish = (f: Awaited<ReturnType<typeof fixture>>) =>
+		f.db.transaction((tx) => {
+			const bank = tx
+				.select()
+				.from(f.schema.memoryBanks)
+				.where(eqId(f.schema.memoryBanks.id, f.bank.id))
+				.get();
+			return f.pub.publishNativeSnapshot(tx, {
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				expectedRevision: bank?.revision ?? -1,
+				memories: f.memories,
+			});
+		});
+	const visibleTexts = (f: Awaited<ReturnType<typeof fixture>>) =>
+		f.pub
+			.readPublishedMemory(h.userId, f.bank.id)
+			.map((row) => row.text)
+			.sort();
+	it("holds publication while a Remove runs and leaves out exactly its facts once its job ended", async () => {
+		const f = await fixture();
+		await withUnrelatedFact(f);
+		expect(visibleTexts(f)).toEqual(["Collects maps", "Green kayak"]);
+		// The person removes the kayak: its fact is revoked at once, its job queued.
+		f.db
+			.insert(f.schema.memoryActions)
+			.values({
+				id: "remove-kayak",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				requestId: "6b1f0a52-6f61-4c4e-9a3e-1f6f6f0a5c01",
+				kind: "remove",
+				exclusionAcknowledged: true,
+				cleanupPending: true,
+				intentJson: JSON.stringify({
+					request: {
+						kind: "remove",
+						ref: {
+							scope: { kind: "personal" },
+							generation: "g",
+							rowId: "observation",
+						},
+						requestId: "6b1f0a52-6f61-4c4e-9a3e-1f6f6f0a5c01",
+					},
+					before: "Green kayak",
+					sourceIds: [f.source.id],
+					facts: [{ id: "fact", text: "Green kayak", sourceId: f.source.id }],
+				}),
+			})
+			.run();
+		f.db
+			.insert(f.schema.memoryRevocations)
+			.values({
+				id: "revocation-kayak",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				nativeFactId: "fact",
+				nativeTextHash: f.rev.memoryTextHash("Green kayak"),
+				actionId: "remove-kayak",
+			})
+			.run();
+		f.db
+			.insert(f.schema.memoryDeliveryJobs)
+			.values({
+				id: "remove-kayak-job",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "action",
+				actionId: "remove-kayak",
+				requestId: "action:remove-kayak",
+				status: "queued",
+			})
+			.run();
+		expect(visibleTexts(f)).toEqual(["Collects maps"]);
+		// Hindsight still holds the kayak and its observation.
+		expect(() => republish(f)).toThrow("memory_curation_publication_held");
+		// The checker refused the Remove: its job ended, its exclusion did not.
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({ status: "failed", errorCode: "memory_preparation_failed" })
+			.where(eqId(f.schema.memoryDeliveryJobs.id, "remove-kayak-job"))
+			.run();
+		const generation = republish(f);
+		const rows = f.db
+			.select()
+			.from(f.schema.memoryPublishedRows)
+			.where(eqId(f.schema.memoryPublishedRows.generation, generation))
+			.all();
+		expect(rows.map((row) => row.nativeId)).toEqual(["observation-maps"]);
+		expect(visibleTexts(f)).toEqual(["Collects maps"]);
+		// A retried Remove runs again, and holds the bank again while it does.
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({ status: "queued", errorCode: null })
+			.where(eqId(f.schema.memoryDeliveryJobs.id, "remove-kayak-job"))
+			.run();
+		expect(() => republish(f)).toThrow("memory_curation_publication_held");
+		expect(visibleTexts(f)).toEqual(["Collects maps"]);
+	});
+	it("leaves out a source whose delivery ended unaccepted and waits for one still queued", async () => {
+		const f = await fixture();
+		await withUnrelatedFact(f);
+		const held = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "held-event",
+			lineageId: "held-message",
+			text: "I drink coffee on the terrace",
+			context: "User statement",
+			assertedAt: new Date("2026-11-20"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eqId(f.schema.memorySourceRevisions.id, held.id))
+			.run();
+		f.db
+			.insert(f.schema.memoryDeliveryJobs)
+			.values({
+				id: "held-job",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: held.id,
+				requestId: `source:${held.id}`,
+				status: "queued",
+			})
+			.run();
+		f.memories.push(
+			{
+				id: "terrace",
+				text: "Coffee on the terrace",
+				fact_type: "world",
+				consolidated_at: "2026-11-20T00:00:00Z",
+				document_id: held.id,
+			},
+			{
+				id: "observation-terrace",
+				text: "Coffee on the terrace",
+				fact_type: "observation",
+				source_memory_ids: ["terrace"],
+			},
+		);
+		// Still on its way: another publication waits for it, as before.
+		expect(() => republish(f)).toThrow("memory_candidate_unaccepted");
+		// Its own check refused it: it never publishes, and nothing waits on it.
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({ status: "failed", errorCode: "memory_dependency_check_rejected" })
+			.where(eqId(f.schema.memoryDeliveryJobs.id, "held-job"))
+			.run();
+		republish(f);
+		expect(visibleTexts(f)).toEqual(["Collects maps", "Green kayak"]);
 	});
 	it("rejects replay with changed source identity even when text matches", async () => {
 		const f = await fixture();

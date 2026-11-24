@@ -120,6 +120,7 @@ export async function submitMemoryAction(
 		let previousResultActionId: string | undefined;
 		let sourceIds: string[] = [];
 		let facts: ActionIntentRecord["facts"] = [];
+		let familyFactIds: string[] | undefined;
 		let targetIds = new Set<string>();
 		if (action.kind !== "add") {
 			if (current.generation !== action.ref.generation)
@@ -141,11 +142,12 @@ export async function submitMemoryAction(
 					throw new MemoryRequestError("memory_action_pending", 409);
 			}
 			getMemoryDetail(userId, action.ref);
-			const row = readPublishedMemory(
+			const visible = readPublishedMemory(
 				userId,
 				bank.id,
 				action.ref.generation,
-			).find((r) => r.nativeId === action.ref.rowId);
+			);
+			const row = visible.find((r) => r.nativeId === action.ref.rowId);
 			if (!row) throw new MemoryRequestError("stale_memory", 409);
 			before = row.text;
 			if (action.kind === "edit") {
@@ -164,6 +166,17 @@ export async function submitMemoryAction(
 			targetIds = new Set(
 				readAcknowledgedFacts(row.sourceFingerprintsJson).map((f) => f.id),
 			);
+			if (action.kind === "remove")
+				familyFactIds = [
+					...new Set(
+						visible.flatMap((shown) => {
+							const ids = readAcknowledgedFacts(
+								shown.sourceFingerprintsJson,
+							).map((f) => f.id);
+							return ids.some((id) => targetIds.has(id)) ? ids : [];
+						}),
+					),
+				].sort();
 			const sources = tx
 				.select()
 				.from(memorySourceRevisions)
@@ -203,6 +216,7 @@ export async function submitMemoryAction(
 			before,
 			sourceIds,
 			facts,
+			...(familyFactIds ? { familyFactIds } : {}),
 		};
 		tx.insert(memoryActions)
 			.values({
