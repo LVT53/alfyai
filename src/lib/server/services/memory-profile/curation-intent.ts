@@ -125,12 +125,34 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 	return value as unknown as ActionIntentRecord;
 }
 
+/** A text's words, lowercased, with how many times each occurs. */
+function wordCounts(text: string) {
+	const counts = new Map<string, number>();
+	for (const word of text
+		.toLowerCase()
+		.normalize("NFC")
+		.match(/[\p{L}\p{N}]+/gu) ?? [])
+		counts.set(word, (counts.get(word) ?? 0) + 1);
+	return counts;
+}
+
 /**
- * What a changed resend's edit took away from the chats it carried: each fact
- * whose text its saved proposal changed, rewritten or invalidated, with the
- * text and chat it had. When the resend is refused for good these are left
- * out the way a Remove's facts are (`excludeRefusedSourceEdit`,
- * `excludedNativeEvidence`); the facts the proposal kept as they were stay.
+ * Whether the person's edit of their message took anything away: a word of
+ * the message before (counted) that the message after no longer has. An edit
+ * that only added to the message took nothing away.
+ */
+export function sourceEditTookAway(intent: ActionIntentRecord) {
+	if (intent.request.kind !== "edit") return true;
+	const after = wordCounts(intent.request.text);
+	for (const [word, count] of wordCounts(intent.before))
+		if ((after.get(word) ?? 0) < count) return true;
+	return false;
+}
+
+/**
+ * The facts of the chats a changed resend carried whose text its saved
+ * proposal changed, rewritten or invalidated, each with the text and chat it
+ * had: what a refused resend's proposal wrote.
  */
 export function sourceEditChangedFacts(intent: ActionIntentRecord) {
 	const proposed = new Map(
@@ -146,6 +168,18 @@ export function sourceEditChangedFacts(intent: ActionIntentRecord) {
 				.map((fact) => [fact.id, fact]),
 		).values(),
 	];
+}
+
+/**
+ * What a changed resend's edit took away from the chats it carried, the facts
+ * a refused resend leaves out the way a Remove's facts are left out
+ * (`excludeRefusedSourceEdit`, `excludedNativeEvidence`): when the person's
+ * edit took anything away from their message, every fact its proposal changed;
+ * when it only added, none (the proposal's changes are then put back, and the
+ * wording the person saw stays). The facts the proposal kept stay either way.
+ */
+export function sourceEditTakenFacts(intent: ActionIntentRecord) {
+	return sourceEditTookAway(intent) ? sourceEditChangedFacts(intent) : [];
 }
 
 export type ReplayCheck = {

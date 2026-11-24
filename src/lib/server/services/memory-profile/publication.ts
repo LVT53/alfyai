@@ -15,7 +15,7 @@ import type { NativeMemory } from "./contracts";
 import {
 	type ActionIntentRecord,
 	parseActionIntent,
-	sourceEditChangedFacts,
+	sourceEditTakenFacts,
 } from "./curation-intent";
 import { recordNativeFactLabels } from "./fact-labels";
 import { NativeMemoryError } from "./hindsight-client";
@@ -965,7 +965,7 @@ const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
  * the targeted facts (`familyFactIds`) and the facts its proposal changed:
  * Hindsight rebuilt their observations and nobody approved them. A changed
  * resend refused for good leaves out, whatever its job is doing, every fact
- * its edit took away from the chats it carried (`sourceEditChangedFacts`,
+ * its edit took away from the chats it carried (`sourceEditTakenFacts`,
  * the owner's privacy-first rule): a retry never writes its proposal again.
  * A source refused for its content (its delivery failed
  * `memory_dependency_check_rejected`, or its changed resend's source edit was
@@ -1038,9 +1038,7 @@ export function excludedNativeEvidence(
 			),
 		)
 		.all())
-		for (const fact of sourceEditChangedFacts(
-			parseActionIntent(edit.intentJson),
-		))
+		for (const fact of sourceEditTakenFacts(parseActionIntent(edit.intentJson)))
 			factIds.add(fact.id);
 	const sources = tx
 		.select({

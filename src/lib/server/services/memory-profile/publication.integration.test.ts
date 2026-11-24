@@ -695,12 +695,15 @@ describe("accepted native publication", () => {
 			context: "User statement",
 			assertedAt: new Date("2026-11-21"),
 		});
-		const intent = (outcome: "rejected" | "accepted") =>
+		const intent = (
+			outcome: "rejected" | "accepted",
+			text = "My kayak is blue",
+		) =>
 			JSON.stringify({
 				request: {
 					kind: "edit",
 					requestId: edited.id,
-					text: "My kayak is blue",
+					text,
 					ref: {
 						scope: { kind: "personal" },
 						generation: "source-edit",
@@ -820,6 +823,19 @@ describe("accepted native publication", () => {
 		f.db
 			.update(f.schema.memoryActions)
 			.set({ intentJson: intent("accepted") })
+			.where(eqId(f.schema.memoryActions.id, "source-edit"))
+			.run();
+		expect(excluded()).toEqual([]);
+		// Nor does a refused edit that only added to the message: it took
+		// nothing away, and what its proposal wrote is put back instead.
+		f.db
+			.update(f.schema.memoryActions)
+			.set({
+				intentJson: intent(
+					"rejected",
+					"My kayak is green. I paddle on Sundays too.",
+				),
+			})
 			.where(eqId(f.schema.memoryActions.id, "source-edit"))
 			.run();
 		expect(excluded()).toEqual([]);

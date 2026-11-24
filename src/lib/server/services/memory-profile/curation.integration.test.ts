@@ -3558,6 +3558,7 @@ it.each([
 	"changed resend refused at publication after exact carry",
 	"refused changed resend keeps the untouched fact",
 	"refused changed resend whose invalidation fails once",
+	"refused changed resend that only adds",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3644,6 +3645,9 @@ it.each([
 			mode === "refused changed resend keeps the untouched fact";
 		const invalidationFailsOnce =
 			mode === "refused changed resend whose invalidation fails once";
+		// An edit that only adds to the message takes nothing away.
+		const onlyAdds = mode === "refused changed resend that only adds";
+		const kettle = "My kettle is copper.";
 		const hasIndependentFact =
 			mode === "accepted carried next edit" ||
 			mode === "changed carry checks a surviving dependent" ||
@@ -3675,6 +3679,7 @@ it.each([
 			mode === "changed resend refused at publication after exact carry" ||
 			keepsUntouched ||
 			invalidationFailsOnce ||
+			onlyAdds ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
@@ -3736,7 +3741,17 @@ it.each([
 					});
 				} else {
 					const frame = JSON.parse(item.content);
-					if (
+					if (onlyAdds && frame.after === `${assertion} ${kettle}`) {
+						expect(frame).toMatchObject({
+							kind: "source_edit",
+							before: assertion,
+						});
+						nativeFacts.push({
+							id: "kettle",
+							text: kettle,
+							document_id: item.document_id,
+						});
+					} else if (
 						mode === "changed carry supplies original context" &&
 						frame.after === appended
 					) {
@@ -4263,7 +4278,8 @@ it.each([
 				mode === "refused changed resend after exact carry" ||
 				mode === "changed resend refused at publication after exact carry" ||
 				keepsUntouched ||
-				invalidationFailsOnce
+				invalidationFailsOnce ||
+				onlyAdds
 			) {
 				// The changed resend rewrites the carried fact natively. Either its
 				// final check refuses the result on every attempt, or publication
@@ -4365,7 +4381,11 @@ it.each([
 					});
 				}
 				await deleteMessages(["after"], { editSourceMessageId: "after" });
-				const edited = await persist("edited", "after", corrected);
+				const edited = await persist(
+					"edited",
+					"after",
+					onlyAdds ? `${assertion} ${kettle}` : corrected,
+				);
 				const deliveryOf = (sourceId: string) =>
 					f.db
 						.select()
@@ -4418,11 +4438,6 @@ it.each([
 					await retryRefused();
 				}
 				expect(fixture.patches).toContain("decaf");
-				// What the person's edit took away is excluded the way a removal
-				// excludes it (the owner's privacy-first choice): it is never put
-				// back, Hindsight no longer holds it as a live fact, and it is
-				// revoked whatever its wording. What the edit left stays.
-				expect(nativeFacts.find(({ id }) => id === "decaf")).toBeUndefined();
 				const sourceEdit = f.db
 					.select()
 					.from(f.s.memoryActions)
@@ -4431,19 +4446,42 @@ it.each([
 				expect(JSON.parse(sourceEdit?.intentJson ?? "{}").outcome).toBe(
 					"rejected",
 				);
-				expect(
-					f.db
-						.select()
-						.from(f.s.memoryRevocations)
-						.where(eq(f.s.memoryRevocations.nativeFactId, "decaf"))
-						.all(),
-				).toContainEqual(
-					expect.objectContaining({
-						nativeTextHash: null,
-						actionId: sourceEdit?.id,
-					}),
-				);
-				const untouched = keepsUntouched ? [independent] : [];
+				const decafRevocations = f.db
+					.select()
+					.from(f.s.memoryRevocations)
+					.where(eq(f.s.memoryRevocations.nativeFactId, "decaf"))
+					.all();
+				if (onlyAdds) {
+					// The person only added to their message: nothing was taken away,
+					// so the refused rewrite is put back to the wording the person saw
+					// and nothing is excluded.
+					expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
+						text: drink,
+						document_id: previous.id,
+					});
+					expect(
+						decafRevocations.filter(
+							({ actionId }) => actionId === sourceEdit?.id,
+						),
+					).toEqual([]);
+				} else {
+					// What the person's edit took away is excluded the way a removal
+					// excludes it (the owner's privacy-first choice): it is never put
+					// back, Hindsight no longer holds it as a live fact, and it is
+					// revoked whatever its wording. What the edit left stays.
+					expect(nativeFacts.find(({ id }) => id === "decaf")).toBeUndefined();
+					expect(decafRevocations).toContainEqual(
+						expect.objectContaining({
+							nativeTextHash: null,
+							actionId: sourceEdit?.id,
+						}),
+					);
+				}
+				const untouched = onlyAdds
+					? [drink]
+					: keepsUntouched
+						? [independent]
+						: [];
 				if (keepsUntouched)
 					expect(nativeFacts.find(({ id }) => id === "tyres")).toMatchObject({
 						text: independent,
@@ -4452,7 +4490,10 @@ it.each([
 				expect(shown()).toEqual(untouched);
 				expect(await recalled()).toEqual(untouched);
 				// The Overview written from the decaf card went with it.
-				expect(overview.readMemoryOverview(h.userId, scope).state).toBe("none");
+				if (!onlyAdds)
+					expect(overview.readMemoryOverview(h.userId, scope).state).toBe(
+						"none",
+					);
 				// A retry of the refused resend ends at once: it never writes its
 				// proposal again and the exclusion holds. (A refusal at publication
 				// ends the delivery for good; only an operator reopens it. After one
@@ -4461,7 +4502,9 @@ it.each([
 					const patchesBefore = fixture.patches.length;
 					await retryRefused();
 					expect(fixture.patches.length).toBe(patchesBefore);
-					expect(nativeFacts.find(({ id }) => id === "decaf")).toBeUndefined();
+					expect(nativeFacts.find(({ id }) => id === "decaf")?.text).toBe(
+						onlyAdds ? drink : undefined,
+					);
 					expect(shown()).toEqual(untouched);
 				}
 				// Later learning does not wait on the refused resend, and neither its
@@ -4478,10 +4521,12 @@ it.each([
 				expect(await recalled()).toEqual(learned);
 				await writeOverview();
 				expect(overviewInput).toContain(laterMessage);
-				if (keepsUntouched) expect(overviewInput).toContain(independent);
+				for (const text of untouched) expect(overviewInput).toContain(text);
 				for (const text of [overviewInput, ...shown(), ...(await recalled())]) {
-					expect(text).not.toContain("decaf");
+					if (!onlyAdds) expect(text).not.toContain("decaf");
+					expect(text).not.toContain("preferred decaf");
 					expect(text).not.toContain("black tea");
+					expect(text).not.toContain("kettle");
 				}
 				return;
 			}
