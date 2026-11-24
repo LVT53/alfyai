@@ -822,7 +822,8 @@ export async function runMemoryDelivery(
 				accepted,
 			);
 			if (source.nativeSubmitted) {
-				if (!source.nativeAcknowledged)
+				// An ended retain is never sent again and its end is known.
+				if (!source.nativeAcknowledged && !retainEndRecorded(source))
 					await settle(
 						client,
 						[source.nativeOperationId],

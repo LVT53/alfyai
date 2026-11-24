@@ -2197,6 +2197,87 @@ it("lifecycle regression: an unchanged edit resend keeps the predecessor’s sav
 	).toEqual(["sister bicycle"]);
 });
 
+it("an unchanged edit resend never asks Hindsight about its own retain whose end is recorded", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, [
+		{ forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] },
+		ckProposal("kayak", "", "sister"),
+		ckOkay,
+		ckOkay,
+	]);
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const rev = await import("./revisions");
+	const pub = await import("./publication");
+	const { eq } = await import("drizzle-orm");
+	await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: ckRef,
+		requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	rev.revokeMemorySources(h.userId, [f.source.id]);
+	const next = rev.recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: "unchanged",
+		lineageId: f.source.lineageId,
+		predecessorSourceId: f.source.id,
+		text: f.source.text,
+		context: "",
+		assertedAt: f.source.assertedAt,
+	});
+	// An earlier attempt sent the resend's retain, saw it cancelled and recorded
+	// that end, then was lost before its failure was written; Hindsight has since
+	// forgotten the operation.
+	const ended = next.nativeOperationId as string;
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			nativeSubmitted: true,
+			nativeAcknowledged: false,
+			context: JSON.stringify({
+				nativeRetainEnded: { operationId: ended, reason: "cancelled" },
+			}),
+		})
+		.where(eq(f.s.memorySourceRevisions.id, next.id))
+		.run();
+	const asked: string[] = [];
+	const inner = fixture.fetcher.getMockImplementation();
+	if (!inner) throw Error("Missing fixture fetch");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const op = String(url).split("/operations/")[1];
+		if (op && decodeURIComponent(op) === ended) {
+			asked.push(ended);
+			return new Response("missing", { status: 404 });
+		}
+		return inner(url, init);
+	});
+	const queued = await jobs.enqueueMemoryDelivery({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		kind: "source",
+		sourceId: next.id,
+		requestId: "unchanged",
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const row = f.db
+		.select()
+		.from(f.s.memoryDeliveryJobs)
+		.where(eq(f.s.memoryDeliveryJobs.id, queued.row.id))
+		.get();
+	expect({ status: row?.status, code: row?.errorCode }).toEqual({
+		status: "succeeded",
+		code: null,
+	});
+	expect(asked).toEqual([]);
+	expect(
+		pub.readPublishedMemory(h.userId, f.bank.id).map((r) => r.text),
+	).toEqual(["sister bicycle"]);
+});
+
 it("an unrelated delivery cannot publish a previously refused Remove observation", async () => {
 	const f = await setup();
 	const fixture = await nativeFixture(f, [
