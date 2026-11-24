@@ -662,8 +662,14 @@ test.describe("Pictures end to end", () => {
 		await expect(tiles.nth(0).getByTestId("image-card-in-use")).toHaveCount(0);
 		await expect(page.getByTestId("image-card-use")).toBeHidden();
 
-		// History lists both versions, each with a thumbnail.
-		await page.getByRole("button", { name: "More" }).click();
+		// History lists both versions, each with a thumbnail. The card's own
+		// More: a page-wide "More" also matched the sidebar's search button,
+		// whose name ends in "and more".
+		await page
+			.locator(CARD)
+			.last()
+			.getByRole("button", { name: "More", exact: true })
+			.click();
 		await page.getByTestId("image-card-history").click();
 		const history = page.getByTestId("artifact-history");
 		await expect(history).toBeVisible({ timeout: 20_000 });
