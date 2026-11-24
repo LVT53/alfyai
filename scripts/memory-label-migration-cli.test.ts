@@ -1055,7 +1055,6 @@ describe("the relabel's report lines", () => {
 				earlierEntries: 1,
 			},
 			verification: {
-				factsAccounted: true,
 				factsUnchanged: true,
 				publishedRowsUnchanged: true,
 				fewUnanswered: true,

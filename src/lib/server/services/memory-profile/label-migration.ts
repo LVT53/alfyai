@@ -7,6 +7,7 @@ import {
 	memoryAccounts,
 	memoryBanks,
 	memoryFactLabels,
+	memoryLabelRelabels,
 	memoryPublishedRows,
 	memoryRevocations,
 	memorySourceRevisions,
@@ -604,6 +605,8 @@ export interface BankRead {
 	/** Raw facts the person removed (a revoked source's, or one a revocation names): never sent. */
 	removed: number;
 	labels: Map<string, FactLabels>;
+	/** Each listed fact's document (its source's id), for the removal check a caller repeats before it sends. */
+	documentIds: Map<string, string | null>;
 	kinds: Partial<Record<MemoryKind, number>>;
 	subjects: Partial<Record<MemorySubject, number>>;
 }
@@ -634,6 +637,9 @@ export async function readBankFacts(
 		facts,
 		removed: listed.length - facts.length,
 		labels,
+		documentIds: new Map(
+			listed.map((fact) => [fact.id, fact.document_id ?? null]),
+		),
 		...labelCounts(facts, labels),
 	};
 }
@@ -813,7 +819,7 @@ async function listBank(
  * and a fact of a source that is revoked or that a revocation names, unless a
  * source the person kept still acknowledges it.
  */
-function removedByPerson(
+export function removedByPerson(
 	database: DatabaseInstance,
 	bankId: string,
 ): (fact: NativeMemory) => boolean {
@@ -992,8 +998,9 @@ export interface LabelRollbackReport {
  * gave a fact without a kind (the classifier wrote over it; the next
  * publication copies it back from the fact's tags, and today's page, where the
  * account is sent, shows no subjects); and the rows' `updated_at`. It undoes
- * every classifier label of the epoch: the migration is their only writer
- * today, so a fallback classifier for new facts would need its own record.
+ * every classifier label of the epoch, the relabel's included, and forgets the
+ * relabel's records of that epoch with them; a fallback classifier for new
+ * facts, when there is one, would need its own record.
  */
 export function rollbackLabelMigration(
 	input: { userId: string; execute: boolean },
@@ -1077,6 +1084,12 @@ export function rollbackLabelMigration(
 						updatedAt: now,
 					})
 					.where(classified(bank.id))
+					.run();
+				// The relabel's records stand on the labels just cleared: one that
+				// outlived them would keep its fact from being asked again, or put
+				// an old label back over a newer one.
+				tx.delete(memoryLabelRelabels)
+					.where(eq(memoryLabelRelabels.bankId, bank.id))
 					.run();
 			}
 			// Truly today's page: the verification is forgotten too, so an

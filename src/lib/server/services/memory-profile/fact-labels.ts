@@ -168,8 +168,10 @@ export function recordClassifiedFactLabels(
 	tx: Tx,
 	bankId: string,
 	labels: ReadonlyMap<string, { kind: MemoryKind; subject: MemorySubject }>,
+	/** When the labels are written, for a writer that records the same moment elsewhere (the relabel). */
+	at: Date = new Date(),
 ): void {
-	const now = new Date();
+	const now = at;
 	for (const [nativeFactId, { kind, subject }] of labels)
 		tx.insert(memoryFactLabels)
 			.values({

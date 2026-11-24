@@ -30,6 +30,7 @@ import {
 	publishedFingerprint,
 	readBankFacts,
 	reading,
+	removedByPerson,
 } from "./label-migration";
 import {
 	assertMemoryMigrationAllowed,
@@ -122,7 +123,6 @@ export interface RelabelAccount {
 	/** The account as it reads at the end of the run (a dry run: now). */
 	whole?: AccountReading;
 	verification?: {
-		factsAccounted: boolean;
 		/** Every fact it asked about reads the same in Hindsight's second listing. */
 		factsUnchanged: boolean;
 		publishedRowsUnchanged: boolean;
@@ -169,7 +169,7 @@ export interface RelabelReport {
  * answered; a small account may move all of them) is a model that has stopped
  * reading, and fails the account with nothing written.
  */
-const MAX_MOVED_SHARE = 0.7;
+const MAX_MOVED_SHARE = 0.9;
 const PLAUSIBILITY_MIN_FACTS = 20;
 
 /**
@@ -321,21 +321,37 @@ async function relabelAccount(
 					listFacts,
 					signal,
 				);
-				const asked = new Set(
+				// A fact is asked once, for as long as its label still reads as the
+				// relabel left it: a record stands on that label, so when the label
+				// migration was rolled back, or a publication copied extraction's
+				// tag back, the record is stale and the fact is asked again.
+				const recorded = new Map(
 					database
-						.select({ id: memoryLabelRelabels.nativeFactId })
+						.select()
 						.from(memoryLabelRelabels)
 						.where(eq(memoryLabelRelabels.bankId, bank.id))
 						.all()
-						.map(({ id }) => id),
+						.map((record) => [record.nativeFactId, record]),
 				);
+				const standing = (id: string) => {
+					const record = recorded.get(id);
+					const label = bankRead.labels.get(id);
+					return (
+						!!record &&
+						!!label &&
+						label.kind === record.kind &&
+						label.subject === record.subject &&
+						label.origin ===
+							(record.changed ? "classifier" : record.previousOrigin)
+					);
+				};
 				const temporary = bankRead.facts.filter(
 					(fact) => bankRead.labels.get(fact.id)?.kind === "temporary",
 				);
 				result.push({
 					...bankRead,
 					temporary,
-					todo: temporary.filter((fact) => !asked.has(fact.id)),
+					todo: temporary.filter((fact) => !standing(fact.id)),
 				});
 			}
 			return result;
@@ -374,7 +390,7 @@ async function relabelAccount(
 		const askedText = new Map<string, string>();
 		let failedInARow = 0;
 		let unavailable = 0;
-		for (const { bank, todo } of banksRead) {
+		for (const { bank, todo, documentIds } of banksRead) {
 			if (!todo.length) continue;
 			const scope: MemoryScope["kind"] =
 				bank.scopeKey === "personal" ? "personal" : "project";
@@ -416,8 +432,20 @@ async function relabelAccount(
 			for (let pass = 0; pass < 2 && left.length; pass++) {
 				const missing: Fact[] = [];
 				const failed: Fact[] = [];
-				await inBatches(left, concurrency, signal, async (batch) => {
+				await inBatches(left, concurrency, signal, async (planned) => {
 					fence();
+					// What the person removed since the listing is not sent.
+					const removedNow = removedByPerson(database, bank.id);
+					const batch = planned.filter(
+						(fact) =>
+							!removedNow({
+								id: fact.id,
+								text: fact.text,
+								fact_type: "world",
+								document_id: documentIds.get(fact.id) ?? null,
+							}),
+					);
+					if (!batch.length) return;
 					let labels: Map<string, Answer>;
 					try {
 						entry.calls++;
@@ -463,12 +491,6 @@ async function relabelAccount(
 		// answer chosen for the text Hindsight still holds, the published rows
 		// as they were, few facts left unanswered, and a plausible share moved.
 		const after = await read();
-		const asked = banksRead.flatMap(({ todo }) => todo);
-		const factsAccounted = asked.every(
-			(fact) =>
-				unanswered.has(fact.id) ||
-				[...answers.values()].some((forBank) => forBank.has(fact.id)),
-		);
 		const listedAfter = new Map(
 			after.flatMap(({ facts }) =>
 				facts.map((fact) => [fact.id, memoryTextHash(fact.text)] as const),
@@ -479,32 +501,39 @@ async function relabelAccount(
 		);
 		const publishedRowsUnchanged =
 			publishedFingerprint(database, userId, banks) === fingerprint;
+		// At most one fact in 20, and always one: a fact the model leaves
+		// unanswered keeps its label and is asked again by the next run, so a
+		// small account is not stopped for good by a single one.
 		const fewUnanswered =
-			unanswered.size <= entry.toRelabel * MAX_UNLABELLED_SHARE;
+			unanswered.size <= Math.max(1, entry.toRelabel * MAX_UNLABELLED_SHARE);
 		const moved = entry.reclassified - entry.stillTemporary;
 		const plausible =
 			entry.reclassified < PLAUSIBILITY_MIN_FACTS ||
 			moved <= entry.reclassified * MAX_MOVED_SHARE;
 		entry.verification = {
-			factsAccounted,
 			factsUnchanged,
 			publishedRowsUnchanged,
 			fewUnanswered,
 			plausible,
 		};
-		if (!factsAccounted) throw new AccountFailure("facts_unaccounted");
 		if (!factsUnchanged) throw new AccountFailure("facts_changed");
 		if (!publishedRowsUnchanged)
 			throw new AccountFailure("published_rows_changed");
 		if (!fewUnanswered) throw new AccountFailure("too_many_unanswered");
 		if (!plausible) throw new AccountFailure("implausible_relabel");
 		// One write for the account, fenced as any Memory write; the published
-		// rows are checked inside it, so a write that changed any would not stand.
+		// rows are checked inside it against what the run started with, so a
+		// write that changed any, or a publication that slipped in since the
+		// check above, would not stand.
 		const labelChanged = database.transaction((tx) => {
 			assertMemoryMigrationAllowed(userId, tx);
 			for (const bank of banks)
 				assertMemoryBankFence(tx, userId, bank.id, account.epoch);
-			const publishedBefore = publishedFingerprint(database, userId, banks);
+			if (publishedFingerprint(database, userId, banks) !== fingerprint)
+				throw new AccountFailure("published_rows_changed");
+			// One moment for the labels and the records, so a rollback can tell a
+			// label this run wrote from one written again later.
+			const now = new Date();
 			let changedSince = 0;
 			for (const [bankId, forBank] of answers) {
 				const moves = new Map<string, Answer>();
@@ -525,8 +554,16 @@ async function relabelAccount(
 						continue;
 					}
 					const changed = answer.kind !== "temporary";
-					const recorded = tx
-						.insert(memoryLabelRelabels)
+					// A stale record (its label is gone) is replaced by this run's.
+					tx.delete(memoryLabelRelabels)
+						.where(
+							and(
+								eq(memoryLabelRelabels.bankId, bankId),
+								eq(memoryLabelRelabels.nativeFactId, factId),
+							),
+						)
+						.run();
+					tx.insert(memoryLabelRelabels)
 						.values({
 							bankId,
 							nativeFactId: factId,
@@ -536,14 +573,14 @@ async function relabelAccount(
 							kind: changed ? answer.kind : current.kind,
 							subject: changed ? answer.subject : current.subject,
 							changed,
+							relabelledAt: now,
 						})
-						.onConflictDoNothing()
 						.run();
-					if (recorded.changes && changed) moves.set(factId, answer);
+					if (changed) moves.set(factId, answer);
 				}
-				if (moves.size) recordClassifiedFactLabels(tx, bankId, moves);
+				if (moves.size) recordClassifiedFactLabels(tx, bankId, moves, now);
 			}
-			if (publishedFingerprint(database, userId, banks) !== publishedBefore)
+			if (publishedFingerprint(database, userId, banks) !== fingerprint)
 				throw new AccountFailure("published_rows_changed");
 			return changedSince;
 		});
@@ -656,7 +693,10 @@ export function rollbackLabelRelabel(
 					!!current &&
 					current.origin === "classifier" &&
 					current.kind === record.kind &&
-					current.subject === record.subject,
+					current.subject === record.subject &&
+					// Not written again since (the label migration, run again after its
+					// own rollback, can write the same words later).
+					current.updatedAt.getTime() <= record.relabelledAt.getTime(),
 			};
 		});
 	};

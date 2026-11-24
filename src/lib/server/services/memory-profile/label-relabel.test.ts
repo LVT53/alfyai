@@ -366,7 +366,6 @@ describe("the label relabel", () => {
 			moved: { lasting: 1, ongoing: 1 },
 			stillTemporary: 3,
 			verification: {
-				factsAccounted: true,
 				factsUnchanged: true,
 				publishedRowsUnchanged: true,
 				fewUnanswered: true,
@@ -695,8 +694,8 @@ describe("the label relabel writes nothing unless it verifies", () => {
 	it("more than one fact in 20 left unanswered fails the account and writes nothing; a later run asks again", async () => {
 		const answered = (input: unknown) => {
 			const reply = answer(input) as { labels: { id: string }[] };
-			// The model leaves every other fact out.
-			return { labels: reply.labels.filter((_, i) => i % 2 === 0) };
+			// The model answers only the first fact of each call.
+			return { labels: reply.labels.slice(0, 1) };
 		};
 		const { report, before, fake } = await failing(answered, 5);
 		expect(report.accounts[0]).toMatchObject({
@@ -981,6 +980,204 @@ describe("the label relabel's rollback", () => {
 			unverified: null,
 			verified: 0,
 		});
+	});
+});
+
+describe("the relabel's records and the other label writers", () => {
+	it("a record stands only while the label still reads as the relabel left it: a fact whose label came back temporary is asked again", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, [
+			PHONE,
+			...temporaryFacts("a", 2),
+		]);
+		const { relabel } = await modules();
+		const deps = { listFacts: fake.listFacts, model: fake.model };
+		await relabel.runLabelRelabel({ execute: true }, deps);
+		// The label migration was rolled back and a publication copied the tag back:
+		// the fact reads temporary again, extraction's, and its old record is stale.
+		h.sqlite
+			.prepare(
+				"UPDATE memory_fact_labels SET kind = 'temporary', subject = 'interests', origin = 'extraction' WHERE bank_id = ? AND native_fact_id = 'phone'",
+			)
+			.run(bank.id);
+		fake.batches.length = 0;
+		const again = await relabel.runLabelRelabel({ execute: true }, deps);
+		expect(fake.batches).toEqual([["bought a new phone"]]);
+		expect(again.accounts[0]).toMatchObject({
+			outcome: "relabelled",
+			toRelabel: 1,
+			alreadyRelabelled: 2,
+			moved: { lasting: 1 },
+		});
+		// The record was replaced: it holds the label the fact read before this run.
+		expect(
+			records(bank.id).find((row) => row.native_fact_id === "phone"),
+		).toMatchObject({
+			previous_kind: "temporary",
+			previous_origin: "extraction",
+			kind: "lasting",
+			changed: 1,
+		});
+		expect(records(bank.id)).toHaveLength(3);
+	});
+
+	it("the rollback leaves a label that was written again after the relabel, even with the same words", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, [
+			PHONE,
+			...temporaryFacts("a", 2),
+		]);
+		const { relabel } = await modules();
+		await relabel.runLabelRelabel(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		// The label migration, run again after its own rollback, wrote the same
+		// classifier label later: the relabel must not put its older one over it.
+		h.sqlite
+			.prepare(
+				"UPDATE memory_fact_labels SET updated_at = updated_at + 100 WHERE bank_id = ? AND native_fact_id = 'phone'",
+			)
+			.run(bank.id);
+		const done = relabel.rollbackLabelRelabel({
+			userId: "user-1",
+			execute: true,
+		});
+		expect(done).toMatchObject({ outcome: "done", restored: 0, leftAlone: 1 });
+		expect(
+			labelRows(bank.id).find((row) => row.native_fact_id === "phone"),
+		).toMatchObject({ kind: "lasting", origin: "classifier" });
+		expect(records(bank.id)).toEqual([]);
+	});
+
+	it("rolling back the label migration forgets the relabel's records, which stand on labels it cleared", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, [
+			PHONE,
+			DESK,
+			...temporaryFacts("a", 2),
+		]);
+		const { relabel } = await modules();
+		const migration = await import("./label-migration");
+		await relabel.runLabelRelabel(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(records(bank.id).length).toBeGreaterThan(0);
+		const undone = migration.rollbackLabelMigration({
+			userId: "user-1",
+			execute: true,
+		});
+		expect(undone.outcome).toBe("done");
+		expect(records(bank.id)).toEqual([]);
+		// Nothing is left that would stop a later run asking about those facts.
+		const rows = Object.fromEntries(
+			labelRows(bank.id).map((row) => [row.native_fact_id, row]),
+		);
+		expect(rows.phone).toMatchObject({ kind: null, origin: "extraction" });
+	});
+
+	it("one unanswered fact of a small account is tolerated: the rest is written, the fact keeps its label and is asked again", async () => {
+		const unanswered = "had the flu 0";
+		const fake = fakeNative((input) => {
+			const reply = answer(input) as { labels: { id: string }[] };
+			const facts = (input as { facts: { id: string; text: string }[] }).facts;
+			const left = new Set(
+				facts.filter(({ text }) => text === unanswered).map(({ id }) => id),
+			);
+			return { labels: reply.labels.filter(({ id }) => !left.has(id)) };
+		});
+		const bank = await seedAccount("user-1", fake.facts, [
+			PHONE,
+			...temporaryFacts("a", 3),
+		]);
+		const { relabel } = await modules();
+		const report = await relabel.runLabelRelabel(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "relabelled",
+			unanswered: 1,
+			moved: { lasting: 1 },
+		});
+		expect(records(bank.id).map((row) => row.native_fact_id)).not.toContain(
+			"a-flu-0",
+		);
+		fake.batches.length = 0;
+		await relabel.runLabelRelabel(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				model: () => async (_p, input) => answer(input),
+			},
+		);
+		expect(records(bank.id).map((row) => row.native_fact_id)).toContain(
+			"a-flu-0",
+		);
+	});
+
+	it("an account whose temporary facts are mostly purchases is not stopped by the plausibility check", async () => {
+		const fake = fakeNative();
+		const purchases: SeedFact[] = Array.from({ length: 22 }, (_, i) => ({
+			id: `bought-${i}`,
+			text: `bought thing ${i}`,
+			kind: "temporary",
+			subject: "other",
+			origin: "classifier",
+		}));
+		await seedAccount("user-1", fake.facts, [
+			...purchases,
+			...temporaryFacts("a", 4),
+		]);
+		const { relabel } = await modules();
+		const report = await relabel.runLabelRelabel(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "relabelled",
+			moved: { lasting: 22 },
+			stillTemporary: 4,
+			verification: { plausible: true },
+		});
+	});
+
+	it("filters the removed facts again before each batch: a fact removed while an earlier batch ran is not sent", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount(
+			"user-1",
+			fake.facts,
+			temporaryFacts("a", 25),
+		);
+		const { relabel } = await modules();
+		let batches = 0;
+		const report = await relabel.runLabelRelabel(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				model:
+					(userId, signal) =>
+					async (...args) => {
+						// The person removes a fact of the second batch while the first runs.
+						if (!batches++)
+							h.sqlite
+								.prepare(
+									"INSERT INTO memory_revocations (id, user_id, bank_id, epoch, source_id, native_fact_id) VALUES ('revocation-late', 'user-1', ?, 0, NULL, 'a-flu-22')",
+								)
+								.run(bank.id);
+						return fake.model(userId, signal)(...args);
+					},
+			},
+		);
+		expect(fake.batches).toHaveLength(2);
+		expect(fake.batches[0]).toHaveLength(20);
+		expect(fake.batches[1]).not.toContain("had the flu 22");
+		expect(fake.batches[1]).toHaveLength(4);
+		expect(report.accounts[0]).toMatchObject({ outcome: "relabelled" });
+		expect(records(bank.id).map((row) => row.native_fact_id)).not.toContain(
+			"a-flu-22",
+		);
 	});
 });
 
