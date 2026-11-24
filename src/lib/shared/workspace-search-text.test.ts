@@ -70,6 +70,15 @@ describe("workspace search text", () => {
 		expect(searchTerms('"Kitchen,"')).toEqual(["kitchen"]);
 	});
 
+	it("drops control characters from the words", () => {
+		expect(searchTerms("gar\u0000den\u0007 kit\u001bchen")).toEqual([
+			"garden",
+			"kitchen",
+		]);
+		expect(typedSearchWords("Gar\u0000den")).toEqual(["garden"]);
+		expect(searchTerms("\u0000\u0001")).toEqual([]);
+	});
+
 	it("cuts each word to 64 characters", () => {
 		const [term] = searchTerms("x".repeat(100));
 		expect(term).toHaveLength(64);

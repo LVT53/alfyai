@@ -206,6 +206,13 @@ describe("searchChats", () => {
 		expect(await found("not")).toEqual(["c4"]);
 	});
 
+	it("answers a query holding a control character", async () => {
+		addChat({ id: "c1", title: "Notes", messages: ["the garden plan"] });
+		const answer = await searchWorkspace(OWNER, { query: "gar\u0000den" });
+		expect(answer.mode).toBe("query");
+		expect(answer.conversations.map((row) => row.id)).toEqual(["c1"]);
+	});
+
 	it("never finds another person's message through the index", async () => {
 		addChat({ id: "mine", title: "Mine", messages: ["Árvíztűrő gép"] });
 		addChat({

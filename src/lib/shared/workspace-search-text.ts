@@ -74,10 +74,17 @@ interface QueryWord {
  * The query's words, each as typed (accents kept, lower case) and as folded.
  * One pass makes both lists, so `typed[i]` is always the spelling of `folded[i]`.
  */
+/** Control characters are no part of a word (a NUL ends an FTS5 query string). */
+const CONTROL_CHARS = /\p{Cc}/gu;
+
 function queryWords(query: string): QueryWord[] {
 	const words: QueryWord[] = [];
 	const seen = new Set<string>();
-	for (const token of query.normalize("NFC").toLowerCase().split(/\s+/u)) {
+	for (const token of query
+		.normalize("NFC")
+		.toLowerCase()
+		.split(/\s+/u)
+		.map((part) => part.replace(CONTROL_CHARS, ""))) {
 		if (words.length >= SEARCH_MAX_TERMS) break;
 		const typed = cutToChars(trimEdges(token), SEARCH_MAX_TERM_CHARS);
 		const folded = trimEdges(foldForSearch(typed));
