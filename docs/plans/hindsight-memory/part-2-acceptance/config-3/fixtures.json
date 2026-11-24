@@ -822,5 +822,114 @@
 			"subject": "other",
 			"assistant": "A fotoszintézis az a folyamat, amelynek során a növények, az algák és néhány baktérium a fényt, a vizet és a szén-dioxidot cukorrá és oxigénné alakítja. Két összekapcsolt szakaszban zajlik a kloroplasztiszokban. A fényszakaszban a klorofill elnyeli a napfényt, és az energiájával hasítja a vizet, közben oxigén szabadul fel, az energia pedig ATP-ben és NADPH-ban raktározódik. A Calvin-ciklusban a növény ezt az energiát használja a szén-dioxid glükózzá alakítására. A folyamat sebességét a fényerő, a hőmérséklet és a szén-dioxid mennyisége is befolyásolja. Szívesen részletezem bármelyik lépést."
 		}
+	],
+	"plan": [
+		{
+			"id": "plan-en-1",
+			"lang": "en",
+			"user": "I'm picking up my new laptop from the shop on Saturday.",
+			"markers": [
+				"laptop"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-en-2",
+			"lang": "en",
+			"user": "I'm selling my old sofa this Sunday to a guy from the neighbourhood.",
+			"markers": [
+				"sofa"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-en-3",
+			"lang": "en",
+			"user": "I'm going to buy a new phone next week.",
+			"markers": [
+				"phone"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-en-4",
+			"lang": "en",
+			"user": "My new bike is being delivered on Friday.",
+			"markers": [
+				"bike"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-en-5",
+			"lang": "en",
+			"user": "I booked a table at the restaurant for Friday evening.",
+			"markers": [
+				"table",
+				"restaurant"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-hu-1",
+			"lang": "hu",
+			"user": "Szombaton megyek érte az új laptopomért a boltba.",
+			"markers": [
+				"laptop"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-hu-2",
+			"lang": "hu",
+			"user": "Vasárnap eladom a régi kanapémat egy szomszédnak.",
+			"markers": [
+				"kanapé",
+				"sofa"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-hu-3",
+			"lang": "hu",
+			"user": "A jövő héten veszek egy új telefont.",
+			"markers": [
+				"telefon",
+				"phone"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-hu-4",
+			"lang": "hu",
+			"user": "Pénteken szállítják az új biciklimet.",
+			"markers": [
+				"bicikli",
+				"bike"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "plan-hu-5",
+			"lang": "hu",
+			"user": "Foglaltam asztalt pénteken estére egy étterembe.",
+			"markers": [
+				"asztal",
+				"étterem",
+				"table",
+				"restaurant"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		}
 	]
 }

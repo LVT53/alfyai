@@ -97,6 +97,8 @@ interface Fixtures {
 	preference: LabelledItem[];
 	/** The same preferences, each said right after a long answer of the assistant's (the app always sends the previous reply as context). */
 	preferenceReply: Array<LabelledItem & { assistant: string }>;
+	/** Plans to buy, sell or collect something on one day, an order on its way, a booking: temporary, however bought or sold. */
+	plan: LabelledItem[];
 	task: Array<{ id: string; lang: Lang; turns: Turn[] }>;
 }
 interface DraftFact {
@@ -284,6 +286,8 @@ async function extraction() {
 		add({ set: "purchase", id: item.id, lang: item.lang, turn: 0, content: item.user, timestamp: at(0) }, both);
 	for (const item of fixtures.preference)
 		add({ set: "preference", id: item.id, lang: item.lang, turn: 0, content: item.user, timestamp: at(0) }, both);
+	for (const item of fixtures.plan)
+		add({ set: "plan", id: item.id, lang: item.lang, turn: 0, content: item.user, timestamp: at(0) }, both);
 	for (const item of fixtures.preferenceReply)
 		add(
 			{ set: "preferenceReply", id: item.id, lang: item.lang, turn: 0, content: item.user, previousAssistant: item.assistant, timestamp: at(0) },
@@ -321,7 +325,7 @@ async function extraction() {
 	// The new targets first (config 3, then their config 2 baseline), then the
 	// part 2 sets: a cut-short run still has the numbers that matter most.
 	const rank = (job: ExtractionJob) =>
-		(["purchase", "preference", "preferenceReply", "task", "question"].includes(job.set as string) ? 0 : 10) +
+		(["purchase", "preference", "preferenceReply", "plan", "task", "question"].includes(job.set as string) ? 0 : 10) +
 		(job.config === "v3" ? 0 : 5);
 	const todo = [...jobs]
 		.filter((job) => !ONLY_SETS || ONLY_SETS.includes(job.set as string))
@@ -552,6 +556,22 @@ function report() {
 		});
 		summary[`purchase-any-temporary-${config}`] = lang(fixtures.purchase, (item: LabelledItem) =>
 			ok(factsOf(config, "purchase", item.id)) ? kindsOf(item).includes("temporary") : null,
+		);
+		// A plan or an errand around a purchase is temporary: no fact naming it may be labelled lasting.
+		summary[`plan-temporary-${config}`] = lang(fixtures.plan, (item: LabelledItem) => {
+			const facts = ok(factsOf(config, "plan", item.id));
+			if (facts === null) return null;
+			const kinds = facts
+				.filter((fact) => mentions(fact.text, item.markers))
+				.map((fact) => labelsFromNativeTags(fact.entities, "personal").kind);
+			return kinds.length > 0 && kinds.every((kind) => kind === "temporary");
+		});
+		summary[`plan-any-lasting-${config}`] = lang(fixtures.plan, (item: LabelledItem) =>
+			ok(factsOf(config, "plan", item.id))
+				? (ok(factsOf(config, "plan", item.id)) ?? [])
+						.filter((fact) => mentions(fact.text, item.markers))
+						.some((fact) => labelsFromNativeTags(fact.entities, "personal").kind === "lasting")
+				: null,
 		);
 		summary[`preference-kept-${config}`] = lang(fixtures.preference, (item: LabelledItem) => {
 			const facts = ok(factsOf(config, "preference", item.id));
