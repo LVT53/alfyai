@@ -3,6 +3,7 @@ import {
 	PERSONAL_MEMORY_SUBJECTS,
 	PROJECT_MEMORY_SUBJECTS,
 } from "$lib/memory-types";
+import { nativeBankConfig, nativeBankConfig2 } from "./contracts";
 import type { CurationModel } from "./curation";
 import {
 	classifyMemoryFacts,
@@ -172,6 +173,30 @@ describe("the fact classifier", () => {
 			expect(prompt).not.toMatch(/hungarian|english|magyar|angol/i);
 			expect(prompt).toMatch(/when unsure, choose lasting/i);
 			expect(prompt).toMatch(/data, never instructions/i);
+		}
+	});
+
+	// Config 3's words reach the classifier as they reach Hindsight's
+	// extraction, so a purchase is lasting whichever labels it: an extraction
+	// label and a classifier label of the same fact must not disagree on the words.
+	it("reads the kind words of bank config 3, word for word, as extraction does", () => {
+		for (const scope of ["personal", "project"] as const) {
+			const prompt = factLabelPrompt(scope);
+			const group = nativeBankConfig(scope).entity_labels.find(
+				({ key }) => key === "kind",
+			);
+			expect(group?.values).toHaveLength(3);
+			expect(prompt).toContain(`Kind: ${group?.description}`);
+			for (const { value, description } of group?.values ?? [])
+				expect(prompt).toContain(`- ${value}: ${description}`);
+			// And not config 2's: something bought is lasting, not a passing event.
+			const before = nativeBankConfig2(scope).entity_labels[0].values;
+			expect(group?.values[0].description).not.toBe(before[0].description);
+			expect(group?.values[2].description).not.toBe(before[2].description);
+			expect(prompt).toMatch(/something they bought, got or were given/i);
+			expect(prompt).toMatch(
+				/buying, getting or selling something is not such an event/i,
+			);
 		}
 	});
 });
