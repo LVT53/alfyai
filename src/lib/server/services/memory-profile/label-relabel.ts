@@ -80,6 +80,12 @@ export type RelabelSkip =
 	/** Every temporary fact was asked about already (or there is none). */
 	| "nothing_to_relabel";
 
+/** What the relabel acts through: the migration's, with its own per-account callback. */
+export type RelabelDeps = Omit<LabelMigrationDeps, "onAccount"> & {
+	/** Called once an account is done with, for a command's progress line. */
+	onAccount?: (account: RelabelAccount) => void;
+};
+
 export interface RelabelAccount {
 	userId: string;
 	epoch: number | null;
@@ -173,7 +179,7 @@ const PLAUSIBILITY_MIN_FACTS = 20;
  */
 export async function runLabelRelabel(
 	input: { execute: boolean; userId?: string; userIds?: readonly string[] },
-	deps: LabelMigrationDeps = {},
+	deps: RelabelDeps = {},
 ): Promise<RelabelReport> {
 	const database = deps.database ?? db;
 	const report: RelabelReport = {
@@ -232,6 +238,7 @@ export async function runLabelRelabel(
 				0,
 			);
 		}
+		deps.onAccount?.(entry);
 		if (entry.outcome === "failed") {
 			totals.failed++;
 			report.outcome = "stopped";
@@ -269,7 +276,7 @@ async function relabelAccount(
 	userId: string,
 	execute: boolean,
 	database: DatabaseInstance,
-	deps: LabelMigrationDeps,
+	deps: RelabelDeps,
 ): Promise<RelabelAccount> {
 	const eligible = eligibleAccount(userId, database);
 	if ("skip" in eligible) {

@@ -15,11 +15,16 @@ import { gzipSync } from "node:zlib";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LabelMigrationReport } from "../src/lib/server/services/memory-profile/label-migration";
+import type {
+	RelabelAccount,
+	RelabelReport,
+} from "../src/lib/server/services/memory-profile/label-relabel";
 import {
 	checkPairedBackup,
 	type LabelMigrationCommandDeps,
 	labelMigrationLines,
 	parseLabelMigrationArguments,
+	relabelLines,
 	runLabelMigrationCommand,
 } from "./memory-label-migration-cli";
 
@@ -734,92 +739,172 @@ describe("the label migration's report lines", () => {
 	});
 });
 
+function relabelAccount(
+	userId: string,
+	outcome: RelabelAccount["outcome"],
+): RelabelAccount {
+	return {
+		userId,
+		epoch: 0,
+		outcome,
+		banks: 1,
+		facts: 10,
+		removed: 0,
+		temporary: 4,
+		alreadyRelabelled: 0,
+		toRelabel: 4,
+		estimatedCalls: 1,
+		calls: 0,
+		reclassified: 0,
+		moved: {},
+		stillTemporary: 0,
+		unanswered: 0,
+		labelChanged: 0,
+	};
+}
+function relabelTotals(): RelabelReport["totals"] {
+	return {
+		accounts: 3,
+		skipped: {},
+		banks: 0,
+		facts: 0,
+		temporary: 0,
+		alreadyRelabelled: 0,
+		toRelabel: 0,
+		estimatedCalls: 0,
+		calls: 0,
+		reclassified: 0,
+		moved: 0,
+		relabelled: 0,
+		failed: 0,
+		entries: 0,
+		earlierEntries: 0,
+	};
+}
+
+/** Fakes for the library and the backup check, recording what ran in which order. */
+function fakes(backupOk = true) {
+	const steps: string[] = [];
+	const lines: string[] = [];
+	const account = (userId: string, outcome: "dry_run" | "skipped") => ({
+		userId,
+		epoch: 0,
+		outcome,
+		banks: 1,
+		configOneBanks: 0,
+		facts: 2,
+		removed: 0,
+		alreadyLabelled: 0,
+		toLabel: 2,
+		estimatedCalls: 1,
+		calls: 0,
+		labelled: 0,
+		byKind: {},
+		bySubject: {},
+		unlabelled: {},
+	});
+	const deps: LabelMigrationCommandDeps = {
+		runLabelMigration: async (input) => {
+			steps.push(
+				input.execute
+					? `execute ${JSON.stringify(input.userIds)}`
+					: `dry run ${input.userId ?? "all"}`,
+			);
+			return {
+				execute: input.execute,
+				outcome: input.execute ? "done" : "dry_run",
+				totals: {
+					accounts: 3,
+					skipped: {},
+					banks: 0,
+					facts: 0,
+					alreadyLabelled: 0,
+					toLabel: 0,
+					estimatedCalls: 0,
+					calls: 0,
+					labelled: 0,
+					verified: 0,
+					failed: 0,
+					entries: 0,
+					earlierEntries: 0,
+				},
+				accounts: [
+					account("u1", "dry_run"),
+					account("u2", "skipped"),
+					account("u3", "dry_run"),
+				],
+			};
+		},
+		rollbackLabelMigration: (input) => {
+			steps.push(`rollback ${input.execute ? "execute" : "dry run"}`);
+			return {
+				userId: input.userId,
+				execute: input.execute,
+				outcome: input.execute ? "done" : "dry_run",
+				banks: 1,
+				labels: 2,
+				epochVerified: true,
+			};
+		},
+		runLabelRelabel: async (input, relabelDeps) => {
+			steps.push(
+				input.execute
+					? `relabel execute ${JSON.stringify(input.userIds)}`
+					: `relabel dry run ${input.userId ?? "all"}`,
+			);
+			const accounts = [
+				relabelAccount("u1", "dry_run"),
+				relabelAccount("u2", "skipped"),
+				relabelAccount("u3", "dry_run"),
+			];
+			if (input.execute)
+				for (const entry of accounts.filter((a) => a.outcome === "dry_run")) {
+					entry.outcome = "relabelled";
+					relabelDeps.onAccount?.(entry);
+				}
+			return {
+				execute: input.execute,
+				outcome: input.execute ? "done" : "dry_run",
+				totals: relabelTotals(),
+				accounts,
+			};
+		},
+		rollbackLabelRelabel: (input) => {
+			steps.push(`relabel rollback ${input.execute ? "execute" : "dry run"}`);
+			return {
+				userId: input.userId,
+				execute: input.execute,
+				outcome: input.execute ? "done" : "dry_run",
+				banks: 1,
+				changed: 2,
+				toRestore: 2,
+				restored: input.execute ? 2 : 0,
+				leftAlone: 0,
+				lookedAt: 1,
+			};
+		},
+		checkBackup: (_dir, accounts) => {
+			steps.push(`backup ${JSON.stringify(accounts)}`);
+			return backupOk
+				? {
+						ok: true,
+						sqlite: { name: "chat.db", bytes: 1, modifiedAt: "t" },
+						postgres: { name: "pg.sql", bytes: 1, modifiedAt: "t" },
+						bundle: {
+							name: "deployment-files.tar",
+							bytes: 2,
+							modifiedAt: "t",
+							envFiles: 3,
+						},
+					}
+				: { ok: false, code: "backup_stale" };
+		},
+		log: (line) => lines.push(line),
+		signal: new AbortController().signal,
+	};
+	return { steps, lines, deps };
+}
 describe("the command", () => {
-	/** Fakes for the library and the backup check, recording what ran in which order. */
-	function fakes(backupOk = true) {
-		const steps: string[] = [];
-		const lines: string[] = [];
-		const account = (userId: string, outcome: "dry_run" | "skipped") => ({
-			userId,
-			epoch: 0,
-			outcome,
-			banks: 1,
-			configOneBanks: 0,
-			facts: 2,
-			removed: 0,
-			alreadyLabelled: 0,
-			toLabel: 2,
-			estimatedCalls: 1,
-			calls: 0,
-			labelled: 0,
-			byKind: {},
-			bySubject: {},
-			unlabelled: {},
-		});
-		const deps: LabelMigrationCommandDeps = {
-			runLabelMigration: async (input) => {
-				steps.push(
-					input.execute
-						? `execute ${JSON.stringify(input.userIds)}`
-						: `dry run ${input.userId ?? "all"}`,
-				);
-				return {
-					execute: input.execute,
-					outcome: input.execute ? "done" : "dry_run",
-					totals: {
-						accounts: 3,
-						skipped: {},
-						banks: 0,
-						facts: 0,
-						alreadyLabelled: 0,
-						toLabel: 0,
-						estimatedCalls: 0,
-						calls: 0,
-						labelled: 0,
-						verified: 0,
-						failed: 0,
-						entries: 0,
-						earlierEntries: 0,
-					},
-					accounts: [
-						account("u1", "dry_run"),
-						account("u2", "skipped"),
-						account("u3", "dry_run"),
-					],
-				};
-			},
-			rollbackLabelMigration: (input) => {
-				steps.push(`rollback ${input.execute ? "execute" : "dry run"}`);
-				return {
-					userId: input.userId,
-					execute: input.execute,
-					outcome: input.execute ? "done" : "dry_run",
-					banks: 1,
-					labels: 2,
-					epochVerified: true,
-				};
-			},
-			checkBackup: (_dir, accounts) => {
-				steps.push(`backup ${JSON.stringify(accounts)}`);
-				return backupOk
-					? {
-							ok: true,
-							sqlite: { name: "chat.db", bytes: 1, modifiedAt: "t" },
-							postgres: { name: "pg.sql", bytes: 1, modifiedAt: "t" },
-							bundle: {
-								name: "deployment-files.tar",
-								bytes: 2,
-								modifiedAt: "t",
-								envFiles: 3,
-							},
-						}
-					: { ok: false, code: "backup_stale" };
-			},
-			log: (line) => lines.push(line),
-			signal: new AbortController().signal,
-		};
-		return { steps, lines, deps };
-	}
 	const all = parseLabelMigrationArguments([
 		"--execute",
 		"--all",
@@ -885,5 +970,213 @@ describe("the command", () => {
 			await runLabelMigrationCommand(parseLabelMigrationArguments([]), deps),
 		).toBe(0);
 		expect(steps).toEqual(["dry run all"]);
+	});
+});
+
+describe("the relabel's arguments", () => {
+	it("is a dry run over every account with --relabel alone", () => {
+		expect(parseLabelMigrationArguments(["--relabel"])).toEqual({
+			mode: "relabel",
+			execute: false,
+			concurrency: 1,
+		});
+		expect(
+			parseLabelMigrationArguments(["--relabel", "--user", "u1"]),
+		).toMatchObject({ mode: "relabel", user: "u1", execute: false });
+	});
+
+	it("acts only with --execute, one account or --all, and a backup, as the migration does", () => {
+		expect(
+			parseLabelMigrationArguments([
+				"--relabel",
+				"--execute",
+				"--all",
+				"--backup",
+				"/b",
+				"--concurrency",
+				"2",
+			]),
+		).toEqual({
+			mode: "relabel",
+			execute: true,
+			all: true,
+			backup: "/b",
+			concurrency: 2,
+		});
+		expect(() =>
+			parseLabelMigrationArguments(["--relabel", "--execute"]),
+		).toThrow("user_or_all_required");
+		expect(() =>
+			parseLabelMigrationArguments(["--relabel", "--execute", "--all"]),
+		).toThrow("backup_required");
+		expect(() =>
+			parseLabelMigrationArguments(["--relabel", "--all", "--user", "u1"]),
+		).toThrow("user_or_all_required");
+	});
+
+	it("rolls back one account, with its own mode", () => {
+		expect(
+			parseLabelMigrationArguments(["--relabel", "--rollback", "--user", "u1"]),
+		).toMatchObject({ mode: "relabel-rollback", user: "u1", execute: false });
+		expect(() =>
+			parseLabelMigrationArguments(["--relabel", "--rollback"]),
+		).toThrow("user_required");
+		expect(() =>
+			parseLabelMigrationArguments(["--relabel", "--rollback", "--all"]),
+		).toThrow("user_required");
+		// Without --relabel it is still the migration's rollback.
+		expect(
+			parseLabelMigrationArguments(["--rollback", "--user", "u1"]),
+		).toMatchObject({ mode: "rollback" });
+	});
+});
+
+describe("the relabel's report lines", () => {
+	it("prints counts, ids and codes, one line per account and the totals", () => {
+		const done: RelabelAccount = {
+			...relabelAccount("u1", "relabelled"),
+			reclassified: 4,
+			moved: { lasting: 3 },
+			stillTemporary: 1,
+			before: {
+				factsByKind: { temporary: 4 },
+				factsBySubject: {},
+				entries: 5,
+				entriesByKind: { temporary: 3, lasting: 2 },
+				entriesBySubject: {},
+				earlierEntries: 3,
+			},
+			whole: {
+				factsByKind: { lasting: 3, temporary: 1 },
+				factsBySubject: {},
+				entries: 5,
+				entriesByKind: { lasting: 4, temporary: 1 },
+				entriesBySubject: {},
+				earlierEntries: 1,
+			},
+			verification: {
+				factsAccounted: true,
+				factsUnchanged: true,
+				publishedRowsUnchanged: true,
+				fewUnanswered: true,
+				plausible: true,
+			},
+		};
+		const failed: RelabelAccount = {
+			...relabelAccount("u2", "failed"),
+			failure: "facts_changed",
+		};
+		const skipped: RelabelAccount = {
+			...relabelAccount("u3", "skipped"),
+			skipped: "labels_not_verified",
+			temporary: 0,
+		};
+		const lines = relabelLines({
+			execute: true,
+			outcome: "stopped",
+			stoppedAt: "u2",
+			totals: {
+				...relabelTotals(),
+				skipped: { labels_not_verified: 1 },
+				relabelled: 1,
+				failed: 1,
+				moved: 3,
+				entries: 5,
+				earlierEntries: 1,
+			},
+			accounts: [done, failed, skipped],
+		});
+		expect(lines).toEqual([
+			"account u1 relabelled banks=1 facts=10 removed=0 temporary=4 alreadyRelabelled=0 toRelabel=4 estimatedCalls=1 calls=0 reclassified=4 stillTemporary=1 unanswered=0 labelChanged=0 moved.lasting=3 before.entries=5 before.earlierEntries=3 before.entries.kind.temporary=3 before.entries.kind.lasting=2 entries=5 earlierEntries=1 entries.kind.lasting=4 entries.kind.temporary=1 verification=passed",
+			"account u2 failed failure=facts_changed banks=1 facts=10 removed=0 temporary=4 alreadyRelabelled=0 toRelabel=4 estimatedCalls=1 calls=0 reclassified=0 stillTemporary=0 unanswered=0 labelChanged=0",
+			"account u3 skipped labels_not_verified",
+			"totals accounts=3 skipped.labels_not_verified=1 banks=0 facts=0 temporary=0 alreadyRelabelled=0 toRelabel=0 estimatedCalls=0 calls=0 reclassified=0 moved=3 relabelled=1 entries=5 earlierEntries=1 failed=1",
+			"outcome: stopped at u2",
+		]);
+		// Counts, ids and codes only.
+		expect(lines.join("\n")).not.toMatch(/likes|phone|flu/);
+	});
+});
+
+describe("the relabel command", () => {
+	const relabelFakes = fakes;
+	const args = parseLabelMigrationArguments([
+		"--relabel",
+		"--execute",
+		"--all",
+		"--backup",
+		"/b",
+	]);
+
+	it("checks the backup for the accounts the dry run found, then relabels exactly those", async () => {
+		const { steps, lines, deps } = relabelFakes();
+		expect(await runLabelMigrationCommand(args, deps)).toBe(0);
+		expect(steps).toEqual([
+			"relabel dry run all",
+			'backup ["u1","u3"]',
+			'relabel execute ["u1","u3"]',
+		]);
+		// One line per account as it is done, then the totals and the outcome.
+		expect(lines.filter((line) => line.startsWith("account u1"))).toHaveLength(
+			2,
+		);
+		expect(lines).toContain("outcome: done");
+	});
+
+	it("writes nothing when the backup is refused, a rollback included", async () => {
+		const refused = relabelFakes(false);
+		expect(await runLabelMigrationCommand(args, refused.deps)).toBe(1);
+		expect(refused.steps).toEqual([
+			"relabel dry run all",
+			'backup ["u1","u3"]',
+		]);
+		const rollback = relabelFakes(false);
+		const undo = parseLabelMigrationArguments([
+			"--relabel",
+			"--rollback",
+			"--user",
+			"u1",
+			"--execute",
+			"--backup",
+			"/b",
+		]);
+		expect(await runLabelMigrationCommand(undo, rollback.deps)).toBe(1);
+		expect(rollback.steps).toEqual([
+			"relabel rollback dry run",
+			'backup ["u1"]',
+		]);
+		const ok = relabelFakes();
+		expect(await runLabelMigrationCommand(undo, ok.deps)).toBe(0);
+		expect(ok.steps).toEqual([
+			"relabel rollback dry run",
+			'backup ["u1"]',
+			"relabel rollback execute",
+		]);
+	});
+
+	it("a dry run checks no backup and writes nothing", async () => {
+		const { steps, deps } = relabelFakes();
+		expect(
+			await runLabelMigrationCommand(
+				parseLabelMigrationArguments(["--relabel"]),
+				deps,
+			),
+		).toBe(0);
+		expect(steps).toEqual(["relabel dry run all"]);
+	});
+
+	it("says there is nothing to relabel when the dry run finds no account to act on", async () => {
+		const { steps, lines, deps } = relabelFakes();
+		const run = deps.runLabelRelabel;
+		deps.runLabelRelabel = async (input, relabelDeps) => {
+			const report = await run(input, relabelDeps);
+			return {
+				...report,
+				accounts: report.accounts.map((a) => ({ ...a, outcome: "skipped" })),
+			};
+		};
+		expect(await runLabelMigrationCommand(args, deps)).toBe(0);
+		expect(lines).toContain("nothing to relabel");
+		expect(steps).toEqual(["relabel dry run all"]);
 	});
 });

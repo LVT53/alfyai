@@ -23,9 +23,20 @@ import type {
 	LabelMigrationReport,
 	LabelRollbackReport,
 } from "../src/lib/server/services/memory-profile/label-migration";
+import type {
+	RelabelAccount,
+	RelabelDeps,
+	RelabelReport,
+	RelabelRollbackReport,
+} from "../src/lib/server/services/memory-profile/label-relabel";
 
 export interface LabelMigrationArguments {
-	mode: "migrate" | "rollback";
+	/**
+	 * `migrate` labels every fact of an account that has none; `relabel` asks
+	 * again, with config 3's words, about the facts labelled temporary
+	 * (`--relabel`); each has its own rollback (`--rollback`).
+	 */
+	mode: "migrate" | "rollback" | "relabel" | "relabel-rollback";
 	execute: boolean;
 	user?: string;
 	all?: boolean;
@@ -39,6 +50,9 @@ export const LABEL_MIGRATION_USAGE = [
 	"usage: npx tsx scripts/memory-label-migration.ts [--user <id>]",
 	"       npx tsx scripts/memory-label-migration.ts --execute (--user <id> | --all) --backup <dir> [--concurrency 1-3]",
 	"       npx tsx scripts/memory-label-migration.ts --rollback --user <id> [--execute --backup <dir>]",
+	"       npx tsx scripts/memory-label-migration.ts --relabel [--user <id>]",
+	"       npx tsx scripts/memory-label-migration.ts --relabel --execute (--user <id> | --all) --backup <dir> [--concurrency 1-3]",
+	"       npx tsx scripts/memory-label-migration.ts --relabel --rollback --user <id> [--execute --backup <dir>]",
 ].join("\n");
 
 export function parseLabelMigrationArguments(
@@ -48,7 +62,7 @@ export function parseLabelMigrationArguments(
 	const values = new Map<string, string>();
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
-		if (["--execute", "--all", "--rollback"].includes(arg)) {
+		if (["--execute", "--all", "--rollback", "--relabel"].includes(arg)) {
 			if (flags.has(arg)) throw Error("duplicate_argument");
 			flags.add(arg);
 			continue;
@@ -64,8 +78,15 @@ export function parseLabelMigrationArguments(
 		values.set(arg, value);
 		i += 1;
 	}
+	const relabel = flags.has("--relabel");
 	const parsed: LabelMigrationArguments = {
-		mode: flags.has("--rollback") ? "rollback" : "migrate",
+		mode: flags.has("--rollback")
+			? relabel
+				? "relabel-rollback"
+				: "rollback"
+			: relabel
+				? "relabel"
+				: "migrate",
 		execute: flags.has("--execute"),
 		concurrency: 1,
 	};
@@ -79,7 +100,7 @@ export function parseLabelMigrationArguments(
 		if (!/^[1-3]$/.test(concurrency)) throw Error("invalid_concurrency");
 		parsed.concurrency = Number(concurrency);
 	}
-	if (parsed.mode === "rollback") {
+	if (parsed.mode === "rollback" || parsed.mode === "relabel-rollback") {
 		if (!parsed.user || parsed.all) throw Error("user_required");
 	} else if (parsed.user && parsed.all) throw Error("user_or_all_required");
 	else if (parsed.execute && !parsed.user && !parsed.all)
@@ -587,6 +608,64 @@ function rollbackLines(report: LabelRollbackReport): string[] {
 	];
 }
 
+/** One account's relabel line: its outcome and counts, never memory text. */
+function relabelAccountLine(account: RelabelAccount): string {
+	const readings = (prefix: string, reading: RelabelAccount["whole"]) =>
+		reading
+			? [
+					`${prefix}entries=${reading.entries} ${prefix}earlierEntries=${reading.earlierEntries}`,
+					...counts(`${prefix}entries.kind.`, reading.entriesByKind),
+				]
+			: [];
+	if (account.outcome === "skipped")
+		return [
+			`account ${account.userId} skipped ${account.skipped}`,
+			...(account.temporary
+				? [
+						`temporary=${account.temporary} alreadyRelabelled=${account.alreadyRelabelled}`,
+					]
+				: []),
+			...readings("", account.whole),
+		].join(" ");
+	return [
+		`account ${account.userId} ${account.outcome}`,
+		...(account.failure ? [`failure=${account.failure}`] : []),
+		`banks=${account.banks} facts=${account.facts} removed=${account.removed} temporary=${account.temporary} alreadyRelabelled=${account.alreadyRelabelled} toRelabel=${account.toRelabel} estimatedCalls=${account.estimatedCalls} calls=${account.calls} reclassified=${account.reclassified} stillTemporary=${account.stillTemporary} unanswered=${account.unanswered} labelChanged=${account.labelChanged}`,
+		...counts("moved.", account.moved),
+		...readings("before.", account.before),
+		...(account.outcome === "relabelled" ? readings("", account.whole) : []),
+		...(account.verification
+			? [
+					`verification=${
+						Object.values(account.verification).every(Boolean)
+							? "passed"
+							: "failed"
+					}`,
+				]
+			: []),
+	].join(" ");
+}
+
+/** One line per account, the totals and the outcome of a relabel run: counts, ids and codes only. */
+export function relabelLines(report: RelabelReport): string[] {
+	const { totals } = report;
+	return [
+		...report.accounts.map(relabelAccountLine),
+		[
+			`totals accounts=${totals.accounts}`,
+			...counts("skipped.", totals.skipped),
+			`banks=${totals.banks} facts=${totals.facts} temporary=${totals.temporary} alreadyRelabelled=${totals.alreadyRelabelled} toRelabel=${totals.toRelabel} estimatedCalls=${totals.estimatedCalls} calls=${totals.calls} reclassified=${totals.reclassified} moved=${totals.moved} relabelled=${totals.relabelled} entries=${totals.entries} earlierEntries=${totals.earlierEntries} failed=${totals.failed}`,
+		].join(" "),
+		`outcome: ${report.outcome}${report.stoppedAt ? ` at ${report.stoppedAt}` : ""}`,
+	];
+}
+
+function relabelRollbackLines(report: RelabelRollbackReport): string[] {
+	return [
+		`relabel-rollback ${report.userId} ${report.outcome} banks=${report.banks} changed=${report.changed} toRestore=${report.toRestore} restored=${report.restored} leftAlone=${report.leftAlone} lookedAt=${report.lookedAt}${report.code ? ` code=${report.code}` : ""}`,
+	];
+}
+
 /** What the command acts through: the library, the backup check and the output. */
 export interface LabelMigrationCommandDeps {
 	runLabelMigration: (
@@ -597,6 +676,15 @@ export interface LabelMigrationCommandDeps {
 		userId: string;
 		execute: boolean;
 	}) => LabelRollbackReport;
+	/** The relabel (`--relabel`): the same inputs, its own report. */
+	runLabelRelabel: (
+		input: { execute: boolean; userId?: string; userIds?: string[] },
+		deps: Pick<RelabelDeps, "signal" | "concurrency" | "onAccount">,
+	) => Promise<RelabelReport>;
+	rollbackLabelRelabel: (input: {
+		userId: string;
+		execute: boolean;
+	}) => RelabelRollbackReport;
 	/** The paired backup's check against the live database (`checkPairedBackup`). */
 	checkBackup: (dir: string, accounts: string[]) => PairedBackup;
 	log: (line: string) => void;
@@ -627,6 +715,60 @@ export async function runLabelMigrationCommand(
 		);
 		return true;
 	};
+	if (args.mode === "relabel-rollback" && args.user) {
+		const dry = deps.rollbackLabelRelabel({
+			userId: args.user,
+			execute: false,
+		});
+		for (const line of relabelRollbackLines(dry)) log(line);
+		if (!args.execute || dry.outcome !== "dry_run") {
+			log(JSON.stringify(dry));
+			return dry.outcome === "dry_run" ? 0 : 1;
+		}
+		if (!backupReady([args.user])) return 1;
+		const done = deps.rollbackLabelRelabel({
+			userId: args.user,
+			execute: true,
+		});
+		for (const line of relabelRollbackLines(done)) log(line);
+		log(JSON.stringify(done));
+		return done.outcome === "done" ? 0 : 1;
+	}
+	if (args.mode === "relabel") {
+		const scope = args.user ? { userId: args.user } : {};
+		log("dry run:");
+		const dry = await deps.runLabelRelabel(
+			{ ...scope, execute: false },
+			{ signal: deps.signal },
+		);
+		for (const line of relabelLines(dry)) log(line);
+		if (!args.execute) {
+			log(JSON.stringify(dry));
+			return 0;
+		}
+		const accounts = dry.accounts
+			.filter(({ outcome }) => outcome === "dry_run")
+			.map(({ userId }) => userId);
+		if (!accounts.length) {
+			log("nothing to relabel");
+			return 0;
+		}
+		if (!backupReady(accounts)) return 1;
+		log("execute:");
+		// Exactly the accounts the backup was checked for.
+		const report = await deps.runLabelRelabel(
+			{ execute: true, userIds: accounts },
+			{
+				signal: deps.signal,
+				concurrency: args.concurrency,
+				onAccount: (account) => log(relabelAccountLine(account)),
+			},
+		);
+		for (const line of relabelLines(report).slice(report.accounts.length))
+			log(line);
+		log(JSON.stringify(report));
+		return report.outcome === "done" ? 0 : 1;
+	}
 	if (args.mode === "rollback" && args.user) {
 		const dry = deps.rollbackLabelMigration({
 			userId: args.user,
