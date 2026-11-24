@@ -37,6 +37,15 @@ const RESULTS = join(HERE, "results");
 const BASE = process.env.PART2_HINDSIGHT ?? "http://127.0.0.1:18990";
 const BRIDGE = process.env.CONFIG3_BRIDGE ?? "http://127.0.0.1:18891/v1";
 const IN_FLIGHT = Number(process.env.CONFIG3_IN_FLIGHT ?? 3);
+/**
+ * A repeat of the extraction on the new sets: `CONFIG3_RAW=extraction-raw-run2.json
+ * CONFIG3_ONLY=purchase,preference,preferenceReply,task,question CONFIG3_CONFIGS=v3` writes the
+ * calls of those sets to their own file, and `report` reads the same variables.
+ */
+const RAW_FILE = process.env.CONFIG3_RAW ?? "extraction-raw.json";
+const ONLY_SETS = process.env.CONFIG3_ONLY?.split(",");
+const ONLY_CONFIGS = process.env.CONFIG3_CONFIGS?.split(",");
+const SUMMARY_FILE = process.env.CONFIG3_SUMMARY ?? "summary.json";
 const GUIDANCE =
 	"Only the source user message is a new assertion. Other messages are context for attribution; prior-memory entries are sanitized remembered facts, not original quotations or new assertions. Assistant claims are not user facts.";
 
@@ -304,7 +313,7 @@ async function extraction() {
 			only3,
 			true,
 		);
-	const path = join(RESULTS, "extraction-raw.json");
+	const path = join(RESULTS, RAW_FILE);
 	const done: Record<string, { facts?: DraftFact[]; error?: string }> = existsSync(path)
 		? JSON.parse(readFileSync(path, "utf8"))
 		: {};
@@ -314,7 +323,11 @@ async function extraction() {
 	const rank = (job: ExtractionJob) =>
 		(["purchase", "preference", "preferenceReply", "task", "question"].includes(job.set as string) ? 0 : 10) +
 		(job.config === "v3" ? 0 : 5);
-	const todo = [...jobs].sort((a, b) => rank(a) - rank(b)).filter((job) => !done[key(job)]?.facts);
+	const todo = [...jobs]
+		.filter((job) => !ONLY_SETS || ONLY_SETS.includes(job.set as string))
+		.filter((job) => !ONLY_CONFIGS || ONLY_CONFIGS.includes(job.config))
+		.sort((a, b) => rank(a) - rank(b))
+		.filter((job) => !done[key(job)]?.facts);
 	console.log(`extraction: ${todo.length} of ${jobs.length} calls to make`);
 	let finished = 0;
 	const started = Date.now();
@@ -490,7 +503,7 @@ async function classifier() {
 }
 
 function report() {
-	const raw = load<Record<string, { facts?: DraftFact[]; error?: string }>>("extraction-raw.json");
+	const raw = load<Record<string, { facts?: DraftFact[]; error?: string }>>(RAW_FILE);
 	const factsOf = (config: Config, set: string, id: string, turns = 1) =>
 		Array.from({ length: turns }, (_, turn) => raw[`${config}:${set}:${id}:${turn}`]);
 	const summary: Record<string, unknown> = {};
@@ -695,7 +708,7 @@ function report() {
 			return obs.some((text) => mentions(text, item.rightMarkers)) && !obs.some((text) => mentions(text, item.wrongMarkers));
 		});
 	}
-	save("summary.json", summary);
+	save(SUMMARY_FILE, summary);
 	console.log(JSON.stringify(summary, null, 2));
 }
 

@@ -166,6 +166,18 @@ The same as above (Hindsight at the pin `9fb28dbd`, Flash-Next `qwen3-6-27b`, re
 
 No wording was revised: the first config 3 wording met every target, so there was nothing to choose between.
 
+**Run to run.** The three new sets were run on config 3 three times (`results/extraction-raw.json`, `-run2`, `-run3`; `CONFIG3_RAW`, `CONFIG3_ONLY` and `CONFIG3_CONFIGS` in `run.ts` repeat a set into its own file), because 9 of 10 is exactly the target:
+
+| Config 3 | Run 1 | Run 2 | Run 3 |
+| --- | --- | --- | --- |
+| Purchases labelled lasting | 18/20 (EN 9, HU 9) | 20/20 (EN 10, HU 10) | 19/20 (EN 10, HU 9) |
+| Plain preference kept as lasting | 20/20 (EN 10, HU 10) | 20/20 | 20/20 |
+| The same said after a long assistant reply | 20/20 | 20/20 | 19/20 (HU 9) |
+| Question-only chats leave nothing | 20/20 | 20/20 | 20/20 |
+| Task requests leave nothing | 10/10 | 10/10 | 10/10 |
+
+The lowest language in any run is 9 of 10 for purchases and 9 of 10 for preferences, so both new targets held in every run; config 2's same-session baseline was 7/20 for purchases and 18/20 for preferences.
+
 ### Extraction
 
 - **Purchases.** Config 3 misses two: "my parents gave me a guitar for my birthday on Saturday" (the gift reads as part of a birthday event) and "I ordered a standing desk" (Hungarian: an order not yet delivered reads as an errand). Both are ambiguous by nature; config 2 had 13 of 20 purchase items with a temporary fact.
