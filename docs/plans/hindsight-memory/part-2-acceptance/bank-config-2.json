@@ -1,0 +1,132 @@
+{
+	"personal": {
+		"retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer. Requests to the assistant and what the user wants from this chat are not memories, for example not \"The user needs a name for a band\" or \"The user is looking for a weekend trip\". While the user and the assistant brainstorm or weigh options, the options, the user's reactions to them and the reasons for those reactions are not memories either, for example not \"The user thinks Static Owls sounds too silly\" or \"The user finds the second flat too small\". A lasting fact about the user stated along the way, such as an allergy or where they live, is still a memory; a liking or dislike of one of the options is not. When the choice settles, keep only its outcome, and only if it is likely to matter beyond this chat, for example \"The user's band is called Low Tide\".",
+		"observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph. When a later statement settles an earlier wish or plan about the same thing, keep only the settled state. When something really changes in the world, such as a move or a new job, state the new value as current and keep the old value only as earlier history in the same observation; never write an end date or any date the person did not state.",
+		"enable_observations": true,
+		"default_observation_scopes": "shared",
+		"retain_extraction_mode": "concise",
+		"consolidation_llm_batch_size": 1,
+		"entities_allow_free_form": true,
+		"entity_labels": [
+			{
+				"key": "kind",
+				"description": "How this fact ages over time. When unsure, choose lasting. Choose by what the fact says, never by how recently it was said.",
+				"type": "value",
+				"optional": true,
+				"tag": true,
+				"values": [
+					{
+						"value": "lasting",
+						"description": "Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, possessions, lasting health conditions, and their current situation, such as where they live, the school or university they attend, what they study, where they work and their family home. For a project: its goals, decisions, requirements, people, facts and figures."
+					},
+					{
+						"value": "ongoing",
+						"description": "An activity the person themselves keeps doing for weeks or months, which will end: writing a thesis, building an app, a house or a business, learning an instrument or a tool, a training plan, a renovation. Being enrolled somewhere, having a job, and a project's goals, decisions, people, facts and figures are lasting, not ongoing."
+					},
+					{
+						"value": "temporary",
+						"description": "A state or event with a natural end: being ill, an injury, a toothache, an exam, a trip, a visit, an appointment, a deadline, plans for one particular day or week."
+					}
+				]
+			},
+			{
+				"key": "subject",
+				"description": "What the fact is about, to group the person's memories. Choose the closest subject; choose other only when none fits.",
+				"type": "value",
+				"optional": true,
+				"tag": true,
+				"values": [
+					{
+						"value": "about_you",
+						"description": "The person themselves: name, age, birthday, identity, languages, personality, values, beliefs, looks."
+					},
+					{
+						"value": "home_family",
+						"description": "Where they live, their home and household, their partner, children, parents, relatives and pets."
+					},
+					{
+						"value": "work_study",
+						"description": "Their job, employer, colleagues, career, school, university, courses, exams and studies."
+					},
+					{
+						"value": "health",
+						"description": "Physical and mental health: illnesses, injuries, treatments, medication, diet needs, fitness and sleep."
+					},
+					{
+						"value": "projects",
+						"description": "Things they build, write, organize or work towards outside their job or studies."
+					},
+					{
+						"value": "interests",
+						"description": "Hobbies, tastes and preferences, favorite things, books, films, music, sports, travel, food and drink."
+					},
+					{
+						"value": "other",
+						"description": "Anything that fits none of the subjects above."
+					}
+				]
+			}
+		]
+	},
+	"project": {
+		"retain_mission": "Remember useful user-stated personal facts, preferences, constraints, plans and project decisions. Preserve speaker identity, ownership, negation, uncertainty, dates and project scope. Questions, quotations, fictional characters and hypothetical examples are not assertions about the user. Keep explicit personal statements inside questions. Preserve each independently useful preference, including language register. Do not turn interest into ownership. Application source-edit events contain before/after text. The before text and unchanged portions of the after text are old context, NOT new assertions. Extract only the claims actually changed by that explicit edit. Preserve all subject/project distinctions. Ordinary user messages remain ordinary evidence. A correction or source edit is an explicit assertion at its event time; reprocessing does not make it newer. Requests to the assistant and what the user wants from this chat are not memories, for example not \"The user needs a name for a band\" or \"The user is looking for a weekend trip\". While the user and the assistant brainstorm or weigh options, the options, the user's reactions to them and the reasons for those reactions are not memories either, for example not \"The user thinks Static Owls sounds too silly\" or \"The user finds the second flat too small\". A lasting fact about the user stated along the way, such as an allergy or where they live, is still a memory; a liking or dislike of one of the options is not. When the choice settles, keep only its outcome, and only if it is likely to matter beyond this chat, for example \"The user's band is called Low Tide\".",
+		"observations_mission": "Maintain a readable list of currently supported personal and project information. Each observation should state one subject and one facet clearly, preserving attribution, uncertainty and scope. Include each independently useful fact from the evidence, including relationships, preferences, possessions and explicit plans. Use the latest applicable assertion date, not ingestion order. For a correction, state only the corrected information; do not narrate earlier erroneous or superseded values or invent a real-world change. Keep genuinely historical events and future plans explicitly dated as history or plans, not present state. Preserve unaffected facts when another property changes. Do not infer ownership from questions. Do not combine unrelated facets into a profile paragraph. When a later statement settles an earlier wish or plan about the same thing, keep only the settled state. When something really changes in the world, such as a move or a new job, state the new value as current and keep the old value only as earlier history in the same observation; never write an end date or any date the person did not state.",
+		"enable_observations": true,
+		"default_observation_scopes": "shared",
+		"retain_extraction_mode": "concise",
+		"consolidation_llm_batch_size": 1,
+		"entities_allow_free_form": true,
+		"entity_labels": [
+			{
+				"key": "kind",
+				"description": "How this fact ages over time. When unsure, choose lasting. Choose by what the fact says, never by how recently it was said.",
+				"type": "value",
+				"optional": true,
+				"tag": true,
+				"values": [
+					{
+						"value": "lasting",
+						"description": "Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, possessions, lasting health conditions, and their current situation, such as where they live, the school or university they attend, what they study, where they work and their family home. For a project: its goals, decisions, requirements, people, facts and figures."
+					},
+					{
+						"value": "ongoing",
+						"description": "An activity the person themselves keeps doing for weeks or months, which will end: writing a thesis, building an app, a house or a business, learning an instrument or a tool, a training plan, a renovation. Being enrolled somewhere, having a job, and a project's goals, decisions, people, facts and figures are lasting, not ongoing."
+					},
+					{
+						"value": "temporary",
+						"description": "A state or event with a natural end: being ill, an injury, a toothache, an exam, a trip, a visit, an appointment, a deadline, plans for one particular day or week."
+					}
+				]
+			},
+			{
+				"key": "subject",
+				"description": "What the fact is about within this project, to group the project's memories. Choose the closest subject; choose other only when none fits.",
+				"type": "value",
+				"optional": true,
+				"tag": true,
+				"values": [
+					{
+						"value": "goals_decisions",
+						"description": "What the project aims for and what was decided: goals, requirements, choices made and their reasons."
+					},
+					{
+						"value": "people",
+						"description": "People involved in the project: who they are, their roles and responsibilities, how to work with them."
+					},
+					{
+						"value": "facts_figures",
+						"description": "Facts and figures of the project: names, numbers, dates, prices, settings and technical details."
+					},
+					{
+						"value": "plans_status",
+						"description": "Plans, next steps, schedules, deadlines and the current progress or state of the work."
+					},
+					{
+						"value": "other",
+						"description": "Anything about the project that fits none of the subjects above."
+					}
+				]
+			}
+		]
+	}
+}

@@ -60,9 +60,9 @@ export interface RetainSource {
 export const EXPLICIT_EDIT_RETENTION_GUIDANCE =
 	"Explicit memory edit. Extract only new or changed user assertions from after. Before and unchanged wording serve only to identify those assertions. If a property of an already owned object changes, state the focused property claim and use a possessive to identify the object. For 'I own a blue bicycle' changed to 'I own a red bicycle', state 'The user's bicycle is red' and leave the existing ownership assertion at its old date. Keep genuinely new claims separate. In every output field, including why and entity annotations, exclude editorial commentary, superseded values, and omitted details. Keep causal reasons and other details that the user actually asserts as part of a changed claim in after. Preserve explicit negation.";
 /**
- * Config 1: what the previous release configured, byte for byte. A bank whose
+ * Config 1: what the first release configured, byte for byte. A bank whose
  * stored version is `HINDSIGHT_ENGINE_COMMIT` holds it and is upgraded to
- * config 2 by its next delivery or curation; paths that only verify accept it.
+ * config 3 by its next delivery or curation; paths that only verify accept it.
  */
 export const PREVIOUS_NATIVE_BANK_CONFIG = {
 	retain_mission:
@@ -75,14 +75,17 @@ export const PREVIOUS_NATIVE_BANK_CONFIG = {
 	consolidation_llm_batch_size: 1,
 } as const;
 
-/** Stored in `memory_banks.native_config_version` once a bank's config 2 is verified. */
-export const NATIVE_BANK_CONFIG_VERSION = "alfyai-bank-config-2";
-/** Whether a stored version names a config that was verified by readback. */
+/** Stored in `memory_banks.native_config_version` once a bank's config 2 (the release before config 3) is verified. */
+export const NATIVE_BANK_CONFIG_2_VERSION = "alfyai-bank-config-2";
+/** Stored in `memory_banks.native_config_version` once a bank's config 3 is verified. */
+export const NATIVE_BANK_CONFIG_VERSION = "alfyai-bank-config-3";
+/** Whether a stored version names a config that was verified by readback: config 1, 2 or 3. */
 export function isVerifiedNativeBankConfigVersion(
 	version: string | null,
 ): boolean {
 	return (
 		version === NATIVE_BANK_CONFIG_VERSION ||
+		version === NATIVE_BANK_CONFIG_2_VERSION ||
 		version === HINDSIGHT_ENGINE_COMMIT
 	);
 }
@@ -92,16 +95,28 @@ export function isVerifiedNativeBankConfigVersion(
  * the classifier reads too, so both label the same way. Model-facing: ASCII
  * English with no language named (ruling 79). Kind leans toward lasting: a
  * wrongly lasting entry stays visible and can be removed, a wrongly temporary
- * one silently drops out of recall.
+ * one silently drops out of recall. Config 3's words: something the person
+ * bought, got or owns now is lasting, and only a passing event is temporary.
  */
 export const NATIVE_KIND_LABEL = {
 	description:
 		"How this fact ages over time. When unsure, choose lasting. Choose by what the fact says, never by how recently it was said.",
 	values: {
 		lasting:
-			"Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, possessions, lasting health conditions, and their current situation, such as where they live, the school or university they attend, what they study, where they work and their family home. For a project: its goals, decisions, requirements, people, facts and figures.",
+			"Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, how they like the assistant to answer, possessions (something they bought, got or were given, such as a phone, a bike, a car, a home or a pet, however recently), lasting health conditions, and their current situation, such as where they live, the school or university they attend, what they study, where they work and their family home. For a project: its goals, decisions, requirements, people, facts and figures.",
 		ongoing:
 			"An activity the person themselves keeps doing for weeks or months, which will end: writing a thesis, building an app, a house or a business, learning an instrument or a tool, a training plan, a renovation. Being enrolled somewhere, having a job, and a project's goals, decisions, people, facts and figures are lasting, not ongoing.",
+		temporary:
+			"A state or event with a natural end: being ill, an injury, a toothache, an exam, a trip, a visit, an appointment, a deadline, plans for one particular day or week. Buying, getting or selling something is not such an event: what the person owns now, or no longer owns, stays true until something replaces it, so it is lasting; a ticket or booking for one particular day, and the errand around a purchase, such as a delivery that arrives on Friday, are temporary.",
+	},
+} as const;
+/** Config 2's kind words, frozen: a bank still on config 2 is verified and restored against them. */
+const NATIVE_KIND_LABEL_2 = {
+	description: NATIVE_KIND_LABEL.description,
+	values: {
+		lasting:
+			"Stays true until something replaces it: who the person is, family and relationships, languages, values, beliefs, long-held tastes and preferences, possessions, lasting health conditions, and their current situation, such as where they live, the school or university they attend, what they study, where they work and their family home. For a project: its goals, decisions, requirements, people, facts and figures.",
+		ongoing: NATIVE_KIND_LABEL.values.ongoing,
 		temporary:
 			"A state or event with a natural end: being ill, an injury, a toothache, an exam, a trip, a visit, an appointment, a deadline, plans for one particular day or week.",
 	},
@@ -182,21 +197,34 @@ function labelGroup(
 }
 
 /**
- * Config 2 for a bank of this kind: config 1's missions with part 2's
- * sentences, and the two labels Hindsight writes into each new fact's tags.
+ * The retain mission's sentences config 2 added to config 1's: requests,
+ * brainstorms and settled choices. Config 3 changes one sentence of them.
  */
-export function nativeBankConfig(
+const REQUESTS_NOT_MEMORIES =
+	'Requests to the assistant and what the user wants from this chat are not memories, for example not "The user needs a name for a band" or "The user is looking for a weekend trip".';
+const ANSWER_PREFERENCE_EXCEPTION =
+	' The exception is a preference about how the assistant should answer in general, its length, format, language or tone: keep it as a lasting preference even when it is phrased as a request, for example "The user prefers short answers" for "Please keep your answers short", but not a request for one particular piece of work, such as "write me a short poem" or "make this email shorter".';
+const BRAINSTORMS_AND_OUTCOMES =
+	' While the user and the assistant brainstorm or weigh options, the options, the user\'s reactions to them and the reasons for those reactions are not memories either, for example not "The user thinks Static Owls sounds too silly" or "The user finds the second flat too small". A lasting fact about the user stated along the way, such as an allergy or where they live, is still a memory; a liking or dislike of one of the options is not. When the choice settles, keep only its outcome, and only if it is likely to matter beyond this chat, for example "The user\'s band is called Low Tide".';
+const OBSERVATION_CHANGES =
+	" When a later statement settles an earlier wish or plan about the same thing, keep only the settled state. When something really changes in the world, such as a move or a new job, state the new value as current and keep the old value only as earlier history in the same observation; never write an end date or any date the person did not state.";
+
+function bankConfigWith(
 	kind: MemoryScope["kind"],
+	words: {
+		retainMission: string;
+		kindLabel: typeof NATIVE_KIND_LABEL | typeof NATIVE_KIND_LABEL_2;
+	},
 ): NativeBankConfig & { entity_labels: NativeLabelGroup[] } {
 	return {
 		...PREVIOUS_NATIVE_BANK_CONFIG,
-		retain_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.retain_mission} Requests to the assistant and what the user wants from this chat are not memories, for example not "The user needs a name for a band" or "The user is looking for a weekend trip". While the user and the assistant brainstorm or weigh options, the options, the user's reactions to them and the reasons for those reactions are not memories either, for example not "The user thinks Static Owls sounds too silly" or "The user finds the second flat too small". A lasting fact about the user stated along the way, such as an allergy or where they live, is still a memory; a liking or dislike of one of the options is not. When the choice settles, keep only its outcome, and only if it is likely to matter beyond this chat, for example "The user's band is called Low Tide".`,
-		observations_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.observations_mission} When a later statement settles an earlier wish or plan about the same thing, keep only the settled state. When something really changes in the world, such as a move or a new job, state the new value as current and keep the old value only as earlier history in the same observation; never write an end date or any date the person did not state.`,
+		retain_mission: words.retainMission,
+		observations_mission: `${PREVIOUS_NATIVE_BANK_CONFIG.observations_mission}${OBSERVATION_CHANGES}`,
 		// Pinned so a changed engine default cannot switch a bank to labels-only
 		// extraction, which would drop every named entity.
 		entities_allow_free_form: true,
 		entity_labels: [
-			labelGroup("kind", NATIVE_KIND_LABEL, MEMORY_KINDS),
+			labelGroup("kind", words.kindLabel, MEMORY_KINDS),
 			labelGroup(
 				"subject",
 				NATIVE_SUBJECT_LABEL[kind],
@@ -205,8 +233,43 @@ export function nativeBankConfig(
 		],
 	};
 }
+
+/**
+ * Config 3 for a bank of this kind: config 1's missions with config 2's
+ * sentences (config 2 is `nativeBankConfig2`) and the two labels Hindsight
+ * writes into each new fact's tags. What config 3 changes: a stated
+ * preference about how the assistant should answer is kept as a lasting
+ * memory even when it is phrased as a request, and the kind words say that
+ * something the person bought, got or owns now is lasting, so only a passing
+ * event is temporary.
+ */
+export function nativeBankConfig(
+	kind: MemoryScope["kind"],
+): NativeBankConfig & { entity_labels: NativeLabelGroup[] } {
+	return bankConfigWith(kind, {
+		retainMission: `${PREVIOUS_NATIVE_BANK_CONFIG.retain_mission} ${REQUESTS_NOT_MEMORIES}${ANSWER_PREFERENCE_EXCEPTION}${BRAINSTORMS_AND_OUTCOMES}`,
+		kindLabel: NATIVE_KIND_LABEL,
+	});
+}
 export function nativeBankConfigForScopeKey(scopeKey: string) {
 	return nativeBankConfig(scopeKey === "personal" ? "personal" : "project");
+}
+/**
+ * Config 2 word for word, as the release before config 3 set it
+ * (`docs/plans/hindsight-memory/part-2-acceptance/bank-config-2.json` holds it,
+ * and a test compares): a bank still on it is verified against it, and a
+ * rollback to that release puts a config 3 bank back on it.
+ */
+export function nativeBankConfig2(
+	kind: MemoryScope["kind"],
+): NativeBankConfig & { entity_labels: NativeLabelGroup[] } {
+	return bankConfigWith(kind, {
+		retainMission: `${PREVIOUS_NATIVE_BANK_CONFIG.retain_mission} ${REQUESTS_NOT_MEMORIES}${BRAINSTORMS_AND_OUTCOMES}`,
+		kindLabel: NATIVE_KIND_LABEL_2,
+	});
+}
+export function nativeBankConfig2ForScopeKey(scopeKey: string) {
+	return nativeBankConfig2(scopeKey === "personal" ? "personal" : "project");
 }
 export const CURRENT_NATIVE_BANK_CONFIGS: readonly NativeBankConfig[] = [
 	nativeBankConfig("personal"),
@@ -215,5 +278,7 @@ export const CURRENT_NATIVE_BANK_CONFIGS: readonly NativeBankConfig[] = [
 /** Every config this app has set: what a path that only verifies accepts. */
 export const KNOWN_NATIVE_BANK_CONFIGS: readonly NativeBankConfig[] = [
 	PREVIOUS_NATIVE_BANK_CONFIG,
+	nativeBankConfig2("personal"),
+	nativeBankConfig2("project"),
 	...CURRENT_NATIVE_BANK_CONFIGS,
 ];

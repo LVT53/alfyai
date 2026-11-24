@@ -45,6 +45,9 @@ async function fixture() {
 			.run();
 	bank("old", "project:p1", native.HINDSIGHT_ENGINE_COMMIT);
 	bank("retired", "project:p2", native.NATIVE_BANK_CONFIG_VERSION, "retired");
+	// Config 3's neighbours: a project bank on config 3, and a bank on config 2.
+	bank("upgraded-project", "project:p3", native.NATIVE_BANK_CONFIG_VERSION);
+	bank("on-config-2", "project:p4", native.NATIVE_BANK_CONFIG_2_VERSION);
 	const patched: string[] = [];
 	const live = new Map<string, unknown>();
 	const clientFor = (bankId: string) =>
@@ -105,11 +108,13 @@ async function fixture() {
 			.where(eq(schema.users.id, userId))
 			.run();
 	};
+	const sent = (bankId: string) => live.get(bankId);
 	return {
 		native,
 		restoreBankConfigs,
 		clientFor,
 		patched,
+		sent,
 		version,
 		verifiedEpoch,
 		marks,
@@ -118,13 +123,13 @@ async function fixture() {
 	};
 }
 
-describe("restoring config 1 for a rollback", () => {
+describe("restoring config 1 for a rollback to the first release", () => {
 	it("counts by default and changes nothing", async () => {
 		const f = await fixture();
 		const clientFor = vi.fn(f.clientFor);
 		expect(await f.restoreBankConfigs({ execute: false, clientFor })).toEqual({
 			mode: "inspect",
-			versions: { config2: 1, config1: 1, pending: 0, other: 0 },
+			versions: { config3: 2, config2: 1, config1: 1, pending: 0, other: 0 },
 			restored: 0,
 			unverified: 1,
 			failed: {},
@@ -133,17 +138,29 @@ describe("restoring config 1 for a rollback", () => {
 		expect(f.version("upgraded")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
 	});
 
-	it("puts every live config 2 bank back on config 1 and its version back", async () => {
+	it("puts every live config 3 and config 2 bank back on config 1 and its version back", async () => {
 		const f = await fixture();
 		const report = await f.restoreBankConfigs({
 			execute: true,
+			to: 1,
 			clientFor: f.clientFor,
 		});
-		expect(report).toMatchObject({ mode: "execute", restored: 1, failed: {} });
-		expect(f.patched).toEqual(["upgraded"]);
-		expect(f.version("upgraded")).toBe(f.native.HINDSIGHT_ENGINE_COMMIT);
-		expect(f.version("old")).toBe(f.native.HINDSIGHT_ENGINE_COMMIT);
+		expect(report).toMatchObject({ mode: "execute", restored: 3, failed: {} });
+		expect([...f.patched].sort()).toEqual([
+			"on-config-2",
+			"upgraded",
+			"upgraded-project",
+		]);
+		for (const id of ["upgraded", "upgraded-project", "on-config-2", "old"])
+			expect(f.version(id)).toBe(f.native.HINDSIGHT_ENGINE_COMMIT);
 		expect(f.version("retired")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("restores config 1 by default, as the command always did", async () => {
+		const f = await fixture();
+		await f.restoreBankConfigs({ execute: true, clientFor: f.clientFor });
+		expect(f.version("upgraded")).toBe(f.native.HINDSIGHT_ENGINE_COMMIT);
+		expect(f.version("on-config-2")).toBe(f.native.HINDSIGHT_ENGINE_COMMIT);
 	});
 
 	// The previous release writes facts without labels, so after a roll forward
@@ -168,7 +185,7 @@ describe("restoring config 1 for a rollback", () => {
 			execute: true,
 			clientFor: f.clientFor,
 		});
-		expect(report).toMatchObject({ restored: 1, unverified: 2, failed: {} });
+		expect(report).toMatchObject({ restored: 3, unverified: 2, failed: {} });
 		expect(f.marks(h.userId)).toEqual({
 			epoch: f.epoch,
 			unverified: f.epoch,
@@ -199,7 +216,7 @@ describe("restoring config 1 for a rollback", () => {
 		});
 	});
 
-	it("leaves a bank whose restore failed on config 2, and counts it by code", async () => {
+	it("leaves a bank whose restore failed on its version, and counts it by code", async () => {
 		const f = await fixture();
 		const { HindsightClient } = await import("./hindsight-client");
 		const report = await f.restoreBankConfigs({
@@ -216,9 +233,91 @@ describe("restoring config 1 for a rollback", () => {
 		});
 		expect(report).toMatchObject({
 			restored: 0,
-			failed: { native_unavailable: 1 },
+			failed: { native_unavailable: 3 },
 		});
 		expect(f.version("upgraded")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
+		expect(f.version("on-config-2")).toBe(
+			f.native.NATIVE_BANK_CONFIG_2_VERSION,
+		);
 		expect(f.verifiedEpoch()).toBe(f.epoch);
+	});
+});
+
+describe("restoring config 2 for a rollback of one release", () => {
+	it("puts only the config 3 banks back on their own kind's config 2, and their version back", async () => {
+		const f = await fixture();
+		const report = await f.restoreBankConfigs({
+			execute: true,
+			to: 2,
+			clientFor: f.clientFor,
+		});
+		expect(report).toMatchObject({ mode: "execute", restored: 2, failed: {} });
+		expect([...f.patched].sort()).toEqual(["upgraded", "upgraded-project"]);
+		expect(f.sent("upgraded")).toEqual(f.native.nativeBankConfig2("personal"));
+		expect(f.sent("upgraded-project")).toEqual(
+			f.native.nativeBankConfig2("project"),
+		);
+		expect(f.version("upgraded")).toBe(f.native.NATIVE_BANK_CONFIG_2_VERSION);
+		expect(f.version("upgraded-project")).toBe(
+			f.native.NATIVE_BANK_CONFIG_2_VERSION,
+		);
+		// Banks on config 2 or 1 are the config 2 release's already.
+		expect(f.version("on-config-2")).toBe(
+			f.native.NATIVE_BANK_CONFIG_2_VERSION,
+		);
+		expect(f.version("old")).toBe(f.native.HINDSIGHT_ENGINE_COMMIT);
+		expect(f.version("retired")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("leaves every account's label verification as it is: config 2 labels every new fact", async () => {
+		const f = await fixture();
+		f.seedVerifiedOnConfigOne("verified-on-config-1");
+		expect(f.verifiedEpoch()).toBe(f.epoch);
+		const report = await f.restoreBankConfigs({
+			execute: true,
+			to: 2,
+			clientFor: f.clientFor,
+		});
+		expect(report).toMatchObject({ unverified: 0, failed: {} });
+		expect(f.verifiedEpoch()).toBe(f.epoch);
+		expect(f.marks("verified-on-config-1")).toEqual({
+			epoch: 0,
+			unverified: null,
+			verified: 0,
+		});
+	});
+
+	it("leaves a bank whose restore failed on config 3, and counts it by code", async () => {
+		const f = await fixture();
+		const { HindsightClient } = await import("./hindsight-client");
+		const report = await f.restoreBankConfigs({
+			execute: true,
+			to: 2,
+			clientFor: (bankId) =>
+				new HindsightClient({
+					baseUrl: "http://native",
+					apiKey: "key",
+					bankId,
+					fetcher: vi.fn<typeof fetch>(
+						async () => new Response("down", { status: 503 }),
+					),
+				}),
+		});
+		expect(report).toMatchObject({
+			restored: 0,
+			failed: { native_unavailable: 2 },
+		});
+		expect(f.version("upgraded")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("counts by default and changes nothing, whichever step back is meant", async () => {
+		const f = await fixture();
+		const report = await f.restoreBankConfigs({
+			execute: false,
+			to: 2,
+			clientFor: f.clientFor,
+		});
+		expect(report).toMatchObject({ mode: "inspect", restored: 0 });
+		expect(f.patched).toEqual([]);
 	});
 });

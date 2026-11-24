@@ -10,10 +10,13 @@ import {
 	HINDSIGHT_ENGINE_COMMIT,
 	isVerifiedNativeBankConfigVersion,
 	KNOWN_NATIVE_BANK_CONFIGS,
+	NATIVE_BANK_CONFIG_2_VERSION,
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
 	NATIVE_BANK_CONFIG_VERSION,
 	nativeBankConfig,
+	nativeBankConfig2,
+	nativeBankConfig2ForScopeKey,
 	nativeBankConfigForScopeKey,
 	PREVIOUS_NATIVE_BANK_CONFIG,
 } from "./contracts";
@@ -61,8 +64,22 @@ function labelGroup(config: unknown, key: string) {
 	};
 }
 
-describe("bank configuration 2", () => {
-	it("keeps the previous release's config byte for byte", () => {
+describe("bank configuration 2, kept for banks that still hold it", () => {
+	it("keeps config 2 word for word, as the release before config 3 set it", () => {
+		const recorded = JSON.parse(
+			readFileSync(
+				resolve(
+					process.cwd(),
+					"docs/plans/hindsight-memory/part-2-acceptance/bank-config-2.json",
+				),
+				"utf8",
+			),
+		);
+		expect(nativeBankConfig2("personal")).toEqual(recorded.personal);
+		expect(nativeBankConfig2("project")).toEqual(recorded.project);
+	});
+
+	it("keeps the first release's config byte for byte", () => {
 		const recorded = JSON.parse(
 			readFileSync(
 				resolve(
@@ -77,7 +94,7 @@ describe("bank configuration 2", () => {
 
 	it("adds the new mission sentences and keeps the correction rule", () => {
 		for (const kind of ["personal", "project"] as const) {
-			const config = nativeBankConfig(kind);
+			const config = nativeBankConfig2(kind);
 			expect(config.retain_mission).toContain(
 				PREVIOUS_NATIVE_BANK_CONFIG.retain_mission,
 			);
@@ -105,7 +122,7 @@ describe("bank configuration 2", () => {
 			["personal", PERSONAL_MEMORY_SUBJECTS],
 			["project:9b1d0c4e-0d55-4a0b-a1d4-2b0c4a6f8e11", PROJECT_MEMORY_SUBJECTS],
 		] as const) {
-			const config = nativeBankConfigForScopeKey(scopeKey);
+			const config = nativeBankConfig2ForScopeKey(scopeKey);
 			const kind = labelGroup(config, "kind");
 			const subject = labelGroup(config, "subject");
 			for (const group of [kind, subject]) {
@@ -128,14 +145,6 @@ describe("bank configuration 2", () => {
 			expect(config.entities_allow_free_form).toBe(true);
 			expect(subject.values.map((v) => v.value)).toEqual([...subjects]);
 		}
-		expect(CURRENT_NATIVE_BANK_CONFIGS).toEqual([
-			nativeBankConfig("personal"),
-			nativeBankConfig("project"),
-		]);
-		expect(KNOWN_NATIVE_BANK_CONFIGS).toEqual([
-			PREVIOUS_NATIVE_BANK_CONFIG,
-			...CURRENT_NATIVE_BANK_CONFIGS,
-		]);
 	});
 
 	it("writes only ASCII English for the model and names no language", () => {
@@ -147,27 +156,127 @@ describe("bank configuration 2", () => {
 					: value && typeof value === "object"
 						? Object.values(value).flatMap(words)
 						: [];
-		for (const config of CURRENT_NATIVE_BANK_CONFIGS)
+		for (const config of [
+			...CURRENT_NATIVE_BANK_CONFIGS,
+			nativeBankConfig2("personal"),
+			nativeBankConfig2("project"),
+		])
 			for (const text of words(config)) {
 				expect(text).toMatch(/^[\x20-\x7e]*$/);
 				expect(text).not.toMatch(/hungarian|english|magyar|angol/i);
 			}
 	});
+});
 
-	it("knows which stored versions are verified configs", () => {
-		expect(isVerifiedNativeBankConfigVersion(HINDSIGHT_ENGINE_COMMIT)).toBe(
-			true,
-		);
-		expect(isVerifiedNativeBankConfigVersion(NATIVE_BANK_CONFIG_VERSION)).toBe(
-			true,
-		);
+describe("bank configuration 3", () => {
+	it("keeps config 2's missions and adds one rule about how the assistant should answer", () => {
+		for (const kind of ["personal", "project"] as const) {
+			const config = nativeBankConfig(kind);
+			const before = nativeBankConfig2(kind);
+			expect(config.observations_mission).toBe(before.observations_mission);
+			expect(config.retain_mission).toContain(
+				PREVIOUS_NATIVE_BANK_CONFIG.retain_mission,
+			);
+			// Config 2's rules about requests, brainstorms and outcomes stay.
+			expect(config.retain_mission).toMatch(
+				/requests to the assistant and what the user wants from this chat are not memories/i,
+			);
+			expect(config.retain_mission).toMatch(
+				/the options, the user's reactions to them and the reasons for those reactions are not memories/i,
+			);
+			expect(config.retain_mission).toMatch(
+				/when the choice settles, keep only its outcome/i,
+			);
+			// The new rule: a stated preference about how to answer is a lasting
+			// memory even as a plain request; one piece of work is not.
+			expect(config.retain_mission).toMatch(
+				/preference about how the assistant should answer/i,
+			);
+			expect(config.retain_mission).toMatch(
+				/length, format, language or tone/i,
+			);
+			expect(config.retain_mission).toMatch(
+				/even when it is phrased as a request/i,
+			);
+			expect(config.retain_mission).toMatch(/one particular piece of work/i);
+			expect(config.retain_mission).not.toBe(before.retain_mission);
+		}
+	});
+
+	it("words kind so that something bought, got or owned is lasting and only a passing event is temporary", () => {
+		for (const kind of ["personal", "project"] as const) {
+			const group = labelGroup(nativeBankConfig(kind), "kind");
+			const words = Object.fromEntries(
+				group.values.map((v) => [v.value, v.description]),
+			);
+			expect(words.lasting).toMatch(/possessions/i);
+			expect(words.lasting).toMatch(/bought/i);
+			expect(words.lasting).toMatch(/got|given/i);
+			expect(words.lasting).toMatch(/phone/i);
+			expect(words.lasting).toMatch(/how they like the assistant to answer/i);
+			expect(words.temporary).toMatch(
+				/buying, getting or selling something is not/i,
+			);
+			expect(words.temporary).toMatch(/so it is lasting/i);
+			// Config 2's list of passing events stays.
+			for (const event of ["an exam", "a trip", "an appointment", "a deadline"])
+				expect(words.temporary).toContain(event);
+			expect(group.description).toMatch(/when unsure.*lasting/i);
+			expect(words.lasting).not.toBe(
+				labelGroup(nativeBankConfig2(kind), "kind").values[0].description,
+			);
+		}
+	});
+
+	it("labels kind and subject with the same subjects as config 2", () => {
+		for (const kind of ["personal", "project"] as const) {
+			const config = nativeBankConfig(kind);
+			expect(labelGroup(config, "subject")).toEqual(
+				labelGroup(nativeBankConfig2(kind), "subject"),
+			);
+			expect(config.entities_allow_free_form).toBe(true);
+		}
+		expect(
+			labelGroup(nativeBankConfig("personal"), "kind").values,
+		).toHaveLength(3);
+	});
+
+	it("stores its own version, and every stored version of a verified config is known", () => {
+		expect(NATIVE_BANK_CONFIG_VERSION).toBe("alfyai-bank-config-3");
+		expect(NATIVE_BANK_CONFIG_2_VERSION).toBe("alfyai-bank-config-2");
+		for (const version of [
+			HINDSIGHT_ENGINE_COMMIT,
+			NATIVE_BANK_CONFIG_2_VERSION,
+			NATIVE_BANK_CONFIG_VERSION,
+		])
+			expect(isVerifiedNativeBankConfigVersion(version)).toBe(true);
 		for (const version of [
 			NATIVE_BANK_CONFIG_PENDING,
 			NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 			null,
 			"",
+			"alfyai-bank-config-4",
 		])
 			expect(isVerifiedNativeBankConfigVersion(version)).toBe(false);
+	});
+
+	it("is the current config; config 1, 2 and 3 are the ones a path that only verifies accepts", () => {
+		expect(CURRENT_NATIVE_BANK_CONFIGS).toEqual([
+			nativeBankConfig("personal"),
+			nativeBankConfig("project"),
+		]);
+		expect(KNOWN_NATIVE_BANK_CONFIGS).toEqual([
+			PREVIOUS_NATIVE_BANK_CONFIG,
+			nativeBankConfig2("personal"),
+			nativeBankConfig2("project"),
+			...CURRENT_NATIVE_BANK_CONFIGS,
+		]);
+		expect(nativeBankConfigForScopeKey("personal")).toEqual(
+			nativeBankConfig("personal"),
+		);
+		expect(nativeBankConfigForScopeKey("project:p1")).toEqual(
+			nativeBankConfig("project"),
+		);
 	});
 });
 
@@ -189,12 +298,25 @@ describe("native config verification", () => {
 		).rejects.toMatchObject({ code: "native_config_mismatch" });
 	});
 
-	it("accepts the previous release's config where it only verifies", async () => {
-		const { client } = clientAnswering(PREVIOUS_NATIVE_BANK_CONFIG);
-		await expect(client.verifyConfig()).resolves.toBeUndefined();
-		await expect(
-			client.verifyConfig(CURRENT_NATIVE_BANK_CONFIGS),
-		).rejects.toMatchObject({ code: "native_config_mismatch" });
+	it("accepts config 1, 2 and 3 where it only verifies, and each only as its own", async () => {
+		for (const held of [
+			PREVIOUS_NATIVE_BANK_CONFIG,
+			nativeBankConfig2("personal"),
+			nativeBankConfig2("project"),
+			nativeBankConfig("personal"),
+			nativeBankConfig("project"),
+		])
+			await expect(
+				clientAnswering(held).client.verifyConfig(),
+			).resolves.toBeUndefined();
+		// A bank on config 1 or 2 is not config 3.
+		for (const held of [
+			PREVIOUS_NATIVE_BANK_CONFIG,
+			nativeBankConfig2("personal"),
+		])
+			await expect(
+				clientAnswering(held).client.verifyConfig(CURRENT_NATIVE_BANK_CONFIGS),
+			).rejects.toMatchObject({ code: "native_config_mismatch" });
 	});
 
 	it("sends the config it is given", async () => {
@@ -249,6 +371,59 @@ describe("native fact fields", () => {
 		await expect(clientAnswering(page).client.list()).rejects.toMatchObject({
 			code: "native_format_unsupported",
 		});
+	});
+});
+
+describe("rolling back to config 2", () => {
+	function patching(initial: Record<string, unknown>) {
+		let live = initial;
+		const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+			if (init?.method === "PATCH")
+				live = { ...live, ...JSON.parse(String(init.body)).updates };
+			return Response.json({ config: live });
+		});
+		return {
+			fetcher,
+			live: () => live,
+			client: new HindsightClient({
+				baseUrl: "http://native",
+				apiKey: "key",
+				bankId: "b",
+				fetcher,
+			}),
+		};
+	}
+
+	it("puts a bank back on its own kind's config 2, verified by readback", async () => {
+		const { restoreNativeBankConfig2 } = await import("./bank-configuration");
+		for (const scopeKey of ["personal", "project:p1"]) {
+			const bank = patching({ ...nativeBankConfigForScopeKey(scopeKey) });
+			await restoreNativeBankConfig2(bank.client, scopeKey);
+			const sent = JSON.parse(
+				String(
+					bank.fetcher.mock.calls.find(
+						([, init]) => init?.method === "PATCH",
+					)?.[1]?.body,
+				),
+			).updates;
+			expect(sent).toEqual(nativeBankConfig2ForScopeKey(scopeKey));
+			expect(bank.live()).toMatchObject(nativeBankConfig2ForScopeKey(scopeKey));
+		}
+	});
+
+	it("refuses a bank whose readback is not config 2 afterwards", async () => {
+		const { restoreNativeBankConfig2 } = await import("./bank-configuration");
+		const client = new HindsightClient({
+			baseUrl: "http://native",
+			apiKey: "key",
+			bankId: "b",
+			fetcher: vi.fn<typeof fetch>(async () =>
+				Response.json({ config: nativeBankConfig("personal") }),
+			),
+		});
+		await expect(
+			restoreNativeBankConfig2(client, "personal"),
+		).rejects.toMatchObject({ code: "native_config_mismatch" });
 	});
 });
 

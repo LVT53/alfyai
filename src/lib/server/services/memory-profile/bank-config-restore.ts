@@ -1,9 +1,13 @@
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryAccounts, memoryBanks } from "$lib/server/db/schema";
-import { restorePreviousNativeBankConfig } from "./bank-configuration";
+import {
+	restoreNativeBankConfig2,
+	restorePreviousNativeBankConfig,
+} from "./bank-configuration";
 import {
 	HINDSIGHT_ENGINE_COMMIT,
+	NATIVE_BANK_CONFIG_2_VERSION,
 	NATIVE_BANK_CONFIG_PENDING,
 	NATIVE_BANK_CONFIG_VERSION,
 	NativeMemoryError,
@@ -13,40 +17,58 @@ import { revokeMemoryLabelsVerified } from "./labels-verified";
 import { memoryMigrationGuard } from "./migration-guard";
 
 /**
- * The rollback of Memory part 2's bank config (operator step, run with the
- * app's Memory workers stopped, from this release's code, before the
- * previous release serves Memory again): every bank this release moved to
- * config 2 goes back to config 1, labels cleared, and its stored version back
- * to `HINDSIGHT_ENGINE_COMMIT`. Inspects by default; counts only, no ids and
- * no content. Removes nothing: label rows stay in `memory_fact_labels` for a
- * roll forward. It does take back every account's label verification
- * (`revokeMemoryLabelsVerified`): the previous release writes facts without
- * labels into any account's banks, and may create config-1 banks, so each
- * account it will serve gets today's Memory page until the label migration,
- * run again after the roll forward, verifies it again. An account goes back
- * as soon as one of its banks is restored, and every account goes back once a
- * run leaves no bank on config 2. The permanent tester rule's account is left
- * as it is (migration 143 never marked it).
+ * The rollback of the bank config (operator step, run with the app's Memory
+ * workers stopped, from this release's code, before an earlier release serves
+ * Memory again). Each earlier release compares its own config's keys one by
+ * one and fails a bank on a later config, so the banks go back first:
+ *
+ * - `to: 2`, for a rollback to the config 2 release: every bank this release
+ *   moved to config 3 goes back to its own kind's config 2, verified by
+ *   readback, and its stored version back to `NATIVE_BANK_CONFIG_2_VERSION`.
+ *   Config 2 labels every new fact, so nothing else changes: the labels and
+ *   every account's label verification stay.
+ * - `to: 1` (the default), for a rollback to the first release: every bank on
+ *   config 3 or config 2 goes back to config 1 with its labels cleared, and
+ *   its stored version back to `HINDSIGHT_ENGINE_COMMIT`. It also takes back
+ *   every account's label verification (`revokeMemoryLabelsVerified`): the
+ *   first release writes facts without labels into any account's banks, and
+ *   may create config-1 banks, so each account it will serve gets today's
+ *   Memory page until the label migration, run again after the roll forward,
+ *   verifies it again. An account goes back as soon as one of its banks is
+ *   restored, and every account goes back once a run leaves no bank on
+ *   config 2 or 3. The permanent tester rule's account is left as it is
+ *   (migration 143 never marked it).
+ *
+ * Inspects by default; counts only, no ids and no content. Removes nothing:
+ * label rows stay in `memory_fact_labels` (and the relabel's record in
+ * `memory_label_relabels`) for a roll forward.
  */
 export interface BankConfigRestoreReport {
 	mode: "inspect" | "execute";
 	/** Non-retired banks of native accounts, by stored config version. */
 	versions: {
+		config3: number;
 		config2: number;
 		config1: number;
 		pending: number;
 		other: number;
 	};
 	restored: number;
-	/** Accounts returned to today's Memory page (inspect: that a clean run would return). */
+	/**
+	 * Accounts returned to today's Memory page (inspect: that a clean run to
+	 * config 1 would return; a run to config 2 returns none).
+	 */
 	unverified: number;
 	failed: Record<string, number>;
 }
 
 export async function restoreBankConfigs(input: {
 	execute: boolean;
+	/** The release to go back to: 1 (the first release, the default) or 2. */
+	to?: 1 | 2;
 	clientFor?: (bankId: string, tenantId: string) => HindsightClient;
 }): Promise<BankConfigRestoreReport> {
+	const to = input.to ?? 1;
 	const clientFor =
 		input.clientFor ??
 		((bankId: string, tenantId: string) =>
@@ -63,7 +85,7 @@ export async function restoreBankConfigs(input: {
 			),
 		)
 		.all();
-	// Every native account the previous release will serve, the tester's left out.
+	// Every native account the first release will serve, the tester's left out.
 	const accounts = db
 		.select({ userId: memoryAccounts.userId, epoch: memoryAccounts.epoch })
 		.from(memoryAccounts)
@@ -72,7 +94,7 @@ export async function restoreBankConfigs(input: {
 		.filter(({ userId }) => memoryMigrationGuard(userId).allowed);
 	const report: BankConfigRestoreReport = {
 		mode: input.execute ? "execute" : "inspect",
-		versions: { config2: 0, config1: 0, pending: 0, other: 0 },
+		versions: { config3: 0, config2: 0, config1: 0, pending: 0, other: 0 },
 		restored: 0,
 		unverified: input.execute ? 0 : accounts.length,
 		failed: {},
@@ -86,27 +108,40 @@ export async function restoreBankConfigs(input: {
 	};
 	for (const { bank } of banks) {
 		const version = bank.nativeConfigVersion;
-		if (version === NATIVE_BANK_CONFIG_VERSION) report.versions.config2++;
+		if (version === NATIVE_BANK_CONFIG_VERSION) report.versions.config3++;
+		else if (version === NATIVE_BANK_CONFIG_2_VERSION)
+			report.versions.config2++;
 		else if (version === HINDSIGHT_ENGINE_COMMIT) report.versions.config1++;
 		else if (version === NATIVE_BANK_CONFIG_PENDING) report.versions.pending++;
 		else report.versions.other++;
 	}
 	if (!input.execute) return report;
+	/** The versions this step back moves: config 3 to config 2, or config 3 and 2 to config 1. */
+	const moves: readonly string[] =
+		to === 2
+			? [NATIVE_BANK_CONFIG_VERSION]
+			: [NATIVE_BANK_CONFIG_VERSION, NATIVE_BANK_CONFIG_2_VERSION];
 	for (const { bank, tenantId } of banks) {
-		if (bank.nativeConfigVersion !== NATIVE_BANK_CONFIG_VERSION) continue;
+		const from = bank.nativeConfigVersion;
+		if (!from || !moves.includes(from)) continue;
 		try {
-			await restorePreviousNativeBankConfig(clientFor(bank.id, tenantId));
+			const client = clientFor(bank.id, tenantId);
+			if (to === 2) await restoreNativeBankConfig2(client, bank.scopeKey);
+			else await restorePreviousNativeBankConfig(client);
 			db.update(memoryBanks)
-				.set({ nativeConfigVersion: HINDSIGHT_ENGINE_COMMIT })
+				.set({
+					nativeConfigVersion:
+						to === 2 ? NATIVE_BANK_CONFIG_2_VERSION : HINDSIGHT_ENGINE_COMMIT,
+				})
 				.where(
 					and(
 						eq(memoryBanks.id, bank.id),
-						eq(memoryBanks.nativeConfigVersion, NATIVE_BANK_CONFIG_VERSION),
+						eq(memoryBanks.nativeConfigVersion, from),
 					),
 				)
 				.run();
-			// The previous release writes facts without labels into this bank.
-			revoke(bank.userId, bank.epoch);
+			// The first release writes facts without labels into this bank.
+			if (to === 1) revoke(bank.userId, bank.epoch);
 			report.restored++;
 		} catch (error) {
 			const code =
@@ -116,9 +151,9 @@ export async function restoreBankConfigs(input: {
 			report.failed[code] = (report.failed[code] ?? 0) + 1;
 		}
 	}
-	// A clean run: the previous release may now serve every account, so each
-	// goes back to today's page (a run with a failure is run again first).
-	if (!Object.keys(report.failed).length)
+	// A clean run to config 1: the first release may now serve every account, so
+	// each goes back to today's page (a run with a failure is run again first).
+	if (to === 1 && !Object.keys(report.failed).length)
 		for (const { userId, epoch } of accounts) revoke(userId, epoch);
 	report.unverified = revoked.size;
 	return report;
