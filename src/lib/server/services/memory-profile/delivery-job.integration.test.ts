@@ -1799,6 +1799,204 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 	});
 });
 
+describe("a cleanup wait on a retain Hindsight has forgotten", () => {
+	/** How a job ended: its status and its error code. */
+	async function outcome(f: Fixture, jobId: string) {
+		const { eq } = await import("drizzle-orm");
+		const row = f.db
+			.select()
+			.from(f.schema.memoryDeliveryJobs)
+			.where(eq(f.schema.memoryDeliveryJobs.id, jobId))
+			.get();
+		return { status: row?.status, code: row?.errorCode };
+	}
+	/**
+	 * A chat sent long ago and never acknowledged, with no recorded end: its
+	 * delivery ended native_operation_timeout, and Hindsight has since forgotten
+	 * the operation, so it answers 404 for it.
+	 */
+	function forgottenRetain(f: Fixture) {
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true })
+			.run();
+		return fakeRetains(f, { unknownIs404: true });
+	}
+	/** Withdraws the chat and queues its cleanup, with Memory off as in the cleanup tests above. */
+	async function withdraw(f: Fixture) {
+		f.rev.revokeMemorySources(h.userId, [f.source.id]);
+		f.db.update(f.schema.users).set({ memoryEnabled: false }).run();
+		return f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source_cleanup",
+			sourceId: f.source.id,
+			requestId: "cleanup",
+		});
+	}
+	const deletedDocument = (f: Fixture) =>
+		f.fetcher.mock.calls.some(
+			([url, init]) =>
+				String(url).endsWith(`/documents/${f.source.id}`) &&
+				init?.method === "DELETE",
+		);
+
+	it("cleans up the withdrawn chat", async () => {
+		const f = await setup();
+		const forgotten = f.source.nativeOperationId as string;
+		const fake = forgottenRetain(f);
+		const cleanup = await withdraw(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, cleanup.row.id)).toEqual({
+			status: "succeeded",
+			code: null,
+		});
+		expect(fake.calls).toContain(`GET ${forgotten}`);
+		expect(deletedDocument(f)).toBe(true);
+	});
+
+	it("delivers another chat of the same bank", async () => {
+		const f = await setup();
+		const forgotten = f.source.nativeOperationId as string;
+		const fake = forgottenRetain(f);
+		const other = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "other-event",
+			lineageId: "other-message",
+			text: "My oar is red",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		// Once the other chat's retain is in, Hindsight holds its fact.
+		const inner = f.fetcher.getMockImplementation();
+		if (!inner) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) =>
+			String(url).includes("/memories/list") &&
+			fake.posted().includes(other.nativeOperationId as string)
+				? new Response(
+						JSON.stringify({
+							total: 2,
+							offset: 0,
+							items: [
+								{
+									id: "oar",
+									text: "Red oar",
+									fact_type: "world",
+									consolidated_at: "2026-11-19T00:00:00Z",
+									document_id: other.id,
+								},
+								{
+									id: "oar-observation",
+									text: "Red oar",
+									fact_type: "observation",
+									source_memory_ids: ["oar"],
+								},
+							],
+						}),
+					)
+				: inner(url, init),
+		);
+		const delivery = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: other.id,
+			requestId: "other-request",
+		});
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, delivery.row.id)).toEqual({
+			status: "succeeded",
+			code: null,
+		});
+		expect(fake.calls).toContain(`GET ${forgotten}`);
+		expect(fake.calls).toContain(`POST ${other.nativeOperationId}`);
+		const pub = await import("./publication");
+		expect(
+			pub.readPublishedMemory(h.userId, f.bank.id).map((row) => row.text),
+		).toEqual(["Red oar"]);
+	});
+
+	it("erases the bank", async () => {
+		const f = await setup();
+		const forgotten = f.source.nativeOperationId as string;
+		const { HINDSIGHT_ENGINE_COMMIT } = await import("./contracts");
+		f.db
+			.update(f.schema.memoryBanks)
+			.set({
+				nativeBaseUrl: "http://synthetic",
+				nativeCredentialHash: "synthetic-hash",
+				nativeConfigVersion: HINDSIGHT_ENGINE_COMMIT,
+			})
+			.run();
+		const fake = forgottenRetain(f);
+		await f.jobs.prepareNativeMemoryErasure(h.userId);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		const cleanup = f.db
+			.select()
+			.from(f.schema.memoryDeliveryJobs)
+			.all()
+			.find((row) => row.kind === "cleanup");
+		expect(JSON.parse(cleanup?.nativeOperationIdsJson ?? "[]")).toEqual([
+			forgotten,
+		]);
+		expect({ status: cleanup?.status, code: cleanup?.errorCode }).toEqual({
+			status: "succeeded",
+			code: null,
+		});
+		expect(fake.calls).toContain(`GET ${forgotten}`);
+		expect(
+			f.fetcher.mock.calls.some(
+				([url, init]) =>
+					init?.method === "DELETE" &&
+					String(url).endsWith(`/banks/${f.bank.id}`),
+			),
+		).toBe(true);
+	});
+
+	it("still fails native_not_found when the bank itself is gone", async () => {
+		const f = await setup();
+		forgottenRetain(f);
+		const inner = f.fetcher.getMockImplementation();
+		if (!inner) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) =>
+			String(url).endsWith(`/banks/${f.bank.id}/config`) &&
+			init?.method === "GET"
+				? new Response("missing", { status: 404 })
+				: inner(url, init),
+		);
+		const cleanup = await withdraw(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, cleanup.row.id)).toEqual({
+			status: "failed",
+			code: "native_not_found",
+		});
+		expect(deletedDocument(f)).toBe(false);
+	});
+
+	it("leaves every wait that is not a cleanup failing on an operation Hindsight does not know", async () => {
+		const f = await setup();
+		const inner = f.fetcher.getMockImplementation();
+		if (!inner) throw new Error("Missing fixture fetch");
+		// Hindsight answers 404 for the delivery's own consolidation.
+		f.fetcher.mockImplementation(async (url, init) =>
+			String(url).endsWith("/operations/consolidate-op")
+				? new Response("missing", { status: 404 })
+				: inner(url, init),
+		);
+		const delivery = await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, delivery.row.id)).toEqual({
+			status: "failed",
+			code: "native_not_found",
+		});
+		expect(f.db.select().from(f.schema.memoryPublishedRows).all()).toEqual([]);
+	});
+});
+
 /**
  * A Hindsight that takes its time, on a faked clock: every status read of an
  * operation moves the clock on by `stepMs`, and an operation is done once the

@@ -79,6 +79,8 @@ async function pause(signal: AbortSignal) {
 }
 const ENDED = ["completed", "failed", "cancelled"];
 const ENDED_BADLY = ["failed", "cancelled"];
+/** What a cleanup wait reads for an operation Hindsight no longer knows. */
+const FORGOTTEN = "forgotten";
 /**
  * The longest one attempt waits on Hindsight before it hands the job back.
  * Hindsight finishes on its own clock (minutes per retain under one local
@@ -119,6 +121,12 @@ function stillWaiting(wait: NativeWait) {
  * Polls until every operation has ended or, with `stopOnBadEnd`, until one has
  * failed or been cancelled. Returns the statuses it read last. At the end of
  * the wait's slice it throws its waiting code.
+ *
+ * A cleanup wait (without `stopOnBadEnd`) only has to know that nothing still
+ * runs before it deletes or sends. Hindsight forgets an ended operation's
+ * receipt in time, so an operation it no longer knows (a 404, or a `not_found`
+ * status) reads as ended there, once the bank itself answers; a bank that is
+ * gone fails as before. Every other wait still fails on it.
  */
 async function pollOperations(
 	client: HindsightClient,
@@ -127,14 +135,39 @@ async function pollOperations(
 	stopOnBadEnd: boolean,
 	wait: NativeWait,
 ): Promise<NativeOperation[]> {
+	let bankAnswers: Promise<boolean> | undefined;
+	const forgotten = async (id: string, error: NativeMemoryError) => {
+		if (stopOnBadEnd) throw error;
+		bankAnswers ??= client.bankExists();
+		if (!(await bankAnswers)) throw error;
+		return { id, status: FORGOTTEN };
+	};
+	const read = async (id: string): Promise<NativeOperation> => {
+		let op: NativeOperation;
+		try {
+			op = await client.operation(id);
+		} catch (error) {
+			if (
+				error instanceof NativeMemoryError &&
+				error.code === "native_not_found"
+			)
+				return forgotten(id, error);
+			throw error;
+		}
+		return op.status === "not_found"
+			? forgotten(
+					id,
+					new NativeMemoryError("native_acknowledgement_unknown", true),
+				)
+			: op;
+	};
 	while (Date.now() < wait.deadline) {
 		signal.throwIfAborted();
-		const ops = await Promise.all(ids.map((id) => client.operation(id)));
-		if (ops.some((o) => o.status === "not_found"))
-			throw new NativeMemoryError("native_acknowledgement_unknown", true);
+		const ops = await Promise.all(ids.map(read));
 		if (stopOnBadEnd && ops.some((o) => ENDED_BADLY.includes(o.status)))
 			return ops;
-		if (ops.every((o) => ENDED.includes(o.status))) return ops;
+		if (ops.every((o) => ENDED.includes(o.status) || o.status === FORGOTTEN))
+			return ops;
 		await pause(signal);
 	}
 	throw stillWaiting(wait);
