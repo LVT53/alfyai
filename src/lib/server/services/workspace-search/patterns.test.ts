@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
 	foldedGlob,
 	foldedSnippet,
+	indexMatch,
 	indexPhrase,
 	likeSpellings,
 	usesSearchIndex,
@@ -141,6 +142,12 @@ describe("the index's words", () => {
 			)
 			.get(indexPhrase('o"neil')) as { hits: number };
 		expect(hits.hits).toBe(1);
+	});
+
+	it("also looks a word up as typed when folding changed more than its case and accents", () => {
+		expect(indexMatch("km2", "km²")).toBe('"km²" OR "km2"');
+		expect(indexMatch("arviz", "árvíz")).toBe('"arviz"');
+		expect(indexMatch("kitchen", "kitchen")).toBe('"kitchen"');
 	});
 
 	it("uses the index for a word of three letters or more", () => {

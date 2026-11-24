@@ -153,6 +153,26 @@ describe("searchChats", () => {
 		expect(results[0].match.snippet?.length).toBeLessThanOrEqual(162);
 	});
 
+	it("finds a word typed with a compatibility character, as Stage A did", async () => {
+		// The matcher folds "km²" to "km2", which the trigram index never holds:
+		// the word is also looked up as typed.
+		addChat({
+			id: "c1",
+			title: "Plot",
+			messages: ["the plot is 300 km² and CO₂ is low"],
+		});
+		addChat({ id: "c2", title: "Flat", messages: ["egy 50 m²-es lakás"] });
+		const found = async (query: string) =>
+			(await searchChats(OWNER, words(query), PAGE)).results.map(
+				(row) => row.id,
+			);
+		expect(await found("km²")).toEqual(["c1"]);
+		expect(await found("CO₂")).toEqual(["c1"]);
+		expect(await found("m²-es")).toEqual(["c2"]);
+		const [row] = (await searchChats(OWNER, words("km²"), PAGE)).results;
+		expect(row.match.snippet).toContain("km²");
+	});
+
 	it("finds a short word and a long word in different messages", async () => {
 		addChat({
 			id: "c1",

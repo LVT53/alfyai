@@ -978,6 +978,13 @@ describe("searchDocuments", () => {
 		expect(found.results[0].match.snippet).toContain("Árvíztűrő");
 	});
 
+	it("finds a body by a word typed with a compatibility character", async () => {
+		addUpload("up-4", "Alaprajz.pdf", "application/pdf", {
+			text: "a nappali 24 m², a CO₂-szint alacsony",
+		});
+		expect(await foundIds("co₂-szint")).toEqual(["up-4"]);
+	});
+
 	it("finds a Skill Note and a Slides by their text", async () => {
 		addArtifact({
 			id: "note-1",

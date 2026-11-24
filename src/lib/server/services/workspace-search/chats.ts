@@ -8,7 +8,7 @@ import {
 import {
 	foldedGlob,
 	foldedSnippet,
-	indexPhrase,
+	indexMatch,
 	likeSpellings,
 	usesSearchIndex,
 	wordSpellings,
@@ -129,7 +129,7 @@ function holdsAMessage(): SQL {
  */
 function messageHolds(term: string, word: string): SQL {
 	if (usesSearchIndex(term)) {
-		return sql`${messages}.rowid in (select rowid from messages_fts where messages_fts match ${indexPhrase(term)})`;
+		return sql`${messages}.rowid in (select rowid from messages_fts where messages_fts match ${indexMatch(term, word)})`;
 	}
 	const likes = likeSpellings(word).map(
 		(pattern) => sql`${messages.content} like ${pattern} escape '\\'`,

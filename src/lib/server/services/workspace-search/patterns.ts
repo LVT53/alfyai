@@ -128,6 +128,20 @@ export function indexPhrase(term: string): string {
 	return `"${term.replaceAll('"', '""')}"`;
 }
 
+/**
+ * The `MATCH` expression for one word: its folded spelling, and also the word
+ * as typed when folding changed more than case and accents. The matcher folds
+ * a compatibility character ("km²", "CO₂", "ﬁ") to plain letters and digits,
+ * which the trigram tokenizer never does (it folds only case and accents), so
+ * text holding "km²" is found by the typed phrase, as Stage A's LIKE found it.
+ */
+export function indexMatch(term: string, word: string): string {
+	const typedDiffers = word.normalize("NFKD") !== word.normalize("NFD");
+	return typedDiffers && word !== term
+		? `${indexPhrase(word)} OR ${indexPhrase(term)}`
+		: indexPhrase(term);
+}
+
 const FOLD_MARKS = /\p{M}/gu;
 /** Characters of the original text read on each side of a folded hit. */
 const SNIPPET_WINDOW_CHARS = 600;

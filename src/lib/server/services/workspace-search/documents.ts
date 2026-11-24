@@ -27,7 +27,7 @@ import { buildChatHref } from "./chats";
 import {
 	foldedGlob,
 	foldedSnippet,
-	indexPhrase,
+	indexMatch,
 	likeSpellings,
 	usesSearchIndex,
 	wordSpellings,
@@ -172,7 +172,7 @@ const videoTakesOf = (userId: string): SQL =>
  */
 function bodyHolds(term: string, word: string): SQL {
 	if (usesSearchIndex(term)) {
-		return sql`${artifacts}.rowid in (select rowid from artifacts_fts where artifacts_fts match ${indexPhrase(term)})`;
+		return sql`${artifacts}.rowid in (select rowid from artifacts_fts where artifacts_fts match ${indexMatch(term, word)})`;
 	}
 	return sql`(${sql.join(
 		likeSpellings(word).map(
