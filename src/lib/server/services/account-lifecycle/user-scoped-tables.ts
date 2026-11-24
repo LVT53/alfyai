@@ -42,6 +42,7 @@ import {
 	memoryEvents,
 	memoryHistoryChoices,
 	memoryMigrationManifests,
+	memoryOverviews,
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 	memoryProjectionState,
@@ -146,6 +147,15 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "memory_quarantine_sessions",
 		table: memoryQuarantineSessions,
 		userColumn: memoryQuarantineSessions.userId,
+		erasure: "cascade",
+		resets: ["memory", "workspace"],
+	},
+	// The Memory page's Overview: text written from the person's entries, gone
+	// with them on either reset (its triggers also delete it on Clear Memory).
+	{
+		name: "memory_overviews",
+		table: memoryOverviews,
+		userColumn: memoryOverviews.userId,
 		erasure: "cascade",
 		resets: ["memory", "workspace"],
 	},

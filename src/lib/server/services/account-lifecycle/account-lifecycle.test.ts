@@ -966,6 +966,20 @@ function seedEveryUserScopedTable(userId: string) {
 		})
 		.run();
 
+	// Last: the Overview's triggers delete it whenever its bank's entries change,
+	// so it is written after everything else of the bank.
+	db.insert(schema.memoryOverviews)
+		.values({
+			bankId: p("native-bank"),
+			userId,
+			language: "en",
+			text: "Synthetic overview.",
+			entriesHash: "h",
+			writtenFrom: 1,
+			currentCount: 1,
+		})
+		.run();
+
 	sqlite.close();
 }
 
@@ -1027,6 +1041,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"memory_control_intervals",
 				"memory_history_choices",
 				"memory_migration_manifests",
+				"memory_overviews",
 				"memory_quarantine_drafts",
 				"memory_quarantine_sessions",
 				"memory_delivery_jobs",
@@ -1106,6 +1121,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 		expect(tablesForResetScope("memory").map((entry) => entry.name)).toEqual([
 			"memory_quarantine_drafts",
 			"memory_quarantine_sessions",
+			"memory_overviews",
 			"memory_actions",
 			"memory_revocations",
 			"memory_source_revisions",
@@ -1130,6 +1146,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 			[
 				"memory_quarantine_drafts",
 				"memory_quarantine_sessions",
+				"memory_overviews",
 				"memory_actions",
 				"memory_revocations",
 				"memory_source_revisions",

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	fetchMemoryDetail,
+	fetchMemoryOverview,
 	fetchMemoryPage,
 	fetchMemorySubject,
 	fetchMemorySubjectIndex,
 	submitMemoryAction,
+	writeMemoryOverview,
 } from "./memory";
 
 const scope = { kind: "personal" } as const;
@@ -210,6 +212,46 @@ describe("the subject index's transport", () => {
 						total: 1,
 						nextCursor: null,
 					}),
+			),
+		).rejects.toThrow();
+	});
+});
+
+describe("the Overview's transport", () => {
+	const written = {
+		state: "written",
+		currentCount: 300,
+		text: "A short overview.",
+		writtenFrom: 120,
+		writtenAt: "2026-11-24T01:00:00.000Z",
+	};
+
+	it("reads the stored Overview of a scope", async () => {
+		const fetcher = vi.fn().mockResolvedValue(Response.json(written));
+		await expect(
+			fetchMemoryOverview(
+				{ kind: "project", projectId: "p/1" },
+				undefined,
+				fetcher,
+			),
+		).resolves.toEqual(written);
+		const url = new URL(fetcher.mock.calls[0][0], "http://localhost");
+		expect(url.pathname).toBe("/api/knowledge/memory/scope-overview");
+		expect(url.searchParams.get("projectId")).toBe("p/1");
+	});
+
+	it("asks for a rewrite with a POST", async () => {
+		const fetcher = vi.fn().mockResolvedValue(Response.json(written));
+		await writeMemoryOverview(scope, true, undefined, fetcher);
+		const [, init] = fetcher.mock.calls[0];
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(init.body)).toEqual({ rewrite: true });
+	});
+
+	it("rejects an Overview whose state it does not know", async () => {
+		await expect(
+			fetchMemoryOverview(scope, undefined, async () =>
+				Response.json({ ...written, state: "stale" }),
 			),
 		).rejects.toThrow();
 	});

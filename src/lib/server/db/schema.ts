@@ -3447,6 +3447,33 @@ export const memoryPublishedRows = sqliteTable(
 	}),
 );
 /**
+ * The Memory page's Overview (Memory part 3): one paragraph per bank, written
+ * by the local model when the person opens it, from the entries the page shows
+ * as current. One row per bank, no history. Triggers (migration 144) delete it
+ * whenever the bank's entries can change; only `memory-profile/overview.ts`
+ * reads it, so it never reaches a chat.
+ */
+export const memoryOverviews = sqliteTable(
+	"memory_overviews",
+	{
+		bankId: text("bank_id")
+			.primaryKey()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		language: text("language").notNull(),
+		text: text("text").notNull(),
+		entriesHash: text("entries_hash").notNull(),
+		writtenFrom: integer("written_from").notNull(),
+		currentCount: integer("current_count").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({ user: index("memory_overviews_user_idx").on(t.userId) }),
+);
+/**
  * A native fact's kind and subject, and the date of its event (Memory part 2).
  * Keyed by bank and Hindsight fact id, so it goes with its bank. Publication
  * copies the labels Hindsight's extraction wrote into a fact's tags; the

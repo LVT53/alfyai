@@ -330,3 +330,52 @@ it("declares an interactive call and its tenant's lane to the admission queue", 
 	expect(headers.get("authorization")).toBe("Bearer private-gateway-key");
 	expect(timeouts).toContain(300_000);
 });
+
+// The Overview is a paragraph a person reads: it takes the model family's
+// sampling profile, while every curation decision keeps temperature 0.
+it.each([
+	[undefined, 0],
+	[{ readBy: "machine" } as const, 0],
+	[{ readBy: "person" } as const, 0.6],
+])(
+	"sends the temperature a call is read with (%o)",
+	async (callOptions, temperature) => {
+		const cfg = await import("$lib/server/config-store");
+		vi.spyOn(cfg, "getConfig").mockReturnValue({
+			...cfg.getConfig(),
+			hindsightCurationGatewayModel: "qwen3-6-27b",
+			hindsightInferenceKey: "private-gateway-key",
+			hindsightUrl: "http://127.0.0.1:8888",
+		});
+		const endpoints = await import("./private-endpoint");
+		const transport = vi
+			.spyOn(endpoints, "fetchPrivateMemory")
+			.mockImplementation(async () =>
+				Response.json({
+					id: "synthetic",
+					model: "qwen3-6-27b",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: '{"ok":true}' },
+							finish_reason: "stop",
+						},
+					],
+				}),
+			);
+		const { createCurationModel } = await import("./curation");
+		await createCurationModel(new AbortController().signal)(
+			"Return JSON",
+			{},
+			{ type: "object", properties: { ok: { type: "boolean" } } },
+			"off",
+			undefined,
+			callOptions,
+		);
+		expect(JSON.parse(String(transport.mock.calls[0][1]?.body))).toMatchObject({
+			temperature,
+			top_p: 0.95,
+			top_k: 20,
+		});
+	},
+);

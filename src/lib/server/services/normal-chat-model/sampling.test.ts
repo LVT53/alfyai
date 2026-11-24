@@ -204,7 +204,7 @@ describe("every model call takes its sampling from the one route", () => {
 		"lib/server/services/memory-profile/curation.ts": {
 			count: 1,
 			reason:
-				"low-variance JSON edit plans, fact proposals, verification verdicts and fact labels (fact-classifier.ts) that the app parses and validates before use (ADR-0071)",
+				"low-variance JSON edit plans, fact proposals, verification verdicts and fact labels (fact-classifier.ts) that the app parses and validates before use (ADR-0071); the Overview, a paragraph a person reads, passes readBy: person and takes the family profile",
 		},
 		"lib/server/services/task-state.ts": {
 			count: 1,

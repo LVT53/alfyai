@@ -37,6 +37,8 @@ const PREVIEW_CHARS = 200;
 const EARLIER_PREVIEWS = 3;
 
 export interface ScopeEntries {
+	/** The bank the entries were read from; null when Memory shows nothing here. */
+	bankId: string | null;
 	authority: MemoryPage["authority"];
 	generation: string;
 	status: MemoryPage["status"];
@@ -73,6 +75,7 @@ export function readScopeEntries(
 		const { user, account, bank } = readMemoryScope(userId, scope);
 		const authority = authorityOf(account);
 		const empty: ScopeEntries = {
+			bankId: null,
 			authority,
 			generation: bank?.generation ?? "",
 			status: user.memoryEnabled ? "ready" : "off",
@@ -110,6 +113,7 @@ export function readScopeEntries(
 			};
 		});
 		return {
+			bankId: bank.id,
 			authority,
 			generation: rows[0]?.generation ?? bank.generation ?? "",
 			status: memoryBankStatus(userId, bank),

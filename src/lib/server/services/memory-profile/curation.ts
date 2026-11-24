@@ -31,12 +31,22 @@ export interface EditedFact {
 	assertion_at?: string;
 	native_mentioned_at?: string | null;
 }
+/**
+ * How one call is read. A machine-read answer (every curation call) keeps
+ * temperature 0; a paragraph a person reads (the Overview) takes the model
+ * family's sampling profile, as every text a person reads does
+ * (`normal-chat-model/sampling.ts`).
+ */
+export interface CurationCallOptions {
+	readBy?: "machine" | "person";
+}
 export type CurationModel = (
 	prompt: string,
 	input: unknown,
 	schema: Record<string, unknown>,
 	thinkingMode?: ThinkingMode,
 	assertCurrent?: () => void,
+	call?: CurationCallOptions,
 ) => Promise<unknown>;
 const strings = { type: "array", items: { type: "string" } };
 const intentSchema = {
@@ -180,7 +190,14 @@ export function createCurationModel(
 	beforeDispatch?: () => void,
 	admission: MemoryAdmission = BACKGROUND_MEMORY_ADMISSION,
 ): CurationModel {
-	return async (prompt, input, schema, thinkingMode = "off", assertCurrent) => {
+	return async (
+		prompt,
+		input,
+		schema,
+		thinkingMode = "off",
+		assertCurrent,
+		call = {},
+	) => {
 		const config = getConfig();
 		const modelId = config.hindsightCurationModel;
 		if (
@@ -245,7 +262,7 @@ export function createCurationModel(
 			},
 			thinkingMode,
 			maxTokens: 8192,
-			temperature: 0,
+			...(call.readBy === "person" ? {} : { temperature: 0 }),
 			jsonSchema: { name: "memory_edit", schema, strict: true },
 			signal: AbortSignal.any([
 				signal,

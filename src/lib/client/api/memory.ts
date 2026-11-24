@@ -2,6 +2,7 @@ import type {
 	MemoryAction,
 	MemoryDetail,
 	MemoryOperation,
+	MemoryOverview,
 	MemoryPage,
 	MemoryQuarantine,
 	MemoryQuarantineRequest,
@@ -190,6 +191,53 @@ export async function fetchMemorySubject(
 			nullableString(v.nextCursor) &&
 			Array.isArray(v.entries) &&
 			v.entries.every(validSubjectEntry),
+	);
+}
+function validOverview(value: unknown): MemoryOverview {
+	return validate<MemoryOverview>(
+		value,
+		(v) =>
+			(v.state === "written" || v.state === "none") &&
+			typeof v.currentCount === "number" &&
+			nullableString(v.text) &&
+			(v.writtenFrom === null || typeof v.writtenFrom === "number") &&
+			nullableString(v.writtenAt),
+	);
+}
+/** The scope's Overview when one is written and still matches its entries. */
+export async function fetchMemoryOverview(
+	scope: MemoryScope,
+	signal?: AbortSignal,
+	fetcher?: FetchLike,
+): Promise<MemoryOverview> {
+	return validOverview(
+		await requestJson<unknown>(
+			`/api/knowledge/memory/scope-overview?${scopeParams(scope)}`,
+			{ signal },
+			"Unable to load the overview",
+			fetcher,
+		),
+	);
+}
+/** Writes the scope's Overview, anew when `rewrite`; the local model takes a while. */
+export async function writeMemoryOverview(
+	scope: MemoryScope,
+	rewrite: boolean,
+	signal?: AbortSignal,
+	fetcher?: FetchLike,
+): Promise<MemoryOverview> {
+	return validOverview(
+		await requestJson<unknown>(
+			`/api/knowledge/memory/scope-overview?${scopeParams(scope)}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ rewrite }),
+				signal,
+			},
+			"Unable to write the overview",
+			fetcher,
+		),
 	);
 }
 export async function fetchMemoryDetail(

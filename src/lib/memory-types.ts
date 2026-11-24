@@ -124,6 +124,20 @@ export interface MemorySubjectPage {
 	total: number;
 	nextCursor: string | null;
 }
+/**
+ * The Overview of a scope: one paragraph the local model writes when the
+ * person opens it, from the entries the page shows as current. Kept until an
+ * entry in the scope changes; never sent to chats.
+ */
+export interface MemoryOverview {
+	state: "written" | "none";
+	/** The scope's current entries now. */
+	currentCount: number;
+	text: string | null;
+	/** How many of the most recently mentioned current entries it was written from. */
+	writtenFrom: number | null;
+	writtenAt: string | null;
+}
 /** quote is original authorized source text, never a generated native fact. */
 export interface MemorySource {
 	id: string;

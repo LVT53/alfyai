@@ -381,6 +381,10 @@ export {
 	parseMemoryScope,
 } from "./memory-profile/native-read";
 export {
+	readMemoryOverview,
+	writeMemoryOverview,
+} from "./memory-profile/overview";
+export {
 	listMemorySubject,
 	readMemorySubjectIndex,
 } from "./memory-profile/subject-read";
