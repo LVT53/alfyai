@@ -19,8 +19,8 @@
 //      call, the language call, the chips, the rail headline, the title, the
 //      memory judge and every other call must be byte-identical. Only the
 //      thought-step status line is written in the account's UI language (owner
-//      decision 2), and so is the nightly persona summary (a screen, not a
-//      turn).
+//      decision 2), and so are the nightly persona summary and the Memory
+//      Overview (each a screen the person reads, not a turn).
 //
 // One exception is by design and held in reply-language.test.ts (I4): the
 // language of what follows a reply is named by the model (the language call
@@ -37,6 +37,7 @@
 //      pattern of sampling.test.ts's call-site list);
 //   4. the source: Hungarian letters live only in the files registered below,
 //      each of which keeps them behind a language key, a detector or a UI string.
+import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,8 +55,13 @@ vi.hoisted(() => {
 	process.env.TITLE_GEN_MODEL = "fake-title";
 	process.env.TITLE_GEN_API_KEY = "kt";
 	process.env.PARALLEL_API_KEY = "kp";
+	// The memory model path (the Overview's), through Hindsight's gateway.
+	process.env.HINDSIGHT_CURATION_GATEWAY_MODEL = "fake-memory-model";
+	process.env.HINDSIGHT_API_HTTP_INFERENCE_KEY = "kh";
 });
 
+import { db } from "../../src/lib/server/db";
+import { users } from "../../src/lib/server/db/schema";
 import { generateAndVerifyApp } from "../../src/lib/server/services/artifacts/app/generate-and-verify";
 import * as atlasAnswerTable from "../../src/lib/server/services/atlas-v3/answer-table";
 import * as atlasAsk from "../../src/lib/server/services/atlas-v3/ask";
@@ -76,6 +82,9 @@ import type { SupportedLanguage } from "../../src/lib/server/services/language";
 import { runUserMemoryConsolidation } from "../../src/lib/server/services/memory-consolidation";
 import { generateAndStorePersonaSummary } from "../../src/lib/server/services/memory-consolidation/summary";
 import { runMemoryJudgeOnSegment } from "../../src/lib/server/services/memory-judge";
+import { writeMemoryOverview } from "../../src/lib/server/services/memory-profile/overview";
+import * as privateEndpoint from "../../src/lib/server/services/memory-profile/private-endpoint";
+import { seedSubjectEntries } from "../../src/lib/server/services/memory-profile/subject-read.test-helpers";
 import { generateTitle } from "../../src/lib/server/services/title-generator";
 import {
 	type Capture,
@@ -178,13 +187,59 @@ let hu: World;
 
 beforeAll(async () => {
 	installFakeProvider();
+	// The memory model path posts over a direct private connection, not
+	// `fetch`; the fake provider takes its requests instead.
+	vi.spyOn(privateEndpoint, "fetchPrivateMemory").mockImplementation(
+		async (url, init) => fetch(url, init),
+	);
 	en = await seedWorld("en");
 	hu = await seedWorld("hu");
 });
 
 afterAll(() => {
+	vi.restoreAllMocks();
 	removeFakeProvider();
 });
+
+/**
+ * An account on native Memory with a few synthetic entries, one per UI
+ * language, for the Memory Overview: a separate account, so the world's own
+ * legacy memory (the judge, the consolidation, the chat's memory section) is
+ * left as the other drivers expect it.
+ */
+const overviewAccounts = new Map<"en" | "hu", string>();
+async function overviewAccountOf(language: "en" | "hu"): Promise<string> {
+	const known = overviewAccounts.get(language);
+	if (known) return known;
+	const userId = randomUUID();
+	await db.insert(users).values({
+		id: userId,
+		email: `overview-${language}-${randomUUID().slice(0, 6)}@example.com`,
+		passwordHash: "synthetic",
+		name: "Alex Morgan",
+		role: "user",
+		uiLanguage: language,
+	});
+	const said = new Date().toISOString();
+	await seedSubjectEntries(userId, { kind: "personal" }, [
+		{
+			id: "city",
+			text: "Lives in Dublin.",
+			said,
+			kind: "lasting",
+			subject: "about_you",
+		},
+		{
+			id: "kitchen",
+			text: "Is renovating their kitchen.",
+			said,
+			kind: "ongoing",
+			subject: "projects",
+		},
+	]);
+	overviewAccounts.set(language, userId);
+	return userId;
+}
 
 const conversationOf = (world: World, index: number) =>
 	[world.withHistory, world.inProject, world.fresh][index % 3];
@@ -327,6 +382,17 @@ const DRIVERS: Array<{
 		drive: (world) => generateAndStorePersonaSummary({ userId: world.userId }),
 	},
 	{
+		// What the person reads at the top of their Memory page, written when
+		// they open it: a screen, not a turn.
+		name: "memory overview",
+		drive: async (world) =>
+			writeMemoryOverview(
+				await overviewAccountOf(world.uiLanguage),
+				{ kind: "personal" },
+				{ rewrite: true },
+			),
+	},
+	{
 		name: "memory consolidation",
 		drive: (world) => runUserMemoryConsolidation(world.userId, "purity"),
 	},
@@ -352,6 +418,8 @@ const WRITTEN_IN_THE_UI_LANGUAGE: Record<string, string> = {
 		"the status line is written while Alfy thinks, before any reply text exists (owner decision 2)",
 	"persona summary":
 		"a nightly text the person reads under Memory, in their own language: a screen, not a turn",
+	"memory overview":
+		"the paragraph the person reads at the top of their Memory page, in their own language, named once in the prompt: a screen, not a turn",
 };
 
 /**
@@ -494,8 +562,8 @@ describe("the UI language reaches no request but the status line's (I2)", () => 
 		}, 60_000);
 	}
 
-	it("the status line, and the nightly persona summary, are the ones that differ: they name the account's language", async () => {
-		for (const name of ["thought step", "persona summary"]) {
+	it("the status line, the nightly persona summary and the Memory Overview are the ones that differ: they name the account's language", async () => {
+		for (const name of ["thought step", "persona summary", "memory overview"]) {
 			const driver = DRIVERS.find((d) => d.name === name);
 			if (!driver) throw new Error(`no ${name} driver`);
 			const [english] = (await requestsOf(en, driver)).flat();
