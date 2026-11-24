@@ -892,7 +892,7 @@ const knowledgeDict = {
 			"{total} bejegyzésedből a legutóbbi {count} alapján készült ({when}). Ha változik a Memóriád, újra elkészül, és sosem kerül a beszélgetésekbe.",
 		"memorySubjects.rewrite": "Újraírás",
 		"memorySubjects.done": "Kész",
-		"memorySubjects.tryAgain": "Újra",
+		"memorySubjects.tryAgain": "Újrapróbálom",
 		"memorySubjects.overviewFailed":
 			"Nem sikerült megírni az áttekintést. Próbáld újra.",
 		"memorySubjects.overviewChanged":
