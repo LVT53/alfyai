@@ -974,4 +974,139 @@ describe("the subject index (layout C)", () => {
 		expect(screen.queryByTestId("memory-subjects")).toBeNull();
 		expect(api.fetchMemorySubjectIndex).not.toHaveBeenCalled();
 	});
+
+	describe("a refresh while a subject is open", () => {
+		// Memory refreshes itself every three seconds while it updates (the
+		// list's status is queued, working or failed) and when the window is
+		// focused again; both run `load("refresh")`, which the focus event starts.
+		const entryOf = (rowId: string, text: string) => ({
+			...subjectPage.entries[0],
+			ref: { ...ref, rowId },
+			text,
+			earlierStates: [],
+		});
+		const pagesAt = (generation: string, tag: string) => ({
+			first: {
+				...subjectPage,
+				generation,
+				entries: [entryOf(`a${tag}`, `First page entry ${tag}.`)],
+				total: 2,
+				nextCursor: `more-${tag}`,
+			},
+			second: {
+				...subjectPage,
+				generation,
+				entries: [entryOf(`b${tag}`, `Second page entry ${tag}.`)],
+				total: 2,
+				nextCursor: null,
+			},
+		});
+		const readsOf = (pages: ReturnType<typeof pagesAt>, tag: string) => ({
+			index: { ...index, generation: pages.first.generation },
+			subject: async (options: { cursor?: string }) => {
+				if (options.cursor === `more-${tag}`) return pages.second;
+				return pages.first;
+			},
+		});
+		async function refreshNow() {
+			const reads = api.fetchMemorySubjectIndex.mock.calls.length;
+			window.dispatchEvent(new Event("focus"));
+			await waitFor(() =>
+				expect(api.fetchMemorySubjectIndex.mock.calls.length).toBe(reads + 1),
+			);
+			// What the refresh starts for the opened subject settles.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		async function openWithTwoPages(subjectName: RegExp) {
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			await fireEvent.click(
+				await screen.findByRole("button", { name: subjectName }),
+			);
+			await screen.findByText("First page entry g1.");
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Show more" }),
+			);
+			await screen.findByText("Second page entry g1.");
+		}
+		beforeEach(() => {
+			api.fetchMemoryPage
+				.mockReset()
+				.mockResolvedValue({ ...page, status: "queued" });
+			const reads = readsOf(pagesAt("g1", "g1"), "g1");
+			api.fetchMemorySubjectIndex.mockReset().mockResolvedValue(reads.index);
+			api.fetchMemorySubject.mockReset().mockImplementation(reads.subject);
+		});
+
+		it.each([
+			["a subject", /Projects/],
+			["the Earlier list", /Earlier · 1/],
+		])(
+			"keeps both pages of %s when Memory is unchanged",
+			async (_name, row) => {
+				await openWithTwoPages(row);
+				const reads = api.fetchMemorySubject.mock.calls.length;
+				await refreshNow();
+				expect(screen.getByText("First page entry g1.")).toBeTruthy();
+				expect(screen.getByText("Second page entry g1.")).toBeTruthy();
+				expect(api.fetchMemorySubject.mock.calls.length).toBe(reads);
+			},
+		);
+
+		it("never cuts off a More the person asked for", async () => {
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			const pages = pagesAt("g1", "g1");
+			let land: () => void = () => {};
+			api.fetchMemorySubject.mockImplementation(
+				(options: { cursor?: string }) =>
+					options.cursor
+						? new Promise((resolve) => {
+								land = () => resolve(pages.second);
+							})
+						: Promise.resolve(pages.first),
+			);
+			await fireEvent.click(
+				await screen.findByRole("button", { name: /Projects/ }),
+			);
+			await screen.findByText("First page entry g1.");
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Show more" }),
+			);
+			await refreshNow();
+			land();
+			expect(await screen.findByText("Second page entry g1.")).toBeTruthy();
+			expect(screen.getByText("First page entry g1.")).toBeTruthy();
+		});
+
+		it("reads as many pages again when Memory changed under them", async () => {
+			await openWithTwoPages(/Projects/);
+			const next = readsOf(pagesAt("g2", "g2"), "g2");
+			api.fetchMemorySubjectIndex.mockResolvedValue(next.index);
+			api.fetchMemorySubject.mockImplementation(next.subject);
+			await refreshNow();
+			await screen.findByText("Second page entry g2.");
+			expect(screen.getByText("First page entry g2.")).toBeTruthy();
+			expect(screen.queryByText("First page entry g1.")).toBeNull();
+		});
+
+		it("answers a More past a change with the page it asked for, and the ones it had", async () => {
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			await fireEvent.click(
+				await screen.findByRole("button", { name: /Projects/ }),
+			);
+			await screen.findByText("First page entry g1.");
+			const next = pagesAt("g2", "g2");
+			api.fetchMemorySubject.mockImplementation(
+				async (options: { cursor?: string }) => {
+					if (options.cursor === "more-g1")
+						throw new ApiError("stale_memory", { status: 409 });
+					return options.cursor === "more-g2" ? next.second : next.first;
+				},
+			);
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Show more" }),
+			);
+			await screen.findByText("Second page entry g2.");
+			expect(screen.getByText("First page entry g2.")).toBeTruthy();
+		});
+	});
 });

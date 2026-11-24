@@ -122,6 +122,8 @@ let subjectFailed = $state(false);
 let overviewOpen = $state(false);
 let indexSequence = 0;
 let subjectSequence = 0;
+// How many pages of the opened subject are shown: a refresh reads that many again.
+let subjectPages = 1;
 let indexAbort: AbortController | undefined;
 let subjectAbort: AbortController | undefined;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -240,40 +242,86 @@ function forgetSubject() {
 	subjectAbort?.abort();
 	opened = null;
 	subjectPage = null;
+	subjectPages = 1;
 	subjectLoading = false;
 	subjectFailed = false;
 }
-async function loadSubjectPage(subject: MemorySubjectKey, cursor?: string) {
+/** A read that meets a stale page restarts from the top at most this many times. */
+const SUBJECT_RESTARTS = 2;
+/**
+ * Reads the opened subject: its first `pages` pages from the top (opening it, or
+ * reading it again after Memory moved on), or, with a `cursor`, the one page
+ * after those shown. A read lands as a whole, so a failed one leaves what is
+ * shown as it was.
+ */
+async function loadSubjectPage(
+	subject: MemorySubjectKey,
+	options: { cursor?: string; pages?: number; restarts?: number } = {},
+) {
+	const { cursor, pages = 1, restarts = 0 } = options;
 	const seq = ++subjectSequence;
 	const key = scopeValue;
 	subjectAbort?.abort();
-	subjectAbort = new AbortController();
+	const abort = new AbortController();
+	subjectAbort = abort;
 	subjectLoading = true;
 	subjectFailed = false;
-	try {
-		const next = await fetchMemorySubject(
+	const read = (after?: string) =>
+		fetchMemorySubject(
 			{
 				scope,
 				subject,
 				state: subject === "all" ? "earlier" : "current",
-				...(cursor ? { cursor } : {}),
+				...(after ? { cursor: after } : {}),
 			},
-			subjectAbort.signal,
+			abort.signal,
 		);
-		if (!alive || seq !== subjectSequence || key !== scopeValue) return;
-		subjectPage =
+	const current = () => alive && seq === subjectSequence && key === scopeValue;
+	try {
+		let result = await read(cursor);
+		if (!current()) return;
+		let entries =
 			cursor && subjectPage
-				? { ...next, entries: [...subjectPage.entries, ...next.entries] }
-				: next;
+				? [...subjectPage.entries, ...result.entries]
+				: result.entries;
+		let count = cursor ? subjectPages + 1 : 1;
+		while (!cursor && count < pages && result.nextCursor) {
+			result = await read(result.nextCursor);
+			if (!current()) return;
+			entries = [...entries, ...result.entries];
+			count++;
+		}
+		subjectPage = { ...result, entries };
+		subjectPages = count;
 	} catch (cause) {
-		if (isAbort(cause) || !alive || seq !== subjectSequence) return;
-		// Memory changed between pages: read the subject again from the top.
-		if (cursor && cause instanceof ApiError && cause.status === 409)
-			void loadSubjectPage(subject);
+		if (isAbort(cause) || !current()) return;
+		// Memory changed between pages: read again from the top, as many pages
+		// as the person had, and the one they asked for.
+		if (
+			(cursor || pages > 1) &&
+			restarts < SUBJECT_RESTARTS &&
+			cause instanceof ApiError &&
+			cause.status === 409
+		)
+			void loadSubjectPage(subject, {
+				pages: cursor ? subjectPages + 1 : pages,
+				restarts: restarts + 1,
+			});
 		else subjectFailed = true;
 	} finally {
 		if (seq === subjectSequence) subjectLoading = false;
 	}
+}
+/**
+ * A refresh keeps what the person has loaded of the opened subject. It reads
+ * the subject again only when Memory changed under it (a new generation, which
+ * also ends the pages' cursors), and then as many pages as they had. A read the
+ * person asked for, opening the subject or More, is never cut short.
+ */
+function refreshOpenedSubject(next: MemorySubjectIndex) {
+	if (!opened || subjectLoading) return;
+	if (subjectPage?.generation === next.generation) return;
+	void loadSubjectPage(opened, { pages: subjectPage ? subjectPages : 1 });
 }
 /** The subject index and the opened subject, read again with the list. */
 async function loadSubjects() {
@@ -287,7 +335,7 @@ async function loadSubjects() {
 		if (!alive || seq !== indexSequence || key !== scopeValue) return;
 		subjectIndex = next;
 		indexFailed = false;
-		if (opened) void loadSubjectPage(opened);
+		refreshOpenedSubject(next);
 	} catch (cause) {
 		if (isAbort(cause) || !alive || seq !== indexSequence) return;
 		if (accessLost(cause)) subjectIndex = null;
@@ -934,7 +982,7 @@ onMount(() => {
   {#if layout==='subjects'}<h2 class="sr-only" tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2>{:else}<header class="memory-heading"><h2 tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2><p class="memory-description">{$t('memoryNew.intro')}</p></header>{/if}
   {#if page?.status==='queued'||page?.status==='working'}<p class="memory-status" role="status">{$t('memoryNew.updating')} {$t('memoryNew.updatingHelp')}</p>{:else if page?.status==='failed'&&backgroundErrorDismissed!==`${scopeValue}:${page.generation}`}<ErrorMessage error={$t('memoryNew.backgroundFailed')} canRetry={false} onRetry={()=>{}} onClose={()=>backgroundErrorDismissed=`${scopeValue}:${page?.generation}`}/>{/if}
   <MemoryQuarantineReview projects={$projects} {memoryOff} preparing={page?.authority === "preparing"} onKeep={() => void load("refresh")}/>
-  {#if layout==='subjects'}<MemorySubjectIndexView index={subjectIndex} {page} bind:query {scopeValue} projects={$projects} {loading} {indexFailed} {disabled} {opened} {subjectPage} {subjectLoading} {subjectFailed} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")} onOpenSubject={(subject)=>void openSubject(subject)} onCloseSubject={()=>void closeSubject()} onSubjectMore={()=>{if(opened&&subjectPage?.nextCursor)void loadSubjectPage(opened,subjectPage.nextCursor);}} onOpenOverview={()=>overviewOpen=true}/>
+  {#if layout==='subjects'}<MemorySubjectIndexView index={subjectIndex} {page} bind:query {scopeValue} projects={$projects} {loading} {indexFailed} {disabled} {opened} {subjectPage} {subjectLoading} {subjectFailed} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")} onOpenSubject={(subject)=>void openSubject(subject)} onCloseSubject={()=>void closeSubject()} onSubjectMore={()=>{if(opened&&subjectPage?.nextCursor)void loadSubjectPage(opened,{cursor:subjectPage.nextCursor});}} onOpenOverview={()=>overviewOpen=true}/>
   {:else}<MemoryList {page} bind:query {scopeValue} projects={$projects} {loading} {disabled} busy={false} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")}/>{/if}
   {#if notice}<p class="memory-status"><Check size={15} strokeWidth={1.8} aria-hidden="true"/>{notice}</p>{/if}
  {:else}
