@@ -376,6 +376,8 @@ export interface ClaimOptions {
 	workerId: string;
 	/** Restricts the claim to this job. The inline path uses it. */
 	jobId?: string;
+	/** Restricts the claim to this user's jobs. An operator's drain uses it. */
+	userId?: string;
 	/** true = past the global and per-user caps (an inline run). */
 	ignoreCaps?: boolean;
 	now?: Date;
@@ -420,6 +422,7 @@ export function claimNext(
 			or(isNull(jobs.runAfter), lte(jobs.runAfter, now)),
 			definition.claimable?.(jobs),
 			options.jobId ? eq(jobs.id, options.jobId) : undefined,
+			options.userId ? eq(jobs.userId, options.userId) : undefined,
 		);
 
 		// One row PER USER, that user's first claimable job, and only then ordered
