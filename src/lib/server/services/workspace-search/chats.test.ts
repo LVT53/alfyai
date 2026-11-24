@@ -124,6 +124,81 @@ describe("searchChats", () => {
 		expect(results[0].href).toBe("/chat/c1?focus_message=c1-m0");
 	});
 
+	it("finds a message typed without accents, through the index", async () => {
+		addChat({
+			id: "c1",
+			title: "Gépek",
+			messages: ["Árvíztűrő tükörfúrógép kell"],
+		});
+		const { results } = await searchChats(OWNER, words("arviz"), PAGE);
+		expect(results.map((row) => row.id)).toEqual(["c1"]);
+		expect(results[0].match.type).toBe("body");
+		expect(results[0].match.messageId).toBe("c1-m0");
+		expect(results[0].match.snippet).toContain("Árvíztűrő");
+	});
+
+	it("finds a word whose accented letters are in mixed case in a message", async () => {
+		// Stage A's spellings (typed, Capitalised, UPPER) miss "áRVÍZ": LIKE
+		// folds the case of ASCII letters only.
+		addChat({ id: "c1", title: "Gépek", messages: ["a gép neve áRVÍZTŰRŐ"] });
+		const { results } = await searchChats(OWNER, words("árvíz"), PAGE);
+		expect(results.map((row) => row.id)).toEqual(["c1"]);
+	});
+
+	it("cuts a snippet around a word found only by folding, deep in a long message", async () => {
+		const long = `${"lorem ipsum ".repeat(700)}the Árvíztűrő machine ${"dolor sit ".repeat(300)}`;
+		addChat({ id: "c1", title: "Notes", messages: [long] });
+		const { results } = await searchChats(OWNER, words("arvizturo"), PAGE);
+		expect(results[0].match.snippet).toContain("Árvíztűrő");
+		expect(results[0].match.snippet?.length).toBeLessThanOrEqual(162);
+	});
+
+	it("finds a short word and a long word in different messages", async () => {
+		addChat({
+			id: "c1",
+			title: "Talk",
+			messages: ["the AI said so", "about the kitchen"],
+		});
+		addChat({ id: "c2", title: "Other", messages: ["about the kitchen"] });
+		const both = await searchChats(OWNER, words("ai kitchen"), PAGE);
+		expect(both.results.map((row) => row.id)).toEqual(["c1"]);
+		const neither = await searchChats(OWNER, words("ai garden"), PAGE);
+		expect(neither.results).toEqual([]);
+	});
+
+	it("takes query syntax literally", async () => {
+		addChat({ id: "c1", title: "One", messages: ['say o"neil now'] });
+		addChat({ id: "c2", title: "Two", messages: ["call near(x) here"] });
+		addChat({
+			id: "c3",
+			title: "Three",
+			messages: ["the a*b product, foo:bar key"],
+		});
+		addChat({ id: "c4", title: "Four", messages: ["NOT this one"] });
+		const found = async (query: string) =>
+			(await searchChats(OWNER, words(query), PAGE)).results.map(
+				(row) => row.id,
+			);
+		expect(await found('o"neil')).toEqual(["c1"]);
+		expect(await found("near(x)")).toEqual(["c2"]);
+		expect(await found("a*b")).toEqual(["c3"]);
+		expect(await found("foo:bar")).toEqual(["c3"]);
+		expect(await found("not")).toEqual(["c4"]);
+	});
+
+	it("never finds another person's message through the index", async () => {
+		addChat({ id: "mine", title: "Mine", messages: ["Árvíztűrő gép"] });
+		addChat({
+			id: "theirs",
+			userId: STRANGER,
+			title: "Theirs",
+			messages: ["Árvíztűrő gép"],
+		});
+		const { results, total } = await searchChats(OWNER, words("arviz"), PAGE);
+		expect(results.map((row) => row.id)).toEqual(["mine"]);
+		expect(total).toBe(1);
+	});
+
 	it("finds a word in the title and another in a message", async () => {
 		addChat({
 			id: "c1",

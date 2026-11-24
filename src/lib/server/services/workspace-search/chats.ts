@@ -5,7 +5,14 @@ import {
 	foldForSearch,
 	searchSnippet,
 } from "$lib/shared/workspace-search-text";
-import { foldedGlob, likeSpellings, wordSpellings } from "./patterns";
+import {
+	foldedGlob,
+	foldedSnippet,
+	indexPhrase,
+	likeSpellings,
+	usesSearchIndex,
+	wordSpellings,
+} from "./patterns";
 import {
 	SEARCH_CANDIDATE_CAP,
 	SEARCH_COUNT_CAP,
@@ -115,23 +122,43 @@ function holdsAMessage(): SQL {
 }
 
 /**
- * One word of the query, found in the title or the project's name (folded, so
- * accents and case do not matter) or in any message (its typed, capitalised
- * and capital spellings). Different words may be found in different places.
+ * A message row whose text holds one word: through the full-text index (case
+ * and accents folded) for a word of three letters or more, else through the
+ * word's typed, capitalised and capital spellings, which a trigram index
+ * cannot replace for so short a word.
  */
-function holdsWord(term: string, word: string): SQL {
-	const glob = foldedGlob(term);
+function messageHolds(term: string, word: string): SQL {
+	if (usesSearchIndex(term)) {
+		return sql`${messages}.rowid in (select rowid from messages_fts where messages_fts match ${indexPhrase(term)})`;
+	}
 	const likes = likeSpellings(word).map(
 		(pattern) => sql`${messages.content} like ${pattern} escape '\\'`,
 	);
+	return sql`(${sql.join(likes, sql` or `)})`;
+}
+
+/**
+ * One word of the query, found in the title or the project's name (folded, so
+ * accents and case do not matter) or in any message (`messageHolds`).
+ * Different words may be found in different places. An indexed word reads the
+ * index once for the whole query, not once per chat.
+ */
+function holdsWord(term: string, word: string): SQL {
+	const glob = foldedGlob(term);
+	const inMessages = usesSearchIndex(term)
+		? sql`${conversations.id} in (
+			select ${messages.conversationId} from ${messages}
+			where ${messageHolds(term, word)}
+		)`
+		: sql`exists (
+			select 1 from ${messages}
+			where ${messages.conversationId} = ${conversations.id}
+			and ${messageHolds(term, word)}
+		)`;
 	return sql`(
 		${conversations.title} glob ${glob}
 		or ${projects.name} glob ${glob}
-		or exists (
-			select 1 from ${messages}
-			where ${messages.conversationId} = ${conversations.id}
-			and (${sql.join(likes, sql` or `)})
-		)
+		or ${inMessages}
 	)`;
 }
 
@@ -216,8 +243,9 @@ function clipPlain(text: string): string {
 
 /**
  * The newest message that holds one of the words the title and project do not,
- * with a snippet cut in SQL around the first spelling `instr` finds, so a long
- * message is never read in full.
+ * with a snippet cut in SQL around the first typed spelling `instr` finds, so a
+ * long message is read in full only when the word was found by folding alone
+ * (typed without accents, or in another case), and then cut here.
  */
 async function loadBodyMatch(
 	conversationId: string,
@@ -228,9 +256,9 @@ async function loadBodyMatch(
 		bodyIndexes.length > 0 ? bodyIndexes : query.terms.map((_, index) => index);
 	const words = used.map((index) => query.words[index] ?? query.terms[index]);
 	const terms = used.map((index) => query.terms[index]);
-	const likes = words
-		.flatMap(likeSpellings)
-		.map((pattern) => sql`${messages.content} like ${pattern} escape '\\'`);
+	const holds = used.map((index) =>
+		messageHolds(query.terms[index], query.words[index] ?? query.terms[index]),
+	);
 	const firstFound = sql.join(
 		words
 			.flatMap(wordSpellings)
@@ -246,15 +274,31 @@ async function loadBodyMatch(
 			cut: sql<string>`substr(${messages.content}, max(1, coalesce(${firstFound}, 1) - ${SNIPPET_BEFORE_CHARS}), ${SNIPPET_CUT_CHARS})`,
 		})
 		.from(messages)
-		.where(and(eq(messages.conversationId, conversationId), or(...likes)))
+		.where(and(eq(messages.conversationId, conversationId), or(...holds)))
 		.orderBy(desc(messages.createdAt), desc(messages.id))
 		.limit(1);
 	if (!row) return null;
 	return {
 		id: row.id,
 		role: row.role,
-		snippet: searchSnippet(row.cut, terms, SNIPPET_CHARS) ?? clipPlain(row.cut),
+		snippet:
+			searchSnippet(row.cut, terms, SNIPPET_CHARS) ??
+			(await foldedMessageSnippet(row.id, terms)) ??
+			clipPlain(row.cut),
 	};
+}
+
+/** The snippet of a message whose word no typed spelling locates, cut from its whole text. */
+async function foldedMessageSnippet(
+	messageId: string,
+	terms: readonly string[],
+): Promise<string | null> {
+	const [row] = await db
+		.select({ content: messages.content })
+		.from(messages)
+		.where(eq(messages.id, messageId))
+		.limit(1);
+	return row ? foldedSnippet(row.content, terms, SNIPPET_CHARS) : null;
 }
 
 async function toResult(

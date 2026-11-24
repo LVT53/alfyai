@@ -1,6 +1,13 @@
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
-import { foldedGlob, likeSpellings, wordSpellings } from "./patterns";
+import {
+	foldedGlob,
+	foldedSnippet,
+	indexPhrase,
+	likeSpellings,
+	usesSearchIndex,
+	wordSpellings,
+} from "./patterns";
 
 // The patterns are only worth what SQLite does with them, so these run on a
 // real in-memory SQLite, the same engine the app bundles.
@@ -104,5 +111,53 @@ describe("foldedGlob", () => {
 			const row = sqlite.prepare("select ? glob ? as hit").get(word, pattern);
 			expect((row as { hit: number }).hit).toBe(1);
 		}
+	});
+});
+
+describe("the index's words", () => {
+	it("doubles a quote inside a phrase, and quotes the whole word", () => {
+		expect(indexPhrase('o"neil')).toBe('"o""neil"');
+		expect(indexPhrase("árvíz")).toBe('"árvíz"');
+		// SQLite reads the doubled quote back as one quote.
+		sqlite.exec(
+			"create virtual table if not exists phrase_probe using fts5(t, tokenize='trigram remove_diacritics 1')",
+		);
+		sqlite
+			.prepare("insert into phrase_probe(t) values (?)")
+			.run('say o"neil now');
+		const hits = sqlite
+			.prepare(
+				"select count(*) as hits from phrase_probe where phrase_probe match ?",
+			)
+			.get(indexPhrase('o"neil')) as { hits: number };
+		expect(hits.hits).toBe(1);
+	});
+
+	it("uses the index for a word of three letters or more", () => {
+		expect(usesSearchIndex("ai")).toBe(false);
+		expect(usesSearchIndex("új")).toBe(false);
+		expect(usesSearchIndex("árv")).toBe(true);
+		// Characters, not UTF-16 units: two emoji are two characters.
+		expect(usesSearchIndex("😀😀")).toBe(false);
+	});
+});
+
+describe("foldedSnippet", () => {
+	it("finds a word typed without accents far into a long text", () => {
+		const text = `${"x".repeat(900_000)} the Árvíztűrő machine ${"y".repeat(100_000)}`;
+		const snippet = foldedSnippet(text, ["arviz"], 160);
+		expect(snippet).toContain("Árvíztűrő");
+		expect(snippet?.startsWith("…")).toBe(true);
+		expect(snippet?.length).toBeLessThanOrEqual(162);
+	});
+
+	it("still finds it when folding shifts positions past the window", () => {
+		const text = `${"ﬁ".repeat(1_000)} then Árvíz here`;
+		expect(foldedSnippet(text, ["arviz"], 160)).toContain("Árvíz");
+	});
+
+	it("returns null when no word is there", () => {
+		expect(foldedSnippet("nothing to see", ["arviz"], 160)).toBeNull();
+		expect(foldedSnippet("", ["arviz"], 160)).toBeNull();
 	});
 });
