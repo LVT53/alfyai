@@ -1417,7 +1417,9 @@ it("never brings an Earlier entry when the bank's searches all failed", async ()
 		{ text: "Lives in Graz", kind: "lasting", said: [400] },
 	]);
 	recall.mockRejectedValue(new Error("offline"));
-	const result = await turn();
+	// The message mentions the Earlier entry, and stored order puts it first:
+	// only the failed searches keep it out.
+	const result = await turn("personal", "Is my toothache back?");
 	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
 });
 
