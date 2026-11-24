@@ -15,36 +15,52 @@ import { foldForSearch } from "$lib/shared/workspace-search-text";
  * "záróvizsgája" (see `sameWord`). It reads no model and no score, and a
  * message in one language rarely mentions an entry written in the other
  * except by a shared name; the `memory_context` tool, which ranks by meaning,
- * still returns Earlier entries wherever they rank.
+ * still returns Earlier entries wherever they rank. `message` is the message
+ * itself or its words as `mentionWords` read them, so that a recall reads a
+ * message once however many entries it checks.
  */
 export function mentionsMemoryEntry(
-	message: string,
+	message: string | readonly string[],
 	entryText: string,
 ): boolean {
 	const entryWords = mentionWords(entryText);
 	if (!entryWords.length) return false;
-	return mentionWords(message).some((word) =>
+	const messageWords =
+		typeof message === "string" ? mentionWords(message) : message;
+	return messageWords.some((word) =>
 		entryWords.some((other) => sameWord(word, other)),
 	);
 }
 
-/** The significant words of a text, folded, in order, each once. */
+/**
+ * The significant words of a text, folded, in order, each once. A long text
+ * is read at its start and its end only (`MENTION_HEAD_CHARS`,
+ * `MENTION_TAIL_CHARS`): what a person says about their own life sits around
+ * what they paste, and the gate runs on every turn's path. A recall reads its
+ * message's words once and checks each Earlier entry against them.
+ */
 export function mentionWords(text: string): string[] {
-	const words: string[] = [];
-	for (const word of foldForSearch(text.normalize("NFC")).split(NON_WORD)) {
+	const read =
+		text.length > MENTION_HEAD_CHARS + MENTION_TAIL_CHARS
+			? `${text.slice(0, MENTION_HEAD_CHARS)} ${text.slice(-MENTION_TAIL_CHARS)}`
+			: text;
+	const words = new Set<string>();
+	for (const word of foldForSearch(read.normalize("NFC")).split(NON_WORD)) {
 		if (
 			Array.from(word).length < MIN_WORD_LETTERS ||
 			!LETTER.test(word) ||
 			STOP_WORDS.has(word) ||
-			STOP_STEMS.some((stem) => word.startsWith(stem)) ||
-			words.includes(word)
+			STOP_STEMS.some((stem) => word.startsWith(stem))
 		)
 			continue;
-		words.push(word);
+		words.add(word);
 	}
-	return words;
+	return [...words];
 }
 
+/** How much of a long text's start and end the gate reads. */
+const MENTION_HEAD_CHARS = 4_000;
+const MENTION_TAIL_CHARS = 2_000;
 const MIN_WORD_LETTERS = 3;
 /** Two words share at least this many letters from the start to be one word inflected. */
 const MIN_STEM_LETTERS = 5;

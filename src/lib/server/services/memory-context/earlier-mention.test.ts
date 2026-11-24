@@ -105,6 +105,61 @@ describe("mentionsMemoryEntry", () => {
 	});
 });
 
+describe("the gate's cost on a turn", () => {
+	/** A pasted megabyte: 200,000 distinct words and no mention in it. */
+	const megabyte = () => {
+		const words: string[] = [];
+		let length = 0;
+		for (let i = 0; length < 1_000_000; i++) {
+			const word = `zq${i.toString(36)}vk`;
+			words.push(word);
+			length += word.length + 1;
+		}
+		return words.join(" ");
+	};
+	const entries = measurement.entries.slice(0, 6).map(({ text }) => text);
+
+	it("reads a 1 MB message and checks six entries in under a quarter of a second", () => {
+		// What one recall does: the message's words once, then at most six
+		// Earlier entries (three places in each of two banks).
+		const message = megabyte();
+		const started = performance.now();
+		const words = mentionWords(message);
+		for (const entry of entries) mentionsMemoryEntry(words, entry);
+		expect(performance.now() - started).toBeLessThan(250);
+	});
+
+	it("reads the first 4,000 and the last 2,000 characters of a long message", () => {
+		const filler = (length: number) => "lorem ".repeat(length / 6);
+		const entry = "The user had a dentist appointment for a filling.";
+		expect(
+			mentionsMemoryEntry(
+				`dentist ${filler(3_000)} ${filler(1_000_000)}`,
+				entry,
+			),
+		).toBe(true);
+		expect(
+			mentionsMemoryEntry(
+				`${filler(1_000_000)} ${filler(1_000)} dentist`,
+				entry,
+			),
+		).toBe(true);
+		expect(
+			mentionsMemoryEntry(
+				`${filler(6_000)} dentist ${filler(1_000_000)}`,
+				entry,
+			),
+		).toBe(false);
+	});
+
+	it("lists each word once, in order", () => {
+		expect(mentionWords("dentist filling dentist Dentist filling")).toEqual([
+			"dentist",
+			"filling",
+		]);
+	});
+});
+
 /**
  * The synthetic measurement (Memory label migration, Build B): Earlier
  * entries in English and Hungarian, messages about them and messages about

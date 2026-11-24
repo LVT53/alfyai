@@ -35,7 +35,7 @@ import {
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
-import { mentionsMemoryEntry } from "./earlier-mention";
+import { mentionsMemoryEntry, mentionWords } from "./earlier-mention";
 import {
 	allocateRecall,
 	type RecallCandidate,
@@ -168,8 +168,13 @@ export async function recallMemory(
 	);
 	// What an Earlier entry must be mentioned in to join a turn: the message
 	// as written and as the bank was searched with it (a short message with
-	// the chat's title).
-	const mentionText = `${input.query} ${message ?? ""}`;
+	// the chat's title). Its words are read once per recall, and only when an
+	// Earlier entry ranks at the top.
+	let mentionedWords: string[] | undefined;
+	const mentions = (entryText: string) => {
+		mentionedWords ??= mentionWords(`${input.query} ${message ?? ""}`);
+		return mentionsMemoryEntry(mentionedWords, entryText);
+	};
 	const searches: { list: RecallList; query: string }[] = [
 		...(message === null ? [] : [{ list: "message" as const, query: message }]),
 		...(input.core
@@ -462,7 +467,7 @@ export async function recallMemory(
 							if (
 								!answered ||
 								place >= EARLIER_TOP_PLACES ||
-								!mentionsMemoryEntry(mentionText, offer.entry.text)
+								!mentions(offer.entry.text)
 							)
 								continue;
 							earlier.push({
