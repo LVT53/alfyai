@@ -440,6 +440,16 @@ export function analyse(observations: Observation[]) {
 	};
 }
 
+/** The end state in one word: the shapes the recorded runs show (clean, a compound row, twins, a near-duplicate). */
+export function shapeOf(observations: Observation[]) {
+	const a = analyse(observations);
+	if (a.twin && a.near) return "twin+near";
+	if (a.twin) return "twin";
+	if (a.near) return "near";
+	if (a.checks.compoundRow) return "compound-only";
+	return "clean";
+}
+
 // ---------------------------------------------------------------------------------------
 // One run
 // ---------------------------------------------------------------------------------------
@@ -620,6 +630,14 @@ function summary(scenario: string) {
 			twinOnly: count((a) => a.twin && !a.near),
 			nearOnly: count((a) => a.near && !a.twin),
 			twinAndNear: count((a) => a.twin && a.near),
+			shapes: analysed.reduce(
+				(acc, _a, i) => {
+					const shape = shapeOf((ok[i].afterDeletion.observations ?? []) as Observation[]);
+					acc[shape] = (acc[shape] ?? 0) + 1;
+					return acc;
+				},
+				{} as Record<string, number>,
+			),
 			compoundRow: count((a) => a.checks.compoundRow),
 			greenCurrentMissing: count((a) => !a.checks.greenCurrent),
 			kayakLost: count((a) => !a.checks.kayakKept),
@@ -666,7 +684,31 @@ function summary(scenario: string) {
 				),
 			};
 		}
-	console.log(JSON.stringify({ scenario, table, fisherVsBase }, null, "\t"));
+	// The 2x2 design pooled: the effect of S1 (present: base + no-s2, absent: no-s1 + no-both) and of S2
+	// (present: base + no-s1, absent: no-s2 + no-both), on the same outcomes.
+	const sum = (names: Variant[], pick: (t: Json) => number) => names.reduce((n, v) => n + (table[v] ? pick(table[v]) : 0), 0);
+	const outcomes: Record<string, (t: Json) => number> = {
+		anyDuplicate: (t) => t.duplicate,
+		nearOrTwinAndNear: (t) => t.nearOnly + t.twinAndNear,
+		compoundRow: (t) => t.compoundRow,
+		notClean: (t) => t.runs - t.failed - (t.shapes?.clean ?? 0),
+	};
+	const pooled: Json = {};
+	const groups: Record<string, [Variant[], Variant[]]> = {
+		"S1 present vs absent": [["base", "no-s2"], ["no-s1", "no-both"]],
+		"S2 present vs absent": [["base", "no-s1"], ["no-s2", "no-both"]],
+	};
+	for (const [label, [present, absent]] of Object.entries(groups)) {
+		const nPresent = sum(present, (t) => t.runs - t.failed);
+		const nAbsent = sum(absent, (t) => t.runs - t.failed);
+		pooled[label] = { runsPresent: nPresent, runsAbsent: nAbsent } as Json;
+		for (const [name, pick] of Object.entries(outcomes)) {
+			const a = sum(present, pick);
+			const b = sum(absent, pick);
+			pooled[label][name] = { present: a, absent: b, fisherP: nPresent && nAbsent ? fisher(a, nPresent - a, b, nAbsent - b) : null };
+		}
+	}
+	console.log(JSON.stringify({ scenario, table, fisherVsBase, pooled }, null, "\t"));
 }
 
 /** Prints each run's final rows with the documents behind each row, to read them. */
