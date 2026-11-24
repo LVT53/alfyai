@@ -1100,6 +1100,13 @@
 			"when": 1777140000144,
 			"tag": "1777140000144_memory_overviews",
 			"breakpoints": true
+		},
+		{
+			"idx": 157,
+			"version": "6",
+			"when": 1777140000145,
+			"tag": "1777140000145_workspace_search_index",
+			"breakpoints": true
 		}
 	]
 }

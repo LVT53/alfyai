@@ -1959,11 +1959,19 @@ describe("a Canvas's content, in logs and in telemetry", () => {
 			},
 		});
 
-		const tables = memory.sqlite
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'",
-			)
-			.all() as { name: string }[];
+		// Ordinary tables only: the search index's shadow tables hold its own
+		// encoding, which no text scan can read, so the index is asked below.
+		const tables = (
+			memory.sqlite.prepare("PRAGMA main.table_list").all() as {
+				name: string;
+				type: string;
+			}[]
+		).filter(
+			(table) =>
+				table.type === "table" &&
+				!table.name.startsWith("sqlite_") &&
+				!table.name.startsWith("__drizzle"),
+		);
 		const holdingIt: string[] = [];
 		for (const { name } of tables) {
 			const rows = memory.sqlite.prepare(`SELECT * FROM "${name}"`).all();
@@ -1976,6 +1984,15 @@ describe("a Canvas's content, in logs and in telemetry", () => {
 			["artifact_comments", "artifact_versions", "artifacts"].sort(),
 		);
 		expect(holdingIt.every((name) => OWN_TABLES.has(name))).toBe(true);
+		// A board's JSON is never indexed for search, so no index holds its words.
+		for (const index of ["messages_fts", "artifacts_fts"]) {
+			expect(
+				memory.sqlite
+					.prepare(`SELECT count(*) FROM ${index} WHERE ${index} MATCH ?`)
+					.pluck()
+					.get(`"${SECRET_WORD}"`),
+			).toBe(0);
+		}
 	});
 });
 

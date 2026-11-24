@@ -51,6 +51,9 @@ const requiredExistingTables = [
 	"browser_push_subscriptions",
 	"conversations",
 	"messages",
+	// The Workspace Search full-text indexes (virtual tables, migration 145).
+	"messages_fts",
+	"artifacts_fts",
 	"normal_chat_turns",
 	"normal_chat_attempts",
 	"normal_chat_run_log",
