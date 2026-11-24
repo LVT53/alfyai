@@ -29,6 +29,9 @@ let {
 } = $props();
 let phase = $state<"loading" | "writing" | "written" | "failed">("loading");
 let overview = $state<MemoryOverview | null>(null);
+// How many entries the Overview is written from; 0 until the kept Overview's
+// read has said (when that read fails it is not known, and the sheet does not
+// claim a number).
 let count = $state(0);
 let changed = $state(false);
 const abort = new AbortController();
@@ -114,7 +117,7 @@ const footnote = $derived.by(() => {
    <div class="memory-overview-writing" role="status">
     <LoaderCircle size={28} strokeWidth={2} class="memory-overview-spinner" aria-hidden="true"/>
     <p class="memory-overview-writing-title">{$t("memorySubjects.writing")}</p>
-    <p class="memory-overview-writing-from">{$t("memorySubjects.writingFrom", { count })}</p>
+    {#if count > 0}<p class="memory-overview-writing-from">{$t("memorySubjects.writingFrom", { count })}</p>{/if}
    </div>
   {/if}
   {#if phase === "loading" || phase === "writing"}

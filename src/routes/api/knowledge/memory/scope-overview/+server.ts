@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	logMemoryReadFailure,
 	MemoryRequestError,
 	parseMemoryScope,
 	readMemoryOverview,
@@ -18,18 +19,9 @@ function scopeOf(url: URL) {
 function failure(error: unknown) {
 	if (error instanceof MemoryRequestError)
 		return json({ error: error.code }, { status: error.status });
-	// Content-free (services/AGENTS.md): the error's kind and code only. A
-	// message can quote the model's text (a JSON parse error does).
-	const code =
-		typeof error === "object" &&
-		error !== null &&
-		typeof (error as { code?: unknown }).code === "string"
-			? (error as { code: string }).code
-			: null;
-	console.error("[KNOWLEDGE_MEMORY] Overview unavailable", {
-		error: error instanceof Error ? error.name : "unknown",
-		code,
-	});
+	// Content-free: the error's kind and code only. A message can quote the
+	// model's text (a JSON parse error does).
+	logMemoryReadFailure("Overview", error);
 	return json({ error: "overview_unavailable" }, { status: 503 });
 }
 

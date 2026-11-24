@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	logMemoryReadFailure,
 	MemoryRequestError,
 	parseMemoryScope,
 	readMemorySubjectIndex,
@@ -22,6 +23,8 @@ export const GET: RequestHandler = async (event) => {
 			{ headers: { "Cache-Control": "no-store" } },
 		);
 	} catch (error) {
+		if (!(error instanceof MemoryRequestError))
+			logMemoryReadFailure("Subject index", error);
 		return json(
 			{
 				error:

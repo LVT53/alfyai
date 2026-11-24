@@ -1093,6 +1093,108 @@ describe("the subject index (layout C)", () => {
 		});
 	});
 
+	describe("a subject's Earlier fold", () => {
+		const earlierPage = (
+			generation: string,
+			rowId: string,
+			text: string,
+			nextCursor: string | null,
+		) => ({
+			...subjectPage,
+			generation,
+			state: "earlier" as const,
+			entries: [
+				{
+					...subjectPage.entries[0],
+					ref: { ...ref, rowId },
+					text,
+					timeState: "earlier" as const,
+					earlierStates: [],
+				},
+			],
+			total: 2,
+			nextCursor,
+		});
+		async function openFold() {
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			await fireEvent.click(
+				await screen.findByRole("button", { name: /Projects/ }),
+			);
+			const pane = await screen.findByTestId("memory-subject-pane");
+			await fireEvent.click(
+				await within(pane).findByRole("button", {
+					name: /Earlier in Projects · 1/,
+				}),
+			);
+			await within(pane).findByText("Earlier one.");
+			return pane;
+		}
+
+		it("keeps the entries it shows when More meets a stale page, and reads them again on request", async () => {
+			let moved = false;
+			api.fetchMemorySubject.mockImplementation(
+				async (options: { state: string; cursor?: string }) => {
+					if (options.state === "current") return subjectPage;
+					if (!moved && options.cursor === "more-1") {
+						moved = true;
+						throw new ApiError("stale_memory", { status: 409 });
+					}
+					if (moved)
+						return options.cursor === "more-2"
+							? earlierPage("g2", "b2", "Earlier two.", null)
+							: earlierPage("g2", "a2", "Earlier one.", "more-2");
+					return earlierPage("g1", "a1", "Earlier one.", "more-1");
+				},
+			);
+			const pane = await openFold();
+			await fireEvent.click(
+				within(pane).getByRole("button", { name: "Show more" }),
+			);
+			// Memory moved on: what is shown stays, and Try again reads it anew.
+			const retry = await within(pane).findByRole("button", {
+				name: "Try again",
+			});
+			expect(within(pane).getByText("Earlier one.")).toBeTruthy();
+			expect(
+				within(pane).getByText("Couldn’t load memories. Please try again."),
+			).toBeTruthy();
+			expect(
+				within(pane).queryByRole("button", { name: "Show more" }),
+			).toBeNull();
+			await fireEvent.click(retry);
+			await within(pane).findByText("Earlier two.");
+			expect(within(pane).getByText("Earlier one.")).toBeTruthy();
+			expect(
+				within(pane).queryByRole("button", { name: "Try again" }),
+			).toBeNull();
+			expect(within(pane).queryByText(/Couldn’t load memories/)).toBeNull();
+		});
+
+		it("still says so, with nothing to keep, when the first read fails", async () => {
+			api.fetchMemorySubject.mockImplementation(
+				async (options: { state: string }) => {
+					if (options.state === "current") return subjectPage;
+					throw new ApiError("down", { status: 503 });
+				},
+			);
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			await fireEvent.click(
+				await screen.findByRole("button", { name: /Projects/ }),
+			);
+			const pane = await screen.findByTestId("memory-subject-pane");
+			await fireEvent.click(
+				await within(pane).findByRole("button", {
+					name: /Earlier in Projects · 1/,
+				}),
+			);
+			expect(
+				await within(pane).findByText(
+					"Couldn’t load memories. Please try again.",
+				),
+			).toBeTruthy();
+		});
+	});
+
 	describe("a refresh while a subject is open", () => {
 		// Memory refreshes itself every three seconds while it updates (the
 		// list's status is queued, working or failed) and when the window is

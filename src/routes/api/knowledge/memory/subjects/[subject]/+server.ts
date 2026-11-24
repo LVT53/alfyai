@@ -3,6 +3,7 @@ import type { MemorySubjectKey } from "$lib/memory-types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	listMemorySubject,
+	logMemoryReadFailure,
 	MemoryRequestError,
 	parseMemoryScope,
 } from "$lib/server/services/memory";
@@ -29,6 +30,8 @@ export const GET: RequestHandler = async (event) => {
 			{ headers: { "Cache-Control": "no-store" } },
 		);
 	} catch (error) {
+		if (!(error instanceof MemoryRequestError))
+			logMemoryReadFailure("Subject entries", error);
 		return json(
 			{
 				error:

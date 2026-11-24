@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	bootEngine,
 	type EngineHarness,
@@ -9,7 +9,11 @@ let h: EngineHarness;
 beforeEach(async () => {
 	h = await bootEngine("memory-subjects-api");
 });
-afterEach(() => h.cleanup());
+afterEach(() => {
+	vi.doUnmock("$lib/server/services/memory");
+	vi.restoreAllMocks();
+	h.cleanup();
+});
 
 function event(path: string, params: Record<string, string> = {}) {
 	return {
@@ -67,4 +71,57 @@ it("refuses a state it does not know and a subject the bank kind does not have",
 	);
 	expect(unknownSubject.status).toBe(400);
 	expect(await unknownSubject.json()).toEqual({ error: "invalid_subject" });
+});
+
+// A read that fails for a reason the person is not told answers 503 and leaves
+// one content-free line: the error's kind and code, never its message, which
+// can quote a row's or a model's text (as the Overview's route does).
+it("logs a content-free line, and answers 503, when a subject read fails unexpectedly", async () => {
+	const secret = "a remembered sentence the database quoted";
+	const fails = () => {
+		throw Object.assign(new Error(secret), { code: "SQLITE_BUSY" });
+	};
+	vi.doMock("$lib/server/services/memory", async (importOriginal) => ({
+		...(await importOriginal<typeof import("$lib/server/services/memory")>()),
+		readMemorySubjectIndex: fails,
+		listMemorySubject: fails,
+	}));
+	const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+	const index = await import("./+server");
+	const subject = await import("./[subject]/+server");
+	const first = await index.GET(
+		event("/api/knowledge/memory/subjects?scope=personal") as never,
+	);
+	const second = await subject.GET(
+		event("/api/knowledge/memory/subjects/about_you?scope=personal", {
+			subject: "about_you",
+		}) as never,
+	);
+	for (const res of [first, second]) {
+		expect(res.status).toBe(503);
+		expect(await res.json()).toEqual({ error: "memory_unavailable" });
+	}
+	expect(logged.mock.calls).toEqual([
+		[
+			"[KNOWLEDGE_MEMORY] Subject index unavailable",
+			{ error: "Error", code: "SQLITE_BUSY" },
+		],
+		[
+			"[KNOWLEDGE_MEMORY] Subject entries unavailable",
+			{ error: "Error", code: "SQLITE_BUSY" },
+		],
+	]);
+	expect(JSON.stringify(logged.mock.calls)).not.toContain(secret);
+});
+
+it("logs nothing for a refusal the person is told of", async () => {
+	const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+	const { GET } = await import("./+server");
+	const res = await GET(
+		event(
+			"/api/knowledge/memory/subjects?scope=project&projectId=not-theirs",
+		) as never,
+	);
+	expect(res.status).toBe(404);
+	expect(logged).not.toHaveBeenCalled();
 });

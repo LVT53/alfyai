@@ -10,6 +10,23 @@ export class MemoryRequestError extends Error {
 		this.name = "MemoryRequestError";
 	}
 }
+/**
+ * The one log line of a Memory read that failed for a reason the person is not
+ * told: the error's kind and code only, never its message, which can quote a
+ * row's text or a model's (a JSON parse error does). `what` names the read.
+ */
+export function logMemoryReadFailure(what: string, error: unknown): void {
+	const code =
+		typeof error === "object" &&
+		error !== null &&
+		typeof (error as { code?: unknown }).code === "string"
+			? (error as { code: string }).code
+			: null;
+	console.error(`[KNOWLEDGE_MEMORY] ${what} unavailable`, {
+		error: error instanceof Error ? error.name : "unknown",
+		code,
+	});
+}
 export function parseMemoryScope(value: unknown): MemoryScope {
 	if (!isJsonRecord(value)) throw new MemoryRequestError("invalid_scope");
 	if (value.kind === "personal") return { kind: "personal" };

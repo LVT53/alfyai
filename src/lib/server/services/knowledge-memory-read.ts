@@ -372,6 +372,7 @@ export async function listKnowledgeMemoryTimeline(
 	};
 }
 
+export { logMemoryReadFailure } from "./memory-profile/memory-request";
 // Native accepted Memory UI read contract. Legacy exports remain transition-only.
 export {
 	getMemoryDetail,
