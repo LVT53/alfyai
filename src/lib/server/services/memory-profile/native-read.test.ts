@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
 
 let h: EngineHarness;
@@ -463,6 +463,30 @@ it("skips a bank it cannot read, so the others still answer", async () => {
 			.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW)
 			.entries.map((entry) => entry.ref.rowId),
 	).toEqual(["n1"]);
+});
+
+it("says by code alone when it skips a bank", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Thesis note", "2026-11-01");
+	f.addEntry(THESIS, "n2", "Thesis model", "2026-11-02");
+	f.db
+		.update(f.s.memoryBanks)
+		.set({ status: "retired" })
+		.where(f.eq(f.s.memoryBanks.scopeKey, "project:p1"))
+		.run();
+	const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+	try {
+		const read = await import("./native-read");
+		read.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW);
+		const lines = warn.mock.calls.map((call) => String(call[0]));
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatch(
+			/^\[WORKSPACE_SEARCH\] memory_bank_skipped code=[a-z_]+$/i,
+		);
+		expect(lines[0]).not.toContain("Thesis");
+	} finally {
+		warn.mockRestore();
+	}
 });
 
 it("returns nothing when Memory is off or the account is not on native Memory", async () => {
