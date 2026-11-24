@@ -1679,8 +1679,17 @@ async function executeMemoryAction(
 						: {}),
 				};
 			});
+			// What a Remove's native write may rebuild: every fact sharing a live
+			// observation with a fact it revoked, published or not yet (a chat
+			// still on its way). Saved with the proposal, before any write, so
+			// a refused result leaves them out too (`excludedNativeEvidence`).
+			const familyFactIds =
+				action.kind === "remove"
+					? liveRemovalFamily(action.id, current, intent.familyFactIds)
+					: intent.familyFactIds;
 			intent = {
 				...intent,
+				...(familyFactIds ? { familyFactIds } : {}),
 				nativeFacts: newFacts,
 				proposal: await applyMemoryEdit(
 					{
@@ -1978,6 +1987,30 @@ async function executeMemoryAction(
 				.run();
 		},
 	});
+}
+
+/** The facts a Remove revoked and every fact sharing a live observation with one of them. */
+function liveRemovalFamily(
+	actionId: string,
+	live: NativeMemory[],
+	known: readonly string[] = [],
+) {
+	const revoked = new Set(
+		db
+			.select({ factId: memoryRevocations.nativeFactId })
+			.from(memoryRevocations)
+			.where(eq(memoryRevocations.actionId, actionId))
+			.all()
+			.flatMap(({ factId }) => (factId ? [factId] : [])),
+	);
+	const family = new Set([...known, ...revoked]);
+	for (const observation of live) {
+		if (observation.fact_type !== "observation") continue;
+		const support = observation.source_memory_ids ?? [];
+		if (support.some((id) => revoked.has(id)))
+			for (const id of support) family.add(id);
+	}
+	return [...family].sort();
 }
 
 /** Only send a changed, known curated family when the incoming assertion actually backs its candidate. */
@@ -3492,7 +3525,9 @@ export async function restoreRefusedSourceEdit(
 		.get();
 	if (!action) return;
 	const intent = parseActionIntent(action.intentJson);
-	if (intent.outcome) return;
+	// A retry re-applies the saved proposal, so a resend refused before is
+	// put back again; only an accepted edit is left as it is.
+	if (intent.outcome === "accepted") return;
 	await undoSourceEditWrites(ctx, client, native, source, intent);
 	// Recorded last, once nothing is left to put back: the resend's own
 	// retained facts are then left out of every publication

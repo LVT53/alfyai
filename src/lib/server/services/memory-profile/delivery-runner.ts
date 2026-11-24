@@ -376,13 +376,22 @@ const SOURCE_EDIT_REFUSALS = new Set([
 	"memory_edit_too_large",
 ]);
 
-/** Whether a failure ends a changed resend for good: a refusal on its last counted attempt. */
+/** The plain errors that are content refusals: publication's and the edit model's. */
+const PLAIN_REFUSALS = new Set([
+	"memory_candidate_unaccepted",
+	"memory_edit_rejected",
+	"memory_edit_invalid",
+	"memory_edit_too_large",
+]);
+
+/** Whether a failure ends a changed resend for good: a content refusal on its last counted attempt. */
 function refusedForGood(
 	error: unknown,
 	row: typeof memoryDeliveryJobs.$inferSelect,
 	attemptNumber: number,
 ) {
-	if (!(error instanceof NativeMemoryError)) return true;
+	if (!(error instanceof NativeMemoryError))
+		return error instanceof Error && PLAIN_REFUSALS.has(error.message);
 	if (error.code === "memory_dependency_check_rejected")
 		return (
 			countedDeliveryAttempt(row, attemptNumber) >=

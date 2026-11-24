@@ -926,6 +926,22 @@ function endedActionIds(tx: Tx, actionIds: string[]) {
 	return ended;
 }
 
+/** The repair steps a delivery's checkpoint records, or none when it records none. */
+function heldRepairSteps(
+	checkpoint: string | null,
+): Array<{ originalId: string; replacementId: string }> {
+	const plan = parseJsonRecord(checkpoint).dependencyRepair;
+	if (!plan || typeof plan !== "object" || !("steps" in plan)) return [];
+	const steps = (plan as { steps: unknown }).steps;
+	return Array.isArray(steps)
+		? steps.filter(
+				(step): step is { originalId: string; replacementId: string } =>
+					typeof step?.originalId === "string" &&
+					typeof step?.replacementId === "string",
+			)
+		: [];
+}
+
 /** The code a source delivery ends with when its own final check refused it. */
 const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
 
@@ -1007,6 +1023,7 @@ export function excludedNativeEvidence(
 			id: memorySourceRevisions.id,
 			status: memoryDeliveryJobs.status,
 			errorCode: memoryDeliveryJobs.errorCode,
+			checkpoint: memoryDeliveryJobs.checkpoint,
 		})
 		.from(memorySourceRevisions)
 		.innerJoin(
@@ -1061,12 +1078,20 @@ export function excludedNativeEvidence(
 					.map(({ requestId }) => requestId)
 			: [],
 	);
-	for (const { id, status, errorCode } of stopped)
+	for (const { id, status, errorCode, checkpoint } of stopped) {
 		if (
-			(status === "failed" && errorCode === HELD_SOURCE_REFUSAL) ||
-			refusedEdits.has(id)
+			!(status === "failed" && errorCode === HELD_SOURCE_REFUSAL) &&
+			!refusedEdits.has(id)
 		)
-			sourceIds.add(id);
+			continue;
+		sourceIds.add(id);
+		// The later messages its own dependency repair held, and their
+		// replacements: their extraction read the refused resend.
+		for (const step of heldRepairSteps(checkpoint)) {
+			sourceIds.add(step.originalId);
+			sourceIds.add(step.replacementId);
+		}
+	}
 	return { factIds, sourceIds };
 }
 

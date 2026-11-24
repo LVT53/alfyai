@@ -525,6 +525,94 @@ describe("accepted native publication", () => {
 		const generation = republish(f);
 		expect(publishedIds(f, generation)).toEqual(["observation-maps"]);
 	});
+	it("leaves out the later messages a refused resend's repair held", async () => {
+		const f = await fixture();
+		await withUnrelatedFact(f);
+		const held = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "held-resend",
+			lineageId: "held-resend",
+			text: "I drink coffee on the terrace",
+			context: "User statement",
+			assertedAt: new Date("2026-11-20"),
+		});
+		const dependent = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "later-message",
+			lineageId: "later-message",
+			text: "I also sort stamps",
+			context: "User statement",
+			assertedAt: new Date("2026-11-21"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eqId(f.schema.memorySourceRevisions.id, held.id))
+			.run();
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ state: "repair_held", nativeSubmitted: true })
+			.where(eqId(f.schema.memorySourceRevisions.id, dependent.id))
+			.run();
+		// The resend's own repair held the later message and retained its
+		// replacement before its final check refused the resend for good.
+		f.db
+			.insert(f.schema.memoryDeliveryJobs)
+			.values({
+				id: "held-job",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: held.id,
+				requestId: `source:${held.id}`,
+				status: "failed",
+				errorCode: "memory_dependency_check_rejected",
+				checkpoint: JSON.stringify({
+					dependencyRepair: {
+						version: 1,
+						bankId: f.bank.id,
+						epoch: 0,
+						revision: 0,
+						roots: [held.id],
+						steps: [
+							{
+								originalId: dependent.id,
+								replacementId: "replacement-of-later",
+								operationId: "operation-of-later",
+								deleted: false,
+							},
+						],
+						originalFacts: [],
+					},
+				}),
+			})
+			.run();
+		f.memories.push(
+			{
+				id: "stamps-again",
+				text: "Sorts stamps",
+				fact_type: "world",
+				consolidated_at: "2026-11-21T00:00:00Z",
+				document_id: "replacement-of-later",
+			},
+			{
+				id: "observation-stamps-again",
+				text: "Sorts stamps",
+				fact_type: "observation",
+				source_memory_ids: ["stamps-again"],
+			},
+		);
+		const generation = republish(f);
+		expect(publishedIds(f, generation)).toEqual([
+			"observation",
+			"observation-maps",
+		]);
+	});
 	it("leaves out a source whose delivery ended unaccepted and waits for one still queued", async () => {
 		const f = await fixture();
 		await withUnrelatedFact(f);

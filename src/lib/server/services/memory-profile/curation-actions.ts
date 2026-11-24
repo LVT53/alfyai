@@ -24,6 +24,7 @@ import {
 } from "./native-read";
 import {
 	assertCurationPublication,
+	publishedRowsForGeneration,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "./publication";
@@ -142,12 +143,11 @@ export async function submitMemoryAction(
 					throw new MemoryRequestError("memory_action_pending", 409);
 			}
 			getMemoryDetail(userId, action.ref);
-			const visible = readPublishedMemory(
+			const row = readPublishedMemory(
 				userId,
 				bank.id,
 				action.ref.generation,
-			);
-			const row = visible.find((r) => r.nativeId === action.ref.rowId);
+			).find((r) => r.nativeId === action.ref.rowId);
 			if (!row) throw new MemoryRequestError("stale_memory", 409);
 			before = row.text;
 			if (action.kind === "edit") {
@@ -166,10 +166,18 @@ export async function submitMemoryAction(
 			targetIds = new Set(
 				readAcknowledgedFacts(row.sourceFingerprintsJson).map((f) => f.id),
 			);
+			// Every row of the generation the person saw, hidden ones too (a
+			// row whose other chat is withdrawn for the moment still shares the
+			// targeted facts' native observations).
 			if (action.kind === "remove")
 				familyFactIds = [
 					...new Set(
-						visible.flatMap((shown) => {
+						publishedRowsForGeneration(
+							tx,
+							bank.id,
+							bank.epoch,
+							action.ref.generation,
+						).flatMap((shown) => {
 							const ids = readAcknowledgedFacts(
 								shown.sourceFingerprintsJson,
 							).map((f) => f.id);
