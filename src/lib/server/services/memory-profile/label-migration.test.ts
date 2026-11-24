@@ -1162,35 +1162,41 @@ describe("the label migration's edges", () => {
 		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
 	});
 
-	it("a bank Hindsight has never heard of (404, never configured) holds no facts yet", async () => {
-		const fake = fakeNative();
-		await seedAccount("user-1", fake.facts, { count: 3 });
-		const { db, schema, revisions, verified, migration } = await modules();
-		const { NativeMemoryError } = await import("./contracts");
-		db.insert(schema.projects)
-			.values({ id: "synthetic-project", userId: "user-1", name: "Garden" })
-			.run();
-		// Made app-side by the person's first project chat; nothing sent yet.
-		const project = revisions.ensureMemoryBank("user-1", {
-			kind: "project",
-			projectId: "synthetic-project",
-		});
-		const listFacts = async (bankId: string) => {
-			if (bankId === project.id)
-				throw new NativeMemoryError("native_not_found", false);
-			return fake.listFacts(bankId);
-		};
-		const report = await migration.runLabelMigration(
-			{ execute: true },
-			{ listFacts, model: fake.model },
-		);
-		expect(report.accounts[0]).toMatchObject({
-			outcome: "verified",
-			banks: 2,
-			facts: 3,
-		});
-		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
-	});
+	// Whether the pinned engine answers a bank it has never seen with a 404 or
+	// with no facts is unverified (it needs the box), so both must read the same.
+	it.each(["a 404", "an empty listing"] as const)(
+		"a bank the app made but never configured in Hindsight holds no facts yet, whether it answers with %s",
+		async (answer) => {
+			const fake = fakeNative();
+			await seedAccount("user-1", fake.facts, { count: 3 });
+			const { db, schema, revisions, verified, migration } = await modules();
+			const { NativeMemoryError } = await import("./contracts");
+			db.insert(schema.projects)
+				.values({ id: "synthetic-project", userId: "user-1", name: "Garden" })
+				.run();
+			// Made app-side by the person's first project chat; nothing sent yet.
+			const project = revisions.ensureMemoryBank("user-1", {
+				kind: "project",
+				projectId: "synthetic-project",
+			});
+			const listFacts = async (bankId: string) => {
+				if (bankId !== project.id) return fake.listFacts(bankId);
+				if (answer === "a 404")
+					throw new NativeMemoryError("native_not_found", false);
+				return [];
+			};
+			const report = await migration.runLabelMigration(
+				{ execute: true },
+				{ listFacts, model: fake.model },
+			);
+			expect(report.accounts[0]).toMatchObject({
+				outcome: "verified",
+				banks: 2,
+				facts: 3,
+			});
+			expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+		},
+	);
 
 	it("a configured bank Hindsight answers 404 for fails the account", async () => {
 		const fake = fakeNative();
