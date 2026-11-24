@@ -208,8 +208,6 @@ export function nativeBankConfig(
 export function nativeBankConfigForScopeKey(scopeKey: string) {
 	return nativeBankConfig(scopeKey === "personal" ? "personal" : "project");
 }
-/** Kept for the tests' fakes: a personal bank's config 2. */
-export const NATIVE_BANK_CONFIG = nativeBankConfig("personal");
 export const CURRENT_NATIVE_BANK_CONFIGS: readonly NativeBankConfig[] = [
 	nativeBankConfig("personal"),
 	nativeBankConfig("project"),

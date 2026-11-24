@@ -52,7 +52,7 @@ async function setup() {
 			calls++;
 			let data: unknown = {};
 			if (path.endsWith("/config"))
-				data = { config: native.NATIVE_BANK_CONFIG };
+				data = { config: native.nativeBankConfig("personal") };
 			else if (path.endsWith("/memories") && options?.method === "POST")
 				data = { operation_id: JSON.parse(String(options?.body)).operation_id };
 			else if (path.endsWith("/consolidate"))
@@ -607,7 +607,7 @@ it("waits for a late configuration commit before completing reset cleanup", asyn
 	const f = await setup();
 	const actions = await import("./curation-actions");
 	const clients = await import("./hindsight-client");
-	const { NATIVE_BANK_CONFIG } = await import("./contracts");
+	const { nativeBankConfig } = await import("./contracts");
 	let bankExists = false;
 	let exactConfigVisible = false;
 	let finishRemoteWrite: (() => void) | undefined;
@@ -645,7 +645,7 @@ it("waits for a late configuration commit before completing reset cleanup", asyn
 			return bankExists
 				? new Response(
 						JSON.stringify({
-							config: exactConfigVisible ? NATIVE_BANK_CONFIG : {},
+							config: exactConfigVisible ? nativeBankConfig("personal") : {},
 						}),
 					)
 				: new Response("missing", { status: 404 });

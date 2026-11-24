@@ -639,7 +639,8 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 			if (init?.method === "PATCH")
 				fakeBankConfigs.set(bank, JSON.parse(String(init.body)).updates);
 			data = {
-				config: fakeBankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+				config:
+					fakeBankConfigs.get(bank) ?? contracts.nativeBankConfig("personal"),
 			};
 		} else if (path.includes("/documents/") && init?.method === "DELETE") {
 			const id = decodeURIComponent(path.split("/documents/")[1]);

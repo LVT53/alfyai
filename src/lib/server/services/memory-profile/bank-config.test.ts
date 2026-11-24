@@ -10,7 +10,6 @@ import {
 	HINDSIGHT_ENGINE_COMMIT,
 	isVerifiedNativeBankConfigVersion,
 	KNOWN_NATIVE_BANK_CONFIGS,
-	NATIVE_BANK_CONFIG,
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
 	NATIVE_BANK_CONFIG_VERSION,
@@ -129,7 +128,6 @@ describe("bank configuration 2", () => {
 			expect(config.entities_allow_free_form).toBe(true);
 			expect(subject.values.map((v) => v.value)).toEqual([...subjects]);
 		}
-		expect(NATIVE_BANK_CONFIG).toEqual(nativeBankConfig("personal"));
 		expect(CURRENT_NATIVE_BANK_CONFIGS).toEqual([
 			nativeBankConfig("personal"),
 			nativeBankConfig("project"),
