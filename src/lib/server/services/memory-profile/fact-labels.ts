@@ -213,7 +213,16 @@ export function readFactLabels(
 	);
 }
 
-/** A Memory page add or edit, or a user-authored item migrated from the legacy system. */
+/**
+ * A Memory page add or edit, or a user-authored item migrated from the legacy
+ * system. The event id alone answers for the first: only the curation runner
+ * writes a `manual:` source, and a dependency repair, the one writer that copies
+ * a source under another event id (`dependency:`), copies only sources whose
+ * context lists earlier messages (`dependency-plan.ts`), which neither kind of
+ * authored source has. A change that lets a repair copy a `manual:` source
+ * must carry this status into the copy; a migrated item's marker travels in
+ * the context a copy keeps.
+ */
 export function isAuthoredMemorySource(source: {
 	eventId: string;
 	context: string;
