@@ -176,7 +176,7 @@ const WORDS = {
 		lastMentioned: "Utoljára említve: október 14.",
 		earlierState: "Korábban: Lived in Budapest · 2025. március",
 		quiet: "4 hete csendes",
-		fold: "Korábbiak ebben a témában · 2",
+		fold: "Korábbiak: Munka és tanulás · 2",
 		back: "Memória",
 		writing: "Készül az áttekintésed…",
 		writingFrom: "9 aktuális bejegyzésedből.",

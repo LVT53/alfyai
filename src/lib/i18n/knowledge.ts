@@ -869,7 +869,7 @@ const knowledgeDict = {
 		"memorySubjects.active": "aktív",
 		"memorySubjects.quiet": "{weeks} hete csendes",
 		"memorySubjects.earlier": "Korábbiak",
-		"memorySubjects.earlierIn": "Korábbiak ebben a témában",
+		"memorySubjects.earlierIn": "Korábbiak: {subject}",
 		"memorySubjects.earlierState": "Korábban: {text} · {when}",
 		"memorySubjects.earlierStateUndated": "Korábban: {text}",
 		"memorySubjects.lastMentioned": "Utoljára említve: {when}",
