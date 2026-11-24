@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { deriveBaselineMemoryProfileBudget } from "../chat-turn/context-budget";
@@ -15,6 +23,12 @@ import { deriveBaselineMemoryProfileBudget } from "../chat-turn/context-budget";
 // its chat up, and recall gets the budget a turn gives it.
 const PERSONAL_ROWS = 5_000;
 const PROJECT_ROWS = 1_000;
+/**
+ * The top rows of each bank are Earlier entries (labelled temporary, said
+ * months ago), as an account that has been remembered for a while has: they
+ * are the candidates the Earlier gate judges on every per-turn recall.
+ */
+const EARLIER_ROWS = 3;
 /** Facts a chat gave: a chat of a few messages yields a few facts. */
 const FACTS_PER_CHAT = 5;
 const RECALLS = 20;
@@ -45,6 +59,9 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 const rankings = new Map<string, unknown[]>();
+/** The app's reranker: not configured unless a test says what it scores. */
+const rerankTexts = vi.hoisted(() => vi.fn());
+vi.mock("../tei-reranker", () => ({ rerankTexts }));
 vi.mock("../memory-profile/hindsight-client", () => ({
 	nativeMemoryClient: (bankId: string) => ({
 		recall: async () => rankings.get(bankId) ?? [],
@@ -94,6 +111,17 @@ function seedBank(bankId: string, scopeKey: string, count: number) {
 					acknowledgedFactsJson: JSON.stringify([fact]),
 				})
 				.run();
+			if (i < EARLIER_ROWS)
+				tx.insert(schema.memoryFactLabels)
+					.values({
+						bankId,
+						nativeFactId: fact.id,
+						kind: "temporary",
+						subject: null,
+						origin: "extraction",
+						eventAt: null,
+					})
+					.run();
 			tx.insert(schema.memoryPublishedRows)
 				.values({
 					id: `r-${bankId}-${i}`,
@@ -156,6 +184,10 @@ describe.runIf(process.env.MEMORY_RECALL_SIZE_CHECK === "1")(
 		afterAll(() => {
 			sqlite?.close();
 		});
+		beforeEach(() => {
+			rerankTexts.mockReset();
+			rerankTexts.mockResolvedValue(null);
+		});
 
 		it.each(BUDGETS)(
 			"keeps the app's side of a per-turn recall under 500 ms at the 95th percentile ($name budget)",
@@ -189,6 +221,57 @@ describe.runIf(process.env.MEMORY_RECALL_SIZE_CHECK === "1")(
 				const p95 = percentile(timings, 0.95);
 				console.log(
 					`[recall-size] budget=${name}:${tokens} personal=${PERSONAL_ROWS} project=${PROJECT_ROWS} chats=${Math.ceil(PERSONAL_ROWS / FACTS_PER_CHAT) + Math.ceil(PROJECT_ROWS / FACTS_PER_CHAT)} recalls=${RECALLS} rows=${rows} medianMs=${median.toFixed(1)} p95Ms=${p95.toFixed(1)}`,
+				);
+				expect(p95).toBeLessThan(500);
+			},
+			300_000,
+		);
+
+		// The Earlier gate's reranker on top of that: one call a turn for the six
+		// Earlier candidates (an instant answer here, so the time is the app's
+		// own: the second read of Memory, which happens only when a score moves
+		// an entry from the words' verdict).
+		it.each([
+			{ name: "scores that change nothing", score: 0.0001, brings: false },
+			{
+				name: "a score that brings an Earlier entry in",
+				score: 0.4,
+				brings: true,
+			},
+		])(
+			"keeps a per-turn recall with the reranker under 500 ms at the 95th percentile ($name)",
+			async ({ name, score, brings }) => {
+				const { recallMemory } = await import("./native");
+				const budget = BUDGETS[0]?.tokens ?? 8_000;
+				rerankTexts.mockImplementation(async ({ texts }: { texts: string[] }) =>
+					texts.map((_, index) => ({ index, score })),
+				);
+				const timings: number[] = [];
+				let earlier = 0;
+				const info = vi.spyOn(console, "info").mockImplementation(() => {});
+				try {
+					for (let turn = 0; turn < RECALLS; turn++) {
+						const started = performance.now();
+						const recalled = await recallMemory("u", {
+							conversationId: "c",
+							query: `What did we settle for task ${turn} of the project?`,
+							tokenBudget: budget,
+							core: true,
+						});
+						timings.push(performance.now() - started);
+						earlier = recalled.filter(
+							({ timeState }) => timeState === "earlier",
+						).length;
+					}
+				} finally {
+					info.mockRestore();
+				}
+				expect(rerankTexts).toHaveBeenCalledTimes(RECALLS);
+				expect(earlier > 0).toBe(brings);
+				const median = percentile(timings, 0.5);
+				const p95 = percentile(timings, 0.95);
+				console.log(
+					`[recall-size] reranker (${name}) budget=floor:${budget} recalls=${RECALLS} earlierRows=${earlier} medianMs=${median.toFixed(1)} p95Ms=${p95.toFixed(1)}`,
 				);
 				expect(p95).toBeLessThan(500);
 			},
