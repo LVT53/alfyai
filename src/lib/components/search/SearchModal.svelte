@@ -5,7 +5,11 @@ import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
 import { conversationDisplayTitle } from "$lib/shared/conversation-title";
-import { matchRanges, searchTerms } from "$lib/shared/workspace-search-text";
+import {
+	matchRanges,
+	SEARCH_MIN_QUERY_CHARS,
+	searchTerms,
+} from "$lib/shared/workspace-search-text";
 import { getFocusableElements } from "$lib/utils/focus-trap";
 import { formatAgo } from "$lib/utils/time";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
@@ -161,7 +165,7 @@ const SEARCH_DEBOUNCE_MS = 180;
 
 const trimmedSearchQuery = $derived(searchQuery.trim());
 const requestedSearchQuery = $derived(
-	trimmedSearchQuery.length >= 2 ? trimmedSearchQuery : "",
+	trimmedSearchQuery.length >= SEARCH_MIN_QUERY_CHARS ? trimmedSearchQuery : "",
 );
 const isQueryMode = $derived((searchResponse?.mode ?? "default") === "query");
 const totals = $derived(
@@ -896,7 +900,7 @@ onDestroy(() => {
 			</div>
 
 			<div id="workspace-search-results" class="max-h-[420px] overflow-y-auto px-3 py-2.5">
-				{#if trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < 2}
+				{#if trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < SEARCH_MIN_QUERY_CHARS}
 					<div
 						data-testid="search-keep-typing"
 						class="flex flex-col items-center justify-center px-4 py-12 text-center"
