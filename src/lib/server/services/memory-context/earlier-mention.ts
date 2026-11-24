@@ -1,9 +1,11 @@
 import { foldForSearch } from "$lib/shared/workspace-search-text";
 
 /**
- * Whether a person's message mentions a Memory entry: the gate an Earlier
- * entry passes, besides its rank, to join a turn (spec: Earlier things come
- * back "only when mentioned"). Hindsight's recall gives no relevance score at
+ * Whether a person's message mentions a Memory entry: the word half of the
+ * gate an Earlier entry passes, besides its rank, to join a turn (spec:
+ * Earlier things come back "only when mentioned"). A turn judges by the
+ * reranker's score first (`earlier-rerank.ts`) and asks this rule as the second
+ * voice for a lower score; with no score this rule decides alone. Hindsight's recall gives no relevance score at
  * the pin, and part 2 measured that rank alone puts a temporary entry in a
  * small bank's top three for 9 of 10 unrelated messages, so the mention is
  * read from the words: the message mentions the entry when the words they
