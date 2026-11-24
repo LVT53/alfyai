@@ -43,6 +43,7 @@ const requiredExistingTables = [
 	"memory_source_revisions",
 	"memory_published_rows",
 	"memory_fact_labels",
+	"memory_label_relabels",
 	"memory_overviews",
 	"memory_revocations",
 	"memory_actions",

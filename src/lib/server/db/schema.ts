@@ -3504,6 +3504,36 @@ export const memoryFactLabels = sqliteTable(
 	},
 	(table) => [primaryKey({ columns: [table.bankId, table.nativeFactId] })],
 );
+/**
+ * What the label relabel looked at and changed (Memory config 3): one row per
+ * fact whose temporary label it re-classified, with the label the fact held
+ * before, so it is not asked again and a rollback restores exactly what the
+ * relabel changed. Keyed by bank and Hindsight fact id like the labels, so it
+ * goes with its bank. Only `label-relabel.ts` reads or writes it.
+ */
+export const memoryLabelRelabels = sqliteTable(
+	"memory_label_relabels",
+	{
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		nativeFactId: text("native_fact_id").notNull(),
+		previousKind: text("previous_kind"),
+		previousSubject: text("previous_subject"),
+		previousOrigin: text("previous_origin", {
+			enum: ["extraction", "classifier"],
+		}).notNull(),
+		/** The label the relabel wrote (when `changed`), or the one it left. */
+		kind: text("kind"),
+		subject: text("subject"),
+		/** Whether the relabel wrote a new label: false when the fact stayed temporary. */
+		changed: integer("changed", { mode: "boolean" }).notNull(),
+		relabelledAt: integer("relabelled_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [primaryKey({ columns: [table.bankId, table.nativeFactId] })],
+);
 export const memoryRevocations = sqliteTable(
 	"memory_revocations",
 	{
