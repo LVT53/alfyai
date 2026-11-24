@@ -408,6 +408,30 @@ describe("writing the Overview", () => {
 		}
 	});
 
+	// With no entry left out, a big scope's paragraph is long: 104 synthetic
+	// entries gave 1,800 to 2,750 characters (Config 3 round of the probe note),
+	// so a guard of 3,000 would refuse the sheet's write at about 110 entries.
+	it("accepts the long paragraph of a big scope and still refuses a runaway one", async () => {
+		const { overview } = await modules();
+		const input = {
+			scopeKind: "personal",
+			name: "Kata",
+			language: "en",
+			entries: [],
+		} as const;
+		const big = recordingModel(() => "x".repeat(6_000));
+		await expect(
+			overview.composeMemoryOverview(input, big.model),
+		).resolves.toHaveLength(6_000);
+		const runaway = recordingModel(() => "x".repeat(6_001));
+		await expect(
+			overview.composeMemoryOverview(input, runaway.model),
+		).rejects.toMatchObject({
+			code: "memory_overview_invalid",
+			retryable: true,
+		});
+	});
+
 	it("gives the model each entry's subject, which the rule to cover every subject reads", async () => {
 		await seedSubjectEntries(h.userId, PERSONAL, BASICS);
 		const { overview } = await modules();

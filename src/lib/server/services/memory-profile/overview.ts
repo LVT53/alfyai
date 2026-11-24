@@ -30,7 +30,12 @@ import { readScopeEntries } from "./subject-read";
 
 /** What one call is given at most: the most recently mentioned entries that fit. */
 export const OVERVIEW_INPUT_TOKEN_BUDGET = 6_000;
-const OVERVIEW_MAX_CHARS = 3_000;
+/**
+ * What a paragraph may be at most. With no entry left out a big scope's
+ * paragraph is long (104 entries gave 1,800 to 2,750 characters), so this is a
+ * guard against a runaway answer and not a length the prompt aims at.
+ */
+const OVERVIEW_MAX_CHARS = 6_000;
 
 /** Model-facing subject names: ASCII English (ruling 79); the page's words are the browser's. */
 const SUBJECT_NAMES: Record<MemorySubject, string> = {
