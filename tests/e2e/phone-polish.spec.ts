@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import commonDict from "../../src/lib/i18n/common";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
@@ -30,6 +31,9 @@ import {
  */
 
 const PHONE_WIDTHS = [390, 360, 430] as const;
+
+/** The sidebar's search pill, as it is named to assistive technology (the English interface). */
+const SEARCH_PILL = commonDict.en["sidebar.searchConversations"];
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -262,9 +266,7 @@ test.describe("no keyboard chord on a touch screen (390 px, touch)", () => {
 		const sidebar = page.locator("aside.sidebar-panel");
 		await expect(sidebar).toBeVisible();
 		await waitForMotionToSettle(page);
-		const searchPill = sidebar.getByRole("button", {
-			name: "Search conversations",
-		});
+		const searchPill = sidebar.getByRole("button", { name: SEARCH_PILL });
 		await expect(searchPill).toBeVisible();
 		await expect(sidebar.getByTestId("search-shortcut-hint")).toBeHidden();
 
@@ -330,7 +332,7 @@ test.describe("keyboard chords stay on a desktop with a mouse", () => {
 		);
 		await ensureSidebarExpanded(page);
 		await expect(page.getByTestId("search-shortcut-hint")).toBeVisible();
-		await page.getByRole("button", { name: "Search conversations" }).click();
+		await page.getByRole("button", { name: SEARCH_PILL }).click();
 		const modal = page.getByRole("dialog");
 		await expect(modal.locator(".search-kbd").first()).toBeVisible();
 	});
