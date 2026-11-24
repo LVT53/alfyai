@@ -34,6 +34,15 @@ describe("messageRecallQuery", () => {
 		expect(messageRecallQuery("yes", "  ")).toBe("yes");
 	});
 
+	it("reads the default title the way the query would write it", () => {
+		// Whitespace is folded before the title is judged, so the stored default
+		// with stray spacing is still no title.
+		expect(messageRecallQuery("yes", "  New \n Conversation ")).toBe("yes");
+		expect(messageRecallQuery("yes", "new conversation")).toBe(
+			"new conversation: yes",
+		);
+	});
+
 	it("uses the title alone for a message with no words", () => {
 		expect(messageRecallQuery("", "Kitchen plan")).toBe("Kitchen plan");
 		expect(messageRecallQuery(" \n\t ", null)).toBeNull();

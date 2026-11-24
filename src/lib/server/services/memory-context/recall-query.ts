@@ -1,5 +1,5 @@
 import { normalizeWhitespace } from "$lib/server/utils/text";
-import { DEFAULT_CONVERSATION_TITLE } from "$lib/shared/conversation-title";
+import { isUntitledConversationTitle } from "$lib/shared/conversation-title";
 
 /**
  * The fixed search that keeps a core of the person's basics in every chat's
@@ -27,8 +27,7 @@ export function messageRecallQuery(
 ): string | null {
 	const words = normalizeWhitespace(message);
 	const chatTitle = normalizeWhitespace(title);
-	const titleCounts =
-		chatTitle !== "" && chatTitle !== DEFAULT_CONVERSATION_TITLE;
+	const titleCounts = !isUntitledConversationTitle(chatTitle);
 	const wordCount = words === "" ? 0 : words.split(" ").length;
 	const query =
 		titleCounts && wordCount <= SHORT_MESSAGE_WORDS
