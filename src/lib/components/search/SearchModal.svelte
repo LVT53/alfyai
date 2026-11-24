@@ -483,7 +483,11 @@ async function loadMore() {
 				page.conversations ?? [],
 				(row) => row.id,
 			),
-			memories: appendNew(current.memories, page.memories ?? [], (row) => row.id),
+			memories: appendNew(
+				current.memories,
+				page.memories ?? [],
+				(row) => row.id,
+			),
 			documents: appendNew(
 				current.documents,
 				page.documents ?? [],
