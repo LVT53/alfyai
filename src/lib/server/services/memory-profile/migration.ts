@@ -31,6 +31,7 @@ import {
 } from "./delivery-job";
 import { historicalMemoryExclusion } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import { assertMemoryMigrationAllowed } from "./migration-guard";
 import { assertMigratedHistoryWithdrawalBoundary } from "./migration-observation-proof";
 import {
 	deterministicId,
@@ -78,6 +79,8 @@ export async function prepareMemoryMigration(
 ) {
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
+		// The permanent tester rule: never migrate the excluded account's Memory.
+		assertMemoryMigrationAllowed(userId, tx);
 		restoredRewind?.assertCurrent(tx);
 		const pendingRepair = parseJsonRecord(
 			JSON.stringify(
@@ -916,6 +919,7 @@ export async function restartMemoryPreparation(
 	let scopeMovesCarried = 0;
 	let resumed = false;
 	await enqueueAtomic(memoryDeliveryJob, (tx) => {
+		assertMemoryMigrationAllowed(userId, tx);
 		const account = tx
 			.select()
 			.from(memoryAccounts)

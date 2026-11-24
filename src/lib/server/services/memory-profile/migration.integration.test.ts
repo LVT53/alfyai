@@ -42,6 +42,29 @@ it("inspect is read only when the enabled master switch permits older history", 
 	expect(db.select().from(s.memoryAccounts).all()).toHaveLength(0);
 	expect(db.select().from(s.memoryMigrationManifests).all()).toHaveLength(0);
 });
+it("never prepares or restarts the account the migration guard excludes, and writes nothing", async () => {
+	const { db, s } = await seed();
+	const { eq } = await import("drizzle-orm");
+	db.update(s.users)
+		.set({ memoryMigrationExcluded: true })
+		.where(eq(s.users.id, h.userId))
+		.run();
+	const m = await import("./migration");
+	await expect(m.prepareMemoryMigration(h.userId)).rejects.toThrow(
+		"memory_migration_excluded",
+	);
+	await expect(
+		m.restartMemoryPreparation(h.userId, {
+			manifestId: "any",
+			manifestHash: "0".repeat(64),
+		}),
+	).rejects.toThrow("memory_migration_excluded");
+	expect(db.select().from(s.memoryAccounts).all()).toHaveLength(0);
+	expect(db.select().from(s.memoryBanks).all()).toHaveLength(0);
+	expect(db.select().from(s.memoryMigrationManifests).all()).toHaveLength(0);
+	expect(db.select().from(s.memorySourceRevisions).all()).toHaveLength(0);
+	expect(db.select().from(s.memoryDeliveryJobs).all()).toHaveLength(0);
+});
 it("preparation checkpoints source jobs once, preserves dates, and refuses premature cutover", async () => {
 	const { db, s } = await seed();
 	const m = await import("./migration");
