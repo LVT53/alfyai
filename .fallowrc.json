@@ -74,6 +74,10 @@
 		"docs/plans/hindsight-memory/current-list-followup/regression-2026-11-24.ts",
 		// Memory part 2's documented acceptance command (synthetic, local Hindsight).
 		"docs/plans/hindsight-memory/part-2-acceptance/run.ts",
+		// Bank config 3's documented acceptance commands (synthetic, local Hindsight and the
+		// shared model bridge): the runner and the relabel's end-to-end run.
+		"docs/plans/hindsight-memory/part-2-acceptance/config-3/run.ts",
+		"docs/plans/hindsight-memory/part-2-acceptance/config-3/relabel-acceptance.ts",
 		// The label migration's documented acceptance command (synthetic, Flash-Next).
 		"docs/plans/hindsight-memory/label-migration-acceptance/run.ts",
 		// The Earlier gate's documented blind measurement (synthetic, no model).
