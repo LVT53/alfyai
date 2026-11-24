@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemoryKind, MemoryScope, MemorySubject } from "$lib/memory-types";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
 import type { CurationCallOptions, CurationModel } from "./curation";
@@ -14,7 +14,10 @@ let h: EngineHarness;
 beforeEach(async () => {
 	h = await bootEngine("memory-overview");
 });
-afterEach(() => h.cleanup());
+afterEach(() => {
+	vi.restoreAllMocks();
+	h.cleanup();
+});
 
 const NOW = new Date("2026-11-24T12:00:00Z");
 const PERSONAL: MemoryScope = { kind: "personal" };
@@ -254,6 +257,61 @@ describe("writing the Overview", () => {
 		expect(calls[0].prompt).not.toContain("Hungarian");
 		expect(calls[1].prompt).toContain("Write the paragraph in Hungarian.");
 		expect(calls[1].prompt).not.toContain("English");
+	});
+
+	// The person waits for the sheet, so the call must overtake background work
+	// in the gateway's queue and wait in the account's own lane.
+	it("asks the memory model as the person's interactive call, in the account's own lane", async () => {
+		await seedSubjectEntries(h.userId, PERSONAL, BASICS);
+		const cfg = await import("$lib/server/config-store");
+		vi.spyOn(cfg, "getConfig").mockReturnValue({
+			...cfg.getConfig(),
+			hindsightCurationGatewayModel: "qwen3-6-27b",
+			hindsightInferenceKey: "private-gateway-key",
+		});
+		const endpoints = await import("./private-endpoint");
+		const transport = vi
+			.spyOn(endpoints, "fetchPrivateMemory")
+			.mockImplementation(async () =>
+				Response.json({
+					id: "synthetic",
+					model: "qwen3-6-27b",
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: JSON.stringify({ overview: "A synthetic overview." }),
+							},
+							finish_reason: "stop",
+						},
+					],
+				}),
+			);
+		const { db, s, overview } = await modules();
+		const { memoryAdmissionHeaders } = await import("./admission");
+		const account = db
+			.select({ tenantId: s.memoryAccounts.tenantId })
+			.from(s.memoryAccounts)
+			.where(eq(s.memoryAccounts.userId, h.userId))
+			.get();
+		expect(account?.tenantId).toBeTruthy();
+		const written = await overview.writeMemoryOverview(h.userId, PERSONAL, {
+			rewrite: true,
+			now: NOW,
+		});
+		expect(written.text).toBe("A synthetic overview.");
+		expect(transport).toHaveBeenCalledOnce();
+		const headers = new Headers(transport.mock.calls[0]?.[1]?.headers);
+		const expected = memoryAdmissionHeaders({
+			priority: "interactive",
+			tenantId: account?.tenantId ?? null,
+		});
+		expect(headers.get("x-alfyai-admission-priority")).toBe("interactive");
+		expect(headers.get("x-alfyai-admission-wait-ms")).toBe("120000");
+		expect(headers.get("x-alfyai-admission-lane")).toBe(
+			expected["X-AlfyAI-Admission-Lane"],
+		);
 	});
 
 	it("the prompt the app writes is ASCII English", async () => {

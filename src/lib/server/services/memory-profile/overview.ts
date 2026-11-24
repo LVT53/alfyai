@@ -9,6 +9,7 @@ import type {
 import { db } from "$lib/server/db";
 import { memoryOverviews, projects, users } from "$lib/server/db/schema";
 import { estimateTokenCount } from "$lib/utils/tokens";
+import { memoryAdmissionFor } from "./admission";
 import { type CurationModel, createCurationModel } from "./curation";
 import { NativeMemoryError } from "./hindsight-client";
 import { isJsonRecord } from "./internal-json";
@@ -271,11 +272,16 @@ export async function writeMemoryOverview(
 			const stored = readMemoryOverview(userId, scope, now);
 			if (stored.state === "written") return stored;
 		}
-		// The memory model path, through Hindsight's admission gateway. With
-		// part 4's queue it is the person's call: interactive admission.
+		// The memory model path, through Hindsight's admission gateway. A person
+		// waits for this answer, so it is an interactive call in the account's
+		// own lane: it overtakes background work in the queue (admission.ts).
 		const model =
 			options.model ??
-			createCurationModel(options.signal ?? new AbortController().signal);
+			createCurationModel(
+				options.signal ?? new AbortController().signal,
+				undefined,
+				memoryAdmissionFor(userId, "interactive"),
+			);
 		for (let attempt = 0; attempt < 2; attempt++) {
 			const read = readScopeEntries(userId, scope, now);
 			const current = currentEntries(read.entries);
