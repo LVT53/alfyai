@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { mentionsMemoryEntry, mentionWords } from "./earlier-mention";
+import {
+	mentionBank,
+	mentionsMemoryEntry,
+	mentionWords,
+} from "./earlier-mention";
 
 /** Synthetic, written for this measurement: every entry and message is invented. */
 const measurement: {
@@ -62,7 +66,7 @@ describe("mentionsMemoryEntry", () => {
 		).toBe(true);
 	});
 
-	it("does not match words that share fewer than five letters", () => {
+	it("does not match words that only begin alike", () => {
 		// "exam" and "example" share four letters: an example is no exam.
 		expect(
 			mentionsMemoryEntry(
@@ -101,6 +105,152 @@ describe("mentionsMemoryEntry", () => {
 				"Is the house-sitting over?",
 				"The user's neighbours asked them to house-sit.",
 			),
+		).toBe(true);
+	});
+});
+
+describe("which words are one word", () => {
+	it("matches a stem of four letters with an ending of at most two", () => {
+		expect(
+			mentionsMemoryEntry(
+				"How did my exams go?",
+				"The user's driving theory exam was coming up.",
+			),
+		).toBe(true);
+		expect(
+			mentionsMemoryEntry(
+				"Both knees hurt again",
+				"The user hurt a knee playing football.",
+			),
+		).toBe(true);
+		expect(
+			mentionsMemoryEntry(
+				"Mit ültessek a kertbe?",
+				"A felhasználó felásta a kertet.",
+			),
+		).toBe(true);
+	});
+
+	it("bounds the ending of a word that begins another", () => {
+		// "kerül" (it costs) is not "kerület" (a district).
+		expect(
+			mentionsMemoryEntry(
+				"Mennyibe kerül egy jó bicikli?",
+				"A felhasználó a hetedik kerületbe költözött.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"My plant needs more light.",
+				"The user visited a coffee plantation in Brazil.",
+			),
+		).toBe(false);
+	});
+
+	it("never counts month and weekday names, in either language", () => {
+		expect(
+			mentionsMemoryEntry(
+				"The marching band was loud.",
+				"The user had a dentist appointment in March.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"Any plans for Friday?",
+				"The user's boiler was serviced on Friday.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"Márciusban mi a teendő a kertben?",
+				"A felhasználó márciusban fogorvoshoz ment.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"Pénteken ráérsz?",
+				"A felhasználó pénteken vizsgázott.",
+			),
+		).toBe(false);
+	});
+
+	it("never counts the everyday words for work, projects, plans and interest", () => {
+		expect(
+			mentionsMemoryEntry(
+				"Can you help me get through my work today?",
+				"The user flew to Lisbon for a work conference.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"I need to finish this project.",
+				"The user's project report was due at noon.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"That's an interesting idea.",
+				"The user was interested in learning the cello.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"Holnap sokáig kell dolgoznom.",
+				"A felhasználó egy pékségben dolgozott.",
+			),
+		).toBe(false);
+		expect(
+			mentionsMemoryEntry(
+				"Mit tervezel a hétvégére?",
+				"A felhasználó a konyha felújítását tervezte.",
+			),
+		).toBe(false);
+	});
+});
+
+describe("words common in the person's own bank", () => {
+	const entries = [
+		"The user's daughter Lili started school.",
+		"Lili has a peanut allergy.",
+		"The user and Lili went to Rome.",
+		"Lili plays the violin and has a violin lesson every week.",
+		"The user's partner plays the violin too.",
+		"The user's violin teacher moved away.",
+		"The user likes hiking near Graz.",
+		"The user lives in Graz.",
+	];
+	const bank = mentionBank(entries);
+
+	it("does not count a word that many of the bank's entries hold, alone", () => {
+		expect(
+			mentionsMemoryEntry(
+				"What should I get Lili for her birthday?",
+				entries[2],
+				bank,
+			),
+		).toBe(false);
+		// Without the bank, every shared word counts.
+		expect(
+			mentionsMemoryEntry(
+				"What should I get Lili for her birthday?",
+				entries[2],
+			),
+		).toBe(true);
+	});
+
+	it("counts a rare word, and two common ones together", () => {
+		expect(mentionsMemoryEntry("Was Rome nice?", entries[2], bank)).toBe(true);
+		expect(
+			mentionsMemoryEntry("Lili's violin is out of tune.", entries[3], bank),
+		).toBe(true);
+	});
+
+	it("reads a word one or two entries hold as rare", () => {
+		expect(
+			mentionsMemoryEntry("Is the allergy better?", entries[1], bank),
+		).toBe(true);
+		expect(
+			mentionsMemoryEntry("Is Graz nice in spring?", entries[7], bank),
 		).toBe(true);
 	});
 });
@@ -152,6 +302,20 @@ describe("the gate's cost on a turn", () => {
 		).toBe(false);
 	});
 
+	it("weighs a bank of 1,000 entries and checks six entries in under a quarter of a second", () => {
+		const texts = Array.from(
+			{ length: 1_000 },
+			(_, i) =>
+				`The user had appointment number zq${i.toString(36)} with a dentist in Graz about a filling and a crown.`,
+		);
+		const started = performance.now();
+		const bank = mentionBank(texts);
+		const words = mentionWords(megabyte());
+		for (const entry of texts.slice(0, 6))
+			mentionsMemoryEntry(words, entry, bank);
+		expect(performance.now() - started).toBeLessThan(250);
+	});
+
 	it("lists each word once, in order", () => {
 		expect(mentionWords("dentist filling dentist Dentist filling")).toEqual([
 			"dentist",
@@ -168,8 +332,10 @@ describe("the gate's cost on a turn", () => {
  */
 describe("the Earlier mention measurement", () => {
 	const entries = measurement.entries;
+	// The entries are one bank, as recall weighs them.
+	const bank = mentionBank(entries.map(({ text }) => text));
 	const mentionsAny = (message: string) =>
-		entries.some(({ text }) => mentionsMemoryEntry(message, text));
+		entries.some(({ text }) => mentionsMemoryEntry(message, text, bank));
 
 	it("brings an Earlier entry for at most 1 in 10 unrelated messages", () => {
 		const reached = measurement.unrelated.filter(mentionsAny).length;
@@ -180,7 +346,7 @@ describe("the Earlier mention measurement", () => {
 	it("brings the entry for at least 8 in 10 messages about it", () => {
 		const about = measurement.about;
 		const brought = about.filter(({ message, entry }) =>
-			mentionsMemoryEntry(message, entries[entry].text),
+			mentionsMemoryEntry(message, entries[entry].text, bank),
 		).length;
 		expect(about.length).toBeGreaterThanOrEqual(20);
 		expect(brought / about.length).toBeGreaterThanOrEqual(0.8);
@@ -197,7 +363,7 @@ describe("the Earlier mention measurement", () => {
 			expect(unrelated.filter(mentionsAny).length).toBeLessThanOrEqual(1);
 			expect(
 				about.filter(({ message, entry }) =>
-					mentionsMemoryEntry(message, entries[entry].text),
+					mentionsMemoryEntry(message, entries[entry].text, bank),
 				).length,
 			).toBeGreaterThanOrEqual(8);
 		}

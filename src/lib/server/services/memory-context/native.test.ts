@@ -1393,7 +1393,9 @@ it("brings no Earlier entry for a message that does not mention it, even from th
 	]);
 });
 
-it("brings an Earlier entry the chat's title mentions when the message is short", async () => {
+it("never brings an Earlier entry that only the chat's title mentions", async () => {
+	// The title joins a short message's search, so the entry ranks first; the
+	// person's own words never mentioned it.
 	const rank = seedLabelled("bp", "personal", [
 		{ text: "Had a toothache", kind: "temporary", said: [40] },
 		{ text: "Lives in Graz", kind: "lasting", said: [400] },
@@ -1404,11 +1406,33 @@ it("brings an Earlier entry the chat's title mentions when the message is short"
 		.set({ title: "Toothache again" })
 		.where(eq(schema.conversations.id, "personal"))
 		.run();
-	const result = await turn("personal", "and now?");
-	expect(result.map(({ text }) => text)).toEqual([
-		"Had a toothache",
-		"Lives in Graz",
+	const result = await turn("personal", "ok thanks");
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+	expect(recall).toHaveBeenCalledWith(
+		"Toothache again: ok thanks",
+		expect.anything(),
+		expect.anything(),
+		"bp",
+	);
+});
+
+it("does not count a word many of the bank's entries hold as a mention", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Went to Rome with Lili", kind: "temporary", said: [40] },
+		{ text: "Daughter Lili started school", kind: "lasting", said: [400] },
+		{ text: "Lili has a peanut allergy", kind: "lasting", said: [300] },
+		{ text: "Lili plays the violin", kind: "lasting", said: [200] },
 	]);
+	rankings({ bp: { message: rank([0, 1, 2, 3]) } });
+	const birthday = await turn(
+		"personal",
+		"What should I get Lili for her birthday?",
+	);
+	expect(birthday.map(({ text }) => text)).not.toContain(
+		"Went to Rome with Lili",
+	);
+	const rome = await turn("personal", "Was Rome worth it in the end?");
+	expect(rome.map(({ text }) => text)).toContain("Went to Rome with Lili");
 });
 
 it("never brings an Earlier entry when the bank's searches all failed", async () => {

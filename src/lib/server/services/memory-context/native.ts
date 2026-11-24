@@ -35,7 +35,12 @@ import {
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
-import { mentionsMemoryEntry, mentionWords } from "./earlier-mention";
+import {
+	type MentionBank,
+	mentionBank,
+	mentionsMemoryEntry,
+	mentionWords,
+} from "./earlier-mention";
 import {
 	allocateRecall,
 	type RecallCandidate,
@@ -166,14 +171,14 @@ export async function recallMemory(
 		input.query,
 		input.core ? chat.title : undefined,
 	);
-	// What an Earlier entry must be mentioned in to join a turn: the message
-	// as written and as the bank was searched with it (a short message with
-	// the chat's title). Its words are read once per recall, and only when an
-	// Earlier entry ranks at the top.
+	// What an Earlier entry must be mentioned in to join a turn: the person's
+	// message as written. The chat's title helps a short message's search, but
+	// never makes a mention. Its words are read once per recall, and only when
+	// an Earlier entry ranks at the top.
 	let mentionedWords: string[] | undefined;
-	const mentions = (entryText: string) => {
-		mentionedWords ??= mentionWords(`${input.query} ${message ?? ""}`);
-		return mentionsMemoryEntry(mentionedWords, entryText);
+	const mentions = (entryText: string, bank: MentionBank) => {
+		mentionedWords ??= mentionWords(input.query);
+		return mentionsMemoryEntry(mentionedWords, entryText, bank);
 	};
 	const searches: { list: RecallList; query: string }[] = [
 		...(message === null ? [] : [{ list: "message" as const, query: message }]),
@@ -442,6 +447,13 @@ export async function recallMemory(
 					...(states.length ? { earlierStates: states } : {}),
 				};
 			};
+			// How common each word is among the bank's entries, read once and
+			// only for an Earlier entry at the top.
+			let bankWords: MentionBank | undefined;
+			const mentioned = (text: string) => {
+				bankWords ??= mentionBank(accepted.map((row) => row.text));
+				return mentions(text, bankWords);
+			};
 			const lists: RecallList[] = input.core
 				? ["message", "core"]
 				: ["message"];
@@ -467,7 +479,7 @@ export async function recallMemory(
 							if (
 								!answered ||
 								place >= EARLIER_TOP_PLACES ||
-								!mentions(offer.entry.text)
+								!mentioned(offer.entry.text)
 							)
 								continue;
 							earlier.push({
