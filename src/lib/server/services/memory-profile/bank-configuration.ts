@@ -102,7 +102,10 @@ export async function ensureConfiguredBank(
 		// There is only one allowed submission. Exact readback can settle
 		// that submission without starting another possible writer.
 		await verifySubmittedBankConfig(client);
-		const landed = await landedConfigVersion(client, bank.scopeKey);
+		const landed = await liveConfigVersion(client, bank.scopeKey);
+		// A live config that is none of this bank's own kind's (another kind's,
+		// or none this app set) settles nothing: no version is recorded for it.
+		if (!landed) throw new NativeMemoryError("native_config_mismatch", false);
 		if (landed === NATIVE_BANK_CONFIG_VERSION) {
 			await moveVersion(NATIVE_BANK_CONFIG_PENDING, NATIVE_BANK_CONFIG_VERSION);
 			return;
@@ -117,15 +120,26 @@ export async function ensureConfiguredBank(
 		earlier === HINDSIGHT_ENGINE_COMMIT ||
 		earlier === NATIVE_BANK_CONFIG_2_VERSION
 	) {
-		// The live config must be one this app set before it is changed.
-		await client.verifyConfig();
-		await client.configure(config, async () => {
-			const current = await ctx.write((tx) => {
-				if (fence(tx).nativeConfigVersion !== earlier)
-					throw new NativeMemoryError("native_config_unconfirmed", true);
+		// The live config must be one this app set for this kind of bank, as an
+		// older release's own check is: a config 2 bank holds config 2 (or 3, when
+		// an upgrade's version write was lost), a config 1 bank any of the three.
+		await client.verifyConfig([
+			...(earlier === HINDSIGHT_ENGINE_COMMIT
+				? [PREVIOUS_NATIVE_BANK_CONFIG]
+				: []),
+			nativeBankConfig2ForScopeKey(bank.scopeKey),
+			config,
+		]);
+		// An upgrade whose PATCH landed but whose version write was lost already
+		// holds config 3: nothing to send again, only the version to record.
+		if (!(await holdsConfig(client, config)))
+			await client.configure(config, async () => {
+				const current = await ctx.write((tx) => {
+					if (fence(tx).nativeConfigVersion !== earlier)
+						throw new NativeMemoryError("native_config_unconfirmed", true);
+				});
+				if (!current) throw new NativeMemoryError("memory_cancelled", false);
 			});
-			if (!current) throw new NativeMemoryError("memory_cancelled", false);
-		});
 		await moveVersion(earlier, NATIVE_BANK_CONFIG_VERSION);
 		return;
 	}
@@ -190,10 +204,13 @@ export async function restorePreviousNativeBankConfig(client: HindsightClient) {
 
 /**
  * The stored version of the config the bank holds now, by readback: config 3,
- * config 2 or config 1, each of the bank's own kind. A live config none of
- * them describes is another kind's, or none this app set, and settles nothing.
+ * config 2 or config 1, each of the bank's own kind; null when none of them
+ * describes it (another kind's config, or none this app set).
  */
-async function landedConfigVersion(client: HindsightClient, scopeKey: string) {
+export async function liveConfigVersion(
+	client: HindsightClient,
+	scopeKey: string,
+): Promise<string | null> {
 	const candidates: Array<[string, NativeBankConfig]> = [
 		[NATIVE_BANK_CONFIG_VERSION, nativeBankConfigForScopeKey(scopeKey)],
 		[NATIVE_BANK_CONFIG_2_VERSION, nativeBankConfig2ForScopeKey(scopeKey)],
@@ -201,7 +218,7 @@ async function landedConfigVersion(client: HindsightClient, scopeKey: string) {
 	];
 	for (const [version, config] of candidates)
 		if (await holdsConfig(client, config)) return version;
-	throw new NativeMemoryError("native_config_mismatch", false);
+	return null;
 }
 
 async function holdsConfig(client: HindsightClient, config: NativeBankConfig) {

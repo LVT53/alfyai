@@ -2,6 +2,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryAccounts, memoryBanks } from "$lib/server/db/schema";
 import {
+	liveConfigVersion,
 	restoreNativeBankConfig2,
 	restorePreviousNativeBankConfig,
 } from "./bank-configuration";
@@ -116,33 +117,57 @@ export async function restoreBankConfigs(input: {
 		else report.versions.other++;
 	}
 	if (!input.execute) return report;
-	/** The versions this step back moves: config 3 to config 2, or config 3 and 2 to config 1. */
-	const moves: readonly string[] =
-		to === 2
-			? [NATIVE_BANK_CONFIG_VERSION]
-			: [NATIVE_BANK_CONFIG_VERSION, NATIVE_BANK_CONFIG_2_VERSION];
+	// A creation still pending may have landed as config 3, or may yet land: this
+	// release settles it at its own next delivery (it reads the live config
+	// back), and a restore that PATCHed it would be a second mutation of a bank
+	// whose first may still be in flight. Settle it first, then restore.
+	if (report.versions.pending) {
+		report.failed.memory_restore_pending_banks = report.versions.pending;
+		return report;
+	}
+	const target =
+		to === 2 ? NATIVE_BANK_CONFIG_2_VERSION : HINDSIGHT_ENGINE_COMMIT;
 	for (const { bank, tenantId } of banks) {
-		const from = bank.nativeConfigVersion;
-		if (!from || !moves.includes(from)) continue;
+		const stored = bank.nativeConfigVersion;
+		if (
+			stored !== NATIVE_BANK_CONFIG_VERSION &&
+			stored !== NATIVE_BANK_CONFIG_2_VERSION &&
+			stored !== HINDSIGHT_ENGINE_COMMIT
+		)
+			continue;
 		try {
 			const client = clientFor(bank.id, tenantId);
-			if (to === 2) await restoreNativeBankConfig2(client, bank.scopeKey);
-			else await restorePreviousNativeBankConfig(client);
-			db.update(memoryBanks)
-				.set({
-					nativeConfigVersion:
-						to === 2 ? NATIVE_BANK_CONFIG_2_VERSION : HINDSIGHT_ENGINE_COMMIT,
-				})
-				.where(
-					and(
-						eq(memoryBanks.id, bank.id),
-						eq(memoryBanks.nativeConfigVersion, from),
-					),
-				)
-				.run();
-			// The first release writes facts without labels into this bank.
-			if (to === 1) revoke(bank.userId, bank.epoch);
-			report.restored++;
+			// The live config decides, not the stored version: an upgrade whose PATCH
+			// landed but whose version write was lost leaves a bank ahead of its
+			// version, which the older release cannot serve either.
+			const live = await liveConfigVersion(client, bank.scopeKey);
+			if (!live) throw new NativeMemoryError("native_config_mismatch", false);
+			// What the older release serves: for config 2 a bank on config 2 or 1,
+			// for config 1 a bank on config 1 only.
+			const patch =
+				to === 2
+					? live === NATIVE_BANK_CONFIG_VERSION
+					: live !== HINDSIGHT_ENGINE_COMMIT;
+			if (patch) {
+				if (to === 2) await restoreNativeBankConfig2(client, bank.scopeKey);
+				else await restorePreviousNativeBankConfig(client);
+			}
+			const now = patch ? target : live;
+			if (now !== stored)
+				db.update(memoryBanks)
+					.set({ nativeConfigVersion: now })
+					.where(
+						and(
+							eq(memoryBanks.id, bank.id),
+							eq(memoryBanks.nativeConfigVersion, stored),
+						),
+					)
+					.run();
+			if (patch || now !== stored) {
+				// The first release writes facts without labels into this bank.
+				if (to === 1) revoke(bank.userId, bank.epoch);
+				report.restored++;
+			}
 		} catch (error) {
 			const code =
 				error instanceof NativeMemoryError
