@@ -528,13 +528,12 @@ function buildDocumentSourceHref(
 	);
 }
 
-/** The serving route's URL for a stored picture or clip; an incognito chat's file needs its chat named. */
-function fileSrc(
-	fileId: string,
-	variant: "thumb" | "poster",
-	conversationId: string | null,
-): string {
-	const query = new URLSearchParams({ variant });
+/**
+ * The serving route's URL for a stored picture's or clip's small thumb (a
+ * clip's is its poster frame's); an incognito chat's file needs its chat named.
+ */
+function thumbSrc(fileId: string, conversationId: string | null): string {
+	const query = new URLSearchParams({ variant: "thumb" });
 	if (conversationId) query.set("conversationId", conversationId);
 	return `/api/images/files/${encodeURIComponent(fileId)}?${query.toString()}`;
 }
@@ -680,17 +679,14 @@ async function toResults(
 		const preview =
 			item.kind === "image" && item.imagePreview
 				? {
-						src: fileSrc(
-							item.imagePreview.fileId,
-							"thumb",
-							item.conversationId,
-						),
+						src: thumbSrc(item.imagePreview.fileId, item.conversationId),
 						width: item.imagePreview.width,
 						height: item.imagePreview.height,
 					}
 				: video
 					? {
-							src: fileSrc(video.posterFileId, "poster", item.conversationId),
+							// The row's tile is 48 pixels: the poster's small thumb, not the full frame.
+							src: thumbSrc(video.posterFileId, item.conversationId),
 							width: video.width,
 							height: video.height,
 						}

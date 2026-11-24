@@ -145,6 +145,8 @@ let previousFocus: HTMLElement | null = null;
 let wasOpen = false;
 let latestRequestId = 0;
 let lastStartedKey: string | null = null;
+// Rows whose thumbnail failed to load: they keep their kind's icon tile.
+let failedPreviews = $state<Record<string, true>>({});
 
 const SEARCH_DEBOUNCE_MS = 180;
 
@@ -745,6 +747,12 @@ function conversationMeta(conversation: WorkspaceSearchConversationResult) {
 	return conversation.projectName?.trim() || "";
 }
 
+/** A row's thumbnail, unless it failed to load. */
+function shownPreview(row: SearchRow) {
+	if (row.kind !== "document" || failedPreviews[row.id]) return null;
+	return row.document.preview;
+}
+
 /** "Personal", or the project's name, then when it was last said (when it has a date). */
 function memoryMeta(memory: WorkspaceSearchMemoryResult) {
 	const scope =
@@ -1024,12 +1032,13 @@ onDestroy(() => {
 												>
 													<div
 														class="search-result-icon flex shrink-0 items-center justify-center rounded-md"
-														class:h-8={!row.document.preview}
-														class:w-8={!row.document.preview}
-														class:search-result-thumb={Boolean(row.document.preview)}
+														class:h-8={!shownPreview(row)}
+														class:w-8={!shownPreview(row)}
+														class:search-result-thumb={Boolean(shownPreview(row))}
 													>
-														{#if row.document.preview}
+														{#if row.document.preview && shownPreview(row)}
 															<img
+																onerror={() => (failedPreviews = { ...failedPreviews, [row.id]: true })}
 																src={row.document.preview.src}
 																alt=""
 																width={row.document.preview.width ?? undefined}

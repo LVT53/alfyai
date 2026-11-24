@@ -1085,7 +1085,8 @@ describe("searchDocuments", () => {
 			height: 832,
 		});
 		expect(rows.get("video-1")?.preview).toEqual({
-			src: "/api/images/files/file-clip?variant=poster&conversationId=chat-owner",
+			// The poster's 48-pixel row tile reads the small thumb, not the full poster.
+			src: "/api/images/files/file-clip?variant=thumb&conversationId=chat-owner",
 			width: 1280,
 			height: 704,
 		});

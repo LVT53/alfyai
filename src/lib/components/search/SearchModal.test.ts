@@ -1161,6 +1161,37 @@ describe("SearchModal", () => {
 			expect(rows[1].querySelector(".search-result-icon svg")).not.toBeNull();
 		});
 
+		it("keeps the kind's icon tile when a thumbnail fails to load", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("v1", "Model turntable", {
+							searchKind: "media",
+							badge: "video",
+							durationMs: 6000,
+							preview: {
+								src: "/api/images/files/f2?variant=thumb&conversationId=c1",
+								width: 1280,
+								height: 704,
+							},
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 0, media: 1, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const row = screen
+				.getByTestId("search-section-media")
+				.querySelector(".search-result-document");
+			const image = row?.querySelector("img");
+			expect(image).not.toBeNull();
+			if (image) await fireEvent.error(image);
+			await waitFor(() => expect(row?.querySelector("img")).toBeNull());
+			expect(row?.querySelector(".search-result-icon svg")).not.toBeNull();
+		});
+
 		it("highlight words typed in another order", async () => {
 			fetchWorkspaceSearch.mockResolvedValue(
 				answer({
