@@ -1623,8 +1623,9 @@ it.each([false, true])(
 		// Recall shows the cards the page shows, as soon as the page does: a
 		// re-rendered observation reaches its published card through its
 		// support, and only ever with the card's own wording (follow-up B).
-		const cards = (entries: typeof rows) =>
-			entries.map(({ ref, text }) => `${ref.rowId}|${text}`).sort();
+		const cards = (
+			entries: ReadonlyArray<{ ref: { rowId: string }; text: string }>,
+		) => entries.map(({ ref, text }) => `${ref.rowId}|${text}`).sort();
 		expect(cards(recalled)).toEqual(cards(rows));
 		expect(recalled.map(({ text }) => text)).not.toContain(
 			"the kayak was green",

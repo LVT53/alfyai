@@ -1012,7 +1012,8 @@ function seedRerendered(mode: (typeof RERENDER_MODES)[number]) {
 		list.mockResolvedValue([
 			{
 				...observation,
-				text: mode === "snapshot disagrees" ? "Something else" : observation.text,
+				text:
+					mode === "snapshot disagrees" ? "Something else" : observation.text,
 			},
 			{
 				id: "f-b1",
