@@ -94,6 +94,37 @@ describe("migration 143", () => {
 			.filter((statement) => statement && !/\bALTER TABLE\b/i.test(statement));
 	}
 
+	it("leaves the tester account untouched, whatever it holds", async () => {
+		const { db, schema, state } = await modules();
+		const { sql } = await import("drizzle-orm");
+		db.insert(schema.users)
+			.values({
+				id: "tester",
+				email: "Tester@Tester.com",
+				passwordHash: "synthetic",
+			})
+			.run();
+		db.insert(schema.memoryAccounts)
+			.values({ userId: "tester", tenantId: "tenant-tester" })
+			.run();
+		db.insert(schema.memoryBanks)
+			.values({
+				id: "tester-bank",
+				userId: "tester",
+				scopeKey: "personal",
+				epoch: 0,
+			})
+			.run();
+		for (const statement of markingStatements()) db.run(sql.raw(statement));
+		expect(
+			db
+				.select({ epoch: schema.memoryAccounts.labelsUnverifiedEpoch })
+				.from(schema.memoryAccounts)
+				.get()?.epoch,
+		).toBeNull();
+		expect(state.memoryLabelsVerified("tester")).toBe(true);
+	});
+
 	it("marks accounts with a bank in their current epoch and no other", async () => {
 		const { db, schema, state } = await modules();
 		const { sql } = await import("drizzle-orm");
