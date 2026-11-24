@@ -1302,6 +1302,71 @@ describe("the label migration's rollback", () => {
 		});
 	});
 
+	it("an undone row reads as no row does, and the next publication copies the fact's tags back", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		// Hindsight's extraction gave this fact a subject but no kind; the
+		// classifier labels it, over the subject.
+		h.sqlite
+			.prepare(
+				"UPDATE memory_fact_labels SET subject = 'work_study' WHERE native_fact_id = 'user-1-fact-0'",
+			)
+			.run();
+		const { db, migration } = await modules();
+		const { entryLabels, readFactLabels, recordNativeFactLabels } =
+			await import("./fact-labels");
+		await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(readFactLabels(db, bank.id).get("user-1-fact-0")).toMatchObject({
+			kind: "lasting",
+			origin: "classifier",
+		});
+		migration.rollbackLabelMigration({ userId: "user-1", execute: true });
+		// An undone row has no kind or subject: its entry reads as an entry with
+		// no row at all, lasting and unsubjected.
+		const labels = readFactLabels(db, bank.id);
+		expect(labels.get("user-1-fact-1")).toEqual({
+			kind: null,
+			subject: null,
+			eventAt: null,
+			origin: "extraction",
+		});
+		const entry = (id: string) =>
+			entryLabels([{ id, saidAtMs: 0, authored: false }], labels);
+		expect(entry("user-1-fact-1")).toEqual(entry("a-fact-with-no-row"));
+		// The extraction subject the classifier wrote over is not restored yet.
+		expect(labels.get("user-1-fact-0")).toMatchObject({
+			kind: null,
+			subject: null,
+		});
+		// The next publication copies the facts' tags and dates back from
+		// Hindsight, as it does for any extraction row.
+		db.transaction((tx) =>
+			recordNativeFactLabels(
+				tx,
+				bank.id,
+				"personal",
+				(fake.facts.get(bank.id) ?? []).map((fact) =>
+					fact.id === "user-1-fact-0"
+						? {
+								...fact,
+								tags: ["subject:work_study"],
+								occurred_end: "2026-02-01T00:00:00Z",
+							}
+						: fact,
+				),
+			),
+		);
+		expect(readFactLabels(db, bank.id).get("user-1-fact-0")).toEqual({
+			kind: null,
+			subject: "work_study",
+			eventAt: "2026-02-01T00:00:00.000Z",
+			origin: "extraction",
+		});
+	});
+
 	it("works with Memory off: the labels and the verification are taken back", async () => {
 		const fake = fakeNative();
 		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
