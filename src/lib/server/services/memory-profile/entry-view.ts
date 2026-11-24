@@ -14,8 +14,9 @@ import { entryLastSaidAt, factSaidTimes } from "./publication";
 /**
  * One published entry as recall and the Memory page read it (part 2's
  * contract): its supporting facts are its row's source ids looked up among
- * the admitted facts, it takes kind and subject from its newest labelled
- * fact, it was last mentioned when its newest fact was said, and whether it
+ * the admitted facts, it takes the most lasting kind among them and the
+ * subject of its newest labelled fact (`entryLabels`), it was last mentioned
+ * when its newest fact was said, and whether it
  * is current, quiet or Earlier is decided on the caller's one clock. Recall
  * (`memory-context/native.ts`) and the page (`subject-read.ts`) both build
  * entries here, so they can never disagree about an entry.

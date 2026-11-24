@@ -5,7 +5,11 @@ import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
 import { conversationDisplayTitle } from "$lib/shared/conversation-title";
-import { matchRanges, searchTerms } from "$lib/shared/workspace-search-text";
+import {
+	matchRanges,
+	SEARCH_MIN_QUERY_CHARS,
+	searchTerms,
+} from "$lib/shared/workspace-search-text";
 import { getFocusableElements } from "$lib/utils/focus-trap";
 import { formatAgo } from "$lib/utils/time";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
@@ -101,6 +105,15 @@ const SCOPE_LABEL_KEYS: Record<SearchScopeId, I18nKey> = {
 	apps: "searchModal.scopeApps",
 };
 
+// "Show all 12 chats": the link names what it opens, for a screen reader too.
+const SHOW_ALL_KEYS: Record<WorkspaceSearchKind, I18nKey> = {
+	chats: "searchModal.showAllChats",
+	memory: "searchModal.showAllMemory",
+	documents: "searchModal.showAllDocuments",
+	media: "searchModal.showAllMedia",
+	apps: "searchModal.showAllApps",
+};
+
 // A picture, a video, a Document, Slides, a Canvas and an App say their kind in
 // the app's own words (`artifacts.type.*`); only the file kinds have words here.
 const BADGE_KEYS: Record<WorkspaceSearchBadge, I18nKey> = {
@@ -145,12 +158,16 @@ let previousFocus: HTMLElement | null = null;
 let wasOpen = false;
 let latestRequestId = 0;
 let lastStartedKey: string | null = null;
+// Rows whose thumbnail failed to load: they keep their kind's icon tile.
+let failedPreviews = $state<Record<string, true>>({});
+// The request of the query on screen; a query typed over cancels the one before.
+let searchAbort: AbortController | null = null;
 
 const SEARCH_DEBOUNCE_MS = 180;
 
 const trimmedSearchQuery = $derived(searchQuery.trim());
 const requestedSearchQuery = $derived(
-	trimmedSearchQuery.length >= 2 ? trimmedSearchQuery : "",
+	trimmedSearchQuery.length >= SEARCH_MIN_QUERY_CHARS ? trimmedSearchQuery : "",
 );
 const isQueryMode = $derived((searchResponse?.mode ?? "default") === "query");
 const totals = $derived(
@@ -282,8 +299,11 @@ const activeResultElementId = $derived(
 	activeRowId ? searchResultElementId(activeRowId) : undefined,
 );
 // The words of the query, folded the way the server matched them, so a word typed
-// without accents or in another order is lit in the text it found.
-const highlightTerms = $derived(searchTerms(searchResponse?.query ?? ""));
+// without accents or in another order is lit in the text it found. The view
+// before a query matched nothing, so it lights nothing.
+const highlightTerms = $derived(
+	isQueryMode ? searchTerms(searchResponse?.query ?? "") : [],
+);
 
 function portal(node: HTMLElement) {
 	document.body.appendChild(node);
@@ -391,11 +411,16 @@ async function runWorkspaceSearch(query: string, scope: SearchScopeId) {
 	searchLoading = true;
 	loadingMore = false;
 	searchError = false;
+	// The server's work for a query typed over is wasted: cancel its request.
+	searchAbort?.abort();
+	const controller = new AbortController();
+	searchAbort = controller;
 
 	try {
 		const response = (await fetchWorkspaceSearch({
 			query,
 			...(kind === "all" ? {} : { scope: kind }),
+			signal: controller.signal,
 		})) as WorkspaceSearchResponse;
 		if (requestId !== latestRequestId) return;
 		searchResponse = {
@@ -420,10 +445,25 @@ async function runWorkspaceSearch(query: string, scope: SearchScopeId) {
 		if (requestId === latestRequestId) {
 			searchLoading = false;
 		}
+		if (searchAbort === controller) searchAbort = null;
 	}
 }
 
-/** The next page of the chosen kind, appended after the ones already shown. */
+/** A later page's rows that are not shown yet: a row that moved between pages appears once. */
+function appendNew<T>(
+	shown: readonly T[],
+	next: readonly T[],
+	keyOf: (row: T) => string,
+): T[] {
+	const seen = new Set(shown.map(keyOf));
+	return [...shown, ...next.filter((row) => !seen.has(keyOf(row)))];
+}
+
+/**
+ * The next page of the chosen kind, appended after the ones already shown. It
+ * asks with the shown answer's query, not the box's: a click inside the
+ * debounce must not append a page of a query that is not on screen.
+ */
 async function loadMore() {
 	const current = searchResponse;
 	if (!current?.nextCursor || loadingMore || activeScope === "all") return;
@@ -431,16 +471,28 @@ async function loadMore() {
 	loadingMore = true;
 	try {
 		const page = (await fetchWorkspaceSearch({
-			query: requestedSearchQuery,
+			query: current.query,
 			scope: activeScope,
 			cursor: current.nextCursor,
 		})) as WorkspaceSearchResponse;
 		if (requestId !== latestRequestId) return;
 		searchResponse = {
 			...current,
-			conversations: [...current.conversations, ...(page.conversations ?? [])],
-			memories: [...current.memories, ...(page.memories ?? [])],
-			documents: [...current.documents, ...(page.documents ?? [])],
+			conversations: appendNew(
+				current.conversations,
+				page.conversations ?? [],
+				(row) => row.id,
+			),
+			memories: appendNew(
+				current.memories,
+				page.memories ?? [],
+				(row) => row.id,
+			),
+			documents: appendNew(
+				current.documents,
+				page.documents ?? [],
+				(row) => row.displayArtifactId,
+			),
 			totals: page.totals ?? current.totals,
 			nextCursor: page.nextCursor ?? null,
 		};
@@ -448,7 +500,24 @@ async function loadMore() {
 		if (requestId === latestRequestId) searchError = true;
 	} finally {
 		if (requestId === latestRequestId) loadingMore = false;
+		keepFocusInDialog();
 	}
+}
+
+/**
+ * Show all and the last Load more go away once used; the focus they held
+ * would fall to the page. It goes back to the search box (or the dialog, on a
+ * touch screen, where focusing the box would open the keyboard).
+ */
+function keepFocusInDialog() {
+	void tick().then(() => {
+		const active = document.activeElement;
+		if (active && active !== document.body && modalRef?.contains(active)) {
+			return;
+		}
+		if (isMobilePointer()) modalRef?.focus();
+		else searchInputRef?.focus();
+	});
 }
 
 function selectScope(id: SearchScopeId) {
@@ -467,6 +536,10 @@ function selectScope(id: SearchScopeId) {
 
 function handleClose() {
 	latestRequestId += 1;
+	searchAbort?.abort();
+	searchAbort = null;
+	// A thumbnail that failed on a network blip is tried again at the next open.
+	failedPreviews = {};
 	searchQuery = "";
 	searchResponse = null;
 	searchLoading = false;
@@ -703,6 +776,12 @@ function conversationMeta(conversation: WorkspaceSearchConversationResult) {
 	return conversation.projectName?.trim() || "";
 }
 
+/** A row's thumbnail, unless it failed to load. */
+function shownPreview(row: SearchRow) {
+	if (row.kind !== "document" || failedPreviews[row.id]) return null;
+	return row.document.preview;
+}
+
 /** "Personal", or the project's name, then when it was last said (when it has a date). */
 function memoryMeta(memory: WorkspaceSearchMemoryResult) {
 	const scope =
@@ -810,20 +889,25 @@ onDestroy(() => {
 			<div class="search-scope-band border-b px-4 py-2" role="group" aria-label={$t('searchModal.scopeLabel')}>
 				<div class="search-scope-row">
 					{#each scopeChips as chip (chip.id)}
+						<!-- Counts only for a query: the view before one shows a few recents
+							 of each kind, not a count, and a kind with nothing in it says so. -->
 						<button
 							type="button"
 							class="search-scope-chip"
 							class:active={activeScope === chip.id}
 							aria-pressed={activeScope === chip.id}
-							aria-label={$t('searchModal.scopeCountLabel', {
-								name: $t(SCOPE_LABEL_KEYS[chip.id]),
-								count: formatScopeCount(chip.count),
-							})}
+							aria-disabled={chip.id !== 'all' && chip.count === 0 ? 'true' : undefined}
+							aria-label={isQueryMode
+								? $t('searchModal.scopeCountLabel', {
+										name: $t(SCOPE_LABEL_KEYS[chip.id]),
+										count: formatScopeCount(chip.count),
+									})
+								: $t(SCOPE_LABEL_KEYS[chip.id])}
 							data-testid={`search-scope-${chip.id}`}
 							onclick={() => selectScope(chip.id)}
 						>
 							<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
-							{#if chip.id !== 'all' || chip.count > 0}
+							{#if isQueryMode && (chip.id !== 'all' || chip.count > 0)}
 								<span class="search-scope-count">{formatScopeCount(chip.count)}</span>
 							{/if}
 						</button>
@@ -832,7 +916,7 @@ onDestroy(() => {
 			</div>
 
 			<div id="workspace-search-results" class="max-h-[420px] overflow-y-auto px-3 py-2.5">
-				{#if trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < 2}
+				{#if trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < SEARCH_MIN_QUERY_CHARS}
 					<div
 						data-testid="search-keep-typing"
 						class="flex flex-col items-center justify-center px-4 py-12 text-center"
@@ -977,12 +1061,13 @@ onDestroy(() => {
 												>
 													<div
 														class="search-result-icon flex shrink-0 items-center justify-center rounded-md"
-														class:h-8={!row.document.preview}
-														class:w-8={!row.document.preview}
-														class:search-result-thumb={Boolean(row.document.preview)}
+														class:h-8={!shownPreview(row)}
+														class:w-8={!shownPreview(row)}
+														class:search-result-thumb={Boolean(shownPreview(row))}
 													>
-														{#if row.document.preview}
+														{#if row.document.preview && shownPreview(row)}
 															<img
+																onerror={() => (failedPreviews = { ...failedPreviews, [row.id]: true })}
 																src={row.document.preview.src}
 																alt=""
 																width={row.document.preview.width ?? undefined}
@@ -1074,9 +1159,12 @@ onDestroy(() => {
 									<button
 										type="button"
 										class="search-section-link"
-										onclick={() => selectScope(section.kind)}
+										onclick={() => {
+											selectScope(section.kind);
+											keepFocusInDialog();
+										}}
 									>
-										<span>{$t('searchModal.showAll', { count: formatScopeCount(section.showAllTotal) })}</span>
+										<span>{$t(SHOW_ALL_KEYS[section.kind], { count: formatScopeCount(section.showAllTotal) })}</span>
 										<ChevronRight size={13} strokeWidth={2.2} aria-hidden="true" />
 									</button>
 								{/if}
@@ -1121,13 +1209,21 @@ onDestroy(() => {
 				</span>
 				{/if}
 				{#if isQueryMode && hasResults}
+					<!-- A kind counted to the cap makes the sum a floor: it reads 99+, as the chips do. -->
 					<span class="search-result-count" data-testid="search-result-count">
 						{resultSummary.results === 1
 							? $t('searchModal.resultSummaryOne')
-							: $t('searchModal.resultSummary', {
-									results: resultSummary.results,
-									kinds: resultSummary.kinds,
-								})}
+							: $t(
+									resultSummary.kinds === 1
+										? 'searchModal.resultSummaryOneKind'
+										: 'searchModal.resultSummary',
+									{
+										results: resultSummary.capped
+											? formatScopeCount(resultSummary.results)
+											: resultSummary.results,
+										kinds: resultSummary.kinds,
+									},
+								)}
 					</span>
 				{/if}
 			</div>
@@ -1221,10 +1317,17 @@ onDestroy(() => {
 			color var(--duration-standard) var(--ease-out);
 	}
 
-	.search-scope-chip:hover,
+	.search-scope-chip:hover:not([aria-disabled="true"]),
 	.search-scope-chip:focus-visible {
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	/* A kind with nothing in it says so (aria-disabled) and looks it: dimmed, no
+	   hover. The keyboard's focus ring above still shows on it. */
+	.search-scope-chip[aria-disabled="true"] {
+		cursor: default;
+		opacity: 0.5;
 	}
 
 	.search-scope-chip.active {

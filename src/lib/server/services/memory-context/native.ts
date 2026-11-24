@@ -6,6 +6,7 @@ import type {
 } from "$lib/memory-types";
 import {
 	getMemoryAgingThresholds,
+	getMemoryEarlierRerank,
 	getMemoryRecallShares,
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
@@ -42,6 +43,14 @@ import {
 	mentionWords,
 } from "./earlier-mention";
 import {
+	type EarlierScores,
+	earlierJoins,
+	earlierScoreOf,
+	type JudgedCandidate,
+	scoreEarlierCandidates,
+	scoresChangeADecision,
+} from "./earlier-rerank";
+import {
 	allocateRecall,
 	type RecallCandidate,
 	type RecallLane,
@@ -68,11 +77,16 @@ interface OfferedRow {
 
 /**
  * An Earlier entry reaches a turn only from these top places of its bank's
- * message ranking, and only when the message mentions it (`mentionsMemoryEntry`).
+ * message ranking, and only when the message is about it: the reranker's score,
+ * with the word rule (`mentionsMemoryEntry`) as its second voice and, with no
+ * score, as the whole decision (`earlierJoins`).
  */
 const EARLIER_TOP_PLACES = 3;
 /** And at most this many reach one turn. */
 const EARLIER_PER_TURN = 3;
+
+/** The handle recall reads the database through, inside one transaction. */
+type RecallTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** The searches recall runs on a bank: the message's, and the basics'. */
 type RecallList = "message" | "core";
@@ -83,6 +97,13 @@ interface BankSearch {
 	rankings: Map<RecallList, NativeMemory[]>;
 	outcomes: ("answered" | "timed_out" | "failed")[];
 	slowestMs: number;
+	/**
+	 * The live evidence snapshot that confirms a migrated account's rankings:
+	 * "none" when no ranking needed one, "taken" when it was read and used,
+	 * "failed" when it could not be read or repeats an id, so the rankings
+	 * stay unconfirmed and those rows are not offered.
+	 */
+	snapshot: "none" | "taken" | "failed";
 }
 
 /**
@@ -187,13 +208,47 @@ export async function recallMemory(
 			: []),
 	];
 	const searched = new Map<string, BankSearch>();
+	// One line per bank searched, with the rows it gave the model. Content-free
+	// (services/AGENTS.md): no query, entry text or id.
+	const logSearched = (
+		returned: readonly { bankId: string; entry: AdmittedMemoryEvidence }[],
+	) => {
+		for (const bank of banks) {
+			const search = searched.get(bank.id);
+			if (!search) continue;
+			const count = (outcome: BankSearch["outcomes"][number]) =>
+				search.outcomes.filter((ended) => ended === outcome).length;
+			console.info("[KNOWLEDGE_MEMORY] Recall", {
+				mode: input.core ? "turn" : "tool",
+				bank: bank.scopeKey === "personal" ? "personal" : "project",
+				searches: searches.length,
+				answered: count("answered"),
+				timedOut: count("timed_out"),
+				failed: count("failed"),
+				slowestMs: search.slowestMs,
+				fallback: count("answered") === 0,
+				snapshot: search.snapshot,
+				rows: returned.filter(({ bankId }) => bankId === bank.id).length,
+				earlier: returned.filter(
+					({ bankId, entry }) =>
+						bankId === bank.id && entry.timeState === "earlier",
+				).length,
+			});
+		}
+	};
 	const confirmedEvidence = new Map<string, Map<string, NativeMemory>>();
 	for (const bank of banks) {
-		if (!isStillActive(db)) return [];
+		if (!isStillActive(db)) {
+			// Consent changed mid-recall: nothing is returned, and the banks
+			// already searched still say so.
+			logSearched([]);
+			return [];
+		}
 		const search: BankSearch = {
 			rankings: new Map(),
 			outcomes: [],
 			slowestMs: 0,
+			snapshot: "none",
 		};
 		searched.set(bank.id, search);
 		const signal = AbortSignal.timeout(2_000);
@@ -236,9 +291,12 @@ export async function recallMemory(
 			}),
 		);
 		search.outcomes = results;
-		const answered = [...search.rankings.values()];
+		const answeredRankings = [...search.rankings.values()];
 		try {
-			if (answered.some((ranking) => ranking.length) && isStillActive(db)) {
+			if (
+				answeredRankings.some((ranking) => ranking.length) &&
+				isStillActive(db)
+			) {
 				const { bridge, family } = db.transaction((tx) => ({
 					bridge: curatedNativeRankKeys(tx, bank),
 					family: approvedMigrationRankFamily(
@@ -249,7 +307,7 @@ export async function recallMemory(
 					),
 				}));
 				if (
-					answered.some((ranking) =>
+					answeredRankings.some((ranking) =>
 						ranking.some((rank) => {
 							const support = rank.source_memory_ids ?? [];
 							const key = nativeRankSupportKey(support);
@@ -263,17 +321,28 @@ export async function recallMemory(
 					// One evidence snapshot per bank, after its searches.
 					const snapshot = await client.list();
 					const unique = new Map(snapshot.map((row) => [row.id, row]));
-					if (unique.size === snapshot.length)
+					if (unique.size === snapshot.length) {
 						confirmedEvidence.set(bank.id, unique);
+						search.snapshot = "taken";
+					} else search.snapshot = "failed";
 				}
 			}
 		} catch {
 			/* A failed snapshot keeps the answered rankings, unconfirmed. */
+			search.snapshot = "failed";
 		}
 	}
 	// Every eligible bank shares one live snapshot, including holds set during a native call.
 	const thresholds = getMemoryAgingThresholds();
-	const entries = db.transaction((tx) => {
+	const earlierFloors = getMemoryEarlierRerank();
+	// The Earlier entries this turn must judge (each in its bank's top places),
+	// and what the reranker scored them once it has.
+	const earlierCandidates: (JudgedCandidate & {
+		place: number;
+		personal: boolean;
+	})[] = [];
+	let earlierScores: EarlierScores | undefined;
+	const readEntries = (tx: RecallTransaction) => {
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
 		const offered = new Map<string, OfferedRow>();
@@ -472,14 +541,30 @@ export async function recallMemory(
 					if (offer.entry.timeState === "earlier") {
 						// Earlier entries never enter the core; in a turn one comes
 						// only when it ranks at the top for the person's message and
-						// the message mentions it (rank alone brings old entries into
-						// most turns of a small bank).
+						// the message is about it (rank alone brings old entries into
+						// most turns of a small bank): by the reranker's score, which
+						// the second read below holds, or by the words alone.
 						if (list === "core") continue;
 						if (input.core) {
+							if (!answered || place >= EARLIER_TOP_PLACES) continue;
+							const byWords = mentioned(offer.entry.text);
+							if (!earlierScores)
+								earlierCandidates.push({
+									key,
+									text: offer.entry.text,
+									byWords,
+									place,
+									personal: scope.kind === "personal",
+								});
 							if (
-								!answered ||
-								place >= EARLIER_TOP_PLACES ||
-								!mentioned(offer.entry.text)
+								!earlierJoins(
+									earlierScoreOf(earlierScores, {
+										key,
+										text: offer.entry.text,
+									}),
+									() => byWords,
+									earlierFloors,
+								)
 							)
 								continue;
 							earlier.push({
@@ -607,28 +692,30 @@ export async function recallMemory(
 			const entry: AdmittedMemoryEvidence = { ...offeredEntry, sources };
 			return { bankId, entry };
 		});
-	});
-	for (const bank of banks) {
-		const search = searched.get(bank.id);
-		if (!search) continue;
-		const count = (outcome: BankSearch["outcomes"][number]) =>
-			search.outcomes.filter((ended) => ended === outcome).length;
-		// Content-free (services/AGENTS.md): no query, entry text or id.
-		console.info("[KNOWLEDGE_MEMORY] Recall", {
-			mode: input.core ? "turn" : "tool",
-			bank: bank.scopeKey === "personal" ? "personal" : "project",
-			searches: searches.length,
-			answered: count("answered"),
-			timedOut: count("timed_out"),
-			failed: count("failed"),
-			slowestMs: search.slowestMs,
-			fallback: count("answered") === 0,
-			rows: entries.filter(({ bankId }) => bankId === bank.id).length,
-			earlier: entries.filter(
-				({ bankId, entry }) =>
-					bankId === bank.id && entry.timeState === "earlier",
-			).length,
-		});
+	};
+	// The first read judges the Earlier entries by the words alone and lists the
+	// ones the reranker may judge. When there are some, one call scores them.
+	// Consent is checked again after it, whatever it answered; and when a score
+	// moves an entry from the words' verdict, a second read (a fresh snapshot, so
+	// edits made meanwhile count) judges them by score. Otherwise the first read
+	// stands.
+	let entries = db.transaction(readEntries);
+	if (input.core && earlierCandidates.length) {
+		const scores = await scoreEarlierCandidates(
+			input.query,
+			[...earlierCandidates].sort(
+				(a, b) => a.place - b.place || Number(b.personal) - Number(a.personal),
+			),
+		);
+		if (!isStillActive(db)) entries = [];
+		else if (
+			scores &&
+			scoresChangeADecision(earlierCandidates, scores, earlierFloors)
+		) {
+			earlierScores = scores;
+			entries = db.transaction(readEntries);
+		}
 	}
+	logSearched(entries);
 	return entries.map(({ entry }) => entry);
 }

@@ -13,7 +13,8 @@ type Profile = { id: string; lang: string; sessions: Session[]; checks: Check[] 
 type SessionEvent = Session & { kind: "source"; index: number };
 type CheckEvent = Check & { kind: "check"; index: number };
 
-const scratch = "/tmp/alfyai-integrated-memory";
+// The 2026-11-24 regression run used its own scratch folder and a Hindsight on another port.
+const scratch = process.env.ALFYAI_BENCH_SCRATCH ?? "/tmp/alfyai-integrated-memory";
 const benchmark = "docs/plans/hindsight-memory/integrated-native-benchmark";
 const baseline = "docs/plans/hindsight-memory/alfyai-baseline";
 const id = process.argv[2] ?? "";
@@ -25,7 +26,7 @@ assert.ok(!existsSync(dbPath) || lstatSync(dbPath).isFile());
 Object.assign(process.env, {
 	DATABASE_PATH: dbPath,
 	SESSION_SECRET: "integrated-synthetic-memory-benchmark-only",
-	HINDSIGHT_URL: "http://127.0.0.1:18890",
+	HINDSIGHT_URL: process.env.ALFYAI_BENCH_HINDSIGHT_URL ?? "http://127.0.0.1:18890",
 	HINDSIGHT_ALLOWED_URLS: "",
 	HINDSIGHT_TENANT_KEYS: "{}",
 	HINDSIGHT_TENANT_MASTER_KEYS: JSON.stringify({ synthetic: "ab".repeat(32) }),

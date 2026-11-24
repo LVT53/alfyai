@@ -1,0 +1,37 @@
+{
+  "tenant": "d11487ee-fa77-4986-a80e-86cce2910311",
+  "banks": [
+    "5d07392c-ea14-4d8d-8bf7-aac3e6220732",
+    "b61747ec-b302-4662-b46a-c88b53f39896",
+    "8db70038-812f-4679-bdbf-8dc6746918f6"
+  ],
+  "postgresPid": 13219,
+  "counts": {
+    "async_operations": 0,
+    "attachments": 0,
+    "audit_log": 0,
+    "bank_aliases": 0,
+    "bank_stats_cache": 0,
+    "banks": 0,
+    "chunks": 0,
+    "directives": 0,
+    "documents": 0,
+    "entities": 0,
+    "entity_maintenance_queue": 0,
+    "graph_maintenance_queue": 0,
+    "invalidated_memory_units": 0,
+    "kb_documents": 0,
+    "kb_passage_vectors": 0,
+    "kb_passages": 0,
+    "kb_staged_passage_vectors": 0,
+    "kb_staged_passages": 0,
+    "knowledge_pages": 0,
+    "llm_requests": 0,
+    "memory_links": 0,
+    "memory_units": 0,
+    "mental_model_history": 0,
+    "mental_models": 0,
+    "observation_history": 0,
+    "webhooks": 0
+  }
+}

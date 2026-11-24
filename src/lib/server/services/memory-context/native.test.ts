@@ -65,12 +65,20 @@ vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
 	};
 });
 let shares = { corePercent: 25, projectPercent: 50 };
+let floors = { min: 0.002, wordMin: 0.0005 };
 vi.mock("$lib/server/config-store", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/server/config-store")>()),
 	getMemoryRecallShares: () => shares,
+	getMemoryEarlierRerank: () => floors,
 }));
+// The app's reranker: not configured unless a test says what it scores.
+const rerankTexts = vi.hoisted(() => vi.fn());
+vi.mock("../tei-reranker", () => ({ rerankTexts }));
 beforeEach(() => {
 	shares = { corePercent: 25, projectPercent: 50 };
+	floors = { min: 0.002, wordMin: 0.0005 };
+	rerankTexts.mockReset();
+	rerankTexts.mockResolvedValue(null);
 	sqlite = new Database(":memory:");
 	sqlite.pragma("foreign_keys=ON");
 	const db = drizzle(sqlite, { schema });
@@ -332,6 +340,26 @@ it("fits the formatted section in its budget", async () => {
 	expect(
 		estimateTokenCount(formatRecalledMemory(tight, new Date())),
 	).toBeLessThanOrEqual(budget - 1);
+});
+it("budgets a row at the cost of its own line, not of the longest age", async () => {
+	seed("b1", "personal", "Prefers green tea");
+	// Three days on, the row reads "said 3 days ago", which costs less than
+	// "said less than a day ago".
+	const now = new Date(Date.now() + 3 * 86_400_000);
+	const line = estimateTokenCount("- Prefers green tea (said 3 days ago)");
+	expect(line).toBeLessThan(todayLine("Prefers green tea"));
+	const { recallMemory } = await import("./native");
+	const recallAt = (tokenBudget: number) =>
+		recallMemory("u", {
+			conversationId: "personal",
+			query: "tea",
+			tokenBudget,
+			now,
+		});
+	expect((await recallAt(N + line)).map(({ text }) => text)).toEqual([
+		"Prefers green tea",
+	]);
+	expect(await recallAt(N + line - 1)).toEqual([]);
 });
 it("gives a project chat's own entries their share even when the person's entries alone would fill it", async () => {
 	const L = todayLine("Personal fact 00");
@@ -1103,6 +1131,7 @@ it("logs one content-free line per bank", async () => {
 			failed: 0,
 			slowestMs: expect.any(Number),
 			fallback: false,
+			snapshot: "none",
 			rows: 2,
 			earlier: 0,
 		});
@@ -1115,6 +1144,7 @@ it("logs one content-free line per bank", async () => {
 				timedOut: 0,
 				failed: 0,
 				fallback: false,
+				snapshot: "none",
 				rows: 2,
 			}),
 		);
@@ -1127,6 +1157,108 @@ it("logs one content-free line per bank", async () => {
 		info.mockRestore();
 	}
 }, 10_000);
+/** The Recall lines one recall writes, in the order of its banks. */
+async function recallLines(run: () => Promise<unknown>) {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	try {
+		await run();
+		return info.mock.calls
+			.filter(([tag]) => tag === "[KNOWLEDGE_MEMORY] Recall")
+			.map(([, summary]) => summary as Record<string, unknown>);
+	} finally {
+		info.mockRestore();
+	}
+}
+it.each([
+	{
+		snapshot: "taken",
+		rows: 1,
+		why: "it is read and used",
+		arrange: () => {},
+	},
+	{
+		snapshot: "failed",
+		rows: 0,
+		why: "it cannot be read",
+		arrange: () => list.mockRejectedValue(new Error("offline")),
+	},
+	{
+		snapshot: "failed",
+		rows: 0,
+		why: "it repeats an id",
+		arrange: async () => {
+			const [first] = await list();
+			list.mockResolvedValue([first, first]);
+		},
+	},
+])(
+	"logs the evidence snapshot as $snapshot when $why",
+	async ({ snapshot, rows, arrange }) => {
+		// An Edit's result is ranked under a new id, so only the bank's live
+		// snapshot confirms it (the migrated accounts' path).
+		await seedEditResult("exact");
+		await arrange();
+		const { recallMemory } = await import("./native");
+		const lines = await recallLines(() =>
+			recallMemory("u", {
+				conversationId: "personal",
+				query: "kayak",
+				tokenBudget: 500,
+			}),
+		);
+		expect(lines).toEqual([
+			expect.objectContaining({
+				bank: "personal",
+				answered: 1,
+				snapshot,
+				rows,
+			}),
+		]);
+		expect(JSON.stringify(lines)).not.toContain("kayak");
+	},
+);
+it.each([false, true])(
+	"still logs the banks it searched when consent changes before the next bank (core: %s)",
+	async (core) => {
+		seed("b1", "personal", "Personal preference");
+		seed("b2", "project:p", "Project decision");
+		recall.mockImplementation(async () => {
+			// The person turns the chat incognito while the first bank is searched.
+			drizzle(sqlite, { schema })
+				.update(schema.conversations)
+				.set({ memoryIncognito: true })
+				.where(eq(schema.conversations.id, "c"))
+				.run();
+			return [
+				{
+					id: "n-b1",
+					text: "Personal preference",
+					fact_type: "observation",
+					source_memory_ids: ["f-b1"],
+				},
+			];
+		});
+		const { recallMemory } = await import("./native");
+		let result: unknown;
+		const lines = await recallLines(async () => {
+			result = await recallMemory("u", {
+				conversationId: "c",
+				query: "preferences",
+				tokenBudget: 1000,
+				core,
+			});
+		});
+		expect(result).toEqual([]);
+		// The first bank was searched and says so; the second never was.
+		expect(lines).toEqual([
+			expect.objectContaining({
+				bank: "personal",
+				answered: core ? 2 : 1,
+				rows: 0,
+			}),
+		]);
+	},
+);
 /**
  * Separate core and message rankings for the share tests: the person's core
  * search ranks their entries 00-19 and the message search 20-39; the
@@ -1574,4 +1706,299 @@ it("puts lasting entries first in the core once labels exist", async () => {
 		now: NOW,
 	});
 	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});
+
+// The Earlier gate's reranker check: an Earlier entry in the top three joins a
+// turn on the reranker's score (the main floor), or on the words and the lower
+// floor together; with no score the words decide alone.
+/** What the app's reranker answers: each text's score, best first, as TEI does. */
+function reranker(scores: Record<string, number>) {
+	rerankTexts.mockImplementation(async ({ texts }: { texts: string[] }) =>
+		texts
+			.map((text, index) => ({ index, score: scores[text] ?? 0 }))
+			.sort((a, b) => b.score - a.score),
+	);
+}
+function toothacheBank() {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: rank([0, 1]) } });
+}
+const textsOf = (result: { text: string }[]) => result.map(({ text }) => text);
+
+it("brings an Earlier entry the reranker says the message is about, though no word is shared", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.4 });
+	const result = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(result)).toEqual(["Had a toothache", "Lives in Graz"]);
+	expect(result[0]).toMatchObject({ timeState: "earlier" });
+});
+
+it("keeps out an Earlier entry the reranker scores under the lower floor, though the message names it", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.0001 });
+	const result = await turn("personal", "Is my toothache back?");
+	expect(textsOf(result)).toEqual(["Lives in Graz"]);
+});
+
+it("takes an Earlier entry scored between the floors only when the words mention it too", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.001 });
+	const named = await turn("personal", "Is my toothache back?");
+	expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
+	const unrelated = await turn("personal", "Thanks, that helps a lot!");
+	expect(textsOf(unrelated)).toEqual(["Lives in Graz"]);
+});
+
+it("reads the floors from the settings", async () => {
+	toothacheBank();
+	floors = { min: 0.5, wordMin: 0.1 };
+	reranker({ "Had a toothache": 0.4 });
+	const unrelated = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(unrelated)).toEqual(["Lives in Graz"]);
+	const named = await turn("personal", "Is my toothache back?");
+	expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
+});
+
+it("scores all of a turn's Earlier entries, in both banks, with one call", async () => {
+	const personal = seedLabelled("bp", "personal", [
+		{ text: "Had a cold", kind: "temporary", said: [60] },
+		{ text: "Had a sprain", kind: "temporary", said: [61] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	const project = seedLabelled("bj", "project:p", [
+		{ text: "Old sprint deadline", kind: "temporary", said: [70] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+	]);
+	rankings({
+		bp: { message: personal([0, 1, 2]) },
+		bj: { message: project([0, 1]) },
+	});
+	reranker({ "Had a cold": 0.9, "Old sprint deadline": 0.5 });
+	const message = "How is everything going?";
+	const result = await turn("c", message);
+	expect(rerankTexts).toHaveBeenCalledTimes(1);
+	const call = rerankTexts.mock.calls[0]?.[0];
+	expect(call.query).toBe(message);
+	expect([...call.texts].sort()).toEqual([
+		"Had a cold",
+		"Had a sprain",
+		"Old sprint deadline",
+	]);
+	expect(
+		textsOf(result.filter(({ timeState }) => timeState === "earlier")),
+	).toEqual(["Had a cold", "Old sprint deadline"]);
+});
+
+it("never sends the chat's title to the reranker, only the person's own words", async () => {
+	toothacheBank();
+	const db = drizzle(sqlite, { schema });
+	db.update(schema.conversations)
+		.set({ title: "Toothache again" })
+		.where(eq(schema.conversations.id, "personal"))
+		.run();
+	reranker({ "Had a toothache": 0.4 });
+	const result = await turn("personal", "ok thanks");
+	// The title joined the search, and scored the entry well, but the query the
+	// reranker read was "ok thanks".
+	expect(rerankTexts.mock.calls[0]?.[0].query).toBe("ok thanks");
+	expect(textsOf(result)).toContain("Had a toothache");
+});
+
+it("reads a megabyte message at its first 4,000 and last 2,000 characters for the reranker", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.4 });
+	await turn("personal", `${"filler ".repeat(150_000)}toothache`);
+	expect(rerankTexts.mock.calls[0]?.[0].query).toHaveLength(6_001);
+});
+
+it.each([
+	[
+		"no reranker is configured",
+		() => rerankTexts.mockResolvedValue(null),
+		"not_configured",
+	],
+	[
+		"the reranker times out",
+		() =>
+			rerankTexts.mockRejectedValue(new DOMException("aborted", "AbortError")),
+		"timeout",
+	],
+	[
+		"the reranker fails",
+		() => rerankTexts.mockRejectedValue(new Error("TEI request failed: 503")),
+		"error",
+	],
+])(
+	"falls back to the words alone when %s, and says why",
+	async (_when, arrange, code) => {
+		toothacheBank();
+		arrange();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const named = await turn("personal", "Is my toothache back?");
+			expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
+			// A missing reranker is said once per process (earlier-rerank.test.ts);
+			// a timeout or an error is said on every turn it happens.
+			if (code !== "not_configured") {
+				expect(warn).toHaveBeenCalledTimes(1);
+				expect(warn).toHaveBeenCalledWith(
+					"[KNOWLEDGE_MEMORY] Earlier rerank unavailable",
+					{ code },
+				);
+			}
+			warn.mockClear();
+			const unrelated = await turn(
+				"personal",
+				"Did the dentist sort out that molar?",
+			);
+			expect(textsOf(unrelated)).toEqual(["Lives in Graz"]);
+		} finally {
+			warn.mockRestore();
+		}
+	},
+);
+
+it("asks the reranker nothing when no Earlier entry ranks in the top three", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+		{ text: "Speaks Spanish", kind: "lasting", said: [30] },
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2, 3]) } });
+	reranker({ "Had a toothache": 0.9 });
+	const result = await turn("personal", "Is my toothache back?");
+	expect(rerankTexts).not.toHaveBeenCalled();
+	expect(textsOf(result)).not.toContain("Had a toothache");
+});
+
+it("leaves the memory_context tool as it was: no reranker call, Earlier entries by rank", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.0001 });
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "Thanks, that helps a lot!",
+		tokenBudget: 4000,
+		now: NOW,
+	});
+	expect(rerankTexts).not.toHaveBeenCalled();
+	expect(textsOf(result)).toEqual(["Had a toothache", "Lives in Graz"]);
+});
+
+it("ignores a score for an entry whose text changed while the reranker was working", async () => {
+	toothacheBank();
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.memoryPublishedRows)
+			.set({ text: "Had a toothache, since healed" })
+			.where(eq(schema.memoryPublishedRows.nativeId, "n-bp-0"))
+			.run();
+		return [{ index: 0, score: 0.9 }];
+	});
+	const result = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(result)).toEqual(["Lives in Graz"]);
+});
+
+it("returns nothing when the person turns Memory off while the reranker is working", async () => {
+	toothacheBank();
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.users)
+			.set({ memoryEnabled: false })
+			.where(eq(schema.users.id, "u"))
+			.run();
+		return [{ index: 0, score: 0.9 }];
+	});
+	expect(await turn("personal", "Is my toothache back?")).toEqual([]);
+});
+
+/** What a reranker call does to the world while it works: Memory is switched off. */
+function switchMemoryOff() {
+	drizzle(sqlite, { schema })
+		.update(schema.users)
+		.set({ memoryEnabled: false })
+		.where(eq(schema.users.id, "u"))
+		.run();
+}
+
+it.each([
+	[
+		"times out",
+		() => {
+			switchMemoryOff();
+			throw new DOMException("aborted", "AbortError");
+		},
+	],
+	[
+		"fails",
+		() => {
+			switchMemoryOff();
+			throw new Error("TEI request failed: 503");
+		},
+	],
+	[
+		"answers with nothing",
+		() => {
+			switchMemoryOff();
+			return [];
+		},
+	],
+])(
+	"returns nothing when the person turns Memory off while a reranker that then %s is working",
+	async (_how, whileWorking) => {
+		toothacheBank();
+		rerankTexts.mockImplementation(async () => whileWorking());
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(await turn("personal", "Is my toothache back?")).toEqual([]);
+		} finally {
+			warn.mockRestore();
+		}
+	},
+);
+
+it("does not read Memory again when the reranker's scores change no decision", async () => {
+	toothacheBank();
+	// The words say no and so does the score: the first read stands, so an
+	// edit made while the reranker worked is not read (consent still is).
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.memoryPublishedRows)
+			.set({ text: "Lives in Vienna" })
+			.where(eq(schema.memoryPublishedRows.nativeId, "n-bp-1"))
+			.run();
+		return [{ index: 0, score: 0.0001 }];
+	});
+	const result = await turn("personal", "Thanks, that helps a lot!");
+	expect(textsOf(result)).toEqual(["Lives in Graz"]);
+});
+
+it("reads Memory again when a score changes a decision, so an edit made meanwhile shows", async () => {
+	toothacheBank();
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.memoryPublishedRows)
+			.set({ text: "Lives in Vienna" })
+			.where(eq(schema.memoryPublishedRows.nativeId, "n-bp-1"))
+			.run();
+		return [{ index: 0, score: 0.4 }];
+	});
+	const result = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(result)).toEqual(["Had a toothache", "Lives in Vienna"]);
 });

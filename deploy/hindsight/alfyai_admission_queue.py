@@ -9,8 +9,10 @@ is already full.
 Order: every interactive waiter goes before any background one. Within a priority, the
 sources with waiters take turns (Hindsight's own calls, "native", and the app's, "app").
 Within a source, the lanes take turns: one lane per account, and all of Hindsight's own
-calls share the lane "native". One lane keeps its order. A lane or a source that gets
-its first waiter joins the end of its turn.
+calls share the lane "native". One lane keeps its order. A lane that gets its first
+waiter joins the end of its turn. A source that gets its first waiter goes before every
+source that had a turn since its own last one, so a source whose calls come one at a
+time (Hindsight's: its next call waits for its last) still gets every other turn.
 
 Nothing is persisted: the queue lives in the memory of the one Hindsight process and is
 lost with it. One event loop owns a queue; it is not thread-safe.
@@ -192,6 +194,9 @@ class AdmissionQueue:
         self._clock = clock
         # Per priority, the sources that have waiters, in turn order.
         self._turns = {priority: deque() for priority in PRIORITIES}
+        # Per priority, the turn each source last had, counted across the queue.
+        self._last_turn = {priority: {} for priority in PRIORITIES}
+        self._turns_taken = 0
         # Per priority and source, the lanes that have waiters, in turn order; each lane in arrival order.
         self._lanes = {(priority, source): OrderedDict() for priority in PRIORITIES for source in SOURCES}
         self._waiting = 0
@@ -331,7 +336,15 @@ class AdmissionQueue:
         ticket = waiter.ticket
         lanes = self._lanes[ticket.priority, ticket.source]
         if not lanes:
-            self._turns[ticket.priority].append(ticket.source)
+            # Before every source that had a turn since this one last had one.
+            turns = self._turns[ticket.priority]
+            last_turn = self._last_turn[ticket.priority]
+            own = last_turn.get(ticket.source, 0)
+            place = next(
+                (index for index, other in enumerate(turns) if last_turn.get(other, 0) > own),
+                len(turns),
+            )
+            turns.insert(place, ticket.source)
         lane = lanes.get(ticket.lane)
         if lane is None:
             lane = lanes[ticket.lane] = deque()
@@ -345,6 +358,8 @@ class AdmissionQueue:
             if not turns:
                 continue
             source = turns.popleft()
+            self._turns_taken += 1
+            self._last_turn[priority][source] = self._turns_taken
             lanes = self._lanes[priority, source]
             name, lane = next(iter(lanes.items()))
             waiter = lane.popleft()

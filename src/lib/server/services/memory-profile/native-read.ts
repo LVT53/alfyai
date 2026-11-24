@@ -334,6 +334,15 @@ export interface MemorySearchEntry {
 	lastSaidAt: string | null;
 }
 
+/** A content-free code for a bank search skipped: Memory's own code, else the error's class. */
+function skippedBankCode(error: unknown): string {
+	if (error instanceof MemoryRequestError) return error.code;
+	if (error instanceof Error && /^memory_[a-z_]+$/.test(error.message)) {
+		return error.message;
+	}
+	return error instanceof Error ? error.name : typeof error;
+}
+
 /**
  * The entries the Memory page shows that hold every word, across the personal
  * bank and every project the person owns, newest said first. An entry is shown
@@ -419,8 +428,12 @@ export function searchMemoryEntries(
 							saidAt,
 						),
 					});
-			} catch {
-				// A retired or blocked bank, a stale generation: skip this bank only.
+			} catch (error) {
+				// A retired or blocked bank, a stale generation: skip this bank only,
+				// and say so by code (never the error's text, which can hold Memory's).
+				console.warn(
+					`[WORKSPACE_SEARCH] memory_bank_skipped code=${skippedBankCode(error)}`,
+				);
 			}
 		}
 		found.sort(

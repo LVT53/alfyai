@@ -543,6 +543,9 @@ function userJobs(userId: string) {
 		.all();
 }
 
+/** How long the drain waits before it looks again at a job it could not run now. */
+const DRAIN_RECHECK_MS = 5_000;
+
 function countByStatus(jobs: Array<{ status: string }>) {
 	const counts: Record<string, number> = {};
 	for (const job of jobs) counts[job.status] = (counts[job.status] ?? 0) + 1;
@@ -604,13 +607,18 @@ export function drainMemory(input: {
 						(job) => job.status === "queued" || job.status === "running",
 					);
 					if (!open.length || clock.now() >= deadline) return rounds;
-					// Wait for the first job put back behind a delay, or a moment
-					// for one another process is running.
+					// Wait for the first job put back behind a delay. One another
+					// process is running, or one already due that this drain could
+					// not claim (another process holds its bank, its account's turn
+					// or the one slot), is looked at again after a pause.
+					const now = clock.now();
 					const next = Math.min(
 						...open.map((job) =>
-							job.status === "queued" && job.runAfter
+							job.status === "queued" &&
+							job.runAfter &&
+							job.runAfter.getTime() > now
 								? job.runAfter.getTime()
-								: clock.now() + 5_000,
+								: now + DRAIN_RECHECK_MS,
 						),
 					);
 					await clock.sleep(

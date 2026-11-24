@@ -1,5 +1,22 @@
 import { searchMemoryEntries } from "$lib/server/services/memory-profile/native-read";
+import { typedSearchWords } from "$lib/shared/workspace-search-text";
 import { SEARCH_COUNT_CAP, type WorkspaceSearchMemoryResult } from "./types";
+
+/** The longest query the Memory page's own search takes (`listMemory`). */
+const MEMORY_QUERY_MAX_CHARS = 500;
+
+/**
+ * The words the search matched, as typed and cleaned (no edge punctuation, no
+ * repeats, at most eight of 64 letters), cut whole characters at a time to the
+ * length the Memory page's search takes, so the fallback list never refuses it.
+ */
+function memoryQueryOf(query: string): string {
+	let words = typedSearchWords(query).join(" ");
+	while (words.length > MEMORY_QUERY_MAX_CHARS) {
+		words = Array.from(words).slice(0, -1).join("");
+	}
+	return words;
+}
 
 /**
  * Where an entry opens: the Memory tab, on that entry, with the search filled
@@ -38,7 +55,7 @@ export async function searchMemories(
 		...window,
 		countCap: SEARCH_COUNT_CAP,
 	});
-	const typed = query.trim().replace(/\s+/g, " ");
+	const typed = memoryQueryOf(query);
 	return {
 		results: found.entries.map((entry) => {
 			const result = {

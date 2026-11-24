@@ -287,7 +287,8 @@ async function nativeFixture(
 				if (options?.method === "PATCH")
 					bankConfigs.set(bank, JSON.parse(String(options.body)).updates);
 				data = {
-					config: bankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+					config:
+						bankConfigs.get(bank) ?? contracts.nativeBankConfig("personal"),
 				};
 			} else if (path.endsWith("/memories") && options?.method === "POST") {
 				const body = JSON.parse(String(options.body));
@@ -2001,7 +2002,7 @@ const replayProjectOnlyFact = "My project uses cobalt.";
 async function migrationReplayNative() {
 	const transport = await import("./hindsight-client");
 	const cfg = await import("$lib/server/config-store");
-	const { NATIVE_BANK_CONFIG } = await import("./contracts");
+	const { nativeBankConfig } = await import("./contracts");
 	const curation = await import("./curation");
 	vi.spyOn(cfg, "getConfig").mockReturnValue({
 		...cfg.getConfig(),
@@ -2028,7 +2029,7 @@ async function migrationReplayNative() {
 		let data: unknown = {};
 		if (leaf === "config") {
 			if (options?.method === "PATCH") bankConfigs.set(bank, body.updates);
-			data = { config: bankConfigs.get(bank) ?? NATIVE_BANK_CONFIG };
+			data = { config: bankConfigs.get(bank) ?? nativeBankConfig("personal") };
 		} else if (leaf === "operations")
 			data = id ? { status: "completed" } : { operations: [] };
 		else if (leaf === "consolidate") data = { operation_id: "consolidate" };

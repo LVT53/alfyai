@@ -90,14 +90,19 @@ export function resolveActiveScope(
 	return requested;
 }
 
-/** "13 results across 5 kinds": the footer's count, from the server's totals. */
+/**
+ * "13 results across 5 kinds": the footer's count, from the server's totals.
+ * `capped` says a kind's count stopped at the cap, so the sum is not exact.
+ */
 export function summariseTotals(totals: Record<WorkspaceSearchKind, number>): {
 	results: number;
 	kinds: number;
+	capped: boolean;
 } {
 	const counts = Object.values(totals);
 	return {
 		results: counts.reduce((total, count) => total + count, 0),
 		kinds: counts.filter((count) => count > 0).length,
+		capped: counts.some((count) => count >= SEARCH_COUNT_CAP),
 	};
 }

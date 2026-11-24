@@ -24,7 +24,10 @@ import { startRelay } from "./relay";
 const native = "http://127.0.0.1:18890";
 const mode = process.argv[2];
 const portion = process.argv[3] ?? "first";
-assert.match(mode, /^(en|hu|cancel|privacy|faults|carry-en|carry-hu)$/);
+assert.match(
+	mode,
+	/^(en|hu|cancel|privacy|faults|carry-en|carry-hu|er-hu-regression|er-en-fresh|er-hu-fresh|er-remove)$/,
+);
 assert.match(
 	portion,
 	/^(first|continue|resume|after-replay|after-restart|recover|persistent-fault)$/,
@@ -89,7 +92,21 @@ const fixtureKey =
 		: mode === "faults"
 			? "cancel"
 			: mode;
-const defaultFixture = fixtures[fixtureKey];
+// The edit/remove holdout (edit-remove-followup/, 2026-11-18) ran a prototype editor
+// on four frozen cases. Its `er-*` modes run the same cases through the app's own
+// chat delivery and Edit/Remove actions (regression run of 2026-11-24).
+const editRemoveCase = mode.startsWith("er-")
+	? JSON.parse(
+			readFileSync(
+				"docs/plans/hindsight-memory/edit-remove-followup/final-frozen.json",
+				"utf8",
+			),
+		).cases.find(({ id }: { id: string }) => id === mode.slice(3))
+	: undefined;
+assert.ok(!mode.startsWith("er-") || editRemoveCase);
+const defaultFixture = editRemoveCase
+	? { query: editRemoveCase.q }
+	: fixtures[fixtureKey];
 const fixture =
 	mode === "carry-en" && process.env.ALFYAI_LIFECYCLE_CARRY_METRONOME === "true"
 		? {
@@ -141,7 +158,8 @@ const sourceDrift = Object.fromEntries(
 	]),
 );
 const userId = state.userId;
-const lang = mode === "hu" || mode === "carry-hu" ? "hu" : "en";
+const lang =
+	mode === "hu" || mode === "carry-hu" || mode.startsWith("er-hu-") ? "hu" : "en";
 const personal = { kind: "personal" } as const;
 const password = "synthetic-lifecycle-route-only";
 const query =
@@ -1183,6 +1201,28 @@ async function privacy() {
 			.get()?.id,
 	});
 }
+// Today's consolidation keeps one facet per card, so after an edit the typewriter's
+// colour and its place on the desk can be two cards; the fault edits target the colour.
+async function typewriterColourCard() {
+	const rows = (await list()).body.rows.filter((r) => /typewriter/i.test(r.text));
+	const coloured = rows.filter((r) =>
+		/orange|teal|lilac|burgundy|mint/i.test(r.text),
+	);
+	const pick = rows.length === 1 ? rows : coloured;
+	assert.equal(
+		pick.length,
+		1,
+		`Expected one typewriter colour card; got ${JSON.stringify(rows)}`,
+	);
+	return pick[0];
+}
+// The edit a person would type on that card: the recorded fixture's sentence when the
+// card holds the desk too, the colour alone when the desk is a card of its own.
+function colourEdit(card: { text: string }, colour: string) {
+	return /desk/i.test(card.text)
+		? `I keep a ${colour} typewriter on my desk.`
+		: `My typewriter is ${colour}.`;
+}
 async function faults() {
 	assert.ok(relay);
 	const curation = ({ path }: { path: string }) =>
@@ -1194,7 +1234,7 @@ async function faults() {
 			"I keep an orange typewriter on my desk. My sister Maja studies beetles.",
 		);
 		await inspect("fault-baseline");
-		const row = await target(/typewriter/i);
+		const row = await typewriterColourCard();
 		relay.arm({ match: curation, before: "unavailable", remaining: 40 });
 		const unavailable = await act("curation-outage", {
 			kind: "edit",
@@ -1213,7 +1253,7 @@ async function faults() {
 				unused: relay.remaining(),
 			});
 		}
-		const next = await target(/typewriter/i);
+		const next = await typewriterColourCard();
 		relay.arm({ match: curation, before: "malformed", remaining: 1 });
 		await act("malformed-curation-output", {
 			kind: "edit",
@@ -1225,7 +1265,9 @@ async function faults() {
 	}
 	if (portion === "persistent-fault") {
 		await inspect("persistent-dirty-fault-baseline");
-		const row = await target(/burgundy typewriter|typewriter is burgundy/i);
+		// The recorded run's burgundy edit had applied; when it was refused, the
+		// typewriter's current colour card is the target instead.
+		const row = await typewriterColourCard();
 		const offset = relay.events.length;
 		relay.arm({
 			match: ({ path, body }) =>
@@ -1243,7 +1285,7 @@ async function faults() {
 		const action = await act("persistent-dirty-fault-exhaustion", {
 			kind: "edit",
 			ref: row.ref,
-			text: "I keep a mint typewriter on my desk.",
+			text: colourEdit(row, "mint"),
 		});
 		record("persistent-dirty-fault-fired", { remaining: relay.remaining() });
 		if (action.retryable) {
@@ -1292,11 +1334,74 @@ async function faults() {
 	await act("dirty-edit-final-check-fault", {
 		kind: "edit",
 		ref: dirty.ref,
-		text: "I keep a burgundy typewriter on my desk.",
+		text: colourEdit(dirty, "burgundy"),
 	});
 	record("dirty-fault-fired", { unused: relay.remaining() });
 	await turn("I restore wind-up kitchen timers.");
 	await inspect("fault-recovery-unrelated-turn");
+}
+
+/**
+ * The edit/remove holdout through the app. `first`: enroll, the original chat
+ * (August 1) and the restating chat (August 3), then a record of the cards.
+ * `continue`: the operator's edits from ALFYAI_LIFECYCLE_ER_EDITS (a JSON list of
+ * {card, action: "edit" | "remove", text?}, each `card` a displayed card's exact
+ * text), written by reading the cards as a person would, then an unchanged resend
+ * of the original chat (the replay), a changed resend of it (a forced native
+ * re-extraction) and the case's later statement (August 23).
+ */
+async function editRemoveHoldout() {
+	const c = editRemoveCase;
+	if (portion === "first") {
+		await enroll(userId);
+		clock(2);
+		const original = await turn(c.before);
+		clock(3);
+		const repeat = await turn(c.repeat);
+		state.ids.original = original;
+		state.ids.repeat = repeat;
+		await inspect("er-sources", { original, repeat });
+		return;
+	}
+	assert.equal(portion, "continue");
+	const editsPath = process.env.ALFYAI_LIFECYCLE_ER_EDITS;
+	assert.ok(editsPath, "Set ALFYAI_LIFECYCLE_ER_EDITS to the operator's edits");
+	const edits = JSON.parse(readFileSync(editsPath, "utf8")) as {
+		card: string;
+		action: "edit" | "remove";
+		text?: string;
+	}[];
+	record("er-operator-edits", { edits });
+	clock(5);
+	for (const [index, edit] of edits.entries()) {
+		const page = await list();
+		const row = page.body.rows.find((r) => r.text === edit.card);
+		if (!row) {
+			record("er-card-missing", { index, edit, rows: page.body.rows });
+			continue;
+		}
+		await act(`er-${edit.action}-${index}`, {
+			...(edit.action === "remove"
+				? { kind: "remove" as const, ref: row.ref }
+				: { kind: "edit" as const, ref: row.ref, text: edit.text ?? "" }),
+		});
+	}
+	await inspect("er-edit");
+	clock(7);
+	const original = state.ids.original as Turn;
+	const replay = await turn(c.before, { previous: original });
+	state.ids.replay = replay;
+	await inspect("er-replay", { authoredTurn: replay });
+	clock(9);
+	const appended =
+		lang === "hu"
+			? "Szeretem a kerti teraszon a reggeli kávét."
+			: "I enjoy my morning coffee on the garden terrace.";
+	const reprocess = await turn(`${c.before} ${appended}`, { previous: replay });
+	await inspect("er-reprocess", { authoredTurn: reprocess, appended });
+	clock(23);
+	await turn(c.later.replace(/^User: /, ""));
+	await inspect("er-new-explicit");
 }
 
 try {
@@ -1307,7 +1412,8 @@ try {
 		model: "qwen3-6-27b",
 		sourceDrift,
 	});
-	if (mode === "carry-en" || mode === "carry-hu") await exactCarryLifecycle();
+	if (editRemoveCase) await editRemoveHoldout();
+	else if (mode === "carry-en" || mode === "carry-hu") await exactCarryLifecycle();
 	else if (mode === "en" || mode === "hu") await mainLifecycle();
 	else if (mode === "cancel") {
 		if (portion === "recover") await recoverOriginalCancellation();

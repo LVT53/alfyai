@@ -323,6 +323,29 @@ test.describe("Search Modal Visual Tests", () => {
 		await expect(modal.getByTestId("search-scope-memory")).toHaveCount(0);
 	});
 
+	test("an empty kind's chip looks unavailable and does not light up", async ({
+		page,
+	}) => {
+		await page
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
+			.click();
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
+		await modal.waitFor({ state: "visible" });
+		await modal.locator("input").first().fill("zzz-no-such-result-xyz");
+
+		const apps = modal.getByTestId("search-scope-apps");
+		await expect(apps).toHaveAttribute("aria-disabled", "true");
+		await expect(apps).toHaveCSS("opacity", "0.5");
+		await expect(apps).toHaveCSS("cursor", "default");
+		await apps.hover();
+		const all = modal.getByTestId("search-scope-all");
+		// Hovered, it keeps its muted words: only a chip that does something lights up.
+		expect(
+			await apps.evaluate((chip) => getComputedStyle(chip).color),
+		).not.toBe(await all.evaluate((chip) => getComputedStyle(chip).color));
+		await expect(all).not.toHaveAttribute("aria-disabled");
+	});
+
 	test("draws no Connections chip", async ({ page }) => {
 		await page
 			.getByRole("button", { name: "Search chats, memory, documents and more" })

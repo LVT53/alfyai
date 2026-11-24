@@ -13,6 +13,7 @@ import { adminConfig } from "./db/schema";
 import type { ImageModel, ModelConfig } from "./env";
 import {
 	config as envConfig,
+	parseUnitInterval,
 	parseWholeDays,
 	parseWholeMinutes,
 	parseWholePercent,
@@ -147,6 +148,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_TEMPORARY_EARLIER_DAYS",
 	"MEMORY_ONGOING_QUIET_DAYS",
 	"MEMORY_ONGOING_EARLIER_DAYS",
+	"MEMORY_EARLIER_RERANK_MIN",
+	"MEMORY_EARLIER_RERANK_WORD_MIN",
 	"MEMORY_RETAIN_WAIT_MINUTES",
 	"MEMORY_CONSOLIDATION_WAIT_MINUTES",
 	"HINDSIGHT_URL",
@@ -273,6 +276,8 @@ export interface RuntimeConfig {
 	memoryTemporaryEarlierDays: number;
 	memoryOngoingQuietDays: number;
 	memoryOngoingEarlierDays: number;
+	memoryEarlierRerankMin: number;
+	memoryEarlierRerankWordMin: number;
 	memoryRetainWaitMinutes: number;
 	memoryConsolidationWaitMinutes: number;
 	atlasWorkerEnabled: boolean;
@@ -445,6 +450,8 @@ function buildDefaultConfig(): RuntimeConfig {
 		memoryTemporaryEarlierDays: envConfig.memoryTemporaryEarlierDays,
 		memoryOngoingQuietDays: envConfig.memoryOngoingQuietDays,
 		memoryOngoingEarlierDays: envConfig.memoryOngoingEarlierDays,
+		memoryEarlierRerankMin: envConfig.memoryEarlierRerankMin,
+		memoryEarlierRerankWordMin: envConfig.memoryEarlierRerankWordMin,
 		memoryRetainWaitMinutes: envConfig.memoryRetainWaitMinutes,
 		memoryConsolidationWaitMinutes: envConfig.memoryConsolidationWaitMinutes,
 		composerCommandRegistryEnabled:
@@ -1167,6 +1174,16 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		const days = parseWholeDays(value);
 		if (days !== null) config.memoryOngoingEarlierDays = days;
 	},
+	// A floor that is not a plain decimal from 0 to 1 leaves the current value:
+	// a typo must not let every Earlier entry in, or none.
+	MEMORY_EARLIER_RERANK_MIN: (config, value) => {
+		const floor = parseUnitInterval(value);
+		if (floor !== null) config.memoryEarlierRerankMin = floor;
+	},
+	MEMORY_EARLIER_RERANK_WORD_MIN: (config, value) => {
+		const floor = parseUnitInterval(value);
+		if (floor !== null) config.memoryEarlierRerankWordMin = floor;
+	},
 	// A wait that is not a whole minute count from 1 to 1440 leaves the current
 	// value: a typo must not make every Memory job give up on Hindsight at once.
 	MEMORY_RETAIN_WAIT_MINUTES: (config, value) => {
@@ -1727,7 +1744,10 @@ export function getMemoryRecallShares(): {
  * temporary entry is Earlier `temporaryEarlierDays` after the later of its
  * last mention and its event; an ongoing one is quiet `ongoingQuietDays` and
  * Earlier `ongoingEarlierDays` after its last mention
- * (`memory-profile/entry-time.ts`).
+ * (`memory-profile/entry-time.ts`). An entry is never quiet after it is
+ * Earlier: a quiet threshold above the Earlier one (set so, or left behind by
+ * lowering Earlier below quiet's default) reads as the Earlier threshold, and
+ * such an entry goes from current straight to Earlier.
  */
 export function getMemoryAgingThresholds(): {
 	temporaryEarlierDays: number;
@@ -1736,8 +1756,29 @@ export function getMemoryAgingThresholds(): {
 } {
 	return {
 		temporaryEarlierDays: runtimeConfig.memoryTemporaryEarlierDays,
-		ongoingQuietDays: runtimeConfig.memoryOngoingQuietDays,
+		ongoingQuietDays: Math.min(
+			runtimeConfig.memoryOngoingQuietDays,
+			runtimeConfig.memoryOngoingEarlierDays,
+		),
 		ongoingEarlierDays: runtimeConfig.memoryOngoingEarlierDays,
+	};
+}
+
+/**
+ * Admin-configurable. The floors of the Earlier gate's reranker check
+ * (`memory-context/earlier-rerank.ts`), as scores from 0 to 1: an Earlier
+ * entry in its bank's top three joins a turn when the reranker scores it at or
+ * above `min`, or at or above `wordMin` when the words of the message mention
+ * it too. A word floor above the main floor would never matter, so it reads as
+ * the main floor.
+ */
+export function getMemoryEarlierRerank(): { min: number; wordMin: number } {
+	return {
+		min: runtimeConfig.memoryEarlierRerankMin,
+		wordMin: Math.min(
+			runtimeConfig.memoryEarlierRerankWordMin,
+			runtimeConfig.memoryEarlierRerankMin,
+		),
 	};
 }
 
@@ -2042,6 +2083,10 @@ export function getResolvedAdminConfigValues(
 		MEMORY_TEMPORARY_EARLIER_DAYS: String(config.memoryTemporaryEarlierDays),
 		MEMORY_ONGOING_QUIET_DAYS: String(config.memoryOngoingQuietDays),
 		MEMORY_ONGOING_EARLIER_DAYS: String(config.memoryOngoingEarlierDays),
+		MEMORY_EARLIER_RERANK_MIN: toPlainDecimal(config.memoryEarlierRerankMin),
+		MEMORY_EARLIER_RERANK_WORD_MIN: toPlainDecimal(
+			config.memoryEarlierRerankWordMin,
+		),
 		MEMORY_RETAIN_WAIT_MINUTES: String(config.memoryRetainWaitMinutes),
 		MEMORY_CONSOLIDATION_WAIT_MINUTES: String(
 			config.memoryConsolidationWaitMinutes,

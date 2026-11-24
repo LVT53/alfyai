@@ -1,12 +1,14 @@
 import { foldForSearch } from "$lib/shared/workspace-search-text";
 
 /**
- * Whether a person's message mentions a Memory entry: the gate an Earlier
- * entry passes, besides its rank, to join a turn (spec: Earlier things come
- * back "only when mentioned"). Hindsight's recall gives no relevance score at
- * the pin, and part 2 measured that rank alone puts a temporary entry in a
- * small bank's top three for 9 of 10 unrelated messages, so the mention is
- * read from the words: the message mentions the entry when the words they
+ * Whether a person's message mentions a Memory entry: the word half of the
+ * gate an Earlier entry passes, besides its rank, to join a turn (spec:
+ * Earlier things come back "only when mentioned"). A turn judges by the
+ * reranker's score first (`earlier-rerank.ts`) and asks this rule as the second
+ * voice for a lower score; with no score this rule decides alone. Hindsight's
+ * recall gives no relevance score at the pin, and part 2 measured that rank
+ * alone puts a temporary entry in a small bank's top three for 9 of 10
+ * unrelated messages, so the mention is read from the words: the message mentions the entry when the words they
  * share weigh as much as one rare word of the person's bank. A word weighs
  * one unless many of the bank's entries hold it (`mentionBank`): one held by
  * more than two of them and more than a tenth weighs less, in proportion, so
@@ -100,12 +102,10 @@ export function mentionBank(entryTexts: readonly string[]): MentionBank {
  * message's words once and checks each Earlier entry against them.
  */
 export function mentionWords(text: string): string[] {
-	const read =
-		text.length > MENTION_HEAD_CHARS + MENTION_TAIL_CHARS
-			? `${text.slice(0, MENTION_HEAD_CHARS)} ${text.slice(-MENTION_TAIL_CHARS)}`
-			: text;
 	const words = new Set<string>();
-	for (const word of foldForSearch(read.normalize("NFC")).split(NON_WORD)) {
+	for (const word of foldForSearch(
+		clipMentionText(text).normalize("NFC"),
+	).split(NON_WORD)) {
 		if (
 			Array.from(word).length < MIN_WORD_LETTERS ||
 			!LETTER.test(word) ||
@@ -121,6 +121,18 @@ export function mentionWords(text: string): string[] {
 /** How much of a long text's start and end the gate reads. */
 const MENTION_HEAD_CHARS = 4_000;
 const MENTION_TAIL_CHARS = 2_000;
+
+/**
+ * A long text as the gate reads it: its first 4,000 and last 2,000
+ * characters, a space between. A text of 6,000 characters or fewer is read
+ * whole. The word rule and the reranker check (`earlier-rerank.ts`) both read
+ * a message through this, so they judge the same words.
+ */
+export function clipMentionText(text: string): string {
+	return text.length > MENTION_HEAD_CHARS + MENTION_TAIL_CHARS
+		? `${text.slice(0, MENTION_HEAD_CHARS)} ${text.slice(-MENTION_TAIL_CHARS)}`
+		: text;
+}
 const MIN_WORD_LETTERS = 3;
 /** A word this many entries hold is still rare, however small the bank... */
 const RARE_ENTRIES = 2;

@@ -1729,7 +1729,7 @@ const settingsDict = {
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
 			"Wait for Memory to save a chat",
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
-			"Minutes a Memory job waits for the memory service to finish reading a chat before it gives up. Waiting uses none of the job's tries.",
+			"Minutes a Memory job waits for the memory service to finish reading a chat, or saving a Memory edit, before it gives up. Waiting uses none of the job's tries.",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
 			"Wait for Memory to sort its entries",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
@@ -1746,6 +1746,14 @@ const settingsDict = {
 			"Ongoing memories fade after",
 		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.meaning":
 			"Days without anything new about an ongoing activity before it counts as earlier and is no longer brought up on its own.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.label":
+			"Earlier memory: score that brings it back",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.meaning":
+			"How well the reranker must match an earlier memory to the person's message, from 0 to 1, for it to be brought up. Lower brings back more.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.label":
+			"Earlier memory: score when words match",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.meaning":
+			"A lower score, from 0 to 1, that is enough when the message also shares a significant word with the earlier memory. Never read above the score before it.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Maintenance sweep",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":
@@ -3980,7 +3988,7 @@ const settingsDict = {
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
 			"Várakozás egy beszélgetés mentésére",
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
-			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás feldolgoz egy beszélgetést, mielőtt feladja. A várakozás nem számít próbálkozásnak.",
+			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás feldolgoz egy beszélgetést vagy egy szerkesztést, mielőtt feladja. A várakozás nem számít próbálkozásnak.",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
 			"Várakozás a bejegyzések rendezésére",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
@@ -3997,6 +4005,14 @@ const settingsDict = {
 			"Folyamatban lévő emlékek elhalványulása",
 		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.meaning":
 			"Hány nap kell új hír nélkül ahhoz, hogy egy folyamatban lévő tevékenység korábbinak számítson, és ne kerüljön elő magától.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.label":
+			"Korábbi emlék visszahozása: pontszám",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.meaning":
+			"Mekkora pontszámot (0 és 1 között) kell adnia az újrarangsorolónak egy korábbi emléknek az üzenethez, hogy előkerüljön. Minél kisebb, annál több emlék tér vissza.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.label":
+			"Korábbi emlék: pontszám egyező szavaknál",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.meaning":
+			"Alacsonyabb pontszám (0 és 1 között), amely akkor is elég, ha az üzenet egy lényeges szót is megoszt a korábbi emlékkel. Az előző pontszámnál soha nem számít magasabbnak.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Karbantartási körút",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":

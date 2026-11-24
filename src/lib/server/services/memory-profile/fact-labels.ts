@@ -213,7 +213,16 @@ export function readFactLabels(
 	);
 }
 
-/** A Memory page add or edit, or a user-authored item migrated from the legacy system. */
+/**
+ * A Memory page add or edit, or a user-authored item migrated from the legacy
+ * system. The event id alone answers for the first: only the curation runner
+ * writes a `manual:` source, and a dependency repair, the one writer that copies
+ * a source under another event id (`dependency:`), copies only sources whose
+ * context lists earlier messages (`dependency-plan.ts`), which neither kind of
+ * authored source has. A change that lets a repair copy a `manual:` source
+ * must carry this status into the copy; a migrated item's marker travels in
+ * the context a copy keeps.
+ */
 export function isAuthoredMemorySource(source: {
 	eventId: string;
 	context: string;
@@ -224,9 +233,21 @@ export function isAuthoredMemorySource(source: {
 	);
 }
 
+/** How long a kind keeps an entry current: an entry takes its facts' most lasting kind. */
+const KIND_ENDURANCE: Record<MemoryKind, number> = {
+	temporary: 0,
+	ongoing: 1,
+	lasting: 2,
+};
+
 /**
- * An entry's labels from its supporting facts. Kind and subject each come from
- * the newest-said fact that has one (a tie goes to the larger fact id, so the
+ * An entry's labels from its supporting facts. Its kind is the most lasting
+ * kind any of them has (lasting, then ongoing, then temporary), whichever was
+ * said last: a lasting entry that a newer plan or event mentions (a home in a
+ * "might move next year" message, a device in the message about its sale) is
+ * still lasting, and labels lean toward lasting when unsure, since a wrongly
+ * temporary entry silently drops out of recall. Its subject comes from the
+ * newest-said fact that has one (a tie goes to the larger fact id, so the
  * order facts arrive in never matters); the event date is the latest of any.
  */
 export function entryLabels(
@@ -237,21 +258,26 @@ export function entryLabels(
 		(a, b) =>
 			b.saidAtMs - a.saidAtMs || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
 	);
-	const first = <K extends "kind" | "subject">(key: K) => {
-		for (const fact of newestFirst) {
-			const value = labels.get(fact.id)?.[key];
-			if (value) return value as FactLabels[K];
-		}
-		return null;
-	};
+	let subject: MemorySubject | null = null;
+	for (const fact of newestFirst) {
+		subject = labels.get(fact.id)?.subject ?? null;
+		if (subject) break;
+	}
+	let kind: MemoryKind | null = null;
 	let eventAt: string | null = null;
 	for (const fact of facts) {
-		const at = labels.get(fact.id)?.eventAt ?? null;
+		const label = labels.get(fact.id);
+		if (
+			label?.kind &&
+			(!kind || KIND_ENDURANCE[label.kind] > KIND_ENDURANCE[kind])
+		)
+			kind = label.kind;
+		const at = label?.eventAt ?? null;
 		if (at && (!eventAt || Date.parse(at) > Date.parse(eventAt))) eventAt = at;
 	}
 	return {
-		kind: first("kind"),
-		subject: first("subject"),
+		kind,
+		subject,
 		eventAt,
 		authored: facts.some((fact) => fact.authored),
 	};

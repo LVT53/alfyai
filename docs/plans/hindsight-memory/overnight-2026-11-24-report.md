@@ -2,7 +2,16 @@
 
 On 23 November at 22:05 GMT the owner granted: "fully complete the plan so it's ready by the morning for full rollout. And I mean all parts of the plan."
 
-This is where it stands. Nothing is pushed, nothing is deployed, and nothing was written on the box. Everything below waits for the owner's word.
+**Update, later on 24 November.** This report records the morning's state, when nothing was pushed or deployed. Since then:
+- the release went live as `c0b513e92` (09:21 UTC), with the part 4 gateway image, on the owner's "Push and deploy";
+- the label migration ran on production (09:33–09:52 UTC): 5 accounts, 1,083 facts, all verified, the tester skipped;
+- the word-only "mention" rule below was replaced by a reranker rule measured on production's reranker: 77% of messages about an Earlier entry bring it, 8% of unrelated ones bring any;
+- the dead video chain helpers were removed;
+- the deferred minors were worked through.
+
+That second round is recorded in `docs/plans/hindsight-memory/regression-2026-11-24.md`, and its Earlier measurement in `label-migration-acceptance.md`. Where a line below says something waits, check those first.
+
+As of the morning: nothing pushed, nothing deployed, and nothing written on the box. Everything below waited for the owner's word.
 
 ## What is on local `main`
 

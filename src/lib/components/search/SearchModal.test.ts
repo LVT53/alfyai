@@ -219,7 +219,10 @@ describe("SearchModal", () => {
 		});
 
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 			expect(screen.getByText("Release notes")).toBeInTheDocument();
 		});
 
@@ -233,6 +236,35 @@ describe("SearchModal", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("lights no letters in the view before a query", async () => {
+		// "a!" is two characters but one letter of words: the server answers with
+		// the empty-query view, whose recents must not light every "a".
+		fetchWorkspaceSearch.mockResolvedValue(
+			answer({
+				mode: "default",
+				query: "a!",
+				conversations: [chat("conv-a", "A banana plan")],
+				totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+			}),
+		);
+		render(SearchModal, { props: { isOpen: true } });
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: "a!" } });
+		await waitFor(
+			() => {
+				expect(fetchWorkspaceSearch).toHaveBeenCalledWith(
+					expect.objectContaining({ query: "a!" }),
+				);
+				// `document` here is this file's row helper, so the page is window.document.
+				expect(window.document.body.textContent).toContain("A banana plan");
+			},
+			{ timeout: 750 },
+		);
+		expect(window.document.querySelectorAll(".search-highlight")).toHaveLength(
+			0,
+		);
+	});
+
 	it("shows a keep-typing hint instead of recents for a 1-char query", async () => {
 		render(SearchModal, {
 			props: {
@@ -242,7 +274,10 @@ describe("SearchModal", () => {
 
 		// Landing state: recents are fetched and shown for an empty query.
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 			expect(screen.getByText("Release notes")).toBeInTheDocument();
 		});
 
@@ -305,7 +340,10 @@ describe("SearchModal", () => {
 		});
 
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 		});
 
 		fetchWorkspaceSearch.mockClear();
@@ -346,7 +384,10 @@ describe("SearchModal", () => {
 
 		await waitFor(
 			() => {
-				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "brand" });
+				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+					query: "brand",
+					signal: expect.any(AbortSignal),
+				});
 				expect(screen.getByTestId("search-section-documents")).toBeVisible();
 			},
 			{ timeout: 750 },
@@ -368,6 +409,78 @@ describe("SearchModal", () => {
 		expect(goto).toHaveBeenCalledWith(
 			"/chat/conv-query?focus_message=msg-query",
 		);
+	});
+
+	it("shows the newest query's answer when an older one arrives after it", async () => {
+		let answerKitchen: (value: WorkspaceSearchResponse) => void = () => {};
+		const defaultAnswer = fetchWorkspaceSearch.getMockImplementation();
+		fetchWorkspaceSearch.mockImplementation((request: { query: string }) => {
+			if (request.query === "kitchen") {
+				return new Promise((resolve) => {
+					answerKitchen = resolve;
+				});
+			}
+			if (request.query === "garden") {
+				return Promise.resolve(
+					answer({
+						query: "garden",
+						conversations: [chat("c-garden", "Plot notes")],
+						totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+					}),
+				);
+			}
+			return defaultAnswer?.(request);
+		});
+		render(SearchModal, { props: { isOpen: true } });
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: "kitchen" } });
+		await waitFor(() =>
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith(
+				expect.objectContaining({ query: "kitchen" }),
+			),
+		);
+		await search("garden", "search-section-chats");
+		expect(await screen.findByText("Plot notes")).toBeInTheDocument();
+
+		answerKitchen(
+			answer({
+				query: "kitchen",
+				conversations: [chat("c-kitchen", "Cooking notes")],
+				totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(screen.queryByText("Cooking notes")).toBeNull();
+		expect(screen.getByText("Plot notes")).toBeInTheDocument();
+	});
+
+	it("cancels the request of a query typed over", async () => {
+		const signals: Record<string, AbortSignal | undefined> = {};
+		const defaultAnswer = fetchWorkspaceSearch.getMockImplementation();
+		fetchWorkspaceSearch.mockImplementation(
+			(request: { query: string; signal?: AbortSignal }) => {
+				signals[request.query] = request.signal;
+				if (request.query === "kitchen") return new Promise(() => {});
+				if (request.query === "garden") {
+					return Promise.resolve(
+						answer({
+							query: "garden",
+							conversations: [chat("c-garden", "Plot notes")],
+							totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+						}),
+					);
+				}
+				return defaultAnswer?.(request);
+			},
+		);
+		render(SearchModal, { props: { isOpen: true } });
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: "kitchen" } });
+		await waitFor(() => expect(signals.kitchen).toBeDefined());
+		await search("garden", "search-section-chats");
+
+		expect(signals.kitchen?.aborted).toBe(true);
+		expect(signals.garden?.aborted).toBe(false);
 	});
 
 	it("moves the active result with arrow keys and activates it with Enter", async () => {
@@ -489,7 +602,10 @@ describe("SearchModal", () => {
 		expect(screen.queryByText("Release notes")).not.toBeInTheDocument();
 		expect(screen.queryByText("Brand playbook")).not.toBeInTheDocument();
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 		});
 	});
 
@@ -575,6 +691,51 @@ describe("SearchModal", () => {
 			expect(screen.queryByTestId("search-scope-memory")).toBeNull();
 			expect(screen.getByTestId("search-scope-chats")).toBeInTheDocument();
 			expect(screen.queryByTestId("search-section-memory")).toBeNull();
+		});
+
+		it("mark a kind with no matches as unavailable", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 1, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+			for (const id of ["memory", "documents", "apps"]) {
+				expect(screen.getByTestId(`search-scope-${id}`)).toHaveAttribute(
+					"aria-disabled",
+					"true",
+				);
+			}
+			for (const id of ["all", "chats", "media"]) {
+				expect(screen.getByTestId(`search-scope-${id}`)).not.toHaveAttribute(
+					"aria-disabled",
+				);
+			}
+		});
+
+		it("carry no counts before anything is typed", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					mode: "default",
+					query: "",
+					conversations: [chat("c1", "Release notes")],
+					totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByText("Release notes");
+			// The recents are a few of each kind, not a count of anything; a
+			// person with memories must not read "Memory 0".
+			const memoryChip = screen.getByTestId("search-scope-memory");
+			expect(memoryChip.textContent?.trim()).toBe("Memory");
+			expect(memoryChip.getAttribute("aria-label")).toBe("Memory");
+			expect(screen.getByTestId("search-scope-chats").textContent?.trim()).toBe(
+				"Chats",
+			);
 		});
 
 		it("show 99+ at the cap", async () => {
@@ -693,12 +854,53 @@ describe("SearchModal", () => {
 				"search-section-documents",
 			]);
 			expect(
-				screen.getByRole("button", { name: "Show all 12" }),
+				screen.getByRole("button", { name: "Show all 12 chats" }),
 			).toBeInTheDocument();
 			// A kind whose few are all of it has no link.
 			expect(screen.getAllByRole("button", { name: /^Show all/ })).toHaveLength(
 				1,
 			);
+		});
+
+		it("Show all names its kind, in both languages", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("d1", "Thesis outline"),
+						document("p1", "Thesis cover", {
+							searchKind: "media",
+							badge: "image",
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 5, media: 4, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+			expect(
+				screen.getByRole("button", { name: "Show all 5 documents" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Show all 4 pictures and videos" }),
+			).toBeInTheDocument();
+			uiLanguage.set("hu");
+			expect(
+				await screen.findByRole("button", { name: "Mind a(z) 5 dokumentum" }),
+			).toBeInTheDocument();
+		});
+
+		it("names every kind in the hint when nothing matches", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(answer());
+			render(SearchModal, { props: { isOpen: true } });
+			const input = screen.getByLabelText(SEARCH_BOX);
+			await fireEvent.input(input, { target: { value: "zzz-nothing" } });
+			expect(
+				await screen.findByText(
+					"Try another word from a chat, memory, document, picture, video or app",
+					{},
+					{ timeout: 1000 },
+				),
+			).toBeInTheDocument();
 		});
 
 		it("Show all selects the kind's chip and fetches it, for the typed query", async () => {
@@ -722,13 +924,14 @@ describe("SearchModal", () => {
 				}),
 			);
 			await fireEvent.click(
-				screen.getByRole("button", { name: "Show all 12" }),
+				screen.getByRole("button", { name: "Show all 12 chats" }),
 			);
 
 			await waitFor(() =>
 				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
 					query: "thesis",
 					scope: "chats",
+					signal: expect.any(AbortSignal),
 				}),
 			);
 			expect(screen.getByTestId("search-scope-chats")).toHaveAttribute(
@@ -739,6 +942,64 @@ describe("SearchModal", () => {
 			expect(
 				screen.queryByRole("button", { name: /^Show all/ }),
 			).not.toBeInTheDocument();
+		});
+
+		it("keeps the focus in the dialog when Show all goes away", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 12, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			const input = await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c2", "Alpha two")],
+					totals: { chats: 12, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			const showAll = screen.getByRole("button", { name: /^Show all/ });
+			showAll.focus();
+			await fireEvent.click(showAll);
+			await screen.findByText("Alpha two");
+			await waitFor(() => expect(window.document.activeElement).toBe(input));
+		});
+
+		it("keeps the focus in the dialog when the last Load more goes away", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: "o:20",
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			const input = await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: "o:20",
+				}),
+			);
+			await fireEvent.click(screen.getByTestId("search-scope-chats"));
+			const loadMore = await screen.findByRole("button", { name: "Load more" });
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c2", "Alpha two")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: null,
+				}),
+			);
+			loadMore.focus();
+			await fireEvent.click(loadMore);
+			await screen.findByText("Alpha two");
+			await waitFor(() => expect(window.document.activeElement).toBe(input));
 		});
 
 		it("Load more appends the next page until there is none", async () => {
@@ -783,6 +1044,48 @@ describe("SearchModal", () => {
 			expect(
 				screen.queryByRole("button", { name: "Load more" }),
 			).not.toBeInTheDocument();
+		});
+
+		it("Load more asks with the shown answer's query and shows a repeated chat once", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c0", "Alpha 0")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			const input = await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c1", "Alpha 1"), chat("c2", "Alpha 2")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: "o:20",
+				}),
+			);
+			await fireEvent.click(screen.getByTestId("search-scope-chats"));
+			await screen.findByText("Alpha 2");
+
+			// Typed on, inside the debounce: the box no longer holds the shown query.
+			await fireEvent.input(input, { target: { value: "thesis structure" } });
+			fetchWorkspaceSearch.mockClear();
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					// Alpha 2 moved between the pages (its chat was updated meanwhile).
+					conversations: [chat("c2", "Alpha 2"), chat("c3", "Alpha 3")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: null,
+				}),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+			await screen.findByText("Alpha 3");
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "thesis",
+				scope: "chats",
+				cursor: "o:20",
+			});
+			expect(screen.getAllByText("Alpha 2")).toHaveLength(1);
 		});
 
 		it("falls back to All when the chosen kind has nothing for a new query", async () => {
@@ -985,6 +1288,78 @@ describe("SearchModal", () => {
 			expect(thumb(rows[2])).toBeNull();
 			expect(rows[2].querySelector(".search-result-icon svg")).not.toBeNull();
 			expect(rows[1].querySelector(".search-result-icon svg")).not.toBeNull();
+		});
+
+		it("keeps the kind's icon tile when a thumbnail fails to load", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("v1", "Model turntable", {
+							searchKind: "media",
+							badge: "video",
+							durationMs: 6000,
+							preview: {
+								src: "/api/images/files/f2?variant=thumb&conversationId=c1",
+								width: 1280,
+								height: 704,
+							},
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 0, media: 1, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const row = screen
+				.getByTestId("search-section-media")
+				.querySelector(".search-result-document");
+			const image = row?.querySelector("img");
+			expect(image).not.toBeNull();
+			if (image) await fireEvent.error(image);
+			await waitFor(() => expect(row?.querySelector("img")).toBeNull());
+			expect(row?.querySelector(".search-result-icon svg")).not.toBeNull();
+		});
+
+		it("tries a failed thumbnail again the next time the modal opens", async () => {
+			const thumbAnswer = answer({
+				documents: [
+					document("v1", "Model turntable", {
+						searchKind: "media",
+						badge: "video",
+						preview: {
+							src: "/api/images/files/f2?variant=thumb&conversationId=c1",
+							width: 1280,
+							height: 704,
+						},
+					}),
+				],
+				totals: { chats: 0, memory: 0, documents: 0, media: 1, apps: 0 },
+			});
+			fetchWorkspaceSearch.mockResolvedValue(thumbAnswer);
+			const onClose = vi.fn();
+			const rendered = render(SearchModal, {
+				props: { isOpen: true, onClose },
+			});
+			await screen.findByTestId("search-result-count");
+			const firstImage = screen
+				.getByTestId("search-section-media")
+				.querySelector("img");
+			if (firstImage) await fireEvent.error(firstImage);
+			await waitFor(() =>
+				expect(
+					screen.getByTestId("search-section-media").querySelector("img"),
+				).toBeNull(),
+			);
+
+			// A blip on the network is not the picture's fault: a later open asks again.
+			await fireEvent.click(screen.getByLabelText("Close search"));
+			await rendered.rerender({ isOpen: false, onClose });
+			await rendered.rerender({ isOpen: true, onClose });
+			await screen.findByTestId("search-result-count");
+			expect(
+				screen.getByTestId("search-section-media").querySelector("img"),
+			).not.toBeNull();
 		});
 
 		it("highlight words typed in another order", async () => {
@@ -1247,6 +1622,32 @@ describe("SearchModal", () => {
 
 			const count = await screen.findByTestId("search-result-count");
 			expect(count.textContent).toContain("13 results across 5 kinds");
+		});
+
+		it("says 99+ when a kind's count stopped at the cap", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 100, memory: 0, documents: 3, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			const count = await screen.findByTestId("search-result-count");
+			expect(count.textContent?.trim()).toBe("99+ results across 2 kinds");
+		});
+
+		it("says kind in the singular for one kind", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 4, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			const count = await screen.findByTestId("search-result-count");
+			expect(count.textContent?.trim()).toBe("4 results across 1 kind");
 		});
 
 		it("carries no result count before anything is typed", async () => {

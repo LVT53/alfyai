@@ -87,6 +87,74 @@ function openMigratedDb() {
 	return { sqlite, db };
 }
 
+/**
+ * A message and an extracted text, both holding a word no other row holds, and
+ * filler that keeps the person's share of the index small (so no automatic
+ * merge removes their rows before the erasure's own compaction would).
+ */
+function seedSearchableWords(userId: string, keeperId: string) {
+	const { sqlite } = openMigratedDb();
+	const at = new Date("2026-06-15T10:00:00.000Z").getTime() / 1000;
+	sqlite
+		.prepare(
+			"INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
+		)
+		.run(`${userId}-search-msg`, `${userId}-conv`, "qxzvbn is the secret", at);
+	sqlite
+		.prepare(
+			"INSERT INTO artifacts (id, user_id, type, name, content_text, created_at, updated_at) VALUES (?, ?, 'normalized_document', 'notes.md', ?, ?, ?)",
+		)
+		.run(`${userId}-search-text`, userId, "the qxzvbn plan", at, at);
+	for (let index = 0; index < 40; index++) {
+		sqlite
+			.prepare(
+				"INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
+			)
+			.run(
+				`${keeperId}-filler-${index}`,
+				`${keeperId}-conv`,
+				`ordinary words ${index}`,
+				at,
+			);
+		sqlite
+			.prepare(
+				"INSERT INTO artifacts (id, user_id, type, name, content_text, created_at, updated_at) VALUES (?, ?, 'normalized_document', ?, ?, ?, ?)",
+			)
+			.run(
+				`${keeperId}-filler-${index}`,
+				keeperId,
+				`filler-${index}.md`,
+				`ordinary text ${index}`,
+				at,
+				at,
+			);
+	}
+	sqlite.close();
+}
+
+/** Pages of the search indexes whose bytes still hold `trigram`, deleted rows' included. */
+function searchIndexPagesHolding(
+	trigram: string,
+	indexes: readonly string[] = ["messages_fts", "artifacts_fts"],
+): number {
+	const sqlite = new Database(dbPath);
+	try {
+		return indexes.reduce(
+			(total, index) =>
+				total +
+				(sqlite
+					.prepare(
+						`SELECT count(*) FROM ${index}_data WHERE instr(block, CAST(? AS BLOB)) > 0`,
+					)
+					.pluck()
+					.get(trigram) as number),
+			0,
+		);
+	} finally {
+		sqlite.close();
+	}
+}
+
 // Seed one row keyed to `userId` in EVERY user-scoped table (plus the required
 // FK parents). Used to prove full erasure leaves zero survivors anywhere.
 function seedEveryUserScopedTable(userId: string) {
@@ -1337,6 +1405,19 @@ describe("full account erasure leaves no person-linked survivor", () => {
 	// points at the deleted project or document — a stale row would either
 	// resurrect a file list for a project that no longer exists or, worse, show
 	// up under a re-created id.
+	it("leaves none of the person's words in the search index", async () => {
+		seedEveryUserScopedTable("erase-me");
+		seedEveryUserScopedTable("keep-me");
+		seedSearchableWords("erase-me", "keep-me");
+		expect(searchIndexPagesHolding("qxz")).toBeGreaterThan(0);
+
+		const { eraseUserAccountData } = await import("./index");
+		await eraseUserAccountData("erase-me");
+
+		expect(searchIndexPagesHolding("qxz")).toBe(0);
+		expect(searchIndexPagesHolding("ord")).toBeGreaterThan(0);
+	});
+
 	it("leaves no project_knowledge_links row behind after erasure", async () => {
 		seedEveryUserScopedTable("erase-me");
 		seedEveryUserScopedTable("keep-me");
@@ -1590,6 +1671,20 @@ describe("clear memory and knowledge keeps the account and chats", () => {
 		}
 	});
 
+	it("leaves none of the cleared knowledge's words in the search index", async () => {
+		seedEveryUserScopedTable("clear-me");
+		seedEveryUserScopedTable("keep-me");
+		seedSearchableWords("clear-me", "keep-me");
+		expect(searchIndexPagesHolding("qxz", ["artifacts_fts"])).toBe(1);
+
+		const { clearMemoryAndKnowledgeForUser } = await import("./index");
+		await clearMemoryAndKnowledgeForUser("clear-me");
+
+		expect(searchIndexPagesHolding("qxz", ["artifacts_fts"])).toBe(0);
+		// The chats stay, so their words stay findable.
+		expect(searchIndexPagesHolding("qxz", ["messages_fts"])).toBe(1);
+	});
+
 	it("clears memory + knowledge but preserves the user, chats, and analytics", async () => {
 		seedEveryUserScopedTable("clear-me");
 
@@ -1687,6 +1782,19 @@ describe("clear workspace data keeps the account and its personal instructions",
 	// this operation keeps. Dropping them here would silently rewrite how the
 	// assistant behaves for every future chat, which is not what "clear my
 	// workspace" asks for.
+	it("leaves none of the person's words in the search index", async () => {
+		seedEveryUserScopedTable("purge-me");
+		seedEveryUserScopedTable("keep-me");
+		seedSearchableWords("purge-me", "keep-me");
+		expect(searchIndexPagesHolding("qxz")).toBeGreaterThan(0);
+
+		const { purgeUserData } = await import("./index");
+		await purgeUserData("purge-me");
+
+		expect(searchIndexPagesHolding("qxz")).toBe(0);
+		expect(searchIndexPagesHolding("ord")).toBeGreaterThan(0);
+	});
+
 	it("keeps personal instructions but drops project knowledge on clear workspace data", async () => {
 		seedEveryUserScopedTable("purge-me");
 		const { sqlite } = openMigratedDb();

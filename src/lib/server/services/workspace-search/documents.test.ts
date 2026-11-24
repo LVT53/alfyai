@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -6,6 +7,7 @@ import {
 import * as schema from "$lib/server/db/schema";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
+import { SHIPPED_ARTIFACT_KINDS } from "$lib/shared/artifacts/kinds";
 import { serializeVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import {
 	searchTerms,
@@ -25,9 +27,13 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
-const { recentDocuments, searchDocuments, searchKindAndBadge } = await import(
-	"./documents"
-);
+const {
+	JSON_BODY_KINDS,
+	TEXT_BODY_KINDS,
+	recentDocuments,
+	searchDocuments,
+	searchKindAndBadge,
+} = await import("./documents");
 
 const OWNER = "owner";
 const STRANGER = "stranger";
@@ -327,6 +333,40 @@ afterEach(() => {
 	memory.close();
 });
 
+/** The kinds a SQL text keeps out with NOT IN (...), one sorted list per use. */
+function notInLists(sqlText: string): string[][] {
+	return [
+		...sqlText.matchAll(/NOT IN \(\s*('[^']*'(?:\s*,\s*'[^']*')*)\s*\)/gi),
+	].map((match) =>
+		match[1]
+			.split(",")
+			.map((kind) => kind.trim().replace(/'/g, ""))
+			.sort(),
+	);
+}
+
+describe("what each kind's body is", () => {
+	it("classes every kind of the artifact family as text or JSON, as the index does", () => {
+		const classed = new Set<string>([...TEXT_BODY_KINDS, ...JSON_BODY_KINDS]);
+		expect(SHIPPED_ARTIFACT_KINDS.filter((kind) => !classed.has(kind))).toEqual(
+			[],
+		);
+		// Migration 145 and the index's upkeep keep exactly the JSON kinds out of
+		// the index; a new JSON kind needs a migration that keeps it out too.
+		const jsonKinds = [...JSON_BODY_KINDS].sort();
+		for (const file of [
+			"drizzle/1777140000145_workspace_search_index.sql",
+			"src/lib/server/services/workspace-search/search-index-sql.ts",
+		]) {
+			const lists = notInLists(readFileSync(file, "utf8"));
+			expect(lists.length, file).toBeGreaterThan(0);
+			for (const list of lists) expect(list, file).toEqual(jsonKinds);
+		}
+		// The check itself: a list that lacks a JSON kind is caught.
+		expect(notInLists("x NOT IN ('image', 'video')")[0]).not.toEqual(jsonKinds);
+	});
+});
+
 describe("searchKindAndBadge", () => {
 	it("classifies every kind", () => {
 		const rows: Array<
@@ -436,6 +476,55 @@ describe("searchDocuments", () => {
 			"hasAlpha",
 			"424242",
 		]) {
+			expect(await foundIds(jsonWord), jsonWord).toEqual([]);
+		}
+	});
+
+	it("finds an edited picture by an earlier take's prompt, never by a take's JSON", async () => {
+		addFamily("image-2", "image", "Cabin", {
+			contentText: imageBody("make it night"),
+		});
+		const takes = [
+			{ number: 1, prompt: "a timber cabin by a quiet lake" },
+			{ number: 2, prompt: "make it night" },
+		];
+		for (const take of takes) {
+			memory.db
+				.insert(schema.artifactVersions)
+				.values({
+					id: `image-2-v${take.number}`,
+					artifactId: "image-2",
+					userId: OWNER,
+					versionNumber: take.number,
+					author: "assistant",
+					summary: "",
+					body: imageBody(take.prompt, `file-${take.number}`),
+					bodyHash: `hash-${take.number}`,
+					createdAt: minutes(take.number),
+				})
+				.run();
+		}
+		// A take another person wrote on this picture's id is never read.
+		memory.db
+			.insert(schema.artifactVersions)
+			.values({
+				id: "image-2-stranger",
+				artifactId: "image-2",
+				userId: STRANGER,
+				versionNumber: 3,
+				author: "assistant",
+				summary: "",
+				body: imageBody("a stranger's zeppelin", "file-3"),
+				bodyHash: "hash-3",
+				createdAt: minutes(3),
+			})
+			.run();
+		expect(await foundIds("zeppelin")).toEqual([]);
+		expect(await foundIds("lake")).toEqual(["image-2"]);
+		expect(await foundIds("night")).toEqual(["image-2"]);
+		const [row] = (await find("lake")).results;
+		expect(row.match.snippet).toContain("timber cabin by a quiet lake");
+		for (const jsonWord of ["seed", "prompt", "file-1", "424242"]) {
 			expect(await foundIds(jsonWord), jsonWord).toEqual([]);
 		}
 	});
@@ -919,6 +1008,97 @@ describe("searchDocuments", () => {
 		expect(found.results[0].match.snippet).toContain("Árvíztűrő");
 	});
 
+	it("finds an upload's text typed without accents, through the index", async () => {
+		addUpload("up-2", "Jegyzet.pdf", "application/pdf", {
+			text: "Az Árvíztűrő tükörfúrógép kell",
+		});
+		const found = await find("arviz");
+		expect(found.results.map((row) => row.displayArtifactId)).toEqual(["up-2"]);
+		expect(found.results[0].match.type).toBe("content");
+		expect(found.results[0].match.snippet).toContain("Árvíztűrő");
+	});
+
+	it("finds a body by a word typed with a compatibility character", async () => {
+		addUpload("up-4", "Alaprajz.pdf", "application/pdf", {
+			text: "a nappali 24 m², a CO₂-szint alacsony",
+		});
+		expect(await foundIds("co₂-szint")).toEqual(["up-4"]);
+	});
+
+	it("finds a Skill Note and a Slides by their text", async () => {
+		addArtifact({
+			id: "note-1",
+			type: "skill_note",
+			name: "Packing list",
+			contentText: "pack the hiking boots and the stove",
+		});
+		addFamily("deck-1", "slides", "Quarterly deck", {
+			contentText: "the harbour expansion plan, slide by slide",
+		});
+		const note = await find("hiking");
+		expect(note.results.map((row) => row.displayArtifactId)).toEqual([
+			"note-1",
+		]);
+		expect(note.results[0]).toMatchObject({
+			searchKind: "documents",
+			badge: "skill_note",
+		});
+		const deck = await find("harbour expansion");
+		expect(deck.results.map((row) => row.displayArtifactId)).toEqual([
+			"deck-1",
+		]);
+		expect(deck.results[0]).toMatchObject({
+			searchKind: "documents",
+			badge: "slides",
+		});
+	});
+
+	it("keeps App code and picture, video and canvas JSON out of the index", async () => {
+		addFamily("app-1", "app", "Countdown", {
+			contentText: "<script>const [n, setN] = useState(0)</script>",
+		});
+		addFamily("img-1", "image", "Cabin", {
+			contentText: imageBody("a timber house at dusk"),
+		});
+		addFamily("vid-1", "video", "Spin", { contentText: videoBody() });
+		addFamily("board-1", "canvas", "Board", {
+			contentText: JSON.stringify({ nodes: [{ id: "n1", text: "dovetail" }] }),
+		});
+		const indexed = (word: string) =>
+			memory.sqlite
+				.prepare(
+					"SELECT count(*) FROM artifacts_fts WHERE artifacts_fts MATCH ?",
+				)
+				.pluck()
+				.get(`"${word}"`);
+		for (const word of [
+			"usestate",
+			"script",
+			"timber",
+			"prompt",
+			"dovetail",
+			"nodes",
+			"file-clip",
+		]) {
+			expect(indexed(word)).toBe(0);
+		}
+		expect(
+			memory.sqlite.prepare("SELECT count(*) FROM artifacts_fts").pluck().get(),
+		).toBe(0);
+		// Found by their own fields, never by the index.
+		expect(await foundIds("timber")).toEqual(["img-1"]);
+		expect(await foundIds("dovetail")).toEqual(["board-1"]);
+		expect(await foundIds("usestate")).toEqual([]);
+	});
+
+	it("still finds a body by a two-letter word", async () => {
+		addUpload("up-3", "Roadmap.pdf", "application/pdf", {
+			text: "the AI roadmap for next year",
+		});
+		expect(await foundIds("ai")).toEqual(["up-3"]);
+		expect(await foundIds("ai roadmap")).toEqual(["up-3"]);
+	});
+
 	it("takes words in any order and from different fields", async () => {
 		addFamily("doc-1", "document", "Thesis plan", {
 			contentText: "The joints are dovetail, cut by hand.",
@@ -1001,7 +1181,8 @@ describe("searchDocuments", () => {
 			height: 832,
 		});
 		expect(rows.get("video-1")?.preview).toEqual({
-			src: "/api/images/files/file-clip?variant=poster&conversationId=chat-owner",
+			// The poster's 48-pixel row tile reads the small thumb, not the full poster.
+			src: "/api/images/files/file-clip?variant=thumb&conversationId=chat-owner",
 			width: 1280,
 			height: 704,
 		});

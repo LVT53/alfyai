@@ -235,7 +235,7 @@ describe("an entry's labels", () => {
 			]),
 		);
 
-	it("takes the newest fact's labels, each group on its own", async () => {
+	it("takes the newest labelled subject and the latest event date, each on its own", async () => {
 		const { entryLabels } = await import("./fact-labels");
 		expect(
 			entryLabels(
@@ -264,6 +264,31 @@ describe("an entry's labels", () => {
 			eventAt: "2027-01-01T00:00:00.000Z",
 			authored: false,
 		});
+	});
+
+	it("takes the most lasting kind among its facts, whichever was said last", async () => {
+		const { entryLabels } = await import("./fact-labels");
+		// [the older fact's kind, the newer fact's kind, the entry's kind]
+		const cases = [
+			["lasting", "temporary", "lasting"],
+			["lasting", "ongoing", "lasting"],
+			["ongoing", "temporary", "ongoing"],
+			["temporary", "lasting", "lasting"],
+			["temporary", "ongoing", "ongoing"],
+			["temporary", "temporary", "temporary"],
+		] as const;
+		for (const [older, newer, want] of cases) {
+			expect(
+				entryLabels(
+					[
+						{ id: "older", saidAtMs: 1_000, authored: false },
+						{ id: "newer", saidAtMs: 2_000, authored: false },
+					],
+					labels({ older: { kind: older }, newer: { kind: newer } }),
+				).kind,
+				`${older}, then ${newer}`,
+			).toBe(want);
+		}
 	});
 
 	it("breaks a tie by fact id, so the answer never depends on order", async () => {

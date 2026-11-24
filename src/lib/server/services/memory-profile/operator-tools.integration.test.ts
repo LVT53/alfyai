@@ -197,6 +197,25 @@ async function setup() {
 }
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
+/**
+ * Everything a tool could change: every Memory job, attempt, source, bank and
+ * account row, and each write it sent to Hindsight (its reads are GETs).
+ */
+function written(f: Fixture) {
+	return {
+		db: JSON.stringify([
+			f.db.select().from(f.schema.memoryDeliveryJobs).all(),
+			f.db.select().from(f.schema.memoryDeliveryAttempts).all(),
+			f.db.select().from(f.schema.memorySourceRevisions).all(),
+			f.db.select().from(f.schema.memoryBanks).all(),
+			f.db.select().from(f.schema.memoryAccounts).all(),
+		]),
+		hindsight: f.fetcher.mock.calls
+			.filter(([, init]) => (init?.method ?? "GET") !== "GET")
+			.map(([url, init]) => `${init?.method} ${new URL(String(url)).pathname}`),
+	};
+}
+
 /** A clock for the waiting tools: sleeping moves the faked Date on. */
 const testClock = {
 	now: () => Date.now(),
@@ -245,6 +264,114 @@ describe("the Memory operator tools", () => {
 		expect(f.fetcher).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		["resend", "failed"],
+		["reattach", "completed"],
+		["recover-consolidation", "failed"],
+		["drain", "failed"],
+	] as const)("%s writes nothing on a dry run", async (tool, operation) => {
+		const f = await setup();
+		const jobId = await f.failedDelivery(operation);
+		// A fact of another chat stuck in consolidation: work for the recover tool.
+		f.hindsight.facts.push({
+			id: "stuck",
+			text: "Blue bicycle",
+			fact_type: "world",
+			document_id: "another-chat",
+			consolidated_at: null,
+			consolidation_failed_at: "2026-11-22T00:00:00Z",
+		});
+		const before = written(f);
+		const userId = h.userId;
+		const report = await {
+			resend: () => f.tools.resendDelivery({ userId, jobId, execute: false }),
+			reattach: () =>
+				f.tools.reattachDelivery({ userId, jobId, execute: false }),
+			"recover-consolidation": () =>
+				f.tools.recoverConsolidation({
+					userId,
+					bankId: f.bank.id,
+					execute: false,
+					clock: testClock,
+				}),
+			drain: () =>
+				f.tools.drainMemory({ userId, execute: false, clock: testClock }),
+		}[tool]();
+		expect(report.tool).toBe(tool);
+		expect(report.outcome).toBe("dry_run");
+		expect(written(f)).toEqual(before);
+	});
+
+	it("refuse another account's job or bank at their own step, and write nothing", async () => {
+		const f = await setup();
+		const jobId = await f.failedDelivery("completed");
+		const other = h.fixture.seedUser("user-2");
+		const before = written(f);
+		const reports = await Promise.all([
+			f.tools.resendDelivery({ userId: other, jobId, execute: true }),
+			f.tools.reattachDelivery({ userId: other, jobId, execute: true }),
+			f.tools.recoverConsolidation({
+				userId: other,
+				bankId: f.bank.id,
+				execute: true,
+				clock: testClock,
+			}),
+		]);
+		expect(
+			reports.map((report) => [
+				report.outcome,
+				report.steps.at(-1)?.step,
+				report.steps.at(-1)?.code,
+			]),
+		).toEqual([
+			["refused", "job", "job_not_found"],
+			["refused", "job", "job_not_found"],
+			["refused", "bank", "bank_not_found"],
+		]);
+		expect(written(f)).toEqual(before);
+	});
+
+	it.each([
+		["resend", "failed"],
+		["reattach", "completed"],
+	] as const)(
+		"%s refuses, writing nothing, when the chat changed after its checks",
+		async (tool, operation) => {
+			const f = await setup();
+			const jobId = await f.failedDelivery(operation);
+			const inner = f.fetcher.getMockImplementation();
+			if (!inner) throw Error("Missing fixture fetch");
+			let before: ReturnType<typeof written> | undefined;
+			f.fetcher.mockImplementation(async (url, init) => {
+				const response = await inner(url, init);
+				if (!before && String(url).includes("/memories/list")) {
+					// Another operator's resend lands between this tool's checks and its reopen.
+					f.db
+						.update(f.schema.memorySourceRevisions)
+						.set({
+							nativeOperationId: "another-resend",
+							nativeSubmitted: false,
+						})
+						.run();
+					before = written(f);
+				}
+				return response;
+			});
+			const report = await (tool === "resend"
+				? f.tools.resendDelivery
+				: f.tools.reattachDelivery)({ userId: h.userId, jobId, execute: true });
+			expect(report.outcome).toBe("refused");
+			expect(report.steps.at(-1)).toMatchObject({
+				step: tool,
+				ok: false,
+				code: "reopen_refused",
+			});
+			expect(before).toBeDefined();
+			expect(written(f)).toEqual(before);
+			expect(f.job()?.status).toBe("failed");
+		},
+	);
+
 	describe("resend", () => {
 		it("looks without writing on a dry run, then sends the chat again under a new operation", async () => {
 			const f = await setup();
@@ -289,38 +416,92 @@ describe("the Memory operator tools", () => {
 			expect(f.job()?.status).toBe("succeeded");
 		});
 
-		it.each([
-			["the operation is still running", "operation_processing"],
-			["Hindsight holds facts under the document", "facts_under_document"],
-			["the bank is busy", "bank_busy"],
-		])("refuses when %s", async (situation, code) => {
-			const f = await setup();
-			const jobId = await f.failedDelivery("failed");
-			const id = f.source.nativeOperationId as string;
-			if (code === "operation_processing")
-				f.hindsight.operations.set(id, "processing");
-			if (code === "facts_under_document")
-				f.hindsight.facts.push({
-					id: "left",
-					text: "Green kayak",
-					fact_type: "world",
-					document_id: f.source.id,
+		it.each<[string, string, string, (f: Fixture) => void]>([
+			[
+				"the operation is still running",
+				"operation",
+				"operation_processing",
+				(f) =>
+					f.hindsight.operations.set(
+						f.source.nativeOperationId as string,
+						"processing",
+					),
+			],
+			[
+				"Hindsight finished the retain after all",
+				"operation",
+				"operation_completed",
+				(f) =>
+					f.hindsight.operations.set(
+						f.source.nativeOperationId as string,
+						"completed",
+					),
+			],
+			[
+				"Hindsight holds facts under the document",
+				"document",
+				"facts_under_document",
+				(f) =>
+					f.hindsight.facts.push({
+						id: "left",
+						text: "Green kayak",
+						fact_type: "world",
+						document_id: f.source.id,
+					}),
+			],
+			[
+				"the bank is busy",
+				"bank_quiet",
+				"bank_busy",
+				(f) => f.hindsight.pending.push("other-operation"),
+			],
+			[
+				"another process is running the job",
+				"job",
+				"job_running",
+				(f) =>
+					f.db
+						.update(f.schema.memoryDeliveryJobs)
+						.set({ status: "running" })
+						.run(),
+			],
+			[
+				"the retain was acknowledged",
+				"job",
+				"retain_already_acknowledged",
+				(f) =>
+					f.db
+						.update(f.schema.memorySourceRevisions)
+						.set({ nativeAcknowledged: true })
+						.run(),
+			],
+		])(
+			"refuses, writing nothing, when %s",
+			async (situation, step, code, arrange) => {
+				const f = await setup();
+				const jobId = await f.failedDelivery("failed");
+				const id = f.source.nativeOperationId as string;
+				arrange(f);
+				const before = written(f);
+				const report = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
 				});
-			if (code === "bank_busy") f.hindsight.pending.push("other-operation");
-			const report = await f.tools.resendDelivery({
-				userId: h.userId,
-				jobId,
-				execute: true,
-			});
-			expect(report.outcome, situation).toBe("refused");
-			expect(report.steps.at(-1)).toMatchObject({ ok: false, code });
-			expect(f.job()?.status).toBe("failed");
-			expect(f.revision()?.nativeOperationId).toBe(id);
-		});
+				expect(report.outcome, situation).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({ step, ok: false, code });
+				expect(f.job()?.status).toBe(
+					code === "job_running" ? "running" : "failed",
+				);
+				expect(f.revision()?.nativeOperationId).toBe(id);
+				expect(written(f)).toEqual(before);
+			},
+		);
 
 		it("refuses a job that is not failed, or is another account's", async () => {
 			const f = await setup();
 			const queued = await f.enqueue();
+			const before = written(f);
 			const report = await f.tools.resendDelivery({
 				userId: h.userId,
 				jobId: queued.row.id,
@@ -340,6 +521,7 @@ describe("the Memory operator tools", () => {
 				step: "job",
 				code: "job_not_found",
 			});
+			expect(written(f)).toEqual(before);
 		});
 	});
 
@@ -368,6 +550,7 @@ describe("the Memory operator tools", () => {
 		it("refuses a document Hindsight does not hold", async () => {
 			const f = await setup();
 			const jobId = await f.failedDelivery("failed");
+			const before = written(f);
 			const report = await f.tools.reattachDelivery({
 				userId: h.userId,
 				jobId,
@@ -380,7 +563,73 @@ describe("the Memory operator tools", () => {
 				counts: { facts: 0 },
 			});
 			expect(f.revision()?.nativeAcknowledged).toBe(false);
+			expect(written(f)).toEqual(before);
 		});
+
+		it.each<[string, string, string, (f: Fixture) => void]>([
+			[
+				"the bank is busy",
+				"bank_quiet",
+				"bank_busy",
+				(f) => f.hindsight.pending.push("other-operation"),
+			],
+			[
+				"another process is running the job",
+				"job",
+				"job_running",
+				(f) =>
+					f.db
+						.update(f.schema.memoryDeliveryJobs)
+						.set({ status: "running" })
+						.run(),
+			],
+			[
+				"the job was queued again",
+				"job",
+				"job_queued",
+				(f) =>
+					f.db
+						.update(f.schema.memoryDeliveryJobs)
+						.set({ status: "queued" })
+						.run(),
+			],
+			[
+				"the chat was never sent",
+				"job",
+				"source_never_sent",
+				(f) =>
+					f.db
+						.update(f.schema.memorySourceRevisions)
+						.set({ nativeSubmitted: false })
+						.run(),
+			],
+			[
+				"the chat was withdrawn",
+				"job",
+				"source_revoked",
+				(f) =>
+					f.db
+						.update(f.schema.memorySourceRevisions)
+						.set({ state: "revoked" })
+						.run(),
+			],
+		])(
+			"refuses, writing nothing, when %s",
+			async (situation, step, code, arrange) => {
+				const f = await setup();
+				const jobId = await f.failedDelivery("completed");
+				arrange(f);
+				const before = written(f);
+				const report = await f.tools.reattachDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+				});
+				expect(report.outcome, situation).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({ step, ok: false, code });
+				expect(written(f)).toEqual(before);
+			},
+		);
 	});
 
 	describe("recover consolidation", () => {
@@ -438,6 +687,78 @@ describe("the Memory operator tools", () => {
 			expect(f.hindsight.recovered).toBe(1);
 			expect(f.hindsight.consolidations).toBe(1);
 		});
+
+		it.each<[string, string, string, (f: Fixture) => void, RegExp[]]>([
+			[
+				"the bank is busy",
+				"bank_quiet",
+				"bank_busy",
+				(f) => f.hindsight.pending.push("other-operation"),
+				[],
+			],
+			[
+				"the consolidation fails",
+				"consolidation_settled",
+				"consolidation_failed",
+				(f) => {
+					const inner = f.fetcher.getMockImplementation();
+					if (!inner) throw Error("Missing fixture fetch");
+					f.fetcher.mockImplementation(async (url, init) => {
+						const response = await inner(url, init);
+						if (String(url).endsWith("/consolidate"))
+							f.hindsight.operations.set(
+								`consolidation-${f.hindsight.consolidations}`,
+								"failed",
+							);
+						return response;
+					});
+				},
+				[/^POST .*\/consolidation\/recover$/, /^POST .*\/consolidate$/],
+			],
+			[
+				"the facts stay failed",
+				"failed_facts_after",
+				"facts_still_failed",
+				(f) => {
+					const inner = f.fetcher.getMockImplementation();
+					if (!inner) throw Error("Missing fixture fetch");
+					f.fetcher.mockImplementation(async (url, init) =>
+						String(url).endsWith("/consolidation/recover")
+							? new Response(JSON.stringify({ recovered: 0 }))
+							: inner(url, init),
+					);
+				},
+				[/^POST .*\/consolidation\/recover$/, /^POST .*\/consolidate$/],
+			],
+		])(
+			"refuses when %s, writing nothing of the app's and only its own steps to Hindsight",
+			async (situation, step, code, arrange, sent) => {
+				const f = await setup();
+				f.hindsight.facts.push({
+					id: "stuck",
+					text: "Green kayak",
+					fact_type: "world",
+					document_id: f.source.id,
+					consolidated_at: null,
+					consolidation_failed_at: "2026-11-22T00:00:00Z",
+				});
+				arrange(f);
+				const before = written(f);
+				const report = await f.tools.recoverConsolidation({
+					userId: h.userId,
+					bankId: f.bank.id,
+					execute: true,
+					clock: testClock,
+				});
+				expect(report.outcome, situation).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({ step, ok: false, code });
+				const after = written(f);
+				expect(after.db).toBe(before.db);
+				expect(after.hindsight).toEqual(
+					sent.map((pattern) => expect.stringMatching(pattern)),
+				);
+			},
+		);
 	});
 
 	describe("drain", () => {
@@ -552,6 +873,113 @@ describe("the Memory operator tools", () => {
 			).toBe("queued");
 			// Counts, ids and codes only: no memory text anywhere in the report.
 			expect(JSON.stringify(report)).not.toMatch(/kayak|bassoon/i);
+		});
+
+		it("refuses with the Memory worker off, retrying nothing", async () => {
+			const f = await setup();
+			await f.enqueue();
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set({
+					status: "failed",
+					errorCode: "native_operation_timeout",
+					retryable: true,
+					attemptCount: 1,
+				})
+				.run();
+			const config = await import("$lib/server/config-store");
+			vi.spyOn(config, "getConfig").mockReturnValue({
+				...config.getConfig(),
+				hindsightWorkerEnabled: false,
+			});
+			const before = written(f);
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				clock: testClock,
+			});
+			expect(report.outcome).toBe("refused");
+			expect(report.steps.at(-1)).toMatchObject({
+				step: "worker_enabled",
+				ok: false,
+				code: "memory_worker_disabled",
+			});
+			expect(written(f)).toEqual(before);
+		});
+
+		it("leaves a job another process is running alone, waits for it, and says so", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const running = await f.enqueue();
+			f.db.update(f.schema.memoryDeliveryJobs).set({ status: "running" }).run();
+			const before = written(f);
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				maxMinutes: 1,
+				clock: testClock,
+			});
+			expect(report.outcome).toBe("done");
+			expect(report.steps.find((s) => s.step === "retry_failed")).toMatchObject(
+				{ ids: [] },
+			);
+			expect(report.steps.find((s) => s.step === "summary")?.skipped).toEqual([
+				{ id: running.row.id, kind: "source", status: "running", code: null },
+			]);
+			expect(written(f)).toEqual(before);
+		});
+
+		it("looks again every few seconds, not every second, at a due job it cannot claim", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const { eq } = await import("drizzle-orm");
+			const rev = await import("./revisions");
+			// Another account's job holds the one slot (HINDSIGHT_CONCURRENCY 1) all along.
+			const other = h.fixture.seedUser("user-2");
+			const otherBank = rev.ensureMemoryBank(other, { kind: "personal" });
+			const theirs = await f.jobs.enqueueMemoryDelivery({
+				userId: other,
+				bankId: otherBank.id,
+				epoch: 0,
+				kind: "provision",
+				requestId: "their-request",
+			});
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set({ status: "running" })
+				.where(eq(f.schema.memoryDeliveryJobs.id, theirs.row.id))
+				.run();
+			// This account's delivery was put back behind a delay that has passed:
+			// due, and never claimable while the slot is taken.
+			const due = await f.enqueue();
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set({ runAfter: new Date(Date.now() - 10_000) })
+				.where(eq(f.schema.memoryDeliveryJobs.id, due.row.id))
+				.run();
+			const sleeps: number[] = [];
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				maxMinutes: 1,
+				clock: {
+					now: () => Date.now(),
+					sleep: async (ms) => {
+						sleeps.push(ms);
+						vi.setSystemTime(Date.now() + ms);
+					},
+				},
+			});
+			expect(report.outcome).toBe("done");
+			expect(sleeps.length).toBeGreaterThan(0);
+			expect(Math.min(...sleeps)).toBeGreaterThanOrEqual(5_000);
+			expect(
+				report.steps.find((s) => s.step === "drain")?.counts?.rounds,
+			).toBeLessThanOrEqual(13);
+			expect(report.steps.find((s) => s.step === "summary")?.skipped).toEqual([
+				{ id: due.row.id, kind: "source", status: "queued", code: null },
+			]);
+			expect(f.hindsight.posted).toEqual([]);
 		});
 	});
 });

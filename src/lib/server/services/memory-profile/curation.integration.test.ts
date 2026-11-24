@@ -170,7 +170,8 @@ async function nativeFixture(
 			if (init?.method === "PATCH")
 				fakeBankConfigs.set(bank, JSON.parse(String(init.body)).updates);
 			data = {
-				config: fakeBankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+				config:
+					fakeBankConfigs.get(bank) ?? contracts.nativeBankConfig("personal"),
 			};
 		} else if (path.includes("/operations?")) data = { operations: [] };
 		else if (path.includes("/operations/")) data = { status: "completed" };
@@ -351,6 +352,64 @@ it("a remove waits out a consolidation Hindsight takes 25 minutes over, spending
 	).toEqual(["sister bicycle"]);
 	// The model was asked exactly what an unhurried remove asks it.
 	expect(fixture.model).toHaveBeenCalledTimes(4);
+}, 60_000);
+it("an Add whose retain Hindsight keeps working on waits as a retain, for the retain's wait", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, []);
+	// Hindsight never finishes the Add's retain, and every read of it moves the
+	// clock on six minutes, so each attempt's five-minute slice ends after one look.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const inner = fixture.fetcher.getMockImplementation();
+	if (!inner) throw Error("Missing fixture fetch");
+	const retains = new Set<string>();
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST")
+			retains.add(JSON.parse(String(init.body)).operation_id);
+		const op = path.split("/operations/")[1];
+		if (op && retains.has(decodeURIComponent(op))) {
+			vi.setSystemTime(Date.now() + 6 * 60_000);
+			return new Response(JSON.stringify({ status: "processing" }));
+		}
+		return inner(url, init);
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const { getMemoryNativeWaits } = await import("$lib/server/config-store");
+	const waits = getMemoryNativeWaits();
+	const started = Date.now();
+	await a.submitMemoryAction(h.userId, {
+		kind: "add",
+		scope: { kind: "personal" },
+		text: "I paddle a green kayak",
+		requestId: randomUUID(),
+	});
+	const actionJob = () =>
+		f.db
+			.select()
+			.from(f.s.memoryDeliveryJobs)
+			.all()
+			.find((row) => row.kind === "action");
+	const codes: Array<string | null> = [];
+	for (let round = 0; round < 40; round++) {
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const row = actionJob();
+		codes.push(row?.errorCode ?? null);
+		if (row?.status !== "queued") break;
+		vi.setSystemTime(Date.now() + 61_000);
+	}
+	const waited = Date.now() - started;
+	vi.useRealTimers();
+	expect(retains.size).toBe(1);
+	expect(codes.slice(0, -1).length).toBeGreaterThan(0);
+	expect(codes.slice(0, -1)).toEqual(
+		codes.slice(0, -1).map(() => "native_retain_waiting"),
+	);
+	expect(codes.at(-1)).toBe("native_operation_timeout");
+	// Ended by the retain's own wait, not the consolidation's longer one.
+	expect(waited).toBeGreaterThanOrEqual(waits.retainMs);
+	expect(waited).toBeLessThan(waits.consolidationMs);
+	expect(fixture.model).not.toHaveBeenCalled();
 }, 60_000);
 it("rejected edit cleans its staged delta without patching accepted facts", async () => {
 	const f = await setup();
@@ -2133,6 +2192,87 @@ it("lifecycle regression: an unchanged edit resend keeps the predecessor’s sav
 					String(url).endsWith("/memories") && init?.method === "POST",
 			),
 	).toEqual([]);
+	expect(
+		pub.readPublishedMemory(h.userId, f.bank.id).map((r) => r.text),
+	).toEqual(["sister bicycle"]);
+});
+
+it("an unchanged edit resend never asks Hindsight about its own retain whose end is recorded", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, [
+		{ forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] },
+		ckProposal("kayak", "", "sister"),
+		ckOkay,
+		ckOkay,
+	]);
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const rev = await import("./revisions");
+	const pub = await import("./publication");
+	const { eq } = await import("drizzle-orm");
+	await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: ckRef,
+		requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	rev.revokeMemorySources(h.userId, [f.source.id]);
+	const next = rev.recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: "unchanged",
+		lineageId: f.source.lineageId,
+		predecessorSourceId: f.source.id,
+		text: f.source.text,
+		context: "",
+		assertedAt: f.source.assertedAt,
+	});
+	// An earlier attempt sent the resend's retain, saw it cancelled and recorded
+	// that end, then was lost before its failure was written; Hindsight has since
+	// forgotten the operation.
+	const ended = next.nativeOperationId as string;
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			nativeSubmitted: true,
+			nativeAcknowledged: false,
+			context: JSON.stringify({
+				nativeRetainEnded: { operationId: ended, reason: "cancelled" },
+			}),
+		})
+		.where(eq(f.s.memorySourceRevisions.id, next.id))
+		.run();
+	const asked: string[] = [];
+	const inner = fixture.fetcher.getMockImplementation();
+	if (!inner) throw Error("Missing fixture fetch");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const op = String(url).split("/operations/")[1];
+		if (op && decodeURIComponent(op) === ended) {
+			asked.push(ended);
+			return new Response("missing", { status: 404 });
+		}
+		return inner(url, init);
+	});
+	const queued = await jobs.enqueueMemoryDelivery({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		kind: "source",
+		sourceId: next.id,
+		requestId: "unchanged",
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	const row = f.db
+		.select()
+		.from(f.s.memoryDeliveryJobs)
+		.where(eq(f.s.memoryDeliveryJobs.id, queued.row.id))
+		.get();
+	expect({ status: row?.status, code: row?.errorCode }).toEqual({
+		status: "succeeded",
+		code: null,
+	});
+	expect(asked).toEqual([]);
 	expect(
 		pub.readPublishedMemory(h.userId, f.bank.id).map((r) => r.text),
 	).toEqual(["sister bicycle"]);

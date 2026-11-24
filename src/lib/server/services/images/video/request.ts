@@ -109,17 +109,6 @@ export function videoDurationMs(durationSeconds: VideoDurationSeconds): number {
 	return durationSeconds === 10 ? 10_000 : VIDEO_SEGMENT_DURATION_MS;
 }
 
-/**
- * Every take is ONE render: 121 frames for five seconds, 241 for ten. A ten
- * second take used to be two 121-frame segments chained last-frame to
- * first-frame and concatenated; a single 241-frame pass fits the card
- * (measured: 96.1 s at 37.8 GiB with the sharpen and the x2 upscale) and has no
- * seam to hide, so the chain is gone.
- */
-export function videoSegmentCount(_durationSeconds: VideoDurationSeconds): 1 {
-	return 1;
-}
-
 /** The frames the graph renders for a take: one pass at 24 fps. */
 export function videoFramesFor(durationSeconds: VideoDurationSeconds): number {
 	return durationSeconds === 10 ? LTX_LONG_FRAMES : LTX_SEGMENT_FRAMES;

@@ -39,7 +39,7 @@ function labels(
 }
 
 describe("one entry as recall and the Memory page read it", () => {
-	it("an entry takes its newest fact's labels and last mention", () => {
+	it("an entry takes its newest fact's subject, its most lasting kind and its last mention", () => {
 		const facts = [fact("f1", "2026-11-01"), fact("f2", "2026-11-10")];
 		const view = memoryEntryView(
 			{
@@ -60,6 +60,30 @@ describe("one entry as recall and the Memory page read it", () => {
 			timeState: "current",
 			authored: false,
 		});
+	});
+
+	it("a lasting entry stays current when a newer temporary fact joins it", () => {
+		// The regression run of 2026-11-24: "The user lives in Chester" gained the
+		// person's conditional-move message ("I might relocate next year ... my
+		// home has not changed") as a newer fact labelled temporary, and the
+		// entry went Earlier three weeks later, out of every turn's recall.
+		const facts = [
+			fact("home", "2026-09-01"),
+			fact("maybe-move", "2026-09-13"),
+		];
+		const view = memoryEntryView(
+			{
+				sourceIds: ["home", "maybe-move"],
+				factsById: groupFactsById(facts),
+				labels: labels({
+					home: { kind: "lasting", subject: "home_family" },
+					"maybe-move": { kind: "temporary", subject: "home_family" },
+				}),
+			},
+			NOW,
+			THRESHOLDS,
+		);
+		expect(view).toMatchObject({ kind: "lasting", timeState: "current" });
 	});
 
 	it("a temporary entry past its threshold is Earlier", () => {

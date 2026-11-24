@@ -60,6 +60,25 @@ describe("workspace search text", () => {
 		]);
 	});
 
+	it("keeps the # and + that end a language's name", () => {
+		expect(searchTerms("C# C++ F#")).toEqual(["c#", "c++", "f#"]);
+		expect(searchTerms("c++, and c#!")).toEqual(["c++", "and", "c#"]);
+		expect(typedSearchWords("C#")).toEqual(["c#"]);
+		expect(matchesAllTerms("I write C# daily", searchTerms("c#"))).toBe(true);
+		// Only after a letter or digit: alone they are still punctuation.
+		expect(searchTerms("+++ ### #tag")).toEqual(["tag"]);
+		expect(searchTerms('"Kitchen,"')).toEqual(["kitchen"]);
+	});
+
+	it("drops control characters from the words", () => {
+		expect(searchTerms("gar\u0000den\u0007 kit\u001bchen")).toEqual([
+			"garden",
+			"kitchen",
+		]);
+		expect(typedSearchWords("Gar\u0000den")).toEqual(["garden"]);
+		expect(searchTerms("\u0000\u0001")).toEqual([]);
+	});
+
 	it("cuts each word to 64 characters", () => {
 		const [term] = searchTerms("x".repeat(100));
 		expect(term).toHaveLength(64);

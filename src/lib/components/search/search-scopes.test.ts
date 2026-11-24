@@ -121,7 +121,19 @@ describe("summariseTotals", () => {
 	it("adds the kinds up and counts the kinds that hold something", () => {
 		expect(
 			summariseTotals(totals({ chats: 2, memory: 3, documents: 5, apps: 1 })),
-		).toEqual({ results: 11, kinds: 4 });
-		expect(summariseTotals(totals())).toEqual({ results: 0, kinds: 0 });
+		).toEqual({ results: 11, kinds: 4, capped: false });
+		expect(summariseTotals(totals())).toEqual({
+			results: 0,
+			kinds: 0,
+			capped: false,
+		});
+	});
+
+	it("says when a kind's count stopped at the cap", () => {
+		expect(summariseTotals(totals({ chats: 100, documents: 3 }))).toEqual({
+			results: 103,
+			kinds: 2,
+			capped: true,
+		});
 	});
 });

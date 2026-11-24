@@ -57,7 +57,9 @@ const BASELINE = {
 	// ToolActivityRow, ThinkingBlock and RouteItinerary were cleaned.)
 	buildUnusedCss: 0,
 	buildAria: 0,
-	fallowCircular: 4,
+	// Ratcheted to the one cycle left (chat-files, knowledge, memory-maintenance) when the
+	// baseline was made again on 2026-11-24; a cycle more fails the step.
+	fallowCircular: 1,
 	// The `check` section of the report the pinned Fallow made at the last accepted state of
 	// the tree. It lives in the repo, so every checkout and every agent compares with the same
 	// one; AGENTS.md ("Fallow Audit Gate") says when and how it is made again.

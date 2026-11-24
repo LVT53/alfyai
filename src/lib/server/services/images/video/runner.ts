@@ -289,7 +289,7 @@ async function followWithGrace(
 		const left = videoRenderDeadlineMs() - (Date.now() - startedAt);
 		if (left <= 0) throw new ComfyUiError("timeout", "ComfyUI took too long");
 		try {
-			return await followSegment(ctx, client, promptId, left, eta);
+			return await followPrompt(ctx, client, promptId, left, eta);
 		} catch (error) {
 			const transient =
 				error instanceof ComfyUiError &&
@@ -302,7 +302,7 @@ async function followWithGrace(
 	}
 }
 
-async function followSegment(
+async function followPrompt(
 	ctx: Ctx,
 	client: ComfyUiClient,
 	promptId: string,

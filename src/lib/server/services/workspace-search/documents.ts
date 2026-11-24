@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
+	artifactVersions,
 	conversations,
 	imageDescriptions,
 	videoJobs,
@@ -17,13 +18,21 @@ import { buildArtifactCanonicalOwnershipCondition } from "$lib/server/services/k
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { parseVideoVersionBody } from "$lib/shared/artifacts/video-body";
 import {
 	foldForSearch,
 	searchSnippet,
 } from "$lib/shared/workspace-search-text";
 import { buildChatHref } from "./chats";
-import { foldedGlob, likeSpellings, wordSpellings } from "./patterns";
+import {
+	foldedGlob,
+	foldedSnippet,
+	indexMatch,
+	likeSpellings,
+	usesSearchIndex,
+	wordSpellings,
+} from "./patterns";
 import {
 	SEARCH_CANDIDATE_CAP,
 	SEARCH_COUNT_CAP,
@@ -74,16 +83,34 @@ const generatedFileSql = sql`(
 	and coalesce(${metadataValue("$.artifactExport")}, 0) = 0
 )`;
 
-/** The artifact family's rows whose body is JSON or code, never prose. */
-const JSON_KINDS = ["image", "video", "canvas", "app"] as const;
+/**
+ * Every kind of the artifact family by what its body is: prose the search reads
+ * (and the full-text index holds), or JSON and code it never reads as text. A
+ * new kind goes on one list (documents.test.ts fails until it does); a JSON
+ * one also needs a migration that keeps it out of the index, whose triggers
+ * name these four (migration 145, search-index-sql.ts).
+ */
+export const TEXT_BODY_KINDS = [
+	"document",
+	"slides",
+] as const satisfies readonly ArtifactKind[];
+export const JSON_BODY_KINDS = [
+	"image",
+	"video",
+	"canvas",
+	"app",
+] as const satisfies readonly ArtifactKind[];
 
-const familyOfKind = (kind: (typeof JSON_KINDS)[number]): SQL =>
+const familyOfKind = (kind: (typeof JSON_BODY_KINDS)[number]): SQL =>
 	sql`(${artifacts.type} = 'artifact' and ${artifactKindSql} = ${kind})`;
 
 /** Documents and Slides, and a row this slice cannot classify (it lists as a document). */
 const textFamilySql = sql`(
 	${artifacts.type} = 'artifact'
-	and coalesce(${artifactKindSql}, 'document') not in ('image', 'video', 'canvas', 'app')
+	and coalesce(${artifactKindSql}, 'document') not in (${sql.join(
+		JSON_BODY_KINDS.map((kind) => sql`${kind}`),
+		sql`, `,
+	)})
 )`;
 
 const textRowsSql = sql`(
@@ -108,6 +135,16 @@ interface CandidateGroup {
 const noFieldText = () => sql`null`;
 
 const imagePromptSql = sql`case when json_valid(${artifacts.contentText}) then json_extract(${artifacts.contentText}, '$.prompt') end`;
+
+/**
+ * A picture's takes, each a version whose body names the prompt it was made
+ * from, so an edited picture is still found by what was first asked of it.
+ * Read through the ownership-scoped artifact row, and never another person's.
+ */
+const takePromptSql = sql`case when json_valid(${artifactVersions.body}) then json_extract(${artifactVersions.body}, '$.prompt') end`;
+
+const imageTakesOf = (userId: string): SQL =>
+	sql`${artifactVersions.artifactId} = ${artifacts.id} and ${artifactVersions.userId} = ${userId}`;
 
 /**
  * The keys a board keeps its words under: a note's or text block's `text`, a
@@ -145,6 +182,25 @@ const videoPromptSql = sql`case when json_valid(${videoJobs.requestJson}) and js
 const videoTakesOf = (userId: string): SQL =>
 	sql`(${videoJobs.artifactId} = ${artifacts.id} or ${videoJobs.createdArtifactId} = ${artifacts.id}) and ${videoJobs.userId} = ${userId}`;
 
+/**
+ * A text row whose body holds one word: through the full-text index (case and
+ * accents folded) for a word of three letters or more, else through the word's
+ * typed, capitalised and capital spellings, which a trigram index cannot
+ * replace for so short a word. The index holds only rows with a text body
+ * (migration 145), never JSON or code; the group's own conditions still decide.
+ */
+function bodyHolds(term: string, word: string): SQL {
+	if (usesSearchIndex(term)) {
+		return sql`${artifacts}.rowid in (select rowid from artifacts_fts where artifacts_fts match ${indexMatch(term, word)})`;
+	}
+	return sql`(${sql.join(
+		likeSpellings(word).map(
+			(pattern) => sql`${artifacts.contentText} like ${pattern} escape '\\'`,
+		),
+		sql` or `,
+	)})`;
+}
+
 const GROUPS: readonly CandidateGroup[] = [
 	{
 		// Uploads and their text, generated files, Skill Notes, Documents, Slides.
@@ -152,13 +208,7 @@ const GROUPS: readonly CandidateGroup[] = [
 		hasBody: true,
 		hasLabel: true,
 		extra: (userId, term, word) => [
-			sql`(${sql.join(
-				likeSpellings(word).map(
-					(pattern) =>
-						sql`${artifacts.contentText} like ${pattern} escape '\\'`,
-				),
-				sql` or `,
-			)})`,
+			bodyHolds(term, word),
 			// What Alfy saw in an uploaded picture.
 			sql`(${artifacts.type} = 'source_document' and exists (
 				select 1 from ${imageDescriptions}
@@ -176,8 +226,21 @@ const GROUPS: readonly CandidateGroup[] = [
 		rows: familyOfKind("image"),
 		hasBody: false,
 		hasLabel: false,
-		extra: (_userId, term) => [sql`${imagePromptSql} glob ${foldedGlob(term)}`],
-		fieldText: () => imagePromptSql,
+		extra: (userId, term) => [
+			sql`${imagePromptSql} glob ${foldedGlob(term)}`,
+			sql`exists (
+				select 1 from ${artifactVersions}
+				where ${imageTakesOf(userId)}
+				and ${takePromptSql} glob ${foldedGlob(term)}
+			)`,
+		],
+		fieldText: (userId) =>
+			sql`(select group_concat(prompt, char(10)) from (
+				select ${imagePromptSql} as prompt
+				union
+				select ${takePromptSql} from ${artifactVersions}
+				where ${imageTakesOf(userId)}
+			))`,
 	},
 	{
 		rows: familyOfKind("video"),
@@ -221,7 +284,7 @@ const GROUPS: readonly CandidateGroup[] = [
 
 /** Every row a document list shows, for the newest few. */
 const ANY_DOCUMENT_ROWS_SQL = sql`(${textRowsSql} or ${sql.join(
-	JSON_KINDS.map(familyOfKind),
+	JSON_BODY_KINDS.map(familyOfKind),
 	sql` or `,
 )})`;
 
@@ -508,13 +571,12 @@ function buildDocumentSourceHref(
 	);
 }
 
-/** The serving route's URL for a stored picture or clip; an incognito chat's file needs its chat named. */
-function fileSrc(
-	fileId: string,
-	variant: "thumb" | "poster",
-	conversationId: string | null,
-): string {
-	const query = new URLSearchParams({ variant });
+/**
+ * The serving route's URL for a stored picture's or clip's small thumb (a
+ * clip's is its poster frame's); an incognito chat's file needs its chat named.
+ */
+function thumbSrc(fileId: string, conversationId: string | null): string {
+	const query = new URLSearchParams({ variant: "thumb" });
 	if (conversationId) query.set("conversationId", conversationId);
 	return `/api/images/files/${encodeURIComponent(fileId)}?${query.toString()}`;
 }
@@ -580,11 +642,30 @@ async function loadBodySnippets(
 			if (!cut) return;
 			const snippet =
 				searchSnippet(cut, terms, SNIPPET_CHARS) ??
+				(await foldedBodySnippet(rowId, terms)) ??
 				cut.replace(/\s+/g, " ").trim().slice(0, SNIPPET_CHARS);
 			if (snippet) snippets.set(rowId, snippet);
 		}),
 	);
 	return snippets;
+}
+
+/**
+ * The snippet of a body whose word no typed spelling locates (found by the
+ * index through folding alone), cut from its whole text, for one row of the page.
+ */
+async function foldedBodySnippet(
+	rowId: string,
+	terms: readonly string[],
+): Promise<string | null> {
+	const [row] = await db
+		.select({ contentText: artifacts.contentText })
+		.from(artifacts)
+		.where(eq(artifacts.id, rowId))
+		.limit(1);
+	return row?.contentText
+		? foldedSnippet(row.contentText, terms, SNIPPET_CHARS)
+		: null;
 }
 
 /** Everything a row of the page shows beyond the item itself, read for the rows on the page only. */
@@ -641,17 +722,14 @@ async function toResults(
 		const preview =
 			item.kind === "image" && item.imagePreview
 				? {
-						src: fileSrc(
-							item.imagePreview.fileId,
-							"thumb",
-							item.conversationId,
-						),
+						src: thumbSrc(item.imagePreview.fileId, item.conversationId),
 						width: item.imagePreview.width,
 						height: item.imagePreview.height,
 					}
 				: video
 					? {
-							src: fileSrc(video.posterFileId, "poster", item.conversationId),
+							// The row's tile is 48 pixels: the poster's small thumb, not the full frame.
+							src: thumbSrc(video.posterFileId, item.conversationId),
 							width: video.width,
 							height: video.height,
 						}

@@ -304,6 +304,25 @@ describe("the checkpoint", () => {
 		});
 	});
 
+	it("reads an old row that was still on its first segment as that prompt", () => {
+		// What the chain wrote while segment 1 was rendering: its prompt, no saved
+		// clip yet. A list with no entry resolves by the row's own prompt id.
+		const rendering = {
+			promptId: "p1",
+			segment: 1,
+			segments: [{ promptId: "p1", media: null }],
+		};
+		expect(parseVideoCheckpoint(JSON.stringify(rendering))).toEqual({
+			promptId: "p1",
+			media: null,
+		});
+		expect(
+			parseVideoCheckpoint(
+				JSON.stringify({ promptId: "p1", segment: 1, segments: [] }),
+			),
+		).toEqual({ promptId: "p1", media: null });
+	});
+
 	it("answers null for anything unreadable", () => {
 		expect(parseVideoCheckpoint(null)).toBeNull();
 		expect(parseVideoCheckpoint("{}")).toBeNull();

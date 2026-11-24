@@ -410,15 +410,18 @@ describe("the label migration", () => {
 		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
 	});
 
-	/** Labels every fact but the one with this text, which it gives a kind off the list. */
-	const unusableFor = (text: string) => (input: unknown) => {
-		const answer = labelAll(input);
-		const facts = (input as { facts: { id: string; text: string }[] }).facts;
-		for (const label of answer.labels)
-			if (facts.find(({ id }) => id === label.id)?.text === text)
-				label.kind = "forever";
-		return answer;
-	};
+	/** Labels every fact but the ones with these texts, which it gives a kind off the list. */
+	const unusableFor =
+		(...texts: string[]) =>
+		(input: unknown) => {
+			const answer = labelAll(input);
+			const facts = (input as { facts: { id: string; text: string }[] }).facts;
+			for (const label of answer.labels) {
+				const text = facts.find(({ id }) => id === label.id)?.text ?? "";
+				if (texts.includes(text)) label.kind = "forever";
+			}
+			return answer;
+		};
 
 	it("a fact the model gives no usable label is listed with its reason, and the account is verified", async () => {
 		const fake = fakeNative(unusableFor("likes tea 0"));
@@ -535,6 +538,71 @@ describe("the label migration", () => {
 		});
 		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
 	});
+
+	it.each([
+		{ facts: 20, unusable: 1, failure: undefined },
+		{ facts: 20, unusable: 2, failure: "too_many_unlabelled" },
+		{ facts: 40, unusable: 2, failure: undefined },
+		{ facts: 40, unusable: 3, failure: "too_many_unlabelled" },
+	])(
+		"$unusable of $facts facts without a usable label: the limit is one in 20, exactly ($failure)",
+		async ({ facts, unusable, failure }) => {
+			const fake = fakeNative(
+				unusableFor(
+					...Array.from({ length: unusable }, (_, i) => `likes tea ${i}`),
+				),
+			);
+			await seedAccount("user-1", fake.facts, { count: facts });
+			const { migration, verified } = await modules();
+			const report = await migration.runLabelMigration(
+				{ execute: true },
+				{ listFacts: fake.listFacts, model: fake.model },
+			);
+			expect(report.accounts[0]).toMatchObject(
+				failure
+					? { outcome: "failed", failure }
+					: { outcome: "verified", unlabelled: { no_label: unusable } },
+			);
+			expect(verified.memoryLabelsVerified("user-1")).toBe(!failure);
+		},
+	);
+
+	it.each([
+		{ lasting: 3, failure: undefined },
+		{ lasting: 2, failure: "implausible_labels" },
+		{ lasting: 0, failure: "implausible_labels" },
+	])(
+		"20 labelled facts of which $lasting are lasting: the floor is 15% of them, exactly ($failure)",
+		async ({ lasting, failure }) => {
+			// "likes tea N": the first `lasting` facts are lasting, every other one temporary.
+			const fake = fakeNative((input) => {
+				const answer = labelAll(input);
+				const facts = (input as { facts: { id: string; text: string }[] })
+					.facts;
+				for (const label of answer.labels) {
+					const text = facts.find(({ id }) => id === label.id)?.text ?? "";
+					label.kind =
+						Number(text.split(" ").at(-1)) < lasting ? "lasting" : "temporary";
+				}
+				return answer;
+			});
+			await seedAccount("user-1", fake.facts, { count: 20 });
+			const { migration, verified } = await modules();
+			const report = await migration.runLabelMigration(
+				{ execute: true },
+				{ listFacts: fake.listFacts, model: fake.model },
+			);
+			expect(report.accounts[0]).toMatchObject(
+				failure
+					? { outcome: "failed", failure }
+					: {
+							outcome: "verified",
+							byKind: { lasting, temporary: 20 - lasting },
+						},
+			);
+			expect(verified.memoryLabelsVerified("user-1")).toBe(!failure);
+		},
+	);
 
 	it("a small account may be all temporary: the kind mix is judged from 20 labelled facts", async () => {
 		const fake = fakeNative();
@@ -902,6 +970,34 @@ describe("the label migration", () => {
 		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
 	});
 
+	it("a labelled fact that is gone from the second listing fails the account like a changed one", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		let listings = 0;
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: async (bankId) => {
+					const facts = await fake.listFacts(bankId);
+					// Hindsight changed under the run: verification's listing lacks one.
+					return listings++ === 0
+						? facts
+						: facts.filter((fact) => fact.id !== "user-1-fact-1");
+				},
+				model: fake.model,
+			},
+		);
+		expect(listings).toBe(2);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "facts_changed",
+			verification: { factsUnchanged: false },
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(3);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
 	it("one named account only; the tester named alone is skipped untouched", async () => {
 		const fake = fakeNative();
 		const first = await seedAccount("user-1", fake.facts, { count: 3 });
@@ -1066,35 +1162,41 @@ describe("the label migration's edges", () => {
 		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
 	});
 
-	it("a bank Hindsight has never heard of (404, never configured) holds no facts yet", async () => {
-		const fake = fakeNative();
-		await seedAccount("user-1", fake.facts, { count: 3 });
-		const { db, schema, revisions, verified, migration } = await modules();
-		const { NativeMemoryError } = await import("./contracts");
-		db.insert(schema.projects)
-			.values({ id: "synthetic-project", userId: "user-1", name: "Garden" })
-			.run();
-		// Made app-side by the person's first project chat; nothing sent yet.
-		const project = revisions.ensureMemoryBank("user-1", {
-			kind: "project",
-			projectId: "synthetic-project",
-		});
-		const listFacts = async (bankId: string) => {
-			if (bankId === project.id)
-				throw new NativeMemoryError("native_not_found", false);
-			return fake.listFacts(bankId);
-		};
-		const report = await migration.runLabelMigration(
-			{ execute: true },
-			{ listFacts, model: fake.model },
-		);
-		expect(report.accounts[0]).toMatchObject({
-			outcome: "verified",
-			banks: 2,
-			facts: 3,
-		});
-		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
-	});
+	// Whether the pinned engine answers a bank it has never seen with a 404 or
+	// with no facts is unverified (it needs the box), so both must read the same.
+	it.each(["a 404", "an empty listing"] as const)(
+		"a bank the app made but never configured in Hindsight holds no facts yet, whether it answers with %s",
+		async (answer) => {
+			const fake = fakeNative();
+			await seedAccount("user-1", fake.facts, { count: 3 });
+			const { db, schema, revisions, verified, migration } = await modules();
+			const { NativeMemoryError } = await import("./contracts");
+			db.insert(schema.projects)
+				.values({ id: "synthetic-project", userId: "user-1", name: "Garden" })
+				.run();
+			// Made app-side by the person's first project chat; nothing sent yet.
+			const project = revisions.ensureMemoryBank("user-1", {
+				kind: "project",
+				projectId: "synthetic-project",
+			});
+			const listFacts = async (bankId: string) => {
+				if (bankId !== project.id) return fake.listFacts(bankId);
+				if (answer === "a 404")
+					throw new NativeMemoryError("native_not_found", false);
+				return [];
+			};
+			const report = await migration.runLabelMigration(
+				{ execute: true },
+				{ listFacts, model: fake.model },
+			);
+			expect(report.accounts[0]).toMatchObject({
+				outcome: "verified",
+				banks: 2,
+				facts: 3,
+			});
+			expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+		},
+	);
 
 	it("a configured bank Hindsight answers 404 for fails the account", async () => {
 		const fake = fakeNative();
@@ -1197,6 +1299,71 @@ describe("the label migration's rollback", () => {
 			subject: "work_study",
 			origin: "extraction",
 			event_at: new Date("2026-02-01T00:00:00Z").getTime(),
+		});
+	});
+
+	it("an undone row reads as no row does, and the next publication copies the fact's tags back", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		// Hindsight's extraction gave this fact a subject but no kind; the
+		// classifier labels it, over the subject.
+		h.sqlite
+			.prepare(
+				"UPDATE memory_fact_labels SET subject = 'work_study' WHERE native_fact_id = 'user-1-fact-0'",
+			)
+			.run();
+		const { db, migration } = await modules();
+		const { entryLabels, readFactLabels, recordNativeFactLabels } =
+			await import("./fact-labels");
+		await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(readFactLabels(db, bank.id).get("user-1-fact-0")).toMatchObject({
+			kind: "lasting",
+			origin: "classifier",
+		});
+		migration.rollbackLabelMigration({ userId: "user-1", execute: true });
+		// An undone row has no kind or subject: its entry reads as an entry with
+		// no row at all, lasting and unsubjected.
+		const labels = readFactLabels(db, bank.id);
+		expect(labels.get("user-1-fact-1")).toEqual({
+			kind: null,
+			subject: null,
+			eventAt: null,
+			origin: "extraction",
+		});
+		const entry = (id: string) =>
+			entryLabels([{ id, saidAtMs: 0, authored: false }], labels);
+		expect(entry("user-1-fact-1")).toEqual(entry("a-fact-with-no-row"));
+		// The extraction subject the classifier wrote over is not restored yet.
+		expect(labels.get("user-1-fact-0")).toMatchObject({
+			kind: null,
+			subject: null,
+		});
+		// The next publication copies the facts' tags and dates back from
+		// Hindsight, as it does for any extraction row.
+		db.transaction((tx) =>
+			recordNativeFactLabels(
+				tx,
+				bank.id,
+				"personal",
+				(fake.facts.get(bank.id) ?? []).map((fact) =>
+					fact.id === "user-1-fact-0"
+						? {
+								...fact,
+								tags: ["subject:work_study"],
+								occurred_end: "2026-02-01T00:00:00Z",
+							}
+						: fact,
+				),
+			),
+		);
+		expect(readFactLabels(db, bank.id).get("user-1-fact-0")).toEqual({
+			kind: null,
+			subject: "work_study",
+			eventAt: "2026-02-01T00:00:00.000Z",
+			origin: "extraction",
 		});
 	});
 
