@@ -228,8 +228,7 @@ export function labelMigrationAccountLine(
 		...(account.verification
 			? [
 					`verification=${
-						account.verification.factsAccounted &&
-						account.verification.publishedRowsUnchanged
+						Object.values(account.verification).every(Boolean)
 							? "passed"
 							: "failed"
 					}`,

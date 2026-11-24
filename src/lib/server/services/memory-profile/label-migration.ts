@@ -78,7 +78,14 @@ export interface LabelMigrationAccount {
 	byKind: Partial<Record<MemoryKind, number>>;
 	bySubject: Partial<Record<MemorySubject, number>>;
 	unlabelled: Partial<Record<UnlabelledReason, number>>;
-	verification?: { factsAccounted: boolean; publishedRowsUnchanged: boolean };
+	verification?: {
+		factsAccounted: boolean;
+		publishedRowsUnchanged: boolean;
+		/** At most one fact in 20 (`MAX_UNLABELLED_SHARE`) left without a usable label. */
+		fewUnlabelled: boolean;
+		/** The account's labelled facts are not almost all temporary or ongoing (`MIN_LASTING_SHARE`). */
+		labelsPlausible: boolean;
+	};
 }
 
 export interface LabelMigrationReport {
@@ -124,6 +131,25 @@ type Account = typeof memoryAccounts.$inferSelect;
 type Fact = { id: string; text: string };
 
 const MAX_CONCURRENCY = 3;
+/**
+ * Verification proves the facts were labelled, not only looked at: an account
+ * fails (`too_many_unlabelled`) when more than one fact in 20 is left without
+ * a usable label (a model whose answers cannot be read labels nothing).
+ */
+const MAX_UNLABELLED_SHARE = 1 / 20;
+/**
+ * And it fails (`implausible_labels`) when fewer than this share of its
+ * labelled facts are lasting, judged once it has `PLAUSIBILITY_MIN_FACTS`
+ * labelled facts (a small account may be all temporary). The acceptance run's
+ * two accounts were synthetic and two thirds temporary or ongoing by design,
+ * and still 37% and 40% lasting, with no lasting fact mislabelled (0 of 26);
+ * a real bank leans further to lasting (bank config 2 and the classifier both
+ * lean to it). 15% is under half the most temporary account measured, so an
+ * unusual but real account passes, while a model that calls everything
+ * temporary or ongoing fails.
+ */
+const MIN_LASTING_SHARE = 0.15;
+const PLAUSIBILITY_MIN_FACTS = 20;
 
 class AccountFailure extends Error {
 	constructor(public code: string) {
@@ -216,7 +242,7 @@ function emptyEntry(
 function skipReason(
 	userId: string,
 	database: DatabaseInstance,
-): { skip: LabelMigrationSkip } | { account: Account } {
+): { skip: LabelMigrationSkip } | { account: Account; verified: boolean } {
 	// The permanent tester rule first: an excluded account is never read.
 	const guard = memoryMigrationGuard(userId, database);
 	if (!guard.allowed) return { skip: guard.reason };
@@ -233,9 +259,14 @@ function skipReason(
 		.where(eq(users.id, userId))
 		.get();
 	if (!user?.enabled) return { skip: "memory_off" };
-	if (account.labelsUnverifiedEpoch !== account.epoch)
-		return { skip: "already_verified" };
-	return { account };
+	if (account.labelsUnverifiedEpoch === account.epoch)
+		return { account, verified: false };
+	// Verified. An epoch this migration verified may still hold the few facts
+	// it left without a usable label: a later run asks for them again. Any
+	// other verified epoch (a new account or epoch) has nothing to label.
+	if (account.labelsVerifiedEpoch === account.epoch)
+		return { account, verified: true };
+	return { skip: "already_verified" };
 }
 
 async function migrateAccount(
@@ -250,7 +281,7 @@ async function migrateAccount(
 		entry.skipped = eligible.skip;
 		return entry;
 	}
-	const { account } = eligible;
+	const { account, verified } = eligible;
 	const entry = emptyEntry(userId, account.epoch);
 	const signal = deps.signal ?? new AbortController().signal;
 	const listFacts =
@@ -275,14 +306,24 @@ async function migrateAccount(
 			(bank) => bank.nativeConfigVersion === HINDSIGHT_ENGINE_COMMIT,
 		).length;
 		const read = async () => {
-			const result: { bank: Bank; facts: Fact[]; todo: Fact[] }[] = [];
+			const result: {
+				bank: Bank;
+				facts: Fact[];
+				todo: Fact[];
+				kinds: Partial<Record<MemoryKind, number>>;
+			}[] = [];
 			for (const bank of banks) {
 				const facts = (await listFacts(bank.id, account.tenantId, signal))
 					.filter((fact) => fact.fact_type !== "observation")
 					.map(({ id, text }) => ({ id, text }));
 				const labels = readFactLabels(database, bank.id);
 				const todo = facts.filter((fact) => !labels.get(fact.id)?.kind);
-				result.push({ bank, facts, todo });
+				const kinds: Partial<Record<MemoryKind, number>> = {};
+				for (const fact of facts) {
+					const kind = labels.get(fact.id)?.kind;
+					if (kind) kinds[kind] = (kinds[kind] ?? 0) + 1;
+				}
+				result.push({ bank, facts, todo, kinds });
 			}
 			return result;
 		};
@@ -295,6 +336,11 @@ async function migrateAccount(
 		}
 		if (banks.some((bank) => bank.status === "repair_blocked"))
 			throw new AccountFailure("bank_repair_blocked");
+		if (verified && !entry.toLabel) {
+			entry.outcome = "skipped";
+			entry.skipped = "already_verified";
+			return entry;
+		}
 		if (!execute) {
 			entry.outcome = "dry_run";
 			return entry;
@@ -354,18 +400,43 @@ async function migrateAccount(
 			entry.unlabelled.model_unavailable = unavailable;
 			throw new AccountFailure("model_unavailable");
 		}
-		// Verify: every raw fact labelled or listed with its reason, and the
-		// published rows as they were. Only then the account's mark is cleared.
+		// An epoch already verified keeps its verification: what this run
+		// labelled are the facts an earlier run left without a usable label.
+		if (verified) {
+			entry.outcome = "verified";
+			return entry;
+		}
+		// Verify: every raw fact labelled or listed with its reason, few left
+		// without a label, a plausible kind mix, and the published rows as they
+		// were. Only then the account's mark is cleared.
 		const after = await read();
 		const factsAccounted = after.every(({ todo }) =>
 			todo.every((fact) => noLabel.has(fact.id)),
 		);
 		const publishedRowsUnchanged =
 			publishedFingerprint(database, userId, banks) === before;
-		entry.verification = { factsAccounted, publishedRowsUnchanged };
+		const fewUnlabelled = noLabel.size <= entry.facts * MAX_UNLABELLED_SHARE;
+		let lasting = 0;
+		let labelled = 0;
+		for (const bank of after)
+			for (const [kind, count = 0] of Object.entries(bank.kinds)) {
+				labelled += count;
+				if (kind === "lasting") lasting += count;
+			}
+		const labelsPlausible =
+			labelled < PLAUSIBILITY_MIN_FACTS ||
+			lasting >= labelled * MIN_LASTING_SHARE;
+		entry.verification = {
+			factsAccounted,
+			publishedRowsUnchanged,
+			fewUnlabelled,
+			labelsPlausible,
+		};
 		if (!factsAccounted) throw new AccountFailure("facts_unlabelled");
 		if (!publishedRowsUnchanged)
 			throw new AccountFailure("published_rows_changed");
+		if (!fewUnlabelled) throw new AccountFailure("too_many_unlabelled");
+		if (!labelsPlausible) throw new AccountFailure("implausible_labels");
 		const marked = database.transaction((tx) => {
 			for (const bank of banks)
 				assertMemoryBankFence(tx, userId, bank.id, account.epoch);
