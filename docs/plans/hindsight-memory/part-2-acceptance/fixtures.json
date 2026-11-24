@@ -1,0 +1,2139 @@
+{
+	"question": [
+		{
+			"id": "q-en-01",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "How many tablespoons are in a quarter cup?",
+					"assistant": "A quarter cup equals 4 tablespoons. That is also 12 teaspoons, or about 60 millilitres."
+				}
+			]
+		},
+		{
+			"id": "q-en-02",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "What does the word 'ephemeral' mean?",
+					"assistant": "Ephemeral describes something that lasts only a very short time, like morning dew or a soap bubble. It comes from a Greek word meaning 'lasting a day'."
+				}
+			]
+		},
+		{
+			"id": "q-en-03",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Can you explain how photosynthesis works in simple terms?",
+					"assistant": "Plants use sunlight, water and carbon dioxide to make sugar for energy, and they release oxygen as a by-product. The green pigment chlorophyll in the leaves captures the light."
+				}
+			]
+		},
+		{
+			"id": "q-en-04",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "What's the difference between 'affect' and 'effect'?",
+					"assistant": "'Affect' is usually a verb meaning to influence something, while 'effect' is usually a noun meaning the result. For example, the rain affected the match, and the effect was a long delay."
+				}
+			]
+		},
+		{
+			"id": "q-en-05",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "How do you convert 72 degrees Fahrenheit to Celsius?",
+					"assistant": "Subtract 32, then multiply by 5/9. So 72 minus 32 is 40, and 40 times 5/9 is about 22.2 degrees Celsius."
+				}
+			]
+		},
+		{
+			"id": "q-en-06",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Why is the sky blue during the day but red at sunset? Just curious.",
+					"assistant": "Air scatters short blue wavelengths far more than long red ones, so blue light reaches the eye from every direction. At sunset the light crosses more atmosphere, which scatters most of the blue away and leaves the reds and oranges."
+				}
+			]
+		},
+		{
+			"id": "q-en-07",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "What is the past perfect tense and when is it used?",
+					"assistant": "The past perfect (had plus the past participle) describes an action completed before another past action, as in 'The film had started when we arrived.' It makes the order of events clear."
+				}
+			]
+		},
+		{
+			"id": "q-en-08",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "How long does it take to boil an egg with a runny yolk? Is it six minutes or more like four?",
+					"assistant": "About 6 minutes in boiling water gives a set white and a runny yolk. Cool the egg in cold water afterwards to stop it cooking."
+				}
+			]
+		},
+		{
+			"id": "q-en-09",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "What's the capital of Australia, and why isn't it Sydney?",
+					"assistant": "The capital is Canberra, a planned city built as a compromise between the rivals Sydney and Melbourne. It was chosen in the early 1900s and sits roughly halfway between them."
+				}
+			]
+		},
+		{
+			"id": "q-en-10",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "What is the difference between a stock and a bond?",
+					"assistant": "A stock gives its holder a small ownership share in a company, while a bond is a loan to a company or government that pays interest. Stocks tend to be riskier but offer more growth potential."
+				}
+			]
+		},
+		{
+			"id": "q-hu-01",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Hány gramm egy evőkanál liszt körülbelül?",
+					"assistant": "Egy csapott evőkanál liszt nagyjából 8-10 gramm. Ha púpozott a kanál, akár 15 grammot is nyomhat."
+				}
+			]
+		},
+		{
+			"id": "q-hu-02",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Mit jelent az infláció, és miért emelkednek az árak?",
+					"assistant": "Az infláció azt jelenti, hogy az árak általános szintje idővel emelkedik, így ugyanazért a pénzért kevesebbet lehet venni. Oka lehet a megnövekedett kereslet, a drágább alapanyag vagy a pénzkínálat bővülése."
+				}
+			]
+		},
+		{
+			"id": "q-hu-03",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Hogyan működik a fotoszintézis? Egyszerűen elmagyaráznád?",
+					"assistant": "A növények a levelükben lévő klorofill segítségével a napfény energiájából szén-dioxidból és vízből cukrot állítanak elő, közben pedig oxigént bocsátanak ki."
+				}
+			]
+		},
+		{
+			"id": "q-hu-04",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Mi a különbség a tárgyas és a tárgyatlan ragozás között?",
+					"assistant": "A tárgyas ragozást akkor használjuk, ha az ige határozott tárgyra vonatkozik ('látom a házat'), a tárgyatlant pedig, ha nincs tárgy vagy határozatlan a tárgy ('látok egy házat')."
+				}
+			]
+		},
+		{
+			"id": "q-hu-05",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Hány mérföld 100 kilométer?",
+					"assistant": "100 kilométer nagyjából 62 mérföld, mert egy mérföld körülbelül 1,609 kilométer."
+				}
+			]
+		},
+		{
+			"id": "q-hu-06",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Miért mutatja a Hold mindig ugyanazt az oldalát a Föld felé?",
+					"assistant": "Mert a Hold tengely körüli forgásának ideje megegyezik a Föld körüli keringési idejével, ezt kötött keringésnek hívják. Az árapályerők hosszú idő alatt lelassították a forgását, amíg ez az állapot kialakult."
+				}
+			]
+		},
+		{
+			"id": "q-hu-07",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Miért van szökőév, és hogyan lehet kiszámolni, hogy melyik év az?",
+					"assistant": "A Föld 365,24 nap alatt kerüli meg a Napot, ezért négyévente beiktatunk egy plusz napot, február 29-ét. Szökőév az, amelyik osztható néggyel, kivéve ha százzal is osztható, mert ilyenkor csak a négyszázzal osztható évek szökőévek."
+				}
+			]
+		},
+		{
+			"id": "q-hu-08",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Mennyi ideig kell főzni a tojást, hogy lágy maradjon a sárgája?",
+					"assistant": "Forrásban lévő vízben körülbelül 5-6 percig. Utána érdemes hideg vízbe tenni, hogy megálljon a főzés."
+				}
+			]
+		},
+		{
+			"id": "q-hu-09",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Nagyjából hány lakosa van Japánnak, és melyik a legnagyobb városa?",
+					"assistant": "Japánnak nagyjából 124 millió lakosa van, a legnagyobb városa pedig Tokió, amelynek a nagyvárosi térségében több mint 35 millió ember él."
+				}
+			]
+		},
+		{
+			"id": "q-hu-10",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Mit jelent a bruttó és a nettó bér?",
+					"assistant": "A bruttó bér az adók és járulékok levonása előtti összeg, a nettó bér pedig az, ami a levonások után ténylegesen megérkezik a számlára."
+				}
+			]
+		}
+	],
+	"brainstorm": [
+		{
+			"id": "b-en-01",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "I need a name for the rogue in my fantasy game. Sly, but not silly.",
+					"assistant": "A few ideas: Shade, Whisper, Quillon or Vesper. Do any of them fit?"
+				},
+				{
+					"user": "Shade is too plain and Whisper sounds like a perfume. Anything with more bite?",
+					"assistant": "Then maybe Thornwick, Cinderfox or Nightjar."
+				},
+				{
+					"user": "Nightjar is too moody and Thornwick is a mouthful. Cinderfox is fun though, let me think.",
+					"assistant": "Cinderfox has a mischievous ring, and it is easy to say in a party chat."
+				},
+				{
+					"user": "Okay, let's go with Cinderfox. Done.",
+					"assistant": "Cinderfox it is. Good luck in the game!"
+				}
+			],
+			"outcome": "Chose the name Cinderfox for the rogue character.",
+			"outcomeMarkers": [
+				"cinderfox"
+			],
+			"stepMarkers": [
+				"shade",
+				"whisper",
+				"nightjar",
+				"thornwick"
+			]
+		},
+		{
+			"id": "b-en-02",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "My friend Marcus turns 40 next month and I'm stuck on a gift. He likes cooking and stargazing.",
+					"assistant": "You could go for a cast iron skillet, a good chef's knife, or a beginner telescope."
+				},
+				{
+					"user": "The skillet is a bit boring and a knife feels too expensive. Hmm, the telescope is tempting.",
+					"assistant": "A compact tabletop telescope costs less than a good knife, and he could use it right away."
+				},
+				{
+					"user": "Perfect, let's get him the telescope.",
+					"assistant": "Great choice. A star chart would make a nice add-on."
+				}
+			],
+			"outcome": "Chose a beginner telescope as the gift for Marcus.",
+			"outcomeMarkers": [
+				"telescope"
+			],
+			"stepMarkers": [
+				"skillet",
+				"knife"
+			]
+		},
+		{
+			"id": "b-en-03",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "We're repainting the living room and I can't decide on a colour. It faces north so it's a bit dark.",
+					"assistant": "North light is cool, so warm tones help. Try warm white, sage green, navy or terracotta."
+				},
+				{
+					"user": "Navy would swallow the light and sage might look grey. Warm white seems safe but dull.",
+					"assistant": "Terracotta would add warmth and character, especially with white trim."
+				},
+				{
+					"user": "Okay, terracotta it is. I'll order a sample pot this week.",
+					"assistant": "Good plan. Test the sample on two walls before committing."
+				}
+			],
+			"outcome": "Chose terracotta as the living room wall colour.",
+			"outcomeMarkers": [
+				"terracotta"
+			],
+			"stepMarkers": [
+				"navy",
+				"sage",
+				"warm white"
+			]
+		},
+		{
+			"id": "b-en-04",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Looking for a hike this Saturday, around six hours round trip, with a view at the end.",
+					"assistant": "Three options: the Blue Ridge loop, the Lake Hollis trail, or the Cedar Falls route."
+				},
+				{
+					"user": "Blue Ridge is too crowded on weekends, and Lake Hollis is mostly forest with no view.",
+					"assistant": "Cedar Falls has a waterfall at the top and takes about five and a half hours, so it fits your time."
+				},
+				{
+					"user": "Cedar Falls sounds right. We'll go with that one.",
+					"assistant": "Great choice. Start early and bring a waterproof layer."
+				}
+			],
+			"outcome": "Chose the Cedar Falls route for the Saturday hike.",
+			"outcomeMarkers": [
+				"cedar falls"
+			],
+			"stepMarkers": [
+				"blue ridge",
+				"lake hollis"
+			]
+		},
+		{
+			"id": "b-en-05",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "We're getting a golden retriever puppy on Saturday, any name ideas? It's a girl and very fluffy.",
+					"assistant": "How about Biscuit, Pepper, Waffles or Juniper?"
+				},
+				{
+					"user": "Biscuit is too common and Waffles would make me hungry. Pepper is cute but she's golden, not dark.",
+					"assistant": "Juniper is a pretty option, and it shortens nicely to Juni."
+				},
+				{
+					"user": "Hmm, Juniper does sound sweet. Can you suggest one more, just in case?",
+					"assistant": "Maybe Marigold, but Juniper still suits a fluffy golden pup best."
+				},
+				{
+					"user": "No, Marigold is too long. Juniper it is!",
+					"assistant": "Juniper it is. Congratulations on the new puppy!"
+				}
+			],
+			"outcome": "Chose Juniper as the name for the golden retriever puppy.",
+			"outcomeMarkers": [
+				"juniper"
+			],
+			"stepMarkers": [
+				"biscuit",
+				"waffles",
+				"pepper"
+			]
+		},
+		{
+			"id": "b-en-06",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "I need a new laptop for travel and light photo editing. Budget is around 1,200 euros.",
+					"assistant": "Candidates: the Aerobook 13, the Titan G15 gaming laptop, or the Lumio Pro 16."
+				},
+				{
+					"user": "The Titan G15 is too heavy to carry around, and I don't need a gaming laptop.",
+					"assistant": "Then the Aerobook 13 weighs 1.1 kg, and the Lumio Pro 16 has a larger screen."
+				},
+				{
+					"user": "Lumio Pro is nicer for editing but 1.9 kg is too much. How's the Aerobook's battery?",
+					"assistant": "Around 15 hours of mixed use, and the screen covers 100% of sRGB."
+				},
+				{
+					"user": "Good enough. I'll buy the Aerobook 13.",
+					"assistant": "Good pick. Look for the 16 GB memory version."
+				}
+			],
+			"outcome": "Chose the Aerobook 13 laptop.",
+			"outcomeMarkers": [
+				"aerobook"
+			],
+			"stepMarkers": [
+				"titan g15",
+				"lumio"
+			]
+		},
+		{
+			"id": "b-en-07",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "Our school band needs a name. We play indie rock with a bit of synth.",
+					"assistant": "How about Paper Comets, Static Orchard, or Low Tide Club?"
+				},
+				{
+					"user": "Paper Comets sounds like a kids' show. Low Tide Club is cool but another band already uses it.",
+					"assistant": "Static Orchard mixes the synth buzz with something organic."
+				},
+				{
+					"user": "I like that one, but let me check with the others first.",
+					"assistant": "Sure. Keep Static Orchard as your front runner."
+				},
+				{
+					"user": "They all voted. Static Orchard it is!",
+					"assistant": "Great, time to design a logo."
+				}
+			],
+			"outcome": "The band chose the name Static Orchard.",
+			"outcomeMarkers": [
+				"static orchard"
+			],
+			"stepMarkers": [
+				"paper comets",
+				"low tide"
+			]
+		},
+		{
+			"id": "b-en-08",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "I'm baking a cake for my mum's 60th. She isn't a fan of anything too sweet.",
+					"assistant": "Options: lemon poppyseed, chocolate hazelnut, or carrot cake with cream cheese frosting."
+				},
+				{
+					"user": "Chocolate hazelnut is way too sweet for her, and lemon poppyseed is a bit plain.",
+					"assistant": "Carrot cake is moist, spiced and not overly sweet."
+				},
+				{
+					"user": "Yes, carrot cake. That's the one.",
+					"assistant": "Lovely. Go easy on the sugar in the frosting."
+				}
+			],
+			"outcome": "Chose carrot cake for the 60th birthday.",
+			"outcomeMarkers": [
+				"carrot cake"
+			],
+			"stepMarkers": [
+				"chocolate hazelnut",
+				"lemon poppyseed"
+			]
+		},
+		{
+			"id": "b-en-09",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "I'm starting a weekly newsletter about slow travel. Need a title.",
+					"assistant": "Options: The Slow Lane, Notes from the Margin, or Tuesday Letters."
+				},
+				{
+					"user": "The Slow Lane is probably taken, and Notes from the Margin is too long for a header.",
+					"assistant": "Tuesday Letters would suit a weekly rhythm and is short."
+				},
+				{
+					"user": "But I might send it on Sundays. Does that matter?",
+					"assistant": "A little. Name it after the day you send it, or pick a title that doesn't mention a day."
+				},
+				{
+					"user": "I'll send it on Tuesdays then. Tuesday Letters, final answer.",
+					"assistant": "Done. It is a great name."
+				}
+			],
+			"outcome": "Chose Tuesday Letters as the newsletter title.",
+			"outcomeMarkers": [
+				"tuesday letters"
+			],
+			"stepMarkers": [
+				"slow lane",
+				"margin"
+			]
+		},
+		{
+			"id": "b-en-10",
+			"lang": "en",
+			"turns": [
+				{
+					"user": "My new sourdough starter needs a name. Funny ones welcome.",
+					"assistant": "How about Doughlene, Bubbles, or Gluten Tag?"
+				},
+				{
+					"user": "Doughlene is a bit too much of a pun, and Bubbles is what everyone calls theirs.",
+					"assistant": "Gluten Tag is a German greeting pun and still easy to say."
+				},
+				{
+					"user": "Ha, perfect. Gluten Tag it is.",
+					"assistant": "Welcome to the family, Gluten Tag."
+				}
+			],
+			"outcome": "Chose Gluten Tag as the sourdough starter's name.",
+			"outcomeMarkers": [
+				"gluten tag"
+			],
+			"stepMarkers": [
+				"doughlene",
+				"bubbles"
+			]
+		},
+		{
+			"id": "b-hu-01",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Nevet keresek a varázsló karakteremnek a fantasy játékomban. Valami természetes hangzású kellene.",
+					"assistant": "Lehetne Sötétmoha, Ezüstág vagy Zordon."
+				},
+				{
+					"user": "A Sötétmoha túl sötét hangulatú, a Zordon meg inkább egy harcosra illik. Van még ötleted?",
+					"assistant": "Akkor talán Hajnalharmat, ha a természetközeli hangulat a lényeg."
+				},
+				{
+					"user": "A Hajnalharmat túl hosszú. Az Ezüstág tetszik, de még nem tudom.",
+					"assistant": "Az Ezüstág rövid, jól csengő, és illik egy bölcs varázslóhoz."
+				},
+				{
+					"user": "Jó, legyen az Ezüstág.",
+					"assistant": "Szuper választás!"
+				}
+			],
+			"outcome": "Chose the name Ezüstág for the wizard character.",
+			"outcomeMarkers": [
+				"ezüstág"
+			],
+			"stepMarkers": [
+				"sötétmoha",
+				"zordon",
+				"hajnalharmat"
+			]
+		},
+		{
+			"id": "b-hu-02",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "A barátnőm, Vera harmincéves lesz, és nem tudom, mit vegyek neki. Szereti a kikapcsolódást.",
+					"assistant": "Lehetne illatgyertya, egy szép bögre vagy egy fürdőbérlet."
+				},
+				{
+					"user": "Az illatgyertyából már kapott tőlem tavaly, a bögre meg túl hétköznapi.",
+					"assistant": "Akkor a fürdőbérlet jó lehet, mert élményt ad."
+				},
+				{
+					"user": "Igen, azt vegyük meg neki! Egy tízalkalmas fürdőbérletet.",
+					"assistant": "Szuper, a termálfürdők gyakran árulnak ilyet."
+				}
+			],
+			"outcome": "Chose a ten-visit spa pass as the gift for Vera.",
+			"outcomeMarkers": [
+				"fürdőbérlet"
+			],
+			"stepMarkers": [
+				"gyerty",
+				"bögre"
+			]
+		},
+		{
+			"id": "b-hu-03",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "A hálószobát festjük át, de nem tudok színt választani. Északra néz, elég sötét.",
+					"assistant": "Jöhet zsálya, krémfehér, mustársárga vagy mélykék."
+				},
+				{
+					"user": "A mustársárga túl harsány, a krémfehér meg unalmas. A zsálya talán jó, de ahhoz sok fény kell.",
+					"assistant": "Egy északi szobában a mélykék elegáns, nyugodt hatást kelt, főleg fehér szegéllyel."
+				},
+				{
+					"user": "Végül a mélykék mellett döntöttem.",
+					"assistant": "Remek, kérj hozzá mintát a festékboltban."
+				}
+			],
+			"outcome": "Chose deep blue for the bedroom walls.",
+			"outcomeMarkers": [
+				"mélykék"
+			],
+			"stepMarkers": [
+				"mustár",
+				"krémfehér",
+				"zsálya"
+			]
+		},
+		{
+			"id": "b-hu-04",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Szombaton túrázni mennénk valahova, kb. 5-6 óra legyen oda-vissza.",
+					"assistant": "Lehetne a Kékes-tető, a Naszály vagy a Rám-szakadék a Pilisben."
+				},
+				{
+					"user": "A Kékes túl messze van, a Naszályra meg már voltunk. Mesélj a Rám-szakadékról.",
+					"assistant": "Vadregényes szurdok létrákkal, 12 km körüli kör, jó cipő kell hozzá."
+				},
+				{
+					"user": "Rendben, akkor a Rám-szakadék lesz az.",
+					"assistant": "Jó választás. Vigyetek vizet és uzsonnát."
+				}
+			],
+			"outcome": "Chose the Rám-szakadék route for the Saturday hike.",
+			"outcomeMarkers": [
+				"rám-szakadék"
+			],
+			"stepMarkers": [
+				"kékes",
+				"naszály"
+			]
+		},
+		{
+			"id": "b-hu-05",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Egy fekete keverék kiskutyát fogadunk örökbe. Mi legyen a neve?",
+					"assistant": "Lehetne Morzsa, Bodri, Cézár vagy Kormos."
+				},
+				{
+					"user": "A Bodri túl régimódi, a Morzsa inkább egy kicsi, világos kutyának való.",
+					"assistant": "A Kormos jól illik a fekete szőrhöz, és kedves, barátságos név."
+				},
+				{
+					"user": "A Cézár is jó lenne, de a gyerekek nem tudják kimondani.",
+					"assistant": "Akkor a Kormos egyszerűbb: két szótag, könnyű hívni."
+				},
+				{
+					"user": "Kormos lesz, szavaztunk.",
+					"assistant": "Szép név. Sok boldogságot nektek!"
+				}
+			],
+			"outcome": "Chose Kormos as the puppy's name.",
+			"outcomeMarkers": [
+				"kormos"
+			],
+			"stepMarkers": [
+				"bodri",
+				"morzsa",
+				"cézár"
+			]
+		},
+		{
+			"id": "b-hu-06",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Új laptop kell a munkámhoz, főleg táblázatokat és videóhívásokat használok. A keret 350 ezer forint.",
+					"assistant": "Három jelölt: Zephyr 14, Orion Slim vagy Atlas 16."
+				},
+				{
+					"user": "Az Atlas 16 túl nagy és nehéz, a Zephyr 14 meg csak 8 GB memóriával jön.",
+					"assistant": "Az Orion Slim 16 GB-os, 1,2 kilós, és hosszú az akkuidő."
+				},
+				{
+					"user": "Akkor az Orion Slimet kérem, rendeljük meg.",
+					"assistant": "Jó döntés."
+				}
+			],
+			"outcome": "Chose the Orion Slim laptop.",
+			"outcomeMarkers": [
+				"orion"
+			],
+			"stepMarkers": [
+				"atlas",
+				"zephyr"
+			]
+		},
+		{
+			"id": "b-hu-07",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "A gimis zenekarunknak nevet keresünk, indie-pop vagyunk.",
+					"assistant": "Lehetne Rozsdás Hold, Délibáb vagy Csendkút."
+				},
+				{
+					"user": "A Rozsdás Hold túl metálosan hangzik, a Délibábot meg már használja egy másik banda.",
+					"assistant": "A Csendkút szokatlan és költői, jól mutat plakáton."
+				},
+				{
+					"user": "Tetszik, de megkérdezem a többieket is.",
+					"assistant": "Persze, kérdezd meg őket."
+				},
+				{
+					"user": "Mind egyetértett, Csendkút lesz.",
+					"assistant": "Szuper, akkor jöhet a logó."
+				}
+			],
+			"outcome": "The band chose the name Csendkút.",
+			"outcomeMarkers": [
+				"csendkút"
+			],
+			"stepMarkers": [
+				"rozsdás",
+				"délibáb"
+			]
+		},
+		{
+			"id": "b-hu-08",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Anyukám 60. születésnapjára tortát sütök, nem szereti az édeset. Mit ízesítsek?",
+					"assistant": "Lehet citromos, kókuszos, karamellás vagy csokis-meggyes."
+				},
+				{
+					"user": "A karamellás túl édes lenne, a kókuszos meg nem az ő ízlése.",
+					"assistant": "A csokis-meggyes savanykás, így kiegyensúlyozott."
+				},
+				{
+					"user": "Rendben, csokis-meggyes lesz.",
+					"assistant": "Nagyszerű, a krémbe tegyél kevés cukrot."
+				}
+			],
+			"outcome": "Chose a chocolate and sour cherry cake.",
+			"outcomeMarkers": [
+				"meggy"
+			],
+			"stepMarkers": [
+				"karamell",
+				"kókusz"
+			]
+		},
+		{
+			"id": "b-hu-09",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "Heti hírlevelet indítok a lassú utazásról. Kell hozzá egy cím.",
+					"assistant": "Javaslat: Lassú sáv, Jegyzetek a margóra, Vasárnapi levelek."
+				},
+				{
+					"user": "A Lassú sáv szerintem már foglalt, a Jegyzetek a margóra meg túl hosszú.",
+					"assistant": "A Vasárnapi levelek rövid, és jól illik a heti ritmushoz."
+				},
+				{
+					"user": "De ha csütörtökön küldöm, az nem fura?",
+					"assistant": "Kicsit, mert a cím a vasárnapot ígéri. Küldd vasárnap, vagy válassz napfüggetlen címet."
+				},
+				{
+					"user": "Akkor vasárnap küldöm, legyen Vasárnapi levelek.",
+					"assistant": "Szuper, jó név."
+				}
+			],
+			"outcome": "Chose Vasárnapi levelek as the newsletter title.",
+			"outcomeMarkers": [
+				"vasárnapi"
+			],
+			"stepMarkers": [
+				"lassú sáv",
+				"margó"
+			]
+		},
+		{
+			"id": "b-hu-10",
+			"lang": "hu",
+			"turns": [
+				{
+					"user": "A húgom kiscicát kapott, vörös cirmos. Nevet keresünk neki.",
+					"assistant": "Lehetne Tigris, Mazsola vagy Cirmi."
+				},
+				{
+					"user": "A Tigris túl nagy név egy ilyen kicsinek, a Cirmi meg minden cica neve.",
+					"assistant": "A Mazsola cuki, és illik a vöröses szőrhöz."
+				},
+				{
+					"user": "Mazsola lesz, a húgom is imádja.",
+					"assistant": "Édes név. Sok örömet a kiscicához!"
+				}
+			],
+			"outcome": "Chose Mazsola as the kitten's name.",
+			"outcomeMarkers": [
+				"mazsol"
+			],
+			"stepMarkers": [
+				"tigris",
+				"cirmi"
+			]
+		}
+	],
+	"lasting": [
+		{
+			"id": "l-en-01",
+			"lang": "en",
+			"user": "My younger brother Callum lives in Leeds. We talk every Sunday.",
+			"markers": [
+				"callum",
+				"leeds"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-en-02",
+			"lang": "en",
+			"user": "Just so you know, I'm allergic to shellfish.",
+			"markers": [
+				"shellfish"
+			],
+			"kind": "lasting",
+			"subject": "health"
+		},
+		{
+			"id": "l-en-03",
+			"lang": "en",
+			"user": "I grew up speaking Portuguese at home.",
+			"markers": [
+				"portuguese"
+			],
+			"kind": "lasting",
+			"subject": "about_you"
+		},
+		{
+			"id": "l-en-04",
+			"lang": "en",
+			"user": "I live in Bristol, in a flat near the harbour.",
+			"markers": [
+				"bristol"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-en-05",
+			"lang": "en",
+			"user": "We've got a black cat called Pickle who rules the house.",
+			"markers": [
+				"pickle"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-en-06",
+			"lang": "en",
+			"user": "I work as a bookkeeper at Brightwood Furniture.",
+			"markers": [
+				"bookkeeper",
+				"brightwood"
+			],
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		{
+			"id": "l-en-07",
+			"lang": "en",
+			"user": "I really love old black-and-white detective films.",
+			"markers": [
+				"detective"
+			],
+			"kind": "lasting",
+			"subject": "interests"
+		},
+		{
+			"id": "l-en-08",
+			"lang": "en",
+			"user": "I've had type 1 diabetes since I was nine.",
+			"markers": [
+				"diabetes"
+			],
+			"kind": "lasting",
+			"subject": "health"
+		},
+		{
+			"id": "l-en-09",
+			"lang": "en",
+			"user": "I'm studying marine biology at the University of Plymouth.",
+			"markers": [
+				"marine biology",
+				"plymouth"
+			],
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		{
+			"id": "l-en-10",
+			"lang": "en",
+			"user": "I drive an old green Volvo estate.",
+			"markers": [
+				"volvo"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "l-hu-01",
+			"lang": "hu",
+			"user": "A nővérem, Réka Kecskeméten él.",
+			"markers": [
+				"rék",
+				"kecskemét"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-hu-02",
+			"lang": "hu",
+			"user": "Egyébként allergiás vagyok a mogyoróra.",
+			"markers": [
+				"mogyoró"
+			],
+			"kind": "lasting",
+			"subject": "health"
+		},
+		{
+			"id": "l-hu-03",
+			"lang": "hu",
+			"user": "Folyékonyan beszélek spanyolul.",
+			"markers": [
+				"spanyol"
+			],
+			"kind": "lasting",
+			"subject": "about_you"
+		},
+		{
+			"id": "l-hu-04",
+			"lang": "hu",
+			"user": "Szegeden lakunk, egy kis panellakásban a Tisza közelében.",
+			"markers": [
+				"szeged"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-hu-05",
+			"lang": "hu",
+			"user": "Van egy kétéves beagle kutyánk, Bodzának hívják.",
+			"markers": [
+				"bodz",
+				"beagle"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-hu-06",
+			"lang": "hu",
+			"user": "Fogtechnikusként dolgozom egy debreceni fogászaton.",
+			"markers": [
+				"fogtechnikus",
+				"debrecen"
+			],
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		{
+			"id": "l-hu-07",
+			"lang": "hu",
+			"user": "Kiskorom óta nagyon szeretem a sakkot.",
+			"markers": [
+				"sakk"
+			],
+			"kind": "lasting",
+			"subject": "interests"
+		},
+		{
+			"id": "l-hu-08",
+			"lang": "hu",
+			"user": "A páromat Gergőnek hívják, és Egerből származik.",
+			"markers": [
+				"gergő",
+				"eger"
+			],
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		{
+			"id": "l-hu-09",
+			"lang": "hu",
+			"user": "Van egy régi, zöld Suzuki Swiftem, azzal járok mindenhová.",
+			"markers": [
+				"suzuki"
+			],
+			"kind": "lasting",
+			"subject": "other"
+		},
+		{
+			"id": "l-hu-10",
+			"lang": "hu",
+			"user": "A Műegyetemen tanulok építőmérnöknek.",
+			"markers": [
+				"műegyetem",
+				"építőmérnök"
+			],
+			"kind": "lasting",
+			"subject": "work_study"
+		}
+	],
+	"ongoing": [
+		{
+			"id": "o-en-01",
+			"lang": "en",
+			"user": "I'm writing my master's thesis on urban beekeeping and I'm about halfway through.",
+			"markers": [
+				"thesis",
+				"beekeeping"
+			],
+			"kind": "ongoing",
+			"subject": "work_study"
+		},
+		{
+			"id": "o-en-02",
+			"lang": "en",
+			"user": "For the past two months I've been building a budgeting app for my sister's catering business.",
+			"markers": [
+				"budgeting app"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-en-03",
+			"lang": "en",
+			"user": "I started learning the cello last September and I practise most evenings.",
+			"markers": [
+				"cello"
+			],
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		{
+			"id": "o-en-04",
+			"lang": "en",
+			"user": "I'm training for the Lakeside half marathon in April, running four times a week.",
+			"markers": [
+				"half marathon",
+				"lakeside"
+			],
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		{
+			"id": "o-en-05",
+			"lang": "en",
+			"user": "We're renovating our bathroom bit by bit, and the tiles go in this month.",
+			"markers": [
+				"bathroom"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-en-06",
+			"lang": "en",
+			"user": "I'm doing a physiotherapy programme for my left shoulder, three sessions a week for the past month.",
+			"markers": [
+				"physiotherapy",
+				"shoulder"
+			],
+			"kind": "ongoing",
+			"subject": "health"
+		},
+		{
+			"id": "o-en-07",
+			"lang": "en",
+			"user": "I've been teaching myself Japanese for about a year, mostly with flashcards and podcasts.",
+			"markers": [
+				"japanese"
+			],
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		{
+			"id": "o-en-08",
+			"lang": "en",
+			"user": "I'm slowly restoring my grandfather's old motorcycle in the garage on weekends.",
+			"markers": [
+				"motorcycle"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-en-09",
+			"lang": "en",
+			"user": "I'm retraining as an electrician through evening classes at the technical college.",
+			"markers": [
+				"electrician"
+			],
+			"kind": "ongoing",
+			"subject": "work_study"
+		},
+		{
+			"id": "o-en-10",
+			"lang": "en",
+			"user": "I'm writing a children's picture book about a lighthouse keeper's goat.",
+			"markers": [
+				"picture book",
+				"lighthouse"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-hu-01",
+			"lang": "hu",
+			"user": "A szakdolgozatomat írom a vízmosásokról a Bakonyban, nagyjából a felénél tartok.",
+			"markers": [
+				"szakdolgozat",
+				"bakony"
+			],
+			"kind": "ongoing",
+			"subject": "work_study"
+		},
+		{
+			"id": "o-hu-02",
+			"lang": "hu",
+			"user": "Egy időjárás-alkalmazást fejlesztek a barátaimmal, esténként dolgozunk rajta.",
+			"markers": [
+				"időjárás"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-hu-03",
+			"lang": "hu",
+			"user": "Tavaly ősz óta tanulok zongorázni, hetente kétszer gyakorlok.",
+			"markers": [
+				"zongor"
+			],
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		{
+			"id": "o-hu-04",
+			"lang": "hu",
+			"user": "A tavaszi Balaton-félmaratonra készülök, heti négyszer futok.",
+			"markers": [
+				"félmaraton",
+				"balaton"
+			],
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		{
+			"id": "o-hu-05",
+			"lang": "hu",
+			"user": "Felújítjuk a konyhát, most éppen a csempézésnél tartunk.",
+			"markers": [
+				"konyh"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-hu-06",
+			"lang": "hu",
+			"user": "Térdműtét után heti háromszor járok rehabilitációs tornára.",
+			"markers": [
+				"térdműtét",
+				"rehabilitáci"
+			],
+			"kind": "ongoing",
+			"subject": "health"
+		},
+		{
+			"id": "o-hu-07",
+			"lang": "hu",
+			"user": "Egy éve tanulok svédül az interneten, főleg podcastokkal.",
+			"markers": [
+				"svéd"
+			],
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		{
+			"id": "o-hu-08",
+			"lang": "hu",
+			"user": "Építek egy kis kerti faházat a nagyapám telkén, hétvégenként haladok vele.",
+			"markers": [
+				"faház"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		{
+			"id": "o-hu-09",
+			"lang": "hu",
+			"user": "A munka mellett levelezőn tanulok pszichológiát a szegedi egyetemen.",
+			"markers": [
+				"pszichológi",
+				"szeged"
+			],
+			"kind": "ongoing",
+			"subject": "work_study"
+		},
+		{
+			"id": "o-hu-10",
+			"lang": "hu",
+			"user": "Gyerekeknek írok egy mesekönyvet egy zöld sünről, már a harmadik fejezetnél tartok.",
+			"markers": [
+				"mesekönyv",
+				"sün"
+			],
+			"kind": "ongoing",
+			"subject": "projects"
+		}
+	],
+	"temporary": [
+		{
+			"id": "t-en-01",
+			"lang": "en",
+			"user": "I've had a nasty cold since Monday, so I'm staying in bed today.",
+			"markers": [
+				"cold"
+			],
+			"kind": "temporary",
+			"subject": "health",
+			"eventInDays": null
+		},
+		{
+			"id": "t-en-02",
+			"lang": "en",
+			"user": "I have a dentist appointment in three days for a filling.",
+			"markers": [
+				"dentist"
+			],
+			"kind": "temporary",
+			"subject": "health",
+			"eventInDays": 3
+		},
+		{
+			"id": "t-en-03",
+			"lang": "en",
+			"user": "My driving theory exam is in 12 days and I'm panicking a bit.",
+			"markers": [
+				"theory exam"
+			],
+			"kind": "temporary",
+			"subject": "other",
+			"eventInDays": 12
+		},
+		{
+			"id": "t-en-04",
+			"lang": "en",
+			"user": "We're driving up to see my grandparents this weekend.",
+			"markers": [
+				"grandparents"
+			],
+			"kind": "temporary",
+			"subject": "home_family",
+			"eventInDays": 3
+		},
+		{
+			"id": "t-en-05",
+			"lang": "en",
+			"user": "I'm flying to Lisbon next Tuesday for a work conference.",
+			"markers": [
+				"lisbon"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 6
+		},
+		{
+			"id": "t-en-06",
+			"lang": "en",
+			"user": "I've got a sprained ankle, so no football for a few weeks.",
+			"markers": [
+				"ankle"
+			],
+			"kind": "temporary",
+			"subject": "health",
+			"eventInDays": null
+		},
+		{
+			"id": "t-en-07",
+			"lang": "en",
+			"user": "My project report is due tomorrow at noon and I'm nowhere near done.",
+			"markers": [
+				"report"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 1
+		},
+		{
+			"id": "t-en-08",
+			"lang": "en",
+			"user": "The boiler engineer is coming in two days, so I'll be at home all morning.",
+			"markers": [
+				"boiler"
+			],
+			"kind": "temporary",
+			"subject": "other",
+			"eventInDays": 2
+		},
+		{
+			"id": "t-en-09",
+			"lang": "en",
+			"user": "I'm house-sitting for my neighbours for the next ten days.",
+			"markers": [
+				"house-sitting"
+			],
+			"kind": "temporary",
+			"subject": "other",
+			"eventInDays": null
+		},
+		{
+			"id": "t-en-10",
+			"lang": "en",
+			"user": "I've got a job interview in five days at a design studio.",
+			"markers": [
+				"interview"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 5
+		},
+		{
+			"id": "t-hu-01",
+			"lang": "hu",
+			"user": "Hétfő óta torokfájásom van, és kicsit lázas is vagyok.",
+			"markers": [
+				"torokfájás"
+			],
+			"kind": "temporary",
+			"subject": "health",
+			"eventInDays": null
+		},
+		{
+			"id": "t-hu-02",
+			"lang": "hu",
+			"user": "Két nap múlva fogorvoshoz megyek tömésre.",
+			"markers": [
+				"fogorvos"
+			],
+			"kind": "temporary",
+			"subject": "health",
+			"eventInDays": 2
+		},
+		{
+			"id": "t-hu-03",
+			"lang": "hu",
+			"user": "Kilenc nap múlva lesz a záróvizsgám, és még alig tanultam.",
+			"markers": [
+				"záróvizsg"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 9
+		},
+		{
+			"id": "t-hu-04",
+			"lang": "hu",
+			"user": "Hétvégén lemegyünk a szüleimhez Pécsre.",
+			"markers": [
+				"pécs"
+			],
+			"kind": "temporary",
+			"subject": "home_family",
+			"eventInDays": 3
+		},
+		{
+			"id": "t-hu-05",
+			"lang": "hu",
+			"user": "Holnap reggel repülök Barcelonába egy konferenciára.",
+			"markers": [
+				"barcelon"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 1
+		},
+		{
+			"id": "t-hu-06",
+			"lang": "hu",
+			"user": "Eltörtem a lábam, így még három hétig gipszben leszek.",
+			"markers": [
+				"gipsz"
+			],
+			"kind": "temporary",
+			"subject": "health",
+			"eventInDays": null
+		},
+		{
+			"id": "t-hu-07",
+			"lang": "hu",
+			"user": "Holnap délig le kell adnom a negyedéves beszámolót.",
+			"markers": [
+				"beszámol"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 1
+		},
+		{
+			"id": "t-hu-08",
+			"lang": "hu",
+			"user": "Három nap múlva jön a vízszerelő megnézni a csöpögő csapot.",
+			"markers": [
+				"vízszerelő"
+			],
+			"kind": "temporary",
+			"subject": "other",
+			"eventInDays": 3
+		},
+		{
+			"id": "t-hu-09",
+			"lang": "hu",
+			"user": "Két hétig a barátnőm macskájára vigyázok, amíg ő Olaszországban van.",
+			"markers": [
+				"macsk",
+				"olaszország"
+			],
+			"kind": "temporary",
+			"subject": "other",
+			"eventInDays": null
+		},
+		{
+			"id": "t-hu-10",
+			"lang": "hu",
+			"user": "Hat nap múlva állásinterjúm lesz egy budapesti webáruháznál.",
+			"markers": [
+				"interjú",
+				"budapest"
+			],
+			"kind": "temporary",
+			"subject": "work_study",
+			"eventInDays": 6
+		}
+	],
+	"project": [
+		{
+			"id": "p-en-01",
+			"lang": "en",
+			"project": "Harbor CRM migration",
+			"user": "We decided to move the customer data to Postgres because the old vendor's licence ends in March.",
+			"markers": [
+				"postgres"
+			],
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		{
+			"id": "p-en-02",
+			"lang": "en",
+			"project": "Harbor CRM migration",
+			"user": "Priya Nair owns the data-mapping work and Tom Weller signs off on the cutover.",
+			"markers": [
+				"priya",
+				"tom weller"
+			],
+			"kind": "lasting",
+			"subject": "people"
+		},
+		{
+			"id": "p-en-03",
+			"lang": "en",
+			"project": "Harbor CRM migration",
+			"user": "The old system holds about 48,000 contact records, and roughly 9,000 of them are duplicates.",
+			"markers": [
+				"48,000",
+				"9,000"
+			],
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		{
+			"id": "p-en-04",
+			"lang": "en",
+			"project": "Northwind onboarding portal",
+			"user": "We're currently building the invite flow, and the billing screens come after that.",
+			"markers": [
+				"invite flow"
+			],
+			"kind": "ongoing",
+			"subject": "plans_status"
+		},
+		{
+			"id": "p-en-05",
+			"lang": "en",
+			"project": "Northwind onboarding portal",
+			"user": "The stakeholder demo is next Friday, so the login bug has to be fixed before then.",
+			"markers": [
+				"demo",
+				"login bug"
+			],
+			"kind": "temporary",
+			"subject": "plans_status"
+		},
+		{
+			"id": "p-en-06",
+			"lang": "en",
+			"project": "Greenfield warehouse audit",
+			"user": "Our goal is to cut picking errors below 1% by the end of the year.",
+			"markers": [
+				"picking errors",
+				"1%"
+			],
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		{
+			"id": "p-en-07",
+			"lang": "en",
+			"project": "Greenfield warehouse audit",
+			"user": "Marta from finance wants the cost report in euros, not pounds.",
+			"markers": [
+				"marta",
+				"euros"
+			],
+			"kind": "lasting",
+			"subject": "people"
+		},
+		{
+			"id": "p-en-08",
+			"lang": "en",
+			"project": "Lumen mobile app",
+			"user": "The API rate limit is 600 requests per minute per token, so we have to batch the sync calls.",
+			"markers": [
+				"600"
+			],
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		{
+			"id": "p-en-09",
+			"lang": "en",
+			"project": "Lumen mobile app",
+			"user": "I'll be migrating the push notification service to Firebase over the next few weeks.",
+			"markers": [
+				"firebase"
+			],
+			"kind": "ongoing",
+			"subject": "plans_status"
+		},
+		{
+			"id": "p-en-10",
+			"lang": "en",
+			"project": "Lumen mobile app",
+			"user": "We have a design review tomorrow at ten with the Oslo team.",
+			"markers": [
+				"design review",
+				"oslo"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "p-hu-01",
+			"lang": "hu",
+			"project": "Kertész webshop",
+			"user": "Úgy döntöttünk, hogy Shopify helyett WooCommerce-t használunk, mert olcsóbb a havi díj.",
+			"markers": [
+				"woocommerce",
+				"shopify"
+			],
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		{
+			"id": "p-hu-02",
+			"lang": "hu",
+			"project": "Kertész webshop",
+			"user": "A termékfotókat Bence csinálja, a leírásokat pedig Orsi írja.",
+			"markers": [
+				"benc",
+				"orsi"
+			],
+			"kind": "lasting",
+			"subject": "people"
+		},
+		{
+			"id": "p-hu-03",
+			"lang": "hu",
+			"project": "Kertész webshop",
+			"user": "A csomagküldés átlagosan 1490 forintba kerül, és a rendelések 60 százaléka Pest megyéből jön.",
+			"markers": [
+				"1490",
+				"60 százalék"
+			],
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		{
+			"id": "p-hu-04",
+			"lang": "hu",
+			"project": "Duna Logisztika átállás",
+			"user": "A raktári szoftver átállítása folyamatban van, most az adatok tisztításánál tartunk.",
+			"markers": [
+				"tisztítás"
+			],
+			"kind": "ongoing",
+			"subject": "plans_status"
+		},
+		{
+			"id": "p-hu-05",
+			"lang": "hu",
+			"project": "Duna Logisztika átállás",
+			"user": "A jövő pénteki határidőig be kell fejeznünk a tesztelést.",
+			"markers": [
+				"tesztelés"
+			],
+			"kind": "temporary",
+			"subject": "plans_status"
+		},
+		{
+			"id": "p-hu-06",
+			"lang": "hu",
+			"project": "Duna Logisztika átállás",
+			"user": "A célunk, hogy az átállás alatt ne legyen három óránál hosszabb leállás.",
+			"markers": [
+				"leállás"
+			],
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		{
+			"id": "p-hu-07",
+			"lang": "hu",
+			"project": "Tündérkert játék",
+			"user": "A grafikákért Kata felel, a hangokat pedig egy külsős, Balázs készíti.",
+			"markers": [
+				"kata",
+				"balázs"
+			],
+			"kind": "lasting",
+			"subject": "people"
+		},
+		{
+			"id": "p-hu-08",
+			"lang": "hu",
+			"project": "Tündérkert játék",
+			"user": "A pálya mérete 64 × 64 csempe, a karakter sebessége pedig 3,5 csempe másodpercenként.",
+			"markers": [
+				"64",
+				"3,5"
+			],
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		{
+			"id": "p-hu-09",
+			"lang": "hu",
+			"project": "Tündérkert játék",
+			"user": "Holnap délelőtt tízkor megbeszélés lesz a kiadóval a megjelenésről.",
+			"markers": [
+				"kiadó"
+			],
+			"kind": "temporary",
+			"subject": "other"
+		},
+		{
+			"id": "p-hu-10",
+			"lang": "hu",
+			"project": "Margit utcai iroda felújítás",
+			"user": "A tulajdonos jóváhagyta, hogy a falakat világosszürkére festjük.",
+			"markers": [
+				"világosszürk"
+			],
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		}
+	],
+	"change": [
+		{
+			"id": "c-en-01",
+			"lang": "en",
+			"before": "We live in Exeter, close to the university.",
+			"after": "We moved to Norwich last month and we're still unpacking boxes.",
+			"oldMarkers": [
+				"exeter"
+			],
+			"newMarkers": [
+				"norwich"
+			]
+		},
+		{
+			"id": "c-en-02",
+			"lang": "en",
+			"before": "I work as a data analyst at Kestrel Logistics.",
+			"after": "I started at a new company in May, a health startup called Meadowline.",
+			"oldMarkers": [
+				"kestrel"
+			],
+			"newMarkers": [
+				"meadowline"
+			]
+		},
+		{
+			"id": "c-en-03",
+			"lang": "en",
+			"before": "I drive a 2012 Honda Civic.",
+			"after": "I sold my old car in the spring and bought a used Skoda Octavia.",
+			"oldMarkers": [
+				"civic",
+				"honda"
+			],
+			"newMarkers": [
+				"skoda",
+				"octavia"
+			]
+		},
+		{
+			"id": "c-en-04",
+			"lang": "en",
+			"before": "My daughter takes violin lessons every Thursday.",
+			"after": "She switched to cello lessons in January and loves them.",
+			"oldMarkers": [
+				"violin"
+			],
+			"newMarkers": [
+				"cello"
+			]
+		},
+		{
+			"id": "c-en-05",
+			"lang": "en",
+			"before": "I use an iPhone 12 and it has served me well.",
+			"after": "I finally got a new phone, a Pixel 9, last week.",
+			"oldMarkers": [
+				"iphone"
+			],
+			"newMarkers": [
+				"pixel"
+			]
+		},
+		{
+			"id": "c-en-06",
+			"lang": "en",
+			"before": "I'm studying law at the University of Glasgow.",
+			"after": "I changed courses, and now I study mechanical engineering at Strathclyde.",
+			"oldMarkers": [
+				"law",
+				"glasgow"
+			],
+			"newMarkers": [
+				"mechanical engineering",
+				"strathclyde"
+			]
+		},
+		{
+			"id": "c-en-07",
+			"lang": "en",
+			"before": "I'm a vegetarian and have been for years.",
+			"after": "I started eating fish again this summer, so I'm pescatarian now.",
+			"oldMarkers": [
+				"vegetarian"
+			],
+			"newMarkers": [
+				"pescatarian"
+			]
+		},
+		{
+			"id": "c-en-08",
+			"lang": "en",
+			"before": "I work from home three days a week.",
+			"after": "My company called everyone back, so I'm in the office five days now.",
+			"oldMarkers": [
+				"three days"
+			],
+			"newMarkers": [
+				"five days"
+			]
+		},
+		{
+			"id": "c-en-09",
+			"lang": "en",
+			"before": "I play for a local football team, the Harbour Rovers.",
+			"after": "I joined the Eastfield Hawks when my old team folded.",
+			"oldMarkers": [
+				"harbour rovers"
+			],
+			"newMarkers": [
+				"eastfield hawks"
+			]
+		},
+		{
+			"id": "c-en-10",
+			"lang": "en",
+			"before": "I'm renting a one-bedroom flat on Marsh Lane.",
+			"after": "We bought a small house in Fernbury and got the keys in June.",
+			"oldMarkers": [
+				"marsh lane"
+			],
+			"newMarkers": [
+				"fernbury"
+			]
+		},
+		{
+			"id": "c-hu-01",
+			"lang": "hu",
+			"before": "Pécsen lakunk egy kis lakásban a belvárosban.",
+			"after": "Idén nyáron elköltöztünk Győrbe a férjem munkája miatt.",
+			"oldMarkers": [
+				"pécs"
+			],
+			"newMarkers": [
+				"győr"
+			]
+		},
+		{
+			"id": "c-hu-02",
+			"lang": "hu",
+			"before": "A Kékvölgy Bútornál dolgozom könyvelőként.",
+			"after": "Március óta új helyen dolgozom, a Délpont Logisztikánál.",
+			"oldMarkers": [
+				"kékvölgy"
+			],
+			"newMarkers": [
+				"délpont"
+			]
+		},
+		{
+			"id": "c-hu-03",
+			"lang": "hu",
+			"before": "Egy öreg Opel Astrával járok dolgozni.",
+			"after": "Eladtam az autót, és vettem egy használt Toyota Yarist.",
+			"oldMarkers": [
+				"opel"
+			],
+			"newMarkers": [
+				"toyota",
+				"yaris"
+			]
+		},
+		{
+			"id": "c-hu-04",
+			"lang": "hu",
+			"before": "A fiam hegedűórákra jár, hetente egyszer.",
+			"after": "A fiam átváltott gitárra, már fél éve azon tanul.",
+			"oldMarkers": [
+				"hegedű"
+			],
+			"newMarkers": [
+				"gitár"
+			]
+		},
+		{
+			"id": "c-hu-05",
+			"lang": "hu",
+			"before": "A telefonom egy Samsung Galaxy A52, elégedett vagyok vele.",
+			"after": "Új telefont vettem a múlt héten, egy Xiaomit.",
+			"oldMarkers": [
+				"samsung"
+			],
+			"newMarkers": [
+				"xiaomi"
+			]
+		},
+		{
+			"id": "c-hu-06",
+			"lang": "hu",
+			"before": "Bölcsész vagyok, az ELTE-n tanulok történelmet.",
+			"after": "Átjelentkeztem, mostantól a Corvinuson közgazdaságtant tanulok.",
+			"oldMarkers": [
+				"elte",
+				"történelm"
+			],
+			"newMarkers": [
+				"corvinus",
+				"közgazdaság"
+			]
+		},
+		{
+			"id": "c-hu-07",
+			"lang": "hu",
+			"before": "Otthonról dolgozom, a nappaliból.",
+			"after": "A cég visszarendelt az irodába, most minden nap bejárok.",
+			"oldMarkers": [
+				"otthonról"
+			],
+			"newMarkers": [
+				"irodába"
+			]
+		},
+		{
+			"id": "c-hu-08",
+			"lang": "hu",
+			"before": "Szegeden járok focizni, a Kiskertek SC-ben.",
+			"after": "Átigazoltam a Ligeti Sasokhoz, mert a régi csapatom megszűnt.",
+			"oldMarkers": [
+				"kiskert"
+			],
+			"newMarkers": [
+				"ligeti sasok"
+			]
+		},
+		{
+			"id": "c-hu-09",
+			"lang": "hu",
+			"before": "Egyedül élek egy kis garzonban.",
+			"after": "Összeköltöztem a párommal, Dórával, egy kétszobás lakásba.",
+			"oldMarkers": [
+				"garzon"
+			],
+			"newMarkers": [
+				"dór",
+				"kétszobás"
+			]
+		},
+		{
+			"id": "c-hu-10",
+			"lang": "hu",
+			"before": "Heti háromszor járok edzőterembe a Kondi Klubban.",
+			"after": "Felmondtam a bérletemet, most már a Hullám uszodába járok úszni.",
+			"oldMarkers": [
+				"kondi"
+			],
+			"newMarkers": [
+				"hullám"
+			]
+		}
+	],
+	"correction": [
+		{
+			"id": "x-en-01",
+			"lang": "en",
+			"before": "My sister lives in Vienna and works at a hospital there.",
+			"after": "Sorry, I mistyped: my sister lives in Graz, not Vienna. She never lived in Vienna.",
+			"wrongMarkers": [
+				"vienna"
+			],
+			"rightMarkers": [
+				"graz"
+			]
+		},
+		{
+			"id": "x-en-02",
+			"lang": "en",
+			"before": "My dog is called Max.",
+			"after": "Sorry, I got that wrong. My dog is called Mac, not Max.",
+			"wrongMarkers": [
+				"max"
+			],
+			"rightMarkers": [
+				"mac"
+			]
+		},
+		{
+			"id": "x-en-03",
+			"lang": "en",
+			"before": "I'm allergic to penicillin.",
+			"after": "Wait, I told you the wrong thing. It's not penicillin, I'm allergic to latex.",
+			"wrongMarkers": [
+				"penicillin"
+			],
+			"rightMarkers": [
+				"latex"
+			]
+		},
+		{
+			"id": "x-en-04",
+			"lang": "en",
+			"before": "I'm a secondary school teacher and I teach chemistry.",
+			"after": "I should correct that: I teach physics, not chemistry.",
+			"wrongMarkers": [
+				"chemistry"
+			],
+			"rightMarkers": [
+				"physics"
+			]
+		},
+		{
+			"id": "x-en-05",
+			"lang": "en",
+			"before": "My brother Daniel lives in Toronto.",
+			"after": "Sorry, wrong city. He lives in Montreal, not Toronto.",
+			"wrongMarkers": [
+				"toronto"
+			],
+			"rightMarkers": [
+				"montreal"
+			]
+		},
+		{
+			"id": "x-en-06",
+			"lang": "en",
+			"before": "I have two kids, a boy and a girl.",
+			"after": "That's not right, I don't have two kids. I have three kids, I forgot to count my youngest.",
+			"wrongMarkers": [
+				"two kids"
+			],
+			"rightMarkers": [
+				"three kids"
+			]
+		},
+		{
+			"id": "x-en-07",
+			"lang": "en",
+			"before": "I graduated from the University of Leeds in 2015.",
+			"after": "Sorry, I made a mistake, it was 2016, not 2015.",
+			"wrongMarkers": [
+				"2015"
+			],
+			"rightMarkers": [
+				"2016"
+			]
+		},
+		{
+			"id": "x-en-08",
+			"lang": "en",
+			"before": "I work at Alder & Finch, an architecture firm.",
+			"after": "No wait, I mixed up the name. The firm is called Alder & Birch, not Alder & Finch.",
+			"wrongMarkers": [
+				"finch"
+			],
+			"rightMarkers": [
+				"birch"
+			]
+		},
+		{
+			"id": "x-en-09",
+			"lang": "en",
+			"before": "I drive a blue Ford Focus.",
+			"after": "Correction: it's a green Ford Focus, not blue.",
+			"wrongMarkers": [
+				"blue"
+			],
+			"rightMarkers": [
+				"green"
+			]
+		},
+		{
+			"id": "x-en-10",
+			"lang": "en",
+			"before": "My partner Sam is a nurse.",
+			"after": "I need to fix that. Sam is a paramedic, not a nurse.",
+			"wrongMarkers": [
+				"nurse"
+			],
+			"rightMarkers": [
+				"paramedic"
+			]
+		},
+		{
+			"id": "x-hu-01",
+			"lang": "hu",
+			"before": "A bátyám Debrecenben lakik a családjával.",
+			"after": "Bocsánat, tévedtem: a bátyám Miskolcon lakik, nem Debrecenben.",
+			"wrongMarkers": [
+				"debrecen"
+			],
+			"rightMarkers": [
+				"miskolc"
+			]
+		},
+		{
+			"id": "x-hu-02",
+			"lang": "hu",
+			"before": "A fiam tejallergiás.",
+			"after": "Javítanom kell: a fiam nem tejre, hanem tojásra allergiás.",
+			"wrongMarkers": [
+				"tej"
+			],
+			"rightMarkers": [
+				"tojás"
+			]
+		},
+		{
+			"id": "x-hu-03",
+			"lang": "hu",
+			"before": "Az unokahúgom, Lilla nyolcéves.",
+			"after": "Elnézést, rosszul mondtam: az unokahúgom nem nyolc, hanem kilencéves.",
+			"wrongMarkers": [
+				"nyolc"
+			],
+			"rightMarkers": [
+				"kilenc"
+			]
+		},
+		{
+			"id": "x-hu-04",
+			"lang": "hu",
+			"before": "Fogorvosként dolgozom a Dózsa György úti rendelőben.",
+			"after": "Bocs, rossz utcát mondtam: a Damjanich utcai rendelőben dolgozom, nem a Dózsa György úti.",
+			"wrongMarkers": [
+				"dózsa"
+			],
+			"rightMarkers": [
+				"damjanich"
+			]
+		},
+		{
+			"id": "x-hu-05",
+			"lang": "hu",
+			"before": "A kedvenc színem a piros.",
+			"after": "Hoppá, elírtam: a kedvenc színem a lila, nem a piros.",
+			"wrongMarkers": [
+				"piros"
+			],
+			"rightMarkers": [
+				"lila"
+			]
+		},
+		{
+			"id": "x-hu-06",
+			"lang": "hu",
+			"before": "Spanyolul és olaszul beszélek.",
+			"after": "Javítás: olaszul nem beszélek, helyette franciául tanultam az iskolában.",
+			"wrongMarkers": [
+				"olasz"
+			],
+			"rightMarkers": [
+				"franci"
+			]
+		},
+		{
+			"id": "x-hu-07",
+			"lang": "hu",
+			"before": "2014-ben végeztem a Pécsi Tudományegyetemen.",
+			"after": "Elnézést, 2013-ban végeztem, nem 2014-ben.",
+			"wrongMarkers": [
+				"2014"
+			],
+			"rightMarkers": [
+				"2013"
+			]
+		},
+		{
+			"id": "x-hu-08",
+			"lang": "hu",
+			"before": "A párom neve Máté, és tanár.",
+			"after": "Bocsi, összekevertem: a párom neve Márk, nem Máté.",
+			"wrongMarkers": [
+				"máté"
+			],
+			"rightMarkers": [
+				"márk"
+			]
+		},
+		{
+			"id": "x-hu-09",
+			"lang": "hu",
+			"before": "Egy Honda motorral járok dolgozni.",
+			"after": "Bocsi, nem Honda, hanem Yamaha motorral járok dolgozni.",
+			"wrongMarkers": [
+				"honda"
+			],
+			"rightMarkers": [
+				"yamaha"
+			]
+		},
+		{
+			"id": "x-hu-10",
+			"lang": "hu",
+			"before": "A munkahelyem a belvárosban van, a Váci utcában.",
+			"after": "Bocs, elírtam: a Bartók Béla úton van, nem a Váci utcában.",
+			"wrongMarkers": [
+				"váci"
+			],
+			"rightMarkers": [
+				"bartók"
+			]
+		}
+	]
+}

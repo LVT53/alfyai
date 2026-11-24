@@ -1,0 +1,106 @@
+{
+	"question-v1": {
+		"pass": 20,
+		"of": 20,
+		"en": "10/10",
+		"hu": "10/10",
+		"errors": 0
+	},
+	"brainstorm-v1": {
+		"pass": 0,
+		"of": 20,
+		"en": "0/10",
+		"hu": "0/10",
+		"errors": 0
+	},
+	"brainstorm-v1-facts": 89,
+	"lasting-kept-v1": {
+		"pass": 20,
+		"of": 20,
+		"en": "10/10",
+		"hu": "10/10",
+		"errors": 0
+	},
+	"question-v2": {
+		"pass": 20,
+		"of": 20,
+		"en": "10/10",
+		"hu": "10/10",
+		"errors": 0
+	},
+	"brainstorm-v2": {
+		"pass": 0,
+		"of": 20,
+		"en": "0/10",
+		"hu": "0/10",
+		"errors": 0
+	},
+	"brainstorm-v2-facts": 87,
+	"lasting-kept-v2": {
+		"pass": 20,
+		"of": 20,
+		"en": "10/10",
+		"hu": "10/10",
+		"errors": 0
+	},
+	"labels": {
+		"all": {
+			"facts": 86,
+			"kindRight": 79,
+			"subjectRight": 73,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 6,
+			"lastingFacts": 35
+		},
+		"en": {
+			"facts": 44,
+			"kindRight": 41,
+			"subjectRight": 36,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 2,
+			"lastingFacts": 17
+		},
+		"hu": {
+			"facts": 42,
+			"kindRight": 38,
+			"subjectRight": 37,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 4,
+			"lastingFacts": 18
+		},
+		"bySet": {
+			"lasting": {
+				"facts": 20,
+				"kindRight": 18,
+				"subjectRight": 20,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 2,
+				"lastingFacts": 20
+			},
+			"ongoing": {
+				"facts": 21,
+				"kindRight": 20,
+				"subjectRight": 19,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 0,
+				"lastingFacts": 0
+			},
+			"temporary": {
+				"facts": 23,
+				"kindRight": 23,
+				"subjectRight": 16,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 0,
+				"lastingFacts": 0
+			},
+			"project": {
+				"facts": 22,
+				"kindRight": 18,
+				"subjectRight": 18,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 4,
+				"lastingFacts": 15
+			}
+		}
+	}
+}
