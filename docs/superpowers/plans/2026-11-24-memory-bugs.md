@@ -67,11 +67,15 @@ Today a Remove's exclusion is written at once (fact revocations by id and text h
 
 ### Task 2: One row after a document deletion (follow-up 5)
 
-**Files:** decided by the root cause (a background investigation of the current-list Hungarian evidence and `publication.ts`/`delivery-runner.ts` is running); this task is filled in with the mechanism, its failing test and the fix before it is built, and recorded here.
+**Mechanism (from the evidence, an investigation subagent's read of the current-list Hungarian run):** Hindsight makes the twin, not the app. Deleting the pending document sent the bicycle's other facts back for consolidation; the model rewrote the kayak observation into the bicycle's wording and also created a new bicycle observation, then asked three times to merge them, and Hindsight dropped each merge because the same answer updated the target (`consolidator.py` at the pin). Its list then held two observations with identical text over the same four facts in a different order, and `publishNativeSnapshot` writes one row per native observation. Only the full rebuild, which deletes every observation, cleared it. The repeat runs' other shapes (different wording over overlapping facts) are not exact twins and are left alone.
 
-- [ ] **Step 1: Reproduce** the duplicate in a unit or integration test from a synthetic native snapshot shaped like the evidence.
-- [ ] **Step 2: Run** it; expect two rows.
-- [ ] **Step 3: Fix** where the mechanism says, never publishing a removed or edited fact and never hiding a row that is not a duplicate.
+**Files:**
+- Modify: `src/lib/server/services/memory-profile/publication.ts` (`withoutTwinObservations`, called by `publishNativeSnapshot` after every observation's check)
+- Test: `src/lib/server/services/memory-profile/publication.integration.test.ts`
+
+- [ ] **Step 1: Reproduce:** "publishes one row for an observation Hindsight wrote twice" (twins `bike-a` and `bike-b`, same text, same facts reordered: one row, `bike-a`), "keeps the published id when Hindsight adds a twin beside it" (`bike-b` already shown stays), controls "keeps two observations that differ in other wording / other support", and "refuses a twin that rests on an unaccepted fact" (still `memory_candidate_unaccepted`).
+- [ ] **Step 2: Run** them; expect three rows in the first two.
+- [ ] **Step 3: Fix:** group the checked observations by presentation fingerprint and support fingerprint (only when no fact repeats), keep the id the current generation shows, else the smallest; insert one row per group.
 - [ ] **Step 4: Run**; expect one row, no rebuild.
 - [ ] **Step 5: Commit** (`Memory-Bugs-Task: 2`).
 

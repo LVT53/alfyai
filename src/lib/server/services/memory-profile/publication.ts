@@ -1571,6 +1571,46 @@ export function approvedMigrationRankFamily(
 	return { rows, approved, ids };
 }
 
+/**
+ * One row for observations Hindsight wrote twice: the same wording over the
+ * same supporting facts (an engine merge it dropped after a deleted
+ * document's re-consolidation). Every observation was checked before; this
+ * only leaves out exact twins, keeping the one the current generation
+ * already shows, else the smallest id. A row whose wording or support differs
+ * in any way is kept.
+ */
+function withoutTwinObservations(
+	checked: Array<{ observation: NativeMemory; text: string }>,
+	acknowledged: ReadonlyMap<string, AcknowledgedFact>,
+	shown: Array<typeof memoryPublishedRows.$inferSelect>,
+) {
+	const published = new Set(shown.map(({ nativeId }) => nativeId));
+	const kept = new Map<string, (typeof checked)[number]>();
+	for (const entry of checked) {
+		const ids = entry.observation.source_memory_ids ?? [];
+		const key =
+			new Set(ids).size === ids.length
+				? JSON.stringify([
+						memoryPresentationFingerprint(entry.text, entry.observation.text),
+						memorySupportFingerprint(
+							ids.map((id) => ({ id, text: acknowledged.get(id)?.text ?? "" })),
+						),
+					])
+				: `observation:${entry.observation.id}`;
+		const twin = kept.get(key);
+		const preferred =
+			!twin ||
+			(published.has(entry.observation.id) &&
+				!published.has(twin.observation.id)) ||
+			(published.has(entry.observation.id) ===
+				published.has(twin.observation.id) &&
+				entry.observation.id < twin.observation.id);
+		if (preferred) kept.set(key, entry);
+	}
+	const chosen = new Set([...kept.values()]);
+	return checked.filter((entry) => chosen.has(entry));
+}
+
 export function publishNativeSnapshot(
 	tx: Tx,
 	input: {
@@ -1780,6 +1820,7 @@ export function publishNativeSnapshot(
 	)
 		throw new NativeMemoryError("memory_candidate_curation_drift", true);
 	const generation = randomUUID();
+	const checked: Array<{ observation: NativeMemory; text: string }> = [];
 	for (const observation of memories.filter(
 		(m) => m.fact_type === "observation",
 	)) {
@@ -1803,7 +1844,19 @@ export function publishNativeSnapshot(
 			})
 		)
 			throw new Error("memory_candidate_unaccepted");
-		const text = prepared.get(observation.id) ?? observation.text;
+		checked.push({
+			observation,
+			text: prepared.get(observation.id) ?? observation.text,
+		});
+	}
+	for (const { observation, text } of withoutTwinObservations(
+		checked,
+		acknowledged,
+		bank.generation
+			? publishedRowsForGeneration(tx, bank.id, bank.epoch, bank.generation)
+			: [],
+	)) {
+		const ids = observation.source_memory_ids ?? [];
 		const dates = ids.map(
 			(id) =>
 				correctionDates.get(id) ??

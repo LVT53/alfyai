@@ -380,6 +380,154 @@ describe("accepted native publication", () => {
 		republish(f);
 		expect(visibleTexts(f)).toEqual(["Collects maps", "Green kayak"]);
 	});
+	/**
+	 * The fixture's chat as Hindsight held it after a deleted document's
+	 * re-consolidation: an old fact and its correction behind the bicycle,
+	 * the old fact alone behind the kayak.
+	 */
+	async function bicycleAndKayak(
+		f: Awaited<ReturnType<typeof fixture>>,
+		observations: Array<{
+			id: string;
+			text: string;
+			source_memory_ids: string[];
+		}>,
+	) {
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "old", text: "Red bicycle and white kayak" },
+					{ id: "correction", text: "The bicycle is green" },
+				]),
+			})
+			.run();
+		f.memories.splice(
+			0,
+			f.memories.length,
+			...[
+				["old", "Red bicycle and white kayak"],
+				["correction", "The bicycle is green"],
+			].map(([id, text]) => ({
+				id,
+				text,
+				fact_type: "world",
+				consolidated_at: "2026-11-18T00:00:00Z",
+				document_id: f.source.id,
+			})),
+			...observations.map((row) => ({ ...row, fact_type: "observation" })),
+		);
+	}
+	const publishedIds = (
+		f: Awaited<ReturnType<typeof fixture>>,
+		generation: string,
+	) =>
+		f.db
+			.select()
+			.from(f.schema.memoryPublishedRows)
+			.where(eqId(f.schema.memoryPublishedRows.generation, generation))
+			.all()
+			.map(({ nativeId }) => nativeId)
+			.sort();
+	it("publishes one row for an observation Hindsight wrote twice", async () => {
+		const f = await fixture();
+		await bicycleAndKayak(f, [
+			{
+				id: "bike-b",
+				text: "Green bicycle",
+				source_memory_ids: ["correction", "old"],
+			},
+			{
+				id: "bike-a",
+				text: "Green bicycle",
+				source_memory_ids: ["old", "correction"],
+			},
+			{ id: "kayak", text: "White kayak", source_memory_ids: ["old"] },
+		]);
+		const generation = republish(f);
+		expect(visibleTexts(f)).toEqual(["Green bicycle", "White kayak"]);
+		expect(publishedIds(f, generation)).toEqual(["bike-a", "kayak"]);
+	});
+	it("keeps the published id when Hindsight adds a twin beside it", async () => {
+		const f = await fixture();
+		await bicycleAndKayak(f, [
+			{
+				id: "bike-b",
+				text: "Green bicycle",
+				source_memory_ids: ["correction", "old"],
+			},
+			{ id: "kayak", text: "White kayak", source_memory_ids: ["old"] },
+		]);
+		republish(f);
+		f.memories.push({
+			id: "bike-a",
+			text: "Green bicycle",
+			fact_type: "observation",
+			source_memory_ids: ["old", "correction"],
+		});
+		const generation = republish(f);
+		expect(visibleTexts(f)).toEqual(["Green bicycle", "White kayak"]);
+		expect(publishedIds(f, generation)).toEqual(["bike-b", "kayak"]);
+	});
+	it.each([
+		[
+			"other wording",
+			{
+				id: "bike-a",
+				text: "Green bicycle and white kayak",
+				source_memory_ids: ["old", "correction"],
+			},
+			["Green bicycle", "Green bicycle and white kayak", "White kayak"],
+		],
+		[
+			"other support",
+			{
+				id: "bike-a",
+				text: "Green bicycle",
+				source_memory_ids: ["correction"],
+			},
+			["Green bicycle", "Green bicycle", "White kayak"],
+		],
+	])(
+		"keeps two observations that differ in %s",
+		async (_case, other, texts) => {
+			const f = await fixture();
+			await bicycleAndKayak(f, [
+				{
+					id: "bike-b",
+					text: "Green bicycle",
+					source_memory_ids: ["correction", "old"],
+				},
+				other,
+				{ id: "kayak", text: "White kayak", source_memory_ids: ["old"] },
+			]);
+			republish(f);
+			expect(visibleTexts(f)).toEqual(texts);
+		},
+	);
+	it("refuses a twin that rests on an unaccepted fact", async () => {
+		const f = await fixture();
+		await bicycleAndKayak(f, [
+			{
+				id: "bike-b",
+				text: "Green bicycle",
+				source_memory_ids: ["correction", "old"],
+			},
+			{
+				id: "bike-a",
+				text: "Green bicycle",
+				source_memory_ids: ["old", "correction", "unaccepted"],
+			},
+		]);
+		f.memories.push({
+			id: "unaccepted",
+			text: "The bicycle is green",
+			fact_type: "world",
+			consolidated_at: "2026-11-18T00:00:00Z",
+			document_id: "another-document",
+		});
+		expect(() => republish(f)).toThrow("memory_candidate_unaccepted");
+	});
 	it("rejects replay with changed source identity even when text matches", async () => {
 		const f = await fixture();
 		expect(() =>
