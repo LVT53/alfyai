@@ -169,9 +169,13 @@ class AccountFailure extends Error {
 	}
 }
 
-/** The label migration over every account (or the one named): a dry run unless `execute`. */
+/**
+ * The label migration over every account, the one named, or exactly the ones
+ * listed (`userIds`, in that order: the command's list, which its backup was
+ * checked for): a dry run unless `execute`.
+ */
 export async function runLabelMigration(
-	input: { execute: boolean; userId?: string },
+	input: { execute: boolean; userId?: string; userIds?: readonly string[] },
 	deps: LabelMigrationDeps = {},
 ): Promise<LabelMigrationReport> {
 	const database = deps.database ?? db;
@@ -194,14 +198,15 @@ export async function runLabelMigration(
 		accounts: [],
 	};
 	const userIds =
-		input.userId !== undefined
+		input.userIds ??
+		(input.userId !== undefined
 			? [input.userId]
 			: database
 					.select({ userId: memoryAccounts.userId })
 					.from(memoryAccounts)
 					.orderBy(asc(memoryAccounts.userId))
 					.all()
-					.map(({ userId }) => userId);
+					.map(({ userId }) => userId));
 	for (const userId of userIds) {
 		const entry = await migrateAccount(userId, input.execute, database, deps);
 		report.accounts.push(entry);

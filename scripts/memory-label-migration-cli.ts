@@ -18,6 +18,7 @@ import { constants, gunzipSync } from "node:zlib";
 import Database from "better-sqlite3";
 import type {
 	LabelMigrationAccount,
+	LabelMigrationDeps,
 	LabelMigrationReport,
 	LabelRollbackReport,
 } from "../src/lib/server/services/memory-profile/label-migration";
@@ -349,4 +350,99 @@ export function rollbackLines(report: LabelRollbackReport): string[] {
 	return [
 		`rollback ${report.userId} ${report.outcome} banks=${report.banks} labels=${report.labels} epochVerified=${report.epochVerified}${report.code ? ` code=${report.code}` : ""}`,
 	];
+}
+
+/** What the command acts through: the library, the backup check and the output. */
+export interface LabelMigrationCommandDeps {
+	runLabelMigration: (
+		input: { execute: boolean; userId?: string; userIds?: string[] },
+		deps: Pick<LabelMigrationDeps, "signal" | "concurrency" | "onAccount">,
+	) => Promise<LabelMigrationReport>;
+	rollbackLabelMigration: (input: {
+		userId: string;
+		execute: boolean;
+	}) => LabelRollbackReport;
+	/** The paired backup's check against the live database (`checkPairedBackup`). */
+	checkBackup: (dir: string, accounts: string[]) => PairedBackup;
+	log: (line: string) => void;
+	signal: AbortSignal;
+}
+
+/**
+ * The command: a dry run first; with `--execute`, the paired backup checked
+ * for the accounts that dry run found to label, before any write (a rollback's
+ * too), then exactly those accounts labelled, in that order. Returns the exit
+ * code.
+ */
+export async function runLabelMigrationCommand(
+	args: LabelMigrationArguments,
+	deps: LabelMigrationCommandDeps,
+): Promise<number> {
+	const { log } = deps;
+	/** Checks and names the paired backup; false when the run must not write. */
+	const backupReady = (accounts: string[]) => {
+		if (!args.backup) return false;
+		const backup = deps.checkBackup(args.backup, accounts);
+		if (!backup.ok) {
+			log(`backup: refused ${backup.code}`);
+			return false;
+		}
+		log(
+			`backup: sqlite=${backup.sqlite.name} bytes=${backup.sqlite.bytes} at=${backup.sqlite.modifiedAt} postgres=${backup.postgres.name} bytes=${backup.postgres.bytes} at=${backup.postgres.modifiedAt} accounts=${accounts.length}`,
+		);
+		return true;
+	};
+	if (args.mode === "rollback" && args.user) {
+		const dry = deps.rollbackLabelMigration({
+			userId: args.user,
+			execute: false,
+		});
+		for (const line of rollbackLines(dry)) log(line);
+		if (!args.execute || dry.outcome !== "dry_run") {
+			log(JSON.stringify(dry));
+			return dry.outcome === "dry_run" ? 0 : 1;
+		}
+		if (!backupReady([args.user])) return 1;
+		const done = deps.rollbackLabelMigration({
+			userId: args.user,
+			execute: true,
+		});
+		for (const line of rollbackLines(done)) log(line);
+		log(JSON.stringify(done));
+		return done.outcome === "done" ? 0 : 1;
+	}
+	const scope = args.user ? { userId: args.user } : {};
+	log("dry run:");
+	const dry = await deps.runLabelMigration(
+		{ ...scope, execute: false },
+		{ signal: deps.signal },
+	);
+	for (const line of labelMigrationLines(dry)) log(line);
+	if (!args.execute) {
+		log(JSON.stringify(dry));
+		return 0;
+	}
+	const accounts = dry.accounts
+		.filter(({ outcome }) => outcome === "dry_run")
+		.map(({ userId }) => userId);
+	if (!accounts.length) {
+		log("nothing to label");
+		return 0;
+	}
+	if (!backupReady(accounts)) return 1;
+	log("execute:");
+	// Exactly the accounts the backup was checked for: one that became
+	// eligible since the dry run waits for the next run and its own backup.
+	const report = await deps.runLabelMigration(
+		{ execute: true, userIds: accounts },
+		{
+			signal: deps.signal,
+			concurrency: args.concurrency,
+			onAccount: (account) => log(labelMigrationAccountLine(account)),
+		},
+	);
+	for (const line of labelMigrationLines(report).slice(report.accounts.length))
+		log(line);
+	log(JSON.stringify(report));
+	return report.outcome === "done" ? 0 : 1;
 }

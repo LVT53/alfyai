@@ -14,8 +14,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LabelMigrationReport } from "../src/lib/server/services/memory-profile/label-migration";
 import {
 	checkPairedBackup,
+	type LabelMigrationCommandDeps,
 	labelMigrationLines,
 	parseLabelMigrationArguments,
+	runLabelMigrationCommand,
 } from "./memory-label-migration-cli";
 
 describe("the label migration's arguments", () => {
@@ -393,5 +395,132 @@ describe("the label migration's report lines", () => {
 			"totals accounts=3 skipped.excluded=1 banks=2 facts=30 alreadyLabelled=2 toLabel=28 estimatedCalls=3 calls=3 labelled=25 verified=1 failed=1",
 			"outcome: stopped at u2",
 		]);
+	});
+});
+
+describe("the command", () => {
+	/** Fakes for the library and the backup check, recording what ran in which order. */
+	function fakes(backupOk = true) {
+		const steps: string[] = [];
+		const account = (userId: string, outcome: "dry_run" | "skipped") => ({
+			userId,
+			epoch: 0,
+			outcome,
+			banks: 1,
+			configOneBanks: 0,
+			facts: 2,
+			removed: 0,
+			alreadyLabelled: 0,
+			toLabel: 2,
+			estimatedCalls: 1,
+			calls: 0,
+			labelled: 0,
+			byKind: {},
+			bySubject: {},
+			unlabelled: {},
+		});
+		const deps: LabelMigrationCommandDeps = {
+			runLabelMigration: async (input) => {
+				steps.push(
+					input.execute
+						? `execute ${JSON.stringify(input.userIds)}`
+						: `dry run ${input.userId ?? "all"}`,
+				);
+				return {
+					execute: input.execute,
+					outcome: input.execute ? "done" : "dry_run",
+					totals: {
+						accounts: 3,
+						skipped: {},
+						banks: 0,
+						facts: 0,
+						alreadyLabelled: 0,
+						toLabel: 0,
+						estimatedCalls: 0,
+						calls: 0,
+						labelled: 0,
+						verified: 0,
+						failed: 0,
+					},
+					accounts: [
+						account("u1", "dry_run"),
+						account("u2", "skipped"),
+						account("u3", "dry_run"),
+					],
+				};
+			},
+			rollbackLabelMigration: (input) => {
+				steps.push(`rollback ${input.execute ? "execute" : "dry run"}`);
+				return {
+					userId: input.userId,
+					execute: input.execute,
+					outcome: input.execute ? "done" : "dry_run",
+					banks: 1,
+					labels: 2,
+					epochVerified: true,
+				};
+			},
+			checkBackup: (_dir, accounts) => {
+				steps.push(`backup ${JSON.stringify(accounts)}`);
+				return backupOk
+					? {
+							ok: true,
+							sqlite: { name: "chat.db", bytes: 1, modifiedAt: "t" },
+							postgres: { name: "pg.sql", bytes: 1, modifiedAt: "t" },
+						}
+					: { ok: false, code: "backup_stale" };
+			},
+			log: () => {},
+			signal: new AbortController().signal,
+		};
+		return { steps, deps };
+	}
+	const all = parseLabelMigrationArguments([
+		"--execute",
+		"--all",
+		"--backup",
+		"/b",
+	]);
+
+	it("--all labels exactly the accounts the backup was checked for, after the check", async () => {
+		const { steps, deps } = fakes();
+		expect(await runLabelMigrationCommand(all, deps)).toBe(0);
+		expect(steps).toEqual([
+			"dry run all",
+			'backup ["u1","u3"]',
+			'execute ["u1","u3"]',
+		]);
+	});
+
+	it("writes nothing when the backup is refused, a rollback included", async () => {
+		const refused = fakes(false);
+		expect(await runLabelMigrationCommand(all, refused.deps)).toBe(1);
+		expect(refused.steps).toEqual(["dry run all", 'backup ["u1","u3"]']);
+		const rollback = fakes(false);
+		const args = parseLabelMigrationArguments([
+			"--rollback",
+			"--user",
+			"u1",
+			"--execute",
+			"--backup",
+			"/b",
+		]);
+		expect(await runLabelMigrationCommand(args, rollback.deps)).toBe(1);
+		expect(rollback.steps).toEqual(["rollback dry run", 'backup ["u1"]']);
+		const ok = fakes();
+		expect(await runLabelMigrationCommand(args, ok.deps)).toBe(0);
+		expect(ok.steps).toEqual([
+			"rollback dry run",
+			'backup ["u1"]',
+			"rollback execute",
+		]);
+	});
+
+	it("a dry run checks no backup and writes nothing", async () => {
+		const { steps, deps } = fakes();
+		expect(
+			await runLabelMigrationCommand(parseLabelMigrationArguments([]), deps),
+		).toBe(0);
+		expect(steps).toEqual(["dry run all"]);
 	});
 });
