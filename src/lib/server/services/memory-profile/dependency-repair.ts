@@ -34,6 +34,7 @@ import {
 	carriedMemorySources,
 	isEditResendWithdrawal,
 	memoryTextHash,
+	retainEndRecorded,
 	withoutRetainBookkeeping,
 } from "./revisions";
 
@@ -650,7 +651,10 @@ export async function runDependencyRepair(
 		if (
 			source.nativeSubmitted &&
 			!source.nativeAcknowledged &&
-			source.nativeOperationId
+			source.nativeOperationId &&
+			// A dependent chat whose own delivery recorded its retain's end: that
+			// retain never runs again, and Hindsight may have forgotten it.
+			!retainEndRecorded(source)
 		)
 			await native.settle(
 				client,

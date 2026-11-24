@@ -683,14 +683,16 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		} else if (path.endsWith("/consolidate"))
 			data = { operation_id: "consolidation" };
 		else if (path.includes("/operations?")) data = { operations: [] };
-		else if (path.includes("/operations/"))
-			data = {
-				status:
-					operationStatus?.(
-						decodeURIComponent(path.split("/operations/")[1]),
-					) ?? "completed",
-			};
-		else if (path.includes("/memories/list")) {
+		else if (path.includes("/operations/")) {
+			const status =
+				operationStatus?.(decodeURIComponent(path.split("/operations/")[1])) ??
+				"completed";
+			if (status === "forgotten")
+				return new Response(JSON.stringify({ detail: "Not found" }), {
+					status: 404,
+				});
+			data = { status };
+		} else if (path.includes("/memories/list")) {
 			const raw = [...facts.values()];
 			const items = [
 				...raw,
@@ -796,7 +798,10 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		loseAck: () => {
 			loseAck = true;
 		},
-		/** What Hindsight answers when asked about an operation; "completed" by default. */
+		/**
+		 * What Hindsight answers when asked about an operation; "completed" by
+		 * default, and "forgotten" answers 404, as for an operation it no longer knows.
+		 */
 		setOperationStatus: (fn: (id: string) => string) => {
 			operationStatus = fn;
 		},
@@ -1793,6 +1798,46 @@ it("a replacement retain Hindsight keeps working on waits as a retain, for the r
 	expect(waited).toBeGreaterThanOrEqual(waits.retainMs);
 	expect(waited).toBeLessThan(waits.consolidationMs);
 }, 60_000);
+it("never asks Hindsight about a dependent chat's retain whose end is recorded", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "removed detail");
+	const child = f.source([root.id], "I enjoy hiking");
+	f.seed(root);
+	// The later chat's own delivery ended for good: its retain was cancelled,
+	// the end recorded on its revision, and Hindsight has since forgotten it.
+	const ended = child.nativeOperationId as string;
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			state: "pending",
+			nativeAcknowledged: false,
+			context: JSON.stringify({
+				...JSON.parse(child.context),
+				nativeRetainEnded: { operationId: ended, reason: "cancelled" },
+			}),
+		})
+		.where(awaitEq(f.s.memorySourceRevisions.id, child.id))
+		.run();
+	const asked: string[] = [];
+	f.setOperationStatus((id) => {
+		if (id !== ended) return "completed";
+		asked.push(id);
+		return "forgotten";
+	});
+	const job = await f.remove(root);
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	const row = f.db
+		.select()
+		.from(f.s.memoryDeliveryJobs)
+		.where(awaitEq(f.s.memoryDeliveryJobs.id, job.row.id))
+		.get();
+	expect({ status: row?.status, code: row?.errorCode }).toEqual({
+		status: "succeeded",
+		code: null,
+	});
+	expect(asked).toEqual([]);
+	expect(f.deleted).toContain(child.id);
+});
 it("a real late native write after reset cannot publish or resume", async () => {
 	const f = await nativeFixture();
 	const root = f.source();
