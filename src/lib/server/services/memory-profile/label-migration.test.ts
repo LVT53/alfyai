@@ -1,0 +1,515 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
+import type { NativeMemory } from "./contracts";
+import type { CurationModel } from "./curation";
+
+// The default model is the admission-gated memory path; tests that do not
+// hand the migration a model of their own see which admission it asked for.
+const curationCalls = vi.hoisted(() => [] as unknown[][]);
+vi.mock("./curation", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./curation")>()),
+	createCurationModel: (...args: unknown[]) => {
+		curationCalls.push(args);
+		return (async (_prompt: string, input: unknown) =>
+			labelAll(input)) as CurationModel;
+	},
+}));
+
+let h: EngineHarness;
+beforeEach(async () => {
+	h = await bootEngine("memory-label-migration");
+	curationCalls.length = 0;
+});
+afterEach(() => h.cleanup());
+
+async function modules() {
+	const { db } = await import("$lib/server/db");
+	const schema = await import("$lib/server/db/schema");
+	const revisions = await import("./revisions");
+	const verified = await import("./labels-verified");
+	const migration = await import("./label-migration");
+	return { db, schema, revisions, verified, migration };
+}
+
+/** Every fact of a batch labelled by a word in its synthetic text. */
+function labelAll(input: unknown) {
+	const facts = (input as { facts: { id: string; text: string }[] }).facts;
+	return {
+		labels: facts.map(({ id, text }) => ({
+			id,
+			kind: text.includes("flu")
+				? "temporary"
+				: text.includes("thesis")
+					? "ongoing"
+					: "lasting",
+			subject: text.includes("flu") ? "health" : "other",
+		})),
+	};
+}
+
+interface Fake {
+	/** Raw facts and observations per bank, as Hindsight would list them. */
+	facts: Map<string, NativeMemory[]>;
+	listed: string[];
+	batches: string[][];
+	listFacts: (bankId: string) => Promise<NativeMemory[]>;
+	model: (userId: string, signal: AbortSignal) => CurationModel;
+}
+
+function fakeNative(answer = labelAll as (input: unknown) => unknown): Fake {
+	const fake: Fake = {
+		facts: new Map(),
+		listed: [],
+		batches: [],
+		listFacts: async (bankId) => {
+			fake.listed.push(bankId);
+			return fake.facts.get(bankId) ?? [];
+		},
+		model: () => async (_prompt, input) => {
+			fake.batches.push(
+				(input as { facts: { text: string }[] }).facts.map(({ text }) => text),
+			);
+			return answer(input);
+		},
+	};
+	return fake;
+}
+
+function rawFacts(prefix: string, count: number, text = "likes tea") {
+	return Array.from({ length: count }, (_, i) => ({
+		id: `${prefix}-fact-${i}`,
+		text: `${text} ${i}`,
+		fact_type: "world",
+	}));
+}
+
+/** A synthetic account on native Memory whose epoch waits for its labels. */
+async function seedAccount(
+	userId: string,
+	facts: Fake["facts"],
+	options: { count?: number; excluded?: boolean; text?: string } = {},
+) {
+	const { db, schema, revisions, verified } = await modules();
+	const { eq } = await import("drizzle-orm");
+	if (userId !== h.userId) h.fixture.seedUser(userId);
+	const bank = revisions.ensureMemoryBank(userId, { kind: "personal" });
+	db.update(schema.memoryAccounts)
+		.set({ authority: "hindsight" })
+		.where(eq(schema.memoryAccounts.userId, userId))
+		.run();
+	db.update(schema.users)
+		.set({ memoryMigrationExcluded: options.excluded ?? false })
+		.where(eq(schema.users.id, userId))
+		.run();
+	db.transaction((tx) => verified.markMemoryLabelsUnverified(tx, userId, 0));
+	const raw = rawFacts(userId, options.count ?? 3, options.text);
+	facts.set(bank.id, [
+		...raw,
+		{ id: `${userId}-obs`, text: "an observation", fact_type: "observation" },
+	]);
+	// A published entry and a dated label, which the migration must leave as they are.
+	db.update(schema.memoryBanks)
+		.set({ generation: "g1", nativeConfigVersion: "alfyai-bank-config-2" })
+		.where(eq(schema.memoryBanks.id, bank.id))
+		.run();
+	db.insert(schema.memoryPublishedRows)
+		.values({
+			id: `${userId}-row`,
+			bankId: bank.id,
+			generation: "g1",
+			epoch: 0,
+			nativeId: `${userId}-obs`,
+			text: "Likes tea",
+			nativeText: "Likes tea",
+			sourceIdsJson: JSON.stringify([raw[0].id]),
+			sourceFingerprintsJson: JSON.stringify([
+				{ id: raw[0].id, text: raw[0].text },
+			]),
+			updatedAt: new Date("2026-01-01T00:00:00Z"),
+		})
+		.run();
+	db.insert(schema.memoryFactLabels)
+		.values({
+			bankId: bank.id,
+			nativeFactId: raw[0].id,
+			kind: null,
+			subject: null,
+			origin: "extraction",
+			eventAt: new Date("2026-02-01T00:00:00Z"),
+		})
+		.run();
+	return bank;
+}
+
+/** Every row of every table, the label store and the labels mark left out. */
+function snapshot() {
+	const tables = h.sqlite
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+		)
+		.all() as { name: string }[];
+	return Object.fromEntries(
+		tables
+			.filter(({ name }) => name !== "memory_fact_labels")
+			.map(({ name }) => [
+				name,
+				(
+					h.sqlite.prepare(`SELECT * FROM "${name}"`).all() as Record<
+						string,
+						unknown
+					>[]
+				).map(({ labels_unverified_epoch: _mark, ...row }) => row),
+			]),
+	);
+}
+
+function labelRows(bankId: string) {
+	return h.sqlite
+		.prepare(
+			"SELECT native_fact_id, kind, subject, origin, event_at FROM memory_fact_labels WHERE bank_id = ? ORDER BY native_fact_id",
+		)
+		.all(bankId) as {
+		native_fact_id: string;
+		kind: string | null;
+		subject: string | null;
+		origin: string;
+		event_at: number | null;
+	}[];
+}
+
+describe("the label migration", () => {
+	it("dry run: counts only, the tester skipped and never read, nothing written", async () => {
+		const fake = fakeNative();
+		await seedAccount("user-1", fake.facts, { count: 25 });
+		await seedAccount("user-2", fake.facts, { count: 3 });
+		const tester = await seedAccount("user-3", fake.facts, {
+			count: 5,
+			excluded: true,
+		});
+		const before = snapshot();
+		const { migration } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: false },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.outcome).toBe("dry_run");
+		expect(report.totals).toMatchObject({
+			accounts: 3,
+			skipped: { excluded: 1 },
+			banks: 2,
+			facts: 28,
+			alreadyLabelled: 0,
+			toLabel: 28,
+			estimatedCalls: 3,
+		});
+		expect(
+			report.accounts.map(({ userId, outcome }) => [userId, outcome]),
+		).toEqual([
+			["user-1", "dry_run"],
+			["user-2", "dry_run"],
+			["user-3", "skipped"],
+		]);
+		expect(fake.listed).not.toContain(tester.id);
+		expect(fake.batches).toEqual([]);
+		expect(snapshot()).toEqual(before);
+	});
+
+	it("labels every account but the tester, verifies each and changes nothing else", async () => {
+		const fake = fakeNative();
+		const first = await seedAccount("user-1", fake.facts, {
+			count: 25,
+			text: "had the flu",
+		});
+		const second = await seedAccount("user-2", fake.facts, { count: 3 });
+		const tester = await seedAccount("user-3", fake.facts, {
+			count: 5,
+			excluded: true,
+		});
+		const before = snapshot();
+		const { migration, verified } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.outcome).toBe("done");
+		expect(report.totals).toMatchObject({
+			accounts: 3,
+			skipped: { excluded: 1 },
+			verified: 2,
+			failed: 0,
+		});
+		const one = report.accounts.find(({ userId }) => userId === "user-1");
+		expect(one).toMatchObject({
+			outcome: "verified",
+			labelled: 25,
+			byKind: { temporary: 25 },
+			bySubject: { health: 25 },
+			unlabelled: {},
+			calls: 2,
+			verification: { factsAccounted: true, publishedRowsUnchanged: true },
+		});
+		// Every raw fact labelled by the classifier; the observation never sent.
+		expect(labelRows(first.id).map(({ origin }) => origin)).toEqual(
+			Array(25).fill("classifier"),
+		);
+		expect(fake.batches.flat()).not.toContain("an observation");
+		// The fact's event date is kept.
+		expect(labelRows(first.id)[0]).toMatchObject({
+			native_fact_id: "user-1-fact-0",
+			kind: "temporary",
+			event_at: new Date("2026-02-01T00:00:00Z").getTime(),
+		});
+		expect(labelRows(second.id)).toHaveLength(3);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+		expect(verified.memoryLabelsVerified("user-2")).toBe(true);
+		// The tester: never read, never labelled, still on today's page.
+		expect(fake.listed).not.toContain(tester.id);
+		expect(labelRows(tester.id)).toEqual([
+			{
+				native_fact_id: "user-3-fact-0",
+				kind: null,
+				subject: null,
+				origin: "extraction",
+				event_at: new Date("2026-02-01T00:00:00Z").getTime(),
+			},
+		]);
+		expect(verified.memoryLabelsVerified("user-3")).toBe(false);
+		// Text, support, dates and visibility: every other table as it was.
+		expect(snapshot()).toEqual(before);
+	});
+
+	it("a re-run labels nothing and calls no model", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 4 });
+		const { migration } = await modules();
+		const deps = { listFacts: fake.listFacts, model: fake.model };
+		await migration.runLabelMigration({ execute: true }, deps);
+		const labels = labelRows(bank.id);
+		fake.batches.length = 0;
+		const again = await migration.runLabelMigration({ execute: true }, deps);
+		expect(again.outcome).toBe("done");
+		expect(again.totals).toMatchObject({
+			skipped: { already_verified: 1 },
+			verified: 0,
+		});
+		expect(fake.batches).toEqual([]);
+		expect(labelRows(bank.id)).toEqual(labels);
+	});
+
+	it("an interrupted run keeps what it wrote, and the next run labels only the rest", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 45 });
+		const { migration, verified } = await modules();
+		const controller = new AbortController();
+		const stopping = {
+			listFacts: fake.listFacts,
+			model: (userId: string, signal: AbortSignal) => {
+				const model = fake.model(userId, signal);
+				return (async (...args: Parameters<CurationModel>) => {
+					const answer = await model(...args);
+					controller.abort();
+					return answer;
+				}) as CurationModel;
+			},
+			signal: controller.signal,
+		};
+		const first = await migration.runLabelMigration(
+			{ execute: true },
+			stopping,
+		);
+		expect(first.outcome).toBe("stopped");
+		expect(first.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "label_migration_aborted",
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(20);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+		fake.batches.length = 0;
+		const second = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(second.outcome).toBe("done");
+		expect(second.accounts[0]).toMatchObject({
+			outcome: "verified",
+			alreadyLabelled: 20,
+			labelled: 25,
+		});
+		expect(fake.batches.flat()).toHaveLength(25);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+	});
+
+	it("a fact the model gives no usable label is listed with its reason, and the account is verified", async () => {
+		const fake = fakeNative((input) => {
+			const answer = labelAll(input);
+			answer.labels[0].kind = "forever";
+			return answer;
+		});
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "verified",
+			labelled: 2,
+			unlabelled: { no_label: 1 },
+		});
+		// Asked twice: once in its batch, once more on its own.
+		expect(fake.batches).toHaveLength(2);
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(2);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+	});
+
+	it("an account whose model calls fail is not verified, and the run stops before the next account", async () => {
+		const fake = fakeNative(() => {
+			throw new Error("busy");
+		});
+		await seedAccount("user-1", fake.facts, { count: 3 });
+		const next = await seedAccount("user-2", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.outcome).toBe("stopped");
+		expect(report.stoppedAt).toBe("user-1");
+		expect(report.accounts).toHaveLength(1);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "model_unavailable",
+			unlabelled: { model_unavailable: 3 },
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+		expect(fake.listed).not.toContain(next.id);
+	});
+
+	it("published rows that change during the run fail verification", async () => {
+		const fake = fakeNative();
+		await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				model:
+					(userId, signal) =>
+					async (...args) => {
+						h.sqlite
+							.prepare(
+								"UPDATE memory_published_rows SET text = 'Likes coffee' WHERE id = 'user-1-row'",
+							)
+							.run();
+						return fake.model(userId, signal)(...args);
+					},
+			},
+		);
+		expect(report.outcome).toBe("stopped");
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "published_rows_changed",
+			verification: { factsAccounted: true, publishedRowsUnchanged: false },
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("one named account only; the tester named alone is skipped untouched", async () => {
+		const fake = fakeNative();
+		const first = await seedAccount("user-1", fake.facts, { count: 3 });
+		await seedAccount("user-2", fake.facts, { count: 3 });
+		const tester = await seedAccount("user-3", fake.facts, {
+			count: 3,
+			excluded: true,
+		});
+		const { migration } = await modules();
+		const deps = { listFacts: fake.listFacts, model: fake.model };
+		const one = await migration.runLabelMigration(
+			{ execute: true, userId: "user-2" },
+			deps,
+		);
+		expect(one.accounts.map(({ userId }) => userId)).toEqual(["user-2"]);
+		expect(fake.listed).not.toContain(first.id);
+		const refused = await migration.runLabelMigration(
+			{ execute: true, userId: "user-3" },
+			deps,
+		);
+		expect(refused.accounts).toEqual([
+			expect.objectContaining({ outcome: "skipped", skipped: "excluded" }),
+		]);
+		expect(fake.listed).not.toContain(tester.id);
+		const unknown = await migration.runLabelMigration(
+			{ execute: true, userId: "nobody" },
+			deps,
+		);
+		expect(unknown.accounts[0]).toMatchObject({ skipped: "unknown_account" });
+	});
+
+	it("asks the memory model path at background priority, in the account's tenant lane", async () => {
+		const fake = fakeNative();
+		await seedAccount("user-1", fake.facts, { count: 2 });
+		const { db, schema, migration } = await modules();
+		const { tenantId } = db.select().from(schema.memoryAccounts).get() ?? {};
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts },
+		);
+		expect(report.accounts[0].outcome).toBe("verified");
+		expect(curationCalls).toEqual([
+			[
+				expect.any(AbortSignal),
+				undefined,
+				{ priority: "background", tenantId },
+			],
+		]);
+	});
+});
+
+describe("the label migration's rollback", () => {
+	it("returns the classifier's labels to unlabelled with their dates, and the account to today's page", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		const dry = migration.rollbackLabelMigration({
+			userId: "user-1",
+			execute: false,
+		});
+		expect(dry).toMatchObject({ outcome: "dry_run", labels: 3 });
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+		const done = migration.rollbackLabelMigration({
+			userId: "user-1",
+			execute: true,
+		});
+		expect(done).toMatchObject({ outcome: "done", labels: 3 });
+		expect(labelRows(bank.id)).toEqual([
+			{
+				native_fact_id: "user-1-fact-0",
+				kind: null,
+				subject: null,
+				origin: "extraction",
+				event_at: new Date("2026-02-01T00:00:00Z").getTime(),
+			},
+			...[1, 2].map((i) => ({
+				native_fact_id: `user-1-fact-${i}`,
+				kind: null,
+				subject: null,
+				origin: "extraction",
+				event_at: null,
+			})),
+		]);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("refuses the tester", async () => {
+		const fake = fakeNative();
+		await seedAccount("user-3", fake.facts, { count: 1, excluded: true });
+		const { migration } = await modules();
+		expect(
+			migration.rollbackLabelMigration({ userId: "user-3", execute: true }),
+		).toMatchObject({ outcome: "refused", code: "memory_migration_excluded" });
+	});
+});
