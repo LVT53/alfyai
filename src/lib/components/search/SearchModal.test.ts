@@ -814,6 +814,48 @@ describe("SearchModal", () => {
 			).not.toBeInTheDocument();
 		});
 
+		it("Load more asks with the shown answer's query and shows a repeated chat once", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c0", "Alpha 0")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			const input = await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c1", "Alpha 1"), chat("c2", "Alpha 2")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: "o:20",
+				}),
+			);
+			await fireEvent.click(screen.getByTestId("search-scope-chats"));
+			await screen.findByText("Alpha 2");
+
+			// Typed on, inside the debounce: the box no longer holds the shown query.
+			await fireEvent.input(input, { target: { value: "thesis structure" } });
+			fetchWorkspaceSearch.mockClear();
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					// Alpha 2 moved between the pages (its chat was updated meanwhile).
+					conversations: [chat("c2", "Alpha 2"), chat("c3", "Alpha 3")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: null,
+				}),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+			await screen.findByText("Alpha 3");
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "thesis",
+				scope: "chats",
+				cursor: "o:20",
+			});
+			expect(screen.getAllByText("Alpha 2")).toHaveLength(1);
+		});
+
 		it("falls back to All when the chosen kind has nothing for a new query", async () => {
 			fetchWorkspaceSearch.mockResolvedValue(
 				answer({

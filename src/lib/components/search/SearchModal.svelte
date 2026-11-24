@@ -426,7 +426,21 @@ async function runWorkspaceSearch(query: string, scope: SearchScopeId) {
 	}
 }
 
-/** The next page of the chosen kind, appended after the ones already shown. */
+/** A later page's rows that are not shown yet: a row that moved between pages appears once. */
+function appendNew<T>(
+	shown: readonly T[],
+	next: readonly T[],
+	keyOf: (row: T) => string,
+): T[] {
+	const seen = new Set(shown.map(keyOf));
+	return [...shown, ...next.filter((row) => !seen.has(keyOf(row)))];
+}
+
+/**
+ * The next page of the chosen kind, appended after the ones already shown. It
+ * asks with the shown answer's query, not the box's: a click inside the
+ * debounce must not append a page of a query that is not on screen.
+ */
 async function loadMore() {
 	const current = searchResponse;
 	if (!current?.nextCursor || loadingMore || activeScope === "all") return;
@@ -434,16 +448,24 @@ async function loadMore() {
 	loadingMore = true;
 	try {
 		const page = (await fetchWorkspaceSearch({
-			query: requestedSearchQuery,
+			query: current.query,
 			scope: activeScope,
 			cursor: current.nextCursor,
 		})) as WorkspaceSearchResponse;
 		if (requestId !== latestRequestId) return;
 		searchResponse = {
 			...current,
-			conversations: [...current.conversations, ...(page.conversations ?? [])],
-			memories: [...current.memories, ...(page.memories ?? [])],
-			documents: [...current.documents, ...(page.documents ?? [])],
+			conversations: appendNew(
+				current.conversations,
+				page.conversations ?? [],
+				(row) => row.id,
+			),
+			memories: appendNew(current.memories, page.memories ?? [], (row) => row.id),
+			documents: appendNew(
+				current.documents,
+				page.documents ?? [],
+				(row) => row.displayArtifactId,
+			),
 			totals: page.totals ?? current.totals,
 			nextCursor: page.nextCursor ?? null,
 		};
