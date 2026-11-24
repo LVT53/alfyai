@@ -225,6 +225,11 @@ describe("writing the Overview", () => {
 		// The most recently mentioned ones, newest first.
 		expect(texts[0].startsWith("0: ")).toBe(true);
 		expect(texts.at(-1)?.startsWith(`${texts.length - 1}: `)).toBe(true);
+		// What fits is measured on the entries as the model receives them.
+		const { estimateTokenCount } = await import("$lib/utils/tokens");
+		expect(
+			estimateTokenCount(JSON.stringify(calls[0].input.entries)),
+		).toBeLessThanOrEqual(overview.OVERVIEW_INPUT_TOKEN_BUDGET);
 	});
 
 	it("writes in the account's language and names no other", async () => {

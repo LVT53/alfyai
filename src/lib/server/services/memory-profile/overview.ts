@@ -87,11 +87,18 @@ function overviewPrompt(
 	].join("\n");
 }
 
-/** One line of the call's input, for its budget. */
+/** An entry as the model receives it. */
+function inputEntry(entry: OverviewEntry) {
+	return {
+		subject: SUBJECT_NAMES[entry.subject],
+		...(entry.kind && entry.kind !== "lasting" ? { kind: entry.kind } : {}),
+		text: entry.text,
+	};
+}
+
+/** What an entry costs the call: its exact JSON, and the comma after it. */
 function entryTokens(entry: OverviewEntry): number {
-	return (
-		estimateTokenCount(`${SUBJECT_NAMES[entry.subject]} ${entry.text}`) + 8
-	);
+	return estimateTokenCount(JSON.stringify(inputEntry(entry))) + 1;
 }
 
 /**
@@ -132,11 +139,7 @@ export async function composeMemoryOverview(
 		{
 			about: input.scopeKind === "project" ? "a project" : "a person",
 			name: input.name,
-			entries: input.entries.map((entry) => ({
-				subject: SUBJECT_NAMES[entry.subject],
-				...(entry.kind && entry.kind !== "lasting" ? { kind: entry.kind } : {}),
-				text: entry.text,
-			})),
+			entries: input.entries.map(inputEntry),
 		},
 		OVERVIEW_SCHEMA,
 		"off",

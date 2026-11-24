@@ -4,7 +4,9 @@ import {
 	type MemoryScope,
 	PERSONAL_MEMORY_SUBJECTS,
 } from "$lib/memory-types";
+import { estimateTokenCount } from "$lib/utils/tokens";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
+import type { CurationModel } from "./curation";
 import { seedSubjectEntries } from "./subject-read.test-helpers";
 
 let h: EngineHarness;
@@ -74,4 +76,36 @@ it("reads a 5,000-entry bank's index and its largest subject in time", async () 
 	expect(subject.entries).toHaveLength(100);
 	expect(indexMs).toBeLessThan(2_000);
 	expect(sizes.indexBytes).toBeLessThan(20_000);
+
+	// The Overview on the same bank, with an instant fake model: what the app
+	// itself spends around the one call, and what the call is given.
+	const { readMemoryOverview, writeMemoryOverview } = await import(
+		"./overview"
+	);
+	let given = "";
+	const model: CurationModel = async (prompt, input) => {
+		given = prompt + JSON.stringify(input);
+		return { overview: "A synthetic overview." };
+	};
+	started = performance.now();
+	const written = await writeMemoryOverview(h.userId, PERSONAL, {
+		rewrite: true,
+		model,
+		now: NOW,
+	});
+	const overviewWriteMs = performance.now() - started;
+	started = performance.now();
+	const kept = readMemoryOverview(h.userId, PERSONAL, NOW);
+	const overviewReadMs = performance.now() - started;
+	console.info("[MEMORY_OVERVIEW_SIZE]", {
+		current: written.currentCount,
+		writtenFrom: written.writtenFrom,
+		requestChars: given.length,
+		requestTokens: estimateTokenCount(given),
+		appMsAroundTheCall: Math.round(overviewWriteMs),
+		keptReadMs: Math.round(overviewReadMs),
+	});
+	expect(written.writtenFrom).toBeLessThan(written.currentCount);
+	expect(kept.state).toBe("written");
+	expect(overviewReadMs).toBeLessThan(2_000);
 }, 60_000);
