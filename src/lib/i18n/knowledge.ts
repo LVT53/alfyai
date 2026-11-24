@@ -121,6 +121,57 @@ const knowledgeDict = {
 		"memoryNew.project": "Project",
 		"memoryNew.sourceCount": "{count} sources",
 
+		// The subject index (Memory part 3, layout C).
+		"memorySubjects.subject.about_you": "About you",
+		"memorySubjects.subject.home_family": "Home and family",
+		"memorySubjects.subject.work_study": "Work and study",
+		"memorySubjects.subject.health": "Health",
+		"memorySubjects.subject.projects": "Projects",
+		"memorySubjects.subject.interests": "Interests",
+		"memorySubjects.subject.other": "Other",
+		"memorySubjects.subject.goals_decisions": "Goals and decisions",
+		"memorySubjects.subject.people": "People",
+		"memorySubjects.subject.facts_figures": "Facts and figures",
+		"memorySubjects.subject.plans_status": "Plans and status",
+		"memorySubjects.subjects": "Subjects",
+		"memorySubjects.add": "Add",
+		"memorySubjects.search": "Search Memory",
+		"memorySubjects.back": "Memory",
+		"memorySubjects.active": "active",
+		"memorySubjects.quiet":
+			"quiet {weeks} {weeks, plural, one {week} other {weeks}}",
+		"memorySubjects.earlier": "Earlier",
+		"memorySubjects.earlierIn": "Earlier in {subject}",
+		"memorySubjects.earlierState": "Earlier: {text} · said {when}",
+		"memorySubjects.earlierStateUndated": "Earlier: {text}",
+		"memorySubjects.lastMentioned": "Last mentioned {when}",
+		"memorySubjects.today": "today",
+		"memorySubjects.yesterday": "yesterday",
+		"memorySubjects.daysAgo":
+			"{count} {count, plural, one {day} other {days}} ago",
+		"memorySubjects.nothingCurrent": "Nothing current here.",
+		"memorySubjects.overviewPersonal": "Overview of you",
+		"memorySubjects.overviewProject": "Overview of this project",
+		"memorySubjects.overviewHint": "Written when you open it",
+		"memorySubjects.writing": "Writing your overview…",
+		"memorySubjects.writingFrom":
+			"From your {count} current {count, plural, one {entry} other {entries}}.",
+		"memorySubjects.writtenNow":
+			"Written just now from your {count} current {count, plural, one {entry} other {entries}}. It is written again whenever your Memory changes, and it is never sent to chats.",
+		"memorySubjects.writtenNowRecent":
+			"Written just now from your {count} most recent entries of {total}. It is written again whenever your Memory changes, and it is never sent to chats.",
+		"memorySubjects.writtenEarlier":
+			"Written from your {count} current {count, plural, one {entry} other {entries}} ({when}). It is written again whenever your Memory changes, and it is never sent to chats.",
+		"memorySubjects.writtenEarlierRecent":
+			"Written from your {count} most recent entries of {total} ({when}). It is written again whenever your Memory changes, and it is never sent to chats.",
+		"memorySubjects.rewrite": "Rewrite",
+		"memorySubjects.done": "Done",
+		"memorySubjects.tryAgain": "Try again",
+		"memorySubjects.overviewFailed":
+			"Couldn’t write your overview. Please try again.",
+		"memorySubjects.overviewChanged":
+			"Your Memory changed while the overview was being written. Please try again.",
+
 		"filePreview.close": "Close file preview",
 		"filePreview.download": "Download {filename}",
 		"filePreview.downloadFile": "Download File",
@@ -798,6 +849,54 @@ const knowledgeDict = {
 		"memoryNew.unknownDate": "A dátum nem érhető el",
 		"memoryNew.project": "Projekt",
 		"memoryNew.sourceCount": "{count} forrás",
+
+		// A témák szerinti nézet (Memória 3. rész, C elrendezés).
+		"memorySubjects.subject.about_you": "Rólad",
+		"memorySubjects.subject.home_family": "Otthon és család",
+		"memorySubjects.subject.work_study": "Munka és tanulás",
+		"memorySubjects.subject.health": "Egészség",
+		"memorySubjects.subject.projects": "Projektek",
+		"memorySubjects.subject.interests": "Érdeklődés",
+		"memorySubjects.subject.other": "Egyéb",
+		"memorySubjects.subject.goals_decisions": "Célok és döntések",
+		"memorySubjects.subject.people": "Emberek",
+		"memorySubjects.subject.facts_figures": "Tények és számok",
+		"memorySubjects.subject.plans_status": "Tervek és állapot",
+		"memorySubjects.subjects": "Témák",
+		"memorySubjects.add": "Hozzáadás",
+		"memorySubjects.search": "Keresés a Memóriában",
+		"memorySubjects.back": "Memória",
+		"memorySubjects.active": "aktív",
+		"memorySubjects.quiet": "{weeks} hete csendes",
+		"memorySubjects.earlier": "Korábbiak",
+		"memorySubjects.earlierIn": "Korábbiak ebben a témában",
+		"memorySubjects.earlierState": "Korábban: {text} · {when}",
+		"memorySubjects.earlierStateUndated": "Korábban: {text}",
+		"memorySubjects.lastMentioned": "Utoljára említve: {when}",
+		"memorySubjects.today": "ma",
+		"memorySubjects.yesterday": "tegnap",
+		"memorySubjects.daysAgo": "{count} napja",
+		"memorySubjects.nothingCurrent": "Itt most nincs aktuális bejegyzés.",
+		"memorySubjects.overviewPersonal": "Áttekintés rólad",
+		"memorySubjects.overviewProject": "A projekt áttekintése",
+		"memorySubjects.overviewHint": "Megnyitáskor készül",
+		"memorySubjects.writing": "Készül az áttekintésed…",
+		"memorySubjects.writingFrom": "{count} aktuális bejegyzésedből.",
+		"memorySubjects.writtenNow":
+			"Most készült {count} aktuális bejegyzésedből. Ha változik a Memóriád, újra elkészül, és sosem kerül a beszélgetésekbe.",
+		"memorySubjects.writtenNowRecent":
+			"Most készült, {total} bejegyzésedből a legutóbbi {count} alapján. Ha változik a Memóriád, újra elkészül, és sosem kerül a beszélgetésekbe.",
+		"memorySubjects.writtenEarlier":
+			"{count} aktuális bejegyzésedből készült ({when}). Ha változik a Memóriád, újra elkészül, és sosem kerül a beszélgetésekbe.",
+		"memorySubjects.writtenEarlierRecent":
+			"{total} bejegyzésedből a legutóbbi {count} alapján készült ({when}). Ha változik a Memóriád, újra elkészül, és sosem kerül a beszélgetésekbe.",
+		"memorySubjects.rewrite": "Újraírás",
+		"memorySubjects.done": "Kész",
+		"memorySubjects.tryAgain": "Újra",
+		"memorySubjects.overviewFailed":
+			"Nem sikerült megírni az áttekintést. Próbáld újra.",
+		"memorySubjects.overviewChanged":
+			"Írás közben változott a Memóriád. Próbáld újra.",
 
 		"filePreview.close": "Fájlelőnézet bezárása",
 		"filePreview.download": "{filename} letöltése",

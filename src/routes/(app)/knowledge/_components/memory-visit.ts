@@ -3,6 +3,8 @@ import type { MemoryScope } from "$lib/memory-types";
 export interface MemoryVisit {
 	detached?: NonNullable<MemoryVisit["pending"]>[];
 	scopeValue: string;
+	/** The subject opened on the subject index, or every Earlier entry (`all`). */
+	subject?: string | null;
 	query: string;
 	pages: number;
 	rowId: string;

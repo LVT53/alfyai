@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "$lib/client/api/http";
 import type {
@@ -17,10 +23,16 @@ const api = vi.hoisted(() => ({
 	submitMemoryAction: vi.fn(),
 	fetchMemoryOperation: vi.fn(),
 	fetchMemoryOperationByRequest: vi.fn(),
+	fetchMemorySubjectIndex: vi.fn(),
+	fetchMemorySubject: vi.fn(),
+	fetchMemoryOverview: vi.fn(),
+	writeMemoryOverview: vi.fn(),
 }));
 vi.mock("$lib/client/api/memory", () => api);
 vi.mock("svelte/transition", () => ({
+	fade: () => ({ duration: 0 }),
 	fly: () => ({ duration: 0 }),
+	scale: () => ({ duration: 0 }),
 	slide: () => ({ duration: 0 }),
 }));
 const ref = {
@@ -848,5 +860,96 @@ describe("a link to one entry", () => {
 
 		expect(await screen.findByTestId("memory-detail")).toBeVisible();
 		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
+	});
+});
+
+describe("the subject index (layout C)", () => {
+	const index = {
+		authority: "hindsight",
+		scope: ref.scope,
+		generation: "g1",
+		status: "ready",
+		subjects: [
+			{
+				subject: "about_you",
+				count: 1,
+				preview: "Speaks three languages.",
+				active: false,
+				earlierCount: 0,
+				earlierPreview: [],
+			},
+			{
+				subject: "projects",
+				count: 1,
+				preview: row.text,
+				active: true,
+				earlierCount: 1,
+				earlierPreview: ["A trip that ended"],
+			},
+		],
+		earlier: { count: 1, preview: ["A trip that ended"] },
+		currentCount: 2,
+	};
+	const subjectPage = {
+		scope: ref.scope,
+		generation: "g1",
+		subject: "projects",
+		state: "current",
+		entries: [
+			{
+				ref,
+				text: row.text,
+				subject: "projects",
+				kind: "ongoing",
+				timeState: "current",
+				lastMentionedAt: new Date().toISOString(),
+				quietWeeks: null,
+				earlierStates: [
+					{ text: "Owned a yellow kayak", saidAt: "2025-03-14T09:30:00.000Z" },
+				],
+			},
+		],
+		total: 1,
+		nextCursor: null,
+	};
+
+	beforeEach(() => {
+		api.fetchMemorySubjectIndex.mockReset().mockResolvedValue(index);
+		api.fetchMemorySubject.mockReset().mockResolvedValue(subjectPage);
+	});
+
+	it("draws the index, opens a subject, and opens an entry's detail from it", async () => {
+		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+		const projects = await screen.findByRole("button", { name: /Projects/ });
+		expect(projects.textContent).toContain("active");
+		expect(screen.getByText("Overview of you")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: /Earlier · 1/ }).textContent,
+		).toContain("A trip that ended");
+		await fireEvent.click(projects);
+		const pane = await screen.findByTestId("memory-subject-pane");
+		expect(api.fetchMemorySubject).toHaveBeenCalledWith(
+			expect.objectContaining({ subject: "projects", state: "current" }),
+			expect.anything(),
+		);
+		await waitFor(() =>
+			expect(pane.textContent).toContain(
+				"Earlier: Owned a yellow kayak · said March 2025",
+			),
+		);
+		expect(pane.textContent).toContain("Last mentioned today");
+		expect(pane.textContent).toContain("Earlier in Projects · 1");
+		await fireEvent.click(
+			within(pane).getByRole("button", { name: /You own a green/ }),
+		);
+		await screen.findByTestId("memory-detail");
+		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
+	});
+
+	it("keeps today's list for an account whose labels are not verified", async () => {
+		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "list" });
+		await screen.findByTestId("memory-list");
+		expect(screen.queryByTestId("memory-subjects")).toBeNull();
+		expect(api.fetchMemorySubjectIndex).not.toHaveBeenCalled();
 	});
 });

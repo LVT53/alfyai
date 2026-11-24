@@ -910,7 +910,7 @@ $effect(() => {
 
 			{#if activeTab === "memory" || memoryVisited}
 				<div hidden={activeTab!=="memory"} id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
-					<KnowledgeMemoryView bind:this={memoryView} memoryEnabled={data.memoryEnabled ?? null} initialScope={memoryLink?.scope} initialEntryId={memoryLink?.entryId ?? undefined} initialQuery={memoryLink?.query} />
+					<KnowledgeMemoryView bind:this={memoryView} memoryEnabled={data.memoryEnabled ?? null} layout={data.memoryLayout ?? "list"} initialScope={memoryLink?.scope} initialEntryId={memoryLink?.entryId ?? undefined} initialQuery={memoryLink?.query} />
 				</div>
 			{/if}
 			{#if activeTab === "documents"}
