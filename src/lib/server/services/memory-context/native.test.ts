@@ -1310,11 +1310,11 @@ function rankings(
 	);
 }
 const MESSAGE = "What should I bring to the dentist on Friday?";
-async function turn(conversationId = "personal") {
+async function turn(conversationId = "personal", message = MESSAGE) {
 	const { recallMemory } = await import("./native");
 	return recallMemory("u", {
 		conversationId,
-		query: MESSAGE,
+		query: message,
 		tokenBudget: 4000,
 		core: true,
 		now: NOW,
@@ -1340,7 +1340,8 @@ it("admits an Earlier entry only from the top three of its bank's ranking", asyn
 		{ text: "Had the flu", kind: "temporary", said: [50] },
 	]);
 	rankings({ bp: { message: rank([0, 1, 2, 3, 4]) } });
-	const result = await turn();
+	// The message mentions both Earlier entries: only rank keeps the flu out.
+	const result = await turn("personal", "Is my toothache or the flu back?");
 	expect(result.map(({ text }) => text)).toEqual([
 		"Had a toothache",
 		"Lives in Graz",
@@ -1367,12 +1368,47 @@ it("keeps at most three Earlier entries in a turn, the best ranked first", async
 		bp: { message: personal([0, 1, 2]) },
 		bj: { message: project([0, 1]) },
 	});
-	const result = await turn("c");
+	const result = await turn(
+		"c",
+		"Did the cold, the sprain or the fever make me miss the sprint review?",
+	);
 	expect(
 		result
 			.filter(({ timeState }) => timeState === "earlier")
 			.map(({ text }) => text),
 	).toEqual(["Had a cold", "Had a sprain", "Old sprint deadline"]);
+});
+
+it("brings no Earlier entry for a message that does not mention it, even from the top place", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2]) } });
+	const result = await turn("personal", "Thanks, that helps a lot!");
+	expect(result.map(({ text }) => text)).toEqual([
+		"Lives in Graz",
+		"Plays chess",
+	]);
+});
+
+it("brings an Earlier entry the chat's title mentions when the message is short", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: rank([0, 1]) } });
+	const db = drizzle(sqlite, { schema });
+	db.update(schema.conversations)
+		.set({ title: "Toothache again" })
+		.where(eq(schema.conversations.id, "personal"))
+		.run();
+	const result = await turn("personal", "and now?");
+	expect(result.map(({ text }) => text)).toEqual([
+		"Had a toothache",
+		"Lives in Graz",
+	]);
 });
 
 it("never brings an Earlier entry when the bank's searches all failed", async () => {

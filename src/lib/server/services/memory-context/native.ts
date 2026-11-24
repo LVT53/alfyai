@@ -35,6 +35,7 @@ import {
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
+import { mentionsMemoryEntry } from "./earlier-mention";
 import {
 	allocateRecall,
 	type RecallCandidate,
@@ -60,7 +61,10 @@ interface OfferedRow {
 	entry: AdmittedMemoryEvidence & { timeState: MemoryTimeState };
 }
 
-/** An Earlier entry reaches a turn only from these top places of its bank's message ranking. */
+/**
+ * An Earlier entry reaches a turn only from these top places of its bank's
+ * message ranking, and only when the message mentions it (`mentionsMemoryEntry`).
+ */
 const EARLIER_TOP_PLACES = 3;
 /** And at most this many reach one turn. */
 const EARLIER_PER_TURN = 3;
@@ -162,6 +166,10 @@ export async function recallMemory(
 		input.query,
 		input.core ? chat.title : undefined,
 	);
+	// What an Earlier entry must be mentioned in to join a turn: the message
+	// as written and as the bank was searched with it (a short message with
+	// the chat's title).
+	const mentionText = `${input.query} ${message ?? ""}`;
 	const searches: { list: RecallList; query: string }[] = [
 		...(message === null ? [] : [{ list: "message" as const, query: message }]),
 		...(input.core
@@ -446,10 +454,17 @@ export async function recallMemory(
 					offered.set(key, offer);
 					if (offer.entry.timeState === "earlier") {
 						// Earlier entries never enter the core; in a turn one comes
-						// only when it ranks at the top for the person's message.
+						// only when it ranks at the top for the person's message and
+						// the message mentions it (rank alone brings old entries into
+						// most turns of a small bank).
 						if (list === "core") continue;
 						if (input.core) {
-							if (!answered || place >= EARLIER_TOP_PLACES) continue;
+							if (
+								!answered ||
+								place >= EARLIER_TOP_PLACES ||
+								!mentionsMemoryEntry(mentionText, offer.entry.text)
+							)
+								continue;
 							earlier.push({
 								key,
 								place,
