@@ -202,6 +202,22 @@ its D3 dependency graph and emitting upstream circular-dependency warnings. -->
 - **Atlas report quality:** `scripts/atlas-eval.ts` measures and compares Atlas pipelines against a
   live deployment. See [docs/atlas.md](docs/atlas.md#report-quality-evaluation-scriptsatlas-evalts).
 
+### Workspace Search's index
+
+Long text (message bodies, the text of documents and files) is found through two full-text indexes
+that triggers keep in step with every write (migration `1777140000145` builds and fills them during
+`npm run db:prepare`). To check them against their tables, or refill them if they ever fall out of
+step (a table restored by hand, say), run on the server:
+
+```bash
+npm run search:index
+npm run search:index -- --rebuild
+```
+
+The check prints counts by row id and exits 1 when a row is missing or extra; the rebuild empties
+both indexes and fills them again in one transaction (about a second for production's text), then
+prints the check. Neither prints any text.
+
 ## Deployment
 
 `scripts/deploy.sh` builds each deploy into its own immutable `releases/<sha>/` directory and cuts the

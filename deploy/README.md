@@ -851,6 +851,12 @@ Before an app is pointed at a new release:
 
 - If you bypass `scripts/deploy.sh`, run `npm run db:prepare` before starting the production server
   (`npm start` already runs it).
+- Workspace Search's full-text indexes (`messages_fts`, `artifacts_fts`) are built and filled by
+  migration `1777140000145` inside `db:prepare`, in the one transaction that holds the write lock (about
+  a second for production's 15 MB of text; the old release's writers wait for it). Triggers then keep
+  them in step, under the old release too, so a rollback needs nothing. The backup's
+  `PRAGMA integrity_check` checks them as well (SQLite 3.44 and later; the box's CLI is 3.46.1).
+  `npm run search:index` checks them against their tables; `-- --rebuild` refills them.
 - Persist the `data/` directory across deploys so chats, drafts, uploads, and SQLite data survive
   restarts. Under `scripts/deploy.sh`'s release layout this lives at `shared/data/` and is symlinked
   into every `releases/<sha>/`, so no deploy rebuilds or removes it (see
