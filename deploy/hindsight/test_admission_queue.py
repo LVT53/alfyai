@@ -294,6 +294,39 @@ class FairOrderTests(unittest.IsolatedAsyncioTestCase):
             await calls.finish_one()
         self.assertEqual(calls.admitted[1:], ["A1", "B1", "A2", "C1", "B2"])
 
+    async def test_hindsights_calls_one_at_a_time_still_take_every_other_turn_against_an_app_backlog(self):
+        # Hindsight sends its next call only when its last one returns (its fan-out is
+        # one), so it has no waiter at the moment its own call frees the slot.
+        queue = AdmissionQueue(max_waiting=16, limit=lambda: 1)
+        calls = Calls(queue)
+        await calls.start("n0", NATIVE)
+        for number in range(1, 7):
+            await calls.start(f"a{number}", app("aa"))
+        sent = 0
+        for _ in range(9):
+            running = calls.admitted[-1]
+            await calls.finish_one()
+            if running.startswith("n"):
+                sent += 1
+                await calls.start(f"n{sent}", NATIVE)
+        self.assertEqual(calls.admitted, ["n0", "a1", "n1", "a2", "n2", "a3", "n3", "a4", "n4", "a5"])
+
+    async def test_a_source_never_takes_two_turns_running_while_the_other_waits(self):
+        # The app's calls come one at a time here, against a backlog of Hindsight's own.
+        queue = AdmissionQueue(max_waiting=16, limit=lambda: 1)
+        calls = Calls(queue)
+        await calls.start("a0", app("aa"))
+        for number in range(1, 5):
+            await calls.start(f"n{number}", NATIVE)
+        sent = 0
+        for _ in range(6):
+            running = calls.admitted[-1]
+            await calls.finish_one()
+            if running.startswith("a"):
+                sent += 1
+                await calls.start(f"a{sent}", app("aa"))
+        self.assertEqual(calls.admitted, ["a0", "n1", "a1", "n2", "a2", "n3", "a3"])
+
     async def test_live_calls_take_the_same_turns_among_themselves(self):
         order = await self.drained(
             [
