@@ -80,6 +80,48 @@ describe("searchMemories", () => {
 		);
 	});
 
+	it("carries the cleaned words in the link, short enough for Memory's own search", async () => {
+		mockSearchMemoryEntries.mockReturnValue({
+			entries: [
+				{
+					ref: {
+						scope: { kind: "personal" },
+						generation: "g1",
+						rowId: "row-1",
+					},
+					text: "Writing a thesis",
+					projectName: null,
+					lastSaidAt: null,
+				},
+			],
+			total: 1,
+			hasMore: false,
+			searchable: true,
+		});
+		const memoryQueryOf = async (query: string) => {
+			const found = await searchMemories("user-1", searchTerms(query), query, {
+				offset: 0,
+				limit: 3,
+			});
+			return (
+				new URL(found.results[0].href, "http://localhost").searchParams.get(
+					"memoryQuery",
+				) ?? ""
+			);
+		};
+		expect(await memoryQueryOf(`"Thesis," model!!  ${"z".repeat(600)}`)).toBe(
+			`thesis model ${"z".repeat(64)}`,
+		);
+		// Eight words of 64 letters are 519 characters; Memory takes 500.
+		const longest = await memoryQueryOf(
+			Array.from({ length: 8 }, (_, index) =>
+				String.fromCharCode(97 + index).repeat(70),
+			).join(" "),
+		);
+		expect(longest.length).toBeLessThanOrEqual(500);
+		expect(longest.startsWith("a".repeat(64))).toBe(true);
+	});
+
 	it("passes a query with no words on to find out whether Memory is searchable", async () => {
 		mockSearchMemoryEntries.mockReturnValue({
 			entries: [],
