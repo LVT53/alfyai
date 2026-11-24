@@ -157,12 +157,15 @@ function sentenceCounts(text: string) {
 /**
  * Whether the person's edit of their message took anything away: a sentence
  * (or line) of the message before, counted, that the message after no longer
- * has word for word. An edit that only added sentences, anywhere, took nothing
- * away; any change inside a sentence, even of one letter, counts as taking it
- * away.
+ * has word for word, or a saved plan of the edit that forgets or replaces
+ * something (an appended retraction: "forget my address"). An edit that only
+ * added sentences, anywhere, took nothing away; any change inside a sentence,
+ * even of one letter, counts as taking it away.
  */
 export function sourceEditTookAway(intent: ActionIntentRecord) {
 	if (intent.request.kind !== "edit") return true;
+	if (intent.plan && (intent.plan.forget.length || intent.plan.replace.length))
+		return true;
 	const after = sentenceCounts(intent.request.text);
 	for (const [sentence, count] of sentenceCounts(intent.before))
 		if ((after.get(sentence) ?? 0) < count) return true;
@@ -206,3 +209,46 @@ export type ReplayCheck = {
 	/** A per-chat forget step for an approved unlocated removal. */
 	meaningCheck?: true;
 };
+
+/** A text's words, lowercased, with how many times each occurs. */
+function wordCounts(text: string) {
+	const counts = new Map<string, number>();
+	for (const word of text
+		.toLowerCase()
+		.normalize("NFC")
+		.match(/[\p{L}\p{N}]+/gu) ?? [])
+		counts.set(word, (counts.get(word) ?? 0) + 1);
+	return counts;
+}
+
+/**
+ * What a refused changed resend's edit took away from the chats it carried,
+ * none when the edit took nothing away (`sourceEditTookAway`). With a saved
+ * proposal, each fact it invalidated or rewrote without keeping every word of
+ * it; a rewrite that keeps every word and adds some re-asserts something (the
+ * proposal's own mistake) and goes back to the wording the person saw. With no
+ * proposal saved (the edit was refused before one), every fact of the chats it
+ * carried but those of the person's own notes (`protectedSourceIds`): nothing
+ * tells which of them the edit took away.
+ */
+export function sourceEditTakenFacts(
+	intent: ActionIntentRecord,
+	protectedSourceIds: ReadonlySet<string>,
+) {
+	if (!sourceEditTookAway(intent)) return [];
+	if (!intent.proposal)
+		return [
+			...new Map(
+				intent.facts
+					.filter(({ sourceId }) => !protectedSourceIds.has(sourceId))
+					.map((fact) => [fact.id, fact]),
+			).values(),
+		];
+	const proposed = new Map(intent.proposal.map(({ id, text }) => [id, text]));
+	return sourceEditChangedFacts(intent).filter((fact) => {
+		const after = wordCounts(proposed.get(fact.id) ?? "");
+		return [...wordCounts(fact.text)].some(
+			([word, count]) => (after.get(word) ?? 0) < count,
+		);
+	});
+}

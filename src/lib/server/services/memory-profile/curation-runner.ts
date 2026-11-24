@@ -33,7 +33,7 @@ import {
 	parseActionIntent,
 	type ReplayCheck,
 	sourceEditChangedFacts,
-	sourceEditTookAway,
+	sourceEditTakenFacts,
 } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
 import { countedDeliveryAttempt } from "./delivery-policy";
@@ -3507,24 +3507,28 @@ export async function checkSourceDependencyCuration(
 
 /**
  * A changed resend refused for good (the owner's privacy-first rule,
- * 2026-11-24). One fenced write records the source edit `rejected`; a retry
- * then ends before any write (`prepareSourceCuration`) and runs this again,
- * which finds nothing more to do. What becomes of the facts of the chats it
- * carried whose text its proposal changed, rewritten or invalidated
- * (`sourceEditChangedFacts`), depends on whether the person's edit took
- * anything away from their message (`sourceEditTookAway`):
+ * 2026-11-24). A retry then ends before any write (`prepareSourceCuration`)
+ * and runs this again, which adds nothing new. What the person's edit took
+ * away from the chats it carried (`sourceEditTakenFacts`) is excluded the way
+ * a Remove excludes its facts and is never put back:
  *
- * - It did: each such fact is excluded the way a Remove excludes its facts
- *   and is never put back. The same write revokes it whatever its wording, so
- *   the page, recall, search and the Overview stop showing it at once and
- *   publication leaves it out by id (`excludedNativeEvidence`); then Hindsight
- *   invalidates each one still live under its chat, so the cards resting on
- *   it are rebuilt without it.
- * - It only added: nothing was taken away, so each such fact goes back in
- *   Hindsight to the text the person sees (its admitted text; a fact no longer
- *   admitted is never put back), and the refused change holds nothing.
+ * - One fenced write records the edit `rejected` with the facts it excludes
+ *   (`excludedFactIds`, read by `excludedNativeEvidence`): the taken facts and
+ *   their family, every fact under a published row of the current generation
+ *   (hidden rows included) that holds a taken fact; it revokes each taken fact
+ *   whatever its wording, so the page, recall, search and the Overview stop
+ *   showing it at once.
+ * - Before any native write, every fact sharing a live Hindsight observation
+ *   with a taken fact joins the family: Hindsight rebuilds such a card over
+ *   the facts left, and its words can still carry what was taken, so none of
+ *   it is published (limit D).
+ * - Hindsight then invalidates each taken fact still live under its chat.
  *
- * The facts the proposal kept as they were stay either way.
+ * Each other fact the refused proposal changed (a re-assertion that only adds
+ * words, or any change when the edit only added sentences) goes back in
+ * Hindsight to its admitted text; a fact no longer admitted is never put back.
+ * An edit refused and put back before this rule recorded no exclusion and is
+ * left as it was.
  */
 export async function excludeRefusedSourceEdit(
 	ctx: Context,
@@ -3544,31 +3548,80 @@ export async function excludeRefusedSourceEdit(
 				),
 			)
 			.get();
-	const refused: {
-		changed: ReturnType<typeof sourceEditChangedFacts>;
-		taken: ReturnType<typeof sourceEditChangedFacts>;
-	} = { changed: [], taken: [] };
+	type Facts = ReturnType<typeof sourceEditChangedFacts>;
+	const refused: { changed: Facts; taken: Facts; settled: boolean } = {
+		changed: [],
+		taken: [],
+		settled: true,
+	};
+	/** Adds `familyIds` to what the refusal excludes, in one fenced write. */
+	const recordExclusion = async (familyIds: Iterable<string>) => {
+		if (
+			!(await ctx.write((tx) => {
+				actionFence(tx, ctx);
+				const action = read(tx);
+				if (!action) return;
+				const intent = parseActionIntent(action.intentJson);
+				tx.update(memoryActions)
+					.set({
+						intentJson: JSON.stringify({
+							...intent,
+							outcome: "rejected",
+							excludedFactIds: [
+								...new Set([...(intent.excludedFactIds ?? []), ...familyIds]),
+							],
+						}),
+					})
+					.where(eq(memoryActions.id, action.id))
+					.run();
+			}))
+		)
+			throw new NativeMemoryError("memory_cancelled", false);
+	};
 	if (
 		!(await ctx.write((tx) => {
-			actionFence(tx, ctx);
+			const bank = actionFence(tx, ctx);
 			const action = read(tx);
 			if (!action) return;
 			const intent = parseActionIntent(action.intentJson);
 			if (intent.outcome === "accepted") return;
+			// Refused and put back before this rule: nothing excluded later.
+			if (intent.outcome === "rejected" && !intent.excludedFactIds) return;
+			refused.settled = false;
+			const protectedSources = new Set(
+				sourcesFor(action.bankId, intent.sourceIds)
+					.filter((owner) => owner.eventId.startsWith("manual:"))
+					.map(({ id }) => id),
+			);
 			refused.changed = sourceEditChangedFacts(intent);
-			refused.taken = sourceEditTookAway(intent) ? refused.changed : [];
-			// Recorded once: what this refusal excludes, read by publication.
+			refused.taken = sourceEditTakenFacts(intent, protectedSources);
+			const taken = new Set(refused.taken.map(({ id }) => id));
+			const family = new Set(taken);
+			if (taken.size && bank.generation)
+				for (const row of publishedRowsForGeneration(
+					tx,
+					bank.id,
+					bank.epoch,
+					bank.generation,
+				)) {
+					const ids = readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+						({ id }) => id,
+					);
+					if (ids.some((id) => taken.has(id)))
+						for (const id of ids) family.add(id);
+				}
 			tx.update(memoryActions)
 				.set({
 					intentJson: JSON.stringify({
 						...intent,
 						outcome: "rejected",
-						excludedFactIds: refused.taken.map(({ id }) => id),
+						excludedFactIds: [
+							...new Set([...(intent.excludedFactIds ?? []), ...family]),
+						],
 					}),
 				})
 				.where(eq(memoryActions.id, action.id))
 				.run();
-			if (!refused.taken.length) return;
 			const revoked = new Set(
 				tx
 					.select({ factId: memoryRevocations.nativeFactId })
@@ -3584,74 +3637,82 @@ export async function excludeRefusedSourceEdit(
 					.all()
 					.map(({ factId }) => factId),
 			);
-			for (const fact of refused.taken)
-				if (!revoked.has(fact.id))
+			for (const id of taken)
+				if (!revoked.has(id))
 					tx.insert(memoryRevocations)
 						.values({
 							id: randomUUID(),
 							userId: action.userId,
 							bankId: action.bankId,
 							epoch: action.epoch,
-							nativeFactId: fact.id,
+							nativeFactId: id,
 							actionId: action.id,
 						})
 						.run();
 		}))
 	)
 		throw new NativeMemoryError("memory_cancelled", false);
-	if (!refused.changed.length) return;
+	if (refused.settled || (!refused.changed.length && !refused.taken.length))
+		return;
+	const memories = await client.list();
+	const taken = new Set(refused.taken.map(({ id }) => id));
+	if (taken.size)
+		await recordExclusion(
+			memories
+				.filter(
+					(memory) =>
+						memory.fact_type === "observation" &&
+						(memory.source_memory_ids ?? []).some((id) => taken.has(id)),
+				)
+				.flatMap((memory) => memory.source_memory_ids ?? []),
+		);
 	const live = new Map(
-		(await client.list())
+		memories
 			.filter((fact) => fact.fact_type !== "observation")
 			.map((fact) => [fact.id, fact]),
 	);
 	let written = false;
-	if (refused.taken.length)
-		for (const fact of refused.taken) {
-			if (live.get(fact.id)?.document_id !== fact.sourceId) continue;
+	for (const fact of refused.taken) {
+		if (live.get(fact.id)?.document_id !== fact.sourceId) continue;
+		await fence(ctx);
+		await client.editFact(fact.id, {
+			state: "invalidated",
+			reason: "Taken away by the user's own edit",
+		});
+		written = true;
+	}
+	const admitted = () =>
+		new Map(
+			db.transaction((tx) => {
+				actionFence(tx, ctx);
+				return admittedNativeFacts(source.userId, source.bankId, tx).map(
+					(fact) => [fact.id, fact] as const,
+				);
+			}),
+		);
+	for (const fact of refused.changed) {
+		if (taken.has(fact.id)) continue;
+		const shown = admitted().get(fact.id);
+		if (!shown || shown.source.id !== fact.sourceId) continue;
+		const current = live.get(fact.id);
+		if (current) {
+			if (current.document_id !== fact.sourceId || current.text === shown.text)
+				continue;
 			await fence(ctx);
-			await client.editFact(fact.id, {
-				state: "invalidated",
-				reason: "Taken away by the user's own edit",
-			});
-			written = true;
+			await client.editFact(fact.id, { text: shown.text });
+		} else {
+			if (
+				!(await client.matchesArchivedFact({
+					id: fact.id,
+					sourceId: fact.sourceId,
+					text: shown.text,
+				}))
+			)
+				continue;
+			await fence(ctx);
+			await client.editFact(fact.id, { state: "valid" });
 		}
-	else {
-		const admitted = () =>
-			new Map(
-				db.transaction((tx) => {
-					actionFence(tx, ctx);
-					return admittedNativeFacts(source.userId, source.bankId, tx).map(
-						(fact) => [fact.id, fact] as const,
-					);
-				}),
-			);
-		for (const fact of refused.changed) {
-			const shown = admitted().get(fact.id);
-			if (!shown || shown.source.id !== fact.sourceId) continue;
-			const current = live.get(fact.id);
-			if (current) {
-				if (
-					current.document_id !== fact.sourceId ||
-					current.text === shown.text
-				)
-					continue;
-				await fence(ctx);
-				await client.editFact(fact.id, { text: shown.text });
-			} else {
-				if (
-					!(await client.matchesArchivedFact({
-						id: fact.id,
-						sourceId: fact.sourceId,
-						text: shown.text,
-					}))
-				)
-					continue;
-				await fence(ctx);
-				await client.editFact(fact.id, { state: "valid" });
-			}
-			written = true;
-		}
+		written = true;
 	}
 	if (!written) return;
 	await fence(ctx);

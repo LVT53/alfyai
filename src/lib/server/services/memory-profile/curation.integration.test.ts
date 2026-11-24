@@ -3559,6 +3559,7 @@ it.each([
 	"refused changed resend keeps the untouched fact",
 	"refused changed resend whose invalidation fails once",
 	"refused changed resend that only adds",
+	"refused changed resend whose taken fact shares a card",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3641,8 +3642,13 @@ it.each([
 			mode === "dependent exact tip withdrawn during Remove" ||
 			movedProject;
 		const removeTarget = removeCorrection ? tea : drink;
+		// Hindsight merges the decaf and the tyres into one card, then rebuilds
+		// it over the tyres alone once the decaf is gone, still naming it.
+		const sharedCard =
+			mode === "refused changed resend whose taken fact shares a card";
+		let mergeCards = false;
 		const keepsUntouched =
-			mode === "refused changed resend keeps the untouched fact";
+			mode === "refused changed resend keeps the untouched fact" || sharedCard;
 		const invalidationFailsOnce =
 			mode === "refused changed resend whose invalidation fails once";
 		// An edit that only adds to the message takes nothing away.
@@ -3804,6 +3810,33 @@ it.each([
 							);
 			}
 			const response = await original(url, init);
+			if (mergeCards && path.includes("/memories/list")) {
+				const list = await response.json();
+				const live = list.items.some(
+					(item: { id: string }) => item.id === "decaf",
+				);
+				list.items = list.items.filter(
+					(item: { id: string }) =>
+						item.id !== "observation-decaf" && item.id !== "observation-tyres",
+				);
+				list.items.push(
+					live
+						? {
+								id: "observation-merged",
+								text: "I prefer decaf in the afternoon, and my bike tyres are tubeless.",
+								fact_type: "observation",
+								source_memory_ids: ["decaf", "tyres"],
+							}
+						: {
+								id: "observation-rebuilt",
+								text: "My bike tyres are tubeless; I prefer decaf in the afternoon.",
+								fact_type: "observation",
+								source_memory_ids: ["tyres"],
+							},
+				);
+				list.total = list.items.length;
+				return new Response(JSON.stringify(list));
+			}
 			if (driftAfterWithdrawal && path.includes("/memories/list")) {
 				const list = await response.json();
 				if (mode === "extra observation on exact resend")
@@ -4316,9 +4349,11 @@ it.each([
 						if ("displayed_observations" in input)
 							return atPublication ? ckOkay : ckReject;
 						if ("original_facts" in input) return ckOkay;
+						// The plan reads the edit as the person made it: an added sentence
+						// replaces nothing.
 						return {
 							forget: [],
-							replace: ["decaf to black tea"],
+							replace: onlyAdds ? [] : ["decaf to black tea"],
 							preserve: [],
 						};
 					},
@@ -4381,6 +4416,7 @@ it.each([
 					});
 				}
 				await deleteMessages(["after"], { editSourceMessageId: "after" });
+				mergeCards = sharedCard;
 				const edited = await persist(
 					"edited",
 					"after",
@@ -4445,8 +4481,13 @@ it.each([
 					.get();
 				expect(JSON.parse(sourceEdit?.intentJson ?? "{}")).toMatchObject({
 					outcome: "rejected",
-					// What the refusal excludes, recorded once.
-					excludedFactIds: onlyAdds ? [] : ["decaf"],
+					// What the refusal excludes: the decaf, and the tyres that shared a
+					// live card with it.
+					excludedFactIds: onlyAdds
+						? []
+						: sharedCard
+							? ["decaf", "tyres"]
+							: ["decaf"],
 				});
 				const decafRevocations = f.db
 					.select()
@@ -4484,6 +4525,10 @@ it.each([
 					: keepsUntouched
 						? [independent]
 						: [];
+				// The tyres shared a card with the decaf: they leave with it at the
+				// next publication, so no card Hindsight rebuilt over them alone can
+				// bring the decaf back (limit D).
+				const kept = sharedCard ? [] : untouched;
 				if (keepsUntouched)
 					expect(nativeFacts.find(({ id }) => id === "tyres")).toMatchObject({
 						text: independent,
@@ -4518,12 +4563,12 @@ it.each([
 					errorCode: null,
 				});
 				vi.useRealTimers();
-				const learned = [...untouched, laterMessage].sort();
+				const learned = [...kept, laterMessage].sort();
 				expect(shown()).toEqual(learned);
 				expect(await recalled()).toEqual(learned);
 				await writeOverview();
 				expect(overviewInput).toContain(laterMessage);
-				for (const text of untouched) expect(overviewInput).toContain(text);
+				for (const text of kept) expect(overviewInput).toContain(text);
 				for (const text of [overviewInput, ...shown(), ...(await recalled())]) {
 					if (!onlyAdds) expect(text).not.toContain("decaf");
 					expect(text).not.toContain("preferred decaf");

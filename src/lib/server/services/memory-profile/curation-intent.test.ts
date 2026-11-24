@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type ActionIntentRecord,
 	sourceEditChangedFacts,
+	sourceEditTakenFacts,
 	sourceEditTookAway,
 } from "./curation-intent";
 
@@ -9,7 +10,8 @@ import {
 function sourceEdit(
 	before: string,
 	after: string,
-	proposal: Array<{ id: string; text: string }> = [],
+	proposal?: Array<{ id: string; text: string }>,
+	plan?: ActionIntentRecord["plan"],
 ): ActionIntentRecord {
 	return {
 		request: {
@@ -28,7 +30,8 @@ function sourceEdit(
 			{ id: "colour", text: "Mák is black.", sourceId: "chat" },
 			{ id: "name", text: "The user has a cat named Mák.", sourceId: "chat" },
 		],
-		proposal,
+		...(proposal ? { proposal } : {}),
+		...(plan ? { plan } : {}),
 	};
 }
 
@@ -107,5 +110,58 @@ describe("what a person's edit of their message took away", () => {
 				},
 			}),
 		).toBe(true);
+	});
+});
+
+describe("what a refused resend's edit took away from the chats it carried", () => {
+	const ids = (facts: Array<{ id: string }>) => facts.map(({ id }) => id);
+	const none = new Set<string>();
+	it("takes a fact the proposal invalidated or rewrote dropping a word", () => {
+		const edit = sourceEdit(
+			"Mák is black. Bodza is white.",
+			"Bodza is white.",
+			[
+				{ id: "colour", text: "" },
+				{ id: "name", text: "The user has a cat." },
+			],
+		);
+		expect(ids(sourceEditTakenFacts(edit, none))).toEqual(["colour", "name"]);
+	});
+	it("puts back a rewrite that only adds words: the proposal re-asserted something", () => {
+		const edit = sourceEdit("Mák is black. Bodza is white.", "Mák is black.", [
+			{ id: "colour", text: "" },
+			{ id: "name", text: "The user has a cat named Mák, who is black." },
+		]);
+		expect(ids(sourceEditTakenFacts(edit, none))).toEqual(["colour"]);
+	});
+	it("takes nothing when the edit only added sentences and its plan forgets nothing", () => {
+		const edit = sourceEdit(
+			"Mák is black.",
+			"Mák is black. I like coffee.",
+			[{ id: "colour", text: "" }],
+			{ forget: [], replace: [], preserve: ["Mák is black"] },
+		);
+		expect(sourceEditTakenFacts(edit, none)).toEqual([]);
+	});
+	it("counts an appended retraction the plan forgets as taking it away", () => {
+		const edit = sourceEdit(
+			"Mák is black.",
+			"Mák is black. Forget what I said about her colour.",
+			[{ id: "colour", text: "" }],
+			{ forget: ["Mák's colour"], replace: [], preserve: [] },
+		);
+		expect(sourceEditTookAway(edit)).toBe(true);
+		expect(ids(sourceEditTakenFacts(edit, none))).toEqual(["colour"]);
+	});
+	it("takes every fact but the person's own notes when no proposal was saved", () => {
+		const edit = sourceEdit("Mák is black.", "Mák.");
+		expect(ids(sourceEditTakenFacts(edit, none))).toEqual(["colour", "name"]);
+		expect(sourceEditTakenFacts(edit, new Set(["chat"]))).toEqual([]);
+		expect(
+			sourceEditTakenFacts(
+				sourceEdit("Mák is black.", "Mák is black. Hi."),
+				none,
+			),
+		).toEqual([]);
 	});
 });
