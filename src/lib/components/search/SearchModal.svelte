@@ -1317,10 +1317,17 @@ onDestroy(() => {
 			color var(--duration-standard) var(--ease-out);
 	}
 
-	.search-scope-chip:hover,
+	.search-scope-chip:hover:not([aria-disabled="true"]),
 	.search-scope-chip:focus-visible {
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	/* A kind with nothing in it says so (aria-disabled) and looks it: dimmed, no
+	   hover. The keyboard's focus ring above still shows on it. */
+	.search-scope-chip[aria-disabled="true"] {
+		cursor: default;
+		opacity: 0.5;
 	}
 
 	.search-scope-chip.active {
