@@ -6,6 +6,7 @@ import type {
 } from "$lib/memory-types";
 import {
 	getMemoryAgingThresholds,
+	getMemoryEarlierRerank,
 	getMemoryRecallShares,
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
@@ -42,6 +43,12 @@ import {
 	mentionWords,
 } from "./earlier-mention";
 import {
+	type EarlierCandidate,
+	type EarlierScores,
+	earlierJoins,
+	scoreEarlierCandidates,
+} from "./earlier-rerank";
+import {
 	allocateRecall,
 	type RecallCandidate,
 	type RecallLane,
@@ -68,11 +75,16 @@ interface OfferedRow {
 
 /**
  * An Earlier entry reaches a turn only from these top places of its bank's
- * message ranking, and only when the message mentions it (`mentionsMemoryEntry`).
+ * message ranking, and only when the message is about it: the reranker's score,
+ * with the word rule (`mentionsMemoryEntry`) as its second voice and, with no
+ * score, as the whole decision (`earlierJoins`).
  */
 const EARLIER_TOP_PLACES = 3;
 /** And at most this many reach one turn. */
 const EARLIER_PER_TURN = 3;
+
+/** The handle recall reads the database through, inside one transaction. */
+type RecallTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** The searches recall runs on a bank: the message's, and the basics'. */
 type RecallList = "message" | "core";
@@ -320,7 +332,15 @@ export async function recallMemory(
 	}
 	// Every eligible bank shares one live snapshot, including holds set during a native call.
 	const thresholds = getMemoryAgingThresholds();
-	const entries = db.transaction((tx) => {
+	const earlierFloors = getMemoryEarlierRerank();
+	// The Earlier entries this turn must judge (each in its bank's top places),
+	// and what the reranker scored them once it has.
+	const earlierCandidates: (EarlierCandidate & {
+		place: number;
+		personal: boolean;
+	})[] = [];
+	let earlierScores: EarlierScores | undefined;
+	const readEntries = (tx: RecallTransaction) => {
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
 		const offered = new Map<string, OfferedRow>();
@@ -519,14 +539,26 @@ export async function recallMemory(
 					if (offer.entry.timeState === "earlier") {
 						// Earlier entries never enter the core; in a turn one comes
 						// only when it ranks at the top for the person's message and
-						// the message mentions it (rank alone brings old entries into
-						// most turns of a small bank).
+						// the message is about it (rank alone brings old entries into
+						// most turns of a small bank): by the reranker's score, which
+						// the second read below holds, or by the words alone.
 						if (list === "core") continue;
 						if (input.core) {
+							if (!answered || place >= EARLIER_TOP_PLACES) continue;
+							if (!earlierScores)
+								earlierCandidates.push({
+									key,
+									text: offer.entry.text,
+									place,
+									personal: scope.kind === "personal",
+								});
+							const scored = earlierScores?.get(key);
 							if (
-								!answered ||
-								place >= EARLIER_TOP_PLACES ||
-								!mentioned(offer.entry.text)
+								!earlierJoins(
+									scored?.text === offer.entry.text ? scored.score : undefined,
+									() => mentioned(offer.entry.text),
+									earlierFloors,
+								)
 							)
 								continue;
 							earlier.push({
@@ -654,7 +686,23 @@ export async function recallMemory(
 			const entry: AdmittedMemoryEvidence = { ...offeredEntry, sources };
 			return { bankId, entry };
 		});
-	});
+	};
+	// The first read judges the Earlier entries by the words alone, as before,
+	// and lists the ones the reranker may judge. When there are some, one call
+	// scores them and a second read (a fresh snapshot, so consent and edits made
+	// meanwhile count) judges them by score. With no scores the first read stands.
+	let entries = db.transaction(readEntries);
+	if (input.core && earlierCandidates.length) {
+		earlierScores =
+			(await scoreEarlierCandidates(
+				input.query,
+				[...earlierCandidates].sort(
+					(a, b) =>
+						a.place - b.place || Number(b.personal) - Number(a.personal),
+				),
+			)) ?? undefined;
+		if (earlierScores) entries = db.transaction(readEntries);
+	}
 	logSearched(entries);
 	return entries.map(({ entry }) => entry);
 }

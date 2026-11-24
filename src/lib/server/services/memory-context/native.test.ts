@@ -65,12 +65,20 @@ vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
 	};
 });
 let shares = { corePercent: 25, projectPercent: 50 };
+let floors = { min: 0.002, wordMin: 0.0005 };
 vi.mock("$lib/server/config-store", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/server/config-store")>()),
 	getMemoryRecallShares: () => shares,
+	getMemoryEarlierRerank: () => floors,
 }));
+// The app's reranker: not configured unless a test says what it scores.
+const rerankTexts = vi.hoisted(() => vi.fn());
+vi.mock("../tei-reranker", () => ({ rerankTexts }));
 beforeEach(() => {
 	shares = { corePercent: 25, projectPercent: 50 };
+	floors = { min: 0.002, wordMin: 0.0005 };
+	rerankTexts.mockReset();
+	rerankTexts.mockResolvedValue(null);
 	sqlite = new Database(":memory:");
 	sqlite.pragma("foreign_keys=ON");
 	const db = drizzle(sqlite, { schema });
@@ -1678,4 +1686,217 @@ it("puts lasting entries first in the core once labels exist", async () => {
 		now: NOW,
 	});
 	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});
+
+// The Earlier gate's reranker check: an Earlier entry in the top three joins a
+// turn on the reranker's score (the main floor), or on the words and the lower
+// floor together; with no score the words decide alone.
+/** What the app's reranker answers: each text's score, best first, as TEI does. */
+function reranker(scores: Record<string, number>) {
+	rerankTexts.mockImplementation(async ({ texts }: { texts: string[] }) =>
+		texts
+			.map((text, index) => ({ index, score: scores[text] ?? 0 }))
+			.sort((a, b) => b.score - a.score),
+	);
+}
+function toothacheBank() {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: rank([0, 1]) } });
+}
+const textsOf = (result: { text: string }[]) => result.map(({ text }) => text);
+
+it("brings an Earlier entry the reranker says the message is about, though no word is shared", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.4 });
+	const result = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(result)).toEqual(["Had a toothache", "Lives in Graz"]);
+	expect(result[0]).toMatchObject({ timeState: "earlier" });
+});
+
+it("keeps out an Earlier entry the reranker scores under the lower floor, though the message names it", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.0001 });
+	const result = await turn("personal", "Is my toothache back?");
+	expect(textsOf(result)).toEqual(["Lives in Graz"]);
+});
+
+it("takes an Earlier entry scored between the floors only when the words mention it too", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.001 });
+	const named = await turn("personal", "Is my toothache back?");
+	expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
+	const unrelated = await turn("personal", "Thanks, that helps a lot!");
+	expect(textsOf(unrelated)).toEqual(["Lives in Graz"]);
+});
+
+it("reads the floors from the settings", async () => {
+	toothacheBank();
+	floors = { min: 0.5, wordMin: 0.1 };
+	reranker({ "Had a toothache": 0.4 });
+	const unrelated = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(unrelated)).toEqual(["Lives in Graz"]);
+	const named = await turn("personal", "Is my toothache back?");
+	expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
+});
+
+it("scores all of a turn's Earlier entries, in both banks, with one call", async () => {
+	const personal = seedLabelled("bp", "personal", [
+		{ text: "Had a cold", kind: "temporary", said: [60] },
+		{ text: "Had a sprain", kind: "temporary", said: [61] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	const project = seedLabelled("bj", "project:p", [
+		{ text: "Old sprint deadline", kind: "temporary", said: [70] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+	]);
+	rankings({
+		bp: { message: personal([0, 1, 2]) },
+		bj: { message: project([0, 1]) },
+	});
+	reranker({ "Had a cold": 0.9, "Old sprint deadline": 0.5 });
+	const message = "How is everything going?";
+	const result = await turn("c", message);
+	expect(rerankTexts).toHaveBeenCalledTimes(1);
+	const call = rerankTexts.mock.calls[0]?.[0];
+	expect(call.query).toBe(message);
+	expect([...call.texts].sort()).toEqual([
+		"Had a cold",
+		"Had a sprain",
+		"Old sprint deadline",
+	]);
+	expect(
+		textsOf(result.filter(({ timeState }) => timeState === "earlier")),
+	).toEqual(["Had a cold", "Old sprint deadline"]);
+});
+
+it("never sends the chat's title to the reranker, only the person's own words", async () => {
+	toothacheBank();
+	const db = drizzle(sqlite, { schema });
+	db.update(schema.conversations)
+		.set({ title: "Toothache again" })
+		.where(eq(schema.conversations.id, "personal"))
+		.run();
+	reranker({ "Had a toothache": 0.4 });
+	const result = await turn("personal", "ok thanks");
+	// The title joined the search, and scored the entry well, but the query the
+	// reranker read was "ok thanks".
+	expect(rerankTexts.mock.calls[0]?.[0].query).toBe("ok thanks");
+	expect(textsOf(result)).toContain("Had a toothache");
+});
+
+it("reads a megabyte message at its first 4,000 and last 2,000 characters for the reranker", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.4 });
+	await turn("personal", `${"filler ".repeat(150_000)}toothache`);
+	expect(rerankTexts.mock.calls[0]?.[0].query).toHaveLength(6_001);
+});
+
+it.each([
+	[
+		"no reranker is configured",
+		() => rerankTexts.mockResolvedValue(null),
+		"not_configured",
+	],
+	[
+		"the reranker times out",
+		() =>
+			rerankTexts.mockRejectedValue(new DOMException("aborted", "AbortError")),
+		"timeout",
+	],
+	[
+		"the reranker fails",
+		() => rerankTexts.mockRejectedValue(new Error("TEI request failed: 503")),
+		"error",
+	],
+])(
+	"falls back to the words alone when %s, and says so once",
+	async (_when, arrange, code) => {
+		toothacheBank();
+		arrange();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const named = await turn("personal", "Is my toothache back?");
+			expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(warn).toHaveBeenCalledWith(
+				"[KNOWLEDGE_MEMORY] Earlier rerank unavailable",
+				{ code },
+			);
+			warn.mockClear();
+			const unrelated = await turn(
+				"personal",
+				"Did the dentist sort out that molar?",
+			);
+			expect(textsOf(unrelated)).toEqual(["Lives in Graz"]);
+		} finally {
+			warn.mockRestore();
+		}
+	},
+);
+
+it("asks the reranker nothing when no Earlier entry ranks in the top three", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+		{ text: "Speaks Spanish", kind: "lasting", said: [30] },
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2, 3]) } });
+	reranker({ "Had a toothache": 0.9 });
+	const result = await turn("personal", "Is my toothache back?");
+	expect(rerankTexts).not.toHaveBeenCalled();
+	expect(textsOf(result)).not.toContain("Had a toothache");
+});
+
+it("leaves the memory_context tool as it was: no reranker call, Earlier entries by rank", async () => {
+	toothacheBank();
+	reranker({ "Had a toothache": 0.0001 });
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "Thanks, that helps a lot!",
+		tokenBudget: 4000,
+		now: NOW,
+	});
+	expect(rerankTexts).not.toHaveBeenCalled();
+	expect(textsOf(result)).toEqual(["Had a toothache", "Lives in Graz"]);
+});
+
+it("ignores a score for an entry whose text changed while the reranker was working", async () => {
+	toothacheBank();
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.memoryPublishedRows)
+			.set({ text: "Had a toothache, since healed" })
+			.where(eq(schema.memoryPublishedRows.nativeId, "n-bp-0"))
+			.run();
+		return [{ index: 0, score: 0.9 }];
+	});
+	const result = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(result)).toEqual(["Lives in Graz"]);
+});
+
+it("returns nothing when the person turns Memory off while the reranker is working", async () => {
+	toothacheBank();
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.users)
+			.set({ memoryEnabled: false })
+			.where(eq(schema.users.id, "u"))
+			.run();
+		return [{ index: 0, score: 0.9 }];
+	});
+	expect(await turn("personal", "Is my toothache back?")).toEqual([]);
 });
