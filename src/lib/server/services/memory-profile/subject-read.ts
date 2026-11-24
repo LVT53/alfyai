@@ -105,9 +105,11 @@ export function readScopeEntries(
 				kind: view.kind,
 				timeState: view.timeState,
 				lastMentionedAt: view.lastMentionedAt,
+				// Whole weeks, and at least one: the owner may set the quiet
+				// threshold below a week, and "quiet 0 weeks" says nothing.
 				quietWeeks:
 					view.timeState === "quiet" && said !== null
-						? Math.floor((now.getTime() - said) / WEEK_MS)
+						? Math.max(1, Math.floor((now.getTime() - said) / WEEK_MS))
 						: null,
 				earlierStates: parseEarlierStates(row.nativeText, row.text),
 			};

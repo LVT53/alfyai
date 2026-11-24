@@ -208,6 +208,41 @@ describe("an opened subject", () => {
 		expect(app).toMatchObject({ timeState: "quiet", quietWeeks: 4 });
 	});
 
+	// The owner may set the quiet threshold below a week (1 to 3650 days): the
+	// page counts whole weeks, so it must not say "quiet 0 weeks".
+	it("an ongoing entry quiet for less than a week says 1 week, never 0", async () => {
+		const { db } = await import("$lib/server/db");
+		const { adminConfig } = await import("$lib/server/db/schema");
+		const cfg = await import("$lib/server/config-store");
+		db.insert(adminConfig)
+			.values({
+				key: "MEMORY_ONGOING_QUIET_DAYS",
+				value: "3",
+				updatedBy: h.userId,
+			})
+			.run();
+		await cfg.refreshConfig();
+		await seedSubjectEntries(h.userId, PERSONAL, [
+			entry("app", "2026-11-20T12:00:00Z", "ongoing", "projects"),
+			entry("old", "2026-11-03T12:00:00Z", "ongoing", "projects"),
+		]);
+		const entries = (await read()).listMemorySubject(
+			h.userId,
+			{ scope: PERSONAL, subject: "projects", state: "current" },
+			NOW,
+		).entries;
+		expect(
+			entries.map(({ text, timeState, quietWeeks }) => [
+				text,
+				timeState,
+				quietWeeks,
+			]),
+		).toEqual([
+			["Synthetic entry app.", "quiet", 1],
+			["Synthetic entry old.", "quiet", 3],
+		]);
+	});
+
 	it("an entry shows only dated earlier states and keeps its own text", async () => {
 		await seedSubjectEntries(h.userId, PERSONAL, [
 			entry("moved", "2026-11-20", "lasting", "home_family", {

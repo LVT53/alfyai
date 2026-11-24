@@ -82,7 +82,7 @@ export interface MemorySubjectEntry {
 	timeState: "current" | "quiet" | "earlier";
 	/** When the person last mentioned it (its newest fact), ISO; null when no fact has a date. */
 	lastMentionedAt: string | null;
-	/** Whole weeks since the last mention, for a quiet entry only. */
+	/** Whole weeks since the last mention, at least 1, for a quiet entry only. */
 	quietWeeks: number | null;
 	/** Hindsight's dated earlier-state notes only, newest first; never Previous versions. */
 	earlierStates: MemoryEarlierState[];
