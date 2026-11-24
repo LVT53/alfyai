@@ -28,6 +28,7 @@
     "seed": "tsx scripts/seed-user.ts",
     "auth:reset-two-step": "tsx scripts/reset-two-step.ts",
     "db:prepare": "tsx scripts/prepare-db.ts",
+    "search:index": "tsx scripts/workspace-search-index.ts",
     "models:fetch": "tsx scripts/fetch-picture-check-model.ts",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
