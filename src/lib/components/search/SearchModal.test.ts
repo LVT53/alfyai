@@ -606,6 +606,51 @@ describe("SearchModal", () => {
 			expect(screen.queryByTestId("search-section-memory")).toBeNull();
 		});
 
+		it("mark a kind with no matches as unavailable", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 1, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+			for (const id of ["memory", "documents", "apps"]) {
+				expect(screen.getByTestId(`search-scope-${id}`)).toHaveAttribute(
+					"aria-disabled",
+					"true",
+				);
+			}
+			for (const id of ["all", "chats", "media"]) {
+				expect(screen.getByTestId(`search-scope-${id}`)).not.toHaveAttribute(
+					"aria-disabled",
+				);
+			}
+		});
+
+		it("carry no counts before anything is typed", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					mode: "default",
+					query: "",
+					conversations: [chat("c1", "Release notes")],
+					totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByText("Release notes");
+			// The recents are a few of each kind, not a count of anything; a
+			// person with memories must not read "Memory 0".
+			const memoryChip = screen.getByTestId("search-scope-memory");
+			expect(memoryChip.textContent?.trim()).toBe("Memory");
+			expect(memoryChip.getAttribute("aria-label")).toBe("Memory");
+			expect(screen.getByTestId("search-scope-chats").textContent?.trim()).toBe(
+				"Chats",
+			);
+		});
+
 		it("show 99+ at the cap", async () => {
 			fetchWorkspaceSearch.mockResolvedValue(
 				answer({
@@ -768,6 +813,64 @@ describe("SearchModal", () => {
 			expect(
 				screen.queryByRole("button", { name: /^Show all/ }),
 			).not.toBeInTheDocument();
+		});
+
+		it("keeps the focus in the dialog when Show all goes away", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 12, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			const input = await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c2", "Alpha two")],
+					totals: { chats: 12, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			const showAll = screen.getByRole("button", { name: /^Show all/ });
+			showAll.focus();
+			await fireEvent.click(showAll);
+			await screen.findByText("Alpha two");
+			await waitFor(() => expect(window.document.activeElement).toBe(input));
+		});
+
+		it("keeps the focus in the dialog when the last Load more goes away", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: "o:20",
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			const input = await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: "o:20",
+				}),
+			);
+			await fireEvent.click(screen.getByTestId("search-scope-chats"));
+			const loadMore = await screen.findByRole("button", { name: "Load more" });
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: [chat("c2", "Alpha two")],
+					totals: { chats: 2, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: null,
+				}),
+			);
+			loadMore.focus();
+			await fireEvent.click(loadMore);
+			await screen.findByText("Alpha two");
+			await waitFor(() => expect(window.document.activeElement).toBe(input));
 		});
 
 		it("Load more appends the next page until there is none", async () => {

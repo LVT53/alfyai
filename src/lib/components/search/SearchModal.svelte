@@ -473,7 +473,24 @@ async function loadMore() {
 		if (requestId === latestRequestId) searchError = true;
 	} finally {
 		if (requestId === latestRequestId) loadingMore = false;
+		keepFocusInDialog();
 	}
+}
+
+/**
+ * Show all and the last Load more go away once used; the focus they held
+ * would fall to the page. It goes back to the search box (or the dialog, on a
+ * touch screen, where focusing the box would open the keyboard).
+ */
+function keepFocusInDialog() {
+	void tick().then(() => {
+		const active = document.activeElement;
+		if (active && active !== document.body && modalRef?.contains(active)) {
+			return;
+		}
+		if (isMobilePointer()) modalRef?.focus();
+		else searchInputRef?.focus();
+	});
 }
 
 function selectScope(id: SearchScopeId) {
@@ -835,20 +852,25 @@ onDestroy(() => {
 			<div class="search-scope-band border-b px-4 py-2" role="group" aria-label={$t('searchModal.scopeLabel')}>
 				<div class="search-scope-row">
 					{#each scopeChips as chip (chip.id)}
+						<!-- Counts only for a query: the view before one shows a few recents
+							 of each kind, not a count, and a kind with nothing in it says so. -->
 						<button
 							type="button"
 							class="search-scope-chip"
 							class:active={activeScope === chip.id}
 							aria-pressed={activeScope === chip.id}
-							aria-label={$t('searchModal.scopeCountLabel', {
-								name: $t(SCOPE_LABEL_KEYS[chip.id]),
-								count: formatScopeCount(chip.count),
-							})}
+							aria-disabled={chip.id !== 'all' && chip.count === 0 ? 'true' : undefined}
+							aria-label={isQueryMode
+								? $t('searchModal.scopeCountLabel', {
+										name: $t(SCOPE_LABEL_KEYS[chip.id]),
+										count: formatScopeCount(chip.count),
+									})
+								: $t(SCOPE_LABEL_KEYS[chip.id])}
 							data-testid={`search-scope-${chip.id}`}
 							onclick={() => selectScope(chip.id)}
 						>
 							<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
-							{#if chip.id !== 'all' || chip.count > 0}
+							{#if isQueryMode && (chip.id !== 'all' || chip.count > 0)}
 								<span class="search-scope-count">{formatScopeCount(chip.count)}</span>
 							{/if}
 						</button>
@@ -1099,7 +1121,10 @@ onDestroy(() => {
 									<button
 										type="button"
 										class="search-section-link"
-										onclick={() => selectScope(section.kind)}
+										onclick={() => {
+											selectScope(section.kind);
+											keepFocusInDialog();
+										}}
 									>
 										<span>{$t('searchModal.showAll', { count: formatScopeCount(section.showAllTotal) })}</span>
 										<ChevronRight size={13} strokeWidth={2.2} aria-hidden="true" />
