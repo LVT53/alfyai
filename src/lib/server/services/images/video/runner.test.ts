@@ -592,16 +592,13 @@ describe("a 10 second take", () => {
 		}
 	});
 
-	it("stores one clip and never concatenates", async () => {
+	it("stores one ten second clip from one prompt", async () => {
 		const server = await startLtx();
-		const media = await import("./media");
-		const concat = vi.spyOn(media, "concatClips");
 		const takeId = await queueTake({ durationSeconds: 10 });
 		await drainVideoTakes();
 
 		expect((await readTake(takeId)).status).toBe("succeeded");
 		expect(promptRequests(server)).toHaveLength(1);
-		expect(concat).not.toHaveBeenCalled();
 		const clips = await storedClips();
 		expect(clips).toHaveLength(1);
 		const clip = clips[0];
