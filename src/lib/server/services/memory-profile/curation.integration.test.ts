@@ -3529,6 +3529,7 @@ it.each([
 	"repeated exact resend while queued",
 	"accepted carried next edit",
 	"refused changed resend after exact carry",
+	"changed resend refused at publication after exact carry",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3638,6 +3639,7 @@ it.each([
 			mode === "accepted carried" ||
 			mode === "accepted carried next edit" ||
 			mode === "refused changed resend after exact carry" ||
+			mode === "changed resend refused at publication after exact carry" ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
@@ -4222,15 +4224,36 @@ it.each([
 				await saveCorrection();
 				remembered = corrected;
 			}
-			if (mode === "refused changed resend after exact carry") {
-				// The changed resend rewrites the carried fact natively, and its
-				// final check refuses the result on every attempt.
+			if (
+				mode === "refused changed resend after exact carry" ||
+				mode === "changed resend refused at publication after exact carry"
+			) {
+				// The changed resend rewrites the carried fact natively. Either its
+				// final check refuses the result on every attempt, or publication
+				// does: an earlier edit took that very wording away.
 				const rewritten = "I preferred decaf in the afternoon once.";
+				const atPublication =
+					mode === "changed resend refused at publication after exact carry";
+				if (atPublication)
+					f.db
+						.insert(f.s.memoryRevocations)
+						.values({
+							id: randomUUID(),
+							userId: h.userId,
+							bankId: f.bank.id,
+							epoch: 0,
+							nativeFactId: "decaf",
+							nativeTextHash: (await import("./revisions")).memoryTextHash(
+								rewritten,
+							),
+						})
+						.run();
 				fixture.model.mockImplementation(
 					async (_prompt, input: Record<string, unknown>) => {
 						if ("facts" in input)
 							return { facts: [{ id: "decaf", text: rewritten }] };
-						if ("displayed_observations" in input) return ckReject;
+						if ("displayed_observations" in input)
+							return atPublication ? ckOkay : ckReject;
 						if ("original_facts" in input) return ckOkay;
 						return {
 							forget: [],
@@ -4256,7 +4279,9 @@ it.each([
 				}
 				expect(deliveryOf(edited.id)).toMatchObject({
 					status: "failed",
-					errorCode: "memory_dependency_check_rejected",
+					errorCode: atPublication
+						? "memory_preparation_failed"
+						: "memory_dependency_check_rejected",
 				});
 				expect(fixture.patches).toContain("decaf");
 				// What the refused change wrote natively is undone: the carried

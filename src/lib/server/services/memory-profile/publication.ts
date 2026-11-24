@@ -939,9 +939,10 @@ const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
  * the final check refused the result), the facts that shared a published
  * row with them when it was asked (`familyFactIds`) and the facts its
  * proposal changed: Hindsight rebuilt their observations and nobody
- * approved them. A source its own final check refused (a held changed
- * resend: its delivery failed `memory_dependency_check_rejected`) never
- * published, and its native facts are left out with it. A Remove or a
+ * approved them. A source refused for its content (its delivery failed
+ * `memory_dependency_check_rejected`, or its changed resend's source edit was
+ * refused for good and put back) never published, and its native facts are
+ * left out with it. A Remove or a
  * source still queued or running is not here: it is waited for, as before.
  */
 export function excludedNativeEvidence(
@@ -1025,14 +1026,41 @@ export function excludedNativeEvidence(
 			.filter(({ status }) => status === "queued" || status === "running")
 			.map(({ id }) => id),
 	);
-	// Only a source its own final check refused is held for its content: a
-	// source that failed for another reason (a wait, a hold, a migration step)
-	// may still be recovered and published, and is waited for as before.
-	for (const { id, status, errorCode } of sources)
+	// Only a source refused for its content is held: its own final check
+	// refused it, or its changed resend's source edit was refused for good
+	// and put back (`restoreRefusedSourceEdit` records that as the edit's
+	// outcome). A source that failed for another reason (a wait, a hold, a
+	// migration step) may still be recovered and published, and is waited for.
+	const stopped = sources.filter(
+		({ id, status }) =>
+			(status === "failed" || status === "cancelled") && !waiting.has(id),
+	);
+	const refusedEdits = new Set(
+		stopped.length
+			? tx
+					.select({ requestId: memoryActions.requestId })
+					.from(memoryActions)
+					.where(
+						and(
+							eq(memoryActions.userId, bank.userId),
+							eq(memoryActions.bankId, bank.id),
+							eq(memoryActions.epoch, bank.epoch),
+							eq(memoryActions.kind, "source_edit"),
+							inArray(
+								memoryActions.requestId,
+								stopped.map(({ id }) => id),
+							),
+							sql`json_extract(${memoryActions.intentJson}, '$.outcome') = 'rejected'`,
+						),
+					)
+					.all()
+					.map(({ requestId }) => requestId)
+			: [],
+	);
+	for (const { id, status, errorCode } of stopped)
 		if (
-			status === "failed" &&
-			errorCode === HELD_SOURCE_REFUSAL &&
-			!waiting.has(id)
+			(status === "failed" && errorCode === HELD_SOURCE_REFUSAL) ||
+			refusedEdits.has(id)
 		)
 			sourceIds.add(id);
 	return { factIds, sourceIds };

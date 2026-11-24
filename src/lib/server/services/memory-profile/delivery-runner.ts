@@ -367,9 +367,34 @@ function finishEditResend(
 			.where(eq(memorySourceRevisions.id, previous.id))
 			.run();
 }
+/** What a source edit's refusal looks like, as opposed to a wait, a fence or a lost context. */
+const SOURCE_EDIT_REFUSALS = new Set([
+	"memory_edit_rejected",
+	"memory_edit_invalid",
+	"memory_edit_readback_mismatch",
+	"memory_source_edit_protected_fact",
+	"memory_edit_too_large",
+]);
+
+/** Whether a failure ends a changed resend for good: a refusal on its last counted attempt. */
+function refusedForGood(
+	error: unknown,
+	row: typeof memoryDeliveryJobs.$inferSelect,
+	attemptNumber: number,
+) {
+	if (!(error instanceof NativeMemoryError)) return true;
+	if (error.code === "memory_dependency_check_rejected")
+		return (
+			countedDeliveryAttempt(row, attemptNumber) >=
+			NATIVE_DELIVERY_ATTEMPT_LIMIT
+		);
+	return !error.retryable && SOURCE_EDIT_REFUSALS.has(error.code);
+}
+
 export async function runMemoryDelivery(
 	ctx: JobRunContext<typeof memoryDeliveryJobs>,
 ): Promise<void> {
+	let undoRefusedSourceEdit: (() => Promise<void>) | undefined;
 	try {
 		const row = ctx.row;
 		const account = db
@@ -1138,6 +1163,18 @@ export async function runMemoryDelivery(
 			await settle(client, [await client.consolidate()], ctx.signal);
 		memories = await captureSettledNative(client, ctx.signal);
 
+		// A changed resend refused for good puts back what its source edit
+		// wrote in the chats it carried before the delivery fails (the catch).
+		if (predecessor && !unchanged) {
+			const edited = source;
+			undoRefusedSourceEdit = () =>
+				restoreRefusedSourceEdit(
+					ctx,
+					client,
+					{ capture: captureSettledNative, settle },
+					edited,
+				);
+		}
 		const curated =
 			predecessor && !unchanged
 				? await prepareSourceCuration(ctx, client, source, predecessor, {
@@ -1167,26 +1204,7 @@ export async function runMemoryDelivery(
 					}),
 			},
 		);
-		if (curated)
-			await checkSourceDependencyCuration(ctx, source, repair).catch(
-				async (error: unknown) => {
-					// Refused for good: what the change wrote in the chats it
-					// carried goes back before the delivery fails.
-					if (
-						error instanceof NativeMemoryError &&
-						error.code === "memory_dependency_check_rejected" &&
-						countedDeliveryAttempt(row, ctx.attempt.number) >=
-							NATIVE_DELIVERY_ATTEMPT_LIMIT
-					)
-						await restoreRefusedSourceEdit(
-							ctx,
-							client,
-							{ capture: captureSettledNative, settle },
-							source,
-						);
-					throw error;
-				},
-			);
+		if (curated) await checkSourceDependencyCuration(ctx, source, repair);
 		else await replayed.verifyDependencies(repair);
 		memories = repair.memories;
 		const acknowledged = memories
@@ -1272,10 +1290,22 @@ export async function runMemoryDelivery(
 		});
 	} catch (error) {
 		if (ctx.signal.aborted) return;
-		const native =
+		let native =
 			error instanceof NativeMemoryError
 				? error
 				: new NativeMemoryError("memory_preparation_failed", false);
+		if (
+			undoRefusedSourceEdit &&
+			refusedForGood(error, ctx.row, ctx.attempt.number)
+		) {
+			try {
+				await undoRefusedSourceEdit();
+			} catch (undo) {
+				// Not finished: the delivery stays retryable so the next attempt
+				// finishes putting the carried chats back.
+				if (undo instanceof NativeMemoryError && undo.retryable) native = undo;
+			}
+		}
 		await ctx.fail({
 			code: native.code,
 			message: "Memory preparation could not complete.",

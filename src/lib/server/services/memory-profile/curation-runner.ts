@@ -3491,7 +3491,22 @@ export async function restoreRefusedSourceEdit(
 		.get();
 	if (!action) return;
 	const intent = parseActionIntent(action.intentJson);
-	if (!intent.proposal || intent.outcome) return;
+	if (intent.outcome) return;
+	await undoSourceEditWrites(ctx, client, native, source, intent);
+	// Recorded last, once nothing is left to put back: the resend's own
+	// retained facts are then left out of every publication
+	// (`excludedNativeEvidence`) instead of holding it.
+	await saveIntent(ctx, action.id, { ...intent, outcome: "rejected" });
+}
+
+async function undoSourceEditWrites(
+	ctx: Context,
+	client: HindsightClient,
+	native: NativeSettlement,
+	source: Source,
+	intent: ActionIntentRecord,
+) {
+	if (!intent.proposal) return;
 	const original = new Map(intent.facts.map((fact) => [fact.id, fact]));
 	const touched = intent.proposal.filter(
 		(fact) =>
