@@ -6,6 +6,7 @@
  */
 import {
 	closeSync,
+	fstatSync,
 	openSync,
 	readdirSync,
 	readSync,
@@ -94,8 +95,19 @@ export interface BackupFile {
 	modifiedAt: string;
 }
 
+/** The deployment's settings files as the backup holds them (a tar, or a folder). */
+export interface BackupBundle extends BackupFile {
+	/** How many `*.env` files it holds: a count, never their names or contents. */
+	envFiles: number;
+}
+
 export type PairedBackup =
-	| { ok: true; sqlite: BackupFile; postgres: BackupFile }
+	| {
+			ok: true;
+			sqlite: BackupFile;
+			postgres: BackupFile;
+			bundle: BackupBundle;
+	  }
 	| { ok: false; code: string };
 
 /**
@@ -113,12 +125,18 @@ const BACKUP_MAX_SPREAD_HOURS = 2;
  * every account the run will label) and a PostgreSQL dump of Hindsight (plain
  * SQL, gzipped plain SQL, inflated to be read, custom format, or a
  * directory-format dump's `toc.dat`), both from the last four hours and taken
- * within two hours of each other. Given the live database's path, it refuses
- * that file itself (by its real path, so a link to it too), and the backup
- * must hold each account to label as the live database does: the same epoch,
- * labels mark, banks with their generations, and classifier-label count. Reads
- * file headers, ids and counts only; nothing is printed but names, sizes and
- * times.
+ * within two hours of each other, and the secret bundle that
+ * `deploy/hindsight/README.md` ("Backup, restore and upgrades") requires with
+ * them: a readable copy of the deployment's settings files, as a plain `.tar`
+ * or a folder holding `*.env` files, inside the same window (a dump restores
+ * nothing without the worker ID and keys in them). Given the live database's
+ * path, it refuses that file itself (by its real path, so a link to it too),
+ * and the backup must hold each account to label as the live database does:
+ * the same epoch, labels mark, banks with their generations, and
+ * classifier-label count. Reads file headers, ids and counts only; a settings
+ * file is never read (a tar's 512-byte entry headers give names, a folder's
+ * files are opened and closed), and nothing is printed but names, sizes, a
+ * count and times.
  */
 export function checkPairedBackup(
 	dir: string,
@@ -203,12 +221,173 @@ export function checkPairedBackup(
 		BACKUP_MAX_AGE_HOURS * 3_600_000
 	)
 		return { ok: false, code: "backup_stale" };
+	const found = findSecretBundle(dir, entries);
+	if ("code" in found) return { ok: false, code: found.code };
+	if (now.getTime() - found.mtimeMs > BACKUP_MAX_AGE_HOURS * 3_600_000)
+		return { ok: false, code: "backup_secret_bundle_stale" };
+	if (
+		times.some(
+			(time) =>
+				Math.abs(time - found.mtimeMs) > BACKUP_MAX_SPREAD_HOURS * 3_600_000,
+		)
+	)
+		return { ok: false, code: "backup_secret_bundle_not_paired" };
 	const describe = (file: NonNullable<typeof sqlite>): BackupFile => ({
 		name: file.name,
 		bytes: file.stat.size,
 		modifiedAt: new Date(file.stat.mtimeMs).toISOString(),
 	});
-	return { ok: true, sqlite: describe(sqlite), postgres: describe(postgres) };
+	return {
+		ok: true,
+		sqlite: describe(sqlite),
+		postgres: describe(postgres),
+		bundle: found.bundle,
+	};
+}
+
+/** A settings file: `*.env`, not a macOS resource-fork copy (`._name.env`). */
+const SETTINGS_FILE = /^(?!\._).+\.env$/;
+const TAR_BLOCK = 512;
+/** A settings bundle has a handful of files; stop reading headers well past that. */
+const TAR_MAX_HEADERS = 4_096;
+
+/**
+ * The deployment's settings files in the backup folder: the newest readable
+ * plain `.tar` holding a `*.env` entry, or sub-folder holding `*.env` files.
+ * Presence, readability and time only: never a settings value. Refuses with
+ * `backup_secret_bundle_unreadable` when something that may be one cannot be
+ * opened (the runbook has root's copy handed to the app user), else
+ * `backup_secret_bundle_missing`.
+ */
+function findSecretBundle(
+	dir: string,
+	entries: readonly string[],
+):
+	| { bundle: BackupBundle; mtimeMs: number }
+	| {
+			code: "backup_secret_bundle_missing" | "backup_secret_bundle_unreadable";
+	  } {
+	const bundles: { bundle: BackupBundle; mtimeMs: number }[] = [];
+	let unreadable = false;
+	for (const entry of entries) {
+		const path = join(dir, entry);
+		const stat = statOrNull(path);
+		if (!stat) continue;
+		if (stat.isFile() && /\.tar$/i.test(entry)) {
+			const envFiles = tarSettingsFiles(path);
+			if (envFiles === null) unreadable = true;
+			else if (envFiles > 0)
+				bundles.push({
+					bundle: {
+						name: entry,
+						bytes: stat.size,
+						modifiedAt: new Date(stat.mtimeMs).toISOString(),
+						envFiles,
+					},
+					mtimeMs: stat.mtimeMs,
+				});
+		} else if (stat.isDirectory()) {
+			const folder = folderSettingsFiles(path);
+			if (folder === "unreadable") unreadable = true;
+			else if (folder)
+				bundles.push({
+					bundle: {
+						name: `${entry}/`,
+						bytes: folder.bytes,
+						modifiedAt: new Date(folder.oldestMs).toISOString(),
+						envFiles: folder.envFiles,
+					},
+					mtimeMs: folder.oldestMs,
+				});
+		}
+	}
+	const newest = bundles.sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+	if (newest) return newest;
+	return {
+		code: unreadable
+			? "backup_secret_bundle_unreadable"
+			: "backup_secret_bundle_missing",
+	};
+}
+
+/**
+ * How many `*.env` files a tar holds, or null when it cannot be opened. Walks
+ * the 512-byte entry headers (a name and a size each) and jumps over what each
+ * entry holds: a settings file's own bytes are never read.
+ */
+function tarSettingsFiles(path: string): number | null {
+	let fd: number;
+	try {
+		fd = openSync(path, "r");
+	} catch {
+		return null;
+	}
+	try {
+		const size = fstatSync(fd).size;
+		const header = Buffer.alloc(TAR_BLOCK);
+		let at = 0;
+		let envFiles = 0;
+		for (let n = 0; n < TAR_MAX_HEADERS && at + TAR_BLOCK <= size; n++) {
+			if (readSync(fd, header, 0, TAR_BLOCK, at) < TAR_BLOCK) break;
+			if (header.every((byte) => byte === 0)) break;
+			const bytes = Number.parseInt(
+				header
+					.subarray(124, 136)
+					.toString("latin1")
+					.replace(/\0.*$/s, "")
+					.trim() || "0",
+				8,
+			);
+			if (!Number.isFinite(bytes) || bytes < 0) break;
+			const kind = header[156];
+			const regular = kind === 0 || kind === 0x30;
+			const name = header
+				.subarray(0, 100)
+				.toString("utf8")
+				.replace(/\0.*$/s, "");
+			if (regular && SETTINGS_FILE.test(name.split("/").pop() ?? ""))
+				envFiles++;
+			at += TAR_BLOCK + Math.ceil(bytes / TAR_BLOCK) * TAR_BLOCK;
+		}
+		return envFiles;
+	} catch {
+		return null;
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * The `*.env` files directly in a folder, each opened and closed to prove the
+ * app user can read it, never read: null when it holds none, "unreadable" when
+ * the folder or one of them cannot be opened.
+ */
+function folderSettingsFiles(
+	path: string,
+): { envFiles: number; bytes: number; oldestMs: number } | "unreadable" | null {
+	let names: string[];
+	try {
+		names = readdirSync(path).filter((name) => SETTINGS_FILE.test(name));
+	} catch {
+		return "unreadable";
+	}
+	let envFiles = 0;
+	let bytes = 0;
+	let oldestMs = Number.POSITIVE_INFINITY;
+	for (const name of names) {
+		const file = join(path, name);
+		const stat = statOrNull(file);
+		if (!stat?.isFile()) continue;
+		try {
+			closeSync(openSync(file, "r"));
+		} catch {
+			return "unreadable";
+		}
+		envFiles++;
+		bytes += stat.size;
+		oldestMs = Math.min(oldestMs, stat.mtimeMs);
+	}
+	return envFiles ? { envFiles, bytes, oldestMs } : null;
 }
 
 const SQLITE_MAGIC = Buffer.from("SQLite format 3\0", "binary");
@@ -266,12 +445,24 @@ function sameAccounts(
 	}
 }
 
+/**
+ * The first bytes of a file; none for one the app user cannot open (a settings
+ * bundle copied in by root, say), which is then no database and no dump, and
+ * never an error that ends the check before it can name the refusal.
+ */
 function head(path: string, bytes: number): Buffer {
 	const buffer = Buffer.alloc(bytes);
-	const fd = openSync(path, "r");
+	let fd: number;
+	try {
+		fd = openSync(path, "r");
+	} catch {
+		return buffer.subarray(0, 0);
+	}
 	try {
 		const read = readSync(fd, buffer, 0, bytes, 0);
 		return buffer.subarray(0, read);
+	} catch {
+		return buffer.subarray(0, 0);
 	} finally {
 		closeSync(fd);
 	}
@@ -407,7 +598,7 @@ export async function runLabelMigrationCommand(
 			return false;
 		}
 		log(
-			`backup: sqlite=${backup.sqlite.name} bytes=${backup.sqlite.bytes} at=${backup.sqlite.modifiedAt} postgres=${backup.postgres.name} bytes=${backup.postgres.bytes} at=${backup.postgres.modifiedAt} accounts=${accounts.length}`,
+			`backup: sqlite=${backup.sqlite.name} bytes=${backup.sqlite.bytes} at=${backup.sqlite.modifiedAt} postgres=${backup.postgres.name} bytes=${backup.postgres.bytes} at=${backup.postgres.modifiedAt} bundle=${backup.bundle.name} bytes=${backup.bundle.bytes} env=${backup.bundle.envFiles} at=${backup.bundle.modifiedAt} accounts=${accounts.length}`,
 		);
 		return true;
 	};
