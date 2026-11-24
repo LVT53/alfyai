@@ -341,6 +341,26 @@ it("fits the formatted section in its budget", async () => {
 		estimateTokenCount(formatRecalledMemory(tight, new Date())),
 	).toBeLessThanOrEqual(budget - 1);
 });
+it("budgets a row at the cost of its own line, not of the longest age", async () => {
+	seed("b1", "personal", "Prefers green tea");
+	// Three days on, the row reads "said 3 days ago", which costs less than
+	// "said less than a day ago".
+	const now = new Date(Date.now() + 3 * 86_400_000);
+	const line = estimateTokenCount("- Prefers green tea (said 3 days ago)");
+	expect(line).toBeLessThan(todayLine("Prefers green tea"));
+	const { recallMemory } = await import("./native");
+	const recallAt = (tokenBudget: number) =>
+		recallMemory("u", {
+			conversationId: "personal",
+			query: "tea",
+			tokenBudget,
+			now,
+		});
+	expect((await recallAt(N + line)).map(({ text }) => text)).toEqual([
+		"Prefers green tea",
+	]);
+	expect(await recallAt(N + line - 1)).toEqual([]);
+});
 it("gives a project chat's own entries their share even when the person's entries alone would fill it", async () => {
 	const L = todayLine("Personal fact 00");
 	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
