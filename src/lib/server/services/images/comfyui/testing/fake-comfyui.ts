@@ -55,8 +55,6 @@ export type FakeComfyUiOptions = {
 	 * custom nodes use `videos` or `gifs`. Default `images`.
 	 */
 	videoOutputKey?: "images" | "videos" | "gifs";
-	/** Execution fails for every prompt after the first N. */
-	failAfterPromptCount?: number;
 	/**
 	 * The exact progress series to send (one event per entry, `stepDelayMs`
 	 * apart) instead of the default `steps` count. A smaller `max` part-way
@@ -105,8 +103,6 @@ type Prompt = {
 	clientId: string;
 	status: FakePromptStatus;
 	aborted: boolean;
-	/** This prompt was submitted over `failAfterPromptCount`. */
-	shouldFail: boolean;
 	/** This prompt was submitted over `hangAfterPromptCount` and parks before finishing. */
 	hangs: boolean;
 };
@@ -341,7 +337,7 @@ export async function createFakeComfyUi(
 		if (prompt.aborted) {
 			failed = true;
 			send(prompt.clientId, "execution_interrupted", { prompt_id: prompt.id });
-		} else if (prompt.shouldFail || options.fail === "execution") {
+		} else if (options.fail === "execution") {
 			failed = true;
 			send(prompt.clientId, "execution_error", {
 				prompt_id: prompt.id,
@@ -509,9 +505,6 @@ export async function createFakeComfyUi(
 					clientId: String(json.client_id ?? ""),
 					status: "pending",
 					aborted: false,
-					shouldFail:
-						options.failAfterPromptCount !== undefined &&
-						submitted > options.failAfterPromptCount,
 					hangs:
 						options.hangAfterPromptCount !== undefined &&
 						submitted > options.hangAfterPromptCount,
