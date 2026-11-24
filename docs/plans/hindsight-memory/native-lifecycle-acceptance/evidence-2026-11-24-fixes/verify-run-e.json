@@ -1,0 +1,278 @@
+{
+  "summary": {
+    "en": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "hu": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-en-fresh": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-hu-regression": {
+      "pass": 27,
+      "fail": 1,
+      "info": 0
+    },
+    "er-hu-fresh": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-remove": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-hu": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-metronome": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-lamp": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-tea": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    }
+  },
+  "checks": [
+    {
+      "case": "en",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "hu",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit-0 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-remove-1 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: the user's gluten-free diet gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Mák's colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Luca's gluten-free diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: the user's gluten-free diet gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Mák's colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Luca's gluten-free diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: the user's gluten-free diet gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Mák's colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Luca's gluten-free diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: the user's gluten-free diet gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Mák's colour (black) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Luca's gluten-free diet kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "later statement admitted: Mák's brown fur",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-remove",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-hu",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    }
+  ]
+}
