@@ -748,8 +748,7 @@ describe("resume", () => {
 		const takeId = await queueTake();
 		await writeCheckpoint(takeId, {
 			promptId: "forgotten-by-a-restart",
-			segment: 1,
-			segments: [],
+			media: null,
 		});
 
 		await drainVideoTakes();
@@ -817,8 +816,7 @@ describe("Stop after a restart", () => {
 		await submitEarlierPrompt(server, takeId, "posted-before-the-restart");
 		await writeCheckpoint(takeId, {
 			promptId: "posted-before-the-restart",
-			segment: 1,
-			segments: [{ promptId: "posted-before-the-restart", media: null }],
+			media: null,
 		});
 		const draining = drainVideoTakes();
 		await until(
