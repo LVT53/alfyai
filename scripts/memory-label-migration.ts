@@ -9,8 +9,9 @@
  * writes, then labels exactly the accounts it checked the backup for.
  * --rollback --user <id> undoes one account. Skips the tester account (the
  * permanent tester rule), never writes to Hindsight, prints counts, ids and
- * codes only. Ctrl-C stops after the batches in flight are written. Run from this release's checkout with the app's
- * environment loaded. The command itself is `runLabelMigrationCommand`
+ * codes only. Ctrl-C aborts the model calls in flight (their batches are
+ * labelled by the next run); every batch already answered is kept. Run from
+ * this release's checkout with the app's environment loaded. The command itself is `runLabelMigrationCommand`
  * (memory-label-migration-cli.ts); this file only wires the app to it.
  *
  *   npx tsx scripts/memory-label-migration.ts [--user <id>]
@@ -42,7 +43,9 @@ if (args) {
 	const { getDatabasePath } = await import("../src/lib/server/env");
 	const controller = new AbortController();
 	process.once("SIGINT", () => {
-		console.log("stopping: the batches in flight are written first");
+		console.log(
+			"stopping: the model calls in flight are aborted; every batch already answered is kept",
+		);
 		controller.abort();
 	});
 	process.exitCode = await runLabelMigrationCommand(args, {

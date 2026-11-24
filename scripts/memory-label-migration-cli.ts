@@ -307,12 +307,32 @@ function counts(prefix: string, values: Record<string, number | undefined>) {
 		.map(([key, value]) => `${prefix}${key}=${value}`);
 }
 
-/** One account's line: its outcome and counts, never memory text. */
+/** The whole account's counts: facts and entries by kind and subject, and the Earlier entries. */
+function wholeCounts(account: LabelMigrationAccount): string[] {
+	const { whole } = account;
+	if (!whole) return [];
+	return [
+		...counts("account.facts.kind.", whole.factsByKind),
+		...counts("account.facts.subject.", whole.factsBySubject),
+		`entries=${whole.entries} earlierEntries=${whole.earlierEntries}`,
+		...counts("entries.kind.", whole.entriesByKind),
+		...counts("entries.subject.", whole.entriesBySubject),
+	];
+}
+
+/**
+ * One account's line: its outcome and counts, never memory text. `labelled`,
+ * `kind.` and `subject.` are this run's labels; `account.facts.` and
+ * `entries` are the whole account's, a resumed run's included.
+ */
 export function labelMigrationAccountLine(
 	account: LabelMigrationAccount,
 ): string {
 	if (account.outcome === "skipped")
-		return `account ${account.userId} skipped ${account.skipped}`;
+		return [
+			`account ${account.userId} skipped ${account.skipped}`,
+			...wholeCounts(account),
+		].join(" ");
 	return [
 		`account ${account.userId} ${account.outcome}`,
 		...(account.failure ? [`failure=${account.failure}`] : []),
@@ -320,6 +340,7 @@ export function labelMigrationAccountLine(
 		...counts("kind.", account.byKind),
 		...counts("subject.", account.bySubject),
 		...counts("unlabelled.", account.unlabelled),
+		...wholeCounts(account),
 		...(account.verification
 			? [
 					`verification=${
@@ -340,7 +361,7 @@ export function labelMigrationLines(report: LabelMigrationReport): string[] {
 		[
 			`totals accounts=${totals.accounts}`,
 			...counts("skipped.", totals.skipped),
-			`banks=${totals.banks} facts=${totals.facts} alreadyLabelled=${totals.alreadyLabelled} toLabel=${totals.toLabel} estimatedCalls=${totals.estimatedCalls} calls=${totals.calls} labelled=${totals.labelled} verified=${totals.verified} failed=${totals.failed}`,
+			`banks=${totals.banks} facts=${totals.facts} alreadyLabelled=${totals.alreadyLabelled} toLabel=${totals.toLabel} estimatedCalls=${totals.estimatedCalls} calls=${totals.calls} labelled=${totals.labelled} entries=${totals.entries} earlierEntries=${totals.earlierEntries} verified=${totals.verified} failed=${totals.failed}`,
 		].join(" "),
 		`outcome: ${report.outcome}${report.stoppedAt ? ` at ${report.stoppedAt}` : ""}`,
 	];

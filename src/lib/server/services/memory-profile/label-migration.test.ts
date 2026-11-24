@@ -758,6 +758,61 @@ describe("the label migration", () => {
 		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
 	});
 
+	it("reports the whole account: facts and entries by kind and subject, and the entries that become Earlier", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, {
+			count: 3,
+			text: "had the flu",
+		});
+		// The published entry rests on an accepted source said long ago, so the
+		// person sees it, and once labelled temporary it is Earlier.
+		h.sqlite
+			.prepare(
+				"INSERT INTO memory_source_revisions (id, bank_id, user_id, epoch, event_id, lineage_id, text, context, text_hash, asserted_at, state, acknowledged_facts_json) VALUES ('said', ?, 'user-1', 0, 'event-said', 'lineage-said', 'synthetic', '{}', 'hash', 1767225600, 'accepted', ?)",
+			)
+			.run(
+				bank.id,
+				JSON.stringify([{ id: "user-1-fact-0", text: "had the flu 0" }]),
+			);
+		h.sqlite
+			.prepare(
+				"UPDATE memory_published_rows SET source_fingerprints_json = ? WHERE id = 'user-1-row'",
+			)
+			.run(JSON.stringify([{ id: "user-1-fact-0", text: "had the flu 0" }]));
+		const { migration } = await modules();
+		const deps = { listFacts: fake.listFacts, model: fake.model };
+		const dry = await migration.runLabelMigration({ execute: false }, deps);
+		expect(dry.accounts[0].whole).toEqual({
+			factsByKind: {},
+			factsBySubject: {},
+			entries: 1,
+			entriesByKind: { unlabelled: 1 },
+			entriesBySubject: { unlabelled: 1 },
+			earlierEntries: 0,
+		});
+		const done = {
+			factsByKind: { temporary: 3 },
+			factsBySubject: { health: 3 },
+			entries: 1,
+			entriesByKind: { temporary: 1 },
+			entriesBySubject: { health: 1 },
+			earlierEntries: 1,
+		};
+		const report = await migration.runLabelMigration({ execute: true }, deps);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "verified",
+			whole: done,
+		});
+		expect(report.totals).toMatchObject({ entries: 1, earlierEntries: 1 });
+		// A resumed run still gives the whole account's counts.
+		const again = await migration.runLabelMigration({ execute: true }, deps);
+		expect(again.accounts[0]).toMatchObject({
+			skipped: "already_verified",
+			labelled: 0,
+			whole: done,
+		});
+	});
+
 	it("a chat during the run (a new pending source) does not fail verification", async () => {
 		const fake = fakeNative();
 		const bank = await seedAccount("user-1", fake.facts, { count: 3 });

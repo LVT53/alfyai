@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, eq, isNotNull, ne } from "drizzle-orm";
 import type { MemoryKind, MemoryScope, MemorySubject } from "$lib/memory-types";
+import { getMemoryAgingThresholds } from "$lib/server/config-store";
 import { type DatabaseInstance, db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -14,6 +15,7 @@ import {
 import { memoryAdmissionFor } from "./admission";
 import { HINDSIGHT_ENGINE_COMMIT, type NativeMemory } from "./contracts";
 import { type CurationModel, createCurationModel } from "./curation";
+import { groupFactsById, memoryEntryView } from "./entry-view";
 import { classifyMemoryFacts, FACT_LABEL_BATCH_SIZE } from "./fact-classifier";
 import { readFactLabels, recordClassifiedFactLabels } from "./fact-labels";
 import { nativeMemoryClient } from "./hindsight-client";
@@ -26,7 +28,11 @@ import {
 	MEMORY_MIGRATION_EXCLUDED,
 	memoryMigrationGuard,
 } from "./migration-guard";
-import { readAcknowledgedFacts, readPublishedMemory } from "./publication";
+import {
+	admittedNativeFacts,
+	readAcknowledgedFacts,
+	readPublishedMemory,
+} from "./publication";
 import {
 	assertMemoryBankAccess,
 	assertMemoryBankFence,
@@ -86,6 +92,14 @@ export interface LabelMigrationAccount {
 	byKind: Partial<Record<MemoryKind, number>>;
 	bySubject: Partial<Record<MemorySubject, number>>;
 	unlabelled: Partial<Record<UnlabelledReason, number>>;
+	/**
+	 * The whole account as it reads at the end of the run (in a dry run, as it
+	 * reads now): every labelled raw fact by kind and subject, whichever run or
+	 * extraction labelled it, and the entries the person sees, by the kind and
+	 * subject they read as, and how many are Earlier (they leave the current
+	 * page, and recall's basics, once labelled).
+	 */
+	whole?: AccountReading;
 	verification?: {
 		factsAccounted: boolean;
 		/** Every fact it labelled reads the same in Hindsight's second listing. */
@@ -96,6 +110,15 @@ export interface LabelMigrationAccount {
 		/** The account's labelled facts are not almost all temporary or ongoing (`MIN_LASTING_SHARE`). */
 		labelsPlausible: boolean;
 	};
+}
+
+export interface AccountReading {
+	factsByKind: Partial<Record<MemoryKind, number>>;
+	factsBySubject: Partial<Record<MemorySubject, number>>;
+	entries: number;
+	entriesByKind: Partial<Record<MemoryKind | "unlabelled", number>>;
+	entriesBySubject: Partial<Record<MemorySubject | "unlabelled", number>>;
+	earlierEntries: number;
 }
 
 export interface LabelMigrationReport {
@@ -115,6 +138,9 @@ export interface LabelMigrationReport {
 		labelled: number;
 		verified: number;
 		failed: number;
+		/** Entries of the accounts it read, and how many of them are Earlier. */
+		entries: number;
+		earlierEntries: number;
 	};
 	accounts: LabelMigrationAccount[];
 }
@@ -194,6 +220,8 @@ export async function runLabelMigration(
 			labelled: 0,
 			verified: 0,
 			failed: 0,
+			entries: 0,
+			earlierEntries: 0,
 		},
 		accounts: [],
 	};
@@ -221,6 +249,8 @@ export async function runLabelMigration(
 		totals.estimatedCalls += entry.estimatedCalls;
 		totals.calls += entry.calls;
 		totals.labelled += entry.labelled;
+		totals.entries += entry.whole?.entries ?? 0;
+		totals.earlierEntries += entry.whole?.earlierEntries ?? 0;
 		if (entry.outcome === "verified") totals.verified++;
 		deps.onAccount?.(entry);
 		if (entry.outcome === "failed") {
@@ -330,6 +360,7 @@ async function migrateAccount(
 				removed: number;
 				todo: Fact[];
 				kinds: Partial<Record<MemoryKind, number>>;
+				subjects: Partial<Record<MemorySubject, number>>;
 			}[] = [];
 			for (const bank of banks) {
 				const listed = (
@@ -343,9 +374,11 @@ async function migrateAccount(
 				const labels = readFactLabels(database, bank.id);
 				const todo = facts.filter((fact) => !labels.get(fact.id)?.kind);
 				const kinds: Partial<Record<MemoryKind, number>> = {};
+				const subjects: Partial<Record<MemorySubject, number>> = {};
 				for (const fact of facts) {
-					const kind = labels.get(fact.id)?.kind;
+					const { kind, subject } = labels.get(fact.id) ?? {};
 					if (kind) kinds[kind] = (kinds[kind] ?? 0) + 1;
+					if (kind && subject) subjects[subject] = (subjects[subject] ?? 0) + 1;
 				}
 				result.push({
 					bank,
@@ -353,6 +386,7 @@ async function migrateAccount(
 					removed: listed.length - facts.length,
 					todo,
 					kinds,
+					subjects,
 				});
 			}
 			return result;
@@ -370,9 +404,11 @@ async function migrateAccount(
 		if (verified && !entry.toLabel) {
 			entry.outcome = "skipped";
 			entry.skipped = "already_verified";
+			entry.whole = reading(database, userId, banks, banksRead);
 			return entry;
 		}
 		if (!execute) {
+			entry.whole = reading(database, userId, banks, banksRead);
 			entry.outcome = "dry_run";
 			return entry;
 		}
@@ -473,6 +509,8 @@ async function migrateAccount(
 			entry.unlabelled.model_unavailable = unavailable;
 			throw new AccountFailure("model_unavailable");
 		}
+		const after = await read();
+		entry.whole = reading(database, userId, banks, after);
 		// An epoch already verified keeps its verification: what this run
 		// labelled are the facts an earlier run left without a usable label.
 		if (verified) {
@@ -482,7 +520,6 @@ async function migrateAccount(
 		// Verify: every raw fact labelled or listed with its reason, few left
 		// without a label, a plausible kind mix, and the published rows as they
 		// were. Only then the account's mark is cleared.
-		const after = await read();
 		const factsAccounted = after.every(({ todo }) =>
 			todo.every((fact) => noLabel.has(fact.id)),
 		);
@@ -540,6 +577,77 @@ async function migrateAccount(
 		if (!execute) entry.outcome = "dry_run";
 		return entry;
 	}
+}
+
+/**
+ * The account as it reads now: its raw facts by label, from a listing, and its
+ * entries as the Memory page builds them (`memoryEntryView`, on one clock with
+ * config-store's aging thresholds). Content-free counts only; an account it
+ * can no longer read (Memory turned off meanwhile) gets its facts alone.
+ */
+function reading(
+	database: DatabaseInstance,
+	userId: string,
+	banks: Bank[],
+	listed: {
+		kinds: Partial<Record<MemoryKind, number>>;
+		subjects: Partial<Record<MemorySubject, number>>;
+	}[],
+): AccountReading {
+	const add = <K extends string>(into: Partial<Record<K, number>>, key: K) => {
+		into[key] = (into[key] ?? 0) + 1;
+	};
+	const result: AccountReading = {
+		factsByKind: {},
+		factsBySubject: {},
+		entries: 0,
+		entriesByKind: {},
+		entriesBySubject: {},
+		earlierEntries: 0,
+	};
+	for (const { kinds, subjects } of listed) {
+		for (const [kind, count = 0] of Object.entries(kinds) as [
+			MemoryKind,
+			number,
+		][])
+			result.factsByKind[kind] = (result.factsByKind[kind] ?? 0) + count;
+		for (const [subject, count = 0] of Object.entries(subjects) as [
+			MemorySubject,
+			number,
+		][])
+			result.factsBySubject[subject] =
+				(result.factsBySubject[subject] ?? 0) + count;
+	}
+	const now = new Date();
+	const thresholds = getMemoryAgingThresholds();
+	try {
+		for (const bank of banks) {
+			const factsById = groupFactsById(
+				admittedNativeFacts(userId, bank.id, database),
+			);
+			const labels = readFactLabels(database, bank.id);
+			for (const row of readPublishedMemory(
+				userId,
+				bank.id,
+				undefined,
+				database,
+			)) {
+				const ids: unknown = JSON.parse(row.sourceIdsJson);
+				const view = memoryEntryView(
+					{ sourceIds: Array.isArray(ids) ? ids : [], factsById, labels },
+					now,
+					thresholds,
+				);
+				result.entries++;
+				add(result.entriesByKind, view.kind ?? "unlabelled");
+				add(result.entriesBySubject, view.subject ?? "unlabelled");
+				if (view.timeState === "earlier") result.earlierEntries++;
+			}
+		}
+	} catch {
+		/* The entries are left out; the facts' counts stand. */
+	}
+	return result;
 }
 
 function defaultModel(userId: string, signal: AbortSignal): CurationModel {

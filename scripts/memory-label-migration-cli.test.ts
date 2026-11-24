@@ -343,6 +343,8 @@ describe("the label migration's report lines", () => {
 				labelled: 25,
 				verified: 1,
 				failed: 1,
+				entries: 4,
+				earlierEntries: 1,
 			},
 			accounts: [
 				{
@@ -361,6 +363,14 @@ describe("the label migration's report lines", () => {
 					byKind: { temporary: 25 },
 					bySubject: { health: 25 },
 					unlabelled: {},
+					whole: {
+						factsByKind: { temporary: 25, lasting: 2 },
+						factsBySubject: { health: 25, other: 2 },
+						entries: 4,
+						entriesByKind: { temporary: 3, unlabelled: 1 },
+						entriesBySubject: { health: 3, unlabelled: 1 },
+						earlierEntries: 1,
+					},
 					verification: {
 						factsAccounted: true,
 						factsUnchanged: true,
@@ -390,9 +400,9 @@ describe("the label migration's report lines", () => {
 			],
 		};
 		expect(labelMigrationLines(report)).toEqual([
-			"account u1 verified banks=1 configOneBanks=0 facts=25 removed=1 alreadyLabelled=0 toLabel=25 estimatedCalls=2 calls=2 labelled=25 kind.temporary=25 subject.health=25 verification=passed",
+			"account u1 verified banks=1 configOneBanks=0 facts=25 removed=1 alreadyLabelled=0 toLabel=25 estimatedCalls=2 calls=2 labelled=25 kind.temporary=25 subject.health=25 account.facts.kind.temporary=25 account.facts.kind.lasting=2 account.facts.subject.health=25 account.facts.subject.other=2 entries=4 earlierEntries=1 entries.kind.temporary=3 entries.kind.unlabelled=1 entries.subject.health=3 entries.subject.unlabelled=1 verification=passed",
 			"account u3 skipped excluded",
-			"totals accounts=3 skipped.excluded=1 banks=2 facts=30 alreadyLabelled=2 toLabel=28 estimatedCalls=3 calls=3 labelled=25 verified=1 failed=1",
+			"totals accounts=3 skipped.excluded=1 banks=2 facts=30 alreadyLabelled=2 toLabel=28 estimatedCalls=3 calls=3 labelled=25 entries=4 earlierEntries=1 verified=1 failed=1",
 			"outcome: stopped at u2",
 		]);
 	});
@@ -441,6 +451,8 @@ describe("the command", () => {
 						labelled: 0,
 						verified: 0,
 						failed: 0,
+						entries: 0,
+						earlierEntries: 0,
 					},
 					accounts: [
 						account("u1", "dry_run"),
