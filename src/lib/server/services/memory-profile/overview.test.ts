@@ -34,7 +34,9 @@ function entry(
 
 interface Call {
 	prompt: string;
-	input: { entries: Array<{ text: string }> } & Record<string, unknown>;
+	input: {
+		entries: Array<{ text: string; subject?: string }>;
+	} & Record<string, unknown>;
 	call?: CurationCallOptions;
 }
 function recordingModel(
@@ -314,11 +316,14 @@ describe("writing the Overview", () => {
 		);
 	});
 
-	it("asks for short plain sentences in the paragraph's own words, each detail kept with its entry, and still names the language once", async () => {
-		// From the 2026-11-24 Hungarian probe (docs/plans/hindsight-memory/
-		// overview-hungarian-2026-11-24.md): crammed sentences broke their grammar,
-		// a loan word from an entry was left in, and a time moved between entries.
+	// The prompt for each scope kind and language, as the model receives it.
+	async function overviewPrompts() {
 		const { overview } = await modules();
+		const prompts: Array<{
+			scopeKind: "personal" | "project";
+			language: "en" | "hu";
+			prompt: string;
+		}> = [];
 		for (const scopeKind of ["personal", "project"] as const)
 			for (const language of ["en", "hu"] as const) {
 				const { calls, model } = recordingModel();
@@ -326,25 +331,97 @@ describe("writing the Overview", () => {
 					{ scopeKind, name: "Kata", language, entries: [] },
 					model,
 				);
-				const { prompt } = calls[0];
-				expect(prompt.match(/English|Hungarian/g)).toHaveLength(1);
-				expect(prompt).toContain(
-					"translate any term in the entries into it, but keep every name exactly as written, accents included",
-				);
-				expect(prompt).toContain(
-					"never move a time, place, name or number to another entry",
-				);
-				expect(prompt).toContain(
-					"A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.",
-				);
-				expect(prompt).toContain(
-					"short, plain sentences, never more than six, with one or two facts in each and no fact twice",
-				);
-				expect(prompt).toContain(
-					"leave out the least important ones rather than crowd a sentence",
-				);
-				expect(prompt).toMatch(/^[\x20-\x7e\n]+$/);
+				prompts.push({ scopeKind, language, prompt: calls[0].prompt });
 			}
+		return prompts;
+	}
+
+	it("names the language once, in plain ASCII, for every scope and language", async () => {
+		for (const { language, prompt } of await overviewPrompts()) {
+			expect(prompt.match(/English|Hungarian/g)).toHaveLength(1);
+			expect(prompt).toContain(
+				`Write the paragraph in ${language === "hu" ? "Hungarian" : "English"}.`,
+			);
+			expect(prompt).toMatch(/^[\x20-\x7e\n]+$/);
+		}
+	});
+
+	// From the 2026-11-24 Hungarian probe (docs/plans/hindsight-memory/
+	// overview-hungarian-2026-11-24.md): a time moved between entries, and a
+	// name lost its accent.
+	it("keeps every name as written and each detail with its entry", async () => {
+		for (const { prompt } of await overviewPrompts()) {
+			expect(prompt).toContain(
+				"translate any term in the entries into it, but keep every name exactly as written, accents included",
+			);
+			expect(prompt).toContain(
+				"never move a time, place, name or number to another entry",
+			);
+		}
+	});
+
+	// The probe's "freelance" stayed in 14 of 15 Hungarian paragraphs under a
+	// line that named it as an example, so the rule is general: no word of any
+	// language is named, only what makes a word borrowed (it is spelt the way
+	// another language spells it) and that common use does not excuse it.
+	it("asks for the language's own word in place of a borrowed one, however common, and names no example word", async () => {
+		for (const { prompt } of await overviewPrompts()) {
+			const rule = prompt
+				.split("\n")
+				.find((line) => /another language/.test(line));
+			expect(rule).toBeDefined();
+			expect(rule).toContain("however common it has become");
+			expect(rule).toContain("spelt the way");
+			expect(rule).toContain(
+				"this language's own everyday word for the same thing",
+			);
+			expect(rule).toContain("only when there is none");
+			expect(rule).not.toMatch(/such as|for example|e\.g\./i);
+			expect(prompt).not.toMatch(/freelance|deadline|boulder|sci-fi/i);
+			expect(prompt).not.toContain("gets the paragraph's own word");
+		}
+	});
+
+	// The first Overview left entries out on purpose ("the least important
+	// ones"); the owner wants none dropped (Config 3 round of the probe note).
+	it("asks to cover every subject and leave no entry out, in as many sentences as that takes up to ten", async () => {
+		for (const { prompt } of await overviewPrompts()) {
+			expect(prompt).toContain(
+				"Cover every subject the entries are filed under, with at least one short, plain sentence for each",
+			);
+			expect(prompt).toContain(
+				"leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any",
+			);
+			expect(prompt).toContain(
+				"Use as many sentences as that takes, never more than ten, each one simple, with no fact twice",
+			);
+			expect(prompt).toContain(
+				"no headings, lists, quotation marks or emphasis",
+			);
+			expect(prompt).toContain(
+				"Never mention memory, entries, lists or this task.",
+			);
+			expect(prompt).not.toMatch(
+				/least important|need not mention every entry/,
+			);
+			expect(prompt).not.toMatch(/three to six|never more than six/);
+		}
+	});
+
+	it("gives the model each entry's subject, which the rule to cover every subject reads", async () => {
+		await seedSubjectEntries(h.userId, PERSONAL, BASICS);
+		const { overview } = await modules();
+		const { calls, model } = recordingModel();
+		await overview.writeMemoryOverview(h.userId, PERSONAL, {
+			rewrite: false,
+			model,
+			now: NOW,
+		});
+		expect(calls[0].input.entries.map(({ subject }) => subject)).toEqual([
+			"About the person",
+			"Projects",
+			"Interests",
+		]);
 	});
 
 	it("the prompt the app writes is ASCII English", async () => {

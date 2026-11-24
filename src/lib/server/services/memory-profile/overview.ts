@@ -78,13 +78,13 @@ function overviewPrompt(
 			? "Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph."
 			: "Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.",
 		`Write the paragraph in ${LANGUAGE_NAMES[language]}.`,
-		"Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.",
+		"Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. Copy no word from another language out of an entry, however common it has become (it is spelt the way that other language spells it): write this language's own everyday word for the same thing, and keep the borrowed word only when there is none.",
 		"Use only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.",
 		"An entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.",
 		scopeKind === "project"
 			? "Refer to the project by its name when one is given."
 			: "Refer to the person by their name, in the third person, when a name is given; otherwise address them as you.",
-		"Write three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.",
+		"Cover every subject the entries are filed under, with at least one short, plain sentence for each, and leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any. Use as many sentences as that takes, never more than ten, each one simple, with no fact twice; no headings, lists, quotation marks or emphasis. Never mention memory, entries, lists or this task.",
 		'Return JSON: {"overview": "<the paragraph>"}.',
 	].join("\n");
 }
