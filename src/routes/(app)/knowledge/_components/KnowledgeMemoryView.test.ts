@@ -946,6 +946,28 @@ describe("the subject index (layout C)", () => {
 		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
 	});
 
+	it("does not read the index again while a search is shown", async () => {
+		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+		await screen.findByRole("button", { name: /Projects/ });
+		expect(api.fetchMemorySubjectIndex).toHaveBeenCalledTimes(1);
+		await fireEvent.input(screen.getByRole("searchbox"), {
+			target: { value: "kayak" },
+		});
+		await waitFor(() =>
+			expect(api.fetchMemoryPage).toHaveBeenLastCalledWith(
+				expect.objectContaining({ query: "kayak" }),
+				expect.anything(),
+			),
+		);
+		expect(api.fetchMemorySubjectIndex).toHaveBeenCalledTimes(1);
+		await fireEvent.input(screen.getByRole("searchbox"), {
+			target: { value: "" },
+		});
+		await waitFor(() =>
+			expect(api.fetchMemorySubjectIndex).toHaveBeenCalledTimes(2),
+		);
+	});
+
 	it("keeps today's list for an account whose labels are not verified", async () => {
 		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "list" });
 		await screen.findByTestId("memory-list");

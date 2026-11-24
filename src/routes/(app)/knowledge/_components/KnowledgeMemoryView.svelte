@@ -320,7 +320,9 @@ async function closeSubject() {
 			?.focus();
 }
 async function load(mode: "replace" | "more" | "refresh" = "replace") {
-	if (mode !== "more") void loadSubjects();
+	// A search shows today's rows, not the index: it is read again when the
+	// search is cleared.
+	if (mode !== "more" && !query.trim()) void loadSubjects();
 	const seq = ++loadSequence;
 	const requestedScope = scope;
 	const requestedQuery = query;
