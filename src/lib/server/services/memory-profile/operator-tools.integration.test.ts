@@ -553,6 +553,59 @@ describe("the Memory operator tools", () => {
 			// Counts, ids and codes only: no memory text anywhere in the report.
 			expect(JSON.stringify(report)).not.toMatch(/kayak|bassoon/i);
 		});
+
+		it("looks again every few seconds, not every second, at a due job it cannot claim", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const { eq } = await import("drizzle-orm");
+			const rev = await import("./revisions");
+			// Another account's job holds the one slot (HINDSIGHT_CONCURRENCY 1) all along.
+			const other = h.fixture.seedUser("user-2");
+			const otherBank = rev.ensureMemoryBank(other, { kind: "personal" });
+			const theirs = await f.jobs.enqueueMemoryDelivery({
+				userId: other,
+				bankId: otherBank.id,
+				epoch: 0,
+				kind: "provision",
+				requestId: "their-request",
+			});
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set({ status: "running" })
+				.where(eq(f.schema.memoryDeliveryJobs.id, theirs.row.id))
+				.run();
+			// This account's delivery was put back behind a delay that has passed:
+			// due, and never claimable while the slot is taken.
+			const due = await f.enqueue();
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set({ runAfter: new Date(Date.now() - 10_000) })
+				.where(eq(f.schema.memoryDeliveryJobs.id, due.row.id))
+				.run();
+			const sleeps: number[] = [];
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				maxMinutes: 1,
+				clock: {
+					now: () => Date.now(),
+					sleep: async (ms) => {
+						sleeps.push(ms);
+						vi.setSystemTime(Date.now() + ms);
+					},
+				},
+			});
+			expect(report.outcome).toBe("done");
+			expect(sleeps.length).toBeGreaterThan(0);
+			expect(Math.min(...sleeps)).toBeGreaterThanOrEqual(5_000);
+			expect(
+				report.steps.find((s) => s.step === "drain")?.counts?.rounds,
+			).toBeLessThanOrEqual(13);
+			expect(report.steps.find((s) => s.step === "summary")?.skipped).toEqual([
+				{ id: due.row.id, kind: "source", status: "queued", code: null },
+			]);
+			expect(f.hindsight.posted).toEqual([]);
+		});
 	});
 });
 
