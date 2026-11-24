@@ -314,6 +314,39 @@ describe("writing the Overview", () => {
 		);
 	});
 
+	it("asks for short plain sentences in the paragraph's own words, each detail kept with its entry, and still names the language once", async () => {
+		// From the 2026-11-24 Hungarian probe (docs/plans/hindsight-memory/
+		// overview-hungarian-2026-11-24.md): crammed sentences broke their grammar,
+		// a loan word from an entry was left in, and a time moved between entries.
+		const { overview } = await modules();
+		for (const scopeKind of ["personal", "project"] as const)
+			for (const language of ["en", "hu"] as const) {
+				const { calls, model } = recordingModel();
+				await overview.composeMemoryOverview(
+					{ scopeKind, name: "Kata", language, entries: [] },
+					model,
+				);
+				const { prompt } = calls[0];
+				expect(prompt.match(/English|Hungarian/g)).toHaveLength(1);
+				expect(prompt).toContain(
+					"translate any term in the entries into it, but keep every name exactly as written, accents included",
+				);
+				expect(prompt).toContain(
+					"never move a time, place, name or number to another entry",
+				);
+				expect(prompt).toContain(
+					"A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.",
+				);
+				expect(prompt).toContain(
+					"short, plain sentences, never more than six, with one or two facts in each and no fact twice",
+				);
+				expect(prompt).toContain(
+					"leave out the least important ones rather than crowd a sentence",
+				);
+				expect(prompt).toMatch(/^[\x20-\x7e\n]+$/);
+			}
+	});
+
 	it("the prompt the app writes is ASCII English", async () => {
 		await seedSubjectEntries(h.userId, PERSONAL, BASICS);
 		const { db, s, overview } = await modules();
