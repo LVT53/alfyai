@@ -41,7 +41,7 @@ let {
 const headingId = $props.id();
 </script>
 <section class="memory-subject-pane" aria-labelledby={headingId} data-testid="memory-subject-pane">
- <button type="button" class="memory-subject-back" data-memory-subject-back onclick={onBack}><ChevronLeft size={16} strokeWidth={1.8} aria-hidden="true"/>{$t("memorySubjects.back")}</button>
+ <button type="button" class="memory-subject-back" data-memory-subject-back aria-label={$t("memorySubjects.backLabel")} onclick={onBack}><ChevronLeft size={16} strokeWidth={1.8} aria-hidden="true"/>{$t("memorySubjects.back")}</button>
  <h3 id={headingId} class="memory-subject-title" tabindex="-1" data-memory-subject-heading>{$t(subjectWordKey(subject))}</h3>
  {#if failed && !page}<p class="memory-description">{$t("memoryNew.loadFailed")}</p>
  {:else if !page}<p class="memory-description" role="status">{$t("memoryNew.loading")}</p>

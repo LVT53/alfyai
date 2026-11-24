@@ -975,6 +975,124 @@ describe("the subject index (layout C)", () => {
 		expect(api.fetchMemorySubjectIndex).not.toHaveBeenCalled();
 	});
 
+	describe("for a keyboard and a screen reader", () => {
+		it("puts the search before Add in the DOM, as a computer draws them", async () => {
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			const scope = await screen.findByRole("combobox");
+			const search = screen.getByRole("searchbox");
+			const add = screen.getByRole("button", { name: "Add memory" });
+			const overview = screen.getByRole("button", { name: /Overview of you/ });
+			const follows = (a: Element, b: Element) =>
+				Boolean(
+					a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING,
+				);
+			expect(follows(scope, search)).toBe(true);
+			expect(follows(search, add)).toBe(true);
+			expect(follows(add, overview)).toBe(true);
+		});
+
+		// A person who says the word they see must reach the control (WCAG 2.5.3):
+		// its name holds the word that is drawn on it, whatever else it says. In
+		// Hungarian a suffix can change the last vowel ("Memória", "Memóriához").
+		const nameHoldsTheDrawnWord = (button: HTMLElement) =>
+			(button.getAttribute("aria-label") ?? "")
+				.toLowerCase()
+				.includes((button.textContent ?? "").trim().toLowerCase());
+
+		it.each([
+			["en", "Add memory", "Back to Memory", "3 entries", "1 entry"],
+			[
+				"hu",
+				"Memória hozzáadása",
+				"Vissza a Memória oldalra",
+				"3 bejegyzés",
+				"1 bejegyzés",
+			],
+		] as const)(
+			"names Add, the back link and a row's count in full (%s)",
+			async (language, add, back, three, one) => {
+				uiLanguage.set(language);
+				api.fetchMemorySubjectIndex.mockResolvedValue({
+					...index,
+					subjects: [{ ...index.subjects[0], count: 3 }, index.subjects[1]],
+				});
+				render(KnowledgeMemoryView, {
+					memoryEnabled: true,
+					layout: "subjects",
+				});
+				const addButton = await screen.findByRole("button", { name: add });
+				expect(nameHoldsTheDrawnWord(addButton)).toBe(true);
+				const rows = document.querySelectorAll<HTMLElement>(
+					".memory-subject-row",
+				);
+				const count = rows[0].querySelector(".memory-subject-count");
+				// The number is what is drawn; what is read is the number and its unit.
+				expect(count?.querySelector("[aria-hidden]")?.textContent).toBe("3");
+				expect(count?.querySelector(".sr-only")?.textContent).toBe(three);
+				expect(
+					screen.getByRole("button", { name: new RegExp(three) }),
+				).toBeTruthy();
+				expect(
+					screen.getByRole("button", { name: new RegExp(one) }),
+				).toBeTruthy();
+				await fireEvent.click(rows[1]);
+				const backButton = await screen.findByRole("button", { name: back });
+				expect(nameHoldsTheDrawnWord(backButton)).toBe(true);
+			},
+		);
+
+		it("focuses the opened subject's heading after a removal, where a phone hides the search", async () => {
+			api.submitMemoryAction.mockResolvedValue({
+				...failed,
+				status: "applied",
+				exclusionAcknowledged: true,
+				retryable: false,
+			});
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			await fireEvent.click(
+				await screen.findByRole("button", { name: /Projects/ }),
+			);
+			const pane = await screen.findByTestId("memory-subject-pane");
+			await fireEvent.click(
+				within(pane).getByRole("button", { name: /You own a green/ }),
+			);
+			await screen.findByTestId("memory-detail");
+			await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+			await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+			expect(screen.queryByTestId("memory-remove")).not.toBeInTheDocument();
+			await waitFor(() =>
+				expect(
+					within(screen.getByTestId("memory-subject-pane")).getByRole(
+						"heading",
+						{ name: "Projects" },
+					),
+				).toHaveFocus(),
+			);
+			expect(screen.getByRole("searchbox")).not.toHaveFocus();
+		});
+
+		it("still focuses the search after a removal when no subject is open", async () => {
+			api.submitMemoryAction.mockResolvedValue({
+				...failed,
+				status: "applied",
+				exclusionAcknowledged: true,
+				retryable: false,
+			});
+			api.fetchMemoryPage.mockResolvedValue({ ...page, status: "ready" });
+			render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+			await fireEvent.input(await screen.findByRole("searchbox"), {
+				target: { value: "kayak" },
+			});
+			await fireEvent.click(
+				await screen.findByRole("button", { name: /You own a green/ }),
+			);
+			await screen.findByTestId("memory-detail");
+			await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+			await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+			await waitFor(() => expect(screen.getByRole("searchbox")).toHaveFocus());
+		});
+	});
+
 	describe("a refresh while a subject is open", () => {
 		// Memory refreshes itself every three seconds while it updates (the
 		// list's status is queued, working or failed) and when the window is

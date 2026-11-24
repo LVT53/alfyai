@@ -515,7 +515,16 @@ function restoreListFocus(preferred: "row" | "add" | "search" = "row") {
 				? root?.querySelector<HTMLButtonElement>("[data-memory-add]:enabled")
 				: null;
 	if (target) target.focus({ preventScroll: true });
-	else root?.querySelector<HTMLInputElement>("[data-memory-search]")?.focus();
+	else {
+		// An opened subject is a screen of its own on a phone and hides the
+		// search: its heading is where the person was, and a place everywhere.
+		const place =
+			layout === "subjects" && opened && !query.trim()
+				? root?.querySelector<HTMLElement>("[data-memory-subject-heading]")
+				: null;
+		if (place) place.focus({ preventScroll: true });
+		else root?.querySelector<HTMLInputElement>("[data-memory-search]")?.focus();
+	}
 }
 async function back(preferred: "row" | "search" = "row") {
 	const target = view === "add" ? "add" : missingLatest ? "search" : preferred;

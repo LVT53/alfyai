@@ -137,6 +137,9 @@ const knowledgeDict = {
 		"memorySubjects.add": "Add",
 		"memorySubjects.search": "Search Memory",
 		"memorySubjects.back": "Memory",
+		"memorySubjects.backLabel": "Back to Memory",
+		"memorySubjects.entryCount":
+			"{count} {count, plural, one {entry} other {entries}}",
 		"memorySubjects.active": "active",
 		"memorySubjects.quiet":
 			"quiet {weeks} {weeks, plural, one {week} other {weeks}}",
@@ -866,6 +869,8 @@ const knowledgeDict = {
 		"memorySubjects.add": "Hozzáadás",
 		"memorySubjects.search": "Keresés a Memóriában",
 		"memorySubjects.back": "Memória",
+		"memorySubjects.backLabel": "Vissza a Memória oldalra",
+		"memorySubjects.entryCount": "{count} bejegyzés",
 		"memorySubjects.active": "aktív",
 		"memorySubjects.quiet": "{weeks} hete csendes",
 		"memorySubjects.earlier": "Korábbiak",

@@ -90,9 +90,11 @@ function openEntry(entry: Entry, button: HTMLButtonElement) {
 }
 </script>
 <section class="memory-card memory-subjects" class:memory-subjects-has-subject={showOpened} aria-busy={loading} data-testid="memory-subjects">
+ <!-- The DOM order is the order a computer draws them in (scope, search, Add, then the Overview row), so Tab follows the screen; a phone draws the same four in its own grid (memory-subjects.css). -->
  <div class="memory-subjects-top">
   <select class="memory-scope memory-subjects-scope" aria-label={$t("memoryNew.space")} value={scopeValue} disabled={loading} onchange={(event) => onScope(event.currentTarget.value)}><option value="personal">{$t("memoryNew.personal")}</option>{#each projects as project (project.id)}<option value={project.id}>{project.name} · {$t("memoryNew.project")}</option>{/each}</select>
-  <button class="btn-secondary memory-button memory-subjects-add" type="button" data-memory-add onclick={onAdd} {disabled}><Plus size={16} strokeWidth={1.8} aria-hidden="true"/>{$t("memorySubjects.add")}</button>
+  <form class="memory-search memory-subjects-search" onsubmit={(event) => { event.preventDefault(); onSearch(); }} role="search"><Search size={17} strokeWidth={1.8} aria-hidden="true"/><input type="search" data-memory-search aria-label={$t("memorySubjects.search")} placeholder={$t("memorySubjects.search")} bind:value={query} oninput={onSearch}/></form>
+  <button class="btn-secondary memory-button memory-subjects-add" type="button" data-memory-add aria-label={$t("memoryNew.add")} onclick={onAdd} {disabled}><Plus size={16} strokeWidth={1.8} aria-hidden="true"/>{$t("memorySubjects.add")}</button>
   {#if !searching && index && index.currentCount > 0}
    <button class="memory-overview-row" type="button" data-memory-overview onclick={onOpenOverview}>
     <span class="memory-overview-mark"><Sparkle size={16} strokeWidth={1.8} aria-hidden="true"/></span>
@@ -100,7 +102,6 @@ function openEntry(entry: Entry, button: HTMLButtonElement) {
     <ChevronRight size={16} strokeWidth={1.8} class="memory-overview-chevron" aria-hidden="true"/>
    </button>
   {/if}
-  <form class="memory-search memory-subjects-search" onsubmit={(event) => { event.preventDefault(); onSearch(); }} role="search"><Search size={17} strokeWidth={1.8} aria-hidden="true"/><input type="search" data-memory-search aria-label={$t("memorySubjects.search")} placeholder={$t("memorySubjects.search")} bind:value={query} oninput={onSearch}/></form>
  </div>
  {#if searching}
   {#if loading && !page}<p class="memory-empty" role="status">{$t("memoryNew.loading")}</p>
@@ -119,7 +120,7 @@ function openEntry(entry: Entry, button: HTMLButtonElement) {
     {#each index.subjects as item (item.subject)}
      <button type="button" class="memory-subject-row" class:memory-subject-current={opened === item.subject} aria-current={opened === item.subject ? "true" : undefined} data-memory-subject={item.subject} onclick={(event) => onOpenSubject(item.subject, event.currentTarget)}>
       <span class="memory-subject-head"><span class="memory-subject-name">{$t(subjectWordKey(item.subject))}</span> {#if item.active}<span class="memory-tag">{$t("memorySubjects.active")}</span>{/if}</span>
-      <span class="memory-subject-count">{item.count}<ChevronRight size={14} strokeWidth={1.8} class="memory-subject-chevron" aria-hidden="true"/></span>
+      <span class="memory-subject-count"><span aria-hidden="true">{item.count}</span><span class="sr-only">{$t("memorySubjects.entryCount", { count: item.count })}</span><ChevronRight size={14} strokeWidth={1.8} class="memory-subject-chevron" aria-hidden="true"/></span>
       <span class="memory-subject-preview">{item.preview}</span>
      </button>
     {/each}
