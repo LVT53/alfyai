@@ -67,6 +67,31 @@ export function markMemoryLabelsVerified(
 	);
 }
 
+/**
+ * Takes an epoch's verification back, whatever the label migration did: the
+ * epoch is marked unverified and is no longer recorded as verified, so the
+ * account gets today's Memory page and a later in-place upgrade marks it
+ * again. For the label migration's rollback and the bank-config restore
+ * (after which the previous release writes facts without labels). Only while
+ * the account is still at that epoch; returns false otherwise. Call it inside
+ * a write of your own.
+ */
+export function revokeMemoryLabelsVerified(
+	tx: Tx,
+	userId: string,
+	epoch: number,
+): boolean {
+	return (
+		tx
+			.update(memoryAccounts)
+			.set({ labelsUnverifiedEpoch: epoch, labelsVerifiedEpoch: null })
+			.where(
+				and(eq(memoryAccounts.userId, userId), eq(memoryAccounts.epoch, epoch)),
+			)
+			.run().changes > 0
+	);
+}
+
 /** Why an epoch may hold facts without labels. */
 export type LabelsUnverifiedCause =
 	/** A config-1 bank was upgraded in place: every fact in it predates the upgrade. */
@@ -88,22 +113,20 @@ export function markMemoryLabelsUnverified(
 	epoch: number,
 	cause: LabelsUnverifiedCause = "upgraded",
 ): void {
+	if (cause === "created_by_previous_release") {
+		revokeMemoryLabelsVerified(tx, userId, epoch);
+		return;
+	}
 	tx.update(memoryAccounts)
-		.set(
-			cause === "upgraded"
-				? { labelsUnverifiedEpoch: epoch }
-				: { labelsUnverifiedEpoch: epoch, labelsVerifiedEpoch: null },
-		)
+		.set({ labelsUnverifiedEpoch: epoch })
 		.where(
 			and(
 				eq(memoryAccounts.userId, userId),
 				eq(memoryAccounts.epoch, epoch),
-				cause === "upgraded"
-					? or(
-							isNull(memoryAccounts.labelsVerifiedEpoch),
-							ne(memoryAccounts.labelsVerifiedEpoch, epoch),
-						)
-					: undefined,
+				or(
+					isNull(memoryAccounts.labelsVerifiedEpoch),
+					ne(memoryAccounts.labelsVerifiedEpoch, epoch),
+				),
 			),
 		)
 		.run();

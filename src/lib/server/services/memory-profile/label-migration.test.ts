@@ -141,7 +141,11 @@ async function seedAccount(
 	return bank;
 }
 
-/** Every row of every table, the label store and the labels mark left out. */
+/**
+ * Every row of every table, the label store and the two account columns the
+ * migration may change (`labels_unverified_epoch`, `labels_verified_epoch`)
+ * left out: `accountMarks` reads those.
+ */
 function snapshot() {
 	const tables = h.sqlite
 		.prepare(
@@ -158,9 +162,30 @@ function snapshot() {
 						string,
 						unknown
 					>[]
-				).map(({ labels_unverified_epoch: _mark, ...row }) => row),
+				).map((row) => {
+					if (name !== "memory_accounts") return row;
+					const {
+						labels_unverified_epoch: _unverified,
+						labels_verified_epoch: _verified,
+						...rest
+					} = row;
+					return rest;
+				}),
 			]),
 	);
+}
+
+/** The two account columns the migration and its rollback may change. */
+function accountMarks(userId: string) {
+	return h.sqlite
+		.prepare(
+			"SELECT epoch, labels_unverified_epoch AS unverified, labels_verified_epoch AS verified FROM memory_accounts WHERE user_id = ?",
+		)
+		.get(userId) as {
+		epoch: number;
+		unverified: number | null;
+		verified: number | null;
+	};
 }
 
 function labelRows(bankId: string) {
@@ -274,6 +299,23 @@ describe("the label migration", () => {
 			},
 		]);
 		expect(verified.memoryLabelsVerified("user-3")).toBe(false);
+		// The account columns it may change: the mark cleared and the epoch
+		// recorded as verified, for the two it verified; the tester's as it was.
+		expect(accountMarks("user-1")).toEqual({
+			epoch: 0,
+			unverified: null,
+			verified: 0,
+		});
+		expect(accountMarks("user-2")).toEqual({
+			epoch: 0,
+			unverified: null,
+			verified: 0,
+		});
+		expect(accountMarks("user-3")).toEqual({
+			epoch: 0,
+			unverified: 0,
+			verified: null,
+		});
 		// Text, support, dates and visibility: every other table as it was.
 		expect(snapshot()).toEqual(before);
 	});
@@ -568,6 +610,13 @@ describe("the label migration's rollback", () => {
 			})),
 		]);
 		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+		// Truly today's page: the verification is forgotten too, so nothing
+		// of it sticks (an in-place upgrade would mark the epoch again).
+		expect(accountMarks("user-1")).toEqual({
+			epoch: 0,
+			unverified: 0,
+			verified: null,
+		});
 	});
 
 	it("refuses the tester", async () => {

@@ -148,6 +148,40 @@ describe("a verified epoch sticks", () => {
 		expect(m.state.memoryLabelsVerified(h.userId)).toBe(true);
 	});
 
+	it("a revocation returns a verified epoch to today's page, and an upgrade marks it again", async () => {
+		const m = await verified();
+		expect(
+			m.db.transaction((tx) =>
+				m.state.revokeMemoryLabelsVerified(tx, h.userId, 0),
+			),
+		).toBe(true);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(false);
+		expect(accountRow(m)).toMatchObject({
+			labelsUnverifiedEpoch: 0,
+			labelsVerifiedEpoch: null,
+		});
+		// Nothing of the verification is left: a later upgrade marks it again.
+		m.db.transaction((tx) => m.state.markMemoryLabelsVerified(tx, h.userId, 0));
+		m.db.transaction((tx) =>
+			m.state.revokeMemoryLabelsVerified(tx, h.userId, 0),
+		);
+		m.db.transaction((tx) =>
+			m.state.markMemoryLabelsUnverified(tx, h.userId, 0, "upgraded"),
+		);
+		expect(accountRow(m)?.labelsUnverifiedEpoch).toBe(0);
+	});
+
+	it("a revocation for an epoch the account has left does nothing", async () => {
+		const m = await verified();
+		expect(
+			m.db.transaction((tx) =>
+				m.state.revokeMemoryLabelsVerified(tx, h.userId, 1),
+			),
+		).toBe(false);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(true);
+		expect(accountRow(m)?.labelsVerifiedEpoch).toBe(0);
+	});
+
 	it("a new epoch is not covered by the old epoch's verification", async () => {
 		const m = await verified();
 		m.db.update(m.schema.memoryAccounts).set({ epoch: 1 }).run();

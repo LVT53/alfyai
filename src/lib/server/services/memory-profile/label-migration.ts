@@ -17,8 +17,8 @@ import { classifyMemoryFacts, FACT_LABEL_BATCH_SIZE } from "./fact-classifier";
 import { readFactLabels, recordClassifiedFactLabels } from "./fact-labels";
 import { nativeMemoryClient } from "./hindsight-client";
 import {
-	markMemoryLabelsUnverified,
 	markMemoryLabelsVerified,
+	revokeMemoryLabelsVerified,
 } from "./labels-verified";
 import {
 	MEMORY_MIGRATION_EXCLUDED,
@@ -609,7 +609,9 @@ export function rollbackLabelMigration(
 					.where(classified(bank.id))
 					.run();
 			}
-			markMemoryLabelsUnverified(tx, input.userId, account.epoch);
+			// Truly today's page: the verification is forgotten too, so an
+			// in-place upgrade marks the epoch again.
+			revokeMemoryLabelsVerified(tx, input.userId, account.epoch);
 		});
 	} catch (error) {
 		report.code = failureCode(error);

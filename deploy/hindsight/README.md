@@ -107,8 +107,9 @@ The release is one-way for banks it upgraded: the previous release compares conf
 
 1. Stop the app's Memory workers (`HINDSIGHT_WORKER_ENABLED=false`, or stop the app).
 2. From this release's checkout, with the app's environment loaded, inspect: `npx tsx scripts/memory-bank-config-restore.ts` prints how many live banks hold each config version (counts only).
-3. Restore: `npx tsx scripts/memory-bank-config-restore.ts --execute restore-bank-config-1` puts every live config 2 bank back on config 1 with its labels cleared, verified by readback, and its stored version back to `9fb28dbd…`. A bank that fails stays on config 2 and is counted by error code; run it again.
+3. Restore: `npx tsx scripts/memory-bank-config-restore.ts --execute restore-bank-config-1` puts every live config 2 bank back on config 1 with its labels cleared, verified by readback, and its stored version back to `9fb28dbd…`. A bank that fails stays on config 2 and is counted by error code; run it again. It also returns every native account but the tester's to today's Memory page (`unverified`, the count of accounts): an account goes back when one of its banks is restored, and every account once a run leaves no bank on config 2, because the previous release writes facts without labels into any account's banks.
 4. Start the previous release. The label rows in `memory_fact_labels` stay for a roll forward; the previous release never reads them.
+5. After the roll forward, run the label migration again (runbook, "Label migration"): it labels what the previous release wrote and verifies each account again. It is resumable, and facts it labelled before are skipped.
 
 ## Backup, restore and upgrades
 

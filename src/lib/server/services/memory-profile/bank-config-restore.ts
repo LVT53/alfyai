@@ -9,6 +9,8 @@ import {
 	NativeMemoryError,
 } from "./contracts";
 import { type HindsightClient, nativeMemoryClient } from "./hindsight-client";
+import { revokeMemoryLabelsVerified } from "./labels-verified";
+import { memoryMigrationGuard } from "./migration-guard";
 
 /**
  * The rollback of Memory part 2's bank config (operator step, run with the
@@ -17,8 +19,14 @@ import { type HindsightClient, nativeMemoryClient } from "./hindsight-client";
  * config 2 goes back to config 1, labels cleared, and its stored version back
  * to `HINDSIGHT_ENGINE_COMMIT`. Inspects by default; counts only, no ids and
  * no content. Removes nothing: label rows stay in `memory_fact_labels` for a
- * roll forward. It does forget that the account's labels were verified, so a
- * roll forward marks them for the label migration again (`labels-verified.ts`).
+ * roll forward. It does take back every account's label verification
+ * (`revokeMemoryLabelsVerified`): the previous release writes facts without
+ * labels into any account's banks, and may create config-1 banks, so each
+ * account it will serve gets today's Memory page until the label migration,
+ * run again after the roll forward, verifies it again. An account goes back
+ * as soon as one of its banks is restored, and every account goes back once a
+ * run leaves no bank on config 2. The permanent tester rule's account is left
+ * as it is (migration 143 never marked it).
  */
 export interface BankConfigRestoreReport {
 	mode: "inspect" | "execute";
@@ -30,6 +38,8 @@ export interface BankConfigRestoreReport {
 		other: number;
 	};
 	restored: number;
+	/** Accounts returned to today's Memory page (inspect: that a clean run would return). */
+	unverified: number;
 	failed: Record<string, number>;
 }
 
@@ -53,11 +63,26 @@ export async function restoreBankConfigs(input: {
 			),
 		)
 		.all();
+	// Every native account the previous release will serve, the tester's left out.
+	const accounts = db
+		.select({ userId: memoryAccounts.userId, epoch: memoryAccounts.epoch })
+		.from(memoryAccounts)
+		.where(eq(memoryAccounts.authority, "hindsight"))
+		.all()
+		.filter(({ userId }) => memoryMigrationGuard(userId).allowed);
 	const report: BankConfigRestoreReport = {
 		mode: input.execute ? "execute" : "inspect",
 		versions: { config2: 0, config1: 0, pending: 0, other: 0 },
 		restored: 0,
+		unverified: input.execute ? 0 : accounts.length,
 		failed: {},
+	};
+	const revoked = new Set<string>();
+	const revoke = (userId: string, epoch: number) => {
+		if (revoked.has(userId)) return;
+		if (!accounts.some((account) => account.userId === userId)) return;
+		if (db.transaction((tx) => revokeMemoryLabelsVerified(tx, userId, epoch)))
+			revoked.add(userId);
 	};
 	for (const { bank } of banks) {
 		const version = bank.nativeConfigVersion;
@@ -80,12 +105,8 @@ export async function restoreBankConfigs(input: {
 					),
 				)
 				.run();
-			// The previous release writes facts without labels, so after a roll
-			// forward the account's labels are verified again.
-			db.update(memoryAccounts)
-				.set({ labelsVerifiedEpoch: null })
-				.where(eq(memoryAccounts.userId, bank.userId))
-				.run();
+			// The previous release writes facts without labels into this bank.
+			revoke(bank.userId, bank.epoch);
 			report.restored++;
 		} catch (error) {
 			const code =
@@ -95,5 +116,10 @@ export async function restoreBankConfigs(input: {
 			report.failed[code] = (report.failed[code] ?? 0) + 1;
 		}
 	}
+	// A clean run: the previous release may now serve every account, so each
+	// goes back to today's page (a run with a failure is run again first).
+	if (!Object.keys(report.failed).length)
+		for (const { userId, epoch } of accounts) revoke(userId, epoch);
+	report.unverified = revoked.size;
 	return report;
 }

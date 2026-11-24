@@ -72,6 +72,39 @@ async function fixture() {
 		.run();
 	const verifiedEpoch = () =>
 		db.select().from(schema.memoryAccounts).get()?.labelsVerifiedEpoch;
+	const marks = (userId: string) => {
+		const row = db
+			.select()
+			.from(schema.memoryAccounts)
+			.where(eq(schema.memoryAccounts.userId, userId))
+			.get();
+		return {
+			epoch: row?.epoch,
+			unverified: row?.labelsUnverifiedEpoch,
+			verified: row?.labelsVerifiedEpoch,
+		};
+	};
+	/** Another native account whose only bank is on config 1, verified by the label migration. */
+	const seedVerifiedOnConfigOne = (userId: string, excluded = false) => {
+		h.fixture.seedUser(userId);
+		const other = revisions.ensureMemoryBank(userId, { kind: "personal" });
+		db.update(schema.memoryBanks)
+			.set({ nativeConfigVersion: native.HINDSIGHT_ENGINE_COMMIT })
+			.where(eq(schema.memoryBanks.id, other.id))
+			.run();
+		db.update(schema.memoryAccounts)
+			.set({
+				authority: "hindsight",
+				labelsUnverifiedEpoch: null,
+				labelsVerifiedEpoch: 0,
+			})
+			.where(eq(schema.memoryAccounts.userId, userId))
+			.run();
+		db.update(schema.users)
+			.set({ memoryMigrationExcluded: excluded })
+			.where(eq(schema.users.id, userId))
+			.run();
+	};
 	return {
 		native,
 		restoreBankConfigs,
@@ -79,6 +112,8 @@ async function fixture() {
 		patched,
 		version,
 		verifiedEpoch,
+		marks,
+		seedVerifiedOnConfigOne,
 		epoch: account.epoch,
 	};
 }
@@ -91,6 +126,7 @@ describe("restoring config 1 for a rollback", () => {
 			mode: "inspect",
 			versions: { config2: 1, config1: 1, pending: 0, other: 0 },
 			restored: 0,
+			unverified: 1,
 			failed: {},
 		});
 		expect(clientFor).not.toHaveBeenCalled();
@@ -119,6 +155,48 @@ describe("restoring config 1 for a rollback", () => {
 		expect(f.verifiedEpoch()).toBe(f.epoch);
 		await f.restoreBankConfigs({ execute: true, clientFor: f.clientFor });
 		expect(f.verifiedEpoch()).toBeNull();
+	});
+
+	// After the restore the previous release writes facts without labels into
+	// any account's banks, and may create config-1 banks: every account it will
+	// serve is returned to today's page, its verification revoked (an in-place
+	// upgrade after the roll forward does not mark a verified epoch again).
+	it("returns every account to today's page once every bank is back on config 1", async () => {
+		const f = await fixture();
+		f.seedVerifiedOnConfigOne("verified-on-config-1");
+		const report = await f.restoreBankConfigs({
+			execute: true,
+			clientFor: f.clientFor,
+		});
+		expect(report).toMatchObject({ restored: 1, unverified: 2, failed: {} });
+		expect(f.marks(h.userId)).toEqual({
+			epoch: f.epoch,
+			unverified: f.epoch,
+			verified: null,
+		});
+		expect(f.marks("verified-on-config-1")).toEqual({
+			epoch: 0,
+			unverified: 0,
+			verified: null,
+		});
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		expect(memoryLabelsVerified(h.userId)).toBe(false);
+		expect(memoryLabelsVerified("verified-on-config-1")).toBe(false);
+	});
+
+	it("leaves the tester's page state as it is", async () => {
+		const f = await fixture();
+		f.seedVerifiedOnConfigOne("tester", true);
+		const report = await f.restoreBankConfigs({
+			execute: true,
+			clientFor: f.clientFor,
+		});
+		expect(report).toMatchObject({ unverified: 1, failed: {} });
+		expect(f.marks("tester")).toEqual({
+			epoch: 0,
+			unverified: null,
+			verified: 0,
+		});
 	});
 
 	it("leaves a bank whose restore failed on config 2, and counts it by code", async () => {
