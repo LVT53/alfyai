@@ -14,6 +14,7 @@ import type { JobRunContext, Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import type { ReplayCheck } from "./curation-intent";
 import { memoryResendTransitions } from "./curation-lineage";
+import type { NativeWaitKind } from "./delivery-policy";
 import {
 	createDependencyRepairPlan,
 	orderDependencySources,
@@ -44,11 +45,17 @@ export interface NativeSettlement {
 		client: HindsightClient,
 		signal: AbortSignal,
 	) => Promise<NativeMemory[]>;
+	/**
+	 * Waits until the operations end. `kind` is the wait they get from the job's
+	 * failure policy (`delivery-policy.ts`): "retain" for a retain's operation,
+	 * "consolidation", the default, for everything else.
+	 */
 	settle: (
 		client: HindsightClient,
 		ids: string[],
 		signal: AbortSignal,
 		cleanup?: boolean,
+		kind?: NativeWaitKind,
 	) => Promise<void>;
 }
 
@@ -645,7 +652,13 @@ export async function runDependencyRepair(
 			!source.nativeAcknowledged &&
 			source.nativeOperationId
 		)
-			await native.settle(client, [source.nativeOperationId], ctx.signal, true);
+			await native.settle(
+				client,
+				[source.nativeOperationId],
+				ctx.signal,
+				true,
+				"retain",
+			);
 		await native.capture(client, ctx.signal);
 		await client.deleteDocument(source.id);
 		memories = await native.capture(client, ctx.signal);
@@ -765,6 +778,7 @@ export async function runDependencyRepair(
 						[discarded.nativeOperationId],
 						ctx.signal,
 						true,
+						"retain",
 					);
 				db.transaction((tx) => fence(tx, true));
 				await client.deleteDocument(discarded.id);
@@ -855,6 +869,7 @@ export async function runDependencyRepair(
 					[replacement.nativeOperationId],
 					ctx.signal,
 					true,
+					"retain",
 				);
 			await client.deleteDocument(replacement.id);
 			const remaining = await native.capture(client, ctx.signal);
@@ -1018,6 +1033,8 @@ export async function runDependencyRepair(
 						step.operationId,
 					),
 					ctx.signal,
+					false,
+					"retain",
 				);
 				await write(ctx, (tx) => {
 					fence(tx, true);

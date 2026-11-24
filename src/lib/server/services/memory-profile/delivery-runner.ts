@@ -140,17 +140,25 @@ async function pollOperations(
 	throw stillWaiting(wait);
 }
 /**
- * Waits until the operations end. A consolidation's wait by default; pass the
- * retain's for retains, so each waits as long as its own setting allows.
+ * Waits until the operations end. `wait` is the kind of wait they get, so each
+ * waits as long as its own setting allows: "retain" for a retain's operation,
+ * "consolidation", the default, for everything else; or a wait already begun,
+ * whose slice they share.
  */
 async function settle(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
 	cleanup = false,
-	wait: NativeWait = beginWait("consolidation"),
+	wait: NativeWait | NativeWaitKind = "consolidation",
 ) {
-	const ops = await pollOperations(client, ids, signal, !cleanup, wait);
+	const ops = await pollOperations(
+		client,
+		ids,
+		signal,
+		!cleanup,
+		typeof wait === "string" ? beginWait(wait) : wait,
+	);
 	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
 		throw new NativeMemoryError("native_operation_failed", false);
 }
@@ -384,7 +392,7 @@ export async function runMemoryDelivery(
 					ids.filter((id) => id !== NATIVE_BANK_CONFIG_PENDING),
 					ctx.signal,
 					true,
-					beginWait("retain"),
+					"retain",
 				);
 				await drainNative(client, ctx.signal);
 				if (
@@ -482,7 +490,7 @@ export async function runMemoryDelivery(
 						[source.nativeOperationId],
 						ctx.signal,
 						true,
-						beginWait("retain"),
+						"retain",
 					);
 				await drainNative(client, ctx.signal);
 				await client.deleteDocument(source.id);
@@ -615,7 +623,7 @@ export async function runMemoryDelivery(
 			outstanding.map((s) => s.nativeOperationId as string),
 			ctx.signal,
 			true,
-			beginWait("retain"),
+			"retain",
 		);
 		await drainNative(client, ctx.signal);
 		const delivery = db.transaction((tx) => assertDelivery(tx, row));
@@ -820,7 +828,7 @@ export async function runMemoryDelivery(
 						[source.nativeOperationId],
 						ctx.signal,
 						true,
-						beginWait("retain"),
+						"retain",
 					);
 				db.transaction((tx) => assertDelivery(tx, row));
 				await client.deleteDocument(source.id);

@@ -629,6 +629,7 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		| undefined;
 	let resetObservation: ((id: string) => { deleted_count: number }) | undefined;
 	let loseAck = false;
+	let operationStatus: ((id: string) => string) | undefined;
 	const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
 		const path = String(url);
 		let data: unknown = {};
@@ -681,7 +682,13 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		} else if (path.endsWith("/consolidate"))
 			data = { operation_id: "consolidation" };
 		else if (path.includes("/operations?")) data = { operations: [] };
-		else if (path.includes("/operations/")) data = { status: "completed" };
+		else if (path.includes("/operations/"))
+			data = {
+				status:
+					operationStatus?.(
+						decodeURIComponent(path.split("/operations/")[1]),
+					) ?? "completed",
+			};
 		else if (path.includes("/memories/list")) {
 			const raw = [...facts.values()];
 			const items = [
@@ -787,6 +794,10 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		},
 		loseAck: () => {
 			loseAck = true;
+		},
+		/** What Hindsight answers when asked about an operation; "completed" by default. */
+		setOperationStatus: (fn: (id: string) => string) => {
+			operationStatus = fn;
 		},
 	};
 }
@@ -1734,6 +1745,53 @@ it("lost acknowledgement retries reuse exact replacement document and native ope
 	expect(f.retained[1].operation_id).toBe(first.operation_id);
 	expect(f.retained[1].items[0].document_id).toBe(first.items[0].document_id);
 });
+it("a replacement retain Hindsight keeps working on waits as a retain, for the retain's wait", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "removed detail");
+	const child = f.source([root.id], "I enjoy hiking");
+	f.seed(root);
+	f.seed(child);
+	// Hindsight never finishes the replacement's retain, and every read of it
+	// moves the clock on six minutes, so each attempt's slice ends after one look.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const retains = () => new Set(f.retained.map((body) => body.operation_id));
+	f.setOperationStatus((id) => {
+		if (!retains().has(id)) return "completed";
+		vi.setSystemTime(Date.now() + 6 * 60_000);
+		return "processing";
+	});
+	const { getMemoryNativeWaits } = await import("$lib/server/config-store");
+	const waits = getMemoryNativeWaits();
+	const started = Date.now();
+	const job = await f.remove(root);
+	const codes: Array<string | null> = [];
+	let waited = 0;
+	try {
+		for (let round = 0; round < 40; round++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const row = f.db
+				.select()
+				.from(f.s.memoryDeliveryJobs)
+				.where(awaitEq(f.s.memoryDeliveryJobs.id, job.row.id))
+				.get();
+			codes.push(row?.errorCode ?? null);
+			if (row?.status !== "queued") break;
+			vi.setSystemTime(Date.now() + 61_000);
+		}
+		waited = Date.now() - started;
+	} finally {
+		vi.useRealTimers();
+	}
+	expect(retains().size).toBe(1);
+	expect(codes.slice(0, -1).length).toBeGreaterThan(0);
+	expect(codes.slice(0, -1)).toEqual(
+		codes.slice(0, -1).map(() => "native_retain_waiting"),
+	);
+	expect(codes.at(-1)).toBe("native_operation_timeout");
+	// Ended by the retain's own wait, not the consolidation's longer one.
+	expect(waited).toBeGreaterThanOrEqual(waits.retainMs);
+	expect(waited).toBeLessThan(waits.consolidationMs);
+}, 60_000);
 it("a real late native write after reset cannot publish or resume", async () => {
 	const f = await nativeFixture();
 	const root = f.source();

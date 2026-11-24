@@ -1045,7 +1045,13 @@ async function restoreCancelledEdit(
 		!delta.nativeAcknowledged &&
 		delta.nativeOperationId
 	)
-		await native.settle(client, [delta.nativeOperationId], ctx.signal, true);
+		await native.settle(
+			client,
+			[delta.nativeOperationId],
+			ctx.signal,
+			true,
+			"retain",
+		);
 	if (intent.addedSourceId) {
 		await fence(ctx);
 		await client.deleteDocument(intent.addedSourceId);
@@ -1489,7 +1495,7 @@ async function executeMemoryAction(
 					},
 					operationId,
 				);
-		await native.settle(client, ids, ctx.signal);
+		await native.settle(client, ids, ctx.signal, false, "retain");
 		if (
 			!(await ctx.write((tx) => {
 				actionFence(tx, ctx);
@@ -1600,7 +1606,7 @@ async function executeMemoryAction(
 						},
 						editOperationId,
 					);
-			await native.settle(client, operations, ctx.signal);
+			await native.settle(client, operations, ctx.signal, false, "retain");
 			if (
 				!(await ctx.write((tx) => {
 					actionFence(tx, ctx);
