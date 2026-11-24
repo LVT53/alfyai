@@ -52,13 +52,18 @@ export function mentionedWhen(
 	};
 }
 
-/** The month and year an earlier state is dated: "March 2025", "2025. március". */
+/**
+ * The month and year an earlier state is dated: "March 2025", "2025. március".
+ * None for a date after now: an older fact about a plan carries the plan's own
+ * date, which is no time the state stood.
+ */
 export function monthAndYear(
 	iso: string | null,
+	now: Date,
 	language: string,
 ): string | null {
 	const at = instant(iso);
-	if (!at) return null;
+	if (!at || at.getTime() > now.getTime()) return null;
 	return new Intl.DateTimeFormat(locale(language), {
 		month: "long",
 		year: "numeric",

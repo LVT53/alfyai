@@ -66,7 +66,7 @@ export interface MemoryPage {
 	status: MemoryUpdateStatus;
 	total: number;
 }
-/** A state Hindsight kept before the entry's current one, with when it was said (null when undated). */
+/** A state Hindsight kept before the entry's current one, with the date Hindsight gave it (the later of when it happened and when it was mentioned; null when undated). Shown "as of" that date, and not at all when it lies after now. */
 export interface MemoryEarlierState {
 	text: string;
 	saidAt: string | null;

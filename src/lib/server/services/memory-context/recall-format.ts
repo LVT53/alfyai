@@ -48,11 +48,14 @@ function lastSaid(lastMentionedAt: string | null, now: Date): string | null {
  * An earlier state's time: when it stood ("as of 3 weeks ago"). Never "said"
  * and never an end: the date Hindsight keeps with an older fact is the later
  * of when it happened and when it was mentioned (so a plan for next year
- * carries next year's date), and it says nothing of when the state stopped
- * being true. The page words the same date the same way ("Earlier: ... · as
- * of March 2025"; `memorySubjects.earlierState`).
+ * carries next year's date, which gets no time here and none on the page), and
+ * it says nothing of when the state stopped being true. The page words the
+ * same date the same way ("Earlier: ... · as of March 2025";
+ * `memorySubjects.earlierState`).
  */
 function asOf(stateDate: string | null, now: Date): string | null {
+	// A date after now is a plan's own date, not a time the state stood: no time.
+	if (stateDate !== null && Date.parse(stateDate) > now.getTime()) return null;
 	const bucket = bucketOf(stateDate, now);
 	if (!bucket) return null;
 	if (bucket.unit === "today") return "as of today";
@@ -139,12 +142,10 @@ export function formatRecalledMemory(
 		(item.ref.scope.kind === "project" ? project : personal).push(
 			...recalledLines(item, now),
 		);
+	// The times note explains a row's own time ("said 3 weeks ago"); an earlier
+	// state's "as of" explains itself, so it opens no note.
 	const timed = items.some(
-		(item) =>
-			lastSaid(item.lastMentionedAt, now) !== null ||
-			(item.earlierStates ?? []).some(
-				(state) => asOf(state.saidAt, now) !== null,
-			),
+		(item) => lastSaid(item.lastMentionedAt, now) !== null,
 	);
 	const earlier = items.some(
 		(item) => item.timeState === "earlier" || item.earlierStates?.length,

@@ -132,7 +132,7 @@ Under our untagged `shared` observation scope, observations carry no tags, so an
 - **Search,** as today.
 - **Subject index:** one row per subject with the count of its current entries and a one-line preview (the subject's most recent current entry); subjects with no current entries are hidden. The Projects row shows an "active" tag when any of its entries is active, and no count of projects, because entries carry no project identity.
 - **On a computer** the index shows as tiles (mockup 8).
-- **An opened subject:** on a phone a pushed screen with a back link to Memory (mockup 4); on a computer a second pane beside the index, which becomes a list (mockup 9). Its current entries, most recently mentioned first, each with when it was last mentioned. An entry with earlier-state notes shows them on a quiet line with the date each was said ("Earlier: lived in Budapest · said March 2025"); no end date is invented. Ongoing entries show "active" or "quiet N weeks". The subject's own "Earlier" row folds its Earlier entries.
+- **An opened subject:** on a phone a pushed screen with a back link to Memory (mockup 4); on a computer a second pane beside the index, which becomes a list (mockup 9). Its current entries, most recently mentioned first, each with when it was last mentioned. An entry with earlier-state notes shows them on a quiet line with the date each stood ("Earlier: lived in Budapest · as of March 2025", no date for one after now); no end date is invented. Ongoing entries show "active" or "quiet N weeks". The subject's own "Earlier" row folds its Earlier entries.
 - **An "Earlier" row on the index** folds everything Earlier across subjects.
 - **Editing and removing** stay on the entry, with today's dialogs and guarantees. The entry's detail view keeps its "Previous versions" section for the person's own edits; Hindsight's earlier-state notes are not mixed into it.
 - **Existing accounts** keep today's page until their labels are verified (see "The label migration"); new accounts get the new page from the start.
@@ -205,7 +205,7 @@ All on the local model, synthetic data only (English and Hungarian), through the
 7. **Order:** the label migration runs after part 4's queue; each existing account switches to the new page when its labels are verified; until labelled, recall rows show their age without a kind.
 8. **Done** means the pass rates under "Testing". If labels fall short, the fallback is a background classifier call queued behind live turns.
 9. **Size:** design and test for 5,000 entries per bank; a large scope's Overview is written from its most recent entries and says so.
-10. **The Earlier line** shows when the old statement was said ("said March 2025"), never an invented end date; the consolidation mission asks for no end dates.
+10. **The Earlier line** shows when the old statement stood ("as of March 2025"; first drafted as "said March 2025", changed on 2026-11-24 because Hindsight's date is the later of when a fact happened and when it was mentioned, and it is shown only when it is not after now), never an invented end date; the consolidation mission asks for no end dates.
 11. **The Projects row** shows "active", not a count of projects.
 12. **On a phone** an opened subject is a pushed screen (mockup 4).
 13. **The Overview** is kept until an entry changes and is written in the person's language.

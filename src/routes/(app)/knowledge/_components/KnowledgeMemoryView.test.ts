@@ -946,6 +946,32 @@ describe("the subject index (layout C)", () => {
 		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
 	});
 
+	it("shows no date for an earlier state dated after now", async () => {
+		api.fetchMemorySubject.mockResolvedValue({
+			...subjectPage,
+			entries: [
+				{
+					...subjectPage.entries[0],
+					earlierStates: [
+						{
+							text: "Planned a trip to Rome",
+							saidAt: "2099-03-01T09:00:00.000Z",
+						},
+					],
+				},
+			],
+		});
+		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /Projects/ }),
+		);
+		const pane = await screen.findByTestId("memory-subject-pane");
+		await waitFor(() =>
+			expect(pane.textContent).toContain("Earlier: Planned a trip to Rome"),
+		);
+		expect(pane.textContent).not.toContain("as of");
+	});
+
 	it("words an earlier state's date as when it stood, in Hungarian too", async () => {
 		// English says "as of March 2025"; a bare date after "Korábban:" would read
 		// as the day the state ended, so the Hungarian dates the state ("idején")

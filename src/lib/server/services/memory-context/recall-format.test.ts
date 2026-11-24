@@ -98,7 +98,7 @@ it("costs each row exactly its recallLineTokens", () => {
 					};
 					const out = formatRecalledMemory([row], now);
 					const notes =
-						(d === null && !states.length ? 0 : times) +
+						(d === null ? 0 : times) +
 						(timeState === "earlier" || states.length ? earlierNote : 0);
 					expect(estimateTokenCount(out) - notes).toBe(
 						recallLineTokens(row, now),
@@ -196,6 +196,33 @@ it("words an earlier state's date as when it stood, never as when it was said or
 		"  - earlier: Lived at d730 (as of 2 years ago)",
 	]);
 	for (const line of lines) expect(line).not.toMatch(/said|until|ended/);
+});
+
+it("leaves an earlier state dated after now undated, and opens no times note for it alone", () => {
+	// Hindsight's date for an older fact about a plan is the plan's own date, so
+	// it can lie in the future: "as of today" would present a superseded state as
+	// current, and the page shows no date for it either.
+	expect(
+		formatRecalledMemory(
+			[
+				{
+					...item("Lives in Gyor", null),
+					earlierStates: [
+						{ text: "Planned a trip to Rome", saidAt: daysAgo(-200) },
+						{ text: "Lived in Pecs", saidAt: daysAgo(400) },
+						{ text: "Rented in Graz", saidAt: daysAgo(-1) },
+					],
+				},
+			],
+			now,
+		).split("\n"),
+	).toEqual([
+		RECALL_EARLIER_NOTE,
+		"- Lives in Gyor",
+		"  - earlier: Planned a trip to Rome",
+		"  - earlier: Lived in Pecs (as of 13 months ago)",
+		"  - earlier: Rented in Graz",
+	]);
 });
 
 it("leaves an earlier state with an unreadable date undated, and keeps a row's own wording", () => {

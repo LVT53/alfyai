@@ -33,8 +33,8 @@ const whenWords = $derived(
 <button type="button" class="memory-entry" data-memory-row={entry.ref.rowId} onclick={(event) => onOpen(entry, event.currentTarget)}>
  <span class="memory-entry-text">{entry.text}</span>
  {#each entry.earlierStates as state, index (index)}
-  {@const said = monthAndYear(state.saidAt, $uiLanguage)}
-  <span class="memory-entry-earlier">{said ? $t("memorySubjects.earlierState", { text: state.text, when: said }) : $t("memorySubjects.earlierStateUndated", { text: state.text })}</span>
+  {@const stateDate = monthAndYear(state.saidAt, new Date(), $uiLanguage)}
+  <span class="memory-entry-earlier">{stateDate ? $t("memorySubjects.earlierState", { text: state.text, when: stateDate }) : $t("memorySubjects.earlierStateUndated", { text: state.text })}</span>
  {/each}
  <span class="memory-entry-meta">
   {#if showSubject}<span>{$t(subjectWordKey(entry.subject))}</span>{/if}
