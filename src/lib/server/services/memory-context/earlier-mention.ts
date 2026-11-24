@@ -100,12 +100,10 @@ export function mentionBank(entryTexts: readonly string[]): MentionBank {
  * message's words once and checks each Earlier entry against them.
  */
 export function mentionWords(text: string): string[] {
-	const read =
-		text.length > MENTION_HEAD_CHARS + MENTION_TAIL_CHARS
-			? `${text.slice(0, MENTION_HEAD_CHARS)} ${text.slice(-MENTION_TAIL_CHARS)}`
-			: text;
 	const words = new Set<string>();
-	for (const word of foldForSearch(read.normalize("NFC")).split(NON_WORD)) {
+	for (const word of foldForSearch(
+		clipMentionText(text).normalize("NFC"),
+	).split(NON_WORD)) {
 		if (
 			Array.from(word).length < MIN_WORD_LETTERS ||
 			!LETTER.test(word) ||
@@ -121,6 +119,18 @@ export function mentionWords(text: string): string[] {
 /** How much of a long text's start and end the gate reads. */
 const MENTION_HEAD_CHARS = 4_000;
 const MENTION_TAIL_CHARS = 2_000;
+
+/**
+ * A long text as the gate reads it: its first 4,000 and last 2,000
+ * characters, a space between. A text of 6,000 characters or fewer is read
+ * whole. The word rule and the reranker check (`earlier-rerank.ts`) both read
+ * a message through this, so they judge the same words.
+ */
+export function clipMentionText(text: string): string {
+	return text.length > MENTION_HEAD_CHARS + MENTION_TAIL_CHARS
+		? `${text.slice(0, MENTION_HEAD_CHARS)} ${text.slice(-MENTION_TAIL_CHARS)}`
+		: text;
+}
 const MIN_WORD_LETTERS = 3;
 /** A word this many entries hold is still rare, however small the bank... */
 const RARE_ENTRIES = 2;

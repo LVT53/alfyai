@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	clipMentionText,
 	mentionBank,
 	mentionsMemoryEntry,
 	mentionWords,
@@ -300,6 +301,17 @@ describe("the gate's cost on a turn", () => {
 				entry,
 			),
 		).toBe(false);
+	});
+
+	it("clips a long text to its first 4,000 and last 2,000 characters, and leaves a short one alone", () => {
+		const long = `${"a".repeat(4_000)}${"b".repeat(1_000_000)}${"c".repeat(2_000)}`;
+		const clipped = clipMentionText(long);
+		expect(clipped).toBe(`${"a".repeat(4_000)} ${"c".repeat(2_000)}`);
+		const exactlyAtTheCap = "x".repeat(6_000);
+		expect(clipMentionText(exactlyAtTheCap)).toBe(exactlyAtTheCap);
+		expect(clipMentionText("a dentist appointment")).toBe(
+			"a dentist appointment",
+		);
 	});
 
 	it("weighs a bank of 1,000 entries and checks six entries in under a quarter of a second", () => {
