@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
+	artifactVersions,
 	conversations,
 	imageDescriptions,
 	videoJobs,
@@ -117,6 +118,16 @@ const noFieldText = () => sql`null`;
 const imagePromptSql = sql`case when json_valid(${artifacts.contentText}) then json_extract(${artifacts.contentText}, '$.prompt') end`;
 
 /**
+ * A picture's takes, each a version whose body names the prompt it was made
+ * from, so an edited picture is still found by what was first asked of it.
+ * Read through the ownership-scoped artifact row, and never another person's.
+ */
+const takePromptSql = sql`case when json_valid(${artifactVersions.body}) then json_extract(${artifactVersions.body}, '$.prompt') end`;
+
+const imageTakesOf = (userId: string): SQL =>
+	sql`${artifactVersions.artifactId} = ${artifacts.id} and ${artifactVersions.userId} = ${userId}`;
+
+/**
  * The keys a board keeps its words under: a note's or text block's `text`, a
  * checklist item's `text`, a frame's, chart's, checklist's, map's or photo
  * block's `label`, an App block's `title`, a chart's `subtitle`, a file
@@ -196,8 +207,21 @@ const GROUPS: readonly CandidateGroup[] = [
 		rows: familyOfKind("image"),
 		hasBody: false,
 		hasLabel: false,
-		extra: (_userId, term) => [sql`${imagePromptSql} glob ${foldedGlob(term)}`],
-		fieldText: () => imagePromptSql,
+		extra: (userId, term) => [
+			sql`${imagePromptSql} glob ${foldedGlob(term)}`,
+			sql`exists (
+				select 1 from ${artifactVersions}
+				where ${imageTakesOf(userId)}
+				and ${takePromptSql} glob ${foldedGlob(term)}
+			)`,
+		],
+		fieldText: (userId) =>
+			sql`(select group_concat(prompt, char(10)) from (
+				select ${imagePromptSql} as prompt
+				union
+				select ${takePromptSql} from ${artifactVersions}
+				where ${imageTakesOf(userId)}
+			))`,
 	},
 	{
 		rows: familyOfKind("video"),

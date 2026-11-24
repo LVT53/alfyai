@@ -440,6 +440,55 @@ describe("searchDocuments", () => {
 		}
 	});
 
+	it("finds an edited picture by an earlier take's prompt, never by a take's JSON", async () => {
+		addFamily("image-2", "image", "Cabin", {
+			contentText: imageBody("make it night"),
+		});
+		const takes = [
+			{ number: 1, prompt: "a timber cabin by a quiet lake" },
+			{ number: 2, prompt: "make it night" },
+		];
+		for (const take of takes) {
+			memory.db
+				.insert(schema.artifactVersions)
+				.values({
+					id: `image-2-v${take.number}`,
+					artifactId: "image-2",
+					userId: OWNER,
+					versionNumber: take.number,
+					author: "assistant",
+					summary: "",
+					body: imageBody(take.prompt, `file-${take.number}`),
+					bodyHash: `hash-${take.number}`,
+					createdAt: minutes(take.number),
+				})
+				.run();
+		}
+		// A take another person wrote on this picture's id is never read.
+		memory.db
+			.insert(schema.artifactVersions)
+			.values({
+				id: "image-2-stranger",
+				artifactId: "image-2",
+				userId: STRANGER,
+				versionNumber: 3,
+				author: "assistant",
+				summary: "",
+				body: imageBody("a stranger's zeppelin", "file-3"),
+				bodyHash: "hash-3",
+				createdAt: minutes(3),
+			})
+			.run();
+		expect(await foundIds("zeppelin")).toEqual([]);
+		expect(await foundIds("lake")).toEqual(["image-2"]);
+		expect(await foundIds("night")).toEqual(["image-2"]);
+		const [row] = (await find("lake")).results;
+		expect(row.match.snippet).toContain("timber cabin by a quiet lake");
+		for (const jsonWord of ["seed", "prompt", "file-1", "424242"]) {
+			expect(await foundIds(jsonWord), jsonWord).toEqual([]);
+		}
+	});
+
 	it("finds a canvas by its words, not by its JSON", async () => {
 		addFamily("canvas-1", "canvas", "Weekend board", {
 			contentText: JSON.stringify({
