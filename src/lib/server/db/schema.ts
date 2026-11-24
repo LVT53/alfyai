@@ -3346,6 +3346,13 @@ export const memoryAccounts = sqliteTable("memory_accounts", {
 	 * Memory page. Read through `memory-profile/labels-verified.ts` only.
 	 */
 	labelsUnverifiedEpoch: integer("labels_unverified_epoch"),
+	/**
+	 * The epoch the label migration last verified. A verified epoch sticks: the
+	 * in-place upgrade of a config-1 bank does not mark it again, because every
+	 * fact in such a bank predates the upgrade. A bank the previous release
+	 * created, or a restore to config 1, forgets it (labels-verified.ts).
+	 */
+	labelsVerifiedEpoch: integer("labels_verified_epoch"),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
 		.default(sql`(unixepoch())`),

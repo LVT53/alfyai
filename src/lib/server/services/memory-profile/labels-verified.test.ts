@@ -78,6 +78,86 @@ describe("which Memory page an account gets", () => {
 	});
 });
 
+describe("a verified epoch sticks", () => {
+	async function verified() {
+		const m = await modules();
+		m.revisions.ensureMemoryBank(h.userId, { kind: "personal" });
+		m.db.transaction((tx) =>
+			m.state.markMemoryLabelsUnverified(tx, h.userId, 0),
+		);
+		expect(
+			m.db.transaction((tx) =>
+				m.state.markMemoryLabelsVerified(tx, h.userId, 0),
+			),
+		).toBe(true);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(true);
+		return m;
+	}
+	const accountRow = (m: Awaited<ReturnType<typeof modules>>) =>
+		m.db.select().from(m.schema.memoryAccounts).get();
+
+	it("records the epoch the writer verified", async () => {
+		const m = await verified();
+		expect(accountRow(m)).toMatchObject({
+			labelsUnverifiedEpoch: null,
+			labelsVerifiedEpoch: 0,
+		});
+	});
+
+	it("records nothing when the writer had nothing to clear", async () => {
+		const m = await modules();
+		m.revisions.ensureMemoryBank(h.userId, { kind: "personal" });
+		expect(
+			m.db.transaction((tx) =>
+				m.state.markMemoryLabelsVerified(tx, h.userId, 0),
+			),
+		).toBe(false);
+		expect(accountRow(m)?.labelsVerifiedEpoch).toBeNull();
+	});
+
+	it("an in-place upgrade of a config-1 bank does not mark a verified epoch", async () => {
+		const m = await verified();
+		m.db.transaction((tx) =>
+			m.state.markMemoryLabelsUnverified(tx, h.userId, 0, "upgraded"),
+		);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(true);
+		expect(accountRow(m)?.labelsUnverifiedEpoch).toBeNull();
+	});
+
+	it("a bank the previous release created marks it again, and the verification is forgotten", async () => {
+		const m = await verified();
+		m.db.transaction((tx) =>
+			m.state.markMemoryLabelsUnverified(
+				tx,
+				h.userId,
+				0,
+				"created_by_previous_release",
+			),
+		);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(false);
+		expect(accountRow(m)?.labelsVerifiedEpoch).toBeNull();
+		// The label migration verifies it again, and it sticks again.
+		expect(
+			m.db.transaction((tx) =>
+				m.state.markMemoryLabelsVerified(tx, h.userId, 0),
+			),
+		).toBe(true);
+		m.db.transaction((tx) =>
+			m.state.markMemoryLabelsUnverified(tx, h.userId, 0, "upgraded"),
+		);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("a new epoch is not covered by the old epoch's verification", async () => {
+		const m = await verified();
+		m.db.update(m.schema.memoryAccounts).set({ epoch: 1 }).run();
+		m.db.transaction((tx) =>
+			m.state.markMemoryLabelsUnverified(tx, h.userId, 1, "upgraded"),
+		);
+		expect(m.state.memoryLabelsVerified(h.userId)).toBe(false);
+	});
+});
+
 describe("migration 143", () => {
 	/** The migration's statements after the column it adds (the harness has run it already). */
 	function markingStatements(): string[] {

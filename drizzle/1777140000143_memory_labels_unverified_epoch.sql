@@ -4,6 +4,10 @@
 -- epoch after Clear Memory or erasure, starts on config 2 and is never marked.
 ALTER TABLE `memory_accounts` ADD `labels_unverified_epoch` integer;
 --> statement-breakpoint
+-- The epoch the label migration last verified, so that a verified epoch sticks:
+-- the later in-place upgrade of a config-1 bank does not mark it again.
+ALTER TABLE `memory_accounts` ADD `labels_verified_epoch` integer;
+--> statement-breakpoint
 -- The tester account is never touched by a Memory migration (spec, "The
 -- permanent tester rule"): its row is left as it is. Migration 141 flagged it
 -- once, by its address; from then on the rule is read by user id, so this reads

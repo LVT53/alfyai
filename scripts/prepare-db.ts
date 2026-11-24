@@ -136,6 +136,7 @@ const requiredExistingTables = [
 
 const requiredExistingColumns: Array<[string, string]> = [
 	["memory_accounts", "labels_unverified_epoch"],
+	["memory_accounts", "labels_verified_epoch"],
 	["artifact_versions", "started_at"],
 	["artifact_versions", "label"],
 	["conversations", "project_id"],

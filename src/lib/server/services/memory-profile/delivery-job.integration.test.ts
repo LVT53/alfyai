@@ -884,6 +884,49 @@ describe("bank configuration 2 reaches every bank", () => {
 		expect(memoryLabelsVerified(h.userId)).toBe(false);
 	});
 
+	it("keeps an epoch the label migration verified verified when it upgrades a config-1 bank", async () => {
+		const native = await import("./contracts");
+		const labels = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		// What migration 143 and then the label migration did before this
+		// delivery reached the bank: every fact in it predates the upgrade.
+		f.db.transaction((tx) => {
+			labels.markMemoryLabelsUnverified(tx, h.userId, f.bank.epoch);
+			expect(labels.markMemoryLabelsVerified(tx, h.userId, f.bank.epoch)).toBe(
+				true,
+			);
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+		expect(labels.memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("marks a verified epoch again when a creation the previous release sent landed as config 1", async () => {
+		const native = await import("./contracts");
+		const labels = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		f.db.transaction((tx) => {
+			labels.markMemoryLabelsUnverified(tx, h.userId, f.bank.epoch);
+			labels.markMemoryLabelsVerified(tx, h.userId, f.bank.epoch);
+		});
+		expect(labels.memoryLabelsVerified(h.userId)).toBe(true);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(labels.memoryLabelsVerified(h.userId)).toBe(false);
+	});
+
 	it("marks them when a creation the previous release sent landed as config 1", async () => {
 		const native = await import("./contracts");
 		const { memoryLabelsVerified } = await import("./labels-verified");

@@ -17,7 +17,8 @@ import { type HindsightClient, nativeMemoryClient } from "./hindsight-client";
  * config 2 goes back to config 1, labels cleared, and its stored version back
  * to `HINDSIGHT_ENGINE_COMMIT`. Inspects by default; counts only, no ids and
  * no content. Removes nothing: label rows stay in `memory_fact_labels` for a
- * roll forward.
+ * roll forward. It does forget that the account's labels were verified, so a
+ * roll forward marks them for the label migration again (`labels-verified.ts`).
  */
 export interface BankConfigRestoreReport {
 	mode: "inspect" | "execute";
@@ -78,6 +79,12 @@ export async function restoreBankConfigs(input: {
 						eq(memoryBanks.nativeConfigVersion, NATIVE_BANK_CONFIG_VERSION),
 					),
 				)
+				.run();
+			// The previous release writes facts without labels, so after a roll
+			// forward the account's labels are verified again.
+			db.update(memoryAccounts)
+				.set({ labelsVerifiedEpoch: null })
+				.where(eq(memoryAccounts.userId, bank.userId))
 				.run();
 			report.restored++;
 		} catch (error) {

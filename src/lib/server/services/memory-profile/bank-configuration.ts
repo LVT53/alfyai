@@ -73,9 +73,24 @@ export async function ensureConfiguredBank(
 				.where(eq(memoryBanks.id, bank.id))
 				.run();
 			// A bank on config 1 may hold facts without labels: its epoch keeps
-			// today's Memory page until the label migration verifies it.
-			if (from === HINDSIGHT_ENGINE_COMMIT || to === HINDSIGHT_ENGINE_COMMIT)
-				markMemoryLabelsUnverified(tx, current.userId, current.epoch);
+			// today's Memory page until the label migration verifies it. An epoch
+			// that migration already verified stays verified when a bank is only
+			// upgraded; a bank the previous release created may hold facts it never
+			// saw, so it marks the epoch again.
+			if (to === HINDSIGHT_ENGINE_COMMIT)
+				markMemoryLabelsUnverified(
+					tx,
+					current.userId,
+					current.epoch,
+					"created_by_previous_release",
+				);
+			else if (from === HINDSIGHT_ENGINE_COMMIT)
+				markMemoryLabelsUnverified(
+					tx,
+					current.userId,
+					current.epoch,
+					"upgraded",
+				);
 		});
 		if (!recorded) throw new NativeMemoryError("memory_cancelled", false);
 	};

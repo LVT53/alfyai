@@ -66,7 +66,21 @@ async function fixture() {
 			.from(schema.memoryBanks)
 			.all()
 			.find((row) => row.id === id)?.nativeConfigVersion;
-	return { native, restoreBankConfigs, clientFor, patched, version };
+	// The label migration verified the account's epoch while its banks were on config 2.
+	db.update(schema.memoryAccounts)
+		.set({ labelsVerifiedEpoch: account.epoch })
+		.run();
+	const verifiedEpoch = () =>
+		db.select().from(schema.memoryAccounts).get()?.labelsVerifiedEpoch;
+	return {
+		native,
+		restoreBankConfigs,
+		clientFor,
+		patched,
+		version,
+		verifiedEpoch,
+		epoch: account.epoch,
+	};
 }
 
 describe("restoring config 1 for a rollback", () => {
@@ -96,6 +110,17 @@ describe("restoring config 1 for a rollback", () => {
 		expect(f.version("retired")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
 	});
 
+	// The previous release writes facts without labels, so after a roll forward
+	// the account's labels are to be verified again: the verification is forgotten.
+	it("forgets the verification of an account whose bank it restored", async () => {
+		const f = await fixture();
+		expect(f.verifiedEpoch()).toBe(f.epoch);
+		await f.restoreBankConfigs({ execute: false, clientFor: f.clientFor });
+		expect(f.verifiedEpoch()).toBe(f.epoch);
+		await f.restoreBankConfigs({ execute: true, clientFor: f.clientFor });
+		expect(f.verifiedEpoch()).toBeNull();
+	});
+
 	it("leaves a bank whose restore failed on config 2, and counts it by code", async () => {
 		const f = await fixture();
 		const { HindsightClient } = await import("./hindsight-client");
@@ -116,5 +141,6 @@ describe("restoring config 1 for a rollback", () => {
 			failed: { native_unavailable: 1 },
 		});
 		expect(f.version("upgraded")).toBe(f.native.NATIVE_BANK_CONFIG_VERSION);
+		expect(f.verifiedEpoch()).toBe(f.epoch);
 	});
 });
