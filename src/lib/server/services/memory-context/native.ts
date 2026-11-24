@@ -21,22 +21,14 @@ import {
 	type NativeMemory,
 	NativeMemoryError,
 } from "../memory-profile/contracts";
-import {
-	type MemoryTimeState,
-	memoryEntryTimeState,
-} from "../memory-profile/entry-time";
-import {
-	entryLabels,
-	isAuthoredMemorySource,
-	readFactLabels,
-} from "../memory-profile/fact-labels";
+import type { MemoryTimeState } from "../memory-profile/entry-time";
+import { groupFactsById, memoryEntryView } from "../memory-profile/entry-view";
+import { readFactLabels } from "../memory-profile/fact-labels";
 import { nativeMemoryClient } from "../memory-profile/hindsight-client";
 import {
 	admittedNativeFacts,
 	approvedMigrationRankFamily,
 	curatedNativeRankKeys,
-	entryLastSaidAt,
-	factSaidTimes,
 	matchVerifiedObservationRows,
 	nativeRankSupportKey,
 	readAcknowledgedFacts,
@@ -282,9 +274,7 @@ export async function recallMemory(
 			const search = searched.get(bank.id);
 			const accepted = readPublishedMemory(userId, bank.id, undefined, tx);
 			const facts = admittedNativeFacts(userId, bank.id, tx);
-			const factsById = new Map<string, typeof facts>();
-			for (const fact of facts)
-				factsById.set(fact.id, [...(factsById.get(fact.id) ?? []), fact]);
+			const factsById = groupFactsById(facts);
 			const labels = readFactLabels(tx, bank.id);
 			const scope: MemoryScope =
 				bank.scopeKey === "personal"
@@ -415,26 +405,17 @@ export async function recallMemory(
 					);
 			};
 			// The entry as the model reads it: when it was last said (its newest
-			// source), its kind once labelled, and whether it is Earlier now.
+			// source), its kind once labelled, and whether it is Earlier now,
+			// built as the Memory page builds it (`memoryEntryView`).
 			const entryOf = (
 				row: (typeof accepted)[number],
 				ids: unknown[],
 			): OfferedRow["entry"] => {
-				const supporting = ids.flatMap((id) =>
-					typeof id === "string" ? (factsById.get(id) ?? []) : [],
+				const view = memoryEntryView(
+					{ sourceIds: ids, factsById, labels },
+					now,
+					thresholds,
 				);
-				const said = supporting.map((fact) => ({
-					id: fact.id,
-					saidAtMs: (
-						fact.source.explicitEditAt ?? fact.source.assertedAt
-					).getTime(),
-					authored: isAuthoredMemorySource(fact.source),
-				}));
-				const lastMentionedAt = entryLastSaidAt(
-					ids.filter((id): id is string => typeof id === "string"),
-					factSaidTimes(supporting),
-				);
-				const labelled = entryLabels(said, labels);
 				const states = input.core
 					? []
 					: parseEarlierStates(row.nativeText, row.text);
@@ -442,13 +423,9 @@ export async function recallMemory(
 					ref: { scope, generation: row.generation, rowId: row.nativeId },
 					text: row.text,
 					sources: [],
-					lastMentionedAt,
-					kind: labelled.kind,
-					timeState: memoryEntryTimeState(
-						{ ...labelled, lastMentionedAt },
-						now,
-						thresholds,
-					),
+					lastMentionedAt: view.lastMentionedAt,
+					kind: view.kind,
+					timeState: view.timeState,
 					...(states.length ? { earlierStates: states } : {}),
 				};
 			};
