@@ -919,6 +919,90 @@ describe("searchDocuments", () => {
 		expect(found.results[0].match.snippet).toContain("Árvíztűrő");
 	});
 
+	it("finds an upload's text typed without accents, through the index", async () => {
+		addUpload("up-2", "Jegyzet.pdf", "application/pdf", {
+			text: "Az Árvíztűrő tükörfúrógép kell",
+		});
+		const found = await find("arviz");
+		expect(found.results.map((row) => row.displayArtifactId)).toEqual(["up-2"]);
+		expect(found.results[0].match.type).toBe("content");
+		expect(found.results[0].match.snippet).toContain("Árvíztűrő");
+	});
+
+	it("finds a Skill Note and a Slides by their text", async () => {
+		addArtifact({
+			id: "note-1",
+			type: "skill_note",
+			name: "Packing list",
+			contentText: "pack the hiking boots and the stove",
+		});
+		addFamily("deck-1", "slides", "Quarterly deck", {
+			contentText: "the harbour expansion plan, slide by slide",
+		});
+		const note = await find("hiking");
+		expect(note.results.map((row) => row.displayArtifactId)).toEqual([
+			"note-1",
+		]);
+		expect(note.results[0]).toMatchObject({
+			searchKind: "documents",
+			badge: "skill_note",
+		});
+		const deck = await find("harbour expansion");
+		expect(deck.results.map((row) => row.displayArtifactId)).toEqual([
+			"deck-1",
+		]);
+		expect(deck.results[0]).toMatchObject({
+			searchKind: "documents",
+			badge: "slides",
+		});
+	});
+
+	it("keeps App code and picture, video and canvas JSON out of the index", async () => {
+		addFamily("app-1", "app", "Countdown", {
+			contentText: "<script>const [n, setN] = useState(0)</script>",
+		});
+		addFamily("img-1", "image", "Cabin", {
+			contentText: imageBody("a timber house at dusk"),
+		});
+		addFamily("vid-1", "video", "Spin", { contentText: videoBody() });
+		addFamily("board-1", "canvas", "Board", {
+			contentText: JSON.stringify({ nodes: [{ id: "n1", text: "dovetail" }] }),
+		});
+		const indexed = (word: string) =>
+			memory.sqlite
+				.prepare(
+					"SELECT count(*) FROM artifacts_fts WHERE artifacts_fts MATCH ?",
+				)
+				.pluck()
+				.get(`"${word}"`);
+		for (const word of [
+			"usestate",
+			"script",
+			"timber",
+			"prompt",
+			"dovetail",
+			"nodes",
+			"file-clip",
+		]) {
+			expect(indexed(word)).toBe(0);
+		}
+		expect(
+			memory.sqlite.prepare("SELECT count(*) FROM artifacts_fts").pluck().get(),
+		).toBe(0);
+		// Found by their own fields, never by the index.
+		expect(await foundIds("timber")).toEqual(["img-1"]);
+		expect(await foundIds("dovetail")).toEqual(["board-1"]);
+		expect(await foundIds("usestate")).toEqual([]);
+	});
+
+	it("still finds a body by a two-letter word", async () => {
+		addUpload("up-3", "Roadmap.pdf", "application/pdf", {
+			text: "the AI roadmap for next year",
+		});
+		expect(await foundIds("ai")).toEqual(["up-3"]);
+		expect(await foundIds("ai roadmap")).toEqual(["up-3"]);
+	});
+
 	it("takes words in any order and from different fields", async () => {
 		addFamily("doc-1", "document", "Thesis plan", {
 			contentText: "The joints are dovetail, cut by hand.",

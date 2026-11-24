@@ -23,7 +23,14 @@ import {
 	searchSnippet,
 } from "$lib/shared/workspace-search-text";
 import { buildChatHref } from "./chats";
-import { foldedGlob, likeSpellings, wordSpellings } from "./patterns";
+import {
+	foldedGlob,
+	foldedSnippet,
+	indexPhrase,
+	likeSpellings,
+	usesSearchIndex,
+	wordSpellings,
+} from "./patterns";
 import {
 	SEARCH_CANDIDATE_CAP,
 	SEARCH_COUNT_CAP,
@@ -145,6 +152,25 @@ const videoPromptSql = sql`case when json_valid(${videoJobs.requestJson}) and js
 const videoTakesOf = (userId: string): SQL =>
 	sql`(${videoJobs.artifactId} = ${artifacts.id} or ${videoJobs.createdArtifactId} = ${artifacts.id}) and ${videoJobs.userId} = ${userId}`;
 
+/**
+ * A text row whose body holds one word: through the full-text index (case and
+ * accents folded) for a word of three letters or more, else through the word's
+ * typed, capitalised and capital spellings, which a trigram index cannot
+ * replace for so short a word. The index holds only rows with a text body
+ * (migration 145), never JSON or code; the group's own conditions still decide.
+ */
+function bodyHolds(term: string, word: string): SQL {
+	if (usesSearchIndex(term)) {
+		return sql`${artifacts}.rowid in (select rowid from artifacts_fts where artifacts_fts match ${indexPhrase(term)})`;
+	}
+	return sql`(${sql.join(
+		likeSpellings(word).map(
+			(pattern) => sql`${artifacts.contentText} like ${pattern} escape '\\'`,
+		),
+		sql` or `,
+	)})`;
+}
+
 const GROUPS: readonly CandidateGroup[] = [
 	{
 		// Uploads and their text, generated files, Skill Notes, Documents, Slides.
@@ -152,13 +178,7 @@ const GROUPS: readonly CandidateGroup[] = [
 		hasBody: true,
 		hasLabel: true,
 		extra: (userId, term, word) => [
-			sql`(${sql.join(
-				likeSpellings(word).map(
-					(pattern) =>
-						sql`${artifacts.contentText} like ${pattern} escape '\\'`,
-				),
-				sql` or `,
-			)})`,
+			bodyHolds(term, word),
 			// What Alfy saw in an uploaded picture.
 			sql`(${artifacts.type} = 'source_document' and exists (
 				select 1 from ${imageDescriptions}
@@ -580,11 +600,30 @@ async function loadBodySnippets(
 			if (!cut) return;
 			const snippet =
 				searchSnippet(cut, terms, SNIPPET_CHARS) ??
+				(await foldedBodySnippet(rowId, terms)) ??
 				cut.replace(/\s+/g, " ").trim().slice(0, SNIPPET_CHARS);
 			if (snippet) snippets.set(rowId, snippet);
 		}),
 	);
 	return snippets;
+}
+
+/**
+ * The snippet of a body whose word no typed spelling locates (found by the
+ * index through folding alone), cut from its whole text, for one row of the page.
+ */
+async function foldedBodySnippet(
+	rowId: string,
+	terms: readonly string[],
+): Promise<string | null> {
+	const [row] = await db
+		.select({ contentText: artifacts.contentText })
+		.from(artifacts)
+		.where(eq(artifacts.id, rowId))
+		.limit(1);
+	return row?.contentText
+		? foldedSnippet(row.contentText, terms, SNIPPET_CHARS)
+		: null;
 }
 
 /** Everything a row of the page shows beyond the item itself, read for the rows on the page only. */
