@@ -219,7 +219,10 @@ describe("SearchModal", () => {
 		});
 
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 			expect(screen.getByText("Release notes")).toBeInTheDocument();
 		});
 
@@ -271,7 +274,10 @@ describe("SearchModal", () => {
 
 		// Landing state: recents are fetched and shown for an empty query.
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 			expect(screen.getByText("Release notes")).toBeInTheDocument();
 		});
 
@@ -334,7 +340,10 @@ describe("SearchModal", () => {
 		});
 
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 		});
 
 		fetchWorkspaceSearch.mockClear();
@@ -375,7 +384,10 @@ describe("SearchModal", () => {
 
 		await waitFor(
 			() => {
-				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "brand" });
+				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+					query: "brand",
+					signal: expect.any(AbortSignal),
+				});
 				expect(screen.getByTestId("search-section-documents")).toBeVisible();
 			},
 			{ timeout: 750 },
@@ -440,6 +452,35 @@ describe("SearchModal", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(screen.queryByText("Cooking notes")).toBeNull();
 		expect(screen.getByText("Plot notes")).toBeInTheDocument();
+	});
+
+	it("cancels the request of a query typed over", async () => {
+		const signals: Record<string, AbortSignal | undefined> = {};
+		const defaultAnswer = fetchWorkspaceSearch.getMockImplementation();
+		fetchWorkspaceSearch.mockImplementation(
+			(request: { query: string; signal?: AbortSignal }) => {
+				signals[request.query] = request.signal;
+				if (request.query === "kitchen") return new Promise(() => {});
+				if (request.query === "garden") {
+					return Promise.resolve(
+						answer({
+							query: "garden",
+							conversations: [chat("c-garden", "Plot notes")],
+							totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+						}),
+					);
+				}
+				return defaultAnswer?.(request);
+			},
+		);
+		render(SearchModal, { props: { isOpen: true } });
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: "kitchen" } });
+		await waitFor(() => expect(signals.kitchen).toBeDefined());
+		await search("garden", "search-section-chats");
+
+		expect(signals.kitchen?.aborted).toBe(true);
+		expect(signals.garden?.aborted).toBe(false);
 	});
 
 	it("moves the active result with arrow keys and activates it with Enter", async () => {
@@ -561,7 +602,10 @@ describe("SearchModal", () => {
 		expect(screen.queryByText("Release notes")).not.toBeInTheDocument();
 		expect(screen.queryByText("Brand playbook")).not.toBeInTheDocument();
 		await waitFor(() => {
-			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "",
+				signal: expect.any(AbortSignal),
+			});
 		});
 	});
 
@@ -887,6 +931,7 @@ describe("SearchModal", () => {
 				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
 					query: "thesis",
 					scope: "chats",
+					signal: expect.any(AbortSignal),
 				}),
 			);
 			expect(screen.getByTestId("search-scope-chats")).toHaveAttribute(

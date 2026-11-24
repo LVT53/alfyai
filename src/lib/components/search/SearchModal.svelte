@@ -160,6 +160,8 @@ let latestRequestId = 0;
 let lastStartedKey: string | null = null;
 // Rows whose thumbnail failed to load: they keep their kind's icon tile.
 let failedPreviews = $state<Record<string, true>>({});
+// The request of the query on screen; a query typed over cancels the one before.
+let searchAbort: AbortController | null = null;
 
 const SEARCH_DEBOUNCE_MS = 180;
 
@@ -409,11 +411,16 @@ async function runWorkspaceSearch(query: string, scope: SearchScopeId) {
 	searchLoading = true;
 	loadingMore = false;
 	searchError = false;
+	// The server's work for a query typed over is wasted: cancel its request.
+	searchAbort?.abort();
+	const controller = new AbortController();
+	searchAbort = controller;
 
 	try {
 		const response = (await fetchWorkspaceSearch({
 			query,
 			...(kind === "all" ? {} : { scope: kind }),
+			signal: controller.signal,
 		})) as WorkspaceSearchResponse;
 		if (requestId !== latestRequestId) return;
 		searchResponse = {
@@ -438,6 +445,7 @@ async function runWorkspaceSearch(query: string, scope: SearchScopeId) {
 		if (requestId === latestRequestId) {
 			searchLoading = false;
 		}
+		if (searchAbort === controller) searchAbort = null;
 	}
 }
 
@@ -524,6 +532,8 @@ function selectScope(id: SearchScopeId) {
 
 function handleClose() {
 	latestRequestId += 1;
+	searchAbort?.abort();
+	searchAbort = null;
 	searchQuery = "";
 	searchResponse = null;
 	searchLoading = false;
