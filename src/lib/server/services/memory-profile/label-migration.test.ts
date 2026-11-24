@@ -410,15 +410,18 @@ describe("the label migration", () => {
 		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
 	});
 
-	/** Labels every fact but the one with this text, which it gives a kind off the list. */
-	const unusableFor = (text: string) => (input: unknown) => {
-		const answer = labelAll(input);
-		const facts = (input as { facts: { id: string; text: string }[] }).facts;
-		for (const label of answer.labels)
-			if (facts.find(({ id }) => id === label.id)?.text === text)
-				label.kind = "forever";
-		return answer;
-	};
+	/** Labels every fact but the ones with these texts, which it gives a kind off the list. */
+	const unusableFor =
+		(...texts: string[]) =>
+		(input: unknown) => {
+			const answer = labelAll(input);
+			const facts = (input as { facts: { id: string; text: string }[] }).facts;
+			for (const label of answer.labels) {
+				const text = facts.find(({ id }) => id === label.id)?.text ?? "";
+				if (texts.includes(text)) label.kind = "forever";
+			}
+			return answer;
+		};
 
 	it("a fact the model gives no usable label is listed with its reason, and the account is verified", async () => {
 		const fake = fakeNative(unusableFor("likes tea 0"));
@@ -535,6 +538,71 @@ describe("the label migration", () => {
 		});
 		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
 	});
+
+	it.each([
+		{ facts: 20, unusable: 1, failure: undefined },
+		{ facts: 20, unusable: 2, failure: "too_many_unlabelled" },
+		{ facts: 40, unusable: 2, failure: undefined },
+		{ facts: 40, unusable: 3, failure: "too_many_unlabelled" },
+	])(
+		"$unusable of $facts facts without a usable label: the limit is one in 20, exactly ($failure)",
+		async ({ facts, unusable, failure }) => {
+			const fake = fakeNative(
+				unusableFor(
+					...Array.from({ length: unusable }, (_, i) => `likes tea ${i}`),
+				),
+			);
+			await seedAccount("user-1", fake.facts, { count: facts });
+			const { migration, verified } = await modules();
+			const report = await migration.runLabelMigration(
+				{ execute: true },
+				{ listFacts: fake.listFacts, model: fake.model },
+			);
+			expect(report.accounts[0]).toMatchObject(
+				failure
+					? { outcome: "failed", failure }
+					: { outcome: "verified", unlabelled: { no_label: unusable } },
+			);
+			expect(verified.memoryLabelsVerified("user-1")).toBe(!failure);
+		},
+	);
+
+	it.each([
+		{ lasting: 3, failure: undefined },
+		{ lasting: 2, failure: "implausible_labels" },
+		{ lasting: 0, failure: "implausible_labels" },
+	])(
+		"20 labelled facts of which $lasting are lasting: the floor is 15% of them, exactly ($failure)",
+		async ({ lasting, failure }) => {
+			// "likes tea N": the first `lasting` facts are lasting, every other one temporary.
+			const fake = fakeNative((input) => {
+				const answer = labelAll(input);
+				const facts = (input as { facts: { id: string; text: string }[] })
+					.facts;
+				for (const label of answer.labels) {
+					const text = facts.find(({ id }) => id === label.id)?.text ?? "";
+					label.kind =
+						Number(text.split(" ").at(-1)) < lasting ? "lasting" : "temporary";
+				}
+				return answer;
+			});
+			await seedAccount("user-1", fake.facts, { count: 20 });
+			const { migration, verified } = await modules();
+			const report = await migration.runLabelMigration(
+				{ execute: true },
+				{ listFacts: fake.listFacts, model: fake.model },
+			);
+			expect(report.accounts[0]).toMatchObject(
+				failure
+					? { outcome: "failed", failure }
+					: {
+							outcome: "verified",
+							byKind: { lasting, temporary: 20 - lasting },
+						},
+			);
+			expect(verified.memoryLabelsVerified("user-1")).toBe(!failure);
+		},
+	);
 
 	it("a small account may be all temporary: the kind mix is judged from 20 labelled facts", async () => {
 		const fake = fakeNative();
@@ -888,6 +956,34 @@ describe("the label migration", () => {
 									? { ...fact, text: "likes green tea" }
 									: fact,
 							);
+				},
+				model: fake.model,
+			},
+		);
+		expect(listings).toBe(2);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "facts_changed",
+			verification: { factsUnchanged: false },
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(3);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("a labelled fact that is gone from the second listing fails the account like a changed one", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		let listings = 0;
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: async (bankId) => {
+					const facts = await fake.listFacts(bankId);
+					// Hindsight changed under the run: verification's listing lacks one.
+					return listings++ === 0
+						? facts
+						: facts.filter((fact) => fact.id !== "user-1-fact-1");
 				},
 				model: fake.model,
 			},
