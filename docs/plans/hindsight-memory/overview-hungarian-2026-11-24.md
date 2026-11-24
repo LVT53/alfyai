@@ -41,7 +41,8 @@ P and W were 0 in every round: no paragraph mentioned a removed or earlier entry
 | slips a paragraph, all | 1.8 | 1.1 |
 | E, the loan "freelance" | 0.5 | 0.5 |
 | U + I, everything else | 1.3 | 0.7 |
-| paragraphs with a slip other than E | 6 of 10 | 14 of 30 (47%) |
+| paragraphs with any slip | 6 of 10 (60%) | 20 of 30 (67%) |
+| paragraphs with a slip other than E | 6 of 10 (60%) | 14 of 30 (47%) |
 | paragraphs over six sentences | 0 | 0 |
 | a personal paragraph's length | 785 characters | 506 characters |
 
@@ -49,7 +50,8 @@ P and W were 0 in every round: no paragraph mentioned a removed or earlier entry
 
 **What did not move.**
 - **"freelance" stays** (14 of 15 shipped personal paragraphs, 5 of 5 before). It is the entry's own word, and the model treats it as ordinary Hungarian; the "borrowed word" line did not change that, and an ASCII prompt cannot give it the Hungarian word. It is not the model's slip to fix: Hindsight wrote it into the entry.
-- **"japánt tanul"** (the wrong word) came back 4 times in 15 shipped paragraphs, 1 in 5 before: sampling noise at the family profile, not something a prompt line removes.
+- **"japánt tanul"** (for "japánul tanul", learns Japanese) came back 4 times in 15 shipped paragraphs, 1 in 5 before: sampling noise at the family profile, not something a prompt line removes. It is colloquial ("angolt tanul" is everyday speech), so counting it as unnatural in a written paragraph is a judgment: leaving it out takes 1 from U before and 4 from U after.
+- **The "borrowed word" line did nothing measurable** ("freelance" stayed: 5 of 5 in after 1, 4 of 5 in after 2), and its examples are English words, so for an English account it can only be neutral. It ships because the rounds measured the prompt with it. The part that mattered is the name clause ("Peter" for "Péter": 4 of 5 project paragraphs without it, 1 of 15 with it). Drop the borrowed-word line in the next round if it is wanted gone, and measure again.
 - **New with the change:** a few "ezért" (so) links the entries do not make (2 of 5 project paragraphs in the third round of the shipped prompt), and "de ..." contrasts between an injury and a sport.
 - **A relative clause with the wrong antecedent** ("A projekt célja ... tárolása, amelyet Kata és édesapja épít": the storage is not what they build) appeared before (1) and after (2 of 15).
 
@@ -67,7 +69,7 @@ Still English, ASCII, and the language named once (`Write the paragraph in <lang
 
 ## Limits, for whoever reads the counts
 
-- **Small and noisy.** Five runs a cell, one reader, one synthetic persona: the rounds `after 2`, `after 3`, `3b` and `3c` differ by more than their prompts do (the same prompt scored 1.3, 1.0 and 1.1; the round before it, 0.5). The honest reading is that U and I roughly halved (1.3 to 0.7 a paragraph) and that nothing got worse; it is not a measurement of a size.
+- **Small and noisy.** Five runs a cell, one reader, one synthetic persona: the rounds `after 2`, `after 3`, `3b` and `3c` differ by more than their prompts do (the same prompt scored 1.3, 1.0 and 1.1; the round before it, 0.5). The honest reading is that U and I roughly halved (1.3 to 0.7 a paragraph) while the share of paragraphs with any slip did not fall (6 of 10, then 20 of 30), because the loan "freelance" is in nearly every personal paragraph and two kinds of slip are new or more common (the "ezért" links, and the wrong-antecedent clause: 2 of 15 against 1 of 5); it is not a measurement of a size.
 - **Shorter is a product change.** The Overview now leaves out some entries on purpose. Nothing is lost from Memory; the sheet is "a short summary". The owner can veto the "least important ones" line.
 - **The second kind of input.** The entries are Hungarian, as Hindsight writes them for a Hungarian account. English entries read in a Hungarian UI were not run.
 - **Not covered:** the real accounts' wording, long scopes near the 6,000-token budget, and the interactive priority path of the gateway.
