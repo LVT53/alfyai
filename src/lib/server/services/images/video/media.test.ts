@@ -6,7 +6,7 @@
 // fails here even on a machine with no ffmpeg. The conversion itself runs the
 // real ffmpeg the take's chain already uses, and skips cleanly without it.
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ import {
 	VIDEO_GIF_FPS,
 	VIDEO_GIF_LONG_EDGE,
 	VideoMediaError,
+	VideoMediaTimeoutError,
 	videoGifArgs,
 } from "./media";
 import {
@@ -244,31 +245,75 @@ describe("the media calls' deadline", () => {
 
 describe("joining two clips", () => {
 	/**
-	 * A PATH where `ffmpeg` records the arguments it was given and then hangs:
-	 * the join that times out or is stopped, and anything that must never follow.
+	 * How long a test waits for a shim to run its first line before it reports
+	 * the machine instead of the join. A quick shim never waits for this long.
 	 */
-	async function recordingHangingFfmpeg(): Promise<{
+	const FIRST_LINE_MS = 30_000;
+
+	/**
+	 * The timed-out join's encode runs its first line this long after it starts,
+	 * twice the deadline under test. A busy machine does that now and then: this
+	 * block once failed under load because the 250 ms deadline, which starts when
+	 * the child is spawned, killed the shim before it had recorded its call, and
+	 * the join then looked as if it had started nothing. Here it is certain, so
+	 * the test passes only when the deadline starts from a child that is running.
+	 */
+	const SLOW_START_SECONDS = 0.5;
+
+	/** Holds the thread, in short sleeps, until `done()`: false if it was not so within `capMs`. */
+	function holdUntil(done: () => boolean, capMs: number): boolean {
+		const nap = new Int32Array(new SharedArrayBuffer(4));
+		const until = Date.now() + capMs;
+		while (!done()) {
+			if (Date.now() >= until) return false;
+			Atomics.wait(nap, 0, 0, 2);
+		}
+		return true;
+	}
+
+	/**
+	 * A PATH where `ffprobe` finds no sound and `ffmpeg` records the arguments it
+	 * was given and then hangs: the join that times out or is stopped, and
+	 * anything that must never follow. Each shim writes its own first line, so
+	 * `ranFirstLine` counts the children of both that have really started; the
+	 * encode can be made slow to run it (`encodeSlowToStart`, in seconds).
+	 */
+	async function recordingShims(encodeSlowToStart = 0): Promise<{
 		calls: () => Promise<string[]>;
+		ranFirstLine: () => number;
 		restore: () => Promise<void>;
 	}> {
 		const dir = await mkdtemp(join(tmpdir(), "alfyai-recording-ffmpeg-"));
-		const log = join(dir, "calls.log");
-		const script = join(dir, "ffmpeg");
-		await writeFile(
-			script,
-			`#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec sleep 60\n`,
-		);
-		await chmod(script, 0o755);
+		const encodes = join(dir, "calls.log");
+		const probes = join(dir, "probes.log");
+		const linesOf = (log: string) =>
+			existsSync(log)
+				? readFileSync(log, "utf8")
+						.split("\n")
+						.map((line) => line.trim())
+						.filter(Boolean)
+				: [];
+		for (const [name, log, first, last] of [
+			[
+				"ffmpeg",
+				encodes,
+				encodeSlowToStart > 0 ? `sleep ${encodeSlowToStart}\n` : "",
+				"exec sleep 60",
+			],
+			["ffprobe", probes, "", "exit 0"],
+		] as const) {
+			const script = join(dir, name);
+			await writeFile(
+				script,
+				`#!/bin/sh\n${first}printf '%s\\n' "$*" >> '${log}'\n${last}\n`,
+			);
+			await chmod(script, 0o755);
+		}
 		const before = process.env.PATH ?? "";
 		process.env.PATH = `${dir}:${before}`;
 		return {
-			calls: async () =>
-				existsSync(log)
-					? (await readFile(log, "utf8"))
-							.split("\n")
-							.map((line) => line.trim())
-							.filter(Boolean)
-					: [],
+			calls: async () => linesOf(encodes),
+			ranFirstLine: () => linesOf(encodes).length + linesOf(probes).length,
 			restore: async () => {
 				process.env.PATH = before;
 				await rm(dir, { recursive: true, force: true });
@@ -276,32 +321,63 @@ describe("joining two clips", () => {
 		};
 	}
 
+	/**
+	 * A signal for the join that holds the thread, at each child it starts, until
+	 * that child has run its first line. `execFile` starts a call's deadline only
+	 * after it has spawned the child and registered the call's abort listener, in
+	 * that order, so the deadline under test starts from a child that is already
+	 * running, however long the machine took to start it. A child that does not
+	 * run its first line in time is named in `missing`.
+	 */
+	function signalThatWaitsForEachChild(ranFirstLine: () => number) {
+		const controller = new AbortController();
+		const missing: string[] = [];
+		let spawned = 0;
+		const register = controller.signal.addEventListener.bind(controller.signal);
+		controller.signal.addEventListener = ((
+			...args: Parameters<typeof register>
+		) => {
+			spawned += 1;
+			if (!holdUntil(() => ranFirstLine() >= spawned, FIRST_LINE_MS)) {
+				missing.push(`child ${spawned}`);
+			}
+			return register(...args);
+		}) as typeof register;
+		return { signal: controller.signal, missing };
+	}
+
 	it("fails a timed-out join as a media failure and starts nothing after it", async () => {
 		if (!FFMPEG) return;
-		const shim = await recordingHangingFfmpeg();
+		const shims = await recordingShims(SLOW_START_SECONDS);
 		try {
+			const { signal, missing } = signalThatWaitsForEachChild(
+				shims.ranFirstLine,
+			);
 			const error = await concatClips([FAKE_VIDEO_BYTES, FAKE_VIDEO_BYTES], {
+				signal,
 				timeoutMs: 250,
 			}).then(
 				() => null,
 				(thrown: unknown) => thrown,
 			);
+			expect(missing, "every child ran its first line").toEqual([]);
 			expect(error).toBeInstanceOf(VideoMediaError);
+			expect(error).toBeInstanceOf(VideoMediaTimeoutError);
 			expect(error).toMatchObject({ code: "failed" });
 
-			const calls = await shim.calls();
+			const calls = await shims.calls();
 			// One child: the join's one encode. Nothing retries it after a timeout.
 			expect(calls).toHaveLength(1);
 			expect(calls[0]).toContain("-filter_complex");
 			expect(calls[0]).not.toContain("-f concat");
 		} finally {
-			await shim.restore();
+			await shims.restore();
 		}
 	});
 
 	it("lets the take's stop flow out of the join as itself", async () => {
 		if (!FFMPEG) return;
-		const shim = await recordingHangingFfmpeg();
+		const shims = await recordingShims();
 		const controller = new AbortController();
 		try {
 			const running = concatClips([FAKE_VIDEO_BYTES, FAKE_VIDEO_BYTES], {
@@ -313,15 +389,18 @@ describe("joining two clips", () => {
 			);
 			// Abort once the join is really running, so this is a stop mid-child
 			// and not a pre-aborted call that never spawns.
-			await vi.waitFor(async () => expect(await shim.calls()).toHaveLength(1));
+			await vi.waitFor(
+				async () => expect(await shims.calls()).toHaveLength(1),
+				{ timeout: FIRST_LINE_MS },
+			);
 			controller.abort(new Error("cancelled"));
 			const error = await running;
 			// The abort flows out as itself, never as a media failure a fallback
 			// could act on.
 			expect(error).not.toBeInstanceOf(VideoMediaError);
-			expect(await shim.calls()).toHaveLength(1);
+			expect(await shims.calls()).toHaveLength(1);
 		} finally {
-			await shim.restore();
+			await shims.restore();
 		}
 	});
 });
