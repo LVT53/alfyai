@@ -617,6 +617,32 @@ describe("SearchModal", () => {
 			).toBeInTheDocument();
 		});
 
+		// The field's own hint has to fit a phone (about 250 px of field at 360),
+		// so it is a few words; what the field searches is its name, for a screen
+		// reader, and the chips under it show the kinds. The phone's width is
+		// measured in `tests/e2e/phone-polish.spec.ts`.
+		it("hints at the field in a few words and names it in full", async () => {
+			const words = {
+				en: {
+					hint: "Search everything",
+					name: "Search chats, memory, documents and more",
+				},
+				hu: {
+					hint: "Keresés mindenben",
+					name: "Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol",
+				},
+			} as const;
+			for (const language of ["en", "hu"] as const) {
+				uiLanguage.set(language);
+				const { unmount } = render(SearchModal, { props: { isOpen: true } });
+				expect(screen.getByLabelText(words[language].name)).toHaveAttribute(
+					"placeholder",
+					words[language].hint,
+				);
+				unmount();
+			}
+		});
+
 		it("scroll the chosen chip into view in the sideways-scrolling row", async () => {
 			respondWithEveryKind();
 			const scrollIntoView = vi.fn();

@@ -311,6 +311,7 @@ const commonDict = {
 		"searchModal.badgeSkillNote": "Skill note",
 		"searchModal.badgeUploaded": "Uploaded",
 		"searchModal.error": "Search is unavailable right now.",
+		"searchModal.inputLabel": "Search chats, memory, documents and more",
 		"searchModal.keepTyping": "Keep typing to search…",
 		"searchModal.loading": "Loading...",
 		"searchModal.messageMatch": "Message match",
@@ -318,7 +319,7 @@ const commonDict = {
 		"searchModal.noMatchesHint":
 			"Try another word from a conversation or document",
 		"searchModal.openSourceChat": "Open source chat",
-		"searchModal.placeholder": "Search chats, memory, documents and more",
+		"searchModal.placeholder": "Search everything",
 		"searchModal.recentConversations": "Recent conversations",
 		"searchModal.recentDocuments": "Recent documents",
 		"searchModal.title": "Search workspace",
@@ -657,6 +658,8 @@ const commonDict = {
 		"searchModal.badgeSkillNote": "Készségjegyzet",
 		"searchModal.badgeUploaded": "Feltöltött",
 		"searchModal.error": "A keresés most nem érhető el.",
+		"searchModal.inputLabel":
+			"Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol",
 		"searchModal.keepTyping": "Folytasd a gépelést a kereséshez…",
 		"searchModal.loading": "Betöltés...",
 		"searchModal.messageMatch": "Üzenettalálat",
@@ -664,8 +667,7 @@ const commonDict = {
 		"searchModal.noMatchesHint":
 			"Próbálj más szót egy beszélgetésből vagy dokumentumból",
 		"searchModal.openSourceChat": "Forrásbeszélgetés megnyitása",
-		"searchModal.placeholder":
-			"Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol",
+		"searchModal.placeholder": "Keresés mindenben",
 		"searchModal.recentConversations": "Legutóbbi beszélgetések",
 		"searchModal.recentDocuments": "Legutóbbi dokumentumok",
 		"searchModal.title": "Munkaterület keresése",

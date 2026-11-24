@@ -139,7 +139,7 @@ This is the consolidation list: the same thing named differently, or different t
 - The context ring's dialog is named "Context focus panel" but has no focus controls left. Its "What AlfyAI remembers" is a count of recent turns, not Memory. "Compaction: Deterministic / LLM fallback" is jargon.
 - Hungarian "chats": `sidebar.chatCount` says "beszélgetés" and `projects.listHeading` says "csevegés".
 - Hungarian Checklist: "Feladatlista" in Documents, "Ellenőrzőlista" in Canvas.
-- The Search box says "Search chats, memory, documents and more" in English and "Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol" in Hungarian, on the sidebar's pill and in the modal's own box.
+- The sidebar's search pill and the modal's field are both named "Search chats, memory, documents and more" in English and "Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol" in Hungarian (the name a screen reader reads). What the field shows is a short hint, "Search everything" / "Keresés mindenben", so it is not cut off on a 360 px phone; the pill shows "Search" / "Keresés".
 - There are three "recent" lists: Home, Search's default and the sidebar.
 - "Project" vs "Project folder" and "No folder" (ChatGPT import).
 
