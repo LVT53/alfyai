@@ -538,6 +538,8 @@ function handleClose() {
 	latestRequestId += 1;
 	searchAbort?.abort();
 	searchAbort = null;
+	// A thumbnail that failed on a network blip is tried again at the next open.
+	failedPreviews = {};
 	searchQuery = "";
 	searchResponse = null;
 	searchLoading = false;

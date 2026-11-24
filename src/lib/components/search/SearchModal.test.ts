@@ -1321,6 +1321,45 @@ describe("SearchModal", () => {
 			expect(row?.querySelector(".search-result-icon svg")).not.toBeNull();
 		});
 
+		it("tries a failed thumbnail again the next time the modal opens", async () => {
+			const thumbAnswer = answer({
+				documents: [
+					document("v1", "Model turntable", {
+						searchKind: "media",
+						badge: "video",
+						preview: {
+							src: "/api/images/files/f2?variant=thumb&conversationId=c1",
+							width: 1280,
+							height: 704,
+						},
+					}),
+				],
+				totals: { chats: 0, memory: 0, documents: 0, media: 1, apps: 0 },
+			});
+			fetchWorkspaceSearch.mockResolvedValue(thumbAnswer);
+			const onClose = vi.fn();
+			const rendered = render(SearchModal, { props: { isOpen: true, onClose } });
+			await screen.findByTestId("search-result-count");
+			const firstImage = screen
+				.getByTestId("search-section-media")
+				.querySelector("img");
+			if (firstImage) await fireEvent.error(firstImage);
+			await waitFor(() =>
+				expect(
+					screen.getByTestId("search-section-media").querySelector("img"),
+				).toBeNull(),
+			);
+
+			// A blip on the network is not the picture's fault: a later open asks again.
+			await fireEvent.click(screen.getByLabelText("Close search"));
+			await rendered.rerender({ isOpen: false, onClose });
+			await rendered.rerender({ isOpen: true, onClose });
+			await screen.findByTestId("search-result-count");
+			expect(
+				screen.getByTestId("search-section-media").querySelector("img"),
+			).not.toBeNull();
+		});
+
 		it("highlight words typed in another order", async () => {
 			fetchWorkspaceSearch.mockResolvedValue(
 				answer({
