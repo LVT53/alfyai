@@ -216,7 +216,8 @@ npm run search:index -- --rebuild
 
 The check prints counts by row id and exits 1 when a row is missing or extra; the rebuild empties
 both indexes and fills them again in one transaction (about a second for production's text), then
-prints the check. Neither prints any text.
+prints the check. Neither prints any text. `npm run db:prepare` (every deploy and every `npm start`)
+runs the same count and refills a table whose index is out of step, with a `[prepare-db]` warning.
 
 ## Deployment
 

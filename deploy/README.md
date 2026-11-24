@@ -856,7 +856,9 @@ Before an app is pointed at a new release:
   a second for production's 15 MB of text; the old release's writers wait for it). Triggers then keep
   them in step, under the old release too, so a rollback needs nothing. The backup's
   `PRAGMA integrity_check` checks them as well (SQLite 3.44 and later; the box's CLI is 3.46.1).
-  `npm run search:index` checks them against their tables; `-- --rebuild` refills them.
+  Every `db:prepare` counts them against their tables by row id and refills a table that is out of
+  step, logging `[prepare-db] The Workspace Search index was out of step ...`; `npm run search:index`
+  runs the same check by hand, and `-- --rebuild` refills both.
 - Persist the `data/` directory across deploys so chats, drafts, uploads, and SQLite data survive
   restarts. Under `scripts/deploy.sh`'s release layout this lives at `shared/data/` and is symlinked
   into every `releases/<sha>/`, so no deploy rebuilds or removes it (see
