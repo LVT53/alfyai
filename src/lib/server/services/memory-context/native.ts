@@ -83,6 +83,13 @@ interface BankSearch {
 	rankings: Map<RecallList, NativeMemory[]>;
 	outcomes: ("answered" | "timed_out" | "failed")[];
 	slowestMs: number;
+	/**
+	 * The live evidence snapshot that confirms a migrated account's rankings:
+	 * "none" when no ranking needed one, "taken" when it was read and used,
+	 * "failed" when it could not be read or repeats an id, so the rankings
+	 * stay unconfirmed and those rows are not offered.
+	 */
+	snapshot: "none" | "taken" | "failed";
 }
 
 /**
@@ -194,6 +201,7 @@ export async function recallMemory(
 			rankings: new Map(),
 			outcomes: [],
 			slowestMs: 0,
+			snapshot: "none",
 		};
 		searched.set(bank.id, search);
 		const signal = AbortSignal.timeout(2_000);
@@ -266,12 +274,15 @@ export async function recallMemory(
 					// One evidence snapshot per bank, after its searches.
 					const snapshot = await client.list();
 					const unique = new Map(snapshot.map((row) => [row.id, row]));
-					if (unique.size === snapshot.length)
+					if (unique.size === snapshot.length) {
 						confirmedEvidence.set(bank.id, unique);
+						search.snapshot = "taken";
+					} else search.snapshot = "failed";
 				}
 			}
 		} catch {
 			/* A failed snapshot keeps the answered rankings, unconfirmed. */
+			search.snapshot = "failed";
 		}
 	}
 	// Every eligible bank shares one live snapshot, including holds set during a native call.
@@ -626,6 +637,7 @@ export async function recallMemory(
 			failed: count("failed"),
 			slowestMs: search.slowestMs,
 			fallback: count("answered") === 0,
+			snapshot: search.snapshot,
 			rows: entries.filter(({ bankId }) => bankId === bank.id).length,
 			earlier: entries.filter(
 				({ bankId, entry }) =>

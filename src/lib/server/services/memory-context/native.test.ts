@@ -1103,6 +1103,7 @@ it("logs one content-free line per bank", async () => {
 			failed: 0,
 			slowestMs: expect.any(Number),
 			fallback: false,
+			snapshot: "none",
 			rows: 2,
 			earlier: 0,
 		});
@@ -1115,6 +1116,7 @@ it("logs one content-free line per bank", async () => {
 				timedOut: 0,
 				failed: 0,
 				fallback: false,
+				snapshot: "none",
 				rows: 2,
 			}),
 		);
@@ -1127,6 +1129,66 @@ it("logs one content-free line per bank", async () => {
 		info.mockRestore();
 	}
 }, 10_000);
+/** The Recall lines one recall writes, in the order of its banks. */
+async function recallLines(run: () => Promise<unknown>) {
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	try {
+		await run();
+		return info.mock.calls
+			.filter(([tag]) => tag === "[KNOWLEDGE_MEMORY] Recall")
+			.map(([, summary]) => summary as Record<string, unknown>);
+	} finally {
+		info.mockRestore();
+	}
+}
+it.each([
+	{
+		snapshot: "taken",
+		rows: 1,
+		why: "it is read and used",
+		arrange: () => {},
+	},
+	{
+		snapshot: "failed",
+		rows: 0,
+		why: "it cannot be read",
+		arrange: () => list.mockRejectedValue(new Error("offline")),
+	},
+	{
+		snapshot: "failed",
+		rows: 0,
+		why: "it repeats an id",
+		arrange: async () => {
+			const [first] = await list();
+			list.mockResolvedValue([first, first]);
+		},
+	},
+])(
+	"logs the evidence snapshot as $snapshot when $why",
+	async ({ snapshot, rows, arrange }) => {
+		// An Edit's result is ranked under a new id, so only the bank's live
+		// snapshot confirms it (the migrated accounts' path).
+		await seedEditResult("exact");
+		await arrange();
+		const { recallMemory } = await import("./native");
+		const lines = await recallLines(() =>
+			recallMemory("u", {
+				conversationId: "personal",
+				query: "kayak",
+				tokenBudget: 500,
+			}),
+		);
+		expect(lines).toEqual([
+			expect.objectContaining({
+				bank: "personal",
+				answered: 1,
+				snapshot,
+				rows,
+			}),
+		]);
+		expect(JSON.stringify(lines)).not.toContain("kayak");
+	},
+);
 /**
  * Separate core and message rankings for the share tests: the person's core
  * search ranks their entries 00-19 and the message search 20-39; the
