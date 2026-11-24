@@ -175,6 +175,14 @@ const SCENARIOS: Record<string, { load: string[]; deleteDocument: string; real?:
 		load: ["old-bike", "old-sister", "newer", "correction", "replay-bike", "replay-sister", "pending"],
 		deleteDocument: "pending",
 	},
+	// Only what the first re-consolidation after the deletion needs: the compound fact and its replay (so the kayak
+	// row has two sources), the sister's and the short-answers facts (the pool of three rows) and the pending fact
+	// (the bicycle row's last source). Five facts, then the deletion requeues the compound fact and its replay: seven
+	// consolidator calls, the second-to-last of which is the call the recorded near-duplicates start from.
+	mini: {
+		load: ["old-bike", "old-sister", "old-short", "replay-bike", "pending"],
+		deleteDocument: "pending",
+	},
 	// All the recorded case's facts before the deletion.
 	full: {
 		load: [
@@ -470,6 +478,19 @@ function snapshot(rows: Json[]) {
 	};
 }
 
+/** Each surviving observation's own change log (what the engine keeps of its earlier texts), to see which step wrote a row. */
+async function observationHistories(bank: string, observations: Observation[]) {
+	const out: Record<string, unknown> = {};
+	for (const o of observations) {
+		try {
+			out[o.id] = await call(bank, "GET", `/memories/${encodeURIComponent(o.id)}/history`, undefined, 1);
+		} catch (error) {
+			out[o.id] = { error: error instanceof Error ? error.message : String(error) };
+		}
+	}
+	return out;
+}
+
 async function oneRun(variant: Variant, index: number, scenario: string) {
 	const spec = SCENARIOS[scenario];
 	if (!spec) throw new Error(`unknown scenario ${scenario}`);
@@ -518,6 +539,7 @@ async function oneRun(variant: Variant, index: number, scenario: string) {
 			await settle(bank, deadline);
 			const afterReal = snapshot(await listAll(bank));
 			record.afterDeletion = afterReal;
+			record.histories = await observationHistories(bank, afterReal.observations);
 			record.analysis = analyse(afterReal.observations);
 			record.analysisBefore = analyse(beforeReal.observations);
 			record.status = "ok";
@@ -567,6 +589,7 @@ async function oneRun(variant: Variant, index: number, scenario: string) {
 		await consolidate(bank, deadline);
 		const after = snapshot(await listAll(bank));
 		record.afterDeletion = after;
+		record.histories = await observationHistories(bank, after.observations);
 		record.analysis = analyse(after.observations);
 		record.analysisBefore = analyse(before.observations);
 		record.status = "ok";
@@ -615,9 +638,12 @@ function summary(scenario: string) {
 	const table: Json = {};
 	for (const variant of VARIANTS) {
 		const files = readdirSync(RESULTS).filter((f) => f.startsWith(`${scenario}-${variant}-`) && f.endsWith(".json"));
+		const since = option("--since");
 		const rows = files
 			.map((f) => JSON.parse(readFileSync(path.join(RESULTS, f), "utf8")) as Json)
-			.filter((r) => r.status === "ok" || r.status === "failed");
+			.filter((r) => r.status === "ok" || r.status === "failed")
+			// --since <ISO time>: only the runs that started then or later (the variants' interleaved window).
+			.filter((r) => !since || String(r.startedAt) >= since);
 		const ok = rows.filter((r) => r.status === "ok");
 		// Re-analysed here, so the definition above is the one the counts use.
 		const analysed = ok.map((r) => analyse((r.afterDeletion.observations ?? []) as Observation[]));
@@ -639,11 +665,12 @@ function summary(scenario: string) {
 				{} as Record<string, number>,
 			),
 			compoundRow: count((a) => a.checks.compoundRow),
-			greenCurrentMissing: count((a) => !a.checks.greenCurrent),
+			// The colour checks need the recorded colour changes: not meaningful in the mini scenario.
+			greenCurrentMissing: scenario === "mini" ? null : count((a) => !a.checks.greenCurrent),
 			kayakLost: count((a) => !a.checks.kayakKept),
 			orangeLeak: count((a) => a.checks.orangeLeak),
-			oldColourCurrent: count((a) => a.checks.oldColourCurrent),
-			historyKept: count((a) => a.checks.historyKept),
+			oldColourCurrent: scenario === "mini" ? null : count((a) => a.checks.oldColourCurrent),
+			historyKept: scenario === "mini" ? null : count((a) => a.checks.historyKept),
 			inventedDate: count((a) => a.checks.inventedDate),
 			rowsMean: ok.length
 				? +(ok.reduce((n, r) => n + r.afterDeletion.observations.length, 0) / ok.length).toFixed(2)
