@@ -713,7 +713,6 @@ function assertAuthoredMigrationSourceCurrent(
 		throw Error("memory_source_changed");
 }
 
-/** Context references are resolved from live authorized rows at the final dispatch boundary. */
 /**
  * The keys a source's retain bookkeeping keeps on its revision's `context`
  * beside the content envelope: the one resubmission (`delivery-runner.ts`), the
@@ -757,6 +756,7 @@ export function withoutRetainBookkeeping(
 		),
 	);
 }
+/** Context references are resolved from live authorized rows at the final dispatch boundary. */
 export function resolveMemorySourceContext(
 	tx: Tx,
 	source: typeof memorySourceRevisions.$inferSelect,
