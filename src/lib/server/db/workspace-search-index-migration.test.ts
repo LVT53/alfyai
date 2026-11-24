@@ -434,20 +434,19 @@ const INDEXED_TABLES: readonly IndexedTable[] = ["messages", "artifacts"];
  * triggers, so it must empty that table's index, refill it and create the
  * three triggers again in the same file.
  */
+/** An optional schema before a table's name: main. or "main". or `main`. */
+const SCHEMA = '([`"]?main[`"]?\\.)?';
+
 function rebuildOffenders(files: Record<string, string>): string[] {
 	const offenders: string[] = [];
 	for (const [file, sqlText] of Object.entries(files)) {
 		for (const table of INDEXED_TABLES) {
+			// The table's name, quoted or not, perhaps after its schema, and ended.
+			const name = `${SCHEMA}[\`"]?${table}[\`"]?`;
 			const rebuilds = [
-				new RegExp(
-					`drop\\s+table\\s+(if\\s+exists\\s+)?[\`"]?${table}[\`"]?\\s*;`,
-					"i",
-				),
-				new RegExp(`rename\\s+to\\s+[\`"]?${table}[\`"]?\\s*;`, "i"),
-				new RegExp(
-					`alter\\s+table\\s+[\`"]?${table}[\`"]?\\s+rename\\s+to\\b`,
-					"i",
-				),
+				new RegExp(`drop\\s+table\\s+(if\\s+exists\\s+)?${name}(\\s|;|$)`, "i"),
+				new RegExp(`rename\\s+to\\s+${name}(\\s|;|$)`, "i"),
+				new RegExp(`alter\\s+table\\s+${name}\\s+rename\\s+to\\b`, "i"),
 				new RegExp(`__new_${table}\\b`, "i"),
 			].some((pattern) => pattern.test(sqlText));
 			if (!rebuilds) continue;
@@ -474,7 +473,7 @@ function laterMigrations(): Record<string, string> {
 }
 
 const REPLACE_PATTERN =
-	/(insert\s+or\s+replace\s+into|replace\s+into)\s+[`"]?(messages|artifacts)[`"]?[\s(]/i;
+	/(insert\s+or\s+replace\s+into|replace\s+into|update\s+or\s+replace)\s+([`"]?main[`"]?\.)?[`"]?(messages|artifacts)[`"]?[\s(]/i;
 
 function sourceFiles(root: string): string[] {
 	const found: string[] = [];
@@ -500,6 +499,25 @@ describe("what may touch an indexed table", () => {
 					"CREATE TABLE `__new_messages` (id text);\nDROP TABLE `messages`;",
 			}),
 		).toEqual(["1777140000199_rebuild.sql (messages)"]);
+		// Hand-written statements need no semicolon (drizzle splits on its
+		// breakpoints), may name the schema, and may rename instead of drop.
+		for (const statement of [
+			"DROP TABLE messages",
+			"DROP TABLE IF EXISTS `main`.`messages`",
+			"ALTER TABLE `messages_old` RENAME TO messages",
+			"ALTER TABLE main.artifacts RENAME TO artifacts_old",
+		]) {
+			expect(
+				rebuildOffenders({ "1777140000199_rebuild.sql": statement }),
+				statement,
+			).toHaveLength(1);
+		}
+		// Adding a column keeps the rows and the triggers: no refill needed.
+		expect(
+			rebuildOffenders({
+				"1777140000199_add.sql": "ALTER TABLE `messages` ADD `pinned` integer",
+			}),
+		).toEqual([]);
 		expect(
 			rebuildOffenders({
 				"1777140000199_rebuild.sql": `DROP TABLE \`artifacts\`;\nINSERT INTO artifacts_fts(artifacts_fts) VALUES('delete-all');\n${TRIGGERS.filter(
@@ -525,6 +543,14 @@ describe("what may touch an indexed table", () => {
 		).toBe(true);
 		expect(
 			REPLACE_PATTERN.test("replace into `artifacts`(id) values (?)"),
+		).toBe(true);
+		expect(
+			REPLACE_PATTERN.test(
+				"UPDATE OR REPLACE messages SET message_sequence = 1 WHERE id = ?",
+			),
+		).toBe(true);
+		expect(
+			REPLACE_PATTERN.test("insert or replace into main.messages (id)"),
 		).toBe(true);
 		expect(
 			REPLACE_PATTERN.test("INSERT OR REPLACE INTO artifact_kv (k) VALUES (?)"),
