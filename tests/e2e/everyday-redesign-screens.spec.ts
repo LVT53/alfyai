@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import Database from "better-sqlite3";
 import { login, waitForHydration } from "./helpers";
+import { keepAdminOnTodaysMemoryPage } from "./memory-helpers";
 
 const CAPTURE_DIR =
 	process.env.REDESIGN_CAPTURE_DIR ??
@@ -811,21 +812,27 @@ test.describe("everyday redesign screens", () => {
 
 	for (const theme of ["light", "dark"] as const) {
 		test(`knowledge Memory list (${theme})`, async ({ page }) => {
+			// Today's list, kept by an account whose labels are not verified.
+			const restoreMemoryPage = keepAdminOnTodaysMemoryPage();
 			await stubMemory(page);
-			await page.goto("/knowledge?tab=memory");
-			await waitForHydration(page);
-			await setTheme(page, theme);
-			await expect(page.getByTestId("memory-list")).toBeVisible();
-			await expect(
-				page.getByRole("combobox", { name: "Memory space" }),
-			).toBeVisible();
-			await capture(page, `knowledge-memory-${theme}`, theme);
-			await page
-				.getByRole("searchbox", { name: "Search memories" })
-				.fill("nextcloud");
-			await expect(
-				page.getByRole("searchbox", { name: "Search memories" }),
-			).toHaveValue("nextcloud");
+			try {
+				await page.goto("/knowledge?tab=memory");
+				await waitForHydration(page);
+				await setTheme(page, theme);
+				await expect(page.getByTestId("memory-list")).toBeVisible();
+				await expect(
+					page.getByRole("combobox", { name: "Memory space" }),
+				).toBeVisible();
+				await capture(page, `knowledge-memory-${theme}`, theme);
+				await page
+					.getByRole("searchbox", { name: "Search memories" })
+					.fill("nextcloud");
+				await expect(
+					page.getByRole("searchbox", { name: "Search memories" }),
+				).toHaveValue("nextcloud");
+			} finally {
+				restoreMemoryPage();
+			}
 		});
 		test(`knowledge documents tab (${theme})`, async ({ page }) => {
 			const seeded = seedDocuments();

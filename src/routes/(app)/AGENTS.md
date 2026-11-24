@@ -42,6 +42,7 @@ Do not:
 - [`src/routes/(app)/knowledge/+page.svelte`](knowledge/+page.svelte)
   - Large page-specific knowledge UI with a single primary content column.
   - Main content: Library and Memory Profile tabs.
+  - The Memory tab is `KnowledgeMemoryView`, which keeps every dialog and change for both of its layouts: the subject index (`MemorySubjectIndex`, layout C) once the account's labels are verified, today's list (`MemoryList`) until then. The server load decides which (`memoryLayout`, from `memory-profile/labels-verified.ts`) before the first paint.
   - Upload, search, and document-management behavior lives inside the main library panel.
   - Also owns the knowledge-side working-document workspace shell and cross-route workspace handoff from global search.
   - It may contain page-local fetches for page-only actions, but shared browser API logic should still move to `src/lib/client/api/` if reused.
