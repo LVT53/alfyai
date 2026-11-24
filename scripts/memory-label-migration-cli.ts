@@ -325,9 +325,7 @@ function wholeCounts(account: LabelMigrationAccount): string[] {
  * `kind.` and `subject.` are this run's labels; `account.facts.` and
  * `entries` are the whole account's, a resumed run's included.
  */
-export function labelMigrationAccountLine(
-	account: LabelMigrationAccount,
-): string {
+function labelMigrationAccountLine(account: LabelMigrationAccount): string {
 	if (account.outcome === "skipped")
 		return [
 			`account ${account.userId} skipped ${account.skipped}`,
@@ -367,7 +365,7 @@ export function labelMigrationLines(report: LabelMigrationReport): string[] {
 	];
 }
 
-export function rollbackLines(report: LabelRollbackReport): string[] {
+function rollbackLines(report: LabelRollbackReport): string[] {
 	return [
 		`rollback ${report.userId} ${report.outcome} banks=${report.banks} labels=${report.labels} epochVerified=${report.epochVerified}${report.code ? ` code=${report.code}` : ""}`,
 	];
