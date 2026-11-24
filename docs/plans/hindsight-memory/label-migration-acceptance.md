@@ -73,5 +73,6 @@ The word rule missed both blind targets (52% about an entry, 25% unrelated) and 
 **Limits.**
 - The worst case still assumes every Earlier entry ranks in its bank's top three; the rank half needs a real Hindsight.
 - The floors were chosen on this set. The held-out halves are the check; a second blind set would be the proof.
+- The measured documents are Hindsight's raw fact strings (with their " | When: … | Involving: …" parts), while a turn scores each entry's published text: Hindsight's observation wording, or the person's own wording after an edit. Scores for observation text may sit higher or lower than for fact text, and the floors are small (0.002). After the deploy, watch the Recall line's `earlier` count per bank (an unrelated message should rarely bring one) and measure again on observation texts if the join rate looks off.
 - The measurement covers the reranker only. The cost in a turn was not measured end to end under load: the 3.1 s above covered 5,848 pairs (about half a millisecond a pair), and a turn scores at most six entries, bounded at 500 ms, with the word rule as the fallback.
 - A wrong extra entry rides along in 16% of the messages about an entry (the word rule: 52%); the cap of three Earlier entries a turn still holds.
