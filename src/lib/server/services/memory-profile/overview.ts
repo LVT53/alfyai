@@ -187,10 +187,21 @@ function currentEntries(entries: readonly MemorySubjectEntry[]) {
 	return entries.filter(({ timeState }) => timeState !== "earlier");
 }
 
-/** Which entries an Overview was written from: every current entry's identity and text. */
+/**
+ * Which entries an Overview was written from: every current entry's identity
+ * and everything the model is told of it (its text, its kind and its subject),
+ * so an entry that was relabelled is a different entry.
+ */
 function entriesHash(current: readonly MemorySubjectEntry[]): string {
 	return memoryTextHash(
-		JSON.stringify(current.map((entry) => [entry.ref.rowId, entry.text])),
+		JSON.stringify(
+			current.map((entry) => [
+				entry.ref.rowId,
+				entry.text,
+				entry.kind,
+				entry.subject,
+			]),
+		),
 	);
 }
 

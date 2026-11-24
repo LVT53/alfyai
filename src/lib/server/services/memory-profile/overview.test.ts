@@ -469,6 +469,36 @@ describe("nothing is stored after an entry changes", () => {
 		expect(await storedRows()).toHaveLength(0);
 	});
 
+	// The model is given each entry's kind and subject, so the read-time check
+	// covers them too, whichever way a label changed (the trigger is set aside
+	// here to show the check alone).
+	it.each([
+		["kind", { kind: "lasting" }],
+		["subject", { subject: "health" }],
+	] as const)(
+		"an entry whose %s changed under the same text is discarded when the Overview is next read",
+		async (_name, change) => {
+			const { bank, db, s } = await written();
+			const { and, eq, sql } = await import("drizzle-orm");
+			db.run(sql`DROP TRIGGER memory_overview_label_update`);
+			db.update(s.memoryFactLabels)
+				.set(change)
+				.where(
+					and(
+						eq(s.memoryFactLabels.bankId, bank.id),
+						eq(s.memoryFactLabels.nativeFactId, "f-shed"),
+					),
+				)
+				.run();
+			expect(await storedRows()).toHaveLength(1);
+			const { overview } = await modules();
+			expect(
+				overview.readMemoryOverview(h.userId, PERSONAL, NOW),
+			).toMatchObject({ state: "none", currentCount: 3 });
+			expect(await storedRows()).toHaveLength(0);
+		},
+	);
+
 	it("an entry aged into Earlier is discarded when the Overview is next read", async () => {
 		await written();
 		const { overview } = await modules();
