@@ -95,6 +95,10 @@ interface Config {
 	memoryTemporaryEarlierDays: number;
 	memoryOngoingQuietDays: number;
 	memoryOngoingEarlierDays: number;
+	// How long a Memory job waits for Hindsight, across its attempts, in whole
+	// minutes: for a retain, and for a consolidation or the bank's quiet.
+	memoryRetainWaitMinutes: number;
+	memoryConsolidationWaitMinutes: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -420,6 +424,18 @@ export function parseWholeDays(value: string | undefined): number | null {
 	if (!/^\d{1,4}$/.test(trimmed)) return null;
 	const days = Number(trimmed);
 	return days >= 1 && days <= 3650 ? days : null;
+}
+
+/**
+ * A whole number of minutes from 1 to 1440 (a day) written as digits, or null
+ * for anything else, so the caller keeps what it had. Zero is refused: a job
+ * would give up on Hindsight before asking it once.
+ */
+export function parseWholeMinutes(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d{1,4}$/.test(trimmed)) return null;
+	const minutes = Number(trimmed);
+	return minutes >= 1 && minutes <= 1440 ? minutes : null;
 }
 
 /**
@@ -790,6 +806,10 @@ function readConfig(): Config {
 			parseWholeDays(process.env.MEMORY_ONGOING_QUIET_DAYS) ?? 21,
 		memoryOngoingEarlierDays:
 			parseWholeDays(process.env.MEMORY_ONGOING_EARLIER_DAYS) ?? 90,
+		memoryRetainWaitMinutes:
+			parseWholeMinutes(process.env.MEMORY_RETAIN_WAIT_MINUTES) ?? 30,
+		memoryConsolidationWaitMinutes:
+			parseWholeMinutes(process.env.MEMORY_CONSOLIDATION_WAIT_MINUTES) ?? 60,
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
 			1,

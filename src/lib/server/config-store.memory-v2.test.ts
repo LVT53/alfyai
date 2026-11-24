@@ -17,9 +17,42 @@ describe("memory v2 config", () => {
 			"MEMORY_TEMPORARY_EARLIER_DAYS",
 			"MEMORY_ONGOING_QUIET_DAYS",
 			"MEMORY_ONGOING_EARLIER_DAYS",
+			"MEMORY_RETAIN_WAIT_MINUTES",
+			"MEMORY_CONSOLIDATION_WAIT_MINUTES",
 		])
 			delete process.env[k];
 	});
+
+	it("waits half an hour for a retain and an hour for a consolidation by default", async () => {
+		const { getMemoryNativeWaits } = await import("./config-store");
+		expect(getMemoryNativeWaits()).toEqual({
+			retainMs: 30 * 60_000,
+			consolidationMs: 60 * 60_000,
+		});
+	});
+
+	it("takes the waits from the environment as whole minutes from 1 to 1440", async () => {
+		process.env.MEMORY_RETAIN_WAIT_MINUTES = "1";
+		process.env.MEMORY_CONSOLIDATION_WAIT_MINUTES = "1440";
+		const { getMemoryNativeWaits } = await import("./config-store");
+		expect(getMemoryNativeWaits()).toEqual({
+			retainMs: 60_000,
+			consolidationMs: 1440 * 60_000,
+		});
+	});
+
+	it.each(["0", "1441", "abc", "-1", "2.5", "30min", ""])(
+		"a wait that is not a whole minute count from 1 to 1440 (%j) keeps its default",
+		async (value) => {
+			process.env.MEMORY_RETAIN_WAIT_MINUTES = value;
+			process.env.MEMORY_CONSOLIDATION_WAIT_MINUTES = value;
+			const { getMemoryNativeWaits } = await import("./config-store");
+			expect(getMemoryNativeWaits()).toEqual({
+				retainMs: 30 * 60_000,
+				consolidationMs: 60 * 60_000,
+			});
+		},
+	);
 
 	it("aging thresholds default to three weeks, three weeks and three months", async () => {
 		const { getMemoryAgingThresholds } = await import("./config-store");

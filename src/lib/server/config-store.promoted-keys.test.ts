@@ -187,6 +187,38 @@ describe("promoted admin config keys", () => {
 		}
 	});
 
+	it("applies a Hindsight wait override and ignores one that is not a whole minute count from 1 to 1440", async () => {
+		const {
+			ADMIN_CONFIG_KEYS,
+			getMemoryNativeWaits,
+			getResolvedAdminConfigValues,
+			refreshConfig,
+		} = await import("./config-store");
+		expect(ADMIN_CONFIG_KEYS as readonly string[]).toEqual(
+			expect.arrayContaining([
+				"MEMORY_RETAIN_WAIT_MINUTES",
+				"MEMORY_CONSOLIDATION_WAIT_MINUTES",
+			]),
+		);
+		rows.push({ key: "MEMORY_RETAIN_WAIT_MINUTES", value: "45" });
+		rows.push({ key: "MEMORY_CONSOLIDATION_WAIT_MINUTES", value: "120" });
+		await refreshConfig();
+		expect(getMemoryNativeWaits()).toEqual({
+			retainMs: 45 * 60_000,
+			consolidationMs: 120 * 60_000,
+		});
+		expect(
+			(getResolvedAdminConfigValues() as Record<string, string>)
+				.MEMORY_CONSOLIDATION_WAIT_MINUTES,
+		).toBe("120");
+		for (const value of ["abc", "0", "1441", "2.5", "-1"]) {
+			rows.length = 0;
+			rows.push({ key: "MEMORY_RETAIN_WAIT_MINUTES", value });
+			await refreshConfig();
+			expect(getMemoryNativeWaits().retainMs, value).toBe(30 * 60_000);
+		}
+	});
+
 	it("reads a fractional Parallel free allowance as written", async () => {
 		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "2.5" });
 

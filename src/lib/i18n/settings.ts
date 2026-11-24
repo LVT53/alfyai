@@ -1726,6 +1726,14 @@ const settingsDict = {
 			"Project share of recall (%)",
 		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
 			"In a project chat, percent of the memory space kept for that project's own memories.",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
+			"Wait for Memory to save a chat",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
+			"Minutes a Memory job waits for the memory service to finish reading a chat before it gives up. Waiting uses none of the job's tries.",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
+			"Wait for Memory to sort its entries",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
+			"Minutes a Memory job waits for the memory service to merge new facts into entries, and to finish its work before a check, before it gives up. Waiting uses none of the job's tries.",
 		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.label":
 			"Temporary memories fade after",
 		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.meaning":
@@ -3969,6 +3977,14 @@ const settingsDict = {
 			"Projekt aránya (%)",
 		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
 			"Projektbeszélgetésben a memóriakeret hány százaléka jut a projekt saját emlékeire.",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
+			"Várakozás egy beszélgetés mentésére",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
+			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás feldolgoz egy beszélgetést, mielőtt feladja. A várakozás nem számít próbálkozásnak.",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
+			"Várakozás a bejegyzések rendezésére",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
+			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás beolvasztja az új tényeket a bejegyzésekbe, és befejezi a munkáját egy ellenőrzés előtt. A várakozás nem számít próbálkozásnak.",
 		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.label":
 			"Átmeneti emlékek elhalványulása",
 		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.meaning":

@@ -382,6 +382,19 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// Read by the Memory job's failure policy at each waiting slice's end.
+		key: "MEMORY_RETAIN_WAIT_MINUTES",
+		group: "memory",
+		control: int(1, 1440, "min"),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_CONSOLIDATION_WAIT_MINUTES",
+		group: "memory",
+		control: int(1, 1440, "min"),
+		effect: "live",
+	},
+	{
 		key: "MEMORY_JUDGE_DRY_RUN",
 		group: "memory",
 		control: { kind: "bool" },
