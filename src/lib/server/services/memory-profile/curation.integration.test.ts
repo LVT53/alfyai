@@ -263,6 +263,95 @@ it("real job engine removes a compound memory without losing independent facts",
 	).toEqual(["sister bicycle"]);
 	expect(fixture.model).toHaveBeenCalledTimes(4);
 });
+it("a remove waits out a consolidation Hindsight takes 25 minutes over, spending no attempt (acceptance)", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, [
+		{ forget: ["kayak"], replace: [], preserve: ["sister bicycle"] },
+		{
+			facts: [
+				{ id: "kayak", text: "" },
+				{ id: "sister", text: "sister bicycle" },
+			],
+		},
+		{ valid: true, issues: [] },
+		ckOkay,
+	]);
+	// The model is held busy: the consolidation of the removal runs 25 minutes of
+	// faked time, and every status read moves the clock on by six. A consolidation
+	// asked for later has nothing left to do and ends at once, as in Hindsight.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const inner = fixture.fetcher.getMockImplementation();
+	if (!inner) throw Error("Missing fixture fetch");
+	const started = new Map<string, number>();
+	let consolidations = 0;
+	const running = (id: string) =>
+		id === "slow-consolidation-1" &&
+		Date.now() - (started.get(id) ?? 0) < 25 * 60_000;
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/consolidate")) {
+			const id = `slow-consolidation-${++consolidations}`;
+			started.set(id, Date.now());
+			return new Response(JSON.stringify({ operation_id: id }));
+		}
+		if (path.includes("/operations?"))
+			return new Response(
+				JSON.stringify({
+					operations: path.includes("status=processing")
+						? [...started.keys()]
+								.filter(running)
+								.map((id) => ({ id, status: "processing" }))
+						: [],
+				}),
+			);
+		const op = path.split("/operations/")[1];
+		if (op?.startsWith("slow-consolidation")) {
+			vi.setSystemTime(Date.now() + 6 * 60_000);
+			return new Response(
+				JSON.stringify({ status: running(op) ? "processing" : "completed" }),
+			);
+		}
+		return inner(url, init);
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: { scope: { kind: "personal" }, generation: "g", rowId: "kayak" },
+		requestId: randomUUID(),
+	});
+	const codes: Array<string | null> = [];
+	for (let round = 0; round < 40; round++) {
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const row = f.db.select().from(f.s.memoryDeliveryJobs).get();
+		codes.push(row?.errorCode ?? null);
+		if (row?.status !== "queued") break;
+		vi.setSystemTime(Date.now() + 61_000);
+	}
+	vi.useRealTimers();
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "applied",
+		exclusionAcknowledged: true,
+		cleanupPending: false,
+	});
+	// It waited, and only waited: never a failure, never a timeout.
+	expect(codes.slice(0, -1).length).toBeGreaterThan(0);
+	expect(
+		codes.slice(0, -1).every((code) => code === "native_consolidation_waiting"),
+	).toBe(true);
+	const row = f.db.select().from(f.s.memoryDeliveryJobs).get();
+	const { parseDeliveryRetryState } = await import("./delivery-policy");
+	expect(
+		(row?.attemptCount ?? 0) -
+			parseDeliveryRetryState(JSON.parse(row?.retryState ?? "null")).waits,
+	).toBe(1);
+	const pub = await import("./publication");
+	expect(
+		pub.readPublishedMemory(h.userId, f.bank.id).map((r) => r.text),
+	).toEqual(["sister bicycle"]);
+	// The model was asked exactly what an unhurried remove asks it.
+	expect(fixture.model).toHaveBeenCalledTimes(4);
+}, 60_000);
 it("rejected edit cleans its staged delta without patching accepted facts", async () => {
 	const f = await setup();
 	const bad = {
