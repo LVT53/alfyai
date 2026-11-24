@@ -157,8 +157,10 @@ export function checkPairedBackup(
 		const path = join(dir, entry);
 		const stat = statOrNull(path);
 		if (!stat) continue;
-		if (stat.isFile()) files.push({ name: entry, path });
-		else if (stat.isDirectory()) {
+		// A settings file is never opened to ask whether it is a database or a dump.
+		if (stat.isFile()) {
+			if (!SETTINGS_NAME.test(entry)) files.push({ name: entry, path });
+		} else if (stat.isDirectory()) {
 			const toc = join(path, "toc.dat");
 			try {
 				if (statSync(toc).isFile())
@@ -247,6 +249,12 @@ export function checkPairedBackup(
 
 /** A settings file: `*.env`, not a macOS resource-fork copy (`._name.env`). */
 const SETTINGS_FILE = /^(?!\._).+\.env$/;
+/**
+ * What a settings bundle or one of its files is called: a tar (plain or
+ * compressed), `*.env` and `*.yaml`. Nothing named so is opened to be taken
+ * for the SQLite backup or the dump, whatever it starts with.
+ */
+const SETTINGS_NAME = /\.(tar|tgz|env|ya?ml)$|\.tar\.gz$/i;
 const TAR_BLOCK = 512;
 /** A settings bundle has a handful of files; stop reading headers well past that. */
 const TAR_MAX_HEADERS = 4_096;
@@ -312,8 +320,11 @@ function findSecretBundle(
 
 /**
  * How many `*.env` files a tar holds, or null when it cannot be opened. Walks
- * the 512-byte entry headers (a name and a size each) and jumps over what each
- * entry holds: a settings file's own bytes are never read.
+ * the 512-byte entry headers (a name, a size and a checksum each) and jumps
+ * over what each entry holds: a settings file's own bytes are never read. An
+ * entry counts only when its header's checksum holds and its data lies inside
+ * the file, so a block that is no header, or an archive cut off inside an
+ * entry, adds nothing.
  */
 function tarSettingsFiles(path: string): number | null {
 	let fd: number;
@@ -330,15 +341,12 @@ function tarSettingsFiles(path: string): number | null {
 		for (let n = 0; n < TAR_MAX_HEADERS && at + TAR_BLOCK <= size; n++) {
 			if (readSync(fd, header, 0, TAR_BLOCK, at) < TAR_BLOCK) break;
 			if (header.every((byte) => byte === 0)) break;
-			const bytes = Number.parseInt(
-				header
-					.subarray(124, 136)
-					.toString("latin1")
-					.replace(/\0.*$/s, "")
-					.trim() || "0",
-				8,
-			);
-			if (!Number.isFinite(bytes) || bytes < 0) break;
+			if (!tarChecksumHolds(header)) break;
+			const bytes = tarOctal(header.subarray(124, 136));
+			if (bytes === null) break;
+			const next = at + TAR_BLOCK + Math.ceil(bytes / TAR_BLOCK) * TAR_BLOCK;
+			// An entry counts only whole: its data must lie inside the file.
+			if (next > size) break;
 			const kind = header[156];
 			const regular = kind === 0 || kind === 0x30;
 			const name = header
@@ -347,7 +355,7 @@ function tarSettingsFiles(path: string): number | null {
 				.replace(/\0.*$/s, "");
 			if (regular && SETTINGS_FILE.test(name.split("/").pop() ?? ""))
 				envFiles++;
-			at += TAR_BLOCK + Math.ceil(bytes / TAR_BLOCK) * TAR_BLOCK;
+			at = next;
 		}
 		return envFiles;
 	} catch {
@@ -355,6 +363,23 @@ function tarSettingsFiles(path: string): number | null {
 	} finally {
 		closeSync(fd);
 	}
+}
+
+/** A tar header field read as an octal number, or null when it is not one. */
+function tarOctal(field: Buffer): number | null {
+	const text = field.toString("latin1").replace(/\0.*$/s, "").trim();
+	if (!/^[0-7]+$/.test(text)) return null;
+	return Number.parseInt(text, 8);
+}
+
+/** Whether a 512-byte block is a tar header: its own checksum, counted with that field as spaces, matches. */
+function tarChecksumHolds(header: Buffer): boolean {
+	const stored = tarOctal(header.subarray(148, 156));
+	if (stored === null) return false;
+	let sum = 0;
+	for (let i = 0; i < TAR_BLOCK; i++)
+		sum += i >= 148 && i < 156 ? 0x20 : header[i];
+	return sum === stored;
 }
 
 /**

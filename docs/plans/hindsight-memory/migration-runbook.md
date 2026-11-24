@@ -64,7 +64,7 @@ Production procedure (each step needs the one before it; the owner's go-ahead be
 
 ### The secret bundle
 
-A database pair restores nothing without the worker ID, keys and tenant bindings in the deployment's settings files (`deploy/hindsight/README.md`, "Backup, restore and upgrades"), so the command looks for them in the backup folder before it writes (a rollback's `--execute` too): a plain `.tar` holding at least one `*.env` file, or a sub-folder holding `*.env` files, from the last four hours and within two hours of both halves of the pair (a folder counts by its oldest `*.env` file). It reads only a tar's entry names (its 512-byte headers, never what an entry holds) and opens each file of a folder to prove it can; it never reads, compares or prints a settings value. The `backup:` line gives the bundle's name, size, number of `*.env` files and time, nothing else. It proves the files are there and readable, not that the set is complete: compare `tar -tf` with the deployment's folder before the go-ahead.
+A database pair restores nothing without the worker ID, keys and tenant bindings in the deployment's settings files (`deploy/hindsight/README.md`, "Backup, restore and upgrades"), so the command looks for them in the backup folder before it writes (a rollback's `--execute` too): a plain `.tar` holding at least one `*.env` file, or a sub-folder holding `*.env` files, from the last four hours and within two hours of both halves of the pair (a folder counts by its oldest `*.env` file). It reads only a tar's entry headers (a name, a size and a checksum in 512 bytes each, never what an entry holds; an entry counts only when its header's checksum holds and its data lies inside the file, so an archive cut off inside an entry adds nothing) and opens each file of a folder to prove it can; it never reads, compares or prints a settings value, and a file named `*.tar`, `*.tgz`, `*.tar.gz`, `*.env` or `*.yaml` is never opened to be taken for the SQLite backup or the dump. The `backup:` line gives the bundle's name, size, number of `*.env` files and time, nothing else. It proves the files are there and readable, not that the set is complete: compare `tar -tf` with the deployment's folder before the go-ahead.
 
 Take it as production did, as root, from the deployment's folder, in the same sitting as the two dumps (`BACKUP_DIR` is the folder you pass to `--backup`):
 
@@ -76,7 +76,7 @@ tar -cf "$BACKUP_DIR/deployment-files.tar" ./*.env ./*.yaml
 The migration runs as the app user, who cannot read root's files, so hand the copy to that user and keep everyone else out (the tar holds the database password and the native worker ID). `APP_USER` is the user that runs the command in step 1 (`id -un` there):
 
 ```bash
-chown APP_USER "$BACKUP_DIR/deployment-files.tar"
+chown APP_USER "$BACKUP_DIR" "$BACKUP_DIR/deployment-files.tar"
 chmod 0600 "$BACKUP_DIR/deployment-files.tar"
 chmod 0700 "$BACKUP_DIR"
 ```
@@ -86,7 +86,7 @@ Use a plain tar: a `.tar.gz` cannot be listed without inflating the settings in 
 | Code | Meaning |
 |---|---|
 | `backup_secret_bundle_missing` | no `.tar` with a `*.env` entry and no sub-folder with `*.env` files in the folder |
-| `backup_secret_bundle_unreadable` | one is there but the app user cannot open it (the `chown` above), and no readable one is |
+| `backup_secret_bundle_unreadable` | a `.tar` or a sub-folder in the folder cannot be opened by the app user (the `chown` above), and no readable bundle is there |
 | `backup_secret_bundle_stale` | the bundle is older than four hours |
 | `backup_secret_bundle_not_paired` | the bundle is more than two hours from either half of the pair |
 

@@ -162,6 +162,8 @@ describe("the paired backup check", () => {
 		return folder;
 	}
 	const canRefuseUnreadable = process.getuid?.() !== 0;
+	/** The first 16 bytes of an SQLite database. */
+	const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "binary");
 
 	it("names both halves and the settings bundle when they are recent, taken together, and hold every account", () => {
 		appBackup(["u1", "u2"]);
@@ -210,19 +212,132 @@ describe("the paired backup check", () => {
 			expect(JSON.stringify(result)).not.toContain("canary");
 		});
 
-		it("is read by its tar headers alone, whatever an entry claims to hold", () => {
-			// One header for "huge.env" that claims 8 GiB, in a file of 512 bytes:
-			// the count comes from the header, and nothing past it is read.
+		/** One tar entry header, valid (ustar, checksummed), for a file of `size` bytes. */
+		function tarHeader(name: string, size: number, valid = true) {
 			const header = Buffer.alloc(512);
-			header.write("huge.env", 0, "ascii");
-			header.write("77777777777", 124, "ascii");
+			header.write(name, 0, "ascii");
+			header.write("0000600\0", 100, "ascii");
+			header.write(`${size.toString(8).padStart(11, "0")}\0`, 124, "ascii");
 			header.write("0", 156, "ascii");
-			const path = join(dir, "settings.tar");
-			writeFileSync(path, header);
-			utimesSync(path, hoursAgo(1), hoursAgo(1));
+			header.write("ustar\0" + "00", 257, "ascii");
+			header.fill(0x20, 148, 156);
+			const sum = header.reduce((total, byte) => total + byte, 0);
+			if (valid)
+				header.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, "ascii");
+			return header;
+		}
+		function writeTar(name: string, bytes: Buffer, at = hoursAgo(1)) {
+			const path = join(dir, name);
+			writeFileSync(path, bytes);
+			utimesSync(path, at, at);
+			return path;
+		}
+
+		it("counts only whole entries: one cut off inside its data, or with no valid header, is no bundle", () => {
+			// A header that claims 8 GiB in a file of 512 bytes (a pg_dump that filled
+			// the disk, an interrupted copy): its data is not there.
+			writeTar("cut.tar", tarHeader("huge.env", 8 * 1024 ** 3));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			// A block that looks like a header but is not one (no checksum).
+			rmSync(join(dir, "cut.tar"));
+			writeTar(
+				"unchecked.tar",
+				Buffer.concat([tarHeader("a.env", 4, false), Buffer.alloc(512)]),
+			);
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			// The same entry whole, with its data, counts.
+			rmSync(join(dir, "unchecked.tar"));
+			writeTar(
+				"whole.tar",
+				Buffer.concat([tarHeader("a.env", 4), Buffer.alloc(512)]),
+			);
 			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
 				ok: true,
-				bundle: { name: "settings.tar", envFiles: 1, bytes: 512 },
+				bundle: { name: "whole.tar", envFiles: 1 },
+			});
+		});
+
+		it("counts the whole entries of a tar cut after some of them, and none of one cut inside the first", () => {
+			// Three settings files of four bytes each: a header and one data block apiece.
+			const entry = (name: string) =>
+				Buffer.concat([tarHeader(name, 4), Buffer.alloc(512)]);
+			const whole = Buffer.concat([
+				entry("a.env"),
+				entry("b.env"),
+				entry("c.env"),
+				Buffer.alloc(1024),
+			]);
+			writeTar("two.tar", whole.subarray(0, 2 * 1024));
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				bundle: { name: "two.tar", envFiles: 2 },
+			});
+			rmSync(join(dir, "two.tar"));
+			writeTar("all.tar", whole);
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				bundle: { name: "all.tar", envFiles: 3 },
+			});
+			rmSync(join(dir, "all.tar"));
+			writeTar("inside.tar", whole.subarray(0, 700));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+		});
+
+		it("ignores a macOS resource-fork copy of a settings file", () => {
+			settingsTar(hoursAgo(1), ["._native-db.env", "compose.yaml"]);
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+		});
+
+		it("never opens a settings file to ask whether it is a database or a dump", () => {
+			// Decoys that a read would take for the pair's halves: a settings file that
+			// starts like a custom-format dump, a gzipped "dump", and a tar that starts
+			// like an SQLite database and is newer than the real one.
+			writeTar("native-db.env", Buffer.from("PGDMP\u0001\u000e"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			rmSync(join(dir, "native-db.env"));
+			rmSync(join(dir, "hindsight-20261125T0100Z.sql"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_postgres_missing",
+			});
+			writeTar("native-db.env", Buffer.from("PGDMP\u0001\u000e"));
+			writeTar(
+				"deployment-files.tar.gz",
+				gzipSync("--\n-- PostgreSQL database dump\n--\n"),
+			);
+			writeTar("settings.yaml", Buffer.from("PGDMP\u0001\u000e"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_postgres_missing",
+			});
+			rmSync(join(dir, "native-db.env"));
+			rmSync(join(dir, "deployment-files.tar.gz"));
+			rmSync(join(dir, "settings.yaml"));
+			nativeDump();
+			settingsTar();
+			writeTar(
+				"decoy.tar",
+				Buffer.concat([SQLITE_HEADER, Buffer.alloc(496)]),
+				hoursAgo(0.5),
+			);
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				sqlite: { name: "chat-20261125T0100Z.db" },
 			});
 		});
 
@@ -240,6 +355,7 @@ describe("the paired backup check", () => {
 				code: "backup_secret_bundle_missing",
 			});
 			writeFileSync(join(dir, "notes.tar"), "just some notes, not a tar\n");
+			writeFileSync(join(dir, "big-notes.tar"), "x".repeat(4096));
 			settingsFolder(hoursAgo(1), ["compose.yaml"], "yaml-only");
 			// A pg_dump directory (toc.dat, numbered files) is not a settings folder.
 			mkdirSync(join(dir, "dump-dir"));
@@ -277,20 +393,22 @@ describe("the paired backup check", () => {
 			},
 		);
 
-		it("is taken from a readable copy when another one cannot be read", () => {
-			if (!canRefuseUnreadable) return;
-			const tar = settingsTar(hoursAgo(1), SETTINGS, "root-owned.tar");
-			chmodSync(tar, 0o000);
-			try {
-				settingsFolder();
-				expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
-					ok: true,
-					bundle: { name: "deployment-files/" },
-				});
-			} finally {
-				chmodSync(tar, 0o600);
-			}
-		});
+		it.skipIf(!canRefuseUnreadable)(
+			"is taken from a readable copy when another one cannot be read",
+			() => {
+				const tar = settingsTar(hoursAgo(1), SETTINGS, "root-owned.tar");
+				chmodSync(tar, 0o000);
+				try {
+					settingsFolder();
+					expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+						ok: true,
+						bundle: { name: "deployment-files/" },
+					});
+				} finally {
+					chmodSync(tar, 0o600);
+				}
+			},
+		);
 
 		it("is refused when older than the pair may be, or taken more than two hours from it", () => {
 			settingsTar(hoursAgo(5));
