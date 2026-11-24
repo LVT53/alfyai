@@ -78,6 +78,8 @@
 		// shared model bridge): the runner and the relabel's end-to-end run.
 		"docs/plans/hindsight-memory/part-2-acceptance/config-3/run.ts",
 		"docs/plans/hindsight-memory/part-2-acceptance/config-3/relabel-acceptance.ts",
+		// The near-duplicate A/B's documented command (synthetic, a scratch Hindsight, the shared bridge).
+		"docs/plans/hindsight-memory/near-duplicates-ab/run.ts",
 		// The label migration's documented acceptance command (synthetic, Flash-Next).
 		"docs/plans/hindsight-memory/label-migration-acceptance/run.ts",
 		// The Earlier gate's documented blind measurement (synthetic, no model).
