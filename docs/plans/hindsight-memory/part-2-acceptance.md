@@ -9,14 +9,24 @@ Plan: [Task 7 of the part 2 plan](../../superpowers/plans/2026-11-23-memory-labe
 - **Banks:** `p2a-config-1` holds the previous release's config byte for byte; `p2a-config-2-personal` and `p2a-config-2-project` hold config 2 for each bank kind (`nativeBankConfig`), configured through the same PATCH the app sends.
 - **Fixtures:** [part-2-acceptance/fixtures.json](part-2-acceptance/fixtures.json), 20 chats per category, 10 English and 10 Hungarian in each, written for this run.
 - **Extraction** goes through `POST /memories/dry-run-extract`, which persists nothing, with production's context shape (the previous assistant reply as context). **Consolidation** retains and consolidates on one scratch bank per scenario: the first statement dated 10 March 2026, the second 20 September 2026.
-- **Runner:** [part-2-acceptance/run.ts](part-2-acceptance/run.ts), phases `setup`, `extraction`, `consolidation [v1|v2]`, `classifier`, `report`.
+- **Runner:** [part-2-acceptance/run.ts](part-2-acceptance/run.ts), phases `setup`, `extraction`, `consolidation [v1|v2]`, `classifier`, `recall-build [v1|v2]`, `recall-measure`, `report`. The engine: [part-2-acceptance/start.py](part-2-acceptance/start.py).
 
 ```sh
+# The engine, once (Python 3.12; downloads the pinned source, its wheels, Postgres and two small models)
+export PART2_HS_ROOT=/tmp/alfyai-hindsight-part2
+git init -q "$PART2_HS_ROOT/source" && git -C "$PART2_HS_ROOT/source" fetch -q --depth 1 https://github.com/vectorize-io/hindsight.git 9fb28dbd724dc1ce4da7cb4c49008e601db76c5f && git -C "$PART2_HS_ROOT/source" checkout -q --detach FETCH_HEAD
+/opt/homebrew/bin/python3.12 -m venv "$PART2_HS_ROOT/venv" && "$PART2_HS_ROOT/venv/bin/pip" install "$PART2_HS_ROOT/source/hindsight-api-slim[local-onnx,embedded-db]" flashrank
+"$PART2_HS_ROOT/venv/bin/python" docs/plans/hindsight-memory/part-2-acceptance/start.py &
+# The runs
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH
 node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts setup
 node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts extraction
 node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts consolidation v2
+node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts consolidation v1
 node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts classifier
+node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts recall-build v1
+node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts recall-build v2
+node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts recall-measure
 node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts report
 ```
 
