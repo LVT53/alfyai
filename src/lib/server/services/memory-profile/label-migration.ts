@@ -13,7 +13,11 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import { memoryAdmissionFor } from "./admission";
-import { HINDSIGHT_ENGINE_COMMIT, type NativeMemory } from "./contracts";
+import {
+	HINDSIGHT_ENGINE_COMMIT,
+	type NativeMemory,
+	NativeMemoryError,
+} from "./contracts";
 import { type CurationModel, createCurationModel } from "./curation";
 import { groupFactsById, memoryEntryView } from "./entry-view";
 import { classifyMemoryFacts, FACT_LABEL_BATCH_SIZE } from "./fact-classifier";
@@ -364,7 +368,9 @@ async function migrateAccount(
 			}[] = [];
 			for (const bank of banks) {
 				const listed = (
-					await listFacts(bank.id, account.tenantId, signal)
+					await listBank(bank, () =>
+						listFacts(bank.id, account.tenantId, signal),
+					)
 				).filter((fact) => fact.fact_type !== "observation");
 				// Text the person removed is never sent: Hindsight may still list it.
 				const removed = removedByPerson(database, bank.id);
@@ -701,6 +707,32 @@ async function inBatches(
 	const failed = settled.find((result) => result.status === "rejected");
 	if (failed) throw failed.reason;
 	if (signal.aborted) throw new AccountFailure("label_migration_aborted");
+}
+
+/**
+ * One bank's listing. A bank the app made but never configured in Hindsight
+ * (no config version, no binding: nothing was ever sent to it) holds no facts
+ * yet, whether Hindsight answers its listing with none or with 404 (whether
+ * the pinned engine answers 404 for a bank it has never seen is unverified,
+ * so both read the same). A 404 for any other bank fails the account
+ * (`native_not_found`): its facts are somewhere the app cannot see.
+ */
+async function listBank(
+	bank: Bank,
+	list: () => Promise<NativeMemory[]>,
+): Promise<NativeMemory[]> {
+	try {
+		return await list();
+	} catch (error) {
+		if (
+			error instanceof NativeMemoryError &&
+			error.code === "native_not_found" &&
+			bank.nativeConfigVersion === null &&
+			bank.nativeBaseUrl === null
+		)
+			return [];
+		throw error;
+	}
 }
 
 /**

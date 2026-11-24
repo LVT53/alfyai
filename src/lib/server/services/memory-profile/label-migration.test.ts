@@ -15,10 +15,31 @@ vi.mock("./curation", async (importOriginal) => ({
 	},
 }));
 
+// The default Hindsight client, for the tests that hand the migration none of
+// their own: every method it is asked for is recorded, and only `list` answers.
+const clientCalls = vi.hoisted(() => [] as string[]);
+const listedByDefault = vi.hoisted(() => new Map<string, unknown[]>());
+vi.mock("./hindsight-client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./hindsight-client")>()),
+	nativeMemoryClient: (bankId: string) =>
+		new Proxy(
+			{},
+			{
+				get: (_target, method) => async () => {
+					clientCalls.push(`${bankId} ${String(method)}`);
+					if (method !== "list") throw new Error("not a list");
+					return listedByDefault.get(bankId) ?? [];
+				},
+			},
+		),
+}));
+
 let h: EngineHarness;
 beforeEach(async () => {
 	h = await bootEngine("memory-label-migration");
 	curationCalls.length = 0;
+	clientCalls.length = 0;
+	listedByDefault.clear();
 });
 afterEach(() => h.cleanup());
 
@@ -998,6 +1019,107 @@ describe("the label migration", () => {
 	});
 });
 
+describe("the label migration's edges", () => {
+	it("with no client of its own it only lists from Hindsight", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		listedByDefault.set(bank.id, fake.facts.get(bank.id) ?? []);
+		const { migration } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ model: fake.model },
+		);
+		expect(report.accounts[0].outcome).toBe("verified");
+		// The first listing, then verification's: nothing but `list`.
+		expect(clientCalls).toEqual([`${bank.id} list`, `${bank.id} list`]);
+	});
+
+	it("labels with several calls in flight, never more than asked", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 100 });
+		const { migration, verified } = await modules();
+		let inFlight = 0;
+		let most = 0;
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				concurrency: 3,
+				model:
+					(userId, signal) =>
+					async (...args) => {
+						inFlight++;
+						most = Math.max(most, inFlight);
+						await new Promise((resolve) => setTimeout(resolve, 5));
+						inFlight--;
+						return fake.model(userId, signal)(...args);
+					},
+			},
+		);
+		expect(most).toBe(3);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "verified",
+			calls: 5,
+			labelled: 100,
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(100);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+	});
+
+	it("a bank Hindsight has never heard of (404, never configured) holds no facts yet", async () => {
+		const fake = fakeNative();
+		await seedAccount("user-1", fake.facts, { count: 3 });
+		const { db, schema, revisions, verified, migration } = await modules();
+		const { NativeMemoryError } = await import("./contracts");
+		db.insert(schema.projects)
+			.values({ id: "synthetic-project", userId: "user-1", name: "Garden" })
+			.run();
+		// Made app-side by the person's first project chat; nothing sent yet.
+		const project = revisions.ensureMemoryBank("user-1", {
+			kind: "project",
+			projectId: "synthetic-project",
+		});
+		const listFacts = async (bankId: string) => {
+			if (bankId === project.id)
+				throw new NativeMemoryError("native_not_found", false);
+			return fake.listFacts(bankId);
+		};
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts, model: fake.model },
+		);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "verified",
+			banks: 2,
+			facts: 3,
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+	});
+
+	it("a configured bank Hindsight answers 404 for fails the account", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		const { NativeMemoryError } = await import("./contracts");
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: async (bankId) => {
+					if (bankId === bank.id)
+						throw new NativeMemoryError("native_not_found", false);
+					return [];
+				},
+				model: fake.model,
+			},
+		);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "native_not_found",
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+});
+
 describe("the label migration's rollback", () => {
 	it("returns the classifier's labels to unlabelled with their dates, and the account to today's page", async () => {
 		const fake = fakeNative();
@@ -1045,6 +1167,36 @@ describe("the label migration's rollback", () => {
 			epoch: 0,
 			unverified: 0,
 			verified: null,
+		});
+	});
+
+	it("leaves extraction's labels as they are", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		// Hindsight's extraction labelled one fact (bank config 2).
+		h.sqlite
+			.prepare(
+				"UPDATE memory_fact_labels SET kind = 'ongoing', subject = 'work_study' WHERE native_fact_id = 'user-1-fact-0'",
+			)
+			.run();
+		const { migration } = await modules();
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(report.accounts[0]).toMatchObject({
+			alreadyLabelled: 1,
+			labelled: 2,
+		});
+		expect(
+			migration.rollbackLabelMigration({ userId: "user-1", execute: true }),
+		).toMatchObject({ outcome: "done", labels: 2 });
+		expect(labelRows(bank.id)[0]).toEqual({
+			native_fact_id: "user-1-fact-0",
+			kind: "ongoing",
+			subject: "work_study",
+			origin: "extraction",
+			event_at: new Date("2026-02-01T00:00:00Z").getTime(),
 		});
 	});
 
