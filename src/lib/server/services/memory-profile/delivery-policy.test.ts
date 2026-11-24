@@ -116,9 +116,14 @@ describe("the Memory delivery failure policy", () => {
 			requeue: false,
 			retryable: true,
 			code: "native_operation_timeout",
-			state: { waits: 3, waiting: null, since: null },
+			state: { waits: 3, waiting: null, since: null, firstWaitAt: null },
 		});
-		expect(state).toEqual({ waits: 3, waiting: null, since: null });
+		expect(state).toEqual({
+			waits: 3,
+			waiting: null,
+			since: null,
+			firstWaitAt: null,
+		});
 	});
 
 	it("starts a new streak when the job moves on from a retain to a consolidation", () => {
@@ -193,6 +198,7 @@ describe("the Memory delivery failure policy", () => {
 			waits: 3,
 			waiting: null,
 			since: null,
+			firstWaitAt: null,
 		});
 		const { decisions } = run(
 			[4, 5, 6].map((i) => ({
@@ -210,10 +216,11 @@ describe("the Memory delivery failure policy", () => {
 				waits: 0,
 				waiting: null,
 				since: null,
+				firstWaitAt: null,
 			});
 		expect(
 			parseDeliveryRetryState({ waits: 2.7, waiting: "retain", since: 9 }),
-		).toEqual({ waits: 2, waiting: "retain", since: 9 });
+		).toEqual({ waits: 2, waiting: "retain", since: 9, firstWaitAt: null });
 	});
 
 	it("counts an attempt by the real tries before it, waits left out", () => {
@@ -231,5 +238,56 @@ describe("the Memory delivery failure policy", () => {
 			),
 		).toBe(2);
 		expect(countedDeliveryAttempt({ retryState: "not json" }, 3)).toBe(3);
+	});
+
+	it("bounds the whole wait when the job keeps switching between a retain and a consolidation", () => {
+		const t = 6_000_000;
+		const kinds = ["native_retain_waiting", "native_consolidation_waiting"];
+		// A wait every 20 minutes, each kind's streak restarting with the switch.
+		const failures = Array.from({ length: 8 }, (_, i) => ({
+			failure: failure(kinds[i % 2], {
+				diagnostics: { waitStartedAt: t + i * 20 * 60_000 },
+			}),
+			atMs: t + i * 20 * 60_000 + 5 * 60_000,
+		}));
+		const { decisions } = run(failures);
+		const ended = decisions.findIndex((d) => !d.requeue);
+		// Retain 30 plus consolidation 60: never more than 90 minutes of waiting in all.
+		expect(ended).toBeGreaterThan(0);
+		expect(failures[ended].atMs - t).toBeGreaterThanOrEqual(90 * 60_000);
+		expect(failures[ended].atMs - t).toBeLessThan(110 * 60_000);
+		expect(decisions[ended]).toMatchObject({
+			requeue: false,
+			retryable: true,
+			code: "native_operation_timeout",
+		});
+	});
+
+	it("gives a resubmission a retain wait of its own", () => {
+		const t = 7_000_000;
+		const { decisions } = run([
+			{
+				failure: failure("native_retain_waiting", {
+					diagnostics: { waitStartedAt: t },
+				}),
+				atMs: t + 26 * 60_000,
+			},
+			{
+				// The retain failed at minute 26; it is held back, then resubmitted.
+				failure: failure("native_retain_resubmit_due", {
+					retryAfterMs: 60_000,
+					diagnostics: { waitStartedAt: t + 26 * 60_000 },
+				}),
+				atMs: t + 26 * 60_000,
+			},
+			{
+				failure: failure("native_retain_waiting", {
+					diagnostics: { waitStartedAt: t + 27 * 60_000 },
+				}),
+				// Past the first retain's 30 minutes, inside the resubmission's own.
+				atMs: t + 40 * 60_000,
+			},
+		]);
+		expect(decisions.map((d) => d.requeue)).toEqual([true, true, true]);
 	});
 });

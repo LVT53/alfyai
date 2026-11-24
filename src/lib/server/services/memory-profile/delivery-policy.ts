@@ -15,7 +15,8 @@ import { NATIVE_DELIVERY_ATTEMPT_LIMIT } from "./contracts";
  * Hindsight still reports it running, hands the job back under a waiting
  * code. A wait is not a failure: it is requeued without spending an attempt,
  * for as long as that kind's whole wait (config-store's `getMemoryNativeWaits`)
- * allows, measured from when the streak began. Past it the job ends
+ * allows, measured from when the streak began, and never longer in all than
+ * both waits together, however the job switches between them. Past it the job ends
  * `native_operation_timeout`, retryable, so an operator's drain or the
  * person's retry can take it up again. Every other failure counts against
  * `NATIVE_DELIVERY_ATTEMPT_LIMIT` exactly as before, attempts spent waiting
@@ -43,9 +44,20 @@ export interface DeliveryRetryState {
 	waiting: NativeWaitKind | null;
 	/** When the current streak began, epoch ms. */
 	since: number | null;
+	/**
+	 * When the job began waiting at all, epoch ms: a switch between a retain and a
+	 * consolidation wait starts a new streak but not a new total. A real failure
+	 * or a deliberate reopen clears it.
+	 */
+	firstWaitAt: number | null;
 }
 
-const EMPTY: DeliveryRetryState = { waits: 0, waiting: null, since: null };
+const EMPTY: DeliveryRetryState = {
+	waits: 0,
+	waiting: null,
+	since: null,
+	firstWaitAt: null,
+};
 
 export function parseDeliveryRetryState(state: unknown): DeliveryRetryState {
 	if (!state || typeof state !== "object" || Array.isArray(state)) return EMPTY;
@@ -61,6 +73,11 @@ export function parseDeliveryRetryState(state: unknown): DeliveryRetryState {
 		since:
 			typeof record.since === "number" && Number.isFinite(record.since)
 				? record.since
+				: null,
+		firstWaitAt:
+			typeof record.firstWaitAt === "number" &&
+			Number.isFinite(record.firstWaitAt)
+				? record.firstWaitAt
 				: null,
 	};
 }
@@ -79,24 +96,37 @@ export function decideMemoryDeliveryFailure(
 	const state = parseDeliveryRetryState(history.state);
 	const kind = NATIVE_WAIT_CODES[failure.code];
 	if (kind) {
+		const startedAt = waitStartedAt(failure.diagnostics) ?? history.nowMs;
+		// A resubmission is a new retain: it gets a retain wait of its own.
 		const since =
-			state.waiting === kind && state.since !== null
+			state.waiting === kind &&
+			state.since !== null &&
+			failure.code !== "native_retain_resubmit_due"
 				? state.since
-				: (waitStartedAt(failure.diagnostics) ?? history.nowMs);
-		const total = kind === "retain" ? waits.retainMs : waits.consolidationMs;
-		if (history.nowMs - since < total)
+				: startedAt;
+		const firstWaitAt = state.firstWaitAt ?? startedAt;
+		const streak = kind === "retain" ? waits.retainMs : waits.consolidationMs;
+		if (
+			history.nowMs - since < streak &&
+			history.nowMs - firstWaitAt < waits.retainMs + waits.consolidationMs
+		)
 			return {
 				requeue: true,
 				delayMs: failure.retryAfterMs ?? NATIVE_WAIT_REQUEUE_DELAY_MS,
 				code: failure.code,
 				retryable: true,
-				state: { waits: state.waits + 1, waiting: kind, since },
+				state: { waits: state.waits + 1, waiting: kind, since, firstWaitAt },
 			};
 		return {
 			requeue: false,
 			retryable: true,
 			code: "native_operation_timeout",
-			state: { waits: state.waits + 1, waiting: null, since: null },
+			state: {
+				waits: state.waits + 1,
+				waiting: null,
+				since: null,
+				firstWaitAt: null,
+			},
 		};
 	}
 	// A real failure ends any streak; the attempts spent waiting stay discounted.
@@ -105,6 +135,7 @@ export function decideMemoryDeliveryFailure(
 		waits: state.waits,
 		waiting: null,
 		since: null,
+		firstWaitAt: null,
 	};
 	return failure.retryable && counted < NATIVE_DELIVERY_ATTEMPT_LIMIT
 		? {
@@ -129,6 +160,7 @@ export function freshDeliveryAttempts(
 		waits: Math.max(parseDeliveryRetryState(state).waits, attemptCount),
 		waiting: null,
 		since: null,
+		firstWaitAt: null,
 	};
 }
 
