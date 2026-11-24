@@ -24,7 +24,7 @@ import {
 	MEMORY_MIGRATION_EXCLUDED,
 	memoryMigrationGuard,
 } from "./migration-guard";
-import { readPublishedMemory } from "./publication";
+import { readAcknowledgedFacts, readPublishedMemory } from "./publication";
 import { assertMemoryBankFence } from "./revisions";
 
 /**
@@ -80,6 +80,8 @@ export interface LabelMigrationAccount {
 	unlabelled: Partial<Record<UnlabelledReason, number>>;
 	verification?: {
 		factsAccounted: boolean;
+		/** Every fact it labelled reads the same in Hindsight's second listing. */
+		factsUnchanged: boolean;
 		publishedRowsUnchanged: boolean;
 		/** At most one fact in 20 (`MAX_UNLABELLED_SHARE`) left without a usable label. */
 		fewUnlabelled: boolean;
@@ -352,6 +354,8 @@ async function migrateAccount(
 			Math.max(1, Math.floor(deps.concurrency ?? 1)),
 		);
 		const noLabel = new Set<string>();
+		/** Each fact this run labelled, by id: a hash of the text it was labelled from. */
+		const labelledText = new Map<string, string>();
 		let unavailable = 0;
 		for (const { bank, todo } of banksRead) {
 			const scope: MemoryScope["kind"] =
@@ -383,6 +387,7 @@ async function migrateAccount(
 							continue;
 						}
 						entry.labelled++;
+						labelledText.set(fact.id, textHash(fact.text));
 						entry.byKind[label.kind] = (entry.byKind[label.kind] ?? 0) + 1;
 						entry.bySubject[label.subject] =
 							(entry.bySubject[label.subject] ?? 0) + 1;
@@ -413,6 +418,16 @@ async function migrateAccount(
 		const factsAccounted = after.every(({ todo }) =>
 			todo.every((fact) => noLabel.has(fact.id)),
 		);
+		// A fact labelled from one wording must still read so: its label
+		// was chosen for that text.
+		const listedAfter = new Map(
+			after.flatMap(({ facts }) =>
+				facts.map((fact) => [fact.id, textHash(fact.text)] as const),
+			),
+		);
+		const factsUnchanged = [...labelledText].every(
+			([id, hash]) => listedAfter.get(id) === hash,
+		);
 		const publishedRowsUnchanged =
 			publishedFingerprint(database, userId, banks) === before;
 		const fewUnlabelled = noLabel.size <= entry.facts * MAX_UNLABELLED_SHARE;
@@ -428,11 +443,13 @@ async function migrateAccount(
 			lasting >= labelled * MIN_LASTING_SHARE;
 		entry.verification = {
 			factsAccounted,
+			factsUnchanged,
 			publishedRowsUnchanged,
 			fewUnlabelled,
 			labelsPlausible,
 		};
 		if (!factsAccounted) throw new AccountFailure("facts_unlabelled");
+		if (!factsUnchanged) throw new AccountFailure("facts_changed");
 		if (!publishedRowsUnchanged)
 			throw new AccountFailure("published_rows_changed");
 		if (!fewUnlabelled) throw new AccountFailure("too_many_unlabelled");
@@ -506,11 +523,19 @@ async function inBatches(
 	if (signal.aborted) throw new AccountFailure("label_migration_aborted");
 }
 
+function textHash(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
+}
+
 /**
  * What the migration must leave as it was, for these banks: each bank's
  * generation; its published rows' text, support and dates; which rows are
- * visible; its sources' states, dates and support; and every fact's event
- * date. Labels themselves are left out: adding them is the migration's work.
+ * visible; the states, dates and support of the sources those rows rest on;
+ * and every fact's event date. Labels themselves are left out: adding them is
+ * the migration's work. Sources no published row rests on are left out too: a
+ * turn records a pending source, and a revocation or an import its own, while
+ * the run goes on, which changes nothing the person sees until a publication,
+ * and a publication changes the bank's generation.
  */
 function publishedFingerprint(
 	database: DatabaseInstance,
@@ -530,23 +555,32 @@ function publishedFingerprint(
 			.from(memoryBanks)
 			.where(eq(memoryBanks.id, id))
 			.get();
-		const rows = database
+		const published = database
 			.select()
 			.from(memoryPublishedRows)
 			.where(eq(memoryPublishedRows.bankId, id))
 			.orderBy(asc(memoryPublishedRows.id))
-			.all()
-			.map((row) => [
-				row.id,
-				row.generation,
-				row.epoch,
-				row.nativeId,
-				row.text,
-				row.nativeText,
-				row.sourceIdsJson,
-				row.sourceFingerprintsJson,
-				row.updatedAt.getTime(),
-			]);
+			.all();
+		const restsOn = new Set<string>();
+		for (const row of published) {
+			for (const fact of readAcknowledgedFacts(row.sourceFingerprintsJson))
+				restsOn.add(fact.id);
+			const ids: unknown = JSON.parse(row.sourceIdsJson);
+			if (Array.isArray(ids))
+				for (const factId of ids)
+					if (typeof factId === "string") restsOn.add(factId);
+		}
+		const rows = published.map((row) => [
+			row.id,
+			row.generation,
+			row.epoch,
+			row.nativeId,
+			row.text,
+			row.nativeText,
+			row.sourceIdsJson,
+			row.sourceFingerprintsJson,
+			row.updatedAt.getTime(),
+		]);
 		const visible = readPublishedMemory(userId, id, undefined, database)
 			.map((row) => row.id)
 			.sort();
@@ -562,6 +596,11 @@ function publishedFingerprint(
 			.where(eq(memorySourceRevisions.bankId, id))
 			.orderBy(asc(memorySourceRevisions.id))
 			.all()
+			.filter((source) =>
+				readAcknowledgedFacts(source.facts).some((fact) =>
+					restsOn.has(fact.id),
+				),
+			)
 			.map((source) => [
 				source.id,
 				source.state,

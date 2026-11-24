@@ -275,6 +275,7 @@ describe("the label migration", () => {
 			calls: 2,
 			verification: {
 				factsAccounted: true,
+				factsUnchanged: true,
 				publishedRowsUnchanged: true,
 				fewUnlabelled: true,
 				labelsPlausible: true,
@@ -578,6 +579,74 @@ describe("the label migration", () => {
 			failure: "published_rows_changed",
 			verification: { factsAccounted: true, publishedRowsUnchanged: false },
 		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("a chat during the run (a new pending source) does not fail verification", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		let chats = 0;
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				model:
+					(userId, signal) =>
+					async (...args) => {
+						// What a turn records while the Memory workers are paused.
+						h.sqlite
+							.prepare(
+								"INSERT INTO memory_source_revisions (id, bank_id, user_id, epoch, event_id, lineage_id, text, context, text_hash, asserted_at, state) VALUES (?, ?, 'user-1', 0, ?, ?, 'synthetic', '{}', 'hash', 1767225600, ?)",
+							)
+							.run(
+								`chat-${chats}`,
+								bank.id,
+								`chat-event-${chats}`,
+								`chat-lineage-${chats}`,
+								chats++ ? "staged" : "pending",
+							);
+						return fake.model(userId, signal)(...args);
+					},
+			},
+		);
+		expect(chats).toBe(1);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "verified",
+			verification: { publishedRowsUnchanged: true },
+		});
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+	});
+
+	it("a labelled fact whose text changes between the two listings fails the account", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		let listings = 0;
+		const report = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: async (bankId) => {
+					const facts = await fake.listFacts(bankId);
+					// The second listing (verification's) holds new wording for one.
+					return listings++ === 0
+						? facts
+						: facts.map((fact) =>
+								fact.id === "user-1-fact-1"
+									? { ...fact, text: "likes green tea" }
+									: fact,
+							);
+				},
+				model: fake.model,
+			},
+		);
+		expect(listings).toBe(2);
+		expect(report.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "facts_changed",
+			verification: { factsUnchanged: false },
+		});
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(3);
 		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
 	});
 
