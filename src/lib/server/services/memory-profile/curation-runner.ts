@@ -3546,8 +3546,8 @@ export async function excludeRefusedSourceEdit(
 			.get();
 	const refused: {
 		changed: ReturnType<typeof sourceEditChangedFacts>;
-		tookAway: boolean;
-	} = { changed: [], tookAway: false };
+		taken: ReturnType<typeof sourceEditChangedFacts>;
+	} = { changed: [], taken: [] };
 	if (
 		!(await ctx.write((tx) => {
 			actionFence(tx, ctx);
@@ -3556,12 +3556,19 @@ export async function excludeRefusedSourceEdit(
 			const intent = parseActionIntent(action.intentJson);
 			if (intent.outcome === "accepted") return;
 			refused.changed = sourceEditChangedFacts(intent);
-			refused.tookAway = sourceEditTookAway(intent);
+			refused.taken = sourceEditTookAway(intent) ? refused.changed : [];
+			// Recorded once: what this refusal excludes, read by publication.
 			tx.update(memoryActions)
-				.set({ intentJson: JSON.stringify({ ...intent, outcome: "rejected" }) })
+				.set({
+					intentJson: JSON.stringify({
+						...intent,
+						outcome: "rejected",
+						excludedFactIds: refused.taken.map(({ id }) => id),
+					}),
+				})
 				.where(eq(memoryActions.id, action.id))
 				.run();
-			if (!refused.tookAway) return;
+			if (!refused.taken.length) return;
 			const revoked = new Set(
 				tx
 					.select({ factId: memoryRevocations.nativeFactId })
@@ -3577,7 +3584,7 @@ export async function excludeRefusedSourceEdit(
 					.all()
 					.map(({ factId }) => factId),
 			);
-			for (const fact of refused.changed)
+			for (const fact of refused.taken)
 				if (!revoked.has(fact.id))
 					tx.insert(memoryRevocations)
 						.values({
@@ -3599,8 +3606,8 @@ export async function excludeRefusedSourceEdit(
 			.map((fact) => [fact.id, fact]),
 	);
 	let written = false;
-	if (refused.tookAway)
-		for (const fact of refused.changed) {
+	if (refused.taken.length)
+		for (const fact of refused.taken) {
 			if (live.get(fact.id)?.document_id !== fact.sourceId) continue;
 			await fence(ctx);
 			await client.editFact(fact.id, {

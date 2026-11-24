@@ -698,6 +698,7 @@ describe("accepted native publication", () => {
 		const intent = (
 			outcome: "rejected" | "accepted",
 			text = "My kayak is blue",
+			excludedFactIds?: string[],
 		) =>
 			JSON.stringify({
 				request: {
@@ -721,6 +722,7 @@ describe("accepted native publication", () => {
 					{ id: "paddle", text: "Paddles on Sundays" },
 				],
 				outcome,
+				...(excludedFactIds ? { excludedFactIds } : {}),
 			});
 		f.db
 			.insert(f.schema.memoryActions)
@@ -733,7 +735,8 @@ describe("accepted native publication", () => {
 				kind: "source_edit",
 				text: "My kayak is blue",
 				previousText: "My kayak is green",
-				intentJson: intent("rejected"),
+				// As the refusal records it: the fact the edit took away.
+				intentJson: intent("rejected", "My kayak is blue", ["fact"]),
 			})
 			.run();
 		const excluded = () =>
@@ -834,8 +837,17 @@ describe("accepted native publication", () => {
 				intentJson: intent(
 					"rejected",
 					"My kayak is green. I paddle on Sundays too.",
+					[],
 				),
 			})
+			.where(eqId(f.schema.memoryActions.id, "source-edit"))
+			.run();
+		expect(excluded()).toEqual([]);
+		// Nor does an edit refused and put back before this rule: it recorded
+		// no exclusion, and nothing it put back is taken away later.
+		f.db
+			.update(f.schema.memoryActions)
+			.set({ intentJson: intent("rejected") })
 			.where(eqId(f.schema.memoryActions.id, "source-edit"))
 			.run();
 		expect(excluded()).toEqual([]);

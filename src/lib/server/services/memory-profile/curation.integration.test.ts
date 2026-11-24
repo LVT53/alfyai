@@ -4443,9 +4443,11 @@ it.each([
 					.from(f.s.memoryActions)
 					.where(eq(f.s.memoryActions.requestId, edited.id))
 					.get();
-				expect(JSON.parse(sourceEdit?.intentJson ?? "{}").outcome).toBe(
-					"rejected",
-				);
+				expect(JSON.parse(sourceEdit?.intentJson ?? "{}")).toMatchObject({
+					outcome: "rejected",
+					// What the refusal excludes, recorded once.
+					excludedFactIds: onlyAdds ? [] : ["decaf"],
+				});
 				const decafRevocations = f.db
 					.select()
 					.from(f.s.memoryRevocations)

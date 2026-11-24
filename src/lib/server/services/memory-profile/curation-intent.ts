@@ -25,6 +25,15 @@ export interface ActionIntentRecord {
 	 * Remove ends unapplied after its native write (`excludedNativeEvidence`).
 	 */
 	familyFactIds?: string[];
+	/**
+	 * A changed resend refused for good: the facts of the chats it carried
+	 * that its refusal excludes the way a Remove excludes its facts, recorded
+	 * once with the `rejected` outcome (`excludeRefusedSourceEdit`) and read by
+	 * `excludedNativeEvidence`. Empty when the edit only added sentences;
+	 * absent on an edit refused and put back before this rule, which excludes
+	 * nothing later.
+	 */
+	excludedFactIds?: string[];
 	plan?: { forget: string[]; replace: string[]; preserve: string[] };
 	removalOnly?: boolean;
 	omissionEarlierFingerprint?: string;
@@ -118,6 +127,9 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 		(value.familyFactIds !== undefined &&
 			(!Array.isArray(value.familyFactIds) ||
 				value.familyFactIds.some((id) => typeof id !== "string"))) ||
+		(value.excludedFactIds !== undefined &&
+			(!Array.isArray(value.excludedFactIds) ||
+				value.excludedFactIds.some((id) => typeof id !== "string"))) ||
 		(value.meaningCheck !== undefined && !validMeaningCheck(value.meaningCheck))
 	)
 		throw Error("memory_action_corrupt");
@@ -176,18 +188,6 @@ export function sourceEditChangedFacts(intent: ActionIntentRecord) {
 				.map((fact) => [fact.id, fact]),
 		).values(),
 	];
-}
-
-/**
- * What a changed resend's edit took away from the chats it carried, the facts
- * a refused resend leaves out the way a Remove's facts are left out
- * (`excludeRefusedSourceEdit`, `excludedNativeEvidence`): when the person's
- * edit took anything away from their message, every fact its proposal changed;
- * when it only added, none (the proposal's changes are then put back, and the
- * wording the person saw stays). The facts the proposal kept stay either way.
- */
-export function sourceEditTakenFacts(intent: ActionIntentRecord) {
-	return sourceEditTookAway(intent) ? sourceEditChangedFacts(intent) : [];
 }
 
 export type ReplayCheck = {

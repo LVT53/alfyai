@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	type ActionIntentRecord,
 	sourceEditChangedFacts,
-	sourceEditTakenFacts,
 	sourceEditTookAway,
 } from "./curation-intent";
 
@@ -77,7 +76,7 @@ describe("what a person's edit of their message took away", () => {
 	])("took nothing away: %s", (_case, before, after) => {
 		expect(sourceEditTookAway(sourceEdit(before, after))).toBe(false);
 	});
-	it("excludes every fact the proposal changed only when the edit took something away", () => {
+	it("lists the facts the proposal changed, whatever the edit took away", () => {
 		const proposal = [
 			{ id: "colour", text: "" },
 			{ id: "name", text: "The user has a cat named Mák." },
@@ -86,9 +85,7 @@ describe("what a person's edit of their message took away", () => {
 		expect(sourceEditChangedFacts(removal).map(({ id }) => id)).toEqual([
 			"colour",
 		]);
-		expect(sourceEditTakenFacts(removal).map(({ id }) => id)).toEqual([
-			"colour",
-		]);
+		expect(sourceEditTookAway(removal)).toBe(true);
 		const addition = sourceEdit(
 			"Mák is black.",
 			"Mák is black. I like coffee.",
@@ -97,7 +94,7 @@ describe("what a person's edit of their message took away", () => {
 		expect(sourceEditChangedFacts(addition).map(({ id }) => id)).toEqual([
 			"colour",
 		]);
-		expect(sourceEditTakenFacts(addition)).toEqual([]);
+		expect(sourceEditTookAway(addition)).toBe(false);
 	});
 	it("treats a request that is not an edit as taking something away", () => {
 		expect(
