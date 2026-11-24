@@ -31,7 +31,7 @@ const FIRST_PASS_SHARE = 0.36;
 const SECOND_PASS_SHARE = 0.28;
 const DECODE_SHARE = 0.36;
 /** The explicit-picture check of every frame, per five seconds of clip. */
-const CHECK_SECONDS_PER_SEGMENT = 4;
+const CHECK_SECONDS_PER_FIVE_SECONDS_OF_CLIP = 4;
 /** The poster, the thumbnail and the store. */
 const STORE_SECONDS = 1;
 
@@ -55,7 +55,7 @@ export function videoPlan(
 			kind: "finish",
 			seconds:
 				body * DECODE_SHARE +
-				CHECK_SECONDS_PER_SEGMENT * (durationSeconds / 5) +
+				CHECK_SECONDS_PER_FIVE_SECONDS_OF_CLIP * (durationSeconds / 5) +
 				STORE_SECONDS,
 		},
 	];
