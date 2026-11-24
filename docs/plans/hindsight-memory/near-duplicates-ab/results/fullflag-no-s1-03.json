@@ -1,0 +1,388 @@
+{
+	"suite": "near-duplicates A/B, 2026-11-24",
+	"scenario": "fullflag",
+	"variant": "no-s1",
+	"index": 3,
+	"bank": "ab-fullflag-no-s1-3-e7d1bd4e",
+	"startedAt": "2026-11-24T17:59:53.145Z",
+	"status": "ok",
+	"error": null,
+	"loadedFacts": 8,
+	"beforeDeletion": {
+		"raw": [
+			{
+				"id": "faee2315-50fe-4050-bcc9-136e72f3af4d",
+				"document_id": "pending",
+				"text": "A felhasználó kerékpárja narancssárga. | Involving: user",
+				"mentioned_at": "2026-11-20T12:00:00+00:00"
+			},
+			{
+				"id": "dd1e977f-3b9c-4d9a-82e1-25eb12c5599a",
+				"document_id": "correction",
+				"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+				"mentioned_at": "2026-11-12T12:00:00+00:00"
+			},
+			{
+				"id": "fd63df62-fda6-4f2b-8221-fd5c3a325969",
+				"document_id": "newer",
+				"text": "A felhasználó kerékpárja kék. | Involving: user",
+				"mentioned_at": "2026-11-10T12:00:00+00:00"
+			},
+			{
+				"id": "f70f5d47-ee36-40b7-a330-ea7296e58757",
+				"document_id": "old-replay-sister",
+				"text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user húga",
+				"mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+			},
+			{
+				"id": "75c86beb-7778-4774-86ea-8dcb79485a1a",
+				"document_id": "old-sister",
+				"text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user, húg",
+				"mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+			},
+			{
+				"id": "d2d007d2-1539-486b-81fc-a3e994a73b19",
+				"document_id": "old-short",
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+			},
+			{
+				"id": "7f5d5d18-81f9-468b-8f02-94d6011fdecc",
+				"document_id": "old-replay-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			},
+			{
+				"id": "6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+				"document_id": "old-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			}
+		],
+		"observations": [
+			{
+				"id": "b7dfaaaf-51d3-4423-a04a-d4c1c341ae83",
+				"text": "A felhasználónak van egy narancssárga kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+				"source_memory_ids": [
+					"6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+					"fd63df62-fda6-4f2b-8221-fd5c3a325969",
+					"dd1e977f-3b9c-4d9a-82e1-25eb12c5599a",
+					"7f5d5d18-81f9-468b-8f02-94d6011fdecc",
+					"faee2315-50fe-4050-bcc9-136e72f3af4d"
+				]
+			},
+			{
+				"id": "bac08c36-6e4c-4807-aeda-658d5a386655",
+				"text": "A felhasználó húga Győrben él.",
+				"source_memory_ids": [
+					"75c86beb-7778-4774-86ea-8dcb79485a1a",
+					"f70f5d47-ee36-40b7-a330-ea7296e58757"
+				]
+			},
+			{
+				"id": "d25bcff3-af91-4ede-b261-b0bd471f1d52",
+				"text": "A felhasználó rövid válaszokat kér.",
+				"source_memory_ids": [
+					"d2d007d2-1539-486b-81fc-a3e994a73b19"
+				]
+			},
+			{
+				"id": "27c21492-7b18-46ed-87cd-11a28b7db9bc",
+				"text": "A felhasználónak van egy fehér kajakja.",
+				"source_memory_ids": [
+					"6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+					"7f5d5d18-81f9-468b-8f02-94d6011fdecc"
+				]
+			}
+		]
+	},
+	"afterDeletion": {
+		"raw": [
+			{
+				"id": "dd1e977f-3b9c-4d9a-82e1-25eb12c5599a",
+				"document_id": "correction",
+				"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+				"mentioned_at": "2026-11-12T12:00:00+00:00"
+			},
+			{
+				"id": "fd63df62-fda6-4f2b-8221-fd5c3a325969",
+				"document_id": "newer",
+				"text": "A felhasználó kerékpárja kék. | Involving: user",
+				"mentioned_at": "2026-11-10T12:00:00+00:00"
+			},
+			{
+				"id": "f70f5d47-ee36-40b7-a330-ea7296e58757",
+				"document_id": "old-replay-sister",
+				"text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user húga",
+				"mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+			},
+			{
+				"id": "75c86beb-7778-4774-86ea-8dcb79485a1a",
+				"document_id": "old-sister",
+				"text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user, húg",
+				"mentioned_at": "2026-11-01T12:00:00.020000+00:00"
+			},
+			{
+				"id": "d2d007d2-1539-486b-81fc-a3e994a73b19",
+				"document_id": "old-short",
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00.010000+00:00"
+			},
+			{
+				"id": "7f5d5d18-81f9-468b-8f02-94d6011fdecc",
+				"document_id": "old-replay-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			},
+			{
+				"id": "6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+				"document_id": "old-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			}
+		],
+		"observations": [
+			{
+				"id": "27c21492-7b18-46ed-87cd-11a28b7db9bc",
+				"text": "A felhasználónak van egy zöld kerékpárja és egy fehér kajakja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+				"source_memory_ids": [
+					"6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+					"7f5d5d18-81f9-468b-8f02-94d6011fdecc",
+					"fd63df62-fda6-4f2b-8221-fd5c3a325969",
+					"dd1e977f-3b9c-4d9a-82e1-25eb12c5599a"
+				]
+			},
+			{
+				"id": "bac08c36-6e4c-4807-aeda-658d5a386655",
+				"text": "A felhasználó húga Győrben él.",
+				"source_memory_ids": [
+					"75c86beb-7778-4774-86ea-8dcb79485a1a",
+					"f70f5d47-ee36-40b7-a330-ea7296e58757"
+				]
+			},
+			{
+				"id": "d25bcff3-af91-4ede-b261-b0bd471f1d52",
+				"text": "A felhasználó rövid válaszokat kér.",
+				"source_memory_ids": [
+					"d2d007d2-1539-486b-81fc-a3e994a73b19"
+				]
+			}
+		]
+	},
+	"histories": {
+		"27c21492-7b18-46ed-87cd-11a28b7db9bc": [
+			{
+				"previous_text": "A felhasználónak van egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T18:00:42.030678+00:00",
+				"new_source_memory_ids": [
+					"7f5d5d18-81f9-468b-8f02-94d6011fdecc"
+				],
+				"source_facts": []
+			},
+			{
+				"previous_text": "A felhasználónak van egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T18:01:05.742381+00:00",
+				"new_source_memory_ids": [
+					"6c0db5ec-5900-4ff5-9868-3eff95b29b65"
+				],
+				"source_facts": [
+					{
+						"id": "6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			},
+			{
+				"previous_text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T18:01:12.997938+00:00",
+				"new_source_memory_ids": [
+					"fd63df62-fda6-4f2b-8221-fd5c3a325969"
+				],
+				"source_facts": [
+					{
+						"id": "6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "fd63df62-fda6-4f2b-8221-fd5c3a325969",
+						"text": "A felhasználó kerékpárja kék. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			},
+			{
+				"previous_text": "A felhasználónak van egy kék kerékpárja és egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-10T12:00:00+00:00",
+				"changed_at": "2026-11-24T18:01:23.021854+00:00",
+				"new_source_memory_ids": [
+					"dd1e977f-3b9c-4d9a-82e1-25eb12c5599a"
+				],
+				"source_facts": [
+					{
+						"id": "6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "fd63df62-fda6-4f2b-8221-fd5c3a325969",
+						"text": "A felhasználó kerékpárja kék. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "dd1e977f-3b9c-4d9a-82e1-25eb12c5599a",
+						"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			},
+			{
+				"previous_text": "A felhasználónak van egy zöld kerékpárja és egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-12T12:00:00+00:00",
+				"changed_at": "2026-11-24T18:01:30.976853+00:00",
+				"new_source_memory_ids": [
+					"7f5d5d18-81f9-468b-8f02-94d6011fdecc"
+				],
+				"source_facts": [
+					{
+						"id": "6c0db5ec-5900-4ff5-9868-3eff95b29b65",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "7f5d5d18-81f9-468b-8f02-94d6011fdecc",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					},
+					{
+						"id": "fd63df62-fda6-4f2b-8221-fd5c3a325969",
+						"text": "A felhasználó kerékpárja kék. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "dd1e977f-3b9c-4d9a-82e1-25eb12c5599a",
+						"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					}
+				]
+			}
+		],
+		"bac08c36-6e4c-4807-aeda-658d5a386655": [
+			{
+				"previous_text": "A felhasználó húga Győrben él.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00.020000+00:00",
+				"changed_at": "2026-11-24T18:00:48.266318+00:00",
+				"new_source_memory_ids": [
+					"f70f5d47-ee36-40b7-a330-ea7296e58757"
+				],
+				"source_facts": [
+					{
+						"id": "75c86beb-7778-4774-86ea-8dcb79485a1a",
+						"text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user, húg",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "f70f5d47-ee36-40b7-a330-ea7296e58757",
+						"text": "A felhasználó húga Győrben él. | Where: Győr | Involving: user húga",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			}
+		],
+		"d25bcff3-af91-4ede-b261-b0bd471f1d52": []
+	},
+	"consolidations": [
+		{
+			"at": "2026-11-24T18:00:01.490101+00:00",
+			"status": "completed",
+			"detail": null
+		},
+		{
+			"at": "2026-11-24T18:00:57.418541+00:00",
+			"status": "completed",
+			"detail": null
+		}
+	],
+	"analysis": {
+		"twin": false,
+		"near": false,
+		"duplicate": false,
+		"pairs": [],
+		"checks": {
+			"greenCurrent": true,
+			"kayakKept": true,
+			"orangeLeak": false,
+			"oldColourCurrent": false,
+			"historyKept": true,
+			"inventedDate": false,
+			"sisterKept": true,
+			"compoundRow": true,
+			"rows": 3
+		}
+	},
+	"analysisBefore": {
+		"twin": false,
+		"near": false,
+		"duplicate": false,
+		"pairs": [],
+		"checks": {
+			"greenCurrent": false,
+			"kayakKept": true,
+			"orangeLeak": true,
+			"oldColourCurrent": false,
+			"historyKept": true,
+			"inventedDate": false,
+			"sisterKept": true,
+			"compoundRow": false,
+			"rows": 4
+		}
+	},
+	"seconds": 100,
+	"finishedAt": "2026-11-24T18:01:33.486Z"
+}

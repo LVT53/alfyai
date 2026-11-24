@@ -1526,13 +1526,32 @@ it.each([false, true])(
 			ckReject,
 		]);
 		const { eq } = await import("drizzle-orm");
+		// The rows as publication writes them: each fact with its dates.
+		const stored = f.db
+			.select()
+			.from(f.s.memorySourceRevisions)
+			.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+			.get();
+		if (!stored) throw Error("missing source");
 		for (const [id, text] of [
 			["kayak", "green kayak"],
 			["sister", "sister bicycle"],
 		])
 			f.db
 				.update(f.s.memoryPublishedRows)
-				.set({ text, nativeText: text, nativeId: `observation-${id}` })
+				.set({
+					text,
+					nativeText: text,
+					nativeId: `observation-${id}`,
+					sourceFingerprintsJson: JSON.stringify([
+						{
+							id,
+							text,
+							mentionedAt: null,
+							assertedAtMs: stored.assertedAt.getTime(),
+						},
+					]),
+				})
 				.where(eq(f.s.memoryPublishedRows.id, id))
 				.run();
 		const fetch = fixture.fetcher.getMockImplementation();
@@ -1601,8 +1620,15 @@ it.each([false, true])(
 			query: "kayak and bicycle",
 			tokenBudget: 500,
 		});
-		expect(recalled.map(({ text }) => text)).toEqual(
-			changed ? ["sister bicycle"] : ["green kayak", "sister bicycle"],
+		// Recall shows the cards the page shows, as soon as the page does: a
+		// re-rendered observation reaches its published card through its
+		// support, and only ever with the card's own wording (follow-up B).
+		const cards = (
+			entries: ReadonlyArray<{ ref: { rowId: string }; text: string }>,
+		) => entries.map(({ ref, text }) => `${ref.rowId}|${text}`).sort();
+		expect(cards(recalled)).toEqual(cards(rows));
+		expect(recalled.map(({ text }) => text)).not.toContain(
+			"the kayak was green",
 		);
 	},
 );
@@ -3530,6 +3556,10 @@ it.each([
 	"accepted carried next edit",
 	"refused changed resend after exact carry",
 	"changed resend refused at publication after exact carry",
+	"refused changed resend keeps the untouched fact",
+	"refused changed resend whose invalidation fails once",
+	"refused changed resend that only adds",
+	"refused changed resend whose taken fact shares a card",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3612,10 +3642,23 @@ it.each([
 			mode === "dependent exact tip withdrawn during Remove" ||
 			movedProject;
 		const removeTarget = removeCorrection ? tea : drink;
+		// Hindsight merges the decaf and the tyres into one card, then rebuilds
+		// it over the tyres alone once the decaf is gone, still naming it.
+		const sharedCard =
+			mode === "refused changed resend whose taken fact shares a card";
+		let mergeCards = false;
+		const keepsUntouched =
+			mode === "refused changed resend keeps the untouched fact" || sharedCard;
+		const invalidationFailsOnce =
+			mode === "refused changed resend whose invalidation fails once";
+		// An edit that only adds to the message takes nothing away.
+		const onlyAdds = mode === "refused changed resend that only adds";
+		const kettle = "My kettle is copper.";
 		const hasIndependentFact =
 			mode === "accepted carried next edit" ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
+			keepsUntouched ||
 			removeCarried;
 		const assertion = hasIndependentFact ? `${drink} ${independent}` : drink;
 		const corrected = hasIndependentFact ? `${tea} ${independent}` : tea;
@@ -3640,6 +3683,9 @@ it.each([
 			mode === "accepted carried next edit" ||
 			mode === "refused changed resend after exact carry" ||
 			mode === "changed resend refused at publication after exact carry" ||
+			keepsUntouched ||
+			invalidationFailsOnce ||
+			onlyAdds ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
@@ -3701,7 +3747,17 @@ it.each([
 					});
 				} else {
 					const frame = JSON.parse(item.content);
-					if (
+					if (onlyAdds && frame.after === `${assertion} ${kettle}`) {
+						expect(frame).toMatchObject({
+							kind: "source_edit",
+							before: assertion,
+						});
+						nativeFacts.push({
+							id: "kettle",
+							text: kettle,
+							document_id: item.document_id,
+						});
+					} else if (
 						mode === "changed carry supplies original context" &&
 						frame.after === appended
 					) {
@@ -3754,6 +3810,33 @@ it.each([
 							);
 			}
 			const response = await original(url, init);
+			if (mergeCards && path.includes("/memories/list")) {
+				const list = await response.json();
+				const live = list.items.some(
+					(item: { id: string }) => item.id === "decaf",
+				);
+				list.items = list.items.filter(
+					(item: { id: string }) =>
+						item.id !== "observation-decaf" && item.id !== "observation-tyres",
+				);
+				list.items.push(
+					live
+						? {
+								id: "observation-merged",
+								text: "I prefer decaf in the afternoon, and my bike tyres are tubeless.",
+								fact_type: "observation",
+								source_memory_ids: ["decaf", "tyres"],
+							}
+						: {
+								id: "observation-rebuilt",
+								text: "My bike tyres are tubeless; I prefer decaf in the afternoon.",
+								fact_type: "observation",
+								source_memory_ids: ["tyres"],
+							},
+				);
+				list.total = list.items.length;
+				return new Response(JSON.stringify(list));
+			}
 			if (driftAfterWithdrawal && path.includes("/memories/list")) {
 				const list = await response.json();
 				if (mode === "extra observation on exact resend")
@@ -4226,7 +4309,10 @@ it.each([
 			}
 			if (
 				mode === "refused changed resend after exact carry" ||
-				mode === "changed resend refused at publication after exact carry"
+				mode === "changed resend refused at publication after exact carry" ||
+				keepsUntouched ||
+				invalidationFailsOnce ||
+				onlyAdds
 			) {
 				// The changed resend rewrites the carried fact natively. Either its
 				// final check refuses the result on every attempt, or publication
@@ -4250,20 +4336,92 @@ it.each([
 						.run();
 				fixture.model.mockImplementation(
 					async (_prompt, input: Record<string, unknown>) => {
+						// The edit rewrites the decaf fact and leaves the tyres as they were.
 						if ("facts" in input)
-							return { facts: [{ id: "decaf", text: rewritten }] };
+							return {
+								facts: [
+									{ id: "decaf", text: rewritten },
+									...(keepsUntouched
+										? [{ id: "tyres", text: independent }]
+										: []),
+								],
+							};
 						if ("displayed_observations" in input)
 							return atPublication ? ckOkay : ckReject;
 						if ("original_facts" in input) return ckOkay;
+						// The plan reads the edit as the person made it: an added sentence
+						// replaces nothing.
 						return {
 							forget: [],
-							replace: ["decaf to black tea"],
+							replace: onlyAdds ? [] : ["decaf to black tea"],
 							preserve: [],
 						};
 					},
 				);
+				// What the person reads before the edit: the decaf card, and an
+				// Overview written from it.
+				const overview = await import("./overview");
+				const { recallMemory } = await import("../memory-context/native");
+				let overviewInput = "";
+				const writeOverview = () =>
+					overview.writeMemoryOverview(h.userId, scope, {
+						rewrite: true,
+						model: async (_prompt, input) => {
+							overviewInput = JSON.stringify(input);
+							return { overview: "Synthetic overview." };
+						},
+					});
+				const recalled = async () => {
+					const recallChat = `recall-${randomUUID()}`;
+					f.db
+						.insert(f.s.conversations)
+						.values({ id: recallChat, userId: h.userId, title: "Recall" })
+						.run();
+					return (
+						await recallMemory(h.userId, {
+							conversationId: recallChat,
+							query: "afternoon drink bike tyres maps",
+							tokenBudget: 4000,
+						})
+					)
+						.map(({ text }) => text)
+						.sort();
+				};
+				const shown = () =>
+					read
+						.listMemory(h.userId, { scope })
+						.rows.map(({ text }) => text)
+						.sort();
+				await writeOverview();
+				expect(overviewInput).toContain(drink);
+				expect(overview.readMemoryOverview(h.userId, scope).state).toBe(
+					"written",
+				);
+				// Hindsight fails the first invalidation: what the page shows then.
+				let shownWhileHindsightFailed: string[] | undefined;
+				if (invalidationFailsOnce) {
+					const live = fixture.fetcher.getMockImplementation();
+					if (!live) throw Error("missing native fixture");
+					fixture.fetcher.mockImplementation(async (url, init) => {
+						if (
+							!shownWhileHindsightFailed &&
+							init?.method === "PATCH" &&
+							String(url).endsWith("/memories/decaf") &&
+							JSON.parse(String(init.body)).state === "invalidated"
+						) {
+							shownWhileHindsightFailed = shown();
+							return new Response("unavailable", { status: 503 });
+						}
+						return live(url, init);
+					});
+				}
 				await deleteMessages(["after"], { editSourceMessageId: "after" });
-				const edited = await persist("edited", "after", corrected);
+				mergeCards = sharedCard;
+				const edited = await persist(
+					"edited",
+					"after",
+					onlyAdds ? `${assertion} ${kettle}` : corrected,
+				);
 				const deliveryOf = (sourceId: string) =>
 					f.db
 						.select()
@@ -4281,24 +4439,12 @@ it.each([
 					status: "failed",
 					errorCode: atPublication
 						? "memory_preparation_failed"
-						: "memory_dependency_check_rejected",
+						: invalidationFailsOnce
+							? "native_unavailable"
+							: "memory_dependency_check_rejected",
 				});
-				expect(fixture.patches).toContain("decaf");
-				// What the refused change wrote natively is undone: the carried
-				// fact holds the text the person sees again.
-				expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
-					text: drink,
-					document_id: previous.id,
-				});
-				expect(
-					read.listMemory(h.userId, { scope }).rows.map(({ text }) => text),
-				).toEqual([drink]);
-				// A retry of the refused resend writes its proposal again and is
-				// refused again: what it wrote is put back again. (A refusal at
-				// publication ends the delivery for good; only an operator reopens it.)
-				if (!atPublication) {
-					const patchesBefore = fixture.patches.length;
-					const { retry } = await import("../jobs/ledger");
+				const { retry } = await import("../jobs/ledger");
+				const retryRefused = async () => {
 					expect(
 						retry(job.memoryDeliveryJob, deliveryOf(edited.id)?.id ?? "", {
 							userId: h.userId,
@@ -4309,15 +4455,107 @@ it.each([
 						if (deliveryOf(edited.id)?.status !== "queued") break;
 						vi.setSystemTime(Date.now() + 10 * 60_000);
 					}
-					expect(deliveryOf(edited.id)?.status).toBe("failed");
-					expect(fixture.patches.length).toBeGreaterThan(patchesBefore);
+					expect(deliveryOf(edited.id)).toMatchObject({
+						status: "failed",
+						errorCode: "memory_edit_rejected",
+					});
+				};
+				if (invalidationFailsOnce) {
+					// The exclusion was recorded before Hindsight was asked anything:
+					// nothing showed the decaf while Hindsight failed. The refusal came
+					// on the last counted attempt, so Hindsight still holds the refused
+					// rewrite until a retry (an operator's reattach), which ends at once
+					// and finishes the invalidation.
+					expect(shownWhileHindsightFailed).toEqual([]);
+					expect(shown()).toEqual([]);
+					expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
+						text: rewritten,
+					});
+					await retryRefused();
+				}
+				expect(fixture.patches).toContain("decaf");
+				const sourceEdit = f.db
+					.select()
+					.from(f.s.memoryActions)
+					.where(eq(f.s.memoryActions.requestId, edited.id))
+					.get();
+				expect(JSON.parse(sourceEdit?.intentJson ?? "{}")).toMatchObject({
+					outcome: "rejected",
+					// What the refusal excludes: the decaf, and the tyres that shared a
+					// live card with it.
+					excludedFactIds: onlyAdds
+						? []
+						: sharedCard
+							? ["decaf", "tyres"]
+							: ["decaf"],
+				});
+				const decafRevocations = f.db
+					.select()
+					.from(f.s.memoryRevocations)
+					.where(eq(f.s.memoryRevocations.nativeFactId, "decaf"))
+					.all();
+				if (onlyAdds) {
+					// The person only added to their message: nothing was taken away,
+					// so the refused rewrite is put back to the wording the person saw
+					// and nothing is excluded.
 					expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
 						text: drink,
 						document_id: previous.id,
 					});
+					expect(
+						decafRevocations.filter(
+							({ actionId }) => actionId === sourceEdit?.id,
+						),
+					).toEqual([]);
+				} else {
+					// What the person's edit took away is excluded the way a removal
+					// excludes it (the owner's privacy-first choice): it is never put
+					// back, Hindsight no longer holds it as a live fact, and it is
+					// revoked whatever its wording. What the edit left stays.
+					expect(nativeFacts.find(({ id }) => id === "decaf")).toBeUndefined();
+					expect(decafRevocations).toContainEqual(
+						expect.objectContaining({
+							nativeTextHash: null,
+							actionId: sourceEdit?.id,
+						}),
+					);
 				}
-				// Later learning does not wait on the refused resend, and its
-				// own retained fact never shows.
+				const untouched = onlyAdds
+					? [drink]
+					: keepsUntouched
+						? [independent]
+						: [];
+				// The tyres shared a card with the decaf: they leave with it at the
+				// next publication, so no card Hindsight rebuilt over them alone can
+				// bring the decaf back (limit D).
+				const kept = sharedCard ? [] : untouched;
+				if (keepsUntouched)
+					expect(nativeFacts.find(({ id }) => id === "tyres")).toMatchObject({
+						text: independent,
+						document_id: previous.id,
+					});
+				expect(shown()).toEqual(untouched);
+				expect(await recalled()).toEqual(untouched);
+				// The Overview written from the decaf card went with it.
+				if (!onlyAdds)
+					expect(overview.readMemoryOverview(h.userId, scope).state).toBe(
+						"none",
+					);
+				// A retry of the refused resend ends at once: it never writes its
+				// proposal again and the exclusion holds. (A refusal at publication
+				// ends the delivery for good; only an operator reopens it. After one
+				// retry the refusal is no longer retryable.)
+				if (!atPublication && !invalidationFailsOnce) {
+					const patchesBefore = fixture.patches.length;
+					await retryRefused();
+					expect(fixture.patches.length).toBe(patchesBefore);
+					expect(nativeFacts.find(({ id }) => id === "decaf")?.text).toBe(
+						onlyAdds ? drink : undefined,
+					);
+					expect(shown()).toEqual(untouched);
+				}
+				// Later learning does not wait on the refused resend, and neither its
+				// own retained fact nor what the edit took away ever shows again.
 				const later = await persist("later", undefined, laterMessage);
 				await h.engine.drain(job.memoryDeliveryJob);
 				expect(deliveryOf(later.id)).toMatchObject({
@@ -4325,12 +4563,18 @@ it.each([
 					errorCode: null,
 				});
 				vi.useRealTimers();
-				expect(
-					read
-						.listMemory(h.userId, { scope })
-						.rows.map(({ text }) => text)
-						.sort(),
-				).toEqual([drink, laterMessage].sort());
+				const learned = [...kept, laterMessage].sort();
+				expect(shown()).toEqual(learned);
+				expect(await recalled()).toEqual(learned);
+				await writeOverview();
+				expect(overviewInput).toContain(laterMessage);
+				for (const text of kept) expect(overviewInput).toContain(text);
+				for (const text of [overviewInput, ...shown(), ...(await recalled())]) {
+					if (!onlyAdds) expect(text).not.toContain("decaf");
+					expect(text).not.toContain("preferred decaf");
+					expect(text).not.toContain("black tea");
+					expect(text).not.toContain("kettle");
+				}
 				return;
 			}
 			if (

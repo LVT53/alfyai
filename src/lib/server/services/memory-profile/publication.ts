@@ -959,12 +959,16 @@ const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
  * and, once its proposal was saved (its native write may have run before the
  * final check refused the result), the facts that shared an observation with
  * the targeted facts (`familyFactIds`) and the facts its proposal changed:
- * Hindsight rebuilt their observations and nobody approved them. A source
- * refused for its content (its delivery failed
+ * Hindsight rebuilt their observations and nobody approved them. A changed
+ * resend refused for good leaves out, whatever its job is doing, every fact
+ * its edit took away from the chats it carried, as its refusal recorded
+ * them (`excludedFactIds`, the owner's privacy-first rule): a retry never
+ * writes its proposal again.
+ * A source refused for its content (its delivery failed
  * `memory_dependency_check_rejected`, or its changed resend's source edit was
- * refused for good and put back) never published, and its native facts are
- * left out with it. A source still queued or running is not here: it is
- * waited for, as before.
+ * refused for good) never published, and its native facts are left out with
+ * it. A source still queued or running is not here: it is waited for, as
+ * before.
  */
 export function excludedNativeEvidence(
 	tx: Tx,
@@ -1018,6 +1022,21 @@ export function excludedNativeEvidence(
 				if (original.get(fact.id) !== fact.text) factIds.add(fact.id);
 		}
 	}
+	for (const edit of tx
+		.select({ intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, bank.userId),
+				eq(memoryActions.bankId, bank.id),
+				eq(memoryActions.epoch, bank.epoch),
+				eq(memoryActions.kind, "source_edit"),
+				sql`json_extract(${memoryActions.intentJson}, '$.outcome') = 'rejected'`,
+			),
+		)
+		.all())
+		for (const id of parseActionIntent(edit.intentJson).excludedFactIds ?? [])
+			factIds.add(id);
 	const sources = tx
 		.select({
 			id: memorySourceRevisions.id,
@@ -1049,9 +1068,9 @@ export function excludedNativeEvidence(
 	);
 	// Only a source refused for its content is held: its own final check
 	// refused it, or its changed resend's source edit was refused for good
-	// and put back (`restoreRefusedSourceEdit` records that as the edit's
-	// outcome). A source that failed for another reason (a wait, a hold, a
-	// migration step) may still be recovered and published, and is waited for.
+	// (`excludeRefusedSourceEdit` records that as the edit's outcome). A
+	// source that failed for another reason (a wait, a hold, a migration step)
+	// may still be recovered and published, and is waited for.
 	const stopped = sources.filter(
 		({ id, status }) =>
 			(status === "failed" || status === "cancelled") && !waiting.has(id),
@@ -1271,6 +1290,31 @@ export function curatedNativeRankKeys(
 	for (const { row, facts } of uniquePublishedSupport(captured)) {
 		if (!edited.has(row.id) && authored.get(row.nativeId) !== row.text)
 			continue;
+		const support = nativeRankSupportKey(facts.map(({ id }) => id));
+		if (support) keys.set(support, row.nativeId);
+	}
+	return keys;
+}
+
+/**
+ * A native rank can reach any published row through its complete, unique
+ * support. Hindsight can rebuild an observation under a new id or in new
+ * words over exactly the same facts (a refused correction's staged draft
+ * deleted, a consolidation after a cleanup) while the page keeps showing the
+ * published card until the next publication. Keys each row of the current
+ * generation whose facts no other row of it holds (hidden rows counted) to the
+ * row's native id. Recall confirms every such rank against Hindsight's live
+ * list before it orders the row, and only ever shows the row's own wording.
+ */
+export function publishedSupportRankKeys(
+	tx: Tx,
+	bank: typeof memoryBanks.$inferSelect,
+) {
+	const keys = new Map<string, string>();
+	if (!bank.generation) return keys;
+	for (const { row, facts } of uniquePublishedSupport(
+		publishedRowsForGeneration(tx, bank.id, bank.epoch, bank.generation),
+	)) {
 		const support = nativeRankSupportKey(facts.map(({ id }) => id));
 		if (support) keys.set(support, row.nativeId);
 	}

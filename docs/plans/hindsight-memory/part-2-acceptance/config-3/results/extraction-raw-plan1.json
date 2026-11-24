@@ -1,0 +1,311 @@
+{
+	"v3:plan:plan-en-2:0": {
+		"facts": [
+			{
+				"text": "The user is selling their old sofa on Sunday, November 22, 2026, to a guy from the neighbourhood. | When: on Sunday, November 22, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"sofa",
+					"neighbourhood",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-22T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-en-3:0": {
+		"facts": [
+			{
+				"text": "User plans to buy a new phone during the week of November 23, 2026. | When: week of November 23, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"phone",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-23T00:00:00+00:00",
+				"occurred_end": "2026-11-29T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-en-1:0": {
+		"facts": [
+			{
+				"text": "User is picking up their new laptop from the shop on Saturday, November 21, 2026. | When: Saturday, November 21, 2026 | Where: shop | Involving: user",
+				"entities": [
+					"user",
+					"laptop",
+					"shop",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-21T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó szombaton, 2026. november 21-én elmegy a boltba az új laptopjáért. | When: 2026. november 21., szombat | Where: bolt | Involving: user",
+				"entities": [
+					"user",
+					"laptop",
+					"bolt",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-21T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-en-4:0": {
+		"facts": [
+			{
+				"text": "User's new bike is being delivered on Friday, November 20, 2026. | When: Friday, November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"new bike",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T00:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-en-5:0": {
+		"facts": [
+			{
+				"text": "User booked a table at the restaurant for Friday evening, November 20, 2026. | When: Friday evening, November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"restaurant",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T17:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó a régi kanapéját egy szomszédnak fogja eladni. | When: 2026. november 22-én (vasárnap) | Involving: user, szomszéd",
+				"entities": [
+					"user",
+					"szomszéd",
+					"régi kanapé",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-22T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó új telefont vesz a 2026. november 23–29. közötti héten. | When: 2026. november 23–29. | Involving: user",
+				"entities": [
+					"user",
+					"telefon",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-23",
+				"occurred_end": "2026-11-29"
+			}
+		]
+	},
+	"v3:plan:plan-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó új biciklijét 2026. november 20-án, pénteken szállítják. | When: 2026. november 20., péntek | Involving: user",
+				"entities": [
+					"user",
+					"bicikli",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-en-1:0": {
+		"facts": [
+			{
+				"text": "The user is picking up their new laptop from the shop on Saturday, November 21, 2026. | When: Saturday, November 21, 2026 | Where: shop | Involving: user",
+				"entities": [
+					"user",
+					"laptop",
+					"shop",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-21T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-en-2:0": {
+		"facts": [
+			{
+				"text": "User is selling their old sofa on Sunday, November 22, 2026, to a guy from the neighbourhood. | When: Sunday, November 22, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"old sofa",
+					"guy from the neighbourhood",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-22T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:plan:plan-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó asztalt foglalt egy étterembe péntek estére, 2026. november 20-án. | When: 2026. november 20., péntek este | Where: étterem | Involving: user",
+				"entities": [
+					"user",
+					"étterem",
+					"asztalfoglalás",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T18:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-en-4:0": {
+		"facts": [
+			{
+				"text": "The user's new bike is being delivered on Friday, November 20, 2026. | When: Friday, November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"new bike",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T00:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-en-3:0": {
+		"facts": [
+			{
+				"text": "User plans to buy a new phone during the week of November 23-29, 2026. | When: November 23-29, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"phone",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-23T00:00:00+00:00",
+				"occurred_end": "2026-11-29T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó szombaton, 2026. november 21-én megy a boltba az új laptopjáért. | When: 2026. november 21. | Where: bolt | Involving: user",
+				"entities": [
+					"user",
+					"laptop",
+					"bolt",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-21T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó vasárnap, 2026. november 22-én eladja a régi kanapéját egy szomszédnak. | When: 2026. november 22. | Involving: user, szomszéd",
+				"entities": [
+					"user",
+					"szomszéd",
+					"régi kanapé",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-22T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-en-5:0": {
+		"facts": [
+			{
+				"text": "User booked a table at the restaurant for Friday evening, November 20, 2026. | When: Friday evening, November 20, 2026 | Where: the restaurant | Involving: user",
+				"entities": [
+					"user",
+					"restaurant",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T18:00:00+00:00",
+				"occurred_end": "2026-11-20T22:00:00+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó jövő héten, 2026. november 23. és 29. között új telefont vesz. | When: 2026. november 23. és 29. között | Involving: user",
+				"entities": [
+					"user",
+					"telefon",
+					"kind:temporary",
+					"subject:about_you"
+				],
+				"occurred_start": "2026-11-23T00:00:00+00:00",
+				"occurred_end": "2026-11-29T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó új biciklije 2026. november 20-án (pénteken) kerül kiszállításra. | When: 2026. november 20. | Involving: user",
+				"entities": [
+					"user",
+					"bicikli",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T00:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:plan:plan-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó asztalt foglalt péntek estére, 2026. november 20-án, egy étterembe. | When: 2026. november 20. este | Where: étterem | Involving: user",
+				"entities": [
+					"user",
+					"étterem",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T18:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	}
+}

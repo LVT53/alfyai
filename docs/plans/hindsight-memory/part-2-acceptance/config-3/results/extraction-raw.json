@@ -1,0 +1,4177 @@
+{
+	"v3:question:q-en-02:0": {
+		"facts": []
+	},
+	"v3:question:q-en-01:0": {
+		"facts": []
+	},
+	"v3:question:q-en-03:0": {
+		"facts": []
+	},
+	"v3:question:q-en-04:0": {
+		"facts": []
+	},
+	"v3:question:q-en-05:0": {
+		"facts": []
+	},
+	"v3:question:q-en-07:0": {
+		"facts": []
+	},
+	"v3:question:q-en-08:0": {
+		"facts": []
+	},
+	"v3:question:q-en-06:0": {
+		"facts": []
+	},
+	"v3:question:q-en-10:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-01:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-03:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-02:0": {
+		"facts": []
+	},
+	"v3:question:q-en-09:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-05:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-04:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-06:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-08:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-07:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-10:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-09:0": {
+		"facts": []
+	},
+	"v3:task:task-en-1:0": {
+		"facts": []
+	},
+	"v3:task:task-en-3:0": {
+		"facts": []
+	},
+	"v3:task:task-en-5:0": {
+		"facts": []
+	},
+	"v3:task:task-en-2:0": {
+		"facts": []
+	},
+	"v3:task:task-en-4:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-1:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-3:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-4:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-5:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-2:0": {
+		"facts": []
+	},
+	"v3:purchase:purchase-en-2:0": {
+		"facts": [
+			{
+				"text": "The user and their household got a beagle puppy named Biscuit. | When: on November 6, 2026 | Involving: user and household",
+				"entities": [
+					"user",
+					"Biscuit",
+					"beagle",
+					"puppy",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-06T00:00:00+00:00",
+				"occurred_end": "2026-11-06T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-3:0": {
+		"facts": [
+			{
+				"text": "The user's parents gave the user a Fender Stratocaster guitar for the user's birthday on Saturday, November 14, 2026. | When: Saturday, November 14, 2026 | Involving: user, user's parents | It was a birthday gift.",
+				"entities": [
+					"user",
+					"user's parents",
+					"guitar",
+					"Fender Stratocaster",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-1:0": {
+		"facts": [
+			{
+				"text": "User bought a new Pixel 9 phone between November 9 and November 15, 2026, and is really happy with its camera. | When: November 9-15, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Pixel 9",
+					"phone",
+					"camera",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-09T00:00:00+00:00",
+				"occurred_end": "2026-11-15T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-4:0": {
+		"facts": [
+			{
+				"text": "The user ordered a FlexiSpot E7 standing desk for their home office. | Where: home office | Involving: user",
+				"entities": [
+					"user",
+					"FlexiSpot E7",
+					"standing desk",
+					"home office",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-5:0": {
+		"facts": [
+			{
+				"text": "The user and their household bought a flat in Leeds in March 2026. | When: March 2026 | Where: Leeds | Involving: user and their household",
+				"entities": [
+					"user",
+					"Leeds",
+					"flat",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-03-01",
+				"occurred_end": "2026-03-31"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-6:0": {
+		"facts": [
+			{
+				"text": "User acquired a second-hand Giant Defy road bike on Saturday, November 14, 2026. | When: Saturday, November 14, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Giant Defy",
+					"road bike",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-8:0": {
+		"facts": [
+			{
+				"text": "The user got a new car, a blue Skoda Octavia. | When: on November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Skoda Octavia",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-7:0": {
+		"facts": [
+			{
+				"text": "The user bought a Kindle Paperwhite. | When: November 19, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Kindle Paperwhite",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-19T00:00:00+00:00",
+				"occurred_end": "2026-11-19T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-9:0": {
+		"facts": [
+			{
+				"text": "The user adopted a cat named Pepper from a shelter in October 2026. | When: October 2026 | Where: shelter | Involving: user",
+				"entities": [
+					"user",
+					"Pepper",
+					"shelter",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-10-01",
+				"occurred_end": "2026-10-31"
+			}
+		]
+	},
+	"v3:purchase:purchase-en-10:0": {
+		"facts": [
+			{
+				"text": "The user bought a Bambu Lab A1 3D printer during the week of November 16-22, 2026. | When: week of November 16-22, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Bambu Lab A1",
+					"3D printer",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó és háztartása 2026. november 6-án kapott egy kiskutyát, egy beagle-t, Morzsa a neve. | When: 2026. november 6. | Involving: user (a kiskutya egyik gazdája)",
+				"entities": [
+					"user",
+					"Morzsa",
+					"beagle",
+					"kiskutya",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-06T00:00:00+00:00",
+				"occurred_end": "2026-11-06T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rendelt egy FlexiSpot E7 állítható magasságú íróasztalt az otthoni irodájába. | When: 2026. november 20. | Where: otthoni iroda | Involving: user",
+				"entities": [
+					"user",
+					"FlexiSpot E7",
+					"állítható magasságú íróasztal",
+					"otthoni iroda",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó és társai 2026 márciusában vásároltak egy lakást Debrecenben. | When: 2026 márciusában | Where: Debrecen | Involving: user és társai",
+				"entities": [
+					"user",
+					"Debrecen",
+					"lakás",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-03-01",
+				"occurred_end": "2026-03-31"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 9. és 2026. november 15. között vett egy új Samsung Galaxy S24 telefont. | When: 2026. november 9. és 2026. november 15. között | Involving: user",
+				"entities": [
+					"user",
+					"Samsung Galaxy S24",
+					"telefon",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-09T00:00:00+00:00",
+				"occurred_end": "2026-11-15T23:59:59+00:00"
+			},
+			{
+				"text": "A felhasználó nagyon elégedett a Samsung Galaxy S24 telefon kamerájával. | Involving: user",
+				"entities": [
+					"user",
+					"Samsung Galaxy S24",
+					"kamera",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-7:0": {
+		"facts": [
+			{
+				"text": "A felhasználó tegnap, 2026. november 19-én vett egy Kindle Paperwhite-ot. | When: 2026. november 19. | Involving: user",
+				"entities": [
+					"user",
+					"Kindle Paperwhite",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-19T00:00:00+00:00",
+				"occurred_end": "2026-11-19T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó a szüleitől kapott egy Yamaha gitárt a születésnapjára, 2026. november 14-én. | When: 2026. november 14. | Involving: user, szülők | születésnapi ajándék",
+				"entities": [
+					"user",
+					"szülők",
+					"gitár",
+					"Yamaha",
+					"születésnap",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó szombaton, 2026. november 14-én vett egy használt Giant Defy országúti kerékpárt. | When: 2026. november 14-én (szombaton) | Involving: user",
+				"entities": [
+					"user",
+					"Giant Defy",
+					"országúti kerékpár",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 20-án vett egy új autót, egy kék Skoda Octaviát. | When: 2026. november 20. | Involving: user",
+				"entities": [
+					"user",
+					"Skoda Octavia",
+					"kék autó",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-9:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026 októberében befogadott egy Csilla nevű macskát a menhelyről. | When: 2026 októberében | Where: menhely | Involving: user",
+				"entities": [
+					"user",
+					"Csilla",
+					"macska",
+					"menhely",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-10-01",
+				"occurred_end": "2026-10-31"
+			}
+		]
+	},
+	"v3:preference:preference-en-1:0": {
+		"facts": [
+			{
+				"text": "User prefers short answers because they do not have much time to read. | Involving: user | They do not have much time to read.",
+				"entities": [
+					"user",
+					"answers",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-2:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in bullet points. | Involving: user",
+				"entities": [
+					"user",
+					"bullet points",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-3:0": {
+		"facts": [
+			{
+				"text": "The user prefers the assistant to reply in Hungarian when the user writes in Hungarian. | Involving: user",
+				"entities": [
+					"user",
+					"Hungarian",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:purchase:purchase-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 16. és 22. között vásárolt egy Bambu Lab A1 3D nyomtatót. | When: 2026. november 16. és 22. között | Involving: user",
+				"entities": [
+					"user",
+					"Bambu Lab A1",
+					"3D nyomtató",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:preference:preference-en-4:0": {
+		"facts": [
+			{
+				"text": "The user prefers a casual, friendly tone and no formal language. | Involving: user",
+				"entities": [
+					"user",
+					"casual tone",
+					"friendly tone",
+					"formal language",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-5:0": {
+		"facts": [
+			{
+				"text": "The user prefers that the assistant does not use emojis in replies. | Involving: user",
+				"entities": [
+					"user",
+					"emojis",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-7:0": {
+		"facts": [
+			{
+				"text": "The user prefers explanations to be simple, as if they are a beginner. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-6:0": {
+		"facts": [
+			{
+				"text": "The user prefers detailed answers with examples because they like to really understand things. | Involving: user | The user likes to really understand things.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-8:0": {
+		"facts": [
+			{
+				"text": "The user prefers code answers without long explanations. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-10:0": {
+		"facts": [
+			{
+				"text": "The user prefers the assistant to answer in English even if the user writes in another language. | Involving: user",
+				"entities": [
+					"user",
+					"English",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-9:0": {
+		"facts": [
+			{
+				"text": "User prefers tables when comparing things. | Involving: user",
+				"entities": [
+					"user",
+					"table",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy az asszisztens magyarul válaszoljon neki. | Involving: user",
+				"entities": [
+					"user",
+					"magyar",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy az asszisztens tegeződjön vele, és legyen közvetlen. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy az asszisztens pontokba szedve válaszoljon. | Involving: user | Válaszformátumra vonatkozó preferencia.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a válaszokban ne használjak emojikat. | Involving: user",
+				"entities": [
+					"user",
+					"emoji",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a válasz csak a kód legyen, hosszú magyarázat nélkül. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó részletes válaszokat szeretne példákkal. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-9:0": {
+		"facts": [
+			{
+				"text": "A felhasználó összehasonlításoknál táblázatos választ kér. | Involving: user",
+				"entities": [
+					"user",
+					"táblázat",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:question:q-en-01:0": {
+		"facts": []
+	},
+	"v2:question:q-en-02:0": {
+		"facts": []
+	},
+	"v3:preference:preference-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy az asszisztens angolul válaszoljon, akkor is, ha a felhasználó magyarul ír. | Involving: user",
+				"entities": [
+					"user",
+					"angolul",
+					"magyarul",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:question:q-en-03:0": {
+		"facts": []
+	},
+	"v2:question:q-en-04:0": {
+		"facts": []
+	},
+	"v2:question:q-en-05:0": {
+		"facts": []
+	},
+	"v2:question:q-en-07:0": {
+		"facts": []
+	},
+	"v3:preference:preference-hu-7:0": {
+		"facts": [
+			{
+				"text": "A felhasználó egyszerű, kezdő szintű magyarázatokat preferál. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:question:q-en-08:0": {
+		"facts": []
+	},
+	"v2:question:q-en-09:0": {
+		"facts": []
+	},
+	"v2:question:q-en-10:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-02:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-01:0": {
+		"facts": []
+	},
+	"v2:question:q-en-06:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-04:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-05:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-03:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-06:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-07:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-08:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-10:0": {
+		"facts": []
+	},
+	"v2:question:q-hu-09:0": {
+		"facts": []
+	},
+	"v2:task:task-en-1:0": {
+		"facts": []
+	},
+	"v2:task:task-en-3:0": {
+		"facts": []
+	},
+	"v2:task:task-en-4:0": {
+		"facts": []
+	},
+	"v2:task:task-en-2:0": {
+		"facts": []
+	},
+	"v2:task:task-en-5:0": {
+		"facts": []
+	},
+	"v2:task:task-hu-1:0": {
+		"facts": []
+	},
+	"v2:task:task-hu-4:0": {
+		"facts": []
+	},
+	"v2:task:task-hu-3:0": {
+		"facts": []
+	},
+	"v2:task:task-hu-2:0": {
+		"facts": []
+	},
+	"v2:task:task-hu-5:0": {
+		"facts": []
+	},
+	"v2:purchase:purchase-en-2:0": {
+		"facts": [
+			{
+				"text": "User and their household got a beagle puppy named Biscuit on November 6, 2026. | When: November 6, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Biscuit",
+					"beagle",
+					"puppy",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-06T00:00:00+00:00",
+				"occurred_end": "2026-11-06T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-3:0": {
+		"facts": [
+			{
+				"text": "The user's parents gave the user a Fender Stratocaster guitar for the user's birthday on Saturday. | When: Saturday, November 14, 2026 | Involving: user, user's parents | It was a birthday gift.",
+				"entities": [
+					"user",
+					"user's parents",
+					"Fender Stratocaster",
+					"guitar",
+					"birthday",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-4:0": {
+		"facts": [
+			{
+				"text": "The user ordered a FlexiSpot E7 standing desk for their home office. | When: Friday, November 20, 2026 | Where: home office | Involving: user",
+				"entities": [
+					"user",
+					"FlexiSpot E7",
+					"standing desk",
+					"home office",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-5:0": {
+		"facts": [
+			{
+				"text": "User and co-buyers bought a flat in Leeds in March 2026. | When: March 2026 | Where: Leeds | Involving: user and co-buyers",
+				"entities": [
+					"user",
+					"Leeds",
+					"flat",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-03-01T00:00:00+00:00",
+				"occurred_end": "2026-03-31T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-6:0": {
+		"facts": [
+			{
+				"text": "The user picked up a second-hand road bike, a Giant Defy, on Saturday, November 14, 2026. | When: Saturday, November 14, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Giant Defy",
+					"road bike",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-1:0": {
+		"facts": [
+			{
+				"text": "User bought a new Pixel 9 phone during the week of November 9–15, 2026. | When: week of November 9–15, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Pixel 9",
+					"phone",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-09T00:00:00+00:00",
+				"occurred_end": "2026-11-15T23:59:59+00:00"
+			},
+			{
+				"text": "User is really happy with the camera on their Pixel 9 phone. | Involving: user",
+				"entities": [
+					"user",
+					"Pixel 9",
+					"phone",
+					"camera",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:purchase:purchase-en-7:0": {
+		"facts": [
+			{
+				"text": "The user bought a Kindle Paperwhite. | When: November 19, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Kindle Paperwhite",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-19T00:00:00+00:00",
+				"occurred_end": "2026-11-19T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-10:0": {
+		"facts": [
+			{
+				"text": "User bought a Bambu Lab A1 3D printer during the week of November 16–22, 2026. | When: During the week of November 16–22, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Bambu Lab A1",
+					"3D printer",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-en-8:0": {
+		"facts": [
+			{
+				"text": "User has a new car, a blue Skoda Octavia. | Involving: user",
+				"entities": [
+					"user",
+					"Skoda Octavia",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:purchase:purchase-en-9:0": {
+		"facts": [
+			{
+				"text": "User adopted a cat named Pepper from the shelter in October 2026. | When: October 2026 | Where: shelter | Involving: user, Pepper (user's cat)",
+				"entities": [
+					"user",
+					"Pepper",
+					"cat",
+					"shelter",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-10-01",
+				"occurred_end": "2026-10-31"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó és háztartása 2026. november 6-án kapott egy Morzsa nevű beagle kiskutyát. | When: 2026. november 6. | Involving: user",
+				"entities": [
+					"user",
+					"Morzsa",
+					"beagle",
+					"kiskutya",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-06T00:00:00+00:00",
+				"occurred_end": "2026-11-06T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rendelt egy FlexiSpot E7 állítható magasságú íróasztalt az otthoni irodájába. | When: 2026. november 20. előtt | Where: otthoni iroda | Involving: user",
+				"entities": [
+					"user",
+					"FlexiSpot E7",
+					"íróasztal",
+					"otthoni iroda",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó szombaton kapott egy Yamaha gitárt a szüleitől a születésnapjára. | When: 2026. november 14., szombat | Involving: user, szülők | születésnap",
+				"entities": [
+					"user",
+					"szülők",
+					"Yamaha",
+					"gitár",
+					"születésnap",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó és társai 2026 márciusában lakást vettek Debrecenben. | When: 2026 márciusa | Where: Debrecen | Involving: user és társai",
+				"entities": [
+					"user",
+					"Debrecen",
+					"lakás",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-03-01",
+				"occurred_end": "2026-03-31"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 9. és 2026. november 15. között vásárolt egy új Samsung Galaxy S24 telefont. | When: 2026. november 9. és 2026. november 15. között | Involving: user",
+				"entities": [
+					"user",
+					"Samsung Galaxy S24",
+					"telefon",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-09T00:00:00+00:00",
+				"occurred_end": "2026-11-15T23:59:59+00:00"
+			},
+			{
+				"text": "A felhasználó nagyon elégedett a Samsung Galaxy S24 telefon kamerájával. | Involving: user",
+				"entities": [
+					"user",
+					"Samsung Galaxy S24",
+					"kamera",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 14-én (szombaton) vásárolt egy használt Giant Defy országúti kerékpárt. | When: 2026. november 14. | Involving: user",
+				"entities": [
+					"user",
+					"Giant Defy",
+					"országúti kerékpár",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-14T00:00:00+00:00",
+				"occurred_end": "2026-11-14T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-7:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 19-én vásárolt egy Kindle Paperwhite-ot. | When: 2026. november 19. | Involving: user",
+				"entities": [
+					"user",
+					"Kindle Paperwhite",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-19T00:00:00+00:00",
+				"occurred_end": "2026-11-19T00:00:00+00:00"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-9:0": {
+		"facts": [
+			{
+				"text": "A felhasználó múlt hónapban befogadott egy Csilla nevű macskát a menhelyről. | When: 2026 október | Where: menhely | Involving: user",
+				"entities": [
+					"user",
+					"Csilla",
+					"macska",
+					"menhely",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-10-01",
+				"occurred_end": "2026-10-31"
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 20-án vásárolt egy új autót, egy kék Skoda Octavia-t. | When: 2026. november 20. | Involving: user",
+				"entities": [
+					"user",
+					"Skoda Octavia",
+					"autó",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v2:preference:preference-en-2:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in bullet points. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:purchase:purchase-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 16. és 22. között vett egy Bambu Lab A1 3D nyomtatót. | When: 2026. november 16. és 22. között | Involving: user",
+				"entities": [
+					"user",
+					"Bambu Lab A1",
+					"3D nyomtató",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v2:preference:preference-en-1:0": {
+		"facts": [
+			{
+				"text": "User prefers short answers because they do not have much time to read. | Involving: user | Limited time to read.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-3:0": {
+		"facts": [
+			{
+				"text": "The user prefers the assistant to reply in Hungarian when the user writes in Hungarian. | Involving: user",
+				"entities": [
+					"user",
+					"Hungarian",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-4:0": {
+		"facts": [
+			{
+				"text": "User prefers a casual, friendly tone and no formal language. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-5:0": {
+		"facts": [
+			{
+				"text": "The user prefers that the assistant not use emojis in replies. | Involving: user",
+				"entities": [
+					"user",
+					"emojis",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-6:0": {
+		"facts": [
+			{
+				"text": "The user prefers detailed answers with examples because they like to really understand things. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-7:0": {
+		"facts": [
+			{
+				"text": "The user prefers explanations to be simple, as if they are a beginner. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-9:0": {
+		"facts": [
+			{
+				"text": "The user prefers comparisons to be presented in a table. | Involving: user",
+				"entities": [
+					"user",
+					"table",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-en-10:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in English even if they write in another language. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-2:0": {
+		"facts": []
+	},
+	"v2:preference:preference-en-8:0": {
+		"facts": [
+			{
+				"text": "User prefers code responses without long explanations. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy magyarul válaszoljak neki. | Involving: user",
+				"entities": [
+					"user",
+					"magyar nyelv",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó kéri, hogy a válaszokban ne használjon emojikat. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy tegezzem és legyek közvetlen vele. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-7:0": {
+		"facts": []
+	},
+	"v2:preference:preference-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó részletes válaszokat szeretne példákkal. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy a válasz csak a kód legyen, hosszú magyarázat nélkül. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preference:preference-hu-9:0": {
+		"facts": [
+			{
+				"text": "Az összehasonlításoknál a felhasználó táblázatot kér. | Involving: user",
+				"entities": [
+					"user",
+					"táblázat",
+					"összehasonlítás",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-01:1": {
+		"facts": []
+	},
+	"v2:preference:preference-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy az asszisztens angolul válaszoljon, akkor is, ha a felhasználó magyarul ír. | Involving: user",
+				"entities": [
+					"user",
+					"angolul",
+					"magyarul",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-01:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-01:3": {
+		"facts": [
+			{
+				"text": "The user chose Cinderfox. | When: 2026-11-20 | Involving: user",
+				"entities": [
+					"user",
+					"Cinderfox",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-02:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-02:0": {
+		"facts": [
+			{
+				"text": "User's friend Marcus turns 40 in December 2026. | When: December 2026 | Involving: user, Marcus (user's friend)",
+				"entities": [
+					"user",
+					"Marcus",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-12-01T00:00:00+00:00",
+				"occurred_end": "2026-12-31T23:59:59+00:00"
+			},
+			{
+				"text": "Marcus likes cooking and stargazing. | Involving: Marcus (user's friend)",
+				"entities": [
+					"Marcus",
+					"cooking",
+					"stargazing",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-01:0": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-02:2": {
+		"facts": [
+			{
+				"text": "User decided to get him the telescope. | When: Friday, November 20, 2026 | Involving: user, him (male recipient)",
+				"entities": [
+					"user",
+					"telescope",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:06:00+00:00",
+				"occurred_end": "2026-11-20T10:06:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-03:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-04:0": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-03:0": {
+		"facts": [
+			{
+				"text": "User's household is repainting the living room, and the user has not decided on a colour. | Where: living room | Involving: user and household",
+				"entities": [
+					"user",
+					"living room",
+					"kind:ongoing",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "The living room faces north and is a bit dark. | Where: living room",
+				"entities": [
+					"living room",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-04:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-04:2": {
+		"facts": [
+			{
+				"text": "User decided to go with Cedar Falls. | When: Friday, November 20, 2026 | Where: Cedar Falls | Involving: user",
+				"entities": [
+					"user",
+					"Cedar Falls",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-20T10:06:00+00:00",
+				"occurred_end": "2026-11-20T10:06:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-05:0": {
+		"facts": [
+			{
+				"text": "The user is getting a female golden retriever puppy on Saturday, November 21, 2026, and the puppy is very fluffy. | When: Saturday, November 21, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"golden retriever puppy",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-21T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-05:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-03:2": {
+		"facts": [
+			{
+				"text": "User decided on terracotta and plans to order a sample pot during the week of November 16-22, 2026. | When: week of November 16-22, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"terracotta",
+					"sample pot",
+					"kind:temporary",
+					"subject:projects"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-06:0": {
+		"facts": [
+			{
+				"text": "The user needs a new laptop for travel and light photo editing, with a budget of around 1,200 euros. | Involving: user",
+				"entities": [
+					"user",
+					"laptop",
+					"travel",
+					"photo editing",
+					"budget",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-05:3": {
+		"facts": [
+			{
+				"text": "The user chose Juniper as the name for the fluffy golden pup. | When: Friday, November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Juniper",
+					"fluffy golden pup",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-06:1": {
+		"facts": [
+			{
+				"text": "User does not need a gaming laptop. | Involving: user",
+				"entities": [
+					"user",
+					"gaming laptop",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-06:2": {
+		"facts": [
+			{
+				"text": "User finds the Lumio Pro nicer for editing but considers its 1.9 kg weight too much. | Involving: user",
+				"entities": [
+					"user",
+					"Lumio Pro",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-05:1": {
+		"facts": [
+			{
+				"text": "The user says the subject being named is golden, not dark. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-07:0": {
+		"facts": [
+			{
+				"text": "The user is in a school band that plays indie rock with a bit of synth. | Involving: user",
+				"entities": [
+					"user",
+					"school band",
+					"indie rock",
+					"synth",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-06:3": {
+		"facts": [
+			{
+				"text": "User decided to buy the Aerobook 13. | When: November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Aerobook 13",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-07:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-07:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-07:3": {
+		"facts": [
+			{
+				"text": "The user's group voted and chose Static Orchard. | When: Friday, November 20, 2026 | Involving: user and their group",
+				"entities": [
+					"user",
+					"Static Orchard",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-08:0": {
+		"facts": [
+			{
+				"text": "The user is baking a cake for their mum's 60th. | Involving: user, user's mum",
+				"entities": [
+					"user",
+					"user's mum",
+					"cake",
+					"60th",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "The user's mum does not like anything too sweet. | Involving: user's mum | Relevant to the cake being baked for her 60th.",
+				"entities": [
+					"user's mum",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-08:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-09:0": {
+		"facts": [
+			{
+				"text": "The user is starting a weekly newsletter about slow travel. | Involving: user",
+				"entities": [
+					"user",
+					"weekly newsletter",
+					"slow travel",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-08:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-09:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-en-10:0": {
+		"facts": [
+			{
+				"text": "User has a new sourdough starter. | When: November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"sourdough starter",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-09:3": {
+		"facts": [
+			{
+				"text": "The user will send it on Tuesdays and has chosen \"Tuesday Letters\" as the final name. | When: Tuesdays | Involving: user",
+				"entities": [
+					"user",
+					"Tuesday Letters",
+					"Tuesdays",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-09:2": {
+		"facts": [
+			{
+				"text": "User might send it on Sundays. | Involving: user",
+				"entities": [
+					"user",
+					"Sundays",
+					"kind:temporary",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-en-10:2": {
+		"facts": [
+			{
+				"text": "User chose \"Gluten Tag\" as the name. | When: 2026-11-20 | Involving: user",
+				"entities": [
+					"user",
+					"Gluten Tag",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:06:00+00:00",
+				"occurred_end": "2026-11-20T10:06:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-en-10:1": {
+		"facts": [
+			{
+				"text": "Bubbles is what everyone calls theirs. | Involving: everyone",
+				"entities": [
+					"Bubbles",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-01:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-01:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-01:3": {
+		"facts": [
+			{
+				"text": "A felhasználó az Ezüstág nevet választotta. | When: 2026-11-20 | Involving: user",
+				"entities": [
+					"user",
+					"Ezüstág",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-01:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak van egy fantasy játéka, amelyben varázsló karakter van, és a karakter neve természetes hangzású legyen. | Involving: user",
+				"entities": [
+					"user",
+					"fantasy játék",
+					"varázsló karakter",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-02:1": {
+		"facts": [
+			{
+				"text": "A megajándékozott tavaly már kapott illatgyertyát a felhasználótól. | When: 2025-ben | Involving: user, megajándékozott",
+				"entities": [
+					"user",
+					"illatgyertya",
+					"megajándékozott",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2025-01-01",
+				"occurred_end": "2025-12-31"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-02:0": {
+		"facts": [
+			{
+				"text": "A felhasználó barátnője, Vera harmincéves lesz. | Involving: user, Vera (a felhasználó barátnője)",
+				"entities": [
+					"user",
+					"Vera",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "Vera szereti a kikapcsolódást. | Involving: Vera (a felhasználó barátnője)",
+				"entities": [
+					"user",
+					"Vera",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-02:2": {
+		"facts": [
+			{
+				"text": "A felhasználó úgy döntött, hogy vesz valakinek egy tízalkalmas fürdőbérletet. | When: 2026. november 20. | Involving: user",
+				"entities": [
+					"user",
+					"tízalkalmas fürdőbérlet",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:06:00+00:00",
+				"occurred_end": "2026-11-20T10:06:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-03:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-03:0": {
+		"facts": [
+			{
+				"text": "A felhasználó hálószobáját festik át, de nem tud színt választani. | Involving: user",
+				"entities": [
+					"user",
+					"hálószoba",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "A felhasználó hálószobája északra néz, és elég sötét. | Involving: user",
+				"entities": [
+					"user",
+					"hálószoba",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-03:2": {
+		"facts": [
+			{
+				"text": "A felhasználó végül a mélykék mellett döntött. | Involving: user",
+				"entities": [
+					"user",
+					"mélykék",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-04:0": {
+		"facts": [
+			{
+				"text": "A felhasználó (és társai) 2026. november 21-én, szombaton valahová túrázni menne, oda-vissza kb. 5-6 órás útvonalat tervez. | When: 2026. november 21., szombat | Where: ismeretlen úticél | Involving: user (és társai)",
+				"entities": [
+					"user",
+					"túrázás",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-21T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-04:2": {
+		"facts": [
+			{
+				"text": "A felhasználó a Rám-szakadékot választotta. | When: 2026-11-20 | Where: Rám-szakadék | Involving: user",
+				"entities": [
+					"user",
+					"Rám-szakadék",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-05:0": {
+		"facts": [
+			{
+				"text": "A felhasználó fekete keverék kiskutyát fogad örökbe. | Involving: user",
+				"entities": [
+					"user",
+					"fekete keverék kiskutya",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-04:1": {
+		"facts": [
+			{
+				"text": "A felhasználó szerint a Kékes túl messze van. | Involving: user",
+				"entities": [
+					"user",
+					"Kékes",
+					"kind:temporary",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "A felhasználó és társai már jártak a Naszályon. | Where: Naszály | Involving: user és társai",
+				"entities": [
+					"user",
+					"Naszály",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-05:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-05:3": {
+		"facts": [
+			{
+				"text": "A Kormos lett a választott név, szavazás eredményeként. | When: 2026. november 20. | Involving: user és a szavazók | A szavazás döntése alapján.",
+				"entities": [
+					"Kormos",
+					"user",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-06:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak új laptopra van szüksége a munkájához, főleg táblázatokat és videóhívásokat használ, a keret 350 ezer forint. | Involving: user",
+				"entities": [
+					"user",
+					"laptop",
+					"munka",
+					"táblázatok",
+					"videóhívások",
+					"350 ezer forint",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-05:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-06:2": {
+		"facts": [
+			{
+				"text": "A felhasználó eldöntötte, hogy megrendeli az Orion Slimet. | When: 2026-11-20 | Involving: user",
+				"entities": [
+					"user",
+					"Orion Slim",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:06:00+00:00",
+				"occurred_end": "2026-11-20T10:06:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-06:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-07:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak gimis zenekara van, amely indie-pop stílusú. | Involving: user",
+				"entities": [
+					"user",
+					"gimis zenekar",
+					"indie-pop",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-07:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-07:3": {
+		"facts": [
+			{
+				"text": "Mindenki egyetértett, hogy Csendkút lesz. | When: 2026. november 20. | Involving: user, mindenki",
+				"entities": [
+					"user",
+					"Csendkút",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:09:00+00:00",
+				"occurred_end": "2026-11-20T10:09:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-07:1": {
+		"facts": [
+			{
+				"text": "A Délibáb nevet már használja egy másik banda. | Involving: user | Bandanév-javaslatok szűrése.",
+				"entities": [
+					"user",
+					"Délibáb",
+					"banda",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-08:0": {
+		"facts": [
+			{
+				"text": "A felhasználó tortát süt az édesanyja 60. születésnapjára. | Involving: user, anyukám (a felhasználó édesanyja)",
+				"entities": [
+					"user",
+					"anyukám",
+					"torta",
+					"60. születésnap",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "A felhasználó édesanyja nem szereti az édeset. | Involving: anyukám (a felhasználó édesanyja)",
+				"entities": [
+					"user",
+					"anyukám",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-08:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-09:0": {
+		"facts": [
+			{
+				"text": "A felhasználó heti hírlevelet indít a lassú utazásról. | Involving: user",
+				"entities": [
+					"user",
+					"heti hírlevél",
+					"lassú utazás",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-08:2": {
+		"facts": [
+			{
+				"text": "A felhasználó csokis-meggyes változatot választott. | When: 2026-11-20 | Involving: user",
+				"entities": [
+					"user",
+					"csokis-meggyes",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-20T10:06:00+00:00",
+				"occurred_end": "2026-11-20T10:06:00+00:00"
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-09:2": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-09:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-10:1": {
+		"facts": []
+	},
+	"v3:brainstorm:b-hu-10:0": {
+		"facts": [
+			{
+				"text": "A user húga vörös cirmos kiscicát kapott. | Involving: user, a user húga",
+				"entities": [
+					"user",
+					"húgom",
+					"kiscica",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-09:3": {
+		"facts": [
+			{
+				"text": "A felhasználó a Vasárnapi levelek címet választotta, és 2026. november 22-én küldi. | When: 2026. november 22-én | Involving: user",
+				"entities": [
+					"user",
+					"Vasárnapi levelek",
+					"kind:lasting",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-01:0": {
+		"facts": [
+			{
+				"text": "User's younger brother Callum lives in Leeds. | Where: Leeds | Involving: user, Callum (user's younger brother)",
+				"entities": [
+					"user",
+					"Callum",
+					"Leeds",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "User and their younger brother Callum talk every Sunday. | When: every Sunday | Involving: user, Callum (user's younger brother)",
+				"entities": [
+					"user",
+					"Callum",
+					"kind:ongoing",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-02:0": {
+		"facts": [
+			{
+				"text": "The user is allergic to shellfish. | Involving: user",
+				"entities": [
+					"user",
+					"shellfish",
+					"allergy",
+					"kind:lasting",
+					"subject:health"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-03:0": {
+		"facts": [
+			{
+				"text": "The user grew up speaking Portuguese at home. | Where: home | Involving: user",
+				"entities": [
+					"user",
+					"Portuguese",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-04:0": {
+		"facts": [
+			{
+				"text": "The user lives in Bristol, in a flat near the harbour. | Where: Bristol, near the harbour | Involving: user",
+				"entities": [
+					"user",
+					"Bristol",
+					"harbour",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:brainstorm:b-hu-10:2": {
+		"facts": [
+			{
+				"text": "A Mazsola lesz. | When: 2026-11-20 | Involving: user",
+				"entities": [
+					"user",
+					"Mazsola",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "A user húga imádja a Mazsolát. | Involving: user húga",
+				"entities": [
+					"user",
+					"húgom",
+					"Mazsola",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-05:0": {
+		"facts": [
+			{
+				"text": "The user has a black cat named Pickle, which rules the house. | Involving: user",
+				"entities": [
+					"user",
+					"Pickle",
+					"black cat",
+					"house",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-06:0": {
+		"facts": [
+			{
+				"text": "The user works as a bookkeeper at Brightwood Furniture. | Where: Brightwood Furniture | Involving: user",
+				"entities": [
+					"user",
+					"Brightwood Furniture",
+					"bookkeeper",
+					"kind:lasting",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-07:0": {
+		"facts": [
+			{
+				"text": "The user really loves old black-and-white detective films. | Involving: user",
+				"entities": [
+					"user",
+					"old black-and-white detective films",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-09:0": {
+		"facts": [
+			{
+				"text": "The user is studying marine biology at the University of Plymouth. | Where: University of Plymouth | Involving: user",
+				"entities": [
+					"user",
+					"University of Plymouth",
+					"marine biology",
+					"kind:lasting",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-08:0": {
+		"facts": [
+			{
+				"text": "The user has had type 1 diabetes since they were nine years old. | When: since age nine | Involving: user",
+				"entities": [
+					"user",
+					"type 1 diabetes",
+					"kind:lasting",
+					"subject:health"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-en-10:0": {
+		"facts": [
+			{
+				"text": "The user drives an old green Volvo estate. | Involving: user",
+				"entities": [
+					"user",
+					"Volvo estate",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-02:0": {
+		"facts": [
+			{
+				"text": "A felhasználó allergiás a mogyoróra. | Involving: user",
+				"entities": [
+					"user",
+					"mogyoró",
+					"kind:lasting",
+					"subject:health"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-01:0": {
+		"facts": [
+			{
+				"text": "A felhasználó nővére, Réka Kecskeméten él. | Where: Kecskemét | Involving: Réka (a felhasználó nővére)",
+				"entities": [
+					"user",
+					"Réka",
+					"Kecskemét",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-03:0": {
+		"facts": [
+			{
+				"text": "A felhasználó folyékonyan beszél spanyolul. | Involving: user",
+				"entities": [
+					"user",
+					"spanyol",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-04:0": {
+		"facts": [
+			{
+				"text": "A felhasználó Szegeden lakik, egy kis panellakásban a Tisza közelében. | Where: Szeged, Tisza közelében | Involving: user",
+				"entities": [
+					"user",
+					"Szeged",
+					"Tisza",
+					"panellakás",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-05:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak van egy kétéves beagle kutyája, Bodzának hívják. | Involving: user",
+				"entities": [
+					"user",
+					"Bodza",
+					"beagle",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-06:0": {
+		"facts": [
+			{
+				"text": "A felhasználó fogtechnikusként dolgozik egy debreceni fogászaton. | Where: Debrecen | Involving: user",
+				"entities": [
+					"user",
+					"Debrecen",
+					"fogtechnikus",
+					"fogászat",
+					"kind:lasting",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-07:0": {
+		"facts": [
+			{
+				"text": "A felhasználó kiskora óta nagyon szereti a sakkot. | Involving: user",
+				"entities": [
+					"user",
+					"sakk",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-08:0": {
+		"facts": [
+			{
+				"text": "A felhasználó párjának Gergő a neve, és Egerből származik. | Where: Eger | Involving: user, Gergő (a felhasználó párja)",
+				"entities": [
+					"user",
+					"Gergő",
+					"Eger",
+					"kind:lasting",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó építőmérnöknek tanul a Műegyetemen. | Where: Műegyetem | Involving: user",
+				"entities": [
+					"user",
+					"Műegyetem",
+					"építőmérnök",
+					"kind:lasting",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:lasting:l-hu-09:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak van egy régi, zöld Suzuki Swiftje, és azzal jár mindenhová. | Involving: user",
+				"entities": [
+					"user",
+					"Suzuki Swift",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-01:0": {
+		"facts": [
+			{
+				"text": "The user is writing their master's thesis on urban beekeeping and is about halfway through. | Involving: user",
+				"entities": [
+					"user",
+					"master's thesis",
+					"urban beekeeping",
+					"kind:ongoing",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-02:0": {
+		"facts": [
+			{
+				"text": "For the two months before November 20, 2026, the user has been building a budgeting app for their sister's catering business. | When: For the two months before November 20, 2026 | Involving: user, user's sister | The app is intended for the sister's catering business.",
+				"entities": [
+					"user",
+					"user's sister",
+					"catering business",
+					"budgeting app",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": "2026-09-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:ongoing:o-en-03:0": {
+		"facts": [
+			{
+				"text": "User started learning the cello in September 2025. | When: September 2025 | Involving: user",
+				"entities": [
+					"user",
+					"cello",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": "2025-09-01",
+				"occurred_end": "2025-09-30"
+			},
+			{
+				"text": "User practises the cello most evenings. | Involving: user",
+				"entities": [
+					"user",
+					"cello",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-04:0": {
+		"facts": [
+			{
+				"text": "User is training for the Lakeside half marathon in April 2027 and runs four times a week. | When: April 2027 | Involving: user",
+				"entities": [
+					"user",
+					"Lakeside half marathon",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-07:0": {
+		"facts": [
+			{
+				"text": "The user has been teaching themselves Japanese for about a year, mostly using flashcards and podcasts. | When: about a year as of November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"Japanese",
+					"flashcards",
+					"podcasts",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-05:0": {
+		"facts": [
+			{
+				"text": "The user and their household are renovating their bathroom bit by bit. | Where: their bathroom | Involving: user (and household)",
+				"entities": [
+					"user",
+					"household",
+					"bathroom",
+					"kind:ongoing",
+					"subject:home_family"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			},
+			{
+				"text": "The bathroom tiles are scheduled to go in in November 2026. | When: November 2026 | Where: their bathroom | Involving: user (and household)",
+				"entities": [
+					"user",
+					"household",
+					"bathroom",
+					"tiles",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-01",
+				"occurred_end": "2026-11-30"
+			}
+		]
+	},
+	"v3:ongoing:o-en-08:0": {
+		"facts": [
+			{
+				"text": "The user is slowly restoring their grandfather's old motorcycle in the garage on weekends. | When: on weekends | Where: garage | Involving: user",
+				"entities": [
+					"user",
+					"grandfather",
+					"motorcycle",
+					"garage",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-06:0": {
+		"facts": [
+			{
+				"text": "User is doing a physiotherapy programme for their left shoulder, three sessions a week, from approximately October 20, 2026 to November 20, 2026. | When: approximately October 20, 2026 to November 20, 2026 | Involving: user | left shoulder physiotherapy",
+				"entities": [
+					"user",
+					"physiotherapy programme",
+					"left shoulder",
+					"kind:ongoing",
+					"subject:health"
+				],
+				"occurred_start": "2026-10-20T00:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:ongoing:o-en-09:0": {
+		"facts": [
+			{
+				"text": "The user is retraining as an electrician through evening classes at the technical college. | Where: technical college | Involving: user",
+				"entities": [
+					"user",
+					"electrician",
+					"technical college",
+					"evening classes",
+					"kind:ongoing",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-en-10:0": {
+		"facts": [
+			{
+				"text": "The user is writing a children's picture book about a lighthouse keeper's goat. | Involving: user",
+				"entities": [
+					"user",
+					"children's picture book",
+					"lighthouse keeper's goat",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-02:0": {
+		"facts": [
+			{
+				"text": "A felhasználó a barátaival időjárás-alkalmazást fejleszt, és esténként dolgoznak rajta. | Involving: user, barátok",
+				"entities": [
+					"user",
+					"időjárás-alkalmazás",
+					"barátok",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-01:0": {
+		"facts": [
+			{
+				"text": "A felhasználó a szakdolgozatát írja a Bakonyban lévő vízmosásokról, és nagyjából a felénél tart. | Where: Bakony | Involving: user",
+				"entities": [
+					"user",
+					"szakdolgozat",
+					"vízmosások",
+					"Bakony",
+					"kind:ongoing",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-03:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2025 őszétől tanul zongorázni, és hetente kétszer gyakorol. | When: 2025 őszétől | Involving: user",
+				"entities": [
+					"user",
+					"zongora",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-06:0": {
+		"facts": [
+			{
+				"text": "A felhasználó térdműtét után heti háromszor jár rehabilitációs tornára. | Involving: user",
+				"entities": [
+					"user",
+					"térdműtét",
+					"rehabilitációs torna",
+					"kind:ongoing",
+					"subject:health"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-04:0": {
+		"facts": [
+			{
+				"text": "A felhasználó a 2027-es tavaszi Balaton-félmaratonra készül, és heti négyszer fut. | When: 2027 tavasz | Where: Balaton | Involving: user",
+				"entities": [
+					"user",
+					"Balaton-félmaraton",
+					"futás",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-07:0": {
+		"facts": [
+			{
+				"text": "A felhasználó egy éve, 2025. november 20. óta tanul svédül az interneten, főleg podcastokkal. | When: 2025. november 20. óta | Where: az interneten | Involving: user",
+				"entities": [
+					"user",
+					"svéd",
+					"internet",
+					"podcast",
+					"kind:ongoing",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-05:0": {
+		"facts": [
+			{
+				"text": "A felhasználó felújítja a konyhát, és 2026. november 20-án éppen a csempézésnél tartanak. | When: 2026. november 20. | Where: konyha | Involving: user (többekkel)",
+				"entities": [
+					"user",
+					"konyha",
+					"konyhafelújítás",
+					"csempézés",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-08:0": {
+		"facts": [
+			{
+				"text": "A felhasználó egy kis kerti faházat épít a nagyapja telkén, és hétvégenként halad vele. | When: hétvégenként | Where: nagyapám telkén | Involving: user",
+				"entities": [
+					"user",
+					"kis kerti faház",
+					"nagyapám telke",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó gyerekeknek szóló mesekönyvet ír egy zöld sünről, és már a harmadik fejezetnél tart. | Involving: user",
+				"entities": [
+					"user",
+					"mesekönyv",
+					"zöld sün",
+					"harmadik fejezet",
+					"kind:ongoing",
+					"subject:projects"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:ongoing:o-hu-09:0": {
+		"facts": [
+			{
+				"text": "A felhasználó munka mellett levelezőn tanul pszichológiát a szegedi egyetemen. | Where: szegedi egyetem | Involving: user",
+				"entities": [
+					"user",
+					"pszichológia",
+					"szegedi egyetem",
+					"kind:lasting",
+					"subject:work_study"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:temporary:t-en-02:0": {
+		"facts": [
+			{
+				"text": "The user has a dentist appointment for a filling. | When: on Monday, November 23, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"dentist appointment",
+					"filling",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": "2026-11-23T00:00:00+00:00",
+				"occurred_end": "2026-11-23T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-en-01:0": {
+		"facts": [
+			{
+				"text": "User has had a nasty cold since Monday, November 16, 2026, and is staying in bed on Friday, November 20, 2026. | When: since Monday, November 16, 2026; staying in bed on Friday, November 20, 2026 | Where: in bed | Involving: user",
+				"entities": [
+					"user",
+					"cold",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-20T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-en-03:0": {
+		"facts": [
+			{
+				"text": "The user's driving theory exam is on December 2, 2026. | When: December 2, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"driving theory exam",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-12-02T00:00:00+00:00",
+				"occurred_end": "2026-12-02T23:59:59+00:00"
+			},
+			{
+				"text": "The user is panicking a bit about their driving theory exam. | Involving: user | The exam is approaching.",
+				"entities": [
+					"user",
+					"driving theory exam",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:temporary:t-en-05:0": {
+		"facts": [
+			{
+				"text": "The user is flying to Lisbon on Tuesday, November 24, 2026 for a work conference. | When: Tuesday, November 24, 2026 | Where: Lisbon | Involving: user | Work conference",
+				"entities": [
+					"user",
+					"Lisbon",
+					"work conference",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": "2026-11-24T00:00:00+00:00",
+				"occurred_end": "2026-11-24T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-en-04:0": {
+		"facts": [
+			{
+				"text": "User is driving with others to visit the user's grandparents over the weekend of November 21-22, 2026. | When: November 21-22, 2026 | Involving: user, user's grandparents, unspecified companions",
+				"entities": [
+					"user",
+					"grandparents",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-en-07:0": {
+		"facts": [
+			{
+				"text": "The user's project report is due on Saturday, November 21, 2026 at noon, and the user is nowhere near done. | When: Saturday, November 21, 2026 at noon | Involving: user",
+				"entities": [
+					"user",
+					"project report",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": "2026-11-21T12:00:00+00:00",
+				"occurred_end": "2026-11-21T12:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-en-06:0": {
+		"facts": [
+			{
+				"text": "The user has a sprained ankle and will not play football for a few weeks starting November 20, 2026. | When: from November 20, 2026 for a few weeks | Involving: user | The sprained ankle prevents football participation.",
+				"entities": [
+					"user",
+					"sprained ankle",
+					"football",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:temporary:t-en-09:0": {
+		"facts": [
+			{
+				"text": "User is house-sitting for their neighbours from November 20, 2026 for ten days. | When: from November 20, 2026 for ten days | Involving: user, user's neighbours",
+				"entities": [
+					"user",
+					"neighbours",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20",
+				"occurred_end": "2026-11-30"
+			}
+		]
+	},
+	"v3:temporary:t-en-08:0": {
+		"facts": [
+			{
+				"text": "The user will be at home all morning on Sunday, November 22, 2026 because the boiler engineer is coming. | When: Sunday, November 22, 2026, morning | Where: user's home | Involving: user, boiler engineer | The boiler engineer is scheduled to visit.",
+				"entities": [
+					"user",
+					"boiler engineer",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-22T00:00:00+00:00",
+				"occurred_end": "2026-11-22T12:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-en-10:0": {
+		"facts": [
+			{
+				"text": "The user has a job interview at a design studio on November 25, 2026. | When: November 25, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"job interview",
+					"design studio",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": "2026-11-25T00:00:00+00:00",
+				"occurred_end": "2026-11-25T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-02:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 22-én fogorvoshoz megy tömésre. | When: 2026. november 22. | Involving: user",
+				"entities": [
+					"user",
+					"fogorvos",
+					"tömés",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": "2026-11-22T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-03:0": {
+		"facts": [
+			{
+				"text": "A felhasználó záróvizsgája 2026. november 29-én lesz, és 2026. november 20-án még alig tanult. | When: 2026. november 29. | Involving: user",
+				"entities": [
+					"user",
+					"záróvizsga",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": "2026-11-29T00:00:00+00:00",
+				"occurred_end": "2026-11-29T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-01:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak 2026. november 16. óta torokfájása van, és kicsit lázas. | When: 2026-11-16 óta | Involving: user",
+				"entities": [
+					"user",
+					"torokfájás",
+					"láz",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": "2026-11-16T00:00:00+00:00",
+				"occurred_end": "2026-11-16T00:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-04:0": {
+		"facts": [
+			{
+				"text": "A felhasználó a hétvégén a szüleihez megy Pécsre. | When: 2026. november 21–22. | Where: Pécs | Involving: user, szülők",
+				"entities": [
+					"user",
+					"szülők",
+					"Pécs",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-21T00:00:00+00:00",
+				"occurred_end": "2026-11-22T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-07:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak 2026. november 21-én délig le kell adnia a negyedéves beszámolót. | When: 2026. november 21. délig | Involving: user",
+				"entities": [
+					"user",
+					"negyedéves beszámoló",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": "2026-11-21T12:00:00+00:00",
+				"occurred_end": "2026-11-21T12:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-05:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 21-én reggel Barcelonába repül egy konferenciára. | When: 2026. november 21., reggel | Where: Barcelona | Involving: user | Konferenciára utazik",
+				"entities": [
+					"user",
+					"Barcelona",
+					"konferencia",
+					"kind:temporary",
+					"subject:other"
+				],
+				"occurred_start": "2026-11-21T09:00:00+00:00",
+				"occurred_end": "2026-11-21T09:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-08:0": {
+		"facts": [
+			{
+				"text": "A vízszerelő 2026. november 23-án jön megnézni a csöpögő csapot. | When: 2026. november 23. | Involving: user, vízszerelő",
+				"entities": [
+					"user",
+					"vízszerelő",
+					"csap",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-23T00:00:00+00:00",
+				"occurred_end": "2026-11-23T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-06:0": {
+		"facts": [
+			{
+				"text": "A felhasználó lába eltört, ezért a 2026. november 20-i esemény időpontjától számított további három hétig, 2026. december 11-éig gipszben lesz. | When: 2026. november 20. és 2026. december 11. között | Involving: user",
+				"entities": [
+					"user",
+					"láb",
+					"gipsz",
+					"kind:temporary",
+					"subject:health"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-12-11T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:temporary:t-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak 2026. november 26-án állásinterjúja lesz egy budapesti webáruháznál. | When: 2026. november 26-án | Where: Budapest | Involving: user",
+				"entities": [
+					"user",
+					"Budapest",
+					"webáruház",
+					"állásinterjú",
+					"kind:temporary",
+					"subject:work_study"
+				],
+				"occurred_start": "2026-11-26T00:00:00+00:00",
+				"occurred_end": "2026-11-26T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:project:p-en-02:0": {
+		"facts": [
+			{
+				"text": "Priya Nair owns the data-mapping work, and Tom Weller signs off on the cutover. | Involving: Priya Nair, Tom Weller",
+				"entities": [
+					"Priya Nair",
+					"Tom Weller",
+					"data-mapping work",
+					"cutover",
+					"kind:lasting",
+					"subject:people"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-03:0": {
+		"facts": [
+			{
+				"text": "The old system holds about 48,000 contact records, with roughly 9,000 duplicates.",
+				"entities": [
+					"old system",
+					"contact records",
+					"duplicates",
+					"kind:lasting",
+					"subject:facts_figures"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-01:0": {
+		"facts": [
+			{
+				"text": "The user and their team decided to move the customer data to Postgres because the old vendor's licence ends in March 2027. | Involving: user and their team | The old vendor's licence ends in March 2027.",
+				"entities": [
+					"user",
+					"team",
+					"customer data",
+					"Postgres",
+					"old vendor",
+					"licence",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:temporary:t-hu-09:0": {
+		"facts": [
+			{
+				"text": "A felhasználó 2026. november 20. és 2026. december 4. között a barátnője macskájára vigyáz, amíg a barátnője Olaszországban van. | When: 2026. november 20. és 2026. december 4. között | Involving: user, a barátnője | A barátnője Olaszországban van.",
+				"entities": [
+					"user",
+					"barátnő",
+					"macska",
+					"Olaszország",
+					"kind:temporary",
+					"subject:home_family"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-12-04T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:project:p-en-04:0": {
+		"facts": [
+			{
+				"text": "The user is currently building the invite flow, and the billing screens will come after that. | Involving: user",
+				"entities": [
+					"user",
+					"invite flow",
+					"billing screens",
+					"kind:ongoing",
+					"subject:plans_status"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-06:0": {
+		"facts": [
+			{
+				"text": "The user's goal is to reduce picking errors to below 1% by the end of 2026. | When: by the end of 2026 | Involving: user",
+				"entities": [
+					"user",
+					"picking errors",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-07:0": {
+		"facts": [
+			{
+				"text": "Marta from finance wants the cost report in euros, not pounds. | Involving: Marta (finance)",
+				"entities": [
+					"Marta",
+					"finance",
+					"cost report",
+					"euros",
+					"pounds",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-08:0": {
+		"facts": [
+			{
+				"text": "The API rate limit is 600 requests per minute per token, so sync calls must be batched. | To comply with the API rate limit.",
+				"entities": [
+					"API",
+					"rate limit",
+					"sync calls",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-05:0": {
+		"facts": [
+			{
+				"text": "The stakeholder demo is on Friday, November 27, 2026, and the login bug must be fixed before then. | When: Friday, November 27, 2026 | Involving: user | The demo deadline sets the deadline for fixing the login bug.",
+				"entities": [
+					"user",
+					"stakeholder demo",
+					"login bug",
+					"kind:temporary",
+					"subject:plans_status"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-09:0": {
+		"facts": [
+			{
+				"text": "The user plans to migrate the push notification service to Firebase over the next few weeks starting around November 20, 2026. | When: over the next few weeks starting around November 20, 2026 | Involving: user",
+				"entities": [
+					"user",
+					"push notification service",
+					"Firebase",
+					"kind:ongoing",
+					"subject:plans_status"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-en-10:0": {
+		"facts": [
+			{
+				"text": "The user has a design review with the Oslo team on November 21, 2026 at 10:00. | When: Saturday, November 21, 2026 at 10:00 | Involving: user, Oslo team",
+				"entities": [
+					"user",
+					"Oslo team",
+					"design review",
+					"kind:temporary",
+					"subject:plans_status"
+				],
+				"occurred_start": "2026-11-21T10:00:00+00:00",
+				"occurred_end": "2026-11-21T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:project:p-hu-02:0": {
+		"facts": [
+			{
+				"text": "Bence készíti a termékfotókat, Orsi pedig írja a leírásokat. | Involving: Bence, Orsi",
+				"entities": [
+					"Bence",
+					"Orsi",
+					"termékfotók",
+					"leírások",
+					"kind:lasting",
+					"subject:people"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-03:0": {
+		"facts": [
+			{
+				"text": "A csomagküldés átlagosan 1490 forintba kerül, és a rendelések 60%-a Pest megyéből érkezik. | Where: Pest megye",
+				"entities": [
+					"Pest megye",
+					"csomagküldés",
+					"forint",
+					"kind:lasting",
+					"subject:facts_figures"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-01:0": {
+		"facts": [
+			{
+				"text": "A felhasználó és a döntésben részt vevők úgy döntöttek, hogy Shopify helyett WooCommerce-t használnak. | When: 2026. november 20. | Involving: user (és a döntésben részt vevők) | A WooCommerce havi díja olcsóbb.",
+				"entities": [
+					"user",
+					"Shopify",
+					"WooCommerce",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": "2026-11-20T10:00:00+00:00",
+				"occurred_end": "2026-11-20T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:project:p-hu-04:0": {
+		"facts": [
+			{
+				"text": "A raktári szoftver átállítása folyamatban van, jelenleg az adatok tisztítása tart. | Involving: user",
+				"entities": [
+					"user",
+					"raktári szoftver",
+					"adatok tisztítása",
+					"kind:ongoing",
+					"subject:plans_status"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-06:0": {
+		"facts": [
+			{
+				"text": "A cél, hogy az átállás alatt ne legyen három óránál hosszabb leállás. | Involving: user (team) | Az átállás alatti leállás időtartamának maximalizálása.",
+				"entities": [
+					"user",
+					"átállás",
+					"leállás",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-07:0": {
+		"facts": [
+			{
+				"text": "A projektben Kata felel a grafikákért, a hangokat pedig egy külsős, Balázs készíti. | Involving: Kata, Balázs (külsős)",
+				"entities": [
+					"Kata",
+					"Balázs",
+					"grafikák",
+					"hangok",
+					"kind:lasting",
+					"subject:people"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-08:0": {
+		"facts": [
+			{
+				"text": "A pálya mérete 64 × 64 csempe, a karakter sebessége pedig 3,5 csempe másodpercenként.",
+				"entities": [
+					"pálya",
+					"karakter",
+					"kind:lasting",
+					"subject:facts_figures"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-05:0": {
+		"facts": [
+			{
+				"text": "A tesztelést a 2026. november 27-i határidőig be kell fejezni. | When: 2026. november 27-ig | Involving: user és a többiek",
+				"entities": [
+					"user",
+					"tesztelés",
+					"kind:temporary",
+					"subject:plans_status"
+				],
+				"occurred_start": "2026-11-27T00:00:00+00:00",
+				"occurred_end": "2026-11-27T23:59:59+00:00"
+			}
+		]
+	},
+	"v3:project:p-hu-10:0": {
+		"facts": [
+			{
+				"text": "A tulajdonos jóváhagyta, hogy a falakat világosszürkére fessék. | Involving: tulajdonos",
+				"entities": [
+					"tulajdonos",
+					"falak",
+					"világosszürke",
+					"kind:lasting",
+					"subject:goals_decisions"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:project:p-hu-09:0": {
+		"facts": [
+			{
+				"text": "A felhasználónak szombaton délelőtt 10 órakor megbeszélése lesz a kiadóval a megjelenésről. | When: 2026. november 21., délelőtt 10:00 | Involving: user",
+				"entities": [
+					"user",
+					"kiadó",
+					"megjelenés",
+					"kind:temporary",
+					"subject:plans_status"
+				],
+				"occurred_start": "2026-11-21T10:00:00+00:00",
+				"occurred_end": "2026-11-21T10:00:00+00:00"
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-1:0": {
+		"facts": [
+			{
+				"text": "The user prefers short answers because they do not have much time to read. | Involving: user | The user does not have much time to read.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-3:0": {
+		"facts": [
+			{
+				"text": "User prefers the assistant to reply in Hungarian when the user writes in Hungarian. | Involving: user",
+				"entities": [
+					"user",
+					"Hungarian",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-2:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in bullet points. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-5:0": {
+		"facts": [
+			{
+				"text": "The user prefers that the assistant not use emojis in replies. | Involving: user",
+				"entities": [
+					"user",
+					"emojis",
+					"replies",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-4:0": {
+		"facts": [
+			{
+				"text": "User prefers the assistant to use a casual, friendly tone and avoid formal language. | Involving: user | Communication preference for assistant interactions.",
+				"entities": [
+					"user",
+					"casual tone",
+					"friendly tone",
+					"formal language",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-6:0": {
+		"facts": [
+			{
+				"text": "User prefers detailed answers with examples because they like to really understand things. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-7:0": {
+		"facts": [
+			{
+				"text": "The user prefers explanations to be simple and beginner-friendly. | Involving: user | The user wants information explained as if they are a beginner.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-8:0": {
+		"facts": [
+			{
+				"text": "The user prefers code answers without long explanations. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-9:0": {
+		"facts": [
+			{
+				"text": "The user prefers comparisons to be presented in a table. | Involving: user",
+				"entities": [
+					"user",
+					"table",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-10:0": {
+		"facts": [
+			{
+				"text": "The user prefers the assistant to answer in English even if the user writes in another language. | Involving: user",
+				"entities": [
+					"user",
+					"English",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy magyarul válaszoljanak neki. | Involving: user",
+				"entities": [
+					"user",
+					"magyarul",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy a válaszok pontokba szedve érkezzenek. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a segéd tegezze és közvetlen legyen vele. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó részletes válaszokat szeretne példákkal. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a válaszokban ne szerepeljenek emojik. | Involving: user",
+				"entities": [
+					"user",
+					"assistant",
+					"emoji",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-7:0": {
+		"facts": [
+			{
+				"text": "A felhasználó egyszerű, kezdőknek szóló magyarázatokat preferál. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a válasz csak kódot tartalmazzon, hosszú magyarázat nélkül. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy az asszisztens angolul válaszoljon, még akkor is, ha a felhasználó magyarul ír. | Involving: user | A felhasználó magyarul írhat, de angol nyelvű választ szeretne.",
+				"entities": [
+					"user",
+					"angolul",
+					"magyarul",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-9:0": {
+		"facts": [
+			{
+				"text": "Az összehasonlításoknál a felhasználó táblázatot kér. | Involving: user",
+				"entities": [
+					"user",
+					"táblázat",
+					"összehasonlítás",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-1:0": {
+		"facts": [
+			{
+				"text": "The user prefers short answers because they do not have much time to read. | Involving: user | Limited time to read.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-2:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in bullet points. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt szeretné, hogy az asszisztens magyarul válaszoljon, amikor a felhasználó magyarul ír. | Involving: user",
+				"entities": [
+					"user",
+					"Hungarian",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-4:0": {
+		"facts": [
+			{
+				"text": "User prefers a casual, friendly tone and no formal language. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-6:0": {
+		"facts": [
+			{
+				"text": "User prefers detailed answers with examples and likes to really understand things. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-7:0": {
+		"facts": [
+			{
+				"text": "The user prefers explanations to be simple, as if they are a beginner. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-5:0": {
+		"facts": [
+			{
+				"text": "User prefers replies without emojis. | Involving: user",
+				"entities": [
+					"user",
+					"emojis",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-9:0": {
+		"facts": [
+			{
+				"text": "User prefers using tables when comparing things. | Involving: user",
+				"entities": [
+					"user",
+					"tables",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-8:0": {
+		"facts": [
+			{
+				"text": "User prefers to receive code without long explanations. | Involving: user",
+				"entities": [
+					"user",
+					"code",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-en-10:0": {
+		"facts": [
+			{
+				"text": "User prefers the assistant to answer in English even if the user writes in another language. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-2:0": {
+		"facts": []
+	},
+	"v2:preferenceReply:preference-reply-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-3:0": {
+		"facts": [
+			{
+				"text": "A felhasználó magyarul kéri a válaszokat. | Involving: user",
+				"entities": [
+					"user",
+					"magyar nyelv",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy közvetlen, tegező hangnemben szólítsák meg. | Involving: user",
+				"entities": [
+					"user",
+					"tegezés",
+					"közvetlenség",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó kéri, hogy a válaszokban ne használjon emojikat. | Involving: user",
+				"entities": [
+					"user",
+					"emoji",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó részletes válaszokat szeretne példákkal. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-7:0": {
+		"facts": []
+	},
+	"v2:preferenceReply:preference-reply-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó hosszú magyarázat nélküli, csak kódot tartalmazó válaszokat preferál. | Involving: user | Válaszstílus-korlátozás",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-9:0": {
+		"facts": [
+			{
+				"text": "A felhasználó összehasonlításoknál táblázatot kér. | Involving: user",
+				"entities": [
+					"user",
+					"táblázat",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v2:preferenceReply:preference-reply-hu-10:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy angolul válaszoljanak neki, akkor is, ha magyarul ír. | Involving: user",
+				"entities": [
+					"user",
+					"angolul",
+					"magyarul",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	}
+}

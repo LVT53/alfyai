@@ -7,16 +7,25 @@
  * needs --user <id> or --all and --backup <dir>, the folder of the paired
  * backup, which it checks against the live database and names before it
  * writes, then labels exactly the accounts it checked the backup for.
- * --rollback --user <id> undoes one account. Skips the tester account (the
+ * --rollback --user <id> undoes one account. --relabel is the second mode (bank
+ * config 3): it asks the classifier again, with config 3's words, about every
+ * fact whose label is temporary, and moves the ones that are no longer
+ * temporary (a purchase is lasting); same dry run, same backup check, its own
+ * rollback (--relabel --rollback --user <id>) of exactly what it changed.
+ * Skips the tester account (the
  * permanent tester rule), never writes to Hindsight, prints counts, ids and
- * codes only. Ctrl-C aborts the model calls in flight (their batches are
- * labelled by the next run); every batch already answered is kept. Run from
+ * codes only. Ctrl-C aborts the model calls in flight: the migration keeps
+ * every batch already answered (the next run labels the rest), a relabel
+ * writes nothing until its account has verified. Run from
  * this release's checkout with the app's environment loaded. The command itself is `runLabelMigrationCommand`
  * (memory-label-migration-cli.ts); this file only wires the app to it.
  *
  *   npx tsx scripts/memory-label-migration.ts [--user <id>]
  *   npx tsx scripts/memory-label-migration.ts --execute (--user <id> | --all) --backup <dir> [--concurrency 1-3]
  *   npx tsx scripts/memory-label-migration.ts --rollback --user <id> [--execute --backup <dir>]
+ *   npx tsx scripts/memory-label-migration.ts --relabel [--user <id>]
+ *   npx tsx scripts/memory-label-migration.ts --relabel --execute (--user <id> | --all) --backup <dir> [--concurrency 1-3]
+ *   npx tsx scripts/memory-label-migration.ts --relabel --rollback --user <id> [--execute --backup <dir>]
  */
 import {
 	checkPairedBackup,
@@ -39,6 +48,9 @@ if (args) {
 	const { rollbackLabelMigration, runLabelMigration } = await import(
 		"../src/lib/server/services/memory-profile/label-migration"
 	);
+	const { rollbackLabelRelabel, runLabelRelabel } = await import(
+		"../src/lib/server/services/memory-profile/label-relabel"
+	);
 	// The live database, which the backup is compared with and must not be.
 	const { getDatabasePath } = await import("../src/lib/server/env");
 	const controller = new AbortController();
@@ -51,6 +63,8 @@ if (args) {
 	process.exitCode = await runLabelMigrationCommand(args, {
 		runLabelMigration,
 		rollbackLabelMigration,
+		runLabelRelabel,
+		rollbackLabelRelabel,
 		checkBackup: (dir, accounts) =>
 			checkPairedBackup(dir, accounts, new Date(), getDatabasePath()),
 		log: (line) => console.log(line),

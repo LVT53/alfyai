@@ -804,7 +804,7 @@ it("publishing a snapshot records its facts' labels and event dates", async () =
 	});
 });
 
-describe("bank configuration 2 reaches every bank", () => {
+describe("bank configuration 3 reaches every bank", () => {
 	async function boundAt(version: string, live: unknown) {
 		const f = await setup();
 		f.db
@@ -845,7 +845,7 @@ describe("bank configuration 2 reaches every bank", () => {
 		return { f, state, patches };
 	}
 
-	it("upgrades a bank configured by the previous release with one PATCH, and no sentinel", async () => {
+	it("upgrades a config-1 bank straight to config 3 with one PATCH, and no sentinel", async () => {
 		const native = await import("./contracts");
 		const { f, state, patches } = await boundAt(
 			native.HINDSIGHT_ENGINE_COMMIT,
@@ -861,7 +861,7 @@ describe("bank configuration 2 reaches every bank", () => {
 			native.nativeBankConfig("personal"),
 		);
 		// The bank holds the person's data, so it stays at config 1 until the
-		// readback proves config 2: nothing can hold it in between.
+		// readback proves config 3: nothing can hold it in between.
 		expect(state.versionAtPatch).toBe(native.HINDSIGHT_ENGINE_COMMIT);
 		expect(
 			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
@@ -939,7 +939,7 @@ describe("bank configuration 2 reaches every bank", () => {
 		expect(memoryLabelsVerified(h.userId)).toBe(false);
 	});
 
-	it("leaves them verified for a bank created at config 2", async () => {
+	it("leaves them verified for a bank created at config 3", async () => {
 		const { memoryLabelsVerified } = await import("./labels-verified");
 		const f = await setup();
 		await f.enqueue();
@@ -950,7 +950,7 @@ describe("bank configuration 2 reaches every bank", () => {
 		expect(memoryLabelsVerified(h.userId)).toBe(true);
 	});
 
-	it("verifies a bank already on config 2 without a PATCH", async () => {
+	it("verifies a bank already on config 3 without a PATCH", async () => {
 		const native = await import("./contracts");
 		const { f, patches } = await boundAt(
 			native.NATIVE_BANK_CONFIG_VERSION,
@@ -964,7 +964,7 @@ describe("bank configuration 2 reaches every bank", () => {
 		expect(patches()).toHaveLength(0);
 	});
 
-	it("refuses a bank on config 2 whose live config is another kind's", async () => {
+	it("refuses a bank on config 3 whose live config is another kind's", async () => {
 		const native = await import("./contracts");
 		const { f, patches } = await boundAt(
 			native.NATIVE_BANK_CONFIG_VERSION,
@@ -976,6 +976,133 @@ describe("bank configuration 2 reaches every bank", () => {
 			{ errorCode: "native_config_mismatch" },
 		);
 		expect(patches()).toHaveLength(0);
+	});
+
+	it("upgrades a config-2 bank with one PATCH, keeps its labels verified, and keeps its version until config 3 is read back", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f, state, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_2_VERSION,
+			native.nativeBankConfig2("personal"),
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(JSON.parse(String(patches()[0][1]?.body)).updates).toEqual(
+			native.nativeBankConfig("personal"),
+		);
+		expect(state.versionAtPatch).toBe(native.NATIVE_BANK_CONFIG_2_VERSION);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+		// Config 2 already labelled every new fact: nothing to verify again.
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("settles a creation the config-2 release left pending, then upgrades it, labels still verified", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f, state, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.nativeBankConfig2("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(state.versionAtPatch).toBe(native.NATIVE_BANK_CONFIG_2_VERSION);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("records a creation that landed as config 3 without another PATCH", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.nativeBankConfig("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("refuses a bank recorded as config 3 whose live config is config 2", async () => {
+		const native = await import("./contracts");
+		const first = await boundAt(
+			native.NATIVE_BANK_CONFIG_VERSION,
+			native.nativeBankConfig2("personal"),
+		);
+		await first.f.enqueue();
+		await h.engine.drain(first.f.jobs.memoryDeliveryJob);
+		expect(
+			first.f.db.select().from(first.f.schema.memoryDeliveryJobs).get(),
+		).toMatchObject({ errorCode: "native_config_mismatch" });
+		expect(first.patches()).toHaveLength(0);
+	});
+
+	it("refuses a config-2 bank that holds the other kind's config, as production does, and sends nothing", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_2_VERSION,
+			native.nativeBankConfig2("project"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_mismatch" },
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_2_VERSION);
+	});
+
+	it("records config 3 for a config-2 bank whose upgrade landed but whose version write was lost, with no second PATCH", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_2_VERSION,
+			native.nativeBankConfig("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("records no version for a creation left pending that holds the other kind's config", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.nativeBankConfig("project"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_mismatch" },
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_PENDING);
 	});
 
 	it("settles a creation the previous release left pending, then upgrades it", async () => {

@@ -1,0 +1,98 @@
+{
+	"label": "config3-before-english-entries",
+	"bridgeModel": "qwen3-6-27b",
+	"prompts": [
+		"Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}.",
+		"Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the project by its name when one is given.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}."
+	],
+	"sampleRequest": {
+		"model": "qwen3-6-27b",
+		"max_tokens": 8192,
+		"temperature": 0.6,
+		"top_p": 0.95,
+		"response_format": {
+			"type": "json_schema",
+			"json_schema": {
+				"schema": {
+					"type": "object",
+					"properties": {
+						"overview": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"overview"
+					],
+					"additionalProperties": false
+				},
+				"strict": true,
+				"name": "memory_edit"
+			}
+		},
+		"enable_thinking": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "[MODEL: Memory curation]\n\nWrite the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}."
+			},
+			{
+				"role": "user",
+				"content": "{\"about\":\"a person\",\"name\":\"Kata\",\"entries\":[{\"subject\":\"Work and study\",\"kind\":\"temporary\",\"text\":\"The user has to hand in a logo design to a client by Friday.\"},{\"subject\":\"Health\",\"kind\":\"temporary\",\"text\":\"The user's knee is injured and the user is currently going to physiotherapy.\"},{\"subject\":\"Other\",\"kind\":\"temporary\",\"text\":\"The user is not drinking alcohol this week.\"},{\"subject\":\"Home and family\",\"kind\":\"temporary\",\"text\":\"The user's mother-in-law will stay with them for two days next week.\"},{\"subject\":\"Projects\",\"kind\":\"temporary\",\"text\":\"The user is travelling to Lisbon with their partner in March.\"},{\"subject\":\"Work and study\",\"kind\":\"ongoing\",\"text\":\"The user is currently working on the brand identity of a bookshop.\"},{\"subject\":\"Projects\",\"kind\":\"ongoing\",\"text\":\"The user is building a garden shed in their grandparents' garden.\"},{\"subject\":\"Projects\",\"kind\":\"ongoing\",\"text\":\"The user is learning to play the ukulele.\"},{\"subject\":\"Home and family\",\"kind\":\"ongoing\",\"text\":\"The user is looking for a new flat in Győr because the current one is too small.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"The user is learning Japanese and takes one lesson a week.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"The user bakes sourdough bread at weekends.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"The user goes bouldering twice a week at a gym in Győr.\"},{\"subject\":\"Work and study\",\"kind\":\"ongoing\",\"text\":\"The user is studying part-time for a master's degree and expects to graduate next June.\"},{\"subject\":\"About the person\",\"text\":\"The user is 35 years old.\"},{\"subject\":\"About the person\",\"text\":\"The user's native language is Hungarian and the user speaks English fluently.\"},{\"subject\":\"About the person\",\"text\":\"The user is a vegetarian.\"},{\"subject\":\"Home and family\",\"text\":\"The user lives in a two-room flat in Győr.\"},{\"subject\":\"Home and family\",\"text\":\"The user's partner is Márk, who is a teacher.\"},{\"subject\":\"Home and family\",\"text\":\"The user has a four-year-old daughter, Lili.\"},{\"subject\":\"Home and family\",\"text\":\"The user has a cat called Mák.\"},{\"subject\":\"Home and family\",\"text\":\"The user's younger brother, Bence, lives in Szeged.\"},{\"subject\":\"Work and study\",\"text\":\"The user works as a freelance graphic designer.\"},{\"subject\":\"Health\",\"text\":\"The user is lactose intolerant.\"},{\"subject\":\"Health\",\"text\":\"The user is short-sighted and wears glasses.\"},{\"subject\":\"Interests\",\"text\":\"The user likes sci-fi novels, and their favourite author is Ursula K. Le Guin.\"},{\"subject\":\"Interests\",\"text\":\"The user enjoys hiking in the Bakony at weekends.\"},{\"subject\":\"Interests\",\"text\":\"The user drinks black coffee without sugar.\"},{\"subject\":\"Other\",\"text\":\"The user prefers short, to-the-point answers.\"},{\"subject\":\"Other\",\"text\":\"The user does not like phone calls and prefers to write a message.\"},{\"subject\":\"Other\",\"text\":\"The user used to live in Szeged and has since moved to Győr.\"}]}"
+			}
+		],
+		"chat_template_kwargs": {
+			"enable_thinking": false
+		},
+		"top_k": 20
+	},
+	"results": [
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 1,
+			"ms": 995,
+			"text": "Kata is a 35-year-old vegetarian freelance graphic designer living in Győr with her partner Márk, daughter Lili, and cat Mák. She is currently working on a bookshop brand identity, studying for a master's degree, and learning Japanese and the ukulele. Kata is building a garden shed, baking sourdough bread, and going bouldering twice a week. She is also looking for a new flat because her current two-room apartment is too small.",
+			"extras": {}
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 1,
+			"ms": 4502,
+			"text": "Kata and her father are building a wooden garden hut for storing tools and furniture in the north corner of the garden. The structure covers 12 square metres and features a double door that opens outwards beneath a single-pitch roof. The foundation was poured by Kata's uncle, Péter, and is now complete while the wall frame is being built. Roofing sheets are expected to arrive next week, though the paint colour has not yet been chosen.",
+			"extras": {}
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 2,
+			"ms": 7130,
+			"text": "Kata is a 35-year-old freelance graphic designer and vegetarian who is short-sighted and lactose intolerant. She lives in Győr with her partner Márk, their daughter Lili, and their cat Mák, though she is looking for a larger flat. Currently, she is studying for a master's degree, designing a bookshop's brand identity, and building a garden shed while attending physiotherapy for an injured knee. Her hobbies include learning Japanese, playing the ukulele, baking sourdough, bouldering, and hiking in the Bakony. She enjoys sci-fi novels by Ursula K. Le Guin and drinks black coffee without sugar.",
+			"extras": {}
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 2,
+			"ms": 5048,
+			"text": "Kata and her father are building a wooden garden hut for storing tools and furniture. The structure will cover 12 square metres in the north corner of the garden. A single-pitch roof with a gentle slope tops the building, which features a double door that opens outwards. The foundation is complete, and the wall frame is currently being built. Roofing sheets are expected to arrive next week. The timber was purchased from a local sawmill for 180 thousand forints.",
+			"extras": {}
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 3,
+			"ms": 4786,
+			"text": "Kata is a 35-year-old freelance graphic designer who is vegetarian and lactose intolerant. She lives in Győr with her partner Márk, their daughter Lili, and their cat Mák, while studying part-time for a master's degree. She is currently working on a bookshop brand identity, building a garden shed, and learning Japanese and the ukulele. She enjoys bouldering, hiking, and baking sourdough bread, though she is temporarily attending physiotherapy for a knee injury.",
+			"extras": {}
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 3,
+			"ms": 1907,
+			"text": "Kata and her father are building a wooden garden hut to store tools and furniture in the north corner of their garden. The structure has a 12 square metre floor area, a single-pitch roof, and an outward-opening double door. The foundation is finished, having been poured by Kata's uncle Péter, while the wall frame is currently being built. Roofing sheets are expected to arrive next week, but the paint colour is not decided yet. The timber was ordered from a local sawmill for 180 thousand forints.",
+			"extras": {}
+		}
+	]
+}

@@ -25,6 +25,15 @@ export interface ActionIntentRecord {
 	 * Remove ends unapplied after its native write (`excludedNativeEvidence`).
 	 */
 	familyFactIds?: string[];
+	/**
+	 * A changed resend refused for good: the facts of the chats it carried
+	 * that its refusal excludes the way a Remove excludes its facts, recorded
+	 * once with the `rejected` outcome (`excludeRefusedSourceEdit`) and read by
+	 * `excludedNativeEvidence`. Empty when the edit only added sentences;
+	 * absent on an edit refused and put back before this rule, which excludes
+	 * nothing later.
+	 */
+	excludedFactIds?: string[];
 	plan?: { forget: string[]; replace: string[]; preserve: string[] };
 	removalOnly?: boolean;
 	omissionEarlierFingerprint?: string;
@@ -118,11 +127,70 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 		(value.familyFactIds !== undefined &&
 			(!Array.isArray(value.familyFactIds) ||
 				value.familyFactIds.some((id) => typeof id !== "string"))) ||
+		(value.excludedFactIds !== undefined &&
+			(!Array.isArray(value.excludedFactIds) ||
+				value.excludedFactIds.some((id) => typeof id !== "string"))) ||
 		(value.meaningCheck !== undefined && !validMeaningCheck(value.meaningCheck))
 	)
 		throw Error("memory_action_corrupt");
 	parseMemoryAction(value.request);
 	return value as unknown as ActionIntentRecord;
+}
+
+/**
+ * A message's sentences and lines, each with its spacing folded and its
+ * closing mark dropped, with how many times each occurs.
+ */
+function sentenceCounts(text: string) {
+	const counts = new Map<string, number>();
+	for (const line of text.normalize("NFC").split(/\r?\n/u))
+		for (const part of line.split(/(?<=[.!?…])\s+/u)) {
+			const sentence = part
+				.replace(/\s+/gu, " ")
+				.replace(/[.!?…]+$/u, "")
+				.trim();
+			if (sentence) counts.set(sentence, (counts.get(sentence) ?? 0) + 1);
+		}
+	return counts;
+}
+
+/**
+ * Whether the person's edit of their message took anything away: a sentence
+ * (or line) of the message before, counted, that the message after no longer
+ * has word for word, or a saved plan of the edit that forgets or replaces
+ * something (an appended retraction: "forget my address"). An edit that only
+ * added sentences, anywhere, took nothing away; any change inside a sentence,
+ * even of one letter, counts as taking it away.
+ */
+export function sourceEditTookAway(intent: ActionIntentRecord) {
+	if (intent.request.kind !== "edit") return true;
+	if (intent.plan && (intent.plan.forget.length || intent.plan.replace.length))
+		return true;
+	const after = sentenceCounts(intent.request.text);
+	for (const [sentence, count] of sentenceCounts(intent.before))
+		if ((after.get(sentence) ?? 0) < count) return true;
+	return false;
+}
+
+/**
+ * The facts of the chats a changed resend carried whose text its saved
+ * proposal changed, rewritten or invalidated, each with the text and chat it
+ * had: what a refused resend's proposal wrote.
+ */
+export function sourceEditChangedFacts(intent: ActionIntentRecord) {
+	const proposed = new Map(
+		(intent.proposal ?? []).map(({ id, text }) => [id, text]),
+	);
+	return [
+		...new Map(
+			intent.facts
+				.filter(
+					(fact) =>
+						proposed.has(fact.id) && proposed.get(fact.id) !== fact.text,
+				)
+				.map((fact) => [fact.id, fact]),
+		).values(),
+	];
 }
 
 export type ReplayCheck = {
@@ -141,3 +209,46 @@ export type ReplayCheck = {
 	/** A per-chat forget step for an approved unlocated removal. */
 	meaningCheck?: true;
 };
+
+/** A text's words, lowercased, with how many times each occurs. */
+function wordCounts(text: string) {
+	const counts = new Map<string, number>();
+	for (const word of text
+		.toLowerCase()
+		.normalize("NFC")
+		.match(/[\p{L}\p{N}]+/gu) ?? [])
+		counts.set(word, (counts.get(word) ?? 0) + 1);
+	return counts;
+}
+
+/**
+ * What a refused changed resend's edit took away from the chats it carried,
+ * none when the edit took nothing away (`sourceEditTookAway`). With a saved
+ * proposal, each fact it invalidated or rewrote without keeping every word of
+ * it; a rewrite that keeps every word and adds some re-asserts something (the
+ * proposal's own mistake) and goes back to the wording the person saw. With no
+ * proposal saved (the edit was refused before one), every fact of the chats it
+ * carried but those of the person's own notes (`protectedSourceIds`): nothing
+ * tells which of them the edit took away.
+ */
+export function sourceEditTakenFacts(
+	intent: ActionIntentRecord,
+	protectedSourceIds: ReadonlySet<string>,
+) {
+	if (!sourceEditTookAway(intent)) return [];
+	if (!intent.proposal)
+		return [
+			...new Map(
+				intent.facts
+					.filter(({ sourceId }) => !protectedSourceIds.has(sourceId))
+					.map((fact) => [fact.id, fact]),
+			).values(),
+		];
+	const proposed = new Map(intent.proposal.map(({ id, text }) => [id, text]));
+	return sourceEditChangedFacts(intent).filter((fact) => {
+		const after = wordCounts(proposed.get(fact.id) ?? "");
+		return [...wordCounts(fact.text)].some(
+			([word, count]) => (after.get(word) ?? 0) < count,
+		);
+	});
+}

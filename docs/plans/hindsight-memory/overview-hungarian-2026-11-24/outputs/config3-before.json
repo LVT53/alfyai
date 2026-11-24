@@ -1,0 +1,192 @@
+{
+	"label": "config3-before",
+	"bridgeModel": "qwen3-6-27b",
+	"prompts": [
+		"Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in Hungarian.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}.",
+		"Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}.",
+		"Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph.\nWrite the paragraph in Hungarian.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the project by its name when one is given.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}.",
+		"Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the project by its name when one is given.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}."
+	],
+	"sampleRequest": {
+		"model": "qwen3-6-27b",
+		"max_tokens": 8192,
+		"temperature": 0.6,
+		"top_p": 0.95,
+		"response_format": {
+			"type": "json_schema",
+			"json_schema": {
+				"schema": {
+					"type": "object",
+					"properties": {
+						"overview": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"overview"
+					],
+					"additionalProperties": false
+				},
+				"strict": true,
+				"name": "memory_edit"
+			}
+		},
+		"enable_thinking": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "[MODEL: Memory curation]\n\nWrite the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in Hungarian.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nWrite three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}."
+			},
+			{
+				"role": "user",
+				"content": "{\"about\":\"a person\",\"name\":\"Kata\",\"entries\":[{\"subject\":\"Work and study\",\"kind\":\"temporary\",\"text\":\"A felhasználónak péntekig le kell adnia egy logótervet egy ügyfélnek.\"},{\"subject\":\"Health\",\"kind\":\"temporary\",\"text\":\"A felhasználó térde megsérült, jelenleg gyógytornára jár.\"},{\"subject\":\"Other\",\"kind\":\"temporary\",\"text\":\"A felhasználó ezen a héten nem iszik alkoholt.\"},{\"subject\":\"Home and family\",\"kind\":\"temporary\",\"text\":\"A felhasználó anyósa a jövő héten két napra náluk lesz.\"},{\"subject\":\"Projects\",\"kind\":\"temporary\",\"text\":\"A felhasználó márciusban Lisszabonba utazik a párjával.\"},{\"subject\":\"Work and study\",\"kind\":\"ongoing\",\"text\":\"A felhasználó jelenleg egy könyvesbolt arculatán dolgozik.\"},{\"subject\":\"Projects\",\"kind\":\"ongoing\",\"text\":\"A felhasználó kerti kunyhót épít a nagyszülei kertjében.\"},{\"subject\":\"Projects\",\"kind\":\"ongoing\",\"text\":\"A felhasználó ukulelén tanul játszani.\"},{\"subject\":\"Home and family\",\"kind\":\"ongoing\",\"text\":\"A felhasználó új lakást keres Győrben, mert a jelenlegi túl kicsi.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"A felhasználó japánul tanul, hetente egy órát vesz.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"A felhasználó hétvégenként kovászos kenyeret süt.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"A felhasználó hetente kétszer boulderezik egy győri teremben.\"},{\"subject\":\"Work and study\",\"kind\":\"ongoing\",\"text\":\"A felhasználó részidőben mesterképzésre jár, a diplomát várhatóan jövő júniusban szerzi meg.\"},{\"subject\":\"About the person\",\"text\":\"A felhasználó 35 éves.\"},{\"subject\":\"About the person\",\"text\":\"A felhasználó anyanyelve magyar, folyékonyan beszél angolul.\"},{\"subject\":\"About the person\",\"text\":\"A felhasználó vegetáriánus.\"},{\"subject\":\"Home and family\",\"text\":\"A felhasználó Győrben lakik egy kétszobás lakásban.\"},{\"subject\":\"Home and family\",\"text\":\"A felhasználó párja Márk, aki tanár.\"},{\"subject\":\"Home and family\",\"text\":\"A felhasználónak van egy négyéves lánya, Lili.\"},{\"subject\":\"Home and family\",\"text\":\"A felhasználónak van egy Mák nevű macskája.\"},{\"subject\":\"Home and family\",\"text\":\"A felhasználó öccse, Bence, Szegeden él.\"},{\"subject\":\"Work and study\",\"text\":\"A felhasználó freelance grafikusként dolgozik.\"},{\"subject\":\"Health\",\"text\":\"A felhasználó laktózérzékeny.\"},{\"subject\":\"Health\",\"text\":\"A felhasználó rövidlátó, szemüveget visel.\"},{\"subject\":\"Interests\",\"text\":\"A felhasználó szereti a sci-fi regényeket, kedvenc szerzője Ursula K. Le Guin.\"},{\"subject\":\"Interests\",\"text\":\"A felhasználó hétvégén szívesen túrázik a Bakonyban.\"},{\"subject\":\"Interests\",\"text\":\"A felhasználó fekete kávét iszik cukor nélkül.\"},{\"subject\":\"Other\",\"text\":\"A felhasználó inkább rövid, lényegre törő válaszokat szeret.\"},{\"subject\":\"Other\",\"text\":\"A felhasználó nem szeret telefonálni, inkább üzenetet ír.\"},{\"subject\":\"Other\",\"text\":\"A felhasználó korábban Szegeden élt, azóta költözött Győrbe.\"}]}"
+			}
+		],
+		"chat_template_kwargs": {
+			"enable_thinking": false
+		},
+		"top_k": 20
+	},
+	"results": [
+		{
+			"scope": "personal",
+			"language": "hu",
+			"run": 1,
+			"ms": 7044,
+			"text": "Kata 35 éves, anyanyelve magyar és folyékonyan beszél angolul. Győrben lakik párjával, Márkkal, lányával, Lilivel és Mák nevű macskájával, korábban Szegeden élt. Freelance grafikusként dolgozik, részidőben mesterképzésre jár, és jelenleg egy könyvesbolt arculatán dolgozik. Vegetáriánus, laktózérzékeny, rövidlátó, és jelenleg térdsérülése miatt gyógytornára jár. Hetente egy órát vesz japánul, ukulelén tanul játszani, és hétvégenként kovászos kenyeret süt. Boulderezik, sci-fi regényeket olvas, és szívesen túrázik a Bakonyban."
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 1,
+			"ms": 9978,
+			"text": "Kata is a 35-year-old freelance graphic designer living in Győr with her partner Márk, daughter Lili, and cat Mák. She is studying for a master's degree part-time, expected to finish next June, and is currently working on a bookstore identity while needing to submit a client logo by Friday. Kata is learning Japanese and playing the ukulele, and she boulders twice a week in a local gym. She is building a garden hut in her grandparents' yard and is looking for a larger apartment in Győr. She is recovering from a knee injury with physical therapy, avoids alcohol this week, and has a lactose intolerance. Her mother-in-law will visit for two days next week, and she plans a trip to Lisbon with Márk in March."
+		},
+		{
+			"scope": "project",
+			"language": "hu",
+			"run": 1,
+			"ms": 4580,
+			"text": "A Kerti kunyhó projekt célja szerszámok és kerti bútorok tárolása egy 12 négyzetméteres, fából épülő kunyhóval, amely a kert északi sarkában áll majd. Kata és édesapja dolgozik a projekten, a betonalapot pedig Péter, Kata nagybátyja öntötte ki. Az alap elkészült, a falváz építése folyamatban van, a tetőfedő lemezek pedig a jövő héten érkeznek. A kunyhó egyfedeles tetőt kap enyhe lejtéssel, a kétszárnyú ajtó pedig kifelé nyílik. A festés színe még nincs eldöntve, később választják ki."
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 1,
+			"ms": 5067,
+			"text": "Kerti kunyhó is a garden shed project built by Kata and her father to store tools and furniture. The wooden structure stands in the north corner of the garden on a concrete base poured by Péter. The foundation is complete, and wall frame construction is currently under way. Roofing sheets are expected to arrive next week for the single-pitch roof. The shed will have a double door opening outward, while the paint color is still undecided."
+		},
+		{
+			"scope": "personal",
+			"language": "hu",
+			"run": 2,
+			"ms": 5236,
+			"text": "Kata 35 éves, freelance grafikusként dolgozik, és részidőben mesterképzésre jár, amelyet jövő júniusban fejez be. Jelenleg egy logótervet készít péntekig, miközben egy könyvesbolt arculatán is dolgozik. Győrben él párjával, Márkkal, lányával, Lilivel és Mák nevű macskájával, de új, nagyobb lakást keres. Térde sérült, ezért gyógytornára jár, emellett hetente kétszer boulderezik és japánul tanul. Hétvégenként kovászos kenyeret süt, és szívesen túrázik a Bakonyban."
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 2,
+			"ms": 3266,
+			"text": "Kata is a 35-year-old freelance graphic designer living in Győr with her partner Márk, daughter Lili, and cat Mák. She is a Hungarian native who speaks fluent English, is vegetarian, lactose intolerant, and wears glasses for short-sightedness. Kata studies part-time for a master's degree expected in June while working on a bookstore identity and needing to submit a client logo by Friday. Her ongoing projects include building a garden hut, learning ukulele, taking weekly Japanese lessons, baking sourdough, and bouldering twice a week in Győr. She seeks a larger apartment in the city, travels to Lisbon with her partner in March, and hosts her mother-in-law for two days next week. Kata prefers short written messages over phone calls, enjoys sci-fi novels by Ursula K. Le Guin, hikes in Bakony, and drinks black coffee without sugar."
+		},
+		{
+			"scope": "project",
+			"language": "hu",
+			"run": 2,
+			"ms": 2674,
+			"text": "A Kerti kunyhó projekt célja szerszámok és kerti bútorok tárolása egy 12 négyzetméteres, fából épülő kunyhóban, amely a kert északi sarkában áll majd. Az alap elkészült, a falváz építése folyamatban van, a tetőfedő lemezek pedig a jövő héten érkeznek. A tető egyfedeles, enyhe lejtéssel, az ajtó pedig kétszárnyú, kifelé nyílik. A festés színét később választják ki. A munkát Kata és az édesapja végzi, a betonalapot Péter, Kata nagybátyja öntötte ki. A faanyagot egy helyi fűrésztelepről rendelték 180 ezer forintért."
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 2,
+			"ms": 1900,
+			"text": "Kerti kunyhó is a wooden garden shed built by Kata and her father to store tools and furniture. The 12 square meter structure stands in the north corner of the garden, with a single-slope roof and double doors that open outward. The concrete foundation was poured by Kata's uncle, Péter, and the timber was ordered from a local sawmill for 180 thousand forints. The base is complete while wall frame construction is ongoing, with roof sheets arriving next week. The paint color has not been decided yet."
+		},
+		{
+			"scope": "personal",
+			"language": "hu",
+			"run": 3,
+			"ms": 3242,
+			"text": "Kata 35 éves, anyanyelve magyar, és folyékonyan beszél angolul. A Győrben lakó freelance grafikusként dolgozik, miközben részidőben mesterképzésre jár, a diplomát pedig jövő júniusban szerzi meg. Vegetáriánus, laktózérzékeny és rövidlátó, ezért szemüveget visel. Családja a párja Márk tanár, négyéves lánya Lili, valamint Mák nevű macskája, akik mellett hetente kétszer boulderezik és japánul tanul. Jelenleg egy könyvesbolt arculatán dolgozik, péntekig egy logótervet kell leadnia, és térdsérülése miatt gyógytornára jár. Ezen a héten nem iszik alkoholt, anyósa a jövő héten két napra hozzájuk jön, márciusban pedig Lisszabonba utazik a párjával."
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 3,
+			"ms": 2539,
+			"text": "Kata is a 35-year-old freelance graphic designer living in Győr with her partner Márk, daughter Lili, and cat Mák. She is currently working on a bookstore's brand identity and must submit a client logo design by Friday. Kata is building a garden hut for her grandparents and learning to play the ukulele. She studies Japanese weekly, boulders twice a week, and bakes sourdough bread on weekends. She is also pursuing a part-time master's degree, with graduation expected next June."
+		},
+		{
+			"scope": "project",
+			"language": "hu",
+			"run": 3,
+			"ms": 3886,
+			"text": "Kata és az édesapja egy 12 négyzetméteres fából készült kerti kunyhót épít a kert északi sarkába. Az alap elkészült és a falváz építése folyamatban van, a tetőfedő lemezek pedig a jövő héten érkeznek. A kunyhó egyfedeles tetővel és kifelé nyíló kétszárnyú ajtóval készül."
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 3,
+			"ms": 2109,
+			"text": "Kata and her father are building a 12 square meter wooden garden shed in the northern corner of their garden to store tools and furniture. The foundation is complete, and the wall frame is currently being constructed with wood ordered from a local sawmill for 180 thousand forints. The shed will have a single-slope roof with a gentle pitch, and the roof sheets are expected to arrive next week. A double-leaf door that opens outward is planned, while the paint color has not yet been decided."
+		},
+		{
+			"scope": "personal",
+			"language": "hu",
+			"run": 4,
+			"ms": 2755,
+			"text": "Kata 35 éves, magyar anyanyelvű, angolul folyékonyan beszélő freelance grafikus, aki jelenleg egy könyvesbolt arculatán dolgozik, miközben részidőben mesterképzésre jár. Győrben él párjával, Márkkal, négyéves lányukkal, Lilivel, és Mák nevű macskájukkal, de új, nagyobb lakást keres, mert a kétszobás otthonuk túl kicsi. A nagyszülei kertjében kerti kunyhót épít, ukulelén tanul játszani, és hetente egy órát vesz japánul. Hetente kétszer boulderezik egy győri teremben, hétvégenként kovászos kenyeret süt, és szívesen túrázik a Bakonyban. Vegetáriánus és laktózérzékeny, rövidlátó, ezért szemüveget visel, és térdsérülése miatt jelenleg gyógytornára jár. Péntekig le kell adnia egy logótervet, márciusban pedig Lisszabonba utazik a párjával, miközben az anyósa jövő héten két napra hozzájuk jön."
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 4,
+			"ms": 6294,
+			"text": "Kata is a 35-year-old freelance graphic designer living in Győr with her partner Márk, daughter Lili, and cat Mák. She is currently working on a bookstore identity and must submit a logo design to a client by Friday, while also attending a part-time master's program expected to finish next June. She is learning Japanese, playing the ukulele, and building a garden hut, alongside her hobbies of bouldering and baking sourdough. Her injured knee is currently undergoing physical therapy, and she is not drinking alcohol this week. She is searching for a new apartment in Győr because her current two-bedroom home is too small, and her mother-in-law will visit for two days next week. She is lactose intolerant, wears glasses for short-sightedness, and prefers text messages over phone calls."
+		},
+		{
+			"scope": "project",
+			"language": "hu",
+			"run": 4,
+			"ms": 2840,
+			"text": "A Kerti kunyhó projekt célja egy 12 négyzetméteres faház építése a kert északi sarkában, szerszámok és bútorok tárolására. Kata és édesapja dolgoznak a projekten, míg Péter öntötte a betonalapot. Az alap elkészült, a falváz építése folyamatban van, a tetőfedő lemezek a jövő héten érkeznek. A tető egyfedeles, enyhe lejtésű, az ajtó pedig kétszárnyú és kifelé nyílik. A festés színét később választják ki, a faanyagot egy helyi fűrésztelepről rendelték 180 ezer forintért."
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 4,
+			"ms": 2934,
+			"text": "Kata and her father are building Kerti kunyhó, a 12 square meter wooden shed, in the northern corner of their garden to store tools and furniture. The project uses timber from a local sawmill for 180 thousand forints, with a single-slope roof and double doors opening outward. The concrete base was poured by Kata's uncle Péter, while wall framing is currently underway. Roofing sheets are scheduled to arrive next week, and the paint color will be chosen later."
+		},
+		{
+			"scope": "personal",
+			"language": "hu",
+			"run": 5,
+			"ms": 2943,
+			"text": "Kata 35 éves, anyanyelve magyar, folyékonyan beszél angolul, és vegetáriánus. Freelance grafikusként dolgozik, jelenleg egy könyvesbolt arculatán és egy ügyfél logótervén is dolgozik, mellette részidőben mesterképzésre jár. Győrben lakik párjával, Márkkal, lányával, Lilivel és Mák macskájukkal, ahol új, nagyobb lakást keres. Térde sérült, ezért gyógytornára jár, laktózérzékeny és rövidlátó. Hetente kétszer boulderezik, japánt tanul, ukulelén gyakorol, hétvégenként kovászos kenyeret süt, és szívesen túrázik a Bakonyban."
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 5,
+			"ms": 2899,
+			"text": "Kata is a 35-year-old freelance graphic designer who lives in Győr with her partner Márk, daughter Lili, and cat Mák. She is vegetarian, lactose intolerant, wears glasses, and speaks Hungarian and English fluently. She is currently working on a bookstore identity and must submit a client logo by Friday, while also attending physical therapy for a knee injury. She is studying for a master's degree part-time, learning Japanese and ukulele, and building a garden shed. She searches for a larger apartment in Győr, plans a Lisbon trip with Márk in March, and expects to graduate next June."
+		},
+		{
+			"scope": "project",
+			"language": "hu",
+			"run": 5,
+			"ms": 2697,
+			"text": "A Kerti kunyhó projekt célja szerszámok és kerti bútorok tárolása a kert északi sarkában. A fából épülő, 12 négyzetméteres kunyhót Kata és édesapja építi, míg Péter öntötte a betonalapot. Az alap elkészült, a falváz építése folyamatban van, a tetőfedő lemezek pedig a jövő héten érkeznek. A kunyhó egyfedeles tetőt kap, a festés színét később választják ki."
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 5,
+			"ms": 7800,
+			"text": "Kerti kunyhó aims to store tools and garden furniture in a wooden structure with a single-slope roof. Kata and her father are building it, while her uncle Péter poured the concrete foundation. The base is complete and wall framing is under way, with roof sheets arriving next week. The shed will stand in the garden's northern corner on a 12 square meter footprint, using timber from a local sawmill for 180 thousand forints."
+		}
+	]
+}

@@ -74,10 +74,20 @@
 		"docs/plans/hindsight-memory/current-list-followup/regression-2026-11-24.ts",
 		// Memory part 2's documented acceptance command (synthetic, local Hindsight).
 		"docs/plans/hindsight-memory/part-2-acceptance/run.ts",
+		// Bank config 3's documented acceptance commands (synthetic, local Hindsight and the
+		// shared model bridge): the runner and the relabel's end-to-end run.
+		"docs/plans/hindsight-memory/part-2-acceptance/config-3/run.ts",
+		"docs/plans/hindsight-memory/part-2-acceptance/config-3/relabel-acceptance.ts",
+		// The near-duplicate A/B's documented command (synthetic, a scratch Hindsight, the shared bridge).
+		"docs/plans/hindsight-memory/near-duplicates-ab/run.ts",
 		// The label migration's documented acceptance command (synthetic, Flash-Next).
 		"docs/plans/hindsight-memory/label-migration-acceptance/run.ts",
 		// The Earlier gate's documented blind measurement (synthetic, no model).
 		"docs/plans/hindsight-memory/label-migration-acceptance/earlier-blind.ts",
+		// The Overview probe's documented command (synthetic scopes, the shared model bridge): the app's own
+		// composeMemoryOverview under vitest (docs/plans/hindsight-memory/overview-hungarian-2026-11-24.md).
+		"docs/plans/hindsight-memory/overview-hungarian-2026-11-24/probe.lab.ts",
+		"docs/plans/hindsight-memory/overview-hungarian-2026-11-24/vitest.config.ts",
 		// Standalone synthetic paired migration rehearsal, invoked by its runbook.
 		"docs/plans/hindsight-memory/paired-migration-rehearsal/run.ts",
 		// Private owner-pilot operator preflight and its synthetic mirror verification.

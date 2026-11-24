@@ -1,0 +1,19 @@
+{
+	"about": "Synthetic. The same invented garden-shed project and facts as project.json, worded the way Hindsight words an English project bank's entries. Newest first, as the Overview receives them. Never the owner's or anyone's real data.",
+	"scopeKind": "project",
+	"name": "Garden hut",
+	"entries": [
+		{ "subject": "plans_status", "kind": "temporary", "text": "The roofing sheets will arrive next week." },
+		{ "subject": "plans_status", "kind": "ongoing", "text": "The foundation is finished and the wall frame is being built." },
+		{ "subject": "plans_status", "kind": "ongoing", "text": "The paint colour is not decided yet and will be chosen later." },
+		{ "subject": "plans_status", "kind": "lasting", "text": "The hut's door will be a double door that opens outwards." },
+		{ "subject": "goals_decisions", "kind": "lasting", "text": "The goal of the project is to build a garden hut for storing tools and garden furniture." },
+		{ "subject": "goals_decisions", "kind": "lasting", "text": "They decided that the hut will be made of wood because it is easier to work with." },
+		{ "subject": "goals_decisions", "kind": "lasting", "text": "The roof will be a single-pitch roof with a gentle slope." },
+		{ "subject": "people", "kind": "lasting", "text": "Kata and her father work on the project together." },
+		{ "subject": "people", "kind": "lasting", "text": "The concrete foundation was poured by Kata's uncle, Péter." },
+		{ "subject": "facts_figures", "kind": "lasting", "text": "The hut's floor area is 12 square metres." },
+		{ "subject": "facts_figures", "kind": "lasting", "text": "The timber was ordered from a local sawmill for 180 thousand forints." },
+		{ "subject": "facts_figures", "kind": "lasting", "text": "The hut will stand in the north corner of the garden." }
+	]
+}

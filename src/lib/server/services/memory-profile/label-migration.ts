@@ -7,6 +7,7 @@ import {
 	memoryAccounts,
 	memoryBanks,
 	memoryFactLabels,
+	memoryLabelRelabels,
 	memoryPublishedRows,
 	memoryRevocations,
 	memorySourceRevisions,
@@ -21,7 +22,11 @@ import {
 import { type CurationModel, createCurationModel } from "./curation";
 import { groupFactsById, memoryEntryView } from "./entry-view";
 import { classifyMemoryFacts, FACT_LABEL_BATCH_SIZE } from "./fact-classifier";
-import { readFactLabels, recordClassifiedFactLabels } from "./fact-labels";
+import {
+	type FactLabels,
+	readFactLabels,
+	recordClassifiedFactLabels,
+} from "./fact-labels";
 import { nativeMemoryClient } from "./hindsight-client";
 import {
 	markMemoryLabelsVerified,
@@ -166,17 +171,17 @@ export interface LabelMigrationDeps {
 	onAccount?: (account: LabelMigrationAccount) => void;
 }
 
-type Bank = typeof memoryBanks.$inferSelect;
-type Account = typeof memoryAccounts.$inferSelect;
-type Fact = { id: string; text: string };
+export type Bank = typeof memoryBanks.$inferSelect;
+export type Account = typeof memoryAccounts.$inferSelect;
+export type Fact = { id: string; text: string };
 
-const MAX_CONCURRENCY = 3;
+export const MAX_CONCURRENCY = 3;
 /**
  * Verification proves the facts were labelled, not only looked at: an account
  * fails (`too_many_unlabelled`) when more than one fact in 20 is left without
  * a usable label (a model whose answers cannot be read labels nothing).
  */
-const MAX_UNLABELLED_SHARE = 1 / 20;
+export const MAX_UNLABELLED_SHARE = 1 / 20;
 /**
  * And it fails (`implausible_labels`) when fewer than this share of its
  * labelled facts are lasting, judged once it has `PLAUSIBILITY_MIN_FACTS`
@@ -191,9 +196,9 @@ const MAX_UNLABELLED_SHARE = 1 / 20;
 const MIN_LASTING_SHARE = 0.15;
 const PLAUSIBILITY_MIN_FACTS = 20;
 /** Batches failing one after another before the account stops asking (`model_unavailable`). */
-const MAX_FAILED_BATCHES_IN_A_ROW = 3;
+export const MAX_FAILED_BATCHES_IN_A_ROW = 3;
 
-class AccountFailure extends Error {
+export class AccountFailure extends Error {
 	constructor(public code: string) {
 		super(code);
 	}
@@ -290,12 +295,24 @@ function emptyEntry(
 	};
 }
 
-/** Why this account is not one to label, or null when it is. */
-function skipReason(
+/**
+ * Whether an account may be read at all, and what its labels stand at: the
+ * permanent tester rule first (an excluded account is never read), then native
+ * Memory, an active account and the Memory switch. Shared by the label
+ * migration and the relabel, which differ only in which accounts they take.
+ */
+export function eligibleAccount(
 	userId: string,
 	database: DatabaseInstance,
-): { skip: LabelMigrationSkip } | { account: Account; verified: boolean } {
-	// The permanent tester rule first: an excluded account is never read.
+):
+	| { skip: LabelMigrationSkip }
+	| {
+			account: Account;
+			/** The epoch waits for the label migration (today's Memory page). */
+			unverified: boolean;
+			/** The label migration verified the epoch. */
+			verifiedByMigration: boolean;
+	  } {
 	const guard = memoryMigrationGuard(userId, database);
 	if (!guard.allowed) return { skip: guard.reason };
 	const account = database
@@ -311,13 +328,29 @@ function skipReason(
 		.where(eq(users.id, userId))
 		.get();
 	if (!user?.enabled) return { skip: "memory_off" };
-	if (account.labelsUnverifiedEpoch === account.epoch)
-		return { account, verified: false };
+	return {
+		account,
+		unverified: account.labelsUnverifiedEpoch === account.epoch,
+		verifiedByMigration:
+			account.labelsUnverifiedEpoch !== account.epoch &&
+			account.labelsVerifiedEpoch === account.epoch,
+	};
+}
+
+/** Why this account is not one to label, or null when it is. */
+function skipReason(
+	userId: string,
+	database: DatabaseInstance,
+): { skip: LabelMigrationSkip } | { account: Account; verified: boolean } {
+	const eligible = eligibleAccount(userId, database);
+	if ("skip" in eligible) return eligible;
+	if (eligible.unverified)
+		return { account: eligible.account, verified: false };
 	// Verified. An epoch this migration verified may still hold the few facts
 	// it left without a usable label: a later run asks for them again. Any
 	// other verified epoch (a new account or epoch) has nothing to label.
-	if (account.labelsVerifiedEpoch === account.epoch)
-		return { account, verified: true };
+	if (eligible.verifiedByMigration)
+		return { account: eligible.account, verified: true };
 	return { skip: "already_verified" };
 }
 
@@ -358,41 +391,20 @@ async function migrateAccount(
 			(bank) => bank.nativeConfigVersion === HINDSIGHT_ENGINE_COMMIT,
 		).length;
 		const read = async () => {
-			const result: {
-				bank: Bank;
-				facts: Fact[];
-				removed: number;
-				todo: Fact[];
-				kinds: Partial<Record<MemoryKind, number>>;
-				subjects: Partial<Record<MemorySubject, number>>;
-			}[] = [];
+			const result: (BankRead & { todo: Fact[] })[] = [];
 			for (const bank of banks) {
-				const listed = (
-					await listBank(bank, () =>
-						listFacts(bank.id, account.tenantId, signal),
-					)
-				).filter((fact) => fact.fact_type !== "observation");
-				// Text the person removed is never sent: Hindsight may still list it.
-				const removed = removedByPerson(database, bank.id);
-				const facts = listed
-					.filter((fact) => !removed(fact))
-					.map(({ id, text }) => ({ id, text }));
-				const labels = readFactLabels(database, bank.id);
-				const todo = facts.filter((fact) => !labels.get(fact.id)?.kind);
-				const kinds: Partial<Record<MemoryKind, number>> = {};
-				const subjects: Partial<Record<MemorySubject, number>> = {};
-				for (const fact of facts) {
-					const { kind, subject } = labels.get(fact.id) ?? {};
-					if (kind) kinds[kind] = (kinds[kind] ?? 0) + 1;
-					if (kind && subject) subjects[subject] = (subjects[subject] ?? 0) + 1;
-				}
-				result.push({
+				const bankRead = await readBankFacts(
+					database,
 					bank,
-					facts,
-					removed: listed.length - facts.length,
-					todo,
-					kinds,
-					subjects,
+					account.tenantId,
+					listFacts,
+					signal,
+				);
+				result.push({
+					...bankRead,
+					todo: bankRead.facts.filter(
+						(fact) => !bankRead.labels.get(fact.id)?.kind,
+					),
 				});
 			}
 			return result;
@@ -585,13 +597,75 @@ async function migrateAccount(
 	}
 }
 
+/** One bank as Hindsight lists it, with the labels the app holds for its facts. */
+export interface BankRead {
+	bank: Bank;
+	/** The raw facts to consider: observations and the person's removed ones left out. */
+	facts: Fact[];
+	/** Raw facts the person removed (a revoked source's, or one a revocation names): never sent. */
+	removed: number;
+	labels: Map<string, FactLabels>;
+	/** Each listed fact's document (its source's id), for the removal check a caller repeats before it sends. */
+	documentIds: Map<string, string | null>;
+	kinds: Partial<Record<MemoryKind, number>>;
+	subjects: Partial<Record<MemorySubject, number>>;
+}
+
+/**
+ * Lists one bank's raw facts from Hindsight (read-only: a listing is all the
+ * migrations are given of it), keeps out the ones the person removed, and
+ * counts the labels the app holds for the rest.
+ */
+export async function readBankFacts(
+	database: DatabaseInstance,
+	bank: Bank,
+	tenantId: string,
+	listFacts: NonNullable<LabelMigrationDeps["listFacts"]>,
+	signal: AbortSignal,
+): Promise<BankRead> {
+	const listed = (
+		await listBank(bank, () => listFacts(bank.id, tenantId, signal))
+	).filter((fact) => fact.fact_type !== "observation");
+	// Text the person removed is never sent: Hindsight may still list it.
+	const removed = removedByPerson(database, bank.id);
+	const facts = listed
+		.filter((fact) => !removed(fact))
+		.map(({ id, text }) => ({ id, text }));
+	const labels = readFactLabels(database, bank.id);
+	return {
+		bank,
+		facts,
+		removed: listed.length - facts.length,
+		labels,
+		documentIds: new Map(
+			listed.map((fact) => [fact.id, fact.document_id ?? null]),
+		),
+		...labelCounts(facts, labels),
+	};
+}
+
+/** The labelled facts of a listing, counted by kind and by subject. */
+export function labelCounts(
+	facts: readonly Fact[],
+	labels: ReadonlyMap<string, FactLabels>,
+): Pick<BankRead, "kinds" | "subjects"> {
+	const kinds: Partial<Record<MemoryKind, number>> = {};
+	const subjects: Partial<Record<MemorySubject, number>> = {};
+	for (const fact of facts) {
+		const { kind, subject } = labels.get(fact.id) ?? {};
+		if (kind) kinds[kind] = (kinds[kind] ?? 0) + 1;
+		if (kind && subject) subjects[subject] = (subjects[subject] ?? 0) + 1;
+	}
+	return { kinds, subjects };
+}
+
 /**
  * The account as it reads now: its raw facts by label, from a listing, and its
  * entries as the Memory page builds them (`memoryEntryView`, on one clock with
  * config-store's aging thresholds). Content-free counts only; an account it
  * can no longer read (Memory turned off meanwhile) gets its facts alone.
  */
-function reading(
+export function reading(
 	database: DatabaseInstance,
 	userId: string,
 	banks: Bank[],
@@ -656,7 +730,10 @@ function reading(
 	return result;
 }
 
-function defaultModel(userId: string, signal: AbortSignal): CurationModel {
+export function defaultModel(
+	userId: string,
+	signal: AbortSignal,
+): CurationModel {
 	// Background priority: the label migration waits behind live turns.
 	return createCurationModel(
 		signal,
@@ -665,7 +742,7 @@ function defaultModel(userId: string, signal: AbortSignal): CurationModel {
 	);
 }
 
-function failureCode(error: unknown): string {
+export function failureCode(error: unknown): string {
 	if (error instanceof AccountFailure) return error.code;
 	const code =
 		error && typeof error === "object" && "code" in error
@@ -683,7 +760,7 @@ function failureCode(error: unknown): string {
  * `concurrency` at once. An aborted signal stops it before the next batch
  * starts; a batch already answered is still written.
  */
-async function inBatches(
+export async function inBatches(
 	facts: Fact[],
 	concurrency: number,
 	signal: AbortSignal,
@@ -742,7 +819,7 @@ async function listBank(
  * and a fact of a source that is revoked or that a revocation names, unless a
  * source the person kept still acknowledges it.
  */
-function removedByPerson(
+export function removedByPerson(
 	database: DatabaseInstance,
 	bankId: string,
 ): (fact: NativeMemory) => boolean {
@@ -798,7 +875,7 @@ function removedByPerson(
  * the run goes on, which changes nothing the person sees until a publication,
  * and a publication changes the bank's generation.
  */
-function publishedFingerprint(
+export function publishedFingerprint(
 	database: DatabaseInstance,
 	userId: string,
 	banks: Bank[],
@@ -921,8 +998,9 @@ export interface LabelRollbackReport {
  * gave a fact without a kind (the classifier wrote over it; the next
  * publication copies it back from the fact's tags, and today's page, where the
  * account is sent, shows no subjects); and the rows' `updated_at`. It undoes
- * every classifier label of the epoch: the migration is their only writer
- * today, so a fallback classifier for new facts would need its own record.
+ * every classifier label of the epoch, the relabel's included, and forgets the
+ * relabel's records of that epoch with them; a fallback classifier for new
+ * facts, when there is one, would need its own record.
  */
 export function rollbackLabelMigration(
 	input: { userId: string; execute: boolean },
@@ -1006,6 +1084,12 @@ export function rollbackLabelMigration(
 						updatedAt: now,
 					})
 					.where(classified(bank.id))
+					.run();
+				// The relabel's records stand on the labels just cleared: one that
+				// outlived them would keep its fact from being asked again, or put
+				// an old label back over a newer one.
+				tx.delete(memoryLabelRelabels)
+					.where(eq(memoryLabelRelabels.bankId, bank.id))
 					.run();
 			}
 			// Truly today's page: the verification is forgotten too, so an

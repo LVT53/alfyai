@@ -403,7 +403,7 @@ function refusedForGood(
 export async function runMemoryDelivery(
 	ctx: JobRunContext<typeof memoryDeliveryJobs>,
 ): Promise<void> {
-	let undoRefusedSourceEdit: (() => Promise<void>) | undefined;
+	let excludeRefusedEdit: (() => Promise<void>) | undefined;
 	try {
 		const row = ctx.row;
 		const account = db
@@ -871,7 +871,7 @@ export async function runMemoryDelivery(
 			prepareUnchangedSourceCuration,
 			unchangedSourceInventory,
 			checkSourceDependencyCuration,
-			restoreRefusedSourceEdit,
+			excludeRefusedSourceEdit,
 			verifyNewAssertionCuration,
 		} = await import("./curation-runner");
 		const checkPendingCuration = (tx: Tx) =>
@@ -1172,12 +1172,12 @@ export async function runMemoryDelivery(
 			await settle(client, [await client.consolidate()], ctx.signal);
 		memories = await captureSettledNative(client, ctx.signal);
 
-		// A changed resend refused for good puts back what its source edit
-		// wrote in the chats it carried before the delivery fails (the catch).
+		// A changed resend refused for good excludes what its edit took away
+		// from the chats it carried before the delivery fails (the catch).
 		if (predecessor && !unchanged) {
 			const edited = source;
-			undoRefusedSourceEdit = () =>
-				restoreRefusedSourceEdit(
+			excludeRefusedEdit = () =>
+				excludeRefusedSourceEdit(
 					ctx,
 					client,
 					{ capture: captureSettledNative, settle },
@@ -1304,15 +1304,17 @@ export async function runMemoryDelivery(
 				? error
 				: new NativeMemoryError("memory_preparation_failed", false);
 		if (
-			undoRefusedSourceEdit &&
+			excludeRefusedEdit &&
 			refusedForGood(error, ctx.row, ctx.attempt.number)
 		) {
 			try {
-				await undoRefusedSourceEdit();
-			} catch (undo) {
-				// Not finished: the delivery stays retryable so the next attempt
-				// finishes putting the carried chats back.
-				if (undo instanceof NativeMemoryError && undo.retryable) native = undo;
+				await excludeRefusedEdit();
+			} catch (exclusion) {
+				// Not finished in Hindsight: the delivery stays retryable so the next
+				// attempt finishes invalidating what the edit took away (its
+				// exclusion is recorded before any native call).
+				if (exclusion instanceof NativeMemoryError && exclusion.retryable)
+					native = exclusion;
 			}
 		}
 		await ctx.fail({

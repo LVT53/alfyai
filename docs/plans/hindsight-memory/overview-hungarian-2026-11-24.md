@@ -61,6 +61,8 @@ P and W were 0 in every round: no paragraph mentioned a removed or earlier entry
 
 ## What the prompt says now
 
+_Superseded on 2026-11-24 by the Config 3 round at the end of this note: the cap of three to six sentences and "leave out the least important ones" are gone, and the borrowed-word line is a general rule._
+
 Still English, ASCII, and the language named once (`Write the paragraph in <language>.`, ruling 79's I2 exception; `overview.test.ts` counts the names and the characters). Three lines changed or arrived; `overview.test.ts` holds each:
 
 1. **Own words, names as written:** "Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word."
@@ -79,3 +81,97 @@ Still English, ASCII, and the language named once (`Write the paragraph in <lang
 - Lower the Overview's temperature (a number in `composeMemoryOverview`'s call; part 3 chose the family profile so that Rewrite gives different words).
 - Ask Hindsight's bank to word loan terms in the account's language (its `retain_mission`), which would fix "freelance" at the source and in recall.
 - Re-run this probe: the inputs are here, and the recipe above is short.
+
+## Config 3 round (2026-11-24)
+
+The owner asked for the two remaining wording fixes: the paragraph uses the account's language's own word where one exists, not the loan word Hindsight left in the entry ("szabadúszó", not "freelance"), and it does not silently leave entries out (the line "leave out the least important ones" above is the one they do not want). Same synthetic scopes and the same two languages as above; no real data.
+
+### Method, what is new
+
+- **The probe is committed** (`overview-hungarian-2026-11-24/probe.lab.ts` with its `vitest.config.ts`, a Fallow entry like the document-ranking labs; not part of `npm test`): `OVERVIEW_PROBE_LABEL=<name> npx vitest run -c docs/plans/hindsight-memory/overview-hungarian-2026-11-24/vitest.config.ts`. It calls the app's own `composeMemoryOverview` with a `CurationModel` that sends what `createCurationModel` sends for a person-read call; each output file keeps one `sampleRequest` (`qwen3-6-27b`, temperature 0.6, top_p 0.95, top_k 20, thinking off, the strict `memory_edit` schema, 8,192 tokens). It goes to the shared bridge (`http://127.0.0.1:18891/v1`, which holds the key; no key was read), one call in flight, without admission headers. `OVERVIEW_PROBE_ENTRIES=en` runs an English account over English entries (`personal.en.json`, `project.en.json`, the same facts), `=large` a scope of 104 entries (`personal.large.json`).
+- **95 calls, none failed:** 20 a prompt (2 scopes x `hu`/`en` x 5 runs, interleaved by run) for the prompt in production (`ce8e26f68`), round 1, round 2 and round 3; English entries 6 + 6 (production's six with `overview.ts` from `ce8e26f68` put back for the run); the large scope 3.
+- **Counted by reading,** every paragraph, one reader. `outputs/config3-reading.json` has what was found paragraph by paragraph (each U and I with a quote); `outputs/reading-summary.py` prints the table rows; `outputs/tally-config3.py` is a first-pass aid with a pattern per entry (it misled in places, for instance on the Hungarian "ukulelén", whose vowel lengthens, so each paragraph was checked against its text).
+- **C, the completeness count (new).** Per paragraph: the entries it **states** (a mention of the entry's content counts, in a list or a group), the entries **nowhere** in it, the scope's subjects with current entries (7 personal, 4 project) it **covers** (one of the subject's entries stated; a group mention that names none would count for the subject but not for the entry, and none occurred), and **complete** (every entry stated).
+- **Loan words** are counted per paragraph, each distinct word once (freelance, boulder from "boulderezik", sci-fi), apart from E (other English words left in a Hungarian paragraph: 0 in every round). **W** is a word of the other language left in a paragraph (Hungarian in an English one). **L** is more sentences than the cap in force (6, 10, 12).
+
+### Results
+
+Hungarian personal paragraphs (5 a round; 30 entries, 7 subjects):
+
+| | production | round 1 (shipped) | round 2 (not shipped) |
+|---|---|---|---|
+| entries nowhere in a paragraph (of 150) | 53 | 1 | 2 |
+| paragraphs with every entry | 0 of 5 | 4 of 5 | 3 of 5 |
+| subjects covered (of 7, a paragraph) | 6.2 | 7.0 | 7.0 |
+| loan words left in: freelance, boulder, sci-fi (of 5) | 5, 5, 1 | 4, 5, 4 | 0, 1, 0 |
+| U (unnatural) | 3 | 9 | 15 |
+| I (invented or moved) | 3 | 4 | 8 |
+| sentences, characters a paragraph | 5.6, 592 | 8.6, 1,062 | 11.0, 1,122 |
+
+The other three cells (U / I / W are counts over 5 paragraphs):
+
+| | production | round 1 (shipped) | round 2 (not shipped) |
+|---|---|---|---|
+| **Hungarian project**: nowhere (of 60), U / I, sentences, characters | 7, 3 / 0, 4.6, 421 | 0, 4 / 0, 6.2, 567 | 0, 6 / 2, 7.4, 592 |
+| **English personal** (from the Hungarian entries): nowhere (of 150), paragraphs complete | 51, 0 of 5 | 0, 5 of 5 | 2, 3 of 5 |
+| English personal: subjects (of 7), U / I / W | 6.4, 0 / 4 / 0 | 7.0, 1 / 4 / 0 | 7.0, 5 / 2 / 3 |
+| English personal: sentences, characters, over the cap | 5.6, 682, 0 | 11.2, 1,394, 3 | 12.2, 1,361, 2 |
+| **English project**: nowhere (of 60), U / I, sentences | 5, 0 / 1, 4.4 | 0, 0 / 0, 8.6 | 0, 1 / 0, 9.6 |
+
+P and W were 0 except round 2's three (below); no paragraph held markup or named memory or entries.
+
+**An English account over English entries** (3 runs a scope; production against round 1): personal paragraphs leave 37 of 90 entries nowhere against 0, cover 5.7 of 7 subjects against 7.0, are complete 0 of 3 against 3 of 3, run 4.3 against 13.0 sentences (9, 11, 17; 497 against 1,334 characters), with U 0 against 1 and I 3 against 0; project paragraphs leave 3 of 36 nowhere against 0 (5.0 against 7.3 sentences). Nothing odd was written in either: the rule about borrowed words had nothing to act on, which is what an English account needs from it.
+
+**A large scope** (104 synthetic entries, English, round 1, 3 runs): every subject covered, but entries are left out again: 26, 6 and 28 of 104 (mean 20 of 104, 19%), mostly small lasting facts (a family's details, trivia), in paragraphs of 1,925, 2,744 and 1,813 characters whose "sentences" are run-on lists (the longest 502 characters).
+
+### What the rounds show
+
+- **Completeness is fixed at 30 entries.** One entry of 420 is nowhere in round 1 (it dropped a job title), against 116 of 420 in production, and every subject is covered in 20 of 20 paragraphs. It costs length: a personal paragraph is 1.8 times as long in Hungarian (592 to 1,062 characters) and 2.0 times in English, and the model does not keep to the cap of ten (3 of 5 English personal paragraphs wrote 11 to 13 sentences; 2 of 3 on English entries wrote 11 and 17). The cap is a hint, not a limit.
+- **Round 1's rule about borrowed words did nothing, as the earlier line did not:** freelance stayed in 4 of 5 paragraphs, boulder in 5 of 5, sci-fi in 4 of 5 (13 loan words in 5 paragraphs, against 11), so a rule stated in words has no measurable effect here, with the example words gone as well. The model treats "freelance" as ordinary Hungarian however it is asked.
+- **Round 1's Hungarian slips are the known kinds, more of them in longer paragraphs** (U 13 and I 4 in 10 paragraphs, against 6 and 3): a missing article ("Bakonyban", twice), "japán nyelvből" and "japánórákat vesz" for "hetente egy órát vesz", the compound "ügyféllogó", links the entries do not make ("miután korábban Szegeden élt", "szintén", "míg"), "learning to play" turned into "plays", and one garbled family list. Per sentence, U and I together went from 0.18 to 0.23 in Hungarian (0.9 to 1.7 a paragraph) and stayed at or below 0.10 in English (0.5 a paragraph in both).
+- **Round 2 made the model list the borrowed words with their own words before it wrote the paragraph** (a second field in the strict schema, read and dropped; plus "link two entries by a cause, a contrast or a time only when an entry says so" and "at most four things in a sentence, at most twelve sentences"). The loan words went (freelance 0 of 5, sci-fi 0, boulder 1: "szabadúszó" once, "önálló grafikus" and "önálló tervező" in the others), and so did the quality: the model replaces words that have no everyday replacement and invents the replacement. "Hawaii gitár" for the ukulele (three times; in English "hawaii guitar" and "small guitar"), "tejtermékérzékeny" for lactose intolerant, "önálló képzőművész" (fine artist) for a freelance graphic designer, "sziklázik" (not a word) three times, "jelkép" for a logo, "másodfokú képzés" for a master's, and it left three Hungarian words in 2 English paragraphs ("tudományos-fantasztikus novels" twice, "tejcukor"). U 21 and I 10 in 10 Hungarian paragraphs (0.34 a sentence), against 6 and 3 in production (0.18). A list-first rule works on the symptom and breaks "nothing invented".
+
+### What ships, and what does not
+
+Round 1 ships: the completeness line and the borrowed-word rule as measured (the rule is inert but general, with no example word, and costs nothing). Round 2 and round 3 are not shipped: their code changes are kept as `outputs/config3-round2-not-shipped.patch` and `outputs/config3-round3-not-shipped.patch` (`git apply` takes either on the shipped commit).
+
+The prompt, the lines that changed (`overview.ts`; `overview.test.ts` holds each; still English, ASCII, the language named once):
+
+1. "Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. Copy no word from another language out of an entry, however common it has become (it is spelt the way that other language spells it): write this language's own everyday word for the same thing, and keep the borrowed word only when there is none."
+2. "Cover every subject the entries are filed under, with at least one short, plain sentence for each, and leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any. Use as many sentences as that takes, never more than ten, each one simple, with no fact twice; no headings, lists, quotation marks or emphasis. Never mention memory, entries, lists or this task."
+
+The three-to-six sentence cap and "You need not mention every entry: leave out the least important ones" are gone. The guard against a runaway answer rose from 3,000 to 6,000 characters (`OVERVIEW_MAX_CHARS`), because the large scope's paragraphs reached 2,744: 3,000 would have refused the write (the sheet's "try again") from about 110 entries up. That commit stands apart and can be dropped alone.
+
+Round 2's wording (round 3, below, started from it): line 1 became "...First list in borrowed_words every word of an entry that this language took from another language (it is spelt the way that other language spells it, however common it has become; a name is never one), each with this language's own everyday word for the same thing, and write the paragraph with the own words; where there is no own word, the borrowed word may stay.", the schema `{"borrowed_words": [{"word", "own_word"}], "overview"}` (both required, in that order), and "Return JSON: {...}. The list is empty when no entry holds such a word."
+
+### Round 3: the list again, an own word only if one already exists (not shipped)
+
+Asked for after round 2, with round 1's completeness line kept as it is. Round 3 is round 2's list-first rule with a rule against coining: the model may give a borrowed word an `own_word` only when this language already has an everyday word for exactly the same thing that people use today, never one coined, described, translated literally or compounded, and gives `null` when it is not sure such a word exists ("a null is correct and a coined word is the worse fault"); the paragraph then uses the own word where there is one and the entry's word as written where it is null. The schema's `own_word` is `string | null`; the "link two entries" line and round 2's "four things, twelve sentences" were left out, so round 3 differs from the shipped prompt in the borrowed-word sentence, the schema and the `Return JSON` line only (`outputs/config3-round3-not-shipped.patch`; tests first, red then green, then taken out again). 20 calls, none failed.
+
+Ship conditions, set before the run: over the Hungarian paragraphs "freelance" at most 1 of 5, no invented or described word in any paragraph read, completeness no worse than round 1; English paragraphs with no Hungarian word and no new slip. It meets the third and fails the other three:
+
+| | round 1 (shipped) | round 3 (not shipped) |
+|---|---|---|
+| **Hungarian personal**: entries nowhere (of 150), paragraphs complete | 1, 4 of 5 | 0, 5 of 5 |
+| loan words left in: freelance, boulder, sci-fi (of 5) | 4, 5, 4 | **5, 5, 4** |
+| invented or described words | 0 | **1** ("jelkép-terv" for the logo design) |
+| U / I, sentences, characters a paragraph | 9 / 4, 8.6, 1,062 | 7 / 4, 9.6, 1,112 |
+| **Hungarian project**: nowhere (of 60), U / I, sentences | 0, 4 / 0, 6.2 | 0, 3 / 2, 8.4 |
+| **English personal**: nowhere (of 150), U / I | 0, 1 / 4 | 0, 1 / 2 |
+| Hungarian words left in the paragraph (W) | 0 | **4, in 2 paragraphs** ("embléma", "arculat", "grafikus", "logó") |
+| sentences, characters, over the cap of ten | 11.2, 1,394, 3 | 15.2, 1,371, 3 (25, 11, 20) |
+| **English project**: nowhere (of 60), sentences, over the cap | 0, 8.6, 0 | 0, 11.0, 4 |
+
+What the lists show (the probe keeps them as `extras`): in the 10 Hungarian calls the model listed 64 words and gave an own word to 4. Two of those were the word itself ("betonalap", "fűrésztelep"), one was coined ("logóterv" to "jelkép-terv": the failure the rule is for, 1 in 64, against about 14 coined words in round 2's five personal paragraphs) and one was right ("sci-fi" to "tudományos-fantasztikus", once). "freelance" got `null` in the four lists that named it and was not listed in the fifth; "boulder" got `null`. The lists are not lists of borrowed words: they hold "logó", "gyógytorna", "alkohol", "mesterképzés", "betonalap", "fűrésztelep", "Lisszabon", "Ursula", "Le", "Guin". In the English paragraphs the list gave its own words in the wrong language ("logó" to "embléma") and the rule "the entry's word as written where it is null" put Hungarian words into the paragraph.
+
+So the rule does what it was written for, the coinage almost went (1 in 64), and the fix went with it: a model that cannot tell which of its entry's words are borrowed says `null` for the one that is ("freelance"), keeps it, and an English paragraph keeps the Hungarian words next to it. A list-first rule is safe or effective in this model, not both. The English paragraphs also grew into one-fact sentences (25 in one) under it. Round 1 stays as shipped.
+
+### Not fixed
+
+- **The loan words.** Hungarian paragraphs still say "freelance" (4 of 5), "boulderezik" (5 of 5) and "sci-fi" (4 of 5). Three prompt rules were tried on them: a plain rule does nothing (round 1), a list-first rule invents words (round 2), and a list-first rule that must give `null` instead of inventing leaves them in (round 3). Ways on, none run: (a) the source: have Hindsight word loan terms in the account's language (`retain_mission`; the entry would then say "szabadúszó"), which also fixes recall; (b) a fixed, small word list in code for the few loans that matter, applied to the entries before the model sees them, which is no model call at all but a list somebody has to keep; (c) accept "freelance" and "sci-fi", which Hungarian speakers do say, and note that "boulderezik" is itself a Hungarian word in use, so the replacements the model found for it were worse than the loan.
+
+  **Decision (owner, 2026-11-24): option (c), accept the loan words.** "sci-fi" and "boulderezik" are normal Hungarian, "freelance" is said too, and every prompt attempt made the paragraph worse (round 2 invented words, round 3 left the loans in and leaked another language into English paragraphs). No more rounds. The shipped prompt keeps round 1's general borrowed-word line only because that is the prompt whose completeness was measured; it is inert, and can go with the next measured change to the prompt.
+- **Scale.** At 104 entries round 1 states about 80% of the entries, and the paragraph is a wall of run-on lists. The prompt says "name each in a few words", which does not scale; for a big scope, group by theme in the prompt, or write one short sentence per subject in its own call, and measure it on a scope this size.
+- **Length.** Paragraphs are about twice as long at 30 entries; the cap of ten is not kept. If the owner wants shorter, the lever is the cap's wording, and what it costs is entries.
+- **Hungarian slips** went up with the length (see above); a second look on real accounts is still owed.
+- **Not covered:** real accounts' wording, the interactive path of the gateway, and any scope between 30 and 104 entries.

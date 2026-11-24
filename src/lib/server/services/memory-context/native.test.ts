@@ -935,6 +935,146 @@ it("keeps the answered rankings when the evidence snapshot fails", async () => {
 	// search keeps stored order out.
 	expect(tool).toEqual([]);
 });
+const RERENDER_MODES = [
+	"direct",
+	"re-rendered",
+	"re-rendered in place",
+	"superset support",
+	"changed raw",
+	"second live observation",
+	"snapshot disagrees",
+	"snapshot fails",
+	"revoked",
+	"shared support",
+] as const;
+/**
+ * A plain published row (no Edit made it) whose observation Hindsight rebuilt
+ * over exactly the same fact, with its own wording: as after a refused
+ * correction's staged draft was deleted (follow-up B, 2026-11-24).
+ */
+function seedRerendered(mode: (typeof RERENDER_MODES)[number]) {
+	const shown = "My sewing box is blue.";
+	const rendered = "The user's sewing box is blue.";
+	seed("b1", "personal", shown);
+	const db = drizzle(sqlite, { schema });
+	const source = db.select().from(schema.memorySourceRevisions).get();
+	if (!source) throw Error("test_source_missing");
+	const fact = {
+		id: "f-b1",
+		text: shown,
+		mentionedAt: null,
+		assertedAtMs: source.assertedAt.getTime(),
+	};
+	db.update(schema.memoryPublishedRows)
+		.set({ sourceFingerprintsJson: JSON.stringify([fact]) })
+		.run();
+	if (mode === "shared support")
+		// A second row of the generation holds the same fact (hidden: its other
+		// fact is not admitted), so the fact's support names no single row.
+		db.insert(schema.memoryPublishedRows)
+			.values({
+				id: "pair",
+				bankId: "b1",
+				generation: "g",
+				epoch: 0,
+				nativeId: "pair",
+				text: "Sewing box and thread",
+				nativeText: "Sewing box and thread",
+				sourceIdsJson: JSON.stringify(["f-b1", "thread"]),
+				sourceFingerprintsJson: JSON.stringify([
+					fact,
+					{ id: "thread", text: "Thread" },
+				]),
+				updatedAt: new Date(),
+			})
+			.run();
+	if (mode === "revoked")
+		db.insert(schema.memoryRevocations)
+			.values({
+				id: "revoked-fact",
+				userId: "u",
+				bankId: "b1",
+				epoch: 0,
+				nativeFactId: "f-b1",
+			})
+			.run();
+	const observation = {
+		id:
+			mode === "direct" || mode === "re-rendered in place" ? "n-b1" : "rebuilt",
+		text: mode === "direct" ? shown : rendered,
+		fact_type: "observation",
+		source_memory_ids:
+			mode === "superset support" ? ["f-b1", "unpublished"] : ["f-b1"],
+	};
+	recall.mockResolvedValue([observation]);
+	if (mode === "snapshot fails") list.mockRejectedValue(new Error("offline"));
+	else
+		list.mockResolvedValue([
+			{
+				...observation,
+				text:
+					mode === "snapshot disagrees" ? "Something else" : observation.text,
+			},
+			{
+				id: "f-b1",
+				fact_type: "world",
+				document_id: "s-b1",
+				text: mode === "changed raw" ? "My sewing box is green." : shown,
+			},
+			...(mode === "superset support"
+				? [
+						{
+							id: "unpublished",
+							fact_type: "world",
+							document_id: "s-later",
+							text: "The sewing box is in the attic.",
+						},
+					]
+				: []),
+			...(mode === "second live observation"
+				? [
+						{
+							id: "merged",
+							fact_type: "observation",
+							text: "The sewing box and the thread are blue.",
+							source_memory_ids: ["f-b1", "thread"],
+						},
+					]
+				: []),
+		]);
+}
+it.each(RERENDER_MODES)(
+	"recalls the card the page shows when Hindsight re-renders its observation over the same fact (%s)",
+	async (mode) => {
+		seedRerendered(mode);
+		const { recallMemory } = await import("./native");
+		const input = {
+			conversationId: "personal",
+			query: "sewing box",
+			tokenBudget: 500,
+		};
+		const tool = await recallMemory("u", input);
+		const turn = await recallMemory("u", { ...input, core: true });
+		const card = expect.objectContaining({
+			ref: { scope: { kind: "personal" }, generation: "g", rowId: "n-b1" },
+			text: "My sewing box is blue.",
+		});
+		if (
+			mode === "direct" ||
+			mode === "re-rendered" ||
+			mode === "re-rendered in place"
+		) {
+			// The published card, never Hindsight's new wording.
+			expect(tool).toEqual([card]);
+			expect(turn).toEqual([card]);
+		} else {
+			expect(tool).toEqual([]);
+			expect(turn).toEqual([]);
+		}
+		// An exact match needs no evidence snapshot: recall costs what it did.
+		if (mode === "direct") expect(list).not.toHaveBeenCalled();
+	},
+);
 it("searches with the message and the core on the per-turn path", async () => {
 	seedFairSplit(3);
 	const message = "What should I cook tonight?";

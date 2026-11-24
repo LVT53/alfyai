@@ -32,6 +32,7 @@ import {
 	curatedNativeRankKeys,
 	matchVerifiedObservationRows,
 	nativeRankSupportKey,
+	publishedSupportRankKeys,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "../memory-profile/publication";
@@ -297,15 +298,31 @@ export async function recallMemory(
 				answeredRankings.some((ranking) => ranking.length) &&
 				isStillActive(db)
 			) {
-				const { bridge, family } = db.transaction((tx) => ({
-					bridge: curatedNativeRankKeys(tx, bank),
-					family: approvedMigrationRankFamily(
-						tx,
-						userId,
-						bank.id,
-						readPublishedMemory(userId, bank.id, undefined, tx),
-					),
-				}));
+				const { bridge, family, rerendered, shown } = db.transaction((tx) => {
+					const shown = readPublishedMemory(userId, bank.id, undefined, tx);
+					return {
+						bridge: curatedNativeRankKeys(tx, bank),
+						rerendered: publishedSupportRankKeys(tx, bank),
+						shown: new Map(shown.map((row) => [row.nativeId, row])),
+						family: approvedMigrationRankFamily(tx, userId, bank.id, shown),
+					};
+				});
+				// A rank that is a published row as it was published needs no
+				// confirmation; one that reaches a row only through its support
+				// (an Edit's result, or an observation Hindsight re-rendered) does.
+				const exactlyShown = (rank: NativeMemory, key: string) => {
+					const row = shown.get(rank.id);
+					return (
+						!!row &&
+						row.nativeText === rank.text &&
+						key ===
+							nativeRankSupportKey(
+								readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+									(fact) => fact.id,
+								),
+							)
+					);
+				};
 				if (
 					answeredRankings.some((ranking) =>
 						ranking.some((rank) => {
@@ -313,7 +330,9 @@ export async function recallMemory(
 							const key = nativeRankSupportKey(support);
 							return (
 								support.some((id) => family?.ids.has(id)) ||
-								(key && bridge.has(key))
+								(key &&
+									(bridge.has(key) ||
+										(rerendered.has(key) && !exactlyShown(rank, key))))
 							);
 						}),
 					)
@@ -378,10 +397,15 @@ export async function recallMemory(
 				new Map<string, number>();
 			if (answered) {
 				const byId = new Map(accepted.map((row) => [row.nativeId, row]));
-				const bridge =
-					accepted[0]?.generation === bank.generation
-						? curatedNativeRankKeys(tx, bank)
-						: new Map<string, string>();
+				const current = accepted[0]?.generation === bank.generation;
+				const bridge = current
+					? curatedNativeRankKeys(tx, bank)
+					: new Map<string, string>();
+				// Any shown row, reached through its whole unique support when
+				// Hindsight re-rendered its observation (follow-up B).
+				const rerendered = current
+					? publishedSupportRankKeys(tx, bank)
+					: new Map<string, string>();
 				const bridged = new Set(bridge.values());
 				const evidence = confirmedEvidence.get(bank.id);
 				const acceptedById = new Map(facts.map((fact) => [fact.id, fact]));
@@ -458,7 +482,9 @@ export async function recallMemory(
 								order.set(direct.nativeId, index);
 							continue;
 						}
-						const mapped = bridge.get(key);
+						// Through its support, only as Hindsight's live list confirms it
+						// and with every fact under the row as it was published.
+						const mapped = bridge.get(key) ?? rerendered.get(key);
 						const row = mapped ? byId.get(mapped) : undefined;
 						const live = evidence?.get(rank.id);
 						if (

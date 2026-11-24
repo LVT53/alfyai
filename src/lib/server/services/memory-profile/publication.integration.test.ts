@@ -670,6 +670,188 @@ describe("accepted native publication", () => {
 		republish(f);
 		expect(visibleTexts(f)).toEqual(["Collects maps", "Green kayak"]);
 	});
+	it("leaves out exactly what a refused changed resend's edit took away, whatever its job is doing", async () => {
+		const f = await fixture();
+		await withUnrelatedFact(f);
+		// The chat the resend carried: the kayak, which the person's edit
+		// rewrote, and the Sunday paddling, which it left as it was.
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "fact", text: "Green kayak" },
+					{ id: "paddle", text: "Paddles on Sundays" },
+				]),
+			})
+			.where(eqId(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		const edited = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "edited-event",
+			lineageId: "message",
+			text: "My kayak is blue",
+			context: "User statement",
+			assertedAt: new Date("2026-11-21"),
+		});
+		const intent = (
+			outcome: "rejected" | "accepted",
+			text = "My kayak is blue",
+			excludedFactIds?: string[],
+		) =>
+			JSON.stringify({
+				request: {
+					kind: "edit",
+					requestId: edited.id,
+					text,
+					ref: {
+						scope: { kind: "personal" },
+						generation: "source-edit",
+						rowId: edited.id,
+					},
+				},
+				before: "My kayak is green",
+				sourceIds: [f.source.id],
+				facts: [
+					{ id: "fact", text: "Green kayak", sourceId: f.source.id },
+					{ id: "paddle", text: "Paddles on Sundays", sourceId: f.source.id },
+				],
+				proposal: [
+					{ id: "fact", text: "Blue kayak" },
+					{ id: "paddle", text: "Paddles on Sundays" },
+				],
+				outcome,
+				...(excludedFactIds ? { excludedFactIds } : {}),
+			});
+		f.db
+			.insert(f.schema.memoryActions)
+			.values({
+				id: "source-edit",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				requestId: edited.id,
+				kind: "source_edit",
+				text: "My kayak is blue",
+				previousText: "My kayak is green",
+				// As the refusal records it: the fact the edit took away.
+				intentJson: intent("rejected", "My kayak is blue", ["fact"]),
+			})
+			.run();
+		const excluded = () =>
+			f.db.transaction((tx) => [
+				...f.pub.excludedNativeEvidence(tx, f.bank).factIds,
+			]);
+		// Only the fact the edit changed, with no job, while one is queued, runs
+		// again or has ended.
+		expect(excluded()).toEqual(["fact"]);
+		f.db
+			.insert(f.schema.memoryDeliveryJobs)
+			.values({
+				id: "edited-job",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: edited.id,
+				requestId: `source:${edited.id}`,
+				status: "queued",
+			})
+			.run();
+		for (const status of ["queued", "running", "failed"] as const) {
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set({ status })
+				.where(eqId(f.schema.memoryDeliveryJobs.id, "edited-job"))
+				.run();
+			expect(excluded()).toEqual(["fact"]);
+		}
+		// Its wording is revoked whatever it is (as the refusal writes it), and
+		// Hindsight still holds it merged with the paddling into one card: the
+		// card is left out whole, and the rest of the bank publishes.
+		f.db
+			.insert(f.schema.memoryRevocations)
+			.values({
+				id: "refused-edit-fact",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				nativeFactId: "fact",
+				actionId: "source-edit",
+			})
+			.run();
+		const maps = f.memories.filter(
+			({ id }) => id === "maps" || id === "observation-maps",
+		);
+		const raw = (id: string, text: string) => ({
+			id,
+			text,
+			fact_type: "world",
+			consolidated_at: "2026-11-18T00:00:00Z",
+			document_id: f.source.id,
+		});
+		f.memories.splice(
+			0,
+			f.memories.length,
+			raw("fact", "Blue kayak"),
+			raw("paddle", "Paddles on Sundays"),
+			{
+				id: "merged",
+				text: "Blue kayak, paddled on Sundays",
+				fact_type: "observation",
+				source_memory_ids: ["fact", "paddle"],
+			},
+			...maps,
+		);
+		republish(f);
+		expect(visibleTexts(f)).toEqual(["Collects maps"]);
+		// Hindsight rebuilt the paddling alone once the kayak was invalidated:
+		// what the edit left publishes again.
+		f.memories.splice(
+			0,
+			f.memories.length,
+			raw("paddle", "Paddles on Sundays"),
+			{
+				id: "observation-paddle",
+				text: "Paddles on Sundays",
+				fact_type: "observation",
+				source_memory_ids: ["paddle"],
+			},
+			...maps,
+		);
+		republish(f);
+		expect(visibleTexts(f)).toEqual(["Collects maps", "Paddles on Sundays"]);
+		// An edit accepted on a later try excludes nothing.
+		f.db
+			.update(f.schema.memoryActions)
+			.set({ intentJson: intent("accepted") })
+			.where(eqId(f.schema.memoryActions.id, "source-edit"))
+			.run();
+		expect(excluded()).toEqual([]);
+		// Nor does a refused edit that only added to the message: it took
+		// nothing away, and what its proposal wrote is put back instead.
+		f.db
+			.update(f.schema.memoryActions)
+			.set({
+				intentJson: intent(
+					"rejected",
+					"My kayak is green. I paddle on Sundays too.",
+					[],
+				),
+			})
+			.where(eqId(f.schema.memoryActions.id, "source-edit"))
+			.run();
+		expect(excluded()).toEqual([]);
+		// Nor does an edit refused and put back before this rule: it recorded
+		// no exclusion, and nothing it put back is taken away later.
+		f.db
+			.update(f.schema.memoryActions)
+			.set({ intentJson: intent("rejected") })
+			.where(eqId(f.schema.memoryActions.id, "source-edit"))
+			.run();
+		expect(excluded()).toEqual([]);
+	});
 	/**
 	 * The fixture's chat as Hindsight held it after a deleted document's
 	 * re-consolidation: an old fact and its correction behind the bicycle,
