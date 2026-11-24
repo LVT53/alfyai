@@ -29,14 +29,16 @@ import {
 	assertMemoryDependencySourceCurrent,
 } from "./revisions";
 
+/** Whether Memory jobs may run in this process: the worker switch, and no restore hold. */
+export function memoryDeliveryEnabled(): boolean {
+	const config = getConfig();
+	return config.hindsightWorkerEnabled && !config.hindsightRestoreHold;
+}
 export const memoryDeliveryJob = defineJobKind({
 	name: "memory",
 	logPrefix: "[MEMORY]",
 	tables: { jobs: memoryDeliveryJobs, attempts: memoryDeliveryAttempts },
-	enabled: () => {
-		const config = getConfig();
-		return config.hindsightWorkerEnabled && !config.hindsightRestoreHold;
-	},
+	enabled: memoryDeliveryEnabled,
 	// One active mutation per user is stricter than per-bank and prevents native bank overlap.
 	limits: () => ({ global: getConfig().hindsightConcurrency, perUser: 1 }),
 	lease: () => ({ heartbeatMs: 15_000, staleAfterMs: 120_000 }),

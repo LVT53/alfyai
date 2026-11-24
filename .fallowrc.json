@@ -33,6 +33,11 @@
 		"scripts/memory-judge-eval.ts",
 		// The standalone operator CLI for inspecting and preparing Memory migration.
 		"scripts/memory-backfill.ts",
+		// Memory part 4's canonical operator tools (docs/plans/hindsight-memory/migration-runbook.md).
+		"scripts/memory-resend.ts",
+		"scripts/memory-reattach.ts",
+		"scripts/memory-recover-consolidation.ts",
+		"scripts/memory-drain.ts",
 		"scripts/seed-campaign-data.ts",
 		"scripts/sweep-orphan-generated-artifacts.ts",
 		"scripts/verify-live-extraction-types.ts",

@@ -377,6 +377,14 @@ export class HindsightClient {
 			throw new NativeMemoryError("native_format_unsupported", false);
 		return r.operation_id;
 	}
+	/**
+	 * Resets the bank's facts Hindsight marked failed in consolidation, so the
+	 * next consolidation takes them up again (`POST …/consolidation/recover` at
+	 * the pin). An operator's step, never a delivery's.
+	 */
+	async recoverConsolidation(): Promise<Record<string, unknown>> {
+		return this.request("/consolidation/recover", "POST", {});
+	}
 	async pendingOperations(): Promise<NativeOperation[]> {
 		const result: NativeOperation[] = [];
 		for (const status of ["pending", "processing"]) {
