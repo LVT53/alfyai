@@ -78,12 +78,13 @@ function overviewPrompt(
 			? "Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph."
 			: "Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.",
 		`Write the paragraph in ${LANGUAGE_NAMES[language]}.`,
-		"Use only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say.",
+		"Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. A word borrowed from another language, such as freelance or deadline, gets the paragraph's own word.",
+		"Use only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.",
 		"An entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.",
 		scopeKind === "project"
 			? "Refer to the project by its name when one is given."
 			: "Refer to the person by their name, in the third person, when a name is given; otherwise address them as you.",
-		"Write three to six sentences of plain prose: no headings, lists, quotation marks or emphasis, and never mention memory, entries, lists or this task.",
+		"Write three to six short, plain sentences, never more than six, with one or two facts in each and no fact twice; no headings, lists, quotation marks or emphasis. You need not mention every entry: leave out the least important ones rather than crowd a sentence. Never mention memory, entries, lists or this task.",
 		'Return JSON: {"overview": "<the paragraph>"}.',
 	].join("\n");
 }

@@ -1,0 +1,19 @@
+{
+	"about": "Synthetic. An invented garden-shed project, worded the way Hindsight words a Hungarian project bank's entries. Newest first, as the Overview receives them. Never the owner's or anyone's real data.",
+	"scopeKind": "project",
+	"name": "Kerti kunyhó",
+	"entries": [
+		{ "subject": "plans_status", "kind": "temporary", "text": "A tetőfedő lemezek a jövő héten érkeznek." },
+		{ "subject": "plans_status", "kind": "ongoing", "text": "Az alap elkészült, a falváz építése folyamatban van." },
+		{ "subject": "plans_status", "kind": "ongoing", "text": "A festés színe még nincs eldöntve, később választják ki." },
+		{ "subject": "plans_status", "kind": "lasting", "text": "A kunyhó ajtaja kétszárnyú lesz, kifelé nyílik." },
+		{ "subject": "goals_decisions", "kind": "lasting", "text": "A projekt célja egy kerti kunyhó felépítése szerszámok és kerti bútorok tárolására." },
+		{ "subject": "goals_decisions", "kind": "lasting", "text": "Úgy döntöttek, hogy a kunyhó fából készül, mert könnyebb megmunkálni." },
+		{ "subject": "goals_decisions", "kind": "lasting", "text": "A tető egyfedeles lesz, enyhe lejtéssel." },
+		{ "subject": "people", "kind": "lasting", "text": "A projekten Kata és az édesapja dolgozik együtt." },
+		{ "subject": "people", "kind": "lasting", "text": "A betonalapot Kata nagybátyja, Péter öntötte ki." },
+		{ "subject": "facts_figures", "kind": "lasting", "text": "A kunyhó alapterülete 12 négyzetméter." },
+		{ "subject": "facts_figures", "kind": "lasting", "text": "A faanyagot egy helyi fűrésztelepről rendelték, 180 ezer forintért." },
+		{ "subject": "facts_figures", "kind": "lasting", "text": "A kunyhó a kert északi sarkában áll majd." }
+	]
+}

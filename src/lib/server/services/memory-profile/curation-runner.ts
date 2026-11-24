@@ -49,6 +49,7 @@ import {
 	admittedNativeFacts,
 	assertCurationPublication,
 	curatedObservationChanges,
+	excludedNativeEvidence,
 	manualPublicationReceipts,
 	prepareNativeSnapshot,
 	publishedEditResult,
@@ -57,6 +58,7 @@ import {
 	readAcknowledgedFacts,
 	readPublishedMemory,
 	republishRenumberedNativeObservations,
+	withoutExcludedEvidence,
 } from "./publication";
 import {
 	acceptedCorrectionSources,
@@ -159,6 +161,18 @@ async function checkCandidate(
 	>,
 	model: CurationModel,
 ) {
+	// The checker judges exactly what publication would show: an item a
+	// refused Remove or a held source left out is not part of the candidate.
+	const { bank, memories } = db.transaction((tx) => {
+		const bank = actionFence(tx, ctx);
+		return {
+			bank,
+			memories: withoutExcludedEvidence(
+				candidate.memories,
+				excludedNativeEvidence(tx, bank, ctx.row.actionId ?? undefined),
+			),
+		};
+	});
 	const replays = candidate.replays ?? [];
 	const sourceIds = new Set([
 		...candidate.sourceIds,
@@ -171,14 +185,13 @@ async function checkCandidate(
 			),
 		).values(),
 	];
-	const proposedFacts = candidate.memories.filter(
+	const proposedFacts = memories.filter(
 		(m) => m.fact_type !== "observation" && sourceIds.has(m.document_id ?? ""),
 	);
 	const affected = new Set([
 		...originalFacts.map((f) => f.id),
 		...proposedFacts.map((f) => f.id),
 	]);
-	const bank = db.transaction((tx) => actionFence(tx, ctx));
 	const previousRows = bank.generation
 		? db
 				.select()
@@ -193,13 +206,13 @@ async function checkCandidate(
 		: [];
 	const previousById = new Map(previousRows.map((row) => [row.nativeId, row]));
 	const raw = new Map(
-		candidate.memories
+		memories
 			.filter((m) => m.fact_type !== "observation")
 			.map((m) => [m.id, m.text]),
 	);
-	const prepared = prepareNativeSnapshot(candidate.memories);
+	const prepared = prepareNativeSnapshot(memories);
 	const changedRows = new Set<string>();
-	const observations = candidate.memories.flatMap((row) => {
+	const observations = memories.flatMap((row) => {
 		if (row.fact_type !== "observation") return [];
 		const previous = previousById.get(row.id);
 		const ids = row.source_memory_ids ?? [];
@@ -220,7 +233,7 @@ async function checkCandidate(
 		return [{ id: row.id, text, sourceFactIds: ids }];
 	});
 	const liveIds = new Set(
-		candidate.memories
+		memories
 			.filter((row) => row.fact_type === "observation")
 			.map((row) => row.id),
 	);
@@ -1666,8 +1679,17 @@ async function executeMemoryAction(
 						: {}),
 				};
 			});
+			// What a Remove's native write may rebuild: every fact sharing a live
+			// observation with a fact it revoked, published or not yet (a chat
+			// still on its way). Saved with the proposal, before any write, so
+			// a refused result leaves them out too (`excludedNativeEvidence`).
+			const familyFactIds =
+				action.kind === "remove"
+					? liveRemovalFamily(action.id, current, intent.familyFactIds)
+					: intent.familyFactIds;
 			intent = {
 				...intent,
+				...(familyFactIds ? { familyFactIds } : {}),
 				nativeFacts: newFacts,
 				proposal: await applyMemoryEdit(
 					{
@@ -1924,6 +1946,7 @@ async function executeMemoryAction(
 				sourceIds,
 				verifiedCuratedChanges: !!repaired,
 				verifiedCuratedDiff,
+				ownActionId: action.id,
 				checkedActionIds: [
 					action.id,
 					...(repaired?.replays.map((r) => r.actionId) ?? []),
@@ -1964,6 +1987,30 @@ async function executeMemoryAction(
 				.run();
 		},
 	});
+}
+
+/** The facts a Remove revoked and every fact sharing a live observation with one of them. */
+function liveRemovalFamily(
+	actionId: string,
+	live: NativeMemory[],
+	known: readonly string[] = [],
+) {
+	const revoked = new Set(
+		db
+			.select({ factId: memoryRevocations.nativeFactId })
+			.from(memoryRevocations)
+			.where(eq(memoryRevocations.actionId, actionId))
+			.all()
+			.flatMap(({ factId }) => (factId ? [factId] : [])),
+	);
+	const family = new Set([...known, ...revoked]);
+	for (const observation of live) {
+		if (observation.fact_type !== "observation") continue;
+		const support = observation.source_memory_ids ?? [];
+		if (support.some((id) => revoked.has(id)))
+			for (const id of support) family.add(id);
+	}
+	return [...family].sort();
 }
 
 /** Only send a changed, known curated family when the incoming assertion actually backs its candidate. */
@@ -2307,37 +2354,63 @@ export function prepareUnchangedSourceCuration(
 	accepted: NonNullable<ReturnType<typeof unchangedSourceInventory>>,
 ) {
 	const sourceIds = accepted.owners.map((owner) => owner.id);
-	function verify(memories: NativeMemory[]) {
+	const bankRef = {
+		id: source.bankId,
+		userId: source.userId,
+		epoch: source.epoch,
+	};
+	/**
+	 * Hindsight's snapshot and the facts the resend carries, as publication
+	 * reads them: what a refused Remove or a held source left out is neither
+	 * required nor published, and never makes the resend wait.
+	 */
+	function shown(memories: NativeMemory[], tx?: Tx) {
+		const excluded = tx
+			? excludedNativeEvidence(tx, bankRef)
+			: db.transaction((read) => excludedNativeEvidence(read, bankRef));
+		return {
+			memories: withoutExcludedEvidence(memories, excluded),
+			facts: accepted.facts.filter(({ id }) => !excluded.factIds.has(id)),
+		};
+	}
+	function verify(live: NativeMemory[], tx?: Tx) {
+		const { memories, facts } = shown(live, tx);
 		try {
-			verifySourceResult(memories, sourceIds, accepted.facts);
+			verifySourceResult(memories, sourceIds, facts);
 			const raw = new Map(
 				memories
 					.filter((fact) => fact.fact_type !== "observation")
 					.map((fact) => [fact.id, fact]),
 			);
-			if (
-				accepted.facts.some(
-					(fact) => raw.get(fact.id)?.document_id !== fact.sourceId,
-				)
-			)
+			if (facts.some((fact) => raw.get(fact.id)?.document_id !== fact.sourceId))
 				throw new Error("memory_unchanged_source_owner_mismatch");
 		} catch {
 			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
 		}
 	}
+	/**
+	 * Whether Hindsight's display of the accepted facts is exactly the one the
+	 * person saw. With a dependency change the final checker judges the
+	 * display and a moved date still refuses. Without one, a display that is
+	 * not exactly the published one (re-rendered, renumbered, an unchecked
+	 * extra observation, a moved date) is never published: the resend keeps
+	 * the published generation instead (`keepPublishedGeneration`), so a
+	 * resend that changes nothing never takes away what was published.
+	 */
 	function verifyUnchangedDisplay(
 		tx: Tx,
-		memories: NativeMemory[],
+		live: NativeMemory[],
 		dependencyChanged: boolean,
 	) {
 		const bank = actionFence(tx, ctx);
-		if (!bank.generation) return;
+		if (!bank.generation) return true;
+		const { memories, facts } = shown(live, tx);
 		const raw = new Map(
 			memories
 				.filter((fact) => fact.fact_type !== "observation")
 				.map((fact) => [fact.id, fact]),
 		);
-		const acceptedIds = new Set(accepted.facts.map((fact) => fact.id));
+		const acceptedIds = new Set(facts.map((fact) => fact.id));
 		const previous = tx
 			.select()
 			.from(memoryPublishedRows)
@@ -2365,11 +2438,14 @@ export function prepareUnchangedSourceCuration(
 						fact.mentionedAt !== undefined &&
 						fact.mentionedAt !== (raw.get(fact.id)?.mentioned_at ?? null),
 				)
-			)
-				throw new NativeMemoryError(
-					"memory_unchanged_source_fact_missing",
-					true,
-				);
+			) {
+				if (dependencyChanged)
+					throw new NativeMemoryError(
+						"memory_unchanged_source_fact_missing",
+						true,
+					);
+				return false;
+			}
 			if (dependencyChanged) continue;
 			const match = observations.findIndex(
 				(observation) =>
@@ -2382,15 +2458,10 @@ export function prepareUnchangedSourceCuration(
 							raw.get(fact.id)?.text === fact.text,
 					),
 			);
-			if (match === -1)
-				throw new NativeMemoryError(
-					"memory_unchanged_source_fact_missing",
-					true,
-				);
+			if (match === -1) return false;
 			observations.splice(match, 1);
 		}
-		if (!dependencyChanged && observations.length)
-			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
+		return dependencyChanged || !observations.length;
 	}
 	function assertCurrent(tx: Tx) {
 		const old = tx
@@ -2440,15 +2511,18 @@ export function prepareUnchangedSourceCuration(
 		checks,
 		verify,
 		assertCurrent,
-		verifyDependencies: async (result: CandidateCheck) => {
+		/** `keepGeneration`: publish nothing new, admit the facts under the generation the person sees. */
+		verifyDependencies: async (
+			result: CandidateCheck,
+		): Promise<{ keepGeneration: boolean }> => {
 			verify(result.memories);
 			const dependencyChanged = Boolean(
 				result.sourceIds.length || result.replays?.length,
 			);
-			db.transaction((tx) =>
+			const verified = db.transaction((tx) =>
 				verifyUnchangedDisplay(tx, result.memories, dependencyChanged),
 			);
-			if (!dependencyChanged) return;
+			if (!dependencyChanged) return { keepGeneration: !verified };
 			await checkCandidate(
 				ctx,
 				{
@@ -2465,9 +2539,10 @@ export function prepareUnchangedSourceCuration(
 				},
 				guardedModel(ctx),
 			);
+			return { keepGeneration: false };
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
-			verify(memories);
+			verify(memories, tx);
 			assertCurrent(tx);
 			for (const owner of accepted.owners) {
 				if (owner.id !== predecessor.id) continue;
@@ -3421,6 +3496,101 @@ export async function checkSourceDependencyCuration(
 		},
 		model,
 	);
+}
+
+/**
+ * A changed resend its final check refused for good leaves nothing it wrote
+ * behind in the chats it carried: every fact its proposal rewrote or
+ * invalidated goes back to the text the person sees (its accepted,
+ * acknowledged text), so the refused change never holds the bank's later
+ * learning. A fact no longer admitted (removed or edited away since) is never
+ * restored, and nothing else is written.
+ */
+export async function restoreRefusedSourceEdit(
+	ctx: Context,
+	client: HindsightClient,
+	native: NativeSettlement,
+	source: Source,
+) {
+	const action = db
+		.select()
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, source.userId),
+				eq(memoryActions.requestId, source.id),
+				eq(memoryActions.kind, "source_edit"),
+			),
+		)
+		.get();
+	if (!action) return;
+	const intent = parseActionIntent(action.intentJson);
+	// A retry re-applies the saved proposal, so a resend refused before is
+	// put back again; only an accepted edit is left as it is.
+	if (intent.outcome === "accepted") return;
+	await undoSourceEditWrites(ctx, client, native, source, intent);
+	// Recorded last, once nothing is left to put back: the resend's own
+	// retained facts are then left out of every publication
+	// (`excludedNativeEvidence`) instead of holding it.
+	await saveIntent(ctx, action.id, { ...intent, outcome: "rejected" });
+}
+
+async function undoSourceEditWrites(
+	ctx: Context,
+	client: HindsightClient,
+	native: NativeSettlement,
+	source: Source,
+	intent: ActionIntentRecord,
+) {
+	if (!intent.proposal) return;
+	const original = new Map(intent.facts.map((fact) => [fact.id, fact]));
+	const touched = intent.proposal.filter(
+		(fact) =>
+			original.has(fact.id) && original.get(fact.id)?.text !== fact.text,
+	);
+	if (!touched.length) return;
+	const admitted = () =>
+		new Map(
+			db.transaction((tx) => {
+				actionFence(tx, ctx);
+				return admittedNativeFacts(source.userId, source.bankId, tx).map(
+					(fact) => [fact.id, fact] as const,
+				);
+			}),
+		);
+	const live = new Map(
+		(await client.list())
+			.filter((fact) => fact.fact_type !== "observation")
+			.map((fact) => [fact.id, fact]),
+	);
+	let restored = false;
+	for (const { id } of touched) {
+		const owner = original.get(id)?.sourceId;
+		const shown = admitted().get(id);
+		if (!owner || !shown || shown.source.id !== owner) continue;
+		const current = live.get(id);
+		if (current) {
+			if (current.document_id !== owner || current.text === shown.text)
+				continue;
+			await fence(ctx);
+			await client.editFact(id, { text: shown.text });
+		} else {
+			if (
+				!(await client.matchesArchivedFact({
+					id,
+					sourceId: owner,
+					text: shown.text,
+				}))
+			)
+				continue;
+			await fence(ctx);
+			await client.editFact(id, { state: "valid" });
+		}
+		restored = true;
+	}
+	if (!restored) return;
+	await fence(ctx);
+	await native.settle(client, [await client.consolidate()], ctx.signal);
 }
 
 export async function checkDeletedSourceRepair(

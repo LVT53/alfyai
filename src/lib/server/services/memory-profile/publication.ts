@@ -899,7 +899,236 @@ export function prepareNativeSnapshot(memories: NativeMemory[]) {
 			]),
 	);
 }
-/** Keep another delivery from adopting or adding to an unresolved manual candidate. */
+/**
+ * The actions among `actionIds` whose delivery ended without running again:
+ * a job failed or cancelled, and none queued or running. An action with no
+ * job row has not ended.
+ */
+function endedActionIds(tx: Tx, actionIds: string[]) {
+	const ended = new Set<string>();
+	if (!actionIds.length) return ended;
+	const running = new Set<string>();
+	for (const job of tx
+		.select({
+			actionId: memoryDeliveryJobs.actionId,
+			status: memoryDeliveryJobs.status,
+		})
+		.from(memoryDeliveryJobs)
+		.where(inArray(memoryDeliveryJobs.actionId, actionIds))
+		.all()) {
+		if (!job.actionId) continue;
+		if (job.status === "queued" || job.status === "running")
+			running.add(job.actionId);
+		else if (job.status === "failed" || job.status === "cancelled")
+			ended.add(job.actionId);
+	}
+	for (const id of running) ended.delete(id);
+	return ended;
+}
+
+/** The repair steps a delivery's checkpoint records, or none when it records none. */
+function heldRepairSteps(
+	checkpoint: string | null,
+): Array<{ originalId: string; replacementId: string }> {
+	const plan = parseJsonRecord(checkpoint).dependencyRepair;
+	if (!plan || typeof plan !== "object" || !("steps" in plan)) return [];
+	const steps = (plan as { steps: unknown }).steps;
+	return Array.isArray(steps)
+		? steps.filter(
+				(step): step is { originalId: string; replacementId: string } =>
+					typeof step?.originalId === "string" &&
+					typeof step?.replacementId === "string",
+			)
+		: [];
+}
+
+/** The code a source delivery ends with when its own final check refused it. */
+const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
+
+/**
+ * What publication leaves out for good instead of waiting on it, so a
+ * refused item does not hold the bank's later learning.
+ *
+ * Every Remove the person asked for that has not applied keeps its
+ * exclusion here, whether its job has ended, is queued again or runs, so
+ * the exclusion never lapses between a check and a publication; only the
+ * Remove's own job (`ownActionId`), which judges its own candidate, sees
+ * past it. It covers the facts the Remove revoked, by id whatever their
+ * native text is now; the dependents it held for repair (`repair_held`
+ * sources and their replacements, whose extraction read the removed chat);
+ * and, once its proposal was saved (its native write may have run before the
+ * final check refused the result), the facts that shared an observation with
+ * the targeted facts (`familyFactIds`) and the facts its proposal changed:
+ * Hindsight rebuilt their observations and nobody approved them. A source
+ * refused for its content (its delivery failed
+ * `memory_dependency_check_rejected`, or its changed resend's source edit was
+ * refused for good and put back) never published, and its native facts are
+ * left out with it. A source still queued or running is not here: it is
+ * waited for, as before.
+ */
+export function excludedNativeEvidence(
+	tx: Tx,
+	bank: { id: string; userId: string; epoch: number },
+	ownActionId?: string,
+) {
+	const factIds = new Set<string>();
+	const sourceIds = new Set<string>();
+	const removals = tx
+		.select({ id: memoryActions.id, intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, bank.userId),
+				eq(memoryActions.bankId, bank.id),
+				eq(memoryActions.epoch, bank.epoch),
+				eq(memoryActions.kind, "remove"),
+				eq(memoryActions.exclusionAcknowledged, true),
+				sql`coalesce(json_extract(${memoryActions.intentJson}, '$.outcome'), '') <> 'accepted'`,
+			),
+		)
+		.all()
+		.filter(({ id }) => id !== ownActionId);
+	if (removals.length) {
+		for (const revocation of tx
+			.select({ factId: memoryRevocations.nativeFactId })
+			.from(memoryRevocations)
+			.where(
+				and(
+					eq(memoryRevocations.bankId, bank.id),
+					eq(memoryRevocations.epoch, bank.epoch),
+					inArray(
+						memoryRevocations.actionId,
+						removals.map(({ id }) => id),
+					),
+				),
+			)
+			.all())
+			if (revocation.factId) factIds.add(revocation.factId);
+		for (const removal of removals) {
+			const intent = parseActionIntent(removal.intentJson);
+			for (const step of intent.dependencyRepair?.steps ?? []) {
+				sourceIds.add(step.originalId);
+				sourceIds.add(step.replacementId);
+			}
+			if (!intent.proposal) continue;
+			const original = new Map(intent.facts.map(({ id, text }) => [id, text]));
+			for (const id of intent.familyFactIds ?? [...original.keys()])
+				factIds.add(id);
+			for (const fact of intent.proposal)
+				if (original.get(fact.id) !== fact.text) factIds.add(fact.id);
+		}
+	}
+	const sources = tx
+		.select({
+			id: memorySourceRevisions.id,
+			status: memoryDeliveryJobs.status,
+			errorCode: memoryDeliveryJobs.errorCode,
+			checkpoint: memoryDeliveryJobs.checkpoint,
+		})
+		.from(memorySourceRevisions)
+		.innerJoin(
+			memoryDeliveryJobs,
+			and(
+				eq(memoryDeliveryJobs.sourceId, memorySourceRevisions.id),
+				eq(memoryDeliveryJobs.kind, "source"),
+			),
+		)
+		.where(
+			and(
+				eq(memorySourceRevisions.userId, bank.userId),
+				eq(memorySourceRevisions.bankId, bank.id),
+				eq(memorySourceRevisions.epoch, bank.epoch),
+				inArray(memorySourceRevisions.state, ["pending", "staged"]),
+			),
+		)
+		.all();
+	const waiting = new Set(
+		sources
+			.filter(({ status }) => status === "queued" || status === "running")
+			.map(({ id }) => id),
+	);
+	// Only a source refused for its content is held: its own final check
+	// refused it, or its changed resend's source edit was refused for good
+	// and put back (`restoreRefusedSourceEdit` records that as the edit's
+	// outcome). A source that failed for another reason (a wait, a hold, a
+	// migration step) may still be recovered and published, and is waited for.
+	const stopped = sources.filter(
+		({ id, status }) =>
+			(status === "failed" || status === "cancelled") && !waiting.has(id),
+	);
+	const refusedEdits = new Set(
+		stopped.length
+			? tx
+					.select({ requestId: memoryActions.requestId })
+					.from(memoryActions)
+					.where(
+						and(
+							eq(memoryActions.userId, bank.userId),
+							eq(memoryActions.bankId, bank.id),
+							eq(memoryActions.epoch, bank.epoch),
+							eq(memoryActions.kind, "source_edit"),
+							inArray(
+								memoryActions.requestId,
+								stopped.map(({ id }) => id),
+							),
+							sql`json_extract(${memoryActions.intentJson}, '$.outcome') = 'rejected'`,
+						),
+					)
+					.all()
+					.map(({ requestId }) => requestId)
+			: [],
+	);
+	for (const { id, status, errorCode, checkpoint } of stopped) {
+		if (
+			!(status === "failed" && errorCode === HELD_SOURCE_REFUSAL) &&
+			!refusedEdits.has(id)
+		)
+			continue;
+		sourceIds.add(id);
+		// The later messages its own dependency repair held, and their
+		// replacements: their extraction read the refused resend.
+		for (const step of heldRepairSteps(checkpoint)) {
+			sourceIds.add(step.originalId);
+			sourceIds.add(step.replacementId);
+		}
+	}
+	return { factIds, sourceIds };
+}
+
+/**
+ * Hindsight's snapshot without the excluded raw facts and without every
+ * observation that rests on one of them, even in part: an observation is the
+ * smallest thing publication shows.
+ */
+export function withoutExcludedEvidence(
+	memories: NativeMemory[],
+	excluded: {
+		factIds: ReadonlySet<string>;
+		sourceIds: ReadonlySet<string>;
+	},
+) {
+	if (!excluded.factIds.size && !excluded.sourceIds.size) return memories;
+	const dropped = new Set(excluded.factIds);
+	for (const memory of memories)
+		if (
+			memory.fact_type !== "observation" &&
+			memory.document_id &&
+			excluded.sourceIds.has(memory.document_id)
+		)
+			dropped.add(memory.id);
+	return memories.filter((memory) =>
+		memory.fact_type === "observation"
+			? !(memory.source_memory_ids ?? []).some((id) => dropped.has(id))
+			: !dropped.has(memory.id),
+	);
+}
+
+/**
+ * Keep another delivery from adopting or adding to an unresolved manual
+ * candidate. A Remove holds the bank only while its job may still run: once
+ * it ended without applying, its exclusion stays (`excludedNativeEvidence`)
+ * and the bank learns again.
+ */
 export function assertCurationPublication(
 	tx: Tx,
 	bankId: string,
@@ -908,7 +1137,7 @@ export function assertCurationPublication(
 ) {
 	const replaySources = options.replaySourceIds ?? [];
 	const outstanding = tx
-		.select({ id: memoryActions.id })
+		.select({ id: memoryActions.id, kind: memoryActions.kind })
 		.from(memoryActions)
 		.where(
 			and(
@@ -940,8 +1169,13 @@ export function assertCurationPublication(
 				),
 			),
 		)
-		.get();
-	if (outstanding)
+		.all();
+	if (!outstanding.length) return;
+	const ended = endedActionIds(
+		tx,
+		outstanding.filter(({ kind }) => kind === "remove").map(({ id }) => id),
+	);
+	if (outstanding.some(({ id, kind }) => kind !== "remove" || !ended.has(id)))
 		throw new NativeMemoryError("memory_curation_publication_held", true);
 }
 
@@ -1047,11 +1281,20 @@ export function curatedNativeRankKeys(
 export function curatedObservationChanges(
 	tx: Tx,
 	bank: typeof memoryBanks.$inferSelect,
-	memories: NativeMemory[],
+	live: NativeMemory[],
 	prepared: Map<string, string>,
 	incomingSourceId?: string,
+	excluded: ReturnType<typeof excludedNativeEvidence> = excludedNativeEvidence(
+		tx,
+		bank,
+	),
 ) {
-	const known = acceptedEditPresentations(tx, bank);
+	// An accepted edit's card resting on what a refused item left out is left
+	// out with it; it neither counts as changed nor as missing.
+	const memories = withoutExcludedEvidence(live, excluded);
+	const known = acceptedEditPresentations(tx, bank).filter(
+		({ facts }) => !facts.some(({ id }) => excluded.factIds.has(id)),
+	);
 	if (!known.length) return [];
 	const admitted = new Map(
 		admittedNativeFacts(bank.userId, bank.id, tx).map((fact) => [
@@ -1394,6 +1637,46 @@ export function approvedMigrationRankFamily(
 	return { rows, approved, ids };
 }
 
+/**
+ * One row for observations Hindsight wrote twice: the same wording over the
+ * same supporting facts (an engine merge it dropped after a deleted
+ * document's re-consolidation). Every observation was checked before; this
+ * only leaves out exact twins, keeping the one the current generation
+ * already shows, else the smallest id. A row whose wording or support differs
+ * in any way is kept.
+ */
+function withoutTwinObservations(
+	checked: Array<{ observation: NativeMemory; text: string }>,
+	acknowledged: ReadonlyMap<string, AcknowledgedFact>,
+	shown: Array<typeof memoryPublishedRows.$inferSelect>,
+) {
+	const published = new Set(shown.map(({ nativeId }) => nativeId));
+	const kept = new Map<string, (typeof checked)[number]>();
+	for (const entry of checked) {
+		const ids = entry.observation.source_memory_ids ?? [];
+		const key =
+			new Set(ids).size === ids.length
+				? JSON.stringify([
+						memoryPresentationFingerprint(entry.text, entry.observation.text),
+						memorySupportFingerprint(
+							ids.map((id) => ({ id, text: acknowledged.get(id)?.text ?? "" })),
+						),
+					])
+				: `observation:${entry.observation.id}`;
+		const twin = kept.get(key);
+		const preferred =
+			!twin ||
+			(published.has(entry.observation.id) &&
+				!published.has(twin.observation.id)) ||
+			(published.has(entry.observation.id) ===
+				published.has(twin.observation.id) &&
+				entry.observation.id < twin.observation.id);
+		if (preferred) kept.set(key, entry);
+	}
+	const chosen = new Set([...kept.values()]);
+	return checked.filter((entry) => chosen.has(entry));
+}
+
 export function publishNativeSnapshot(
 	tx: Tx,
 	input: {
@@ -1407,6 +1690,8 @@ export function publishNativeSnapshot(
 		checkedActionIds?: string[];
 		verifiedCuratedChanges?: boolean;
 		verifiedCuratedDiff?: { sourceId: string; proofs: ReadonlySet<string> };
+		/** The publishing Remove itself: its own exclusion does not apply to its own result. */
+		ownActionId?: string;
 	},
 ) {
 	const prepared = new Map(
@@ -1421,6 +1706,9 @@ export function publishNativeSnapshot(
 	if (bank.revision !== input.expectedRevision)
 		throw new Error("memory_publication_stale");
 	assertCurationPublication(tx, bank.id, bank.epoch, input);
+	// A refused item is left out for good instead of holding the bank.
+	const excluded = excludedNativeEvidence(tx, bank, input.ownActionId);
+	const memories = withoutExcludedEvidence(input.memories, excluded);
 	const sources = tx
 		.select()
 		.from(memorySourceRevisions)
@@ -1449,9 +1737,7 @@ export function publishNativeSnapshot(
 		),
 	);
 	const raw = new Map(
-		input.memories
-			.filter((m) => m.fact_type !== "observation")
-			.map((m) => [m.id, m]),
+		memories.filter((m) => m.fact_type !== "observation").map((m) => [m.id, m]),
 	);
 	const selectivelyArchived = new Map(
 		sources.flatMap((source) => {
@@ -1498,11 +1784,7 @@ export function publishNativeSnapshot(
 					required.has(f.id),
 				),
 			);
-			const matched = reconnectVerifiedObservations(
-				family,
-				input.memories,
-				approved,
-			);
+			const matched = reconnectVerifiedObservations(family, memories, approved);
 			if (
 				!matched ||
 				family.some((row) =>
@@ -1539,7 +1821,7 @@ export function publishNativeSnapshot(
 			)
 		)
 			continue;
-		const candidates = input.memories.filter(
+		const candidates = memories.filter(
 			(row) =>
 				row.fact_type === "observation" &&
 				row.source_memory_ids?.some((id) => ids.has(id)),
@@ -1597,14 +1879,16 @@ export function publishNativeSnapshot(
 		curatedObservationChanges(
 			tx,
 			bank,
-			input.memories,
+			memories,
 			prepared,
 			input.verifiedCuratedDiff?.sourceId,
+			excluded,
 		).some(({ proof }) => !input.verifiedCuratedDiff?.proofs.has(proof))
 	)
 		throw new NativeMemoryError("memory_candidate_curation_drift", true);
 	const generation = randomUUID();
-	for (const observation of input.memories.filter(
+	const checked: Array<{ observation: NativeMemory; text: string }> = [];
+	for (const observation of memories.filter(
 		(m) => m.fact_type === "observation",
 	)) {
 		const ids = observation.source_memory_ids ?? [];
@@ -1627,7 +1911,19 @@ export function publishNativeSnapshot(
 			})
 		)
 			throw new Error("memory_candidate_unaccepted");
-		const text = prepared.get(observation.id) ?? observation.text;
+		checked.push({
+			observation,
+			text: prepared.get(observation.id) ?? observation.text,
+		});
+	}
+	for (const { observation, text } of withoutTwinObservations(
+		checked,
+		acknowledged,
+		bank.generation
+			? publishedRowsForGeneration(tx, bank.id, bank.epoch, bank.generation)
+			: [],
+	)) {
+		const ids = observation.source_memory_ids ?? [];
 		const dates = ids.map(
 			(id) =>
 				correctionDates.get(id) ??
@@ -1710,10 +2006,52 @@ export function publishNativeSnapshot(
 		tx,
 		bank.id,
 		bank.scopeKey === "personal" ? "personal" : "project",
-		input.memories,
+		memories,
 	);
 	return generation;
 }
+/**
+ * Accepts an unchanged resend into the generation the person already sees,
+ * publishing nothing new: used when Hindsight's display for its facts cannot
+ * be verified (re-rendered, renumbered, an unchecked extra observation or a
+ * moved date), so the reviewed rows stay as they were instead of the chat's
+ * facts going unpublished. Fenced and held exactly like a publication.
+ */
+export function keepPublishedGeneration(
+	tx: Tx,
+	input: {
+		userId: string;
+		bankId: string;
+		epoch: number;
+		expectedRevision: number;
+		sourceIds: string[];
+	},
+) {
+	const bank = assertMemoryBankFence(
+		tx,
+		input.userId,
+		input.bankId,
+		input.epoch,
+	);
+	if (bank.revision !== input.expectedRevision)
+		throw new Error("memory_publication_stale");
+	if (!bank.generation) throw new Error("memory_generation_missing");
+	assertCurationPublication(tx, bank.id, bank.epoch);
+	tx.update(memorySourceRevisions)
+		.set({ state: "accepted", acceptedGeneration: bank.generation })
+		.where(
+			and(
+				eq(memorySourceRevisions.userId, input.userId),
+				eq(memorySourceRevisions.bankId, bank.id),
+				eq(memorySourceRevisions.epoch, bank.epoch),
+				eq(memorySourceRevisions.state, "staged"),
+				inArray(memorySourceRevisions.id, input.sourceIds),
+			),
+		)
+		.run();
+	return bank.generation;
+}
+
 /** Revocations are read on every page/detail/recall, including old generation references. */
 export function readPublishedMemory(
 	userId: string,

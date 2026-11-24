@@ -24,6 +24,7 @@ import {
 } from "./native-read";
 import {
 	assertCurationPublication,
+	publishedRowsForGeneration,
 	readAcknowledgedFacts,
 	readPublishedMemory,
 } from "./publication";
@@ -120,6 +121,7 @@ export async function submitMemoryAction(
 		let previousResultActionId: string | undefined;
 		let sourceIds: string[] = [];
 		let facts: ActionIntentRecord["facts"] = [];
+		let familyFactIds: string[] | undefined;
 		let targetIds = new Set<string>();
 		if (action.kind !== "add") {
 			if (current.generation !== action.ref.generation)
@@ -164,6 +166,25 @@ export async function submitMemoryAction(
 			targetIds = new Set(
 				readAcknowledgedFacts(row.sourceFingerprintsJson).map((f) => f.id),
 			);
+			// Every row of the generation the person saw, hidden ones too (a
+			// row whose other chat is withdrawn for the moment still shares the
+			// targeted facts' native observations).
+			if (action.kind === "remove")
+				familyFactIds = [
+					...new Set(
+						publishedRowsForGeneration(
+							tx,
+							bank.id,
+							bank.epoch,
+							action.ref.generation,
+						).flatMap((shown) => {
+							const ids = readAcknowledgedFacts(
+								shown.sourceFingerprintsJson,
+							).map((f) => f.id);
+							return ids.some((id) => targetIds.has(id)) ? ids : [];
+						}),
+					),
+				].sort();
 			const sources = tx
 				.select()
 				.from(memorySourceRevisions)
@@ -203,6 +224,7 @@ export async function submitMemoryAction(
 			before,
 			sourceIds,
 			facts,
+			...(familyFactIds ? { familyFactIds } : {}),
 		};
 		tx.insert(memoryActions)
 			.values({

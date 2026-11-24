@@ -98,7 +98,7 @@ it("costs each row exactly its recallLineTokens", () => {
 					};
 					const out = formatRecalledMemory([row], now);
 					const notes =
-						(d === null && !states.length ? 0 : times) +
+						(d === null ? 0 : times) +
 						(timeState === "earlier" || states.length ? earlierNote : 0);
 					expect(estimateTokenCount(out) - notes).toBe(
 						recallLineTokens(row, now),
@@ -147,7 +147,7 @@ it("marks an Earlier entry, after a line on what earlier means", () => {
 	]);
 });
 
-it("lists earlier states under their entry, marked, with when each was said", () => {
+it("lists earlier states under their entry, marked, with the time each stood", () => {
 	expect(
 		formatRecalledMemory(
 			[
@@ -166,8 +166,81 @@ it("lists earlier states under their entry, marked, with when each was said", ()
 		RECALL_TIMES_NOTE,
 		RECALL_EARLIER_NOTE,
 		"- Lives in Gyor (lasting, said 4 weeks ago)",
-		"  - earlier: Lived in Pecs (said 13 months ago)",
+		"  - earlier: Lived in Pecs (as of 13 months ago)",
 		"  - earlier: Lived in Szeged",
+	]);
+});
+
+it("words an earlier state's date as when it stood, never as when it was said or ended", () => {
+	// The date Hindsight keeps with an older fact is the later of when it
+	// happened and when it was mentioned, and says nothing of when it stopped
+	// being true: "as of" claims neither (Memory small items, item 1).
+	const states = [0, 1, 2, 13, 14, 59, 60, 730].map((d) => ({
+		text: `Lived at d${d}`,
+		saidAt: daysAgo(d),
+	}));
+	const lines = formatRecalledMemory(
+		[{ ...item("Lives in Gyor", daysAgo(30)), earlierStates: states }],
+		now,
+	)
+		.split("\n")
+		.filter((line) => line.startsWith("  - earlier:"));
+	expect(lines).toEqual([
+		"  - earlier: Lived at d0 (as of today)",
+		"  - earlier: Lived at d1 (as of yesterday)",
+		"  - earlier: Lived at d2 (as of 2 days ago)",
+		"  - earlier: Lived at d13 (as of 13 days ago)",
+		"  - earlier: Lived at d14 (as of 2 weeks ago)",
+		"  - earlier: Lived at d59 (as of 8 weeks ago)",
+		"  - earlier: Lived at d60 (as of 2 months ago)",
+		"  - earlier: Lived at d730 (as of 2 years ago)",
+	]);
+	for (const line of lines) expect(line).not.toMatch(/said|until|ended/);
+});
+
+it("leaves an earlier state dated after now undated, and opens no times note for it alone", () => {
+	// Hindsight's date for an older fact about a plan is the plan's own date, so
+	// it can lie in the future: "as of today" would present a superseded state as
+	// current, and the page shows no date for it either.
+	expect(
+		formatRecalledMemory(
+			[
+				{
+					...item("Lives in Gyor", null),
+					earlierStates: [
+						{ text: "Planned a trip to Rome", saidAt: daysAgo(-200) },
+						{ text: "Lived in Pecs", saidAt: daysAgo(400) },
+						{ text: "Rented in Graz", saidAt: daysAgo(-1) },
+					],
+				},
+			],
+			now,
+		).split("\n"),
+	).toEqual([
+		RECALL_EARLIER_NOTE,
+		"- Lives in Gyor",
+		"  - earlier: Planned a trip to Rome",
+		"  - earlier: Lived in Pecs (as of 13 months ago)",
+		"  - earlier: Rented in Graz",
+	]);
+});
+
+it("leaves an earlier state with an unreadable date undated, and keeps a row's own wording", () => {
+	expect(
+		formatRecalledMemory(
+			[
+				{
+					...item("Lives in Gyor", daysAgo(30)),
+					earlierStates: [{ text: "Lived in Pecs", saidAt: "not a date" }],
+				},
+			],
+			now,
+		).split("\n"),
+	).toEqual([
+		RECALL_TIMES_NOTE,
+		RECALL_EARLIER_NOTE,
+		"- Lives in Gyor (said 4 weeks ago)",
+		"  - earlier: Lived in Pecs",
 	]);
 });
 

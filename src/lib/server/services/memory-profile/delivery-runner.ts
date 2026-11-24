@@ -18,11 +18,12 @@ import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
+	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 	type NativeMemory,
 	type NativeOperation,
 } from "./contracts";
 import { memoryResendTransitions } from "./curation-lineage";
-import type { NativeWaitKind } from "./delivery-policy";
+import { countedDeliveryAttempt, type NativeWaitKind } from "./delivery-policy";
 import { runDependencyRepair } from "./dependency-repair";
 import {
 	configuredNativeBinding,
@@ -46,6 +47,7 @@ import {
 	admittedNativeFacts,
 	approvedMigrationObservationWording,
 	assertCurationPublication,
+	keepPublishedGeneration,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
@@ -365,9 +367,43 @@ function finishEditResend(
 			.where(eq(memorySourceRevisions.id, previous.id))
 			.run();
 }
+/** What a source edit's refusal looks like, as opposed to a wait, a fence or a lost context. */
+const SOURCE_EDIT_REFUSALS = new Set([
+	"memory_edit_rejected",
+	"memory_edit_invalid",
+	"memory_edit_readback_mismatch",
+	"memory_source_edit_protected_fact",
+	"memory_edit_too_large",
+]);
+
+/** The plain errors that are content refusals: publication's and the edit model's. */
+const PLAIN_REFUSALS = new Set([
+	"memory_candidate_unaccepted",
+	"memory_edit_rejected",
+	"memory_edit_invalid",
+	"memory_edit_too_large",
+]);
+
+/** Whether a failure ends a changed resend for good: a content refusal on its last counted attempt. */
+function refusedForGood(
+	error: unknown,
+	row: typeof memoryDeliveryJobs.$inferSelect,
+	attemptNumber: number,
+) {
+	if (!(error instanceof NativeMemoryError))
+		return error instanceof Error && PLAIN_REFUSALS.has(error.message);
+	if (error.code === "memory_dependency_check_rejected")
+		return (
+			countedDeliveryAttempt(row, attemptNumber) >=
+			NATIVE_DELIVERY_ATTEMPT_LIMIT
+		);
+	return !error.retryable && SOURCE_EDIT_REFUSALS.has(error.code);
+}
+
 export async function runMemoryDelivery(
 	ctx: JobRunContext<typeof memoryDeliveryJobs>,
 ): Promise<void> {
+	let undoRefusedSourceEdit: (() => Promise<void>) | undefined;
 	try {
 		const row = ctx.row;
 		const account = db
@@ -835,6 +871,7 @@ export async function runMemoryDelivery(
 			prepareUnchangedSourceCuration,
 			unchangedSourceInventory,
 			checkSourceDependencyCuration,
+			restoreRefusedSourceEdit,
 			verifyNewAssertionCuration,
 		} = await import("./curation-runner");
 		const checkPendingCuration = (tx: Tx) =>
@@ -891,7 +928,7 @@ export async function runMemoryDelivery(
 						}),
 				},
 			);
-			await replayed.verifyDependencies(repair);
+			const { keepGeneration } = await replayed.verifyDependencies(repair);
 			await ctx.succeed({
 				apply: (tx) => {
 					const { transitions } = assertDelivery(tx, row);
@@ -909,23 +946,31 @@ export async function runMemoryDelivery(
 						})
 						.where(eq(memorySourceRevisions.id, source.id))
 						.run();
-					publishNativeSnapshot(tx, {
-						userId: row.userId,
-						bankId: row.bankId,
-						epoch: row.epoch,
-						expectedRevision: bank.revision,
-						memories: repair.memories,
-						sourceIds: [
-							...new Set([
-								source.id,
-								...replayed.sourceIds,
-								...repair.sourceIds,
-							]),
-						],
-						checkedActionIds: [...replayed.checks, ...repair.replays].map(
-							(entry) => entry.actionId,
-						),
-					});
+					const sourceIds = [
+						...new Set([source.id, ...replayed.sourceIds, ...repair.sourceIds]),
+					];
+					// Hindsight's display could not be verified: nothing new is
+					// published, and the rows the person saw stay published.
+					if (keepGeneration)
+						keepPublishedGeneration(tx, {
+							userId: row.userId,
+							bankId: row.bankId,
+							epoch: row.epoch,
+							expectedRevision: bank.revision,
+							sourceIds,
+						});
+					else
+						publishNativeSnapshot(tx, {
+							userId: row.userId,
+							bankId: row.bankId,
+							epoch: row.epoch,
+							expectedRevision: bank.revision,
+							memories: repair.memories,
+							sourceIds,
+							checkedActionIds: [...replayed.checks, ...repair.replays].map(
+								(entry) => entry.actionId,
+							),
+						});
 				},
 			});
 			return;
@@ -1127,6 +1172,18 @@ export async function runMemoryDelivery(
 			await settle(client, [await client.consolidate()], ctx.signal);
 		memories = await captureSettledNative(client, ctx.signal);
 
+		// A changed resend refused for good puts back what its source edit
+		// wrote in the chats it carried before the delivery fails (the catch).
+		if (predecessor && !unchanged) {
+			const edited = source;
+			undoRefusedSourceEdit = () =>
+				restoreRefusedSourceEdit(
+					ctx,
+					client,
+					{ capture: captureSettledNative, settle },
+					edited,
+				);
+		}
 		const curated =
 			predecessor && !unchanged
 				? await prepareSourceCuration(ctx, client, source, predecessor, {
@@ -1242,10 +1299,22 @@ export async function runMemoryDelivery(
 		});
 	} catch (error) {
 		if (ctx.signal.aborted) return;
-		const native =
+		let native =
 			error instanceof NativeMemoryError
 				? error
 				: new NativeMemoryError("memory_preparation_failed", false);
+		if (
+			undoRefusedSourceEdit &&
+			refusedForGood(error, ctx.row, ctx.attempt.number)
+		) {
+			try {
+				await undoRefusedSourceEdit();
+			} catch (undo) {
+				// Not finished: the delivery stays retryable so the next attempt
+				// finishes putting the carried chats back.
+				if (undo instanceof NativeMemoryError && undo.retryable) native = undo;
+			}
+		}
 		await ctx.fail({
 			code: native.code,
 			message: "Memory preparation could not complete.",

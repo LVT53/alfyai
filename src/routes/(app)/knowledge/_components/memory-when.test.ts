@@ -42,12 +42,23 @@ describe("when an entry was last mentioned", () => {
 	});
 });
 
-describe("when an earlier state was said", () => {
+describe("the date an earlier state is given", () => {
+	const later = new Date("2026-11-24T12:00:00Z");
 	it("gives the month and year in either language", () => {
-		expect(monthAndYear("2025-03-14T09:30:00.000Z", "en")).toBe("March 2025");
-		expect(monthAndYear("2025-03-14T09:30:00.000Z", "hu")).toBe(
+		expect(monthAndYear("2025-03-14T09:30:00.000Z", later, "en")).toBe(
+			"March 2025",
+		);
+		expect(monthAndYear("2025-03-14T09:30:00.000Z", later, "hu")).toBe(
 			"2025. március",
 		);
-		expect(monthAndYear(null, "en")).toBeNull();
+		expect(monthAndYear(null, later, "en")).toBeNull();
+	});
+
+	it("gives none for a date after now (an older fact about a plan carries the plan's date)", () => {
+		expect(monthAndYear("2027-03-01T09:00:00.000Z", later, "en")).toBeNull();
+		expect(monthAndYear("2026-11-24T12:00:01.000Z", later, "hu")).toBeNull();
+		expect(monthAndYear("2026-11-24T12:00:00.000Z", later, "en")).toBe(
+			"November 2026",
+		);
 	});
 });

@@ -1,5 +1,5 @@
 import type { AdmittedMemoryEvidence } from "$lib/memory-types";
-import { ageBucket } from "$lib/shared/age-buckets";
+import { type AgeBucket, ageBucket } from "$lib/shared/age-buckets";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
 /**
@@ -29,14 +29,38 @@ export const RECALL_TIMES_NOTE =
 export const RECALL_EARLIER_NOTE =
 	"An entry marked earlier was true when it was said but may have ended or changed since: treat it as past unless the person says it still holds, and bring it up only when the conversation is about it.";
 
+function bucketOf(iso: string | null, now: Date): AgeBucket | null {
+	if (iso === null) return null;
+	const at = Date.parse(iso);
+	return Number.isNaN(at) ? null : ageBucket(at, now.getTime());
+}
+
+/** A row's own time: when the person last said it ("said 3 weeks ago"). */
 function lastSaid(lastMentionedAt: string | null, now: Date): string | null {
-	if (lastMentionedAt === null) return null;
-	const at = Date.parse(lastMentionedAt);
-	if (Number.isNaN(at)) return null;
-	const bucket = ageBucket(at, now.getTime());
+	const bucket = bucketOf(lastMentionedAt, now);
+	if (!bucket) return null;
 	if (bucket.unit === "today") return "said less than a day ago";
 	if (bucket.unit === "yesterday") return "said 1 day ago";
 	return `said ${bucket.count} ${bucket.unit} ago`;
+}
+
+/**
+ * An earlier state's time: when it stood ("as of 3 weeks ago"). Never "said"
+ * and never an end: the date Hindsight keeps with an older fact is the later
+ * of when it happened and when it was mentioned (so a plan for next year
+ * carries next year's date, which gets no time here and none on the page), and
+ * it says nothing of when the state stopped being true. The page words the
+ * same date the same way ("Earlier: ... · as of March 2025";
+ * `memorySubjects.earlierState`).
+ */
+function asOf(stateDate: string | null, now: Date): string | null {
+	// A date after now is a plan's own date, not a time the state stood: no time.
+	if (stateDate !== null && Date.parse(stateDate) > now.getTime()) return null;
+	const bucket = bucketOf(stateDate, now);
+	if (!bucket) return null;
+	if (bucket.unit === "today") return "as of today";
+	if (bucket.unit === "yesterday") return "as of yesterday";
+	return `as of ${bucket.count} ${bucket.unit} ago`;
 }
 
 /** The row's line, then one line per earlier state under it (the tool's). */
@@ -51,9 +75,9 @@ function recalledLines(item: AdmittedMemoryEvidence, now: Date): string[] {
 	return [
 		parts.length ? `- ${item.text} (${parts.join(", ")})` : `- ${item.text}`,
 		...(item.earlierStates ?? []).map((state) => {
-			const said = lastSaid(state.saidAt, now);
-			return said
-				? `  - earlier: ${state.text} (${said})`
+			const when = asOf(state.saidAt, now);
+			return when
+				? `  - earlier: ${state.text} (${when})`
 				: `  - earlier: ${state.text}`;
 		}),
 	];
@@ -118,12 +142,10 @@ export function formatRecalledMemory(
 		(item.ref.scope.kind === "project" ? project : personal).push(
 			...recalledLines(item, now),
 		);
+	// The times note explains a row's own time ("said 3 weeks ago"); an earlier
+	// state's "as of" explains itself, so it opens no note.
 	const timed = items.some(
-		(item) =>
-			lastSaid(item.lastMentionedAt, now) !== null ||
-			(item.earlierStates ?? []).some(
-				(state) => lastSaid(state.saidAt, now) !== null,
-			),
+		(item) => lastSaid(item.lastMentionedAt, now) !== null,
 	);
 	const earlier = items.some(
 		(item) => item.timeState === "earlier" || item.earlierStates?.length,

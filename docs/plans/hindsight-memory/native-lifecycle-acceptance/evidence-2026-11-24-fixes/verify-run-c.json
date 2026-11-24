@@ -1,0 +1,170 @@
+{
+  "summary": {
+    "en": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "hu": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-en-fresh": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-hu-regression": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-hu-fresh": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-remove": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-hu": {
+      "pass": 8,
+      "fail": 0,
+      "info": 2
+    },
+    "carry-en-metronome": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-lamp": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-tea": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    }
+  },
+  "checks": [
+    {
+      "case": "en",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "hu",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-remove",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-hu",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-hu",
+      "check": "manual correction",
+      "result": "info",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "carry-hu",
+      "check": "exact resend: accepted with 0 retains and 0 document deletes",
+      "result": "pass",
+      "detail": "job=succeeded error=None retains=0 deletes=0"
+    },
+    {
+      "case": "carry-hu",
+      "check": "exact resend: same native facts and observations",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-hu",
+      "check": "exact resend: Memory still shows the chat's facts",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-hu",
+      "check": "dependent reply: one retain, accepted",
+      "result": "pass",
+      "detail": "job=succeeded retains=1"
+    },
+    {
+      "case": "carry-hu",
+      "check": "changed append",
+      "result": "info",
+      "detail": "job=failed error=memory_dependency_check_rejected retains=2"
+    },
+    {
+      "case": "carry-hu",
+      "check": "plain deletion: the original chat's document deleted",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-hu",
+      "check": "stale edit pointer: 0 retains",
+      "result": "pass",
+      "detail": ""
+    },
+    {
+      "case": "carry-hu",
+      "check": "never-submitted message: one first retain at its own date",
+      "result": "pass",
+      "detail": "['2026-08-16T12:00:00.000Z']"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    }
+  ]
+}

@@ -19,6 +19,12 @@ export interface ActionIntentRecord {
 	before: string;
 	sourceIds: string[];
 	facts: Array<{ id: string; text: string; sourceId: string }>;
+	/**
+	 * A Remove's targeted facts and every fact that shared a published row
+	 * with one of them when the person asked: what stays left out if the
+	 * Remove ends unapplied after its native write (`excludedNativeEvidence`).
+	 */
+	familyFactIds?: string[];
 	plan?: { forget: string[]; replace: string[]; preserve: string[] };
 	removalOnly?: boolean;
 	omissionEarlierFingerprint?: string;
@@ -109,6 +115,9 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 				!value.observationResetFactId)) ||
 		(value.omissionEarlierFingerprint !== undefined &&
 			typeof value.omissionEarlierFingerprint !== "string") ||
+		(value.familyFactIds !== undefined &&
+			(!Array.isArray(value.familyFactIds) ||
+				value.familyFactIds.some((id) => typeof id !== "string"))) ||
 		(value.meaningCheck !== undefined && !validMeaningCheck(value.meaningCheck))
 	)
 		throw Error("memory_action_corrupt");

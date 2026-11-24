@@ -934,7 +934,7 @@ describe("the subject index (layout C)", () => {
 		);
 		await waitFor(() =>
 			expect(pane.textContent).toContain(
-				"Earlier: Owned a yellow kayak · said March 2025",
+				"Earlier: Owned a yellow kayak · as of March 2025",
 			),
 		);
 		expect(pane.textContent).toContain("Last mentioned today");
@@ -944,6 +944,50 @@ describe("the subject index (layout C)", () => {
 		);
 		await screen.findByTestId("memory-detail");
 		expect(api.fetchMemoryDetail).toHaveBeenCalledWith(ref, expect.anything());
+	});
+
+	it("shows no date for an earlier state dated after now", async () => {
+		api.fetchMemorySubject.mockResolvedValue({
+			...subjectPage,
+			entries: [
+				{
+					...subjectPage.entries[0],
+					earlierStates: [
+						{
+							text: "Planned a trip to Rome",
+							saidAt: "2099-03-01T09:00:00.000Z",
+						},
+					],
+				},
+			],
+		});
+		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /Projects/ }),
+		);
+		const pane = await screen.findByTestId("memory-subject-pane");
+		await waitFor(() =>
+			expect(pane.textContent).toContain("Earlier: Planned a trip to Rome"),
+		);
+		expect(pane.textContent).not.toContain("as of");
+	});
+
+	it("words an earlier state's date as when it stood, in Hungarian too", async () => {
+		// English says "as of March 2025"; a bare date after "Korábban:" would read
+		// as the day the state ended, so the Hungarian dates the state ("idején")
+		// and says nothing of who said it or when it stopped.
+		uiLanguage.set("hu");
+		render(KnowledgeMemoryView, { memoryEnabled: true, layout: "subjects" });
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /Projektek/ }),
+		);
+		const pane = await screen.findByTestId("memory-subject-pane");
+		await waitFor(() =>
+			expect(pane.textContent).toContain(
+				"Korábban: Owned a yellow kayak · 2025. március idején",
+			),
+		);
+		expect(pane.textContent).not.toMatch(/said|mondta|említve:? 2025/);
 	});
 
 	it("does not read the index again while a search is shown", async () => {

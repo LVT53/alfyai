@@ -1,7 +1,10 @@
+import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
@@ -112,20 +115,340 @@ describe("the paired backup check", () => {
 		utimesSync(path, at, at);
 	}
 
-	it("names both halves when they are recent, taken together, and hold every account", () => {
+	/** What a settings file holds in these tests: never to appear in anything the check returns. */
+	const SECRET = "HINDSIGHT_DB_PASSWORD=canary-never-read-this";
+	const SETTINGS = [
+		"alfyai-tenants.env",
+		"native-tenants.env",
+		"native-db.env",
+		"compose.yaml",
+	];
+	function writeSettings(folder: string, files: string[], at: Date) {
+		mkdirSync(folder, { recursive: true });
+		for (const file of files) {
+			const path = join(folder, file);
+			writeFileSync(path, `${SECRET}\n`, { mode: 0o600 });
+			utimesSync(path, at, at);
+		}
+	}
+	/** The bundle as production takes it: `tar -cf <dir>/deployment-files.tar ./*.env ./*.yaml`. */
+	function settingsTar(
+		at = hoursAgo(1),
+		files = SETTINGS,
+		name = "deployment-files.tar",
+	) {
+		const source = mkdtempSync(join(tmpdir(), "label-migration-settings-"));
+		try {
+			writeSettings(source, files, at);
+			const path = join(dir, name);
+			execFileSync(
+				"tar",
+				["-cf", path, "-C", source, ...files.map((file) => `./${file}`)],
+				{ env: { ...process.env, COPYFILE_DISABLE: "1" } },
+			);
+			utimesSync(path, at, at);
+			return path;
+		} finally {
+			rmSync(source, { recursive: true, force: true });
+		}
+	}
+	function settingsFolder(
+		at = hoursAgo(1),
+		files = SETTINGS,
+		name = "deployment-files",
+	) {
+		const folder = join(dir, name);
+		writeSettings(folder, files, at);
+		return folder;
+	}
+	const canRefuseUnreadable = process.getuid?.() !== 0;
+	/** The first 16 bytes of an SQLite database. */
+	const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "binary");
+
+	it("names both halves and the settings bundle when they are recent, taken together, and hold every account", () => {
 		appBackup(["u1", "u2"]);
 		nativeDump();
+		settingsTar();
 		expect(checkPairedBackup(dir, ["u1", "u2"], now)).toEqual({
 			ok: true,
 			sqlite: expect.objectContaining({ name: "chat-20261125T0100Z.db" }),
 			postgres: expect.objectContaining({
 				name: "hindsight-20261125T0100Z.sql",
 			}),
+			bundle: {
+				name: "deployment-files.tar",
+				bytes: statSync(join(dir, "deployment-files.tar")).size,
+				modifiedAt: hoursAgo(1).toISOString(),
+				envFiles: 3,
+			},
+		});
+	});
+
+	describe("the settings bundle", () => {
+		beforeEach(() => {
+			appBackup(["u1"]);
+			nativeDump();
+		});
+
+		it("is counted by its .env files, and the check never carries a settings value out", () => {
+			settingsTar();
+			const result = checkPairedBackup(dir, ["u1"], now);
+			expect(result).toMatchObject({ ok: true, bundle: { envFiles: 3 } });
+			expect(JSON.stringify(result)).not.toContain("canary");
+			expect(JSON.stringify(result)).not.toContain("HINDSIGHT");
+		});
+
+		it("is also accepted as a folder of settings files", () => {
+			settingsFolder();
+			const result = checkPairedBackup(dir, ["u1"], now);
+			expect(result).toMatchObject({
+				ok: true,
+				bundle: {
+					name: "deployment-files/",
+					envFiles: 3,
+					modifiedAt: hoursAgo(1).toISOString(),
+				},
+			});
+			expect(JSON.stringify(result)).not.toContain("canary");
+		});
+
+		/** One tar entry header, valid (ustar, checksummed), for a file of `size` bytes. */
+		function tarHeader(name: string, size: number, valid = true) {
+			const header = Buffer.alloc(512);
+			header.write(name, 0, "ascii");
+			header.write("0000600\0", 100, "ascii");
+			header.write(`${size.toString(8).padStart(11, "0")}\0`, 124, "ascii");
+			header.write("0", 156, "ascii");
+			header.write("ustar\0" + "00", 257, "ascii");
+			header.fill(0x20, 148, 156);
+			const sum = header.reduce((total, byte) => total + byte, 0);
+			if (valid)
+				header.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, "ascii");
+			return header;
+		}
+		function writeTar(name: string, bytes: Buffer, at = hoursAgo(1)) {
+			const path = join(dir, name);
+			writeFileSync(path, bytes);
+			utimesSync(path, at, at);
+			return path;
+		}
+
+		it("counts only whole entries: one cut off inside its data, or with no valid header, is no bundle", () => {
+			// A header that claims 8 GiB in a file of 512 bytes (a pg_dump that filled
+			// the disk, an interrupted copy): its data is not there.
+			writeTar("cut.tar", tarHeader("huge.env", 8 * 1024 ** 3));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			// A block that looks like a header but is not one (no checksum).
+			rmSync(join(dir, "cut.tar"));
+			writeTar(
+				"unchecked.tar",
+				Buffer.concat([tarHeader("a.env", 4, false), Buffer.alloc(512)]),
+			);
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			// The same entry whole, with its data, counts.
+			rmSync(join(dir, "unchecked.tar"));
+			writeTar(
+				"whole.tar",
+				Buffer.concat([tarHeader("a.env", 4), Buffer.alloc(512)]),
+			);
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				bundle: { name: "whole.tar", envFiles: 1 },
+			});
+		});
+
+		it("counts the whole entries of a tar cut after some of them, and none of one cut inside the first", () => {
+			// Three settings files of four bytes each: a header and one data block apiece.
+			const entry = (name: string) =>
+				Buffer.concat([tarHeader(name, 4), Buffer.alloc(512)]);
+			const whole = Buffer.concat([
+				entry("a.env"),
+				entry("b.env"),
+				entry("c.env"),
+				Buffer.alloc(1024),
+			]);
+			writeTar("two.tar", whole.subarray(0, 2 * 1024));
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				bundle: { name: "two.tar", envFiles: 2 },
+			});
+			rmSync(join(dir, "two.tar"));
+			writeTar("all.tar", whole);
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				bundle: { name: "all.tar", envFiles: 3 },
+			});
+			rmSync(join(dir, "all.tar"));
+			writeTar("inside.tar", whole.subarray(0, 700));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+		});
+
+		it("ignores a macOS resource-fork copy of a settings file", () => {
+			settingsTar(hoursAgo(1), ["._native-db.env", "compose.yaml"]);
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+		});
+
+		it("never opens a settings file to ask whether it is a database or a dump", () => {
+			// Decoys that a read would take for the pair's halves: a settings file that
+			// starts like a custom-format dump, a gzipped "dump", and a tar that starts
+			// like an SQLite database and is newer than the real one.
+			writeTar("native-db.env", Buffer.from("PGDMP\u0001\u000e"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			rmSync(join(dir, "native-db.env"));
+			rmSync(join(dir, "hindsight-20261125T0100Z.sql"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_postgres_missing",
+			});
+			writeTar("native-db.env", Buffer.from("PGDMP\u0001\u000e"));
+			writeTar(
+				"deployment-files.tar.gz",
+				gzipSync("--\n-- PostgreSQL database dump\n--\n"),
+			);
+			writeTar("settings.yaml", Buffer.from("PGDMP\u0001\u000e"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_postgres_missing",
+			});
+			rmSync(join(dir, "native-db.env"));
+			rmSync(join(dir, "deployment-files.tar.gz"));
+			rmSync(join(dir, "settings.yaml"));
+			nativeDump();
+			settingsTar();
+			writeTar(
+				"decoy.tar",
+				Buffer.concat([SQLITE_HEADER, Buffer.alloc(496)]),
+				hoursAgo(0.5),
+			);
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+				ok: true,
+				sqlite: { name: "chat-20261125T0100Z.db" },
+			});
+		});
+
+		it("is refused when the folder holds the pair alone", () => {
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+		});
+
+		it("is refused when a tar holds no .env file, or is no tar, or a folder holds none", () => {
+			settingsTar(hoursAgo(1), ["compose.yaml", "notes.txt"]);
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+			writeFileSync(join(dir, "notes.tar"), "just some notes, not a tar\n");
+			writeFileSync(join(dir, "big-notes.tar"), "x".repeat(4096));
+			settingsFolder(hoursAgo(1), ["compose.yaml"], "yaml-only");
+			// A pg_dump directory (toc.dat, numbered files) is not a settings folder.
+			mkdirSync(join(dir, "dump-dir"));
+			writeFileSync(join(dir, "dump-dir", "3011.dat.gz"), "x");
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_missing",
+			});
+		});
+
+		it.skipIf(!canRefuseUnreadable)(
+			"is refused when the app user cannot read it",
+			() => {
+				const tar = settingsTar();
+				chmodSync(tar, 0o000);
+				try {
+					expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+						ok: false,
+						code: "backup_secret_bundle_unreadable",
+					});
+				} finally {
+					chmodSync(tar, 0o600);
+				}
+				rmSync(tar);
+				const folder = settingsFolder();
+				chmodSync(join(folder, "native-db.env"), 0o000);
+				try {
+					expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+						ok: false,
+						code: "backup_secret_bundle_unreadable",
+					});
+				} finally {
+					chmodSync(join(folder, "native-db.env"), 0o600);
+				}
+			},
+		);
+
+		it.skipIf(!canRefuseUnreadable)(
+			"is taken from a readable copy when another one cannot be read",
+			() => {
+				const tar = settingsTar(hoursAgo(1), SETTINGS, "root-owned.tar");
+				chmodSync(tar, 0o000);
+				try {
+					settingsFolder();
+					expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({
+						ok: true,
+						bundle: { name: "deployment-files/" },
+					});
+				} finally {
+					chmodSync(tar, 0o600);
+				}
+			},
+		);
+
+		it("is refused when older than the pair may be, or taken more than two hours from it", () => {
+			settingsTar(hoursAgo(5));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_stale",
+			});
+			// Inside the four hours, but 2.5 hours before the pair.
+			settingsTar(hoursAgo(3.5));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_not_paired",
+			});
+			// Exactly two hours from the pair, inside the window: accepted.
+			settingsTar(hoursAgo(3));
+			expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({ ok: true });
+		});
+
+		it("is judged by the oldest settings file of a folder", () => {
+			const folder = settingsFolder();
+			const old = hoursAgo(6);
+			utimesSync(join(folder, "native-db.env"), old, old);
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_secret_bundle_stale",
+			});
+		});
+
+		it("comes last: a refused pair names its own code first", () => {
+			rmSync(join(dir, "hindsight-20261125T0100Z.sql"));
+			expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+				ok: false,
+				code: "backup_postgres_missing",
+			});
 		});
 	});
 
 	it("accepts a custom-format or gzipped PostgreSQL dump", () => {
 		appBackup(["u1"]);
+		settingsTar();
 		const path = join(dir, "hindsight.dump");
 		writeFileSync(path, "PGDMP\u0001\u000e");
 		utimesSync(path, hoursAgo(1), hoursAgo(1));
@@ -167,6 +490,7 @@ describe("the paired backup check", () => {
 	it("skips a dangling link in the folder", () => {
 		appBackup(["u1"]);
 		nativeDump();
+		settingsTar();
 		symlinkSync(join(dir, "gone.db"), join(dir, "dangling.db"));
 		expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({ ok: true });
 	});
@@ -216,6 +540,7 @@ describe("the paired backup check", () => {
 			appDatabase(join(dir, "chat-20261125T0100Z.db"));
 			utimesSync(join(dir, "chat-20261125T0100Z.db"), hoursAgo(1), hoursAgo(1));
 			nativeDump();
+			settingsTar();
 			expect(checkPairedBackup(dir, ["u1"], now, live)).toMatchObject({
 				ok: true,
 			});
@@ -314,6 +639,7 @@ describe("the paired backup check", () => {
 
 	it("reads a folder of dumps only at its top level and its pg_dump directory", () => {
 		appBackup(["u1"]);
+		settingsTar();
 		mkdirSync(join(dir, "hindsight-dir"));
 		const toc = join(dir, "hindsight-dir", "toc.dat");
 		writeFileSync(toc, "PGDMP\u0001");
@@ -412,6 +738,7 @@ describe("the command", () => {
 	/** Fakes for the library and the backup check, recording what ran in which order. */
 	function fakes(backupOk = true) {
 		const steps: string[] = [];
+		const lines: string[] = [];
 		const account = (userId: string, outcome: "dry_run" | "skipped") => ({
 			userId,
 			epoch: 0,
@@ -479,13 +806,19 @@ describe("the command", () => {
 							ok: true,
 							sqlite: { name: "chat.db", bytes: 1, modifiedAt: "t" },
 							postgres: { name: "pg.sql", bytes: 1, modifiedAt: "t" },
+							bundle: {
+								name: "deployment-files.tar",
+								bytes: 2,
+								modifiedAt: "t",
+								envFiles: 3,
+							},
 						}
 					: { ok: false, code: "backup_stale" };
 			},
-			log: () => {},
+			log: (line) => lines.push(line),
 			signal: new AbortController().signal,
 		};
-		return { steps, deps };
+		return { steps, lines, deps };
 	}
 	const all = parseLabelMigrationArguments([
 		"--execute",
@@ -526,6 +859,24 @@ describe("the command", () => {
 			'backup ["u1"]',
 			"rollback execute",
 		]);
+	});
+
+	it("names the whole backup it checked, the settings bundle by name, size and count only", async () => {
+		const { lines, deps } = fakes();
+		expect(await runLabelMigrationCommand(all, deps)).toBe(0);
+		expect(lines).toContain(
+			"backup: sqlite=chat.db bytes=1 at=t postgres=pg.sql bytes=1 at=t bundle=deployment-files.tar bytes=2 env=3 at=t accounts=2",
+		);
+	});
+
+	it("says which part of the backup it refused", async () => {
+		const { lines, deps } = fakes();
+		deps.checkBackup = () => ({
+			ok: false,
+			code: "backup_secret_bundle_missing",
+		});
+		expect(await runLabelMigrationCommand(all, deps)).toBe(1);
+		expect(lines).toContain("backup: refused backup_secret_bundle_missing");
 	});
 
 	it("a dry run checks no backup and writes nothing", async () => {

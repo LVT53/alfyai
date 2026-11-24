@@ -3528,6 +3528,8 @@ it.each([
 	"accepted carried",
 	"repeated exact resend while queued",
 	"accepted carried next edit",
+	"refused changed resend after exact carry",
+	"changed resend refused at publication after exact carry",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3540,6 +3542,7 @@ it.each([
 	"changed carry supplies original context",
 	"extra observation on exact resend",
 	"changed native date on exact resend",
+	"re-rendered observation on exact resend",
 	"deleted queued successor",
 	"deferred cleanup before successor",
 	"deferred cleanup with queued successor",
@@ -3619,6 +3622,7 @@ it.each([
 		const appendFact = "I collect maps.";
 		const appended = `${corrected} ${appendFact}`;
 		const reply = "Yes, I do. I also sort stamps.";
+		const laterMessage = "I collect maps.";
 		let retains: Array<{
 			content: string;
 			context: string;
@@ -3634,10 +3638,13 @@ it.each([
 			mode === "repeated exact resend while queued" ||
 			mode === "accepted carried" ||
 			mode === "accepted carried next edit" ||
+			mode === "refused changed resend after exact carry" ||
+			mode === "changed resend refused at publication after exact carry" ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
 			mode === "changed native date on exact resend" ||
+			mode === "re-rendered observation on exact resend" ||
 			mode === "deleted queued successor" ||
 			mode === "deferred cleanup before successor" ||
 			mode === "deferred cleanup with queued successor" ||
@@ -3671,6 +3678,12 @@ it.each([
 										]
 									: []),
 							];
+				else if (item.content === laterMessage)
+					nativeFacts.push({
+						id: "maps",
+						text: laterMessage,
+						document_id: item.document_id,
+					});
 				else if (item.content === reply) {
 					if (
 						(removeCarried || removeCorrection) &&
@@ -3750,7 +3763,15 @@ it.each([
 						fact_type: "observation",
 						source_memory_ids: ["decaf"],
 					});
-				else
+				else if (mode === "re-rendered observation on exact resend") {
+					// Hindsight rebuilt the observation after an unrelated cleanup:
+					// a new id and new wording over exactly the same fact.
+					const rendered = list.items.find(
+						(item: { id: string }) => item.id === "observation-decaf",
+					);
+					rendered.id = "observation-decaf-rebuilt";
+					rendered.text = "I prefer decaf in the afternoon, it says.";
+				} else
 					list.items.find(
 						(item: { id: string }) => item.id === "decaf",
 					).mentioned_at = "2026-11-18T00:00:00.000Z";
@@ -3773,7 +3794,7 @@ it.each([
 			list.total = list.items.length;
 			return new Response(JSON.stringify(list));
 		});
-		const { eq } = await import("drizzle-orm");
+		const { eq, inArray } = await import("drizzle-orm");
 		const chat = await import("./chat-delivery");
 		const job = await import("./delivery-job");
 		const chatId = randomUUID();
@@ -3963,7 +3984,12 @@ it.each([
 		}
 		driftAfterWithdrawal =
 			mode === "extra observation on exact resend" ||
-			mode === "changed native date on exact resend";
+			mode === "changed native date on exact resend" ||
+			mode === "re-rendered observation on exact resend";
+		const generationBeforeResend = f.db
+			.select()
+			.from(f.s.memoryBanks)
+			.get()?.generation;
 		const next = await persist("after", "before");
 		if (mode === "repeated exact resend while queued") {
 			const { deleteMessages } = await import("../messages");
@@ -4038,12 +4064,33 @@ it.each([
 			})
 			.rows.map(({ text }) => text);
 		if (driftAfterWithdrawal) {
-			expect(delivery).toMatchObject({
-				status: "queued",
-				errorCode: "memory_unchanged_source_fact_missing",
-			});
-			expect(texts).toEqual([]);
+			// A resend that changes nothing never takes away what was published,
+			// and never publishes a display nobody checked: the chat's facts are
+			// admitted again under the generation the person already saw.
+			expect(delivery?.status).toBe("succeeded");
+			expect(texts).toEqual([drink]);
+			expect(f.db.select().from(f.s.memoryBanks).get()?.generation).toBe(
+				generationBeforeResend,
+			);
+			const receipts = f.db
+				.select()
+				.from(f.s.memorySourceRevisions)
+				.where(inArray(f.s.memorySourceRevisions.id, [previous.id, next.id]))
+				.all();
+			expect(receipts.map(({ state }) => state)).toEqual([
+				"accepted",
+				"accepted",
+			]);
+			expect(
+				receipts.every(
+					(source) => source.acceptedGeneration === generationBeforeResend,
+				),
+			).toBe(true);
+			expect(
+				receipts.find(({ id }) => id === next.id)?.acknowledgedFactsJson,
+			).toBe("[]");
 			expect(retains).toEqual([]);
+			expect(nativeDeletes).not.toContain(previous.id);
 			return;
 		}
 		if (mode === "deferred cleanup with queued successor") {
@@ -4176,6 +4223,115 @@ it.each([
 			if (mode === "correction after alias" || removeLateCorrection) {
 				await saveCorrection();
 				remembered = corrected;
+			}
+			if (
+				mode === "refused changed resend after exact carry" ||
+				mode === "changed resend refused at publication after exact carry"
+			) {
+				// The changed resend rewrites the carried fact natively. Either its
+				// final check refuses the result on every attempt, or publication
+				// does: an earlier edit took that very wording away.
+				const rewritten = "I preferred decaf in the afternoon once.";
+				const atPublication =
+					mode === "changed resend refused at publication after exact carry";
+				if (atPublication)
+					f.db
+						.insert(f.s.memoryRevocations)
+						.values({
+							id: randomUUID(),
+							userId: h.userId,
+							bankId: f.bank.id,
+							epoch: 0,
+							nativeFactId: "decaf",
+							nativeTextHash: (await import("./revisions")).memoryTextHash(
+								rewritten,
+							),
+						})
+						.run();
+				fixture.model.mockImplementation(
+					async (_prompt, input: Record<string, unknown>) => {
+						if ("facts" in input)
+							return { facts: [{ id: "decaf", text: rewritten }] };
+						if ("displayed_observations" in input)
+							return atPublication ? ckOkay : ckReject;
+						if ("original_facts" in input) return ckOkay;
+						return {
+							forget: [],
+							replace: ["decaf to black tea"],
+							preserve: [],
+						};
+					},
+				);
+				await deleteMessages(["after"], { editSourceMessageId: "after" });
+				const edited = await persist("edited", "after", corrected);
+				const deliveryOf = (sourceId: string) =>
+					f.db
+						.select()
+						.from(f.s.memoryDeliveryJobs)
+						.where(eq(f.s.memoryDeliveryJobs.sourceId, sourceId))
+						.all()
+						.find(({ kind }) => kind === "source");
+				vi.useFakeTimers({ toFake: ["Date"] });
+				for (let round = 0; round < 12; round++) {
+					await h.engine.drain(job.memoryDeliveryJob);
+					if (deliveryOf(edited.id)?.status !== "queued") break;
+					vi.setSystemTime(Date.now() + 10 * 60_000);
+				}
+				expect(deliveryOf(edited.id)).toMatchObject({
+					status: "failed",
+					errorCode: atPublication
+						? "memory_preparation_failed"
+						: "memory_dependency_check_rejected",
+				});
+				expect(fixture.patches).toContain("decaf");
+				// What the refused change wrote natively is undone: the carried
+				// fact holds the text the person sees again.
+				expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
+					text: drink,
+					document_id: previous.id,
+				});
+				expect(
+					read.listMemory(h.userId, { scope }).rows.map(({ text }) => text),
+				).toEqual([drink]);
+				// A retry of the refused resend writes its proposal again and is
+				// refused again: what it wrote is put back again. (A refusal at
+				// publication ends the delivery for good; only an operator reopens it.)
+				if (!atPublication) {
+					const patchesBefore = fixture.patches.length;
+					const { retry } = await import("../jobs/ledger");
+					expect(
+						retry(job.memoryDeliveryJob, deliveryOf(edited.id)?.id ?? "", {
+							userId: h.userId,
+						}),
+					).not.toBeNull();
+					for (let round = 0; round < 12; round++) {
+						await h.engine.drain(job.memoryDeliveryJob);
+						if (deliveryOf(edited.id)?.status !== "queued") break;
+						vi.setSystemTime(Date.now() + 10 * 60_000);
+					}
+					expect(deliveryOf(edited.id)?.status).toBe("failed");
+					expect(fixture.patches.length).toBeGreaterThan(patchesBefore);
+					expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
+						text: drink,
+						document_id: previous.id,
+					});
+				}
+				// Later learning does not wait on the refused resend, and its
+				// own retained fact never shows.
+				const later = await persist("later", undefined, laterMessage);
+				await h.engine.drain(job.memoryDeliveryJob);
+				expect(deliveryOf(later.id)).toMatchObject({
+					status: "succeeded",
+					errorCode: null,
+				});
+				vi.useRealTimers();
+				expect(
+					read
+						.listMemory(h.userId, { scope })
+						.rows.map(({ text }) => text)
+						.sort(),
+				).toEqual([drink, laterMessage].sort());
+				return;
 			}
 			if (
 				mode === "accepted carried next edit" ||
@@ -5466,3 +5622,522 @@ it.each([
 		}
 	},
 );
+
+/**
+ * A later, unrelated source delivered through the real job engine: the fake
+ * Hindsight learns it as one fact beside `live()` when its retain arrives.
+ */
+async function deliverLaterSource(
+	f: Awaited<ReturnType<typeof setup>>,
+	fixture: Awaited<ReturnType<typeof nativeFixture>>,
+	live: () => Array<{ id: string; text: string; document_id?: string }>,
+	learned: { id: string; text: string },
+) {
+	const rev = await import("./revisions");
+	const jobs = await import("./delivery-job");
+	const { eq } = await import("drizzle-orm");
+	const source = rev.recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: `later:${learned.id}`,
+		lineageId: `later:${learned.id}`,
+		text: learned.text,
+		context: "",
+		assertedAt: new Date(),
+	});
+	const transport = fixture.fetcher.getMockImplementation();
+	if (!transport) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		if (
+			String(url).endsWith("/memories") &&
+			init?.method === "POST" &&
+			JSON.parse(String(init.body)).items[0]?.document_id === source.id
+		)
+			fixture.setFacts([...live(), { ...learned, document_id: source.id }]);
+		return transport(url, init);
+	});
+	const queued = await jobs.enqueueMemoryDelivery({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		kind: "source",
+		sourceId: source.id,
+		requestId: `source:${source.id}`,
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	return f.db
+		.select()
+		.from(f.s.memoryDeliveryJobs)
+		.where(eq(f.s.memoryDeliveryJobs.id, queued.row.id))
+		.get();
+}
+
+/** Every text the person and the model can read for the personal scope. */
+async function readableMemory(f: Awaited<ReturnType<typeof setup>>) {
+	const read = await import("./native-read");
+	const { recallMemory } = await import("../memory-context/native");
+	const { writeMemoryOverview } = await import("./overview");
+	const page = read
+		.listMemory(h.userId, { scope: { kind: "personal" } })
+		.rows.map(({ text }) => text)
+		.sort();
+	const chatId = `recall-${randomUUID()}`;
+	f.db
+		.insert(f.s.conversations)
+		.values({ id: chatId, userId: h.userId, title: "Synthetic recall chat" })
+		.run();
+	const recall = (
+		await recallMemory(h.userId, {
+			conversationId: chatId,
+			query: "kayak canoe maps bicycle",
+			tokenBudget: 4000,
+		})
+	).map(({ text }) => text);
+	let overviewInput = "";
+	await writeMemoryOverview(
+		h.userId,
+		{ kind: "personal" },
+		{
+			rewrite: true,
+			model: async (_prompt, input) => {
+				overviewInput = JSON.stringify(input);
+				return { overview: "Synthetic overview." };
+			},
+		},
+	);
+	return { page, recall, overviewInput };
+}
+
+it("a refused Remove keeps its card out of every read while later learning publishes", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, [
+		{ forget: ["green kayak"], replace: [], preserve: ["sister bicycle"] },
+		ckProposal("kayak", ""),
+		ckReject,
+		ckProposal("kayak", ""),
+		ckReject,
+	]);
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: ckRef,
+		requestId: randomUUID(),
+	});
+	await h.engine.drain(jobs.memoryDeliveryJob);
+	// The review refused every proposal before any native write: Hindsight
+	// still holds the kayak and its observation.
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "failed",
+		exclusionAcknowledged: true,
+	});
+	expect(fixture.patches).toEqual([]);
+	const live = () => [
+		{ id: "kayak", text: "green kayak" },
+		{ id: "sister", text: "sister bicycle" },
+	];
+	const later = await deliverLaterSource(f, fixture, live, {
+		id: "maps",
+		text: "I collect maps.",
+	});
+	expect(later).toMatchObject({ status: "succeeded", errorCode: null });
+	const { page, recall, overviewInput } = await readableMemory(f);
+	expect(page).toEqual(["I collect maps.", "sister bicycle"]);
+	expect(recall.sort()).toEqual(["I collect maps.", "sister bicycle"]);
+	expect(overviewInput).toContain("I collect maps.");
+	for (const text of [...page, ...recall, overviewInput])
+		expect(text).not.toContain("kayak");
+	const bank = f.db.select().from(f.s.memoryBanks).get();
+	const { eq } = await import("drizzle-orm");
+	expect(
+		f.db
+			.select()
+			.from(f.s.memoryPublishedRows)
+			.where(eq(f.s.memoryPublishedRows.generation, bank?.generation ?? ""))
+			.all()
+			.some(({ sourceIdsJson }) => sourceIdsJson.includes('"kayak"')),
+	).toBe(false);
+	// The bank takes curation again: another card can be removed.
+	const next = await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: {
+			scope: { kind: "personal" },
+			generation: bank?.generation ?? "",
+			rowId: "observation-maps",
+		},
+		requestId: randomUUID(),
+	});
+	expect(next.exclusionAcknowledged).toBe(true);
+});
+
+it("a Remove refused after its native write keeps the observations rebuilt around it out", async () => {
+	const f = await setup();
+	const { eq } = await import("drizzle-orm");
+	// The kayak has its own card and shares a second one with a canoe.
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			acknowledgedFactsJson: JSON.stringify([
+				{ id: "kayak", text: "green kayak" },
+				{ id: "canoe", text: "red canoe" },
+				{ id: "sister", text: "sister bicycle" },
+			]),
+		})
+		.run();
+	f.db
+		.insert(f.s.memoryPublishedRows)
+		.values({
+			id: "boats",
+			nativeId: "boats",
+			bankId: f.bank.id,
+			generation: "g",
+			epoch: 0,
+			text: "green kayak and red canoe",
+			nativeText: "green kayak and red canoe",
+			sourceIdsJson: JSON.stringify(["kayak", "canoe"]),
+			sourceFingerprintsJson: JSON.stringify([
+				{ id: "kayak", text: "green kayak" },
+				{ id: "canoe", text: "red canoe" },
+			]),
+			updatedAt: new Date(),
+		})
+		.run();
+	const fixture = await nativeFixture(f, []);
+	let live = [
+		{ id: "kayak", text: "green kayak" },
+		{ id: "canoe", text: "red canoe" },
+		{ id: "sister", text: "sister bicycle" },
+	];
+	fixture.setFacts(live);
+	const transport = fixture.fetcher.getMockImplementation();
+	if (!transport) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.includes("/memories/") && init?.method === "PATCH")
+			live = live.filter((fact) => fact.id !== path.split("/").at(-1));
+		const response = await transport(url, init);
+		if (!path.includes("/memories/list")) return response;
+		const body = await response.json();
+		// Hindsight rebuilt the canoe's observation once the kayak was gone, and
+		// kept the removed colour in its wording.
+		for (const item of body.items)
+			if (
+				item.id === "observation-canoe" &&
+				!live.some((f) => f.id === "kayak")
+			)
+				item.text = "red canoe, earlier beside a green kayak";
+		return Response.json(body);
+	});
+	fixture.model.mockImplementation(async (_prompt, input) => {
+		if ("facts" in input)
+			return {
+				facts: [
+					{ id: "kayak", text: "" },
+					{ id: "canoe", text: "red canoe" },
+					{ id: "sister", text: "sister bicycle" },
+				],
+			};
+		// The final check refuses what Hindsight rebuilt, on every attempt.
+		if ("displayed_observations" in input) return ckReject;
+		if ("original_facts" in input) return ckOkay;
+		return { forget: ["green kayak"], replace: [], preserve: ["red canoe"] };
+	});
+	const a = await import("./curation-actions");
+	const jobs = await import("./delivery-job");
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: ckRef,
+		requestId: randomUUID(),
+	});
+	vi.useFakeTimers({ toFake: ["Date"] });
+	for (let round = 0; round < 12; round++) {
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		if (a.getMemoryOperation(h.userId, { id: op.id }).status === "failed")
+			break;
+		vi.setSystemTime(Date.now() + 10 * 60_000);
+	}
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "failed",
+		errorCode: "memory_dependency_check_rejected",
+		exclusionAcknowledged: true,
+	});
+	expect(fixture.patches).toEqual(["kayak"]);
+	const later = await deliverLaterSource(f, fixture, () => live, {
+		id: "maps",
+		text: "I collect maps.",
+	});
+	expect(later).toMatchObject({ status: "succeeded", errorCode: null });
+	vi.useRealTimers();
+	const { page, recall, overviewInput } = await readableMemory(f);
+	expect(page).toEqual(["I collect maps.", "sister bicycle"]);
+	expect(recall.sort()).toEqual(["I collect maps.", "sister bicycle"]);
+	for (const text of [...page, ...recall, overviewInput])
+		expect(text).not.toContain("kayak");
+	const bank = f.db.select().from(f.s.memoryBanks).get();
+	expect(
+		f.db
+			.select()
+			.from(f.s.memoryPublishedRows)
+			.where(eq(f.s.memoryPublishedRows.generation, bank?.generation ?? ""))
+			.all()
+			.map(({ nativeId }) => nativeId)
+			.sort(),
+	).toEqual(["observation-maps", "observation-sister"]);
+});
+
+it("a source refused by its own check does not hold later learning", async () => {
+	const f = await setup();
+	const fixture = await nativeFixture(f, []);
+	const rev = await import("./revisions");
+	const jobs = await import("./delivery-job");
+	const { eq } = await import("drizzle-orm");
+	// A changed resend whose final check refused it: its facts sit in Hindsight unaccepted.
+	const held = rev.recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: "held-resend",
+		lineageId: "held-resend",
+		text: "I drink coffee on the terrace.",
+		context: "",
+		assertedAt: new Date(),
+	});
+	const delivery = await jobs.enqueueMemoryDelivery({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		kind: "source",
+		sourceId: held.id,
+		requestId: `source:${held.id}`,
+	});
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			nativeSubmitted: true,
+			nativeAcknowledged: true,
+			nativeOperationId: randomUUID(),
+		})
+		.where(eq(f.s.memorySourceRevisions.id, held.id))
+		.run();
+	f.db
+		.update(f.s.memoryDeliveryJobs)
+		.set({
+			status: "failed",
+			retryable: true,
+			errorCode: "memory_dependency_check_rejected",
+		})
+		.where(eq(f.s.memoryDeliveryJobs.id, delivery.row.id))
+		.run();
+	const live = () => [
+		{ id: "kayak", text: "green kayak" },
+		{ id: "sister", text: "sister bicycle" },
+		{ id: "terrace", text: "coffee on the terrace", document_id: held.id },
+	];
+	fixture.setFacts(live());
+	const later = await deliverLaterSource(f, fixture, live, {
+		id: "maps",
+		text: "I collect maps.",
+	});
+	expect(later).toMatchObject({ status: "succeeded", errorCode: null });
+	const read = await import("./native-read");
+	expect(
+		read
+			.listMemory(h.userId, { scope: { kind: "personal" } })
+			.rows.map(({ text }) => text)
+			.sort(),
+	).toEqual(["I collect maps.", "green kayak", "sister bicycle"]);
+	expect(
+		f.db
+			.select()
+			.from(f.s.memorySourceRevisions)
+			.where(eq(f.s.memorySourceRevisions.id, held.id))
+			.get()?.state,
+	).toBe("pending");
+});
+
+it("a Remove refused after its native write keeps out a fact Hindsight merged into the removed card", async () => {
+	const f = await setup();
+	const { eq } = await import("drizzle-orm");
+	const rev = await import("./revisions");
+	const jobs = await import("./delivery-job");
+	// A chat still on its way when the Remove is asked: Hindsight merged its
+	// fact into the kayak's observation, and no published row shows it yet.
+	const harbour = rev.recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: "harbour",
+		lineageId: "harbour",
+		text: "I moor at the harbour.",
+		context: "",
+		assertedAt: new Date(),
+	});
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			nativeSubmitted: true,
+			nativeAcknowledged: true,
+			nativeOperationId: randomUUID(),
+		})
+		.where(eq(f.s.memorySourceRevisions.id, harbour.id))
+		.run();
+	await jobs.enqueueMemoryDelivery({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		kind: "source",
+		sourceId: harbour.id,
+		requestId: `source:${harbour.id}`,
+	});
+	const fixture = await nativeFixture(f, []);
+	let live = [
+		{ id: "kayak", text: "green kayak" },
+		{ id: "sister", text: "sister bicycle" },
+		{ id: "harbour", text: "moors at the harbour", document_id: harbour.id },
+	];
+	fixture.setFacts(live);
+	const transport = fixture.fetcher.getMockImplementation();
+	if (!transport) throw Error("missing native fixture");
+	fixture.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.includes("/memories/") && init?.method === "PATCH")
+			live = live.filter((fact) => fact.id !== path.split("/").at(-1));
+		const response = await transport(url, init);
+		if (!path.includes("/memories/list")) return response;
+		const body = await response.json();
+		const kayak = live.some(({ id }) => id === "kayak");
+		body.items = body.items.flatMap(
+			(item: { id: string; text: string; source_memory_ids?: string[] }) => {
+				// Before the write the harbour sits inside the kayak's observation;
+				// after it Hindsight rebuilt the harbour alone, keeping the colour.
+				if (item.id === "observation-harbour")
+					return kayak
+						? []
+						: [
+								{
+									...item,
+									text: "moors at the harbour, earlier with a green kayak",
+								},
+							];
+				if (item.id === "observation-kayak")
+					return [{ ...item, source_memory_ids: ["kayak", "harbour"] }];
+				return [item];
+			},
+		);
+		body.total = body.items.length;
+		return Response.json(body);
+	});
+	fixture.model.mockImplementation(async (_prompt, input) => {
+		if ("facts" in input)
+			return {
+				facts: [
+					{ id: "kayak", text: "" },
+					{ id: "sister", text: "sister bicycle" },
+				],
+			};
+		if ("displayed_observations" in input) return ckReject;
+		if ("original_facts" in input) return ckOkay;
+		return { forget: ["green kayak"], replace: [], preserve: [] };
+	});
+	const a = await import("./curation-actions");
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: ckRef,
+		requestId: randomUUID(),
+	});
+	vi.useFakeTimers({ toFake: ["Date"] });
+	for (let round = 0; round < 16; round++) {
+		await h.engine.drain(jobs.memoryDeliveryJob);
+		const pending = f.db
+			.select()
+			.from(f.s.memoryDeliveryJobs)
+			.all()
+			.some(({ status }) => status === "queued" || status === "running");
+		if (!pending) break;
+		vi.setSystemTime(Date.now() + 10 * 60_000);
+	}
+	expect(a.getMemoryOperation(h.userId, { id: op.id })).toMatchObject({
+		status: "failed",
+		errorCode: "memory_dependency_check_rejected",
+	});
+	const intent = JSON.parse(
+		f.db
+			.select()
+			.from(f.s.memoryActions)
+			.where(eq(f.s.memoryActions.id, op.id))
+			.get()?.intentJson ?? "{}",
+	);
+	expect(intent.familyFactIds).toEqual(
+		expect.arrayContaining(["harbour", "kayak"]),
+	);
+	const later = await deliverLaterSource(f, fixture, () => live, {
+		id: "maps",
+		text: "I collect maps.",
+	});
+	expect(later).toMatchObject({ status: "succeeded", errorCode: null });
+	vi.useRealTimers();
+	const { page, recall, overviewInput } = await readableMemory(f);
+	expect(page).toContain("I collect maps.");
+	for (const text of [...page, ...recall, overviewInput])
+		expect(text).not.toContain("kayak");
+});
+
+it("a Remove's family counts the rows hidden when it is asked", async () => {
+	const f = await setup();
+	const { eq } = await import("drizzle-orm");
+	const rev = await import("./revisions");
+	// A row over the kayak and a ferry whose chat is withdrawn for the moment.
+	const ferry = rev.recordMemorySource({
+		userId: h.userId,
+		bankId: f.bank.id,
+		epoch: 0,
+		eventId: "ferry",
+		lineageId: "ferry",
+		text: "I take the ferry with my kayak.",
+		context: "",
+		assertedAt: new Date(),
+	});
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			state: "revoked",
+			acknowledgedFactsJson: JSON.stringify([
+				{ id: "ferry", text: "takes the ferry" },
+			]),
+		})
+		.where(eq(f.s.memorySourceRevisions.id, ferry.id))
+		.run();
+	f.db
+		.insert(f.s.memoryPublishedRows)
+		.values({
+			id: "kayak-ferry",
+			nativeId: "kayak-ferry",
+			bankId: f.bank.id,
+			generation: "g",
+			epoch: 0,
+			text: "green kayak on the ferry",
+			nativeText: "green kayak on the ferry",
+			sourceIdsJson: JSON.stringify(["kayak", "ferry"]),
+			sourceFingerprintsJson: JSON.stringify([
+				{ id: "kayak", text: "green kayak" },
+				{ id: "ferry", text: "takes the ferry" },
+			]),
+			updatedAt: new Date(),
+		})
+		.run();
+	const a = await import("./curation-actions");
+	const op = await a.submitMemoryAction(h.userId, {
+		kind: "remove",
+		ref: ckRef,
+		requestId: randomUUID(),
+	});
+	const intent = JSON.parse(
+		f.db
+			.select()
+			.from(f.s.memoryActions)
+			.where(eq(f.s.memoryActions.id, op.id))
+			.get()?.intentJson ?? "{}",
+	);
+	expect(intent.familyFactIds).toEqual(["ferry", "kayak"]);
+});

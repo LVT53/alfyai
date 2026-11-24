@@ -1,0 +1,362 @@
+{
+  "summary": {
+    "en": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "hu": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-en-fresh": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-hu-regression": {
+      "pass": 15,
+      "fail": 13,
+      "info": 1
+    },
+    "er-hu-fresh": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "er-remove": {
+      "pass": 14,
+      "fail": 0,
+      "info": 0
+    },
+    "carry-hu": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-metronome": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-lamp": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    },
+    "carry-en-tea": {
+      "pass": 0,
+      "fail": 0,
+      "info": 1
+    }
+  },
+  "checks": [
+    {
+      "case": "en",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "hu",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-en-fresh",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit-0 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "a card was already changed by an earlier edit",
+      "result": "info",
+      "detail": "A felhasználó egyik macskája Mák, fekete."
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-remove-2 applied",
+      "result": "fail",
+      "detail": "status=failed error=memory_preparation_failed"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user', 'A felhasználó és a húga, Luca, gluténmentesen étkeznek. | Involving: user, Luca'], 'native_observations': ['A felhasználó gluténmentesen étkezik.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza. | Involving: user', 'A felhasználónak két macskája van: Mák fekete és Bodza. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete és Bodza szürke.'], 'published': ['A felhasználónak két macskája van: Mák "
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-edit: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user', 'A felhasználó és a húga, Luca, gluténmentesen étkeznek. | Involving: user, Luca'], 'native_observations': ['A felhasználó gluténmentesen étkezik.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza. | Involving: user', 'A felhasználónak két macskája van: Mák fekete és Bodza. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete és Bodza szürke.'], 'published': ['A felhasználónak két macskája van: Mák "
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-replay: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user', 'A felhasználó és a húga, Luca, gluténmentesen étkeznek. | Involving: user, Luca'], 'native_observations': ['A felhasználó gluténmentesen étkezik.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza. | Involving: user', 'A felhasználónak két macskája van: Mák fekete és Bodza. | Involving: user'], 'native_observations': ['A felhasználónak két macskája van: Mák fekete és Bodza szürke.'], 'published': ['A felhasználónak két macskája van: Mák "
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-reprocess: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: the user's gluten-free diet gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó gluténmentes étrendet követ. | Involving: user', 'A felhasználó és a húga, Luca, gluténmentesen étkeznek. | Involving: user, Luca'], 'native_observations': ['A felhasználó gluténmentesen étkezik.']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Mák's colour (black) gone from every layer",
+      "result": "fail",
+      "detail": "{'raw': ['A felhasználó macskái közül Mák fekete, Bodza. | Involving: user', 'A felhasználónak két macskája van: Mák fekete és Bodza. | Involving: user']}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Bodza's old colour (white) gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Luca's gluten-free diet kept",
+      "result": "fail",
+      "detail": "['published', 'page', 'recall']"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: two cats kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "er-new-explicit: Bodza is grey kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-regression",
+      "check": "later statement admitted: Mák's brown fur",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-hu-fresh",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "er-remove",
+      "check": "every recalled row is a current published row",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-remove-0 applied",
+      "result": "pass",
+      "detail": "status=applied error=None"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-edit: the user's telescope gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-edit: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-edit: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-replay: the user's telescope gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-replay: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-replay: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-reprocess: the user's telescope gone from every layer",
+      "result": "pass",
+      "detail": "{}"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-reprocess: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-reprocess: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-new-explicit: sister's black telescope kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "er-new-explicit: birdwatching kept",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "er-remove",
+      "check": "later statement admitted: blue telescope",
+      "result": "pass",
+      "detail": "[]"
+    },
+    {
+      "case": "carry-hu",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-metronome",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-lamp",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    },
+    {
+      "case": "carry-en-tea",
+      "check": "record",
+      "result": "info",
+      "detail": "not run"
+    }
+  ]
+}
