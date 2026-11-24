@@ -155,6 +155,7 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["users", "avatar_id"],
 	["users", "profile_picture"],
 	["users", "honcho_peer_version"],
+	["users", "memory_migration_excluded"],
 	["conversation_drafts", "selected_linked_sources_json"],
 	["conversation_drafts", "pending_skill_json"],
 	["user_skill_definitions", "published"],

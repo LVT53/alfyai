@@ -55,6 +55,16 @@ export const users = sqliteTable("users", {
 	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// The permanent tester rule: true keeps every migration of existing Memory
+	// data (the label migration, the operator tools) away from this account.
+	// Set once for the tester's address by migration 141 and read by id through
+	// memoryMigrationGuard (memory-profile/migration-guard.ts) only. Ordinary
+	// operation (delivery, curation, recall) never reads it.
+	memoryMigrationExcluded: integer("memory_migration_excluded", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(false),
 	// "Pictures and videos" (Settings > Profile), the person's own switch. When
 	// false, that person's turns are not offered make_image or make_video, and
 	// the turn guidance tells the model it is switched off and where to switch

@@ -118,6 +118,29 @@ async function setup() {
 	};
 }
 describe("Memory delivery through real job engine", () => {
+	it("delivers for an account the migration guard excludes: delivery is not a migration", async () => {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.users)
+			.set({ memoryMigrationExcluded: true })
+			.where(eq(f.schema.users.id, h.userId))
+			.run();
+		const { memoryMigrationGuard } = await import("./migration-guard");
+		expect(memoryMigrationGuard(h.userId)).toEqual({
+			allowed: false,
+			reason: "excluded",
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		const pub = await import("./publication");
+		expect(pub.readPublishedMemory(h.userId, f.bank.id)[0].text).toBe(
+			"Green kayak",
+		);
+	});
 	it("deduplicates enqueue and publishes only after native completion", async () => {
 		const f = await setup();
 		const a = await f.enqueue();
