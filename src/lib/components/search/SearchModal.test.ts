@@ -1338,7 +1338,9 @@ describe("SearchModal", () => {
 			});
 			fetchWorkspaceSearch.mockResolvedValue(thumbAnswer);
 			const onClose = vi.fn();
-			const rendered = render(SearchModal, { props: { isOpen: true, onClose } });
+			const rendered = render(SearchModal, {
+				props: { isOpen: true, onClose },
+			});
 			await screen.findByTestId("search-result-count");
 			const firstImage = screen
 				.getByTestId("search-section-media")
