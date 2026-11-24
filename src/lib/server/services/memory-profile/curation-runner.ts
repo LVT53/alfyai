@@ -2325,13 +2325,22 @@ export function prepareUnchangedSourceCuration(
 			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
 		}
 	}
+	/**
+	 * Whether Hindsight's display of the accepted facts is exactly the one the
+	 * person saw. With a dependency change the final checker judges the
+	 * display and a moved date still refuses. Without one, a display that is
+	 * not exactly the published one (re-rendered, renumbered, an unchecked
+	 * extra observation, a moved date) is never published: the resend keeps
+	 * the published generation instead (`keepPublishedGeneration`), so a
+	 * resend that changes nothing never takes away what was published.
+	 */
 	function verifyUnchangedDisplay(
 		tx: Tx,
 		memories: NativeMemory[],
 		dependencyChanged: boolean,
 	) {
 		const bank = actionFence(tx, ctx);
-		if (!bank.generation) return;
+		if (!bank.generation) return true;
 		const raw = new Map(
 			memories
 				.filter((fact) => fact.fact_type !== "observation")
@@ -2365,11 +2374,14 @@ export function prepareUnchangedSourceCuration(
 						fact.mentionedAt !== undefined &&
 						fact.mentionedAt !== (raw.get(fact.id)?.mentioned_at ?? null),
 				)
-			)
-				throw new NativeMemoryError(
-					"memory_unchanged_source_fact_missing",
-					true,
-				);
+			) {
+				if (dependencyChanged)
+					throw new NativeMemoryError(
+						"memory_unchanged_source_fact_missing",
+						true,
+					);
+				return false;
+			}
 			if (dependencyChanged) continue;
 			const match = observations.findIndex(
 				(observation) =>
@@ -2382,15 +2394,10 @@ export function prepareUnchangedSourceCuration(
 							raw.get(fact.id)?.text === fact.text,
 					),
 			);
-			if (match === -1)
-				throw new NativeMemoryError(
-					"memory_unchanged_source_fact_missing",
-					true,
-				);
+			if (match === -1) return false;
 			observations.splice(match, 1);
 		}
-		if (!dependencyChanged && observations.length)
-			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
+		return dependencyChanged || !observations.length;
 	}
 	function assertCurrent(tx: Tx) {
 		const old = tx
@@ -2440,15 +2447,18 @@ export function prepareUnchangedSourceCuration(
 		checks,
 		verify,
 		assertCurrent,
-		verifyDependencies: async (result: CandidateCheck) => {
+		/** `keepGeneration`: publish nothing new, admit the facts under the generation the person sees. */
+		verifyDependencies: async (
+			result: CandidateCheck,
+		): Promise<{ keepGeneration: boolean }> => {
 			verify(result.memories);
 			const dependencyChanged = Boolean(
 				result.sourceIds.length || result.replays?.length,
 			);
-			db.transaction((tx) =>
+			const verified = db.transaction((tx) =>
 				verifyUnchangedDisplay(tx, result.memories, dependencyChanged),
 			);
-			if (!dependencyChanged) return;
+			if (!dependencyChanged) return { keepGeneration: !verified };
 			await checkCandidate(
 				ctx,
 				{
@@ -2465,6 +2475,7 @@ export function prepareUnchangedSourceCuration(
 				},
 				guardedModel(ctx),
 			);
+			return { keepGeneration: false };
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
 			verify(memories);

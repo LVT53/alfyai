@@ -3540,6 +3540,7 @@ it.each([
 	"changed carry supplies original context",
 	"extra observation on exact resend",
 	"changed native date on exact resend",
+	"re-rendered observation on exact resend",
 	"deleted queued successor",
 	"deferred cleanup before successor",
 	"deferred cleanup with queued successor",
@@ -3638,6 +3639,7 @@ it.each([
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
 			mode === "changed native date on exact resend" ||
+			mode === "re-rendered observation on exact resend" ||
 			mode === "deleted queued successor" ||
 			mode === "deferred cleanup before successor" ||
 			mode === "deferred cleanup with queued successor" ||
@@ -3750,7 +3752,15 @@ it.each([
 						fact_type: "observation",
 						source_memory_ids: ["decaf"],
 					});
-				else
+				else if (mode === "re-rendered observation on exact resend") {
+					// Hindsight rebuilt the observation after an unrelated cleanup:
+					// a new id and new wording over exactly the same fact.
+					const rendered = list.items.find(
+						(item: { id: string }) => item.id === "observation-decaf",
+					);
+					rendered.id = "observation-decaf-rebuilt";
+					rendered.text = "I prefer decaf in the afternoon, it says.";
+				} else
 					list.items.find(
 						(item: { id: string }) => item.id === "decaf",
 					).mentioned_at = "2026-11-18T00:00:00.000Z";
@@ -3773,7 +3783,7 @@ it.each([
 			list.total = list.items.length;
 			return new Response(JSON.stringify(list));
 		});
-		const { eq } = await import("drizzle-orm");
+		const { eq, inArray } = await import("drizzle-orm");
 		const chat = await import("./chat-delivery");
 		const job = await import("./delivery-job");
 		const chatId = randomUUID();
@@ -3963,7 +3973,12 @@ it.each([
 		}
 		driftAfterWithdrawal =
 			mode === "extra observation on exact resend" ||
-			mode === "changed native date on exact resend";
+			mode === "changed native date on exact resend" ||
+			mode === "re-rendered observation on exact resend";
+		const generationBeforeResend = f.db
+			.select()
+			.from(f.s.memoryBanks)
+			.get()?.generation;
 		const next = await persist("after", "before");
 		if (mode === "repeated exact resend while queued") {
 			const { deleteMessages } = await import("../messages");
@@ -4038,12 +4053,33 @@ it.each([
 			})
 			.rows.map(({ text }) => text);
 		if (driftAfterWithdrawal) {
-			expect(delivery).toMatchObject({
-				status: "queued",
-				errorCode: "memory_unchanged_source_fact_missing",
-			});
-			expect(texts).toEqual([]);
+			// A resend that changes nothing never takes away what was published,
+			// and never publishes a display nobody checked: the chat's facts are
+			// admitted again under the generation the person already saw.
+			expect(delivery?.status).toBe("succeeded");
+			expect(texts).toEqual([drink]);
+			expect(f.db.select().from(f.s.memoryBanks).get()?.generation).toBe(
+				generationBeforeResend,
+			);
+			const receipts = f.db
+				.select()
+				.from(f.s.memorySourceRevisions)
+				.where(inArray(f.s.memorySourceRevisions.id, [previous.id, next.id]))
+				.all();
+			expect(receipts.map(({ state }) => state)).toEqual([
+				"accepted",
+				"accepted",
+			]);
+			expect(
+				receipts.every(
+					(source) => source.acceptedGeneration === generationBeforeResend,
+				),
+			).toBe(true);
+			expect(
+				receipts.find(({ id }) => id === next.id)?.acknowledgedFactsJson,
+			).toBe("[]");
 			expect(retains).toEqual([]);
+			expect(nativeDeletes).not.toContain(previous.id);
 			return;
 		}
 		if (mode === "deferred cleanup with queued successor") {

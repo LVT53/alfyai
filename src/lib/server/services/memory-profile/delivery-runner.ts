@@ -46,6 +46,7 @@ import {
 	admittedNativeFacts,
 	approvedMigrationObservationWording,
 	assertCurationPublication,
+	keepPublishedGeneration,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
@@ -891,7 +892,7 @@ export async function runMemoryDelivery(
 						}),
 				},
 			);
-			await replayed.verifyDependencies(repair);
+			const { keepGeneration } = await replayed.verifyDependencies(repair);
 			await ctx.succeed({
 				apply: (tx) => {
 					const { transitions } = assertDelivery(tx, row);
@@ -909,23 +910,31 @@ export async function runMemoryDelivery(
 						})
 						.where(eq(memorySourceRevisions.id, source.id))
 						.run();
-					publishNativeSnapshot(tx, {
-						userId: row.userId,
-						bankId: row.bankId,
-						epoch: row.epoch,
-						expectedRevision: bank.revision,
-						memories: repair.memories,
-						sourceIds: [
-							...new Set([
-								source.id,
-								...replayed.sourceIds,
-								...repair.sourceIds,
-							]),
-						],
-						checkedActionIds: [...replayed.checks, ...repair.replays].map(
-							(entry) => entry.actionId,
-						),
-					});
+					const sourceIds = [
+						...new Set([source.id, ...replayed.sourceIds, ...repair.sourceIds]),
+					];
+					// Hindsight's display could not be verified: nothing new is
+					// published, and the rows the person saw stay published.
+					if (keepGeneration)
+						keepPublishedGeneration(tx, {
+							userId: row.userId,
+							bankId: row.bankId,
+							epoch: row.epoch,
+							expectedRevision: bank.revision,
+							sourceIds,
+						});
+					else
+						publishNativeSnapshot(tx, {
+							userId: row.userId,
+							bankId: row.bankId,
+							epoch: row.epoch,
+							expectedRevision: bank.revision,
+							memories: repair.memories,
+							sourceIds,
+							checkedActionIds: [...replayed.checks, ...repair.replays].map(
+								(entry) => entry.actionId,
+							),
+						});
 				},
 			});
 			return;

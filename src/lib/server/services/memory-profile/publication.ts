@@ -1714,6 +1714,48 @@ export function publishNativeSnapshot(
 	);
 	return generation;
 }
+/**
+ * Accepts an unchanged resend into the generation the person already sees,
+ * publishing nothing new: used when Hindsight's display for its facts cannot
+ * be verified (re-rendered, renumbered, an unchecked extra observation or a
+ * moved date), so the reviewed rows stay as they were instead of the chat's
+ * facts going unpublished. Fenced and held exactly like a publication.
+ */
+export function keepPublishedGeneration(
+	tx: Tx,
+	input: {
+		userId: string;
+		bankId: string;
+		epoch: number;
+		expectedRevision: number;
+		sourceIds: string[];
+	},
+) {
+	const bank = assertMemoryBankFence(
+		tx,
+		input.userId,
+		input.bankId,
+		input.epoch,
+	);
+	if (bank.revision !== input.expectedRevision)
+		throw new Error("memory_publication_stale");
+	if (!bank.generation) throw new Error("memory_generation_missing");
+	assertCurationPublication(tx, bank.id, bank.epoch);
+	tx.update(memorySourceRevisions)
+		.set({ state: "accepted", acceptedGeneration: bank.generation })
+		.where(
+			and(
+				eq(memorySourceRevisions.userId, input.userId),
+				eq(memorySourceRevisions.bankId, bank.id),
+				eq(memorySourceRevisions.epoch, bank.epoch),
+				eq(memorySourceRevisions.state, "staged"),
+				inArray(memorySourceRevisions.id, input.sourceIds),
+			),
+		)
+		.run();
+	return bank.generation;
+}
+
 /** Revocations are read on every page/detail/recall, including old generation references. */
 export function readPublishedMemory(
 	userId: string,
