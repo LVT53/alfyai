@@ -169,7 +169,7 @@ async function checkCandidate(
 			bank,
 			memories: withoutExcludedEvidence(
 				candidate.memories,
-				excludedNativeEvidence(tx, bank),
+				excludedNativeEvidence(tx, bank, ctx.row.actionId ?? undefined),
 			),
 		};
 	});
@@ -1937,6 +1937,7 @@ async function executeMemoryAction(
 				sourceIds,
 				verifiedCuratedChanges: !!repaired,
 				verifiedCuratedDiff,
+				ownActionId: action.id,
 				checkedActionIds: [
 					action.id,
 					...(repaired?.replays.map((r) => r.actionId) ?? []),

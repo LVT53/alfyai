@@ -323,6 +323,208 @@ describe("accepted native publication", () => {
 		expect(() => republish(f)).toThrow("memory_curation_publication_held");
 		expect(visibleTexts(f)).toEqual(["Collects maps"]);
 	});
+	/** A Remove of the kayak, its fact revoked at once, with the given job state and intent. */
+	function kayakRemoval(
+		f: Awaited<ReturnType<typeof fixture>>,
+		status: "queued" | "failed",
+		extra: Record<string, unknown> = {},
+	) {
+		f.db
+			.insert(f.schema.memoryActions)
+			.values({
+				id: "remove-kayak",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				requestId: "6b1f0a52-6f61-4c4e-9a3e-1f6f6f0a5c02",
+				kind: "remove",
+				exclusionAcknowledged: true,
+				cleanupPending: true,
+				intentJson: JSON.stringify({
+					request: {
+						kind: "remove",
+						ref: {
+							scope: { kind: "personal" },
+							generation: "g",
+							rowId: "observation",
+						},
+						requestId: "6b1f0a52-6f61-4c4e-9a3e-1f6f6f0a5c02",
+					},
+					before: "Green kayak",
+					sourceIds: [f.source.id],
+					facts: [{ id: "fact", text: "Green kayak", sourceId: f.source.id }],
+					...extra,
+				}),
+			})
+			.run();
+		f.db
+			.insert(f.schema.memoryRevocations)
+			.values({
+				id: "revocation-kayak",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				nativeFactId: "fact",
+				nativeTextHash: f.rev.memoryTextHash("Green kayak"),
+				actionId: "remove-kayak",
+			})
+			.run();
+		f.db
+			.insert(f.schema.memoryDeliveryJobs)
+			.values({
+				id: "remove-kayak-job",
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "action",
+				actionId: "remove-kayak",
+				requestId: "action:remove-kayak",
+				status,
+			})
+			.run();
+	}
+	it("keeps a refused Remove's exclusion while its retry runs, outside its own publication", async () => {
+		const f = await fixture();
+		await withUnrelatedFact(f);
+		// The Remove was refused after its native write, and Hindsight rebuilt
+		// the canoe around the removed kayak; the person retries the Remove.
+		kayakRemoval(f, "queued", {
+			proposal: [{ id: "fact", text: "" }],
+			familyFactIds: ["canoe", "fact"],
+		});
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				acknowledgedFactsJson: JSON.stringify([
+					{ id: "fact", text: "Green kayak" },
+					{ id: "canoe", text: "Red canoe" },
+				]),
+			})
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		f.memories.splice(
+			0,
+			2,
+			{
+				id: "canoe",
+				text: "Red canoe",
+				fact_type: "world",
+				consolidated_at: "2026-11-18T00:00:00Z",
+				document_id: f.source.id,
+			},
+			{
+				id: "observation-canoe",
+				text: "Red canoe, earlier beside a green kayak",
+				fact_type: "observation",
+				source_memory_ids: ["canoe"],
+			},
+		);
+		const publish = (options: {
+			checkedActionIds?: string[];
+			ownActionId?: string;
+		}) =>
+			f.db.transaction((tx) => {
+				const bank = tx
+					.select()
+					.from(f.schema.memoryBanks)
+					.where(eqId(f.schema.memoryBanks.id, f.bank.id))
+					.get();
+				return f.pub.publishNativeSnapshot(tx, {
+					userId: h.userId,
+					bankId: f.bank.id,
+					epoch: 0,
+					expectedRevision: bank?.revision ?? -1,
+					memories: f.memories,
+					...options,
+				});
+			});
+		// A replay the hold lets through still leaves the rebuilt canoe out.
+		const replayed = publish({ checkedActionIds: ["remove-kayak"] });
+		expect(publishedIds(f, replayed)).toEqual(["observation-maps"]);
+		expect(visibleTexts(f)).toEqual(["Collects maps"]);
+		// The Remove's own publication, after its own final check, may show it.
+		const own = publish({
+			checkedActionIds: ["remove-kayak"],
+			ownActionId: "remove-kayak",
+		});
+		expect(publishedIds(f, own)).toEqual([
+			"observation-canoe",
+			"observation-maps",
+		]);
+	});
+	it("leaves out the dependents a refused Remove held for repair", async () => {
+		const f = await fixture();
+		await withUnrelatedFact(f);
+		// A later message of the same chat, whose context named the removed one.
+		const dependent = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "dependent-event",
+			lineageId: "dependent-message",
+			text: "I also sort stamps",
+			context: "User statement",
+			assertedAt: new Date("2026-11-21"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				state: "repair_held",
+				nativeSubmitted: true,
+				nativeAcknowledged: true,
+			})
+			.where(eqId(f.schema.memorySourceRevisions.id, dependent.id))
+			.run();
+		kayakRemoval(f, "failed", {
+			dependencyRepair: {
+				version: 1,
+				bankId: f.bank.id,
+				epoch: 0,
+				revision: 0,
+				roots: [f.source.id],
+				steps: [
+					{
+						originalId: dependent.id,
+						replacementId: "replacement-of-dependent",
+						operationId: "operation-of-replacement",
+						deleted: false,
+					},
+				],
+				originalFacts: [],
+			},
+		});
+		f.memories.push(
+			{
+				id: "stamps",
+				text: "Sorts stamps",
+				fact_type: "world",
+				consolidated_at: "2026-11-21T00:00:00Z",
+				document_id: dependent.id,
+			},
+			{
+				id: "observation-stamps",
+				text: "Sorts stamps",
+				fact_type: "observation",
+				source_memory_ids: ["stamps"],
+			},
+			{
+				id: "stamps-again",
+				text: "Sorts stamps",
+				fact_type: "world",
+				consolidated_at: "2026-11-21T00:00:00Z",
+				document_id: "replacement-of-dependent",
+			},
+			{
+				id: "observation-stamps-again",
+				text: "Sorts stamps again",
+				fact_type: "observation",
+				source_memory_ids: ["stamps-again"],
+			},
+		);
+		const generation = republish(f);
+		expect(publishedIds(f, generation)).toEqual(["observation-maps"]);
+	});
 	it("leaves out a source whose delivery ended unaccepted and waits for one still queued", async () => {
 		const f = await fixture();
 		await withUnrelatedFact(f);

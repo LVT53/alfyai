@@ -931,23 +931,29 @@ const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
 
 /**
  * What publication leaves out for good instead of waiting on it, so a
- * refused item never holds the bank's later learning.
+ * refused item does not hold the bank's later learning.
  *
- * A Remove the person asked for whose job ended without applying keeps its
- * exclusion: the facts it revoked, by id whatever their native text is now,
- * and, once its proposal was saved (its native write may have run before
- * the final check refused the result), the facts that shared a published
- * row with them when it was asked (`familyFactIds`) and the facts its
- * proposal changed: Hindsight rebuilt their observations and nobody
- * approved them. A source refused for its content (its delivery failed
+ * Every Remove the person asked for that has not applied keeps its
+ * exclusion here, whether its job has ended, is queued again or runs, so
+ * the exclusion never lapses between a check and a publication; only the
+ * Remove's own job (`ownActionId`), which judges its own candidate, sees
+ * past it. It covers the facts the Remove revoked, by id whatever their
+ * native text is now; the dependents it held for repair (`repair_held`
+ * sources and their replacements, whose extraction read the removed chat);
+ * and, once its proposal was saved (its native write may have run before the
+ * final check refused the result), the facts that shared an observation with
+ * the targeted facts (`familyFactIds`) and the facts its proposal changed:
+ * Hindsight rebuilt their observations and nobody approved them. A source
+ * refused for its content (its delivery failed
  * `memory_dependency_check_rejected`, or its changed resend's source edit was
  * refused for good and put back) never published, and its native facts are
- * left out with it. A Remove or a
- * source still queued or running is not here: it is waited for, as before.
+ * left out with it. A source still queued or running is not here: it is
+ * waited for, as before.
  */
 export function excludedNativeEvidence(
 	tx: Tx,
 	bank: { id: string; userId: string; epoch: number },
+	ownActionId?: string,
 ) {
 	const factIds = new Set<string>();
 	const sourceIds = new Set<string>();
@@ -961,19 +967,12 @@ export function excludedNativeEvidence(
 				eq(memoryActions.epoch, bank.epoch),
 				eq(memoryActions.kind, "remove"),
 				eq(memoryActions.exclusionAcknowledged, true),
+				sql`coalesce(json_extract(${memoryActions.intentJson}, '$.outcome'), '') <> 'accepted'`,
 			),
 		)
-		.all();
-	const ended = endedActionIds(
-		tx,
-		removals.map(({ id }) => id),
-	);
-	const refused = removals.flatMap((action) => {
-		if (!ended.has(action.id)) return [];
-		const intent = parseActionIntent(action.intentJson);
-		return intent.outcome === "accepted" ? [] : [{ id: action.id, intent }];
-	});
-	if (refused.length) {
+		.all()
+		.filter(({ id }) => id !== ownActionId);
+	if (removals.length) {
 		for (const revocation of tx
 			.select({ factId: memoryRevocations.nativeFactId })
 			.from(memoryRevocations)
@@ -983,13 +982,18 @@ export function excludedNativeEvidence(
 					eq(memoryRevocations.epoch, bank.epoch),
 					inArray(
 						memoryRevocations.actionId,
-						refused.map(({ id }) => id),
+						removals.map(({ id }) => id),
 					),
 				),
 			)
 			.all())
 			if (revocation.factId) factIds.add(revocation.factId);
-		for (const { intent } of refused) {
+		for (const removal of removals) {
+			const intent = parseActionIntent(removal.intentJson);
+			for (const step of intent.dependencyRepair?.steps ?? []) {
+				sourceIds.add(step.originalId);
+				sourceIds.add(step.replacementId);
+			}
 			if (!intent.proposal) continue;
 			const original = new Map(intent.facts.map(({ id, text }) => [id, text]));
 			for (const id of intent.familyFactIds ?? [...original.keys()])
@@ -1252,11 +1256,20 @@ export function curatedNativeRankKeys(
 export function curatedObservationChanges(
 	tx: Tx,
 	bank: typeof memoryBanks.$inferSelect,
-	memories: NativeMemory[],
+	live: NativeMemory[],
 	prepared: Map<string, string>,
 	incomingSourceId?: string,
+	excluded: ReturnType<typeof excludedNativeEvidence> = excludedNativeEvidence(
+		tx,
+		bank,
+	),
 ) {
-	const known = acceptedEditPresentations(tx, bank);
+	// An accepted edit's card resting on what a refused item left out is left
+	// out with it; it neither counts as changed nor as missing.
+	const memories = withoutExcludedEvidence(live, excluded);
+	const known = acceptedEditPresentations(tx, bank).filter(
+		({ facts }) => !facts.some(({ id }) => excluded.factIds.has(id)),
+	);
 	if (!known.length) return [];
 	const admitted = new Map(
 		admittedNativeFacts(bank.userId, bank.id, tx).map((fact) => [
@@ -1652,6 +1665,8 @@ export function publishNativeSnapshot(
 		checkedActionIds?: string[];
 		verifiedCuratedChanges?: boolean;
 		verifiedCuratedDiff?: { sourceId: string; proofs: ReadonlySet<string> };
+		/** The publishing Remove itself: its own exclusion does not apply to its own result. */
+		ownActionId?: string;
 	},
 ) {
 	const prepared = new Map(
@@ -1667,10 +1682,8 @@ export function publishNativeSnapshot(
 		throw new Error("memory_publication_stale");
 	assertCurationPublication(tx, bank.id, bank.epoch, input);
 	// A refused item is left out for good instead of holding the bank.
-	const memories = withoutExcludedEvidence(
-		input.memories,
-		excludedNativeEvidence(tx, bank),
-	);
+	const excluded = excludedNativeEvidence(tx, bank, input.ownActionId);
+	const memories = withoutExcludedEvidence(input.memories, excluded);
 	const sources = tx
 		.select()
 		.from(memorySourceRevisions)
@@ -1844,6 +1857,7 @@ export function publishNativeSnapshot(
 			memories,
 			prepared,
 			input.verifiedCuratedDiff?.sourceId,
+			excluded,
 		).some(({ proof }) => !input.verifiedCuratedDiff?.proofs.has(proof))
 	)
 		throw new NativeMemoryError("memory_candidate_curation_drift", true);
