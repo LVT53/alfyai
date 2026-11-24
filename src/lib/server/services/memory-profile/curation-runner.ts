@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -32,6 +32,7 @@ import {
 	type ActionIntentRecord,
 	parseActionIntent,
 	type ReplayCheck,
+	sourceEditChangedFacts,
 } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
 import { countedDeliveryAttempt } from "./delivery-policy";
@@ -2996,6 +2997,11 @@ export async function prepareSourceCuration(
 	}
 	if (!action) throw Error("memory_action_missing");
 	let intent = parseActionIntent(action.intentJson);
+	// A changed resend refused for good stays refused: a retry never writes its
+	// proposal again, and what its edit took away stays excluded
+	// (`excludeRefusedSourceEdit`, run again by the failure).
+	if (intent.outcome === "rejected")
+		throw new NativeMemoryError("memory_edit_rejected", false);
 	const owners = sourcesFor(source.bankId, intent.sourceIds);
 	if (
 		owners.length !== new Set(intent.sourceIds).size ||
@@ -3499,96 +3505,96 @@ export async function checkSourceDependencyCuration(
 }
 
 /**
- * A changed resend its final check refused for good leaves nothing it wrote
- * behind in the chats it carried: every fact its proposal rewrote or
- * invalidated goes back to the text the person sees (its accepted,
- * acknowledged text), so the refused change never holds the bank's later
- * learning. A fact no longer admitted (removed or edited away since) is never
- * restored, and nothing else is written.
+ * A changed resend refused for good keeps nothing the person's edit took away
+ * (the owner's privacy-first rule, 2026-11-24): every fact of the chats it
+ * carried whose text its proposal changed, rewritten or invalidated
+ * (`sourceEditChangedFacts`), is excluded the way a Remove excludes its facts
+ * and is never put back. One fenced write records the edit `rejected` and
+ * revokes each such fact whatever its wording, so the page, recall, search
+ * and the Overview stop showing it at once and publication leaves it out by
+ * id (`excludedNativeEvidence`); then Hindsight invalidates each one still
+ * live under its chat, so the cards resting on it are rebuilt without it. The
+ * facts the proposal kept as they were stay. A retry ends before any write
+ * (`prepareSourceCuration`) and runs this again, which finds nothing more.
  */
-export async function restoreRefusedSourceEdit(
+export async function excludeRefusedSourceEdit(
 	ctx: Context,
 	client: HindsightClient,
 	native: NativeSettlement,
 	source: Source,
 ) {
-	const action = db
-		.select()
-		.from(memoryActions)
-		.where(
-			and(
-				eq(memoryActions.userId, source.userId),
-				eq(memoryActions.requestId, source.id),
-				eq(memoryActions.kind, "source_edit"),
-			),
-		)
-		.get();
-	if (!action) return;
-	const intent = parseActionIntent(action.intentJson);
-	// A retry re-applies the saved proposal, so a resend refused before is
-	// put back again; only an accepted edit is left as it is.
-	if (intent.outcome === "accepted") return;
-	await undoSourceEditWrites(ctx, client, native, source, intent);
-	// Recorded last, once nothing is left to put back: the resend's own
-	// retained facts are then left out of every publication
-	// (`excludedNativeEvidence`) instead of holding it.
-	await saveIntent(ctx, action.id, { ...intent, outcome: "rejected" });
-}
-
-async function undoSourceEditWrites(
-	ctx: Context,
-	client: HindsightClient,
-	native: NativeSettlement,
-	source: Source,
-	intent: ActionIntentRecord,
-) {
-	if (!intent.proposal) return;
-	const original = new Map(intent.facts.map((fact) => [fact.id, fact]));
-	const touched = intent.proposal.filter(
-		(fact) =>
-			original.has(fact.id) && original.get(fact.id)?.text !== fact.text,
-	);
-	if (!touched.length) return;
-	const admitted = () =>
-		new Map(
-			db.transaction((tx) => {
-				actionFence(tx, ctx);
-				return admittedNativeFacts(source.userId, source.bankId, tx).map(
-					(fact) => [fact.id, fact] as const,
-				);
-			}),
-		);
+	const read = (database: Pick<typeof db, "select">) =>
+		database
+			.select()
+			.from(memoryActions)
+			.where(
+				and(
+					eq(memoryActions.userId, source.userId),
+					eq(memoryActions.requestId, source.id),
+					eq(memoryActions.kind, "source_edit"),
+				),
+			)
+			.get();
+	let taken: ReturnType<typeof sourceEditChangedFacts> = [];
+	if (
+		!(await ctx.write((tx) => {
+			actionFence(tx, ctx);
+			const action = read(tx);
+			if (!action) return;
+			const intent = parseActionIntent(action.intentJson);
+			if (intent.outcome === "accepted") return;
+			taken = sourceEditChangedFacts(intent);
+			tx.update(memoryActions)
+				.set({ intentJson: JSON.stringify({ ...intent, outcome: "rejected" }) })
+				.where(eq(memoryActions.id, action.id))
+				.run();
+			const revoked = new Set(
+				tx
+					.select({ factId: memoryRevocations.nativeFactId })
+					.from(memoryRevocations)
+					.where(
+						and(
+							eq(memoryRevocations.bankId, action.bankId),
+							eq(memoryRevocations.epoch, action.epoch),
+							eq(memoryRevocations.actionId, action.id),
+							isNull(memoryRevocations.nativeTextHash),
+						),
+					)
+					.all()
+					.map(({ factId }) => factId),
+			);
+			for (const fact of taken)
+				if (!revoked.has(fact.id))
+					tx.insert(memoryRevocations)
+						.values({
+							id: randomUUID(),
+							userId: action.userId,
+							bankId: action.bankId,
+							epoch: action.epoch,
+							nativeFactId: fact.id,
+							actionId: action.id,
+						})
+						.run();
+		}))
+	)
+		throw new NativeMemoryError("memory_cancelled", false);
+	if (!taken.length) return;
 	const live = new Map(
 		(await client.list())
 			.filter((fact) => fact.fact_type !== "observation")
 			.map((fact) => [fact.id, fact]),
 	);
-	let restored = false;
-	for (const { id } of touched) {
-		const owner = original.get(id)?.sourceId;
-		const shown = admitted().get(id);
-		if (!owner || !shown || shown.source.id !== owner) continue;
-		const current = live.get(id);
-		if (current) {
-			if (current.document_id !== owner || current.text === shown.text)
-				continue;
-			await fence(ctx);
-			await client.editFact(id, { text: shown.text });
-		} else {
-			if (
-				!(await client.matchesArchivedFact({
-					id,
-					sourceId: owner,
-					text: shown.text,
-				}))
-			)
-				continue;
-			await fence(ctx);
-			await client.editFact(id, { state: "valid" });
-		}
-		restored = true;
+	let invalidated = false;
+	for (const fact of taken) {
+		if (live.get(fact.id)?.document_id !== fact.sourceId) continue;
+		await fence(ctx);
+		await client.editFact(fact.id, {
+			state: "invalidated",
+			reason: "Taken away by the user's own edit",
+		});
+		invalidated = true;
 	}
-	if (!restored) return;
+	if (!invalidated) return;
 	await fence(ctx);
 	await native.settle(client, [await client.consolidate()], ctx.signal);
 }

@@ -12,7 +12,11 @@ import {
 } from "$lib/server/db/schema";
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
-import { type ActionIntentRecord, parseActionIntent } from "./curation-intent";
+import {
+	type ActionIntentRecord,
+	parseActionIntent,
+	sourceEditChangedFacts,
+} from "./curation-intent";
 import { recordNativeFactLabels } from "./fact-labels";
 import { NativeMemoryError } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
@@ -959,12 +963,15 @@ const HELD_SOURCE_REFUSAL = "memory_dependency_check_rejected";
  * and, once its proposal was saved (its native write may have run before the
  * final check refused the result), the facts that shared an observation with
  * the targeted facts (`familyFactIds`) and the facts its proposal changed:
- * Hindsight rebuilt their observations and nobody approved them. A source
- * refused for its content (its delivery failed
+ * Hindsight rebuilt their observations and nobody approved them. A changed
+ * resend refused for good leaves out, whatever its job is doing, every fact
+ * its edit took away from the chats it carried (`sourceEditChangedFacts`,
+ * the owner's privacy-first rule): a retry never writes its proposal again.
+ * A source refused for its content (its delivery failed
  * `memory_dependency_check_rejected`, or its changed resend's source edit was
- * refused for good and put back) never published, and its native facts are
- * left out with it. A source still queued or running is not here: it is
- * waited for, as before.
+ * refused for good) never published, and its native facts are left out with
+ * it. A source still queued or running is not here: it is waited for, as
+ * before.
  */
 export function excludedNativeEvidence(
 	tx: Tx,
@@ -1018,6 +1025,23 @@ export function excludedNativeEvidence(
 				if (original.get(fact.id) !== fact.text) factIds.add(fact.id);
 		}
 	}
+	for (const edit of tx
+		.select({ intentJson: memoryActions.intentJson })
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, bank.userId),
+				eq(memoryActions.bankId, bank.id),
+				eq(memoryActions.epoch, bank.epoch),
+				eq(memoryActions.kind, "source_edit"),
+				sql`json_extract(${memoryActions.intentJson}, '$.outcome') = 'rejected'`,
+			),
+		)
+		.all())
+		for (const fact of sourceEditChangedFacts(
+			parseActionIntent(edit.intentJson),
+		))
+			factIds.add(fact.id);
 	const sources = tx
 		.select({
 			id: memorySourceRevisions.id,
@@ -1049,9 +1073,9 @@ export function excludedNativeEvidence(
 	);
 	// Only a source refused for its content is held: its own final check
 	// refused it, or its changed resend's source edit was refused for good
-	// and put back (`restoreRefusedSourceEdit` records that as the edit's
-	// outcome). A source that failed for another reason (a wait, a hold, a
-	// migration step) may still be recovered and published, and is waited for.
+	// (`excludeRefusedSourceEdit` records that as the edit's outcome). A
+	// source that failed for another reason (a wait, a hold, a migration step)
+	// may still be recovered and published, and is waited for.
 	const stopped = sources.filter(
 		({ id, status }) =>
 			(status === "failed" || status === "cancelled") && !waiting.has(id),

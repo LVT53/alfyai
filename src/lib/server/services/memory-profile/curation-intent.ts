@@ -125,6 +125,29 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 	return value as unknown as ActionIntentRecord;
 }
 
+/**
+ * What a changed resend's edit took away from the chats it carried: each fact
+ * whose text its saved proposal changed, rewritten or invalidated, with the
+ * text and chat it had. When the resend is refused for good these are left
+ * out the way a Remove's facts are (`excludeRefusedSourceEdit`,
+ * `excludedNativeEvidence`); the facts the proposal kept as they were stay.
+ */
+export function sourceEditChangedFacts(intent: ActionIntentRecord) {
+	const proposed = new Map(
+		(intent.proposal ?? []).map(({ id, text }) => [id, text]),
+	);
+	return [
+		...new Map(
+			intent.facts
+				.filter(
+					(fact) =>
+						proposed.has(fact.id) && proposed.get(fact.id) !== fact.text,
+				)
+				.map((fact) => [fact.id, fact]),
+		).values(),
+	];
+}
+
 export type ReplayCheck = {
 	actionId: string;
 	revision: number;

@@ -3556,6 +3556,8 @@ it.each([
 	"accepted carried next edit",
 	"refused changed resend after exact carry",
 	"changed resend refused at publication after exact carry",
+	"refused changed resend keeps the untouched fact",
+	"refused changed resend whose invalidation fails once",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3638,10 +3640,15 @@ it.each([
 			mode === "dependent exact tip withdrawn during Remove" ||
 			movedProject;
 		const removeTarget = removeCorrection ? tea : drink;
+		const keepsUntouched =
+			mode === "refused changed resend keeps the untouched fact";
+		const invalidationFailsOnce =
+			mode === "refused changed resend whose invalidation fails once";
 		const hasIndependentFact =
 			mode === "accepted carried next edit" ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
+			keepsUntouched ||
 			removeCarried;
 		const assertion = hasIndependentFact ? `${drink} ${independent}` : drink;
 		const corrected = hasIndependentFact ? `${tea} ${independent}` : tea;
@@ -3666,6 +3673,8 @@ it.each([
 			mode === "accepted carried next edit" ||
 			mode === "refused changed resend after exact carry" ||
 			mode === "changed resend refused at publication after exact carry" ||
+			keepsUntouched ||
+			invalidationFailsOnce ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
@@ -4252,7 +4261,9 @@ it.each([
 			}
 			if (
 				mode === "refused changed resend after exact carry" ||
-				mode === "changed resend refused at publication after exact carry"
+				mode === "changed resend refused at publication after exact carry" ||
+				keepsUntouched ||
+				invalidationFailsOnce
 			) {
 				// The changed resend rewrites the carried fact natively. Either its
 				// final check refuses the result on every attempt, or publication
@@ -4276,8 +4287,16 @@ it.each([
 						.run();
 				fixture.model.mockImplementation(
 					async (_prompt, input: Record<string, unknown>) => {
+						// The edit rewrites the decaf fact and leaves the tyres as they were.
 						if ("facts" in input)
-							return { facts: [{ id: "decaf", text: rewritten }] };
+							return {
+								facts: [
+									{ id: "decaf", text: rewritten },
+									...(keepsUntouched
+										? [{ id: "tyres", text: independent }]
+										: []),
+								],
+							};
 						if ("displayed_observations" in input)
 							return atPublication ? ckOkay : ckReject;
 						if ("original_facts" in input) return ckOkay;
@@ -4288,6 +4307,63 @@ it.each([
 						};
 					},
 				);
+				// What the person reads before the edit: the decaf card, and an
+				// Overview written from it.
+				const overview = await import("./overview");
+				const { recallMemory } = await import("../memory-context/native");
+				let overviewInput = "";
+				const writeOverview = () =>
+					overview.writeMemoryOverview(h.userId, scope, {
+						rewrite: true,
+						model: async (_prompt, input) => {
+							overviewInput = JSON.stringify(input);
+							return { overview: "Synthetic overview." };
+						},
+					});
+				const recalled = async () => {
+					const recallChat = `recall-${randomUUID()}`;
+					f.db
+						.insert(f.s.conversations)
+						.values({ id: recallChat, userId: h.userId, title: "Recall" })
+						.run();
+					return (
+						await recallMemory(h.userId, {
+							conversationId: recallChat,
+							query: "afternoon drink bike tyres maps",
+							tokenBudget: 4000,
+						})
+					)
+						.map(({ text }) => text)
+						.sort();
+				};
+				const shown = () =>
+					read
+						.listMemory(h.userId, { scope })
+						.rows.map(({ text }) => text)
+						.sort();
+				await writeOverview();
+				expect(overviewInput).toContain(drink);
+				expect(overview.readMemoryOverview(h.userId, scope).state).toBe(
+					"written",
+				);
+				// Hindsight fails the first invalidation: what the page shows then.
+				let shownWhileHindsightFailed: string[] | undefined;
+				if (invalidationFailsOnce) {
+					const live = fixture.fetcher.getMockImplementation();
+					if (!live) throw Error("missing native fixture");
+					fixture.fetcher.mockImplementation(async (url, init) => {
+						if (
+							!shownWhileHindsightFailed &&
+							init?.method === "PATCH" &&
+							String(url).endsWith("/memories/decaf") &&
+							JSON.parse(String(init.body)).state === "invalidated"
+						) {
+							shownWhileHindsightFailed = shown();
+							return new Response("unavailable", { status: 503 });
+						}
+						return live(url, init);
+					});
+				}
 				await deleteMessages(["after"], { editSourceMessageId: "after" });
 				const edited = await persist("edited", "after", corrected);
 				const deliveryOf = (sourceId: string) =>
@@ -4307,24 +4383,12 @@ it.each([
 					status: "failed",
 					errorCode: atPublication
 						? "memory_preparation_failed"
-						: "memory_dependency_check_rejected",
+						: invalidationFailsOnce
+							? "native_unavailable"
+							: "memory_dependency_check_rejected",
 				});
-				expect(fixture.patches).toContain("decaf");
-				// What the refused change wrote natively is undone: the carried
-				// fact holds the text the person sees again.
-				expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
-					text: drink,
-					document_id: previous.id,
-				});
-				expect(
-					read.listMemory(h.userId, { scope }).rows.map(({ text }) => text),
-				).toEqual([drink]);
-				// A retry of the refused resend writes its proposal again and is
-				// refused again: what it wrote is put back again. (A refusal at
-				// publication ends the delivery for good; only an operator reopens it.)
-				if (!atPublication) {
-					const patchesBefore = fixture.patches.length;
-					const { retry } = await import("../jobs/ledger");
+				const { retry } = await import("../jobs/ledger");
+				const retryRefused = async () => {
 					expect(
 						retry(job.memoryDeliveryJob, deliveryOf(edited.id)?.id ?? "", {
 							userId: h.userId,
@@ -4335,15 +4399,73 @@ it.each([
 						if (deliveryOf(edited.id)?.status !== "queued") break;
 						vi.setSystemTime(Date.now() + 10 * 60_000);
 					}
-					expect(deliveryOf(edited.id)?.status).toBe("failed");
-					expect(fixture.patches.length).toBeGreaterThan(patchesBefore);
+					expect(deliveryOf(edited.id)).toMatchObject({
+						status: "failed",
+						errorCode: "memory_edit_rejected",
+					});
+				};
+				if (invalidationFailsOnce) {
+					// The exclusion was recorded before Hindsight was asked anything:
+					// nothing showed the decaf while Hindsight failed. The refusal came
+					// on the last counted attempt, so Hindsight still holds the refused
+					// rewrite until a retry (an operator's reattach), which ends at once
+					// and finishes the invalidation.
+					expect(shownWhileHindsightFailed).toEqual([]);
+					expect(shown()).toEqual([]);
 					expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
-						text: drink,
+						text: rewritten,
+					});
+					await retryRefused();
+				}
+				expect(fixture.patches).toContain("decaf");
+				// What the person's edit took away is excluded the way a removal
+				// excludes it (the owner's privacy-first choice): it is never put
+				// back, Hindsight no longer holds it as a live fact, and it is
+				// revoked whatever its wording. What the edit left stays.
+				expect(nativeFacts.find(({ id }) => id === "decaf")).toBeUndefined();
+				const sourceEdit = f.db
+					.select()
+					.from(f.s.memoryActions)
+					.where(eq(f.s.memoryActions.requestId, edited.id))
+					.get();
+				expect(JSON.parse(sourceEdit?.intentJson ?? "{}").outcome).toBe(
+					"rejected",
+				);
+				expect(
+					f.db
+						.select()
+						.from(f.s.memoryRevocations)
+						.where(eq(f.s.memoryRevocations.nativeFactId, "decaf"))
+						.all(),
+				).toContainEqual(
+					expect.objectContaining({
+						nativeTextHash: null,
+						actionId: sourceEdit?.id,
+					}),
+				);
+				const untouched = keepsUntouched ? [independent] : [];
+				if (keepsUntouched)
+					expect(nativeFacts.find(({ id }) => id === "tyres")).toMatchObject({
+						text: independent,
 						document_id: previous.id,
 					});
+				expect(shown()).toEqual(untouched);
+				expect(await recalled()).toEqual(untouched);
+				// The Overview written from the decaf card went with it.
+				expect(overview.readMemoryOverview(h.userId, scope).state).toBe("none");
+				// A retry of the refused resend ends at once: it never writes its
+				// proposal again and the exclusion holds. (A refusal at publication
+				// ends the delivery for good; only an operator reopens it. After one
+				// retry the refusal is no longer retryable.)
+				if (!atPublication && !invalidationFailsOnce) {
+					const patchesBefore = fixture.patches.length;
+					await retryRefused();
+					expect(fixture.patches.length).toBe(patchesBefore);
+					expect(nativeFacts.find(({ id }) => id === "decaf")).toBeUndefined();
+					expect(shown()).toEqual(untouched);
 				}
-				// Later learning does not wait on the refused resend, and its
-				// own retained fact never shows.
+				// Later learning does not wait on the refused resend, and neither its
+				// own retained fact nor what the edit took away ever shows again.
 				const later = await persist("later", undefined, laterMessage);
 				await h.engine.drain(job.memoryDeliveryJob);
 				expect(deliveryOf(later.id)).toMatchObject({
@@ -4351,12 +4473,16 @@ it.each([
 					errorCode: null,
 				});
 				vi.useRealTimers();
-				expect(
-					read
-						.listMemory(h.userId, { scope })
-						.rows.map(({ text }) => text)
-						.sort(),
-				).toEqual([drink, laterMessage].sort());
+				const learned = [...untouched, laterMessage].sort();
+				expect(shown()).toEqual(learned);
+				expect(await recalled()).toEqual(learned);
+				await writeOverview();
+				expect(overviewInput).toContain(laterMessage);
+				if (keepsUntouched) expect(overviewInput).toContain(independent);
+				for (const text of [overviewInput, ...shown(), ...(await recalled())]) {
+					expect(text).not.toContain("decaf");
+					expect(text).not.toContain("black tea");
+				}
 				return;
 			}
 			if (
