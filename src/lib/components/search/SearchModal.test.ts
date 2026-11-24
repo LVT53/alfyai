@@ -399,6 +399,49 @@ describe("SearchModal", () => {
 		);
 	});
 
+	it("shows the newest query's answer when an older one arrives after it", async () => {
+		let answerKitchen: (value: WorkspaceSearchResponse) => void = () => {};
+		const defaultAnswer = fetchWorkspaceSearch.getMockImplementation();
+		fetchWorkspaceSearch.mockImplementation((request: { query: string }) => {
+			if (request.query === "kitchen") {
+				return new Promise((resolve) => {
+					answerKitchen = resolve;
+				});
+			}
+			if (request.query === "garden") {
+				return Promise.resolve(
+					answer({
+						query: "garden",
+						conversations: [chat("c-garden", "Plot notes")],
+						totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+					}),
+				);
+			}
+			return defaultAnswer?.(request);
+		});
+		render(SearchModal, { props: { isOpen: true } });
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: "kitchen" } });
+		await waitFor(() =>
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith(
+				expect.objectContaining({ query: "kitchen" }),
+			),
+		);
+		await search("garden", "search-section-chats");
+		expect(await screen.findByText("Plot notes")).toBeInTheDocument();
+
+		answerKitchen(
+			answer({
+				query: "kitchen",
+				conversations: [chat("c-kitchen", "Cooking notes")],
+				totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(screen.queryByText("Cooking notes")).toBeNull();
+		expect(screen.getByText("Plot notes")).toBeInTheDocument();
+	});
+
 	it("moves the active result with arrow keys and activates it with Enter", async () => {
 		render(SearchModal, {
 			props: {

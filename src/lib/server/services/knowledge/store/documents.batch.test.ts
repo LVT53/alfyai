@@ -11,6 +11,7 @@ import {
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
 import { seedUser } from "../../artifacts/artifacts.test-helpers";
 
 let memory: InMemoryDatabase;
@@ -460,7 +461,52 @@ describe("getLogicalDocumentsForArtifacts", () => {
 });
 
 describe("attachImagePreviews", () => {
-	it("is part of the store's reach, so search can put a picture's thumbnail on its row", () => {
-		expect(typeof attachImagePreviews).toBe("function");
+	it("puts a picture's own thumbnail on its item, and never another person's", async () => {
+		const body = (fileId: string) =>
+			serializeImageVersionBody({
+				v: 1,
+				fileId,
+				width: 1248,
+				height: 832,
+				hasAlpha: false,
+				baseFileId: null,
+				sources: [],
+				marks: null,
+				prompt: "a timber house",
+				takeId: null,
+				seed: 1,
+				anchorFileId: null,
+				chainSinceAnchor: 0,
+			});
+		addArtifact({
+			id: "pic-mine",
+			type: "artifact",
+			name: "Mine",
+			metadata: { artifactType: "image" },
+			contentText: body("file-mine"),
+		});
+		addArtifact({
+			id: "pic-theirs",
+			type: "artifact",
+			name: "Theirs",
+			userId: STRANGER,
+			conversationId: THEIR_CHAT,
+			metadata: { artifactType: "image" },
+			contentText: body("file-theirs"),
+		});
+		const item = (id: string) =>
+			({ id, kind: "image" }) as KnowledgeDocumentItem;
+
+		const [mine, theirs] = await attachImagePreviews(OWNER, [
+			item("pic-mine"),
+			item("pic-theirs"),
+		]);
+
+		expect(mine.imagePreview).toMatchObject({
+			fileId: "file-mine",
+			width: 1248,
+			height: 832,
+		});
+		expect(theirs.imagePreview).toBeUndefined();
 	});
 });
