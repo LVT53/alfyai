@@ -5,6 +5,28 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import {
+	formatRecalledMemory,
+	RECALL_PROJECT_HEADING,
+	RECALL_TIMES_NOTE,
+	recallLineTokens,
+} from "./recall-format";
+import { CORE_MEMORY_QUERY } from "./recall-query";
+
+/** The line on what the times mean: recall reserves it like the heading. */
+const N = estimateTokenCount(RECALL_TIMES_NOTE);
+/** What an unlabelled row said today costs: the most a part 1 row cost. */
+const todayLine = (text: string) =>
+	recallLineTokens(
+		{
+			ref: { scope: { kind: "personal" }, generation: "g", rowId: text },
+			text,
+			sources: [],
+			lastMentionedAt: new Date().toISOString(),
+		},
+		new Date(),
+	);
 
 let sqlite: Database.Database;
 vi.mock("$lib/server/db", () => ({
@@ -37,12 +59,18 @@ vi.mock("../memory-profile/hindsight-client", async (importOriginal) => {
 					})
 				: {
 						recall: (query: string, budget: number) =>
-							recall(query, budget, signal),
+							recall(query, budget, signal, bankId),
 						list: () => list(),
 					},
 	};
 });
+let shares = { corePercent: 25, projectPercent: 50 };
+vi.mock("$lib/server/config-store", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/config-store")>()),
+	getMemoryRecallShares: () => shares,
+}));
 beforeEach(() => {
+	shares = { corePercent: 25, projectPercent: 50 };
 	sqlite = new Database(":memory:");
 	sqlite.pragma("foreign_keys=ON");
 	const db = drizzle(sqlite, { schema });
@@ -61,6 +89,8 @@ beforeEach(() => {
 			{ id: "personal", title: "personal", userId: "u" },
 		])
 		.run();
+	recall.mockClear();
+	list.mockClear();
 	recall.mockRejectedValue(new Error("offline"));
 	list.mockResolvedValue([]);
 });
@@ -104,6 +134,80 @@ function seed(bankId: string, scopeKey: string, text: string) {
 		})
 		.run();
 }
+/** One bank with one accepted source, fact and published row per text. */
+function seedBankRows(bankId: string, scopeKey: string, texts: string[]) {
+	const db = drizzle(sqlite, { schema });
+	db.insert(schema.memoryBanks)
+		.values({ id: bankId, userId: "u", scopeKey, epoch: 0, generation: "g" })
+		.run();
+	for (const [i, text] of texts.entries()) {
+		const fact = { id: `f-${bankId}-${i}`, text };
+		db.insert(schema.memorySourceRevisions)
+			.values({
+				id: `s-${bankId}-${i}`,
+				bankId,
+				userId: "u",
+				epoch: 0,
+				eventId: `${bankId}-${i}`,
+				lineageId: `${bankId}-${i}`,
+				text,
+				context: "",
+				textHash: "hash",
+				assertedAt: new Date(),
+				state: "accepted",
+				acknowledgedFactsJson: JSON.stringify([fact]),
+			})
+			.run();
+		db.insert(schema.memoryPublishedRows)
+			.values({
+				id: `r-${bankId}-${i}`,
+				bankId,
+				generation: "g",
+				epoch: 0,
+				nativeId: `n-${bankId}-${i}`,
+				text,
+				nativeText: text,
+				sourceIdsJson: JSON.stringify([fact.id]),
+				sourceFingerprintsJson: JSON.stringify([fact]),
+				updatedAt: new Date(),
+			})
+			.run();
+	}
+}
+/** The observations Hindsight would rank for those rows: direct matches. */
+const ranked = (bankId: string, texts: string[], indices: number[]) =>
+	indices.map((i) => ({
+		id: `n-${bankId}-${i}`,
+		text: texts[i],
+		fact_type: "observation",
+		source_memory_ids: [`f-${bankId}-${i}`],
+	}));
+const personalTexts = Array.from(
+	{ length: 40 },
+	(_, i) => `Personal fact ${String(i).padStart(2, "0")}`,
+);
+const projectTexts = (n: number) =>
+	Array.from(
+		{ length: n },
+		(_, i) => `Project fact ${String(i).padStart(2, "0")}`,
+	);
+/** Personal bank `bp` and project bank `bj`, each ranked whole and in order. */
+function seedFairSplit(projectCount: number) {
+	const project = projectTexts(projectCount);
+	seedBankRows("bp", "personal", personalTexts);
+	seedBankRows("bj", "project:p", project);
+	recall.mockImplementation(
+		async (
+			_query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) =>
+			bankId === "bp"
+				? ranked("bp", personalTexts, [...personalTexts.keys()])
+				: ranked("bj", project, [...project.keys()]),
+	);
+}
 it("recalls accepted personal and own-project only when native is offline", async () => {
 	seed("b1", "personal", "Personal preference");
 	seed("b2", "project:p", "Project decision");
@@ -124,6 +228,175 @@ it("recalls accepted personal and own-project only when native is offline", asyn
 		tokenBudget: 1000,
 	});
 	expect(personal.map((x) => x.text)).toEqual(["Personal preference"]);
+});
+it("reports the newest date among an entry's sources", async () => {
+	const db = drizzle(sqlite, { schema });
+	db.insert(schema.memoryBanks)
+		.values({
+			id: "b1",
+			userId: "u",
+			scopeKey: "personal",
+			epoch: 0,
+			generation: "g",
+		})
+		.run();
+	const facts = [
+		{ id: "f1", text: "Drinks green tea" },
+		{ id: "f2", text: "Drinks it hot" },
+	];
+	const source = {
+		bankId: "b1",
+		userId: "u",
+		epoch: 0,
+		context: "",
+		textHash: "hash",
+		state: "accepted",
+	};
+	db.insert(schema.memorySourceRevisions)
+		.values([
+			{
+				...source,
+				id: "s1",
+				eventId: "e-b1-1",
+				lineageId: "e-b1-1",
+				text: facts[0].text,
+				assertedAt: new Date("2026-10-01T00:00:00Z"),
+				acknowledgedFactsJson: JSON.stringify([facts[0]]),
+			},
+			{
+				...source,
+				id: "s2",
+				eventId: "e-b1-2",
+				lineageId: "e-b1-2",
+				text: facts[1].text,
+				assertedAt: new Date("2026-11-01T00:00:00Z"),
+				explicitEditAt: new Date("2026-11-10T00:00:00Z"),
+				acknowledgedFactsJson: JSON.stringify([facts[1]]),
+			},
+		])
+		.run();
+	db.insert(schema.memoryPublishedRows)
+		.values({
+			id: "r-b1",
+			bankId: "b1",
+			generation: "g",
+			epoch: 0,
+			nativeId: "n-b1",
+			text: "Drinks green tea hot",
+			nativeText: "Drinks green tea hot",
+			sourceIdsJson: JSON.stringify(["f1", "f2"]),
+			sourceFingerprintsJson: JSON.stringify(facts),
+			updatedAt: new Date(),
+		})
+		.run();
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "tea",
+		tokenBudget: 1000,
+	});
+	expect(result.map(({ text }) => text)).toEqual(["Drinks green tea hot"]);
+	expect(result[0].lastMentionedAt).toBe("2026-11-10T00:00:00.000Z");
+});
+it("fits the formatted section in its budget", async () => {
+	seed("b1", "personal", "Personal preference");
+	seed("b2", "project:p", "Project decision");
+	const budget =
+		todayLine("Personal preference") +
+		todayLine("Project decision") +
+		estimateTokenCount(RECALL_PROJECT_HEADING) +
+		N;
+	const { recallMemory } = await import("./native");
+	const both = await recallMemory("u", {
+		conversationId: "c",
+		query: "preferences",
+		tokenBudget: budget,
+	});
+	expect(both.map(({ text }) => text)).toEqual([
+		"Personal preference",
+		"Project decision",
+	]);
+	// The line on what the times mean is part of what must fit.
+	expect(formatRecalledMemory(both, new Date())).toContain(RECALL_TIMES_NOTE);
+	expect(
+		estimateTokenCount(formatRecalledMemory(both, new Date())),
+	).toBeLessThanOrEqual(budget);
+	const tight = await recallMemory("u", {
+		conversationId: "c",
+		query: "preferences",
+		tokenBudget: budget - 1,
+	});
+	// The project's share fills first, so the one entry that fits is the
+	// project's own.
+	expect(tight.map(({ text }) => text)).toEqual(["Project decision"]);
+	expect(
+		estimateTokenCount(formatRecalledMemory(tight, new Date())),
+	).toBeLessThanOrEqual(budget - 1);
+});
+it("gives a project chat's own entries their share even when the person's entries alone would fill it", async () => {
+	const L = todayLine("Personal fact 00");
+	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+	expect(L).toBe(todayLine("Project fact 00"));
+	seedFairSplit(20);
+	const budget = 20 * L + H + N;
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "facts",
+		tokenBudget: budget,
+	});
+	// Ten from the project's share, then both banks in turn: five each.
+	expect(result.map(({ text }) => text)).toEqual([
+		...personalTexts.slice(0, 5),
+		...projectTexts(15),
+	]);
+	expect(result.filter(({ ref }) => ref.scope.kind === "project")).toHaveLength(
+		15,
+	);
+	expect(
+		estimateTokenCount(formatRecalledMemory(result, new Date())),
+	).toBeLessThanOrEqual(budget);
+});
+it("fills the rest with personal entries when the project has few", async () => {
+	const L = todayLine("Personal fact 00");
+	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+	expect(L).toBe(todayLine("Project fact 00"));
+	seedFairSplit(2);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "facts",
+		tokenBudget: 20 * L + H + N,
+	});
+	expect(result.map(({ text }) => text)).toEqual([
+		...personalTexts.slice(0, 18),
+		...projectTexts(2),
+	]);
+});
+it("keeps a personal chat's recall in ranking order", async () => {
+	const L = todayLine("Personal fact 00");
+	seedFairSplit(20);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "facts",
+		tokenBudget: 10 * L + N,
+	});
+	expect(result.map(({ text }) => text)).toEqual(personalTexts.slice(0, 10));
+});
+it("writes nothing while recalling", async () => {
+	seedFairSplit(5);
+	const changes = () =>
+		(sqlite.prepare("select total_changes() as n").get() as { n: number }).n;
+	const before = changes();
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "facts",
+		tokenBudget: 1000,
+	});
+	expect(result.length).toBeGreaterThan(0);
+	expect(changes()).toBe(before);
 });
 it("does not expose native raw/source expansion or an unaccepted changed observation", async () => {
 	seed("b1", "personal", "Accepted");
@@ -169,43 +442,48 @@ it("applies live revocations on fallback and refuses foreign conversations", asy
 	).toEqual([]);
 });
 
-it("bounds native recall and rechecks revocation when the timed-out call returns", async () => {
-	seed("b1", "personal", "Now removed");
-	const controller = new AbortController();
-	const timeout = vi
-		.spyOn(AbortSignal, "timeout")
-		.mockReturnValue(controller.signal);
-	recall.mockImplementation(
-		async (_query: string, _budget: number, signal: AbortSignal) => {
-			drizzle(sqlite, { schema })
-				.insert(schema.memoryRevocations)
-				.values({
-					id: "late",
-					userId: "u",
-					bankId: "b1",
-					epoch: 0,
-					sourceId: "s-b1",
-				})
-				.run();
-			controller.abort();
-			signal.throwIfAborted();
-			return [];
-		},
-	);
-	try {
-		const { recallMemory } = await import("./native");
-		expect(
-			await recallMemory("u", {
-				conversationId: "personal",
-				query: "x",
-				tokenBudget: 1000,
-			}),
-		).toEqual([]);
-		expect(timeout).toHaveBeenCalledWith(2000);
-	} finally {
-		timeout.mockRestore();
-	}
-});
+it.each([false, true])(
+	"bounds native recall and rechecks revocation when the timed-out call returns (core: %s)",
+	async (core) => {
+		seed("b1", "personal", "Now removed");
+		const controller = new AbortController();
+		const timeout = vi
+			.spyOn(AbortSignal, "timeout")
+			.mockReturnValue(controller.signal);
+		recall.mockImplementation(
+			async (_query: string, _budget: number, signal: AbortSignal) => {
+				drizzle(sqlite, { schema })
+					.insert(schema.memoryRevocations)
+					.values({
+						id: "late",
+						userId: "u",
+						bankId: "b1",
+						epoch: 0,
+						sourceId: "s-b1",
+					})
+					.onConflictDoNothing()
+					.run();
+				controller.abort();
+				signal.throwIfAborted();
+				return [];
+			},
+		);
+		try {
+			const { recallMemory } = await import("./native");
+			expect(
+				await recallMemory("u", {
+					conversationId: "personal",
+					query: "x",
+					tokenBudget: 1000,
+					core,
+				}),
+			).toEqual([]);
+			expect(timeout).toHaveBeenCalledWith(2000);
+		} finally {
+			timeout.mockRestore();
+		}
+	},
+);
 
 it("revalidates all banks together after the last native await", async () => {
 	seed("b1", "personal", "Removed during project recall");
@@ -234,24 +512,28 @@ it("revalidates all banks together after the last native await", async () => {
 	expect(result.map((r) => r.text)).toEqual(["Project decision"]);
 	expect(result[0].ref.rowId).toBe("n-b2");
 });
-it("rejects a combined recall if off-on changes control revision during native ranking", async () => {
-	seed("b1", "personal", "Old control");
-	recall.mockImplementation(async () => {
-		drizzle(sqlite, { schema })
-			.update(schema.memoryAccounts)
-			.set({ controlRevision: 2 })
-			.run();
-		throw new Error("offline");
-	});
-	const { recallMemory } = await import("./native");
-	expect(
-		await recallMemory("u", {
-			conversationId: "c",
-			query: "x",
-			tokenBudget: 1000,
-		}),
-	).toEqual([]);
-});
+it.each([false, true])(
+	"rejects a combined recall if off-on changes control revision during native ranking (core: %s)",
+	async (core) => {
+		seed("b1", "personal", "Old control");
+		recall.mockImplementation(async () => {
+			drizzle(sqlite, { schema })
+				.update(schema.memoryAccounts)
+				.set({ controlRevision: 2 })
+				.run();
+			throw new Error("offline");
+		});
+		const { recallMemory } = await import("./native");
+		expect(
+			await recallMemory("u", {
+				conversationId: "c",
+				query: "x",
+				tokenBudget: 1000,
+				core,
+			}),
+		).toEqual([]);
+	},
+);
 
 it.each([
 	{ held: ["b2"], expected: ["Personal preference"] },
@@ -291,13 +573,17 @@ it.each([
 );
 
 it.each([
-	{ change: "no change", hold: "capability", allowedPosts: 2 },
-	{ change: "off and on", hold: "capability", allowedPosts: 0 },
-	{ change: "incognito", hold: "capability", allowedPosts: 0 },
-	{ change: "project move", hold: "first recall", allowedPosts: 1 },
+	{ change: "no change", hold: "capability", core: false },
+	{ change: "off and on", hold: "capability", core: false },
+	{ change: "incognito", hold: "capability", core: false },
+	{ change: "project move", hold: "first recall", core: false },
+	{ change: "no change", hold: "capability", core: true },
+	{ change: "off and on", hold: "capability", core: true },
+	{ change: "incognito", hold: "capability", core: true },
+	{ change: "project move", hold: "first recall", core: true },
 ] as const)(
-	"checks permission at the private recall dispatch ($change during $hold)",
-	async ({ change, hold, allowedPosts }) => {
+	"checks permission at the private recall dispatch ($change during $hold, core: $core)",
+	async ({ change, hold, core }) => {
 		seed("b1", "personal", "Personal preference");
 		seed("b2", "project:p", "Project decision");
 		const db = drizzle(sqlite, { schema });
@@ -310,7 +596,8 @@ it.each([
 		const entered = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		const query = "Synthetic private query";
-		const sentQueries: unknown[] = [];
+		// Each post as `bank|query`.
+		const sent: string[] = [];
 		let capabilities = 0;
 		wire = async (input, init) => {
 			const path = new URL(String(input)).pathname;
@@ -330,8 +617,10 @@ it.each([
 			}
 			expect(path).toMatch(/\/banks\/b[12]\/memories\/recall$/);
 			expect(init?.method).toBe("POST");
-			sentQueries.push(JSON.parse(String(init?.body)).query);
-			if (sentQueries.length === 1 && hold === "first recall") {
+			sent.push(
+				`${path.match(/\/banks\/(b[12])\//)?.[1]}|${JSON.parse(String(init?.body)).query}`,
+			);
+			if (sent.length === 1 && hold === "first recall") {
 				entered.resolve();
 				await release.promise;
 			}
@@ -352,6 +641,7 @@ it.each([
 			conversationId: "c",
 			query,
 			tokenBudget: 1000,
+			core,
 		});
 		await entered.promise;
 		try {
@@ -376,7 +666,22 @@ it.each([
 		}
 
 		const recalled = await result;
-		expect(sentQueries).toEqual(Array(allowedPosts).fill(query));
+		// The per-turn path adds the chat's title ("chat") to this short
+		// message and searches the core beside it.
+		const searched = core ? [`chat: ${query}`, CORE_MEMORY_QUERY] : [query];
+		if (change === "no change")
+			expect([...sent].sort()).toEqual(
+				["b1", "b2"]
+					.flatMap((bank) => searched.map((q) => `${bank}|${q}`))
+					.sort(),
+			);
+		else if (change === "project move") {
+			// Only the personal bank's searches, none for the project's.
+			expect(sent.length).toBeGreaterThanOrEqual(1);
+			expect(sent.length).toBeLessThanOrEqual(searched.length);
+			for (const post of sent)
+				expect(searched.map((q) => `b1|${q}`)).toContain(post);
+		} else expect(sent).toEqual([]);
 		expect(capabilities).toBe(change === "no change" ? 2 : 1);
 		expect(recalled.map(({ text }) => text).sort()).toEqual(
 			change === "no change" ? ["Personal preference", "Project decision"] : [],
@@ -384,7 +689,7 @@ it.each([
 	},
 );
 
-it.each([
+const EDIT_RESULT_MODES = [
 	"exact",
 	"partial",
 	"mixed",
@@ -395,174 +700,178 @@ it.each([
 	"changed native raw",
 	"hidden native split",
 	"direct native hidden split",
-] as const)(
-	"uses only a unique currently admitted Edit result for replacement native ranks (%s)",
-	async (mode) => {
-		seed("b1", "personal", "Accepted purple kayak");
-		const db = drizzle(sqlite, { schema });
-		const { memoryPresentationFingerprint, memorySupportFingerprint } =
-			await import("../memory-profile/publication");
-		const source = db.select().from(schema.memorySourceRevisions).get();
-		if (!source) throw Error("test_source_missing");
-		const timing = {
-			mentionedAt: null,
-			assertedAtMs: source.assertedAt.getTime(),
-		};
-		const facts = [{ id: "f-b1", text: "Accepted purple kayak", ...timing }];
-		db.update(schema.memoryPublishedRows)
-			.set({ sourceFingerprintsJson: JSON.stringify(facts) })
+] as const;
+/** An accepted personal row an Edit made; `recall` ranks the Edit's result. */
+async function seedEditResult(mode: (typeof EDIT_RESULT_MODES)[number]) {
+	seed("b1", "personal", "Accepted purple kayak");
+	const db = drizzle(sqlite, { schema });
+	const { memoryPresentationFingerprint, memorySupportFingerprint } =
+		await import("../memory-profile/publication");
+	const source = db.select().from(schema.memorySourceRevisions).get();
+	if (!source) throw Error("test_source_missing");
+	const timing = {
+		mentionedAt: null,
+		assertedAtMs: source.assertedAt.getTime(),
+	};
+	const facts = [{ id: "f-b1", text: "Accepted purple kayak", ...timing }];
+	db.update(schema.memoryPublishedRows)
+		.set({ sourceFingerprintsJson: JSON.stringify(facts) })
+		.run();
+	if (mode === "partial") {
+		facts.push({
+			id: "second",
+			text: "A second accepted assertion",
+			...timing,
+		});
+		db.update(schema.memorySourceRevisions)
+			.set({ acknowledgedFactsJson: JSON.stringify(facts) })
 			.run();
-		if (mode === "partial") {
-			facts.push({
-				id: "second",
-				text: "A second accepted assertion",
-				...timing,
-			});
-			db.update(schema.memorySourceRevisions)
-				.set({ acknowledgedFactsJson: JSON.stringify(facts) })
-				.run();
-			db.update(schema.memoryPublishedRows)
-				.set({
-					sourceFingerprintsJson: JSON.stringify(facts),
-					sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
-				})
-				.run();
-		}
-		if (mode === "hidden split")
-			db.insert(schema.memoryPublishedRows)
+		db.update(schema.memoryPublishedRows)
+			.set({
+				sourceFingerprintsJson: JSON.stringify(facts),
+				sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
+			})
+			.run();
+	}
+	if (mode === "hidden split")
+		db.insert(schema.memoryPublishedRows)
+			.values({
+				id: "hidden",
+				bankId: "b1",
+				epoch: 0,
+				generation: "g",
+				nativeId: "hidden",
+				text: "Hidden split",
+				nativeText: "Hidden split",
+				sourceFingerprintsJson: JSON.stringify([
+					...facts,
+					{ id: "withdrawn", text: "Revoked source" },
+				]),
+				sourceIdsJson: JSON.stringify(["f-b1", "withdrawn"]),
+				updatedAt: new Date(),
+			})
+			.run();
+	const requestId = randomUUID();
+	db.insert(schema.memoryActions)
+		.values({
+			id: "edit",
+			userId: "u",
+			bankId: "b1",
+			epoch: 0,
+			kind: "edit",
+			requestId,
+			rowId: "older",
+			generation: "original",
+			resultRowId: "n-b1",
+			text: "Accepted purple kayak",
+			previousText: "Old kayak",
+			intentJson: JSON.stringify({
+				request: {
+					kind: "edit",
+					requestId,
+					ref: {
+						scope: { kind: "personal" },
+						generation: "original",
+						rowId: "older",
+					},
+					text: "Accepted purple kayak",
+				},
+				facts: [],
+				sourceIds: [],
+				before: "Old kayak",
+				outcome: "accepted",
+				resultGeneration: "g",
+				resultSupport: memorySupportFingerprint(facts),
+				resultPresentation: memoryPresentationFingerprint(
+					"Accepted purple kayak",
+					"Accepted purple kayak",
+				),
+			}),
+		})
+		.run();
+	const isDirect =
+		mode === "direct native hidden split" || mode === "wrong direct support";
+	const rankId = isDirect ? "n-b1" : "native-new-id";
+	const rankText = isDirect
+		? "Accepted purple kayak"
+		: "Malicious native claim and quotation";
+	list.mockResolvedValue([
+		{
+			id: rankId,
+			fact_type: "observation",
+			text: rankText,
+			source_memory_ids: ["f-b1"],
+		},
+		{
+			id: "f-b1",
+			fact_type: "world",
+			document_id: "s-b1",
+			text:
+				mode === "changed native raw"
+					? "Wrong raw text"
+					: "Accepted purple kayak",
+		},
+		...(mode === "hidden native split" || mode === "direct native hidden split"
+			? [
+					{
+						id: "hidden-live-split",
+						fact_type: "observation",
+						text: "New mixed evidence",
+						source_memory_ids: ["f-b1", "unknown"],
+					},
+				]
+			: []),
+	]);
+	recall.mockImplementation(async () => {
+		if (mode === "late revoke")
+			db.insert(schema.memoryRevocations)
 				.values({
-					id: "hidden",
+					id: "late",
+					userId: "u",
 					bankId: "b1",
 					epoch: 0,
-					generation: "g",
-					nativeId: "hidden",
-					text: "Hidden split",
-					nativeText: "Hidden split",
-					sourceFingerprintsJson: JSON.stringify([
-						...facts,
-						{ id: "withdrawn", text: "Revoked source" },
-					]),
-					sourceIdsJson: JSON.stringify(["f-b1", "withdrawn"]),
+					sourceId: "s-b1",
+				})
+				.run();
+		if (mode === "new generation") {
+			db.update(schema.memoryBanks)
+				.set({ generation: "new", previousGeneration: "g" })
+				.where(eq(schema.memoryBanks.id, "b1"))
+				.run();
+			db.insert(schema.memoryPublishedRows)
+				.values({
+					id: "new-row",
+					bankId: "b1",
+					epoch: 0,
+					generation: "new",
+					nativeId: "different-new-id",
+					text: "Accepted purple kayak",
+					nativeText: "Accepted purple kayak",
+					sourceFingerprintsJson: JSON.stringify(facts),
+					sourceIdsJson: JSON.stringify(["f-b1"]),
 					updatedAt: new Date(),
 				})
 				.run();
-		const requestId = randomUUID();
-		db.insert(schema.memoryActions)
-			.values({
-				id: "edit",
-				userId: "u",
-				bankId: "b1",
-				epoch: 0,
-				kind: "edit",
-				requestId,
-				rowId: "older",
-				generation: "original",
-				resultRowId: "n-b1",
-				text: "Accepted purple kayak",
-				previousText: "Old kayak",
-				intentJson: JSON.stringify({
-					request: {
-						kind: "edit",
-						requestId,
-						ref: {
-							scope: { kind: "personal" },
-							generation: "original",
-							rowId: "older",
-						},
-						text: "Accepted purple kayak",
-					},
-					facts: [],
-					sourceIds: [],
-					before: "Old kayak",
-					outcome: "accepted",
-					resultGeneration: "g",
-					resultSupport: memorySupportFingerprint(facts),
-					resultPresentation: memoryPresentationFingerprint(
-						"Accepted purple kayak",
-						"Accepted purple kayak",
-					),
-				}),
-			})
-			.run();
-		const isDirect =
-			mode === "direct native hidden split" || mode === "wrong direct support";
-		const rankId = isDirect ? "n-b1" : "native-new-id";
-		const rankText = isDirect
-			? "Accepted purple kayak"
-			: "Malicious native claim and quotation";
-		list.mockResolvedValue([
+		}
+		return [
 			{
 				id: rankId,
 				fact_type: "observation",
 				text: rankText,
-				source_memory_ids: ["f-b1"],
+				source_memory_ids:
+					mode === "mixed"
+						? ["f-b1", "not-admitted"]
+						: mode === "wrong direct support"
+							? ["wrong-raw"]
+							: ["f-b1"],
 			},
-			{
-				id: "f-b1",
-				fact_type: "world",
-				document_id: "s-b1",
-				text:
-					mode === "changed native raw"
-						? "Wrong raw text"
-						: "Accepted purple kayak",
-			},
-			...(mode === "hidden native split" ||
-			mode === "direct native hidden split"
-				? [
-						{
-							id: "hidden-live-split",
-							fact_type: "observation",
-							text: "New mixed evidence",
-							source_memory_ids: ["f-b1", "unknown"],
-						},
-					]
-				: []),
-		]);
-		recall.mockImplementation(async () => {
-			if (mode === "late revoke")
-				db.insert(schema.memoryRevocations)
-					.values({
-						id: "late",
-						userId: "u",
-						bankId: "b1",
-						epoch: 0,
-						sourceId: "s-b1",
-					})
-					.run();
-			if (mode === "new generation") {
-				db.update(schema.memoryBanks)
-					.set({ generation: "new", previousGeneration: "g" })
-					.where(eq(schema.memoryBanks.id, "b1"))
-					.run();
-				db.insert(schema.memoryPublishedRows)
-					.values({
-						id: "new-row",
-						bankId: "b1",
-						epoch: 0,
-						generation: "new",
-						nativeId: "different-new-id",
-						text: "Accepted purple kayak",
-						nativeText: "Accepted purple kayak",
-						sourceFingerprintsJson: JSON.stringify(facts),
-						sourceIdsJson: JSON.stringify(["f-b1"]),
-						updatedAt: new Date(),
-					})
-					.run();
-			}
-			return [
-				{
-					id: rankId,
-					fact_type: "observation",
-					text: rankText,
-					source_memory_ids:
-						mode === "mixed"
-							? ["f-b1", "not-admitted"]
-							: mode === "wrong direct support"
-								? ["wrong-raw"]
-								: ["f-b1"],
-				},
-			];
-		});
+		];
+	});
+}
+it.each(EDIT_RESULT_MODES)(
+	"uses only a unique currently admitted Edit result for replacement native ranks (%s)",
+	async (mode) => {
+		await seedEditResult(mode);
 		const { recallMemory } = await import("./native");
 		const result = await recallMemory("u", {
 			conversationId: "personal",
@@ -580,3 +889,689 @@ it.each([
 		else expect(result).toEqual([]);
 	},
 );
+it("keeps the answered rankings when the evidence snapshot fails", async () => {
+	await seedEditResult("exact");
+	list.mockRejectedValue(new Error("offline"));
+	const { recallMemory } = await import("./native");
+	const input = {
+		conversationId: "personal",
+		query: "kayak",
+		tokenBudget: 500,
+	};
+	const tool = await recallMemory("u", input);
+	const turn = await recallMemory("u", { ...input, core: true });
+	expect(turn.map(({ ref }) => ref.rowId).sort()).toEqual(
+		tool.map(({ ref }) => ref.rowId).sort(),
+	);
+	// As today: the unconfirmed Edit result is not offered, and the answered
+	// search keeps stored order out.
+	expect(tool).toEqual([]);
+});
+it("searches with the message and the core on the per-turn path", async () => {
+	seedFairSplit(3);
+	const message = "What should I cook tonight?";
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) =>
+			bankId === "bp"
+				? ranked(
+						"bp",
+						personalTexts,
+						query === CORE_MEMORY_QUERY ? [0, 1] : [2, 3],
+					)
+				: [],
+	);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: message,
+		tokenBudget: 1000,
+		core: true,
+	});
+	expect(
+		recall.mock.calls.map(([query, , , bankId]) => `${bankId}|${query}`).sort(),
+	).toEqual(
+		[
+			`bj|${CORE_MEMORY_QUERY}`,
+			`bj|${message}`,
+			`bp|${CORE_MEMORY_QUERY}`,
+			`bp|${message}`,
+		].sort(),
+	);
+	expect(result.map(({ text }) => text)).toEqual(personalTexts.slice(0, 4));
+});
+it("adds the chat's title to a short follow-up", async () => {
+	seedFairSplit(3);
+	const { recallMemory } = await import("./native");
+	await recallMemory("u", {
+		conversationId: "c",
+		query: "yes, do that",
+		tokenBudget: 1000,
+		core: true,
+	});
+	expect(new Set(recall.mock.calls.map(([query]) => query))).toEqual(
+		new Set(["chat: yes, do that", CORE_MEMORY_QUERY]),
+	);
+});
+it("keeps the basics when the message has no words", async () => {
+	drizzle(sqlite, { schema })
+		.insert(schema.conversations)
+		.values({ id: "fresh", title: "New Conversation", userId: "u" })
+		.run();
+	seedBankRows("bp", "personal", personalTexts);
+	recall.mockImplementation(async (query: string) =>
+		ranked("bp", personalTexts, query === CORE_MEMORY_QUERY ? [4, 5] : [0]),
+	);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "fresh",
+		query: "  ",
+		tokenBudget: 1000,
+		core: true,
+	});
+	expect(recall.mock.calls.map(([query]) => query)).toEqual([
+		CORE_MEMORY_QUERY,
+	]);
+	expect(result.map(({ text }) => text)).toEqual([
+		"Personal fact 04",
+		"Personal fact 05",
+	]);
+});
+it("uses the search that answered when the other fails", async () => {
+	seedBankRows("bp", "personal", personalTexts);
+	recall.mockImplementation(async (query: string) => {
+		if (query === CORE_MEMORY_QUERY) return ranked("bp", personalTexts, [3, 1]);
+		throw new Error("offline");
+	});
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: "What should I cook tonight?",
+		tokenBudget: 1000,
+		core: true,
+	});
+	expect(result.map(({ text }) => text)).toEqual([
+		"Personal fact 03",
+		"Personal fact 01",
+	]);
+});
+it("searches once with the query on the tool path", async () => {
+	seedFairSplit(3);
+	const { recallMemory } = await import("./native");
+	await recallMemory("u", {
+		conversationId: "c",
+		query: "yes",
+		tokenBudget: 1000,
+	});
+	expect(
+		recall.mock.calls.map(([query, , , bankId]) => `${bankId}|${query}`).sort(),
+	).toEqual(["bj|yes", "bp|yes"]);
+});
+it("cuts a long message before searching", async () => {
+	seedFairSplit(3);
+	const { recallMemory } = await import("./native");
+	await recallMemory("u", {
+		conversationId: "c",
+		query: "word ".repeat(1000),
+		tokenBudget: 1000,
+		core: true,
+	});
+	expect(recall).toHaveBeenCalled();
+	for (const [query] of recall.mock.calls)
+		expect(Array.from(String(query)).length).toBeLessThanOrEqual(505);
+});
+it("brings the project entry whose text the message quotes", async () => {
+	const L = todayLine("Personal fact 00");
+	const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+	seedFairSplit(20);
+	const project = projectTexts(20);
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) =>
+			bankId === "bp"
+				? ranked("bp", personalTexts, [...personalTexts.keys()])
+				: ranked(
+						"bj",
+						project,
+						query === "Project fact 07"
+							? [7, ...[...project.keys()].filter((i) => i !== 7)]
+							: [...project.keys()],
+					),
+	);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "Project fact 07",
+		// The person's entries alone would fill this budget.
+		tokenBudget: 4 * L + H + N,
+	});
+	expect(result.map(({ text }) => text)).toContain("Project fact 07");
+});
+it("logs one content-free line per bank", async () => {
+	seedFairSplit(3);
+	const message = "What should I cook tonight?";
+	const project = projectTexts(3);
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			signal: AbortSignal,
+			bankId: string,
+		) => {
+			// The personal bank's message search waits out the bank's timeout.
+			if (bankId === "bp" && query !== CORE_MEMORY_QUERY)
+				return new Promise((_, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				});
+			return bankId === "bp"
+				? ranked("bp", personalTexts, [0, 1])
+				: ranked("bj", project, [0, 1]);
+		},
+	);
+	const info = vi.spyOn(console, "info").mockImplementation(() => {});
+	try {
+		const { recallMemory } = await import("./native");
+		await recallMemory("u", {
+			conversationId: "c",
+			query: message,
+			tokenBudget: 1000,
+			core: true,
+		});
+		const lines = info.mock.calls.filter(
+			([tag]) => tag === "[KNOWLEDGE_MEMORY] Recall",
+		);
+		const byBank = new Map(
+			lines.map(([, summary]) => [(summary as { bank: string }).bank, summary]),
+		);
+		expect(lines).toHaveLength(2);
+		expect(byBank.get("personal")).toEqual({
+			mode: "turn",
+			bank: "personal",
+			searches: 2,
+			answered: 1,
+			timedOut: 1,
+			failed: 0,
+			slowestMs: expect.any(Number),
+			fallback: false,
+			rows: 2,
+			earlier: 0,
+		});
+		expect(byBank.get("project")).toEqual(
+			expect.objectContaining({
+				mode: "turn",
+				bank: "project",
+				searches: 2,
+				answered: 2,
+				timedOut: 0,
+				failed: 0,
+				fallback: false,
+				rows: 2,
+			}),
+		);
+		for (const call of lines) {
+			const text = JSON.stringify(call);
+			expect(text).not.toContain(message);
+			expect(text).not.toContain("Personal fact");
+		}
+	} finally {
+		info.mockRestore();
+	}
+}, 10_000);
+/**
+ * Separate core and message rankings for the share tests: the person's core
+ * search ranks their entries 00-19 and the message search 20-39; the
+ * project's message search ranks its entries 00-09 and its core search 10-19.
+ */
+function seedShareRankings() {
+	const project = projectTexts(20);
+	seedBankRows("bp", "personal", personalTexts);
+	seedBankRows("bj", "project:p", project);
+	const range = (from: number, to: number) =>
+		Array.from({ length: to - from }, (_, i) => from + i);
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) => {
+			const core = query === CORE_MEMORY_QUERY;
+			return bankId === "bp"
+				? ranked("bp", personalTexts, core ? range(0, 20) : range(20, 40))
+				: ranked("bj", project, core ? range(10, 20) : range(0, 10));
+		},
+	);
+}
+it.each([
+	{
+		corePercent: 25,
+		expected: [...personalTexts.slice(0, 5), ...personalTexts.slice(20, 35)],
+	},
+	{
+		corePercent: 50,
+		expected: [...personalTexts.slice(0, 10), ...personalTexts.slice(20, 30)],
+	},
+])(
+	"keeps the basics to their share in a personal chat (core $corePercent%)",
+	async ({ corePercent, expected }) => {
+		shares = { corePercent, projectPercent: 50 };
+		seedShareRankings();
+		const L = todayLine("Personal fact 00");
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "personal",
+			query: "What should I cook tonight?",
+			tokenBudget: 20 * L + N,
+			core: true,
+		});
+		expect(result.map(({ text }) => text)).toEqual(expected);
+	},
+);
+it.each([
+	{
+		chosen: { corePercent: 25, projectPercent: 50 },
+		personal: [...personalTexts.slice(0, 5), ...personalTexts.slice(20, 25)],
+		project: projectTexts(10),
+	},
+	{
+		chosen: { corePercent: 50, projectPercent: 80 },
+		personal: personalTexts.slice(0, 4),
+		project: projectTexts(16),
+	},
+])(
+	"gives a project chat's lanes their shares (project $chosen.projectPercent%, core $chosen.corePercent%)",
+	async ({ chosen, personal, project }) => {
+		shares = chosen;
+		seedShareRankings();
+		const L = todayLine("Personal fact 00");
+		const H = estimateTokenCount(RECALL_PROJECT_HEADING);
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "c",
+			query: "What should I cook tonight?",
+			tokenBudget: 20 * L + H + N,
+			core: true,
+		});
+		// Project lane, then the basics, then the message lane in turn.
+		expect(result.map(({ text }) => text)).toEqual([...personal, ...project]);
+	},
+);
+
+// Part 2: labels and Earlier, on one fixed clock.
+const NOW = new Date("2026-11-23T12:00:00Z");
+const ago = (days: number) => new Date(NOW.getTime() - days * 86_400_000);
+interface LabelledRow {
+	text: string;
+	kind?: "lasting" | "ongoing" | "temporary" | null;
+	/** Days ago each supporting fact was said. */
+	said: number[];
+	eventInDays?: number;
+	nativeText?: string;
+	authored?: boolean;
+}
+/** One bank whose rows carry labelled, dated facts. */
+function seedLabelled(bankId: string, scopeKey: string, rows: LabelledRow[]) {
+	const db = drizzle(sqlite, { schema });
+	db.insert(schema.memoryBanks)
+		.values({ id: bankId, userId: "u", scopeKey, epoch: 0, generation: "g" })
+		.run();
+	const ranking: Array<{
+		id: string;
+		text: string;
+		fact_type: string;
+		source_memory_ids: string[];
+	}> = [];
+	for (const [i, row] of rows.entries()) {
+		const facts = row.said.map((_, j) => ({
+			id: `f-${bankId}-${i}-${j}`,
+			text: `${row.text} (${j})`,
+		}));
+		for (const [j, fact] of facts.entries()) {
+			db.insert(schema.memorySourceRevisions)
+				.values({
+					id: `s-${bankId}-${i}-${j}`,
+					bankId,
+					userId: "u",
+					epoch: 0,
+					eventId: row.authored
+						? `manual:${bankId}-${i}-${j}`
+						: `${bankId}-${i}-${j}`,
+					lineageId: `${bankId}-${i}-${j}`,
+					text: fact.text,
+					context: "",
+					textHash: "hash",
+					assertedAt: ago(row.said[j]),
+					state: "accepted",
+					acknowledgedFactsJson: JSON.stringify([fact]),
+				})
+				.run();
+			db.insert(schema.memoryFactLabels)
+				.values({
+					bankId,
+					nativeFactId: fact.id,
+					kind: row.kind ?? null,
+					subject: null,
+					origin: "extraction",
+					eventAt:
+						row.eventInDays === undefined
+							? null
+							: new Date(NOW.getTime() + row.eventInDays * 86_400_000),
+				})
+				.run();
+		}
+		const nativeText = row.nativeText ?? row.text;
+		db.insert(schema.memoryPublishedRows)
+			.values({
+				id: `r-${bankId}-${i}`,
+				bankId,
+				generation: "g",
+				epoch: 0,
+				nativeId: `n-${bankId}-${i}`,
+				text: row.text,
+				nativeText,
+				sourceIdsJson: JSON.stringify(facts.map(({ id }) => id)),
+				sourceFingerprintsJson: JSON.stringify(facts),
+				updatedAt: NOW,
+			})
+			.run();
+		ranking.push({
+			id: `n-${bankId}-${i}`,
+			text: nativeText,
+			fact_type: "observation",
+			source_memory_ids: facts.map(({ id }) => id),
+		});
+	}
+	return (indices: number[]) => indices.map((i) => ranking[i]);
+}
+/** Each bank's message and core rankings. */
+function rankings(
+	byBank: Record<string, { message: unknown[]; core?: unknown[] }>,
+) {
+	recall.mockImplementation(
+		async (
+			query: string,
+			_budget: number,
+			_signal: AbortSignal,
+			bankId: string,
+		) =>
+			query === CORE_MEMORY_QUERY
+				? (byBank[bankId]?.core ?? [])
+				: (byBank[bankId]?.message ?? []),
+	);
+}
+const MESSAGE = "What should I bring to the dentist on Friday?";
+async function turn(conversationId = "personal", message = MESSAGE) {
+	const { recallMemory } = await import("./native");
+	return recallMemory("u", {
+		conversationId,
+		query: message,
+		tokenBudget: 4000,
+		core: true,
+		now: NOW,
+	});
+}
+
+it("keeps Earlier entries out of the core", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: [], core: rank([0, 1]) } });
+	const result = await turn();
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});
+
+it("admits an Earlier entry only from the top three of its bank's ranking", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+		{ text: "Speaks Spanish", kind: "lasting", said: [30] },
+		{ text: "Had the flu", kind: "temporary", said: [50] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2, 3, 4]) } });
+	// The message mentions both Earlier entries: only rank keeps the flu out.
+	const result = await turn("personal", "Is my toothache or the flu back?");
+	expect(result.map(({ text }) => text)).toEqual([
+		"Had a toothache",
+		"Lives in Graz",
+		"Plays chess",
+		"Speaks Spanish",
+	]);
+	expect(result[0]).toMatchObject({ kind: "temporary", timeState: "earlier" });
+	expect(formatRecalledMemory(result, NOW)).toContain(
+		"- Had a toothache (earlier, temporary, said 5 weeks ago)",
+	);
+});
+
+it("keeps at most three Earlier entries in a turn, the best ranked first", async () => {
+	const personal = seedLabelled("bp", "personal", [
+		{ text: "Had a cold", kind: "temporary", said: [60] },
+		{ text: "Had a sprain", kind: "temporary", said: [61] },
+		{ text: "Had a fever", kind: "temporary", said: [62] },
+	]);
+	const project = seedLabelled("bj", "project:p", [
+		{ text: "Old sprint deadline", kind: "temporary", said: [70] },
+		{ text: "Old review meeting", kind: "temporary", said: [71] },
+	]);
+	rankings({
+		bp: { message: personal([0, 1, 2]) },
+		bj: { message: project([0, 1]) },
+	});
+	const result = await turn(
+		"c",
+		"Did the cold, the sprain or the fever make me miss the sprint review?",
+	);
+	expect(
+		result
+			.filter(({ timeState }) => timeState === "earlier")
+			.map(({ text }) => text),
+	).toEqual(["Had a cold", "Had a sprain", "Old sprint deadline"]);
+});
+
+it("brings no Earlier entry for a message that does not mention it, even from the top place", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2]) } });
+	const result = await turn("personal", "Thanks, that helps a lot!");
+	expect(result.map(({ text }) => text)).toEqual([
+		"Lives in Graz",
+		"Plays chess",
+	]);
+});
+
+it("never brings an Earlier entry that only the chat's title mentions", async () => {
+	// The title joins a short message's search, so the entry ranks first; the
+	// person's own words never mentioned it.
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: rank([0, 1]) } });
+	const db = drizzle(sqlite, { schema });
+	db.update(schema.conversations)
+		.set({ title: "Toothache again" })
+		.where(eq(schema.conversations.id, "personal"))
+		.run();
+	const result = await turn("personal", "ok thanks");
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+	expect(recall).toHaveBeenCalledWith(
+		"Toothache again: ok thanks",
+		expect.anything(),
+		expect.anything(),
+		"bp",
+	);
+});
+
+it("does not count a word many of the bank's entries hold as a mention", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Went to Rome with Lili", kind: "temporary", said: [40] },
+		{ text: "Daughter Lili started school", kind: "lasting", said: [400] },
+		{ text: "Lili has a peanut allergy", kind: "lasting", said: [300] },
+		{ text: "Lili plays the violin", kind: "lasting", said: [200] },
+	]);
+	rankings({ bp: { message: rank([0, 1, 2, 3]) } });
+	const birthday = await turn(
+		"personal",
+		"What should I get Lili for her birthday?",
+	);
+	expect(birthday.map(({ text }) => text)).not.toContain(
+		"Went to Rome with Lili",
+	);
+	const rome = await turn("personal", "Was Rome worth it in the end?");
+	expect(rome.map(({ text }) => text)).toContain("Went to Rome with Lili");
+});
+
+it("never brings an Earlier entry when the bank's searches all failed", async () => {
+	seedLabelled("bp", "personal", [
+		{ text: "Had a toothache", kind: "temporary", said: [40] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	recall.mockRejectedValue(new Error("offline"));
+	// The message mentions the Earlier entry, and stored order puts it first:
+	// only the failed searches keep it out.
+	const result = await turn("personal", "Is my toothache back?");
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});
+
+it("the tool returns Earlier entries and earlier states, marked", async () => {
+	const rows: LabelledRow[] = [
+		{ text: "Lives in Gyor", kind: "lasting", said: [20] },
+		{ text: "Plays chess", kind: "lasting", said: [90] },
+		{ text: "Speaks Spanish", kind: "lasting", said: [30] },
+		{ text: "Reads novels", kind: "lasting", said: [10] },
+		{ text: "Had the flu", kind: "temporary", said: [50] },
+		{
+			text: "Works at Kertesz Ltd.",
+			kind: "lasting",
+			said: [5],
+			nativeText:
+				"Works at Kertesz Ltd. (2025-06-01 10:00: The user worked at Harbor Bank.)",
+		},
+	];
+	const rank = seedLabelled("bp", "personal", rows);
+	rankings({ bp: { message: rank([0, 1, 2, 3, 4, 5]) } });
+	const { recallMemory } = await import("./native");
+	const tool = await recallMemory("u", {
+		conversationId: "personal",
+		query: "where did I work before",
+		tokenBudget: 4000,
+		now: NOW,
+	});
+	expect(tool.find(({ text }) => text === "Had the flu")).toMatchObject({
+		timeState: "earlier",
+	});
+	expect(
+		tool.find(({ text }) => text === "Works at Kertesz Ltd.")?.earlierStates,
+	).toEqual([
+		{
+			text: "The user worked at Harbor Bank.",
+			saidAt: "2025-06-01T10:00:00.000Z",
+		},
+	]);
+	const content = formatRecalledMemory(tool, NOW);
+	expect(content).toContain(
+		"- Had the flu (earlier, temporary, said 7 weeks ago)",
+	);
+	expect(content).toContain(
+		"  - earlier: The user worked at Harbor Bank. (said 18 months ago)",
+	);
+	// The per-turn section shows no earlier states.
+	const section = await turn();
+	expect(section.some(({ earlierStates }) => earlierStates?.length)).toBe(
+		false,
+	);
+});
+
+it("a new fact makes an ongoing entry current again; recall itself never does", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Builds a boat", kind: "ongoing", said: [120, 2] },
+		{ text: "Learns the cello", kind: "ongoing", said: [120] },
+	]);
+	rankings({ bp: { message: [], core: rank([0, 1]) } });
+	const first = await turn();
+	expect(first.map(({ text }) => text)).toEqual(["Builds a boat"]);
+	expect(first[0]).toMatchObject({ kind: "ongoing", timeState: "current" });
+	// Being recalled changed nothing: the quiet one is still left out.
+	expect((await turn()).map(({ text }) => text)).toEqual(["Builds a boat"]);
+});
+
+it("a labelled row reaches the model with its kind, an unlabelled one without", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{
+			text: "Has an exam on Friday",
+			kind: "temporary",
+			said: [10],
+			eventInDays: 4,
+		},
+		{ text: "Likes tea", kind: null, said: [3] },
+	]);
+	rankings({ bp: { message: rank([0, 1]) } });
+	const result = await turn();
+	expect(result.map(({ kind }) => kind ?? null)).toEqual(["temporary", null]);
+	const content = formatRecalledMemory(result, NOW);
+	expect(content).toContain(
+		"- Has an exam on Friday (temporary, said 10 days ago)",
+	);
+	expect(content).toContain("- Likes tea (said 3 days ago)");
+});
+
+it("an entry the person wrote never ages", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{
+			text: "Is recovering from surgery",
+			kind: "temporary",
+			said: [200],
+			authored: true,
+		},
+	]);
+	rankings({ bp: { message: [], core: rank([0]) } });
+	const result = await turn();
+	expect(result).toHaveLength(1);
+	expect(result[0].timeState).toBe("current");
+});
+
+it("puts lasting entries first in the core once labels exist", async () => {
+	const rank = seedLabelled("bp", "personal", [
+		{ text: "Has a cold this week", kind: "temporary", said: [2] },
+		{ text: "Lives in Graz", kind: "lasting", said: [400] },
+	]);
+	rankings({ bp: { message: [], core: rank([0, 1]) } });
+	const row = (text: string, kind: "temporary" | "lasting", days: number) =>
+		recallLineTokens(
+			{
+				ref: { scope: { kind: "personal" }, generation: "g", rowId: text },
+				text,
+				sources: [],
+				lastMentionedAt: ago(days).toISOString(),
+				kind,
+			},
+			NOW,
+		);
+	const one = Math.max(
+		row("Has a cold this week", "temporary", 2),
+		row("Lives in Graz", "lasting", 400),
+	);
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "personal",
+		query: MESSAGE,
+		tokenBudget: N + one,
+		core: true,
+		now: NOW,
+	});
+	expect(result.map(({ text }) => text)).toEqual(["Lives in Graz"]);
+});

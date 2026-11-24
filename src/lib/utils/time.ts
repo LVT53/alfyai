@@ -1,3 +1,5 @@
+import { ageBucket } from "$lib/shared/age-buckets";
+
 export type RelativeTimeTranslate = (
 	key:
 		| "time.relative.justNow"
@@ -90,4 +92,38 @@ export function formatMediumDateTime(
 		dateStyle: "medium",
 		timeStyle: "short",
 	}).format(timestamp);
+}
+
+export type AgoTranslate = (
+	key:
+		| "time.ago.today"
+		| "time.ago.yesterday"
+		| "time.ago.days"
+		| "time.ago.weeks"
+		| "time.ago.months"
+		| "time.ago.years",
+	params?: Record<string, string | number>,
+) => string;
+
+/**
+ * How long ago a time was, in whole days: "today", "yesterday", "3 days ago",
+ * "2 weeks ago", "2 months ago", "2 years ago" (the units of `ageBucket`, the
+ * rule recall's model-facing wording uses too). An ISO date or a unix time in
+ * seconds or milliseconds; a time it cannot read gives "".
+ */
+export function formatAgo(
+	at: string | number,
+	options: { t: AgoTranslate; now?: number },
+): string {
+	const atMs =
+		typeof at === "number"
+			? at < 10000000000
+				? at * 1000
+				: at
+			: Date.parse(at);
+	if (Number.isNaN(atMs)) return "";
+	const bucket = ageBucket(atMs, options.now ?? Date.now());
+	if (bucket.unit === "today") return options.t("time.ago.today");
+	if (bucket.unit === "yesterday") return options.t("time.ago.yesterday");
+	return options.t(`time.ago.${bucket.unit}`, { count: bucket.count });
 }

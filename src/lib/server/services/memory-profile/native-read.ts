@@ -20,6 +20,10 @@ import {
 	projects,
 	users,
 } from "$lib/server/db/schema";
+import {
+	matchesAllTerms,
+	searchTerms,
+} from "$lib/shared/workspace-search-text";
 import { isJsonRecord } from "./internal-json";
 import {
 	MemoryRequestError,
@@ -28,6 +32,8 @@ import {
 } from "./memory-request";
 import {
 	admittedNativeFacts,
+	entryLastSaidAt,
+	factSaidTimes,
 	memoryPresentationFingerprint,
 	memorySupportFingerprint,
 	publishedRowsForGeneration,
@@ -132,7 +138,17 @@ function legacySupportingDates(
 	}
 	return dates;
 }
-function rowsFor(userId: string, bankId: string, generation?: string) {
+export function authorityOf(
+	account: { authority: string } | undefined,
+): MemoryPage["authority"] {
+	return account?.authority === "hindsight"
+		? "hindsight"
+		: account?.authority === "preparing"
+			? "preparing"
+			: "legacy";
+}
+/** The rows the Memory page shows for a bank: the page's own read, which search and the subject index share. */
+export function rowsFor(userId: string, bankId: string, generation?: string) {
 	try {
 		return readPublishedMemory(userId, bankId, generation);
 	} catch (error) {
@@ -140,6 +156,52 @@ function rowsFor(userId: string, bankId: string, generation?: string) {
 			throw new MemoryRequestError("stale_memory", 409);
 		throw error;
 	}
+}
+/** Whether the bank's Memory is being updated, or an update failed: the page's status line. */
+export function memoryBankStatus(
+	userId: string,
+	bank: { id: string; epoch: number },
+): MemoryPage["status"] {
+	const jobs = db
+		.select({
+			status: memoryDeliveryJobs.status,
+			kind: memoryDeliveryJobs.kind,
+			actionId: memoryDeliveryJobs.actionId,
+		})
+		.from(memoryDeliveryJobs)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.userId, userId),
+				eq(memoryDeliveryJobs.bankId, bank.id),
+				eq(memoryDeliveryJobs.epoch, bank.epoch),
+			),
+		)
+		.all();
+	const outstandingCleanup = new Set(
+		db
+			.select({ id: memoryActions.id })
+			.from(memoryActions)
+			.where(
+				and(
+					eq(memoryActions.bankId, bank.id),
+					eq(memoryActions.cleanupPending, true),
+				),
+			)
+			.all()
+			.map((a) => a.id),
+	);
+	return jobs.some((j) => j.status === "running")
+		? "working"
+		: jobs.some((j) => j.status === "queued")
+			? "queued"
+			: jobs.some(
+						(j) =>
+							(j.status === "failed" && j.kind !== "action") ||
+							((j.status === "failed" || j.status === "cancelled") &&
+								outstandingCleanup.has(j.actionId ?? "")),
+					)
+				? "failed"
+				: "ready";
 }
 interface Cursor {
 	bank: string;
@@ -155,14 +217,12 @@ export function listMemory(
 	const scope = parseMemoryScope(options.scope);
 	const query = (options.query ?? "").trim().toLocaleLowerCase();
 	if (query.length > 500) throw new MemoryRequestError("invalid_query");
+	// The box matches as search does: every word, in any order, case and accents
+	// folded. A query with no words once cleaned is no query.
+	const terms = searchTerms(query);
 	return db.transaction(() => {
 		const { user, account, bank } = readMemoryScope(userId, scope);
-		const authority =
-			account?.authority === "hindsight"
-				? "hindsight"
-				: account?.authority === "preparing"
-					? "preparing"
-					: "legacy";
+		const authority = authorityOf(account);
 		const base: MemoryPage = {
 			authority,
 			scope,
@@ -197,7 +257,7 @@ export function listMemory(
 		const generation = cursor?.generation ?? bank.generation ?? "";
 		const published = rowsFor(userId, bank.id, generation || undefined);
 		const rows = published
-			.filter((r) => r.text.toLocaleLowerCase().includes(query))
+			.filter((r) => terms.length === 0 || matchesAllTerms(r.text, terms))
 			.sort(
 				(a, b) =>
 					b.updatedAt.getTime() - a.updatedAt.getTime() ||
@@ -214,46 +274,7 @@ export function listMemory(
 		const page = visible.slice(0, 50);
 		const legacyDates = legacySupportingDates(userId, bank.id, page);
 		const last = page.at(-1);
-		const jobs = db
-			.select({
-				status: memoryDeliveryJobs.status,
-				kind: memoryDeliveryJobs.kind,
-				actionId: memoryDeliveryJobs.actionId,
-			})
-			.from(memoryDeliveryJobs)
-			.where(
-				and(
-					eq(memoryDeliveryJobs.userId, userId),
-					eq(memoryDeliveryJobs.bankId, bank.id),
-					eq(memoryDeliveryJobs.epoch, bank.epoch),
-				),
-			)
-			.all();
-		const outstandingCleanup = new Set(
-			db
-				.select({ id: memoryActions.id })
-				.from(memoryActions)
-				.where(
-					and(
-						eq(memoryActions.bankId, bank.id),
-						eq(memoryActions.cleanupPending, true),
-					),
-				)
-				.all()
-				.map((a) => a.id),
-		);
-		const status = jobs.some((j) => j.status === "running")
-			? "working"
-			: jobs.some((j) => j.status === "queued")
-				? "queued"
-				: jobs.some(
-							(j) =>
-								(j.status === "failed" && j.kind !== "action") ||
-								((j.status === "failed" || j.status === "cancelled") &&
-									outstandingCleanup.has(j.actionId ?? "")),
-						)
-					? "failed"
-					: "ready";
+		const status = memoryBankStatus(userId, bank);
 		const sourceIndex = new Map<string, Set<string>>();
 		const sources = conversationSources(userId, bank.id, bank.epoch);
 		const history = publishedMemoryHistory(
@@ -301,6 +322,117 @@ export function listMemory(
 							} satisfies Cursor),
 						).toString("base64url")
 					: null,
+		};
+	});
+}
+export interface MemorySearchEntry {
+	ref: MemoryRef;
+	text: string;
+	/** The project's name; null for the personal bank. */
+	projectName: string | null;
+	/** When the person last said it, ISO; null when no source has a date. */
+	lastSaidAt: string | null;
+}
+
+/**
+ * The entries the Memory page shows that hold every word, across the personal
+ * bank and every project the person owns, newest said first. An entry is shown
+ * exactly when the page would show it (the page's own read, `rowsFor`), and a
+ * bank that cannot be read (retired, blocked, a stale generation) is skipped so
+ * one bad bank never hides the rest. `searchable` is false, with nothing
+ * searched, when Memory is off or the account is not on native Memory.
+ */
+export function searchMemoryEntries(
+	userId: string,
+	terms: readonly string[],
+	window: { offset: number; limit: number; countCap: number },
+): {
+	entries: MemorySearchEntry[];
+	total: number;
+	hasMore: boolean;
+	searchable: boolean;
+} {
+	const none = { entries: [], total: 0, hasMore: false, searchable: false };
+	return db.transaction(() => {
+		const user = db.select().from(users).where(eq(users.id, userId)).get();
+		const account = db
+			.select()
+			.from(memoryAccounts)
+			.where(eq(memoryAccounts.userId, userId))
+			.get();
+		if (
+			!(user?.memoryEnabled && account) ||
+			authorityOf(account) !== "hindsight" ||
+			account.lifecycleState !== "active"
+		)
+			return none;
+		if (terms.length === 0) return { ...none, searchable: true };
+		const projectNames = new Map(
+			db
+				.select({ id: projects.id, name: projects.name })
+				.from(projects)
+				.where(eq(projects.userId, userId))
+				.all()
+				.map((project) => [project.id, project.name]),
+		);
+		const found: MemorySearchEntry[] = [];
+		for (const bank of db
+			.select()
+			.from(memoryBanks)
+			.where(
+				and(
+					eq(memoryBanks.userId, userId),
+					eq(memoryBanks.epoch, account.epoch),
+				),
+			)
+			.all()) {
+			const scope: MemoryScope | null =
+				bank.scopeKey === "personal"
+					? { kind: "personal" }
+					: bank.scopeKey.startsWith("project:")
+						? { kind: "project", projectId: bank.scopeKey.slice(8) }
+						: null;
+			// A bank whose project the person no longer owns is not theirs to search.
+			if (
+				!scope ||
+				(scope.kind === "project" && !projectNames.has(scope.projectId))
+			)
+				continue;
+			try {
+				const rows = rowsFor(userId, bank.id).filter((row) =>
+					matchesAllTerms(row.text, terms),
+				);
+				if (rows.length === 0) continue;
+				const saidAt = factSaidTimes(admittedNativeFacts(userId, bank.id));
+				for (const row of rows)
+					found.push({
+						ref: { scope, generation: row.generation, rowId: row.nativeId },
+						text: row.text,
+						projectName:
+							scope.kind === "project"
+								? (projectNames.get(scope.projectId) ?? null)
+								: null,
+						lastSaidAt: entryLastSaidAt(
+							readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+								(fact) => fact.id,
+							),
+							saidAt,
+						),
+					});
+			} catch {
+				// A retired or blocked bank, a stale generation: skip this bank only.
+			}
+		}
+		found.sort(
+			(left, right) =>
+				(right.lastSaidAt ?? "").localeCompare(left.lastSaidAt ?? "") ||
+				left.ref.rowId.localeCompare(right.ref.rowId),
+		);
+		return {
+			entries: found.slice(window.offset, window.offset + window.limit),
+			total: Math.min(found.length, window.countCap),
+			hasMore: window.offset + window.limit < found.length,
+			searchable: true,
 		};
 	});
 }

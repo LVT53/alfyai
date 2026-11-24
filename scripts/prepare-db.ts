@@ -35,6 +35,8 @@ const requiredExistingTables = [
 	"memory_banks",
 	"memory_source_revisions",
 	"memory_published_rows",
+	"memory_fact_labels",
+	"memory_overviews",
 	"memory_revocations",
 	"memory_actions",
 	"memory_control_intervals",
@@ -133,6 +135,8 @@ const requiredExistingTables = [
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
+	["memory_accounts", "labels_unverified_epoch"],
+	["memory_accounts", "labels_verified_epoch"],
 	["artifact_versions", "started_at"],
 	["artifact_versions", "label"],
 	["conversations", "project_id"],
@@ -154,6 +158,7 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["users", "avatar_id"],
 	["users", "profile_picture"],
 	["users", "honcho_peer_version"],
+	["users", "memory_migration_excluded"],
 	["conversation_drafts", "selected_linked_sources_json"],
 	["conversation_drafts", "pending_skill_json"],
 	["user_skill_definitions", "published"],

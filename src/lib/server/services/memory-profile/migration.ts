@@ -20,7 +20,7 @@ import {
 import { cancelAll, enqueueAtomic, retry } from "../jobs";
 import type { Tx } from "../jobs/types";
 import { carryMemoryScopeMoves } from "../memory-behavior-log";
-import { HINDSIGHT_ENGINE_COMMIT } from "./contracts";
+import { isVerifiedNativeBankConfigVersion } from "./contracts";
 import type { ActionIntentRecord } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
 import {
@@ -31,6 +31,7 @@ import {
 } from "./delivery-job";
 import { historicalMemoryExclusion } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import { assertMemoryMigrationAllowed } from "./migration-guard";
 import { assertMigratedHistoryWithdrawalBoundary } from "./migration-observation-proof";
 import {
 	deterministicId,
@@ -78,6 +79,8 @@ export async function prepareMemoryMigration(
 ) {
 	let manifestId = "";
 	const results = await enqueueMemoryMutation((tx) => {
+		// The permanent tester rule: never migrate the excluded account's Memory.
+		assertMemoryMigrationAllowed(userId, tx);
 		restoredRewind?.assertCurrent(tx);
 		const pendingRepair = parseJsonRecord(
 			JSON.stringify(
@@ -850,7 +853,7 @@ export function cutoverMemoryMigration(
 					b.status !== "retired" &&
 					(!b.nativeBaseUrl ||
 						!b.nativeCredentialHash ||
-						b.nativeConfigVersion !== HINDSIGHT_ENGINE_COMMIT ||
+						!isVerifiedNativeBankConfigVersion(b.nativeConfigVersion) ||
 						b.status !== "ready"),
 			)
 		)
@@ -916,6 +919,7 @@ export async function restartMemoryPreparation(
 	let scopeMovesCarried = 0;
 	let resumed = false;
 	await enqueueAtomic(memoryDeliveryJob, (tx) => {
+		assertMemoryMigrationAllowed(userId, tx);
 		const account = tx
 			.select()
 			.from(memoryAccounts)

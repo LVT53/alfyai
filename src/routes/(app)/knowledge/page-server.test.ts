@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getKnowledgeLibraryPageMock, isUserMemoryEnabledMock } = vi.hoisted(
-	() => ({
-		getKnowledgeLibraryPageMock: vi.fn(),
-		isUserMemoryEnabledMock: vi.fn(),
-	}),
-);
+const {
+	getKnowledgeLibraryPageMock,
+	isUserMemoryEnabledMock,
+	memoryPageLayoutMock,
+} = vi.hoisted(() => ({
+	getKnowledgeLibraryPageMock: vi.fn(),
+	isUserMemoryEnabledMock: vi.fn(),
+	memoryPageLayoutMock: vi.fn(),
+}));
 
 vi.mock("$lib/server/services/knowledge", () => ({
 	getKnowledgeLibraryPage: getKnowledgeLibraryPageMock,
@@ -13,6 +16,10 @@ vi.mock("$lib/server/services/knowledge", () => ({
 
 vi.mock("$lib/server/services/memory-controls", () => ({
 	isUserMemoryEnabled: isUserMemoryEnabledMock,
+}));
+
+vi.mock("$lib/server/services/memory-profile/labels-verified", () => ({
+	memoryPageLayout: memoryPageLayoutMock,
 }));
 
 import { load } from "./+page.server";
@@ -28,6 +35,7 @@ describe("the Knowledge page's load", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		getKnowledgeLibraryPageMock.mockResolvedValue({ documents: [] });
+		memoryPageLayoutMock.mockReturnValue("subjects");
 	});
 
 	// The Memory tab says "Memory is off" in its first paint, so the page is
@@ -44,6 +52,21 @@ describe("the Knowledge page's load", () => {
 				library: { documents: [] },
 			});
 			expect(isUserMemoryEnabledMock).toHaveBeenCalledWith("user-1");
+		},
+	);
+
+	// An account whose labels are not verified keeps today's Memory list; the
+	// page knows which before its first paint, so it never draws the other.
+	it.each(["subjects", "list"] as const)(
+		"hands the page which Memory page the account gets (%s)",
+		async (layout) => {
+			isUserMemoryEnabledMock.mockResolvedValue(true);
+			memoryPageLayoutMock.mockReturnValue(layout);
+
+			const data = await load(event());
+
+			expect(data).toMatchObject({ memoryLayout: layout });
+			expect(memoryPageLayoutMock).toHaveBeenCalledWith("user-1");
 		},
 	);
 

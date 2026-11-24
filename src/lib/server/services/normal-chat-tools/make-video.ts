@@ -530,6 +530,7 @@ async function planTake(params: {
 		signal: params.signal,
 		variant,
 		fromText,
+		durationSeconds,
 	});
 	// Stopped while the caption was written: no still is kept and nothing is
 	// queued, because a render started here would run for minutes for nothing.

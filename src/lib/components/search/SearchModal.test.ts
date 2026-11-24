@@ -1,8 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { goto } from "$app/navigation";
+import type {
+	WorkspaceSearchConversationResult,
+	WorkspaceSearchDocumentResult,
+	WorkspaceSearchMemoryResult,
+	WorkspaceSearchResponse,
+} from "$lib/server/services/workspace-search/types";
 import { conversations } from "$lib/stores/conversations";
 import { projects } from "$lib/stores/projects";
+import { uiLanguage } from "$lib/stores/settings";
 import { currentConversationId, sidebarOpen } from "$lib/stores/ui";
 import SearchModal from "./SearchModal.svelte";
 
@@ -30,56 +37,126 @@ vi.mock("$lib/client/api/workspace-search", () => ({
 	fetchWorkspaceSearch,
 }));
 
+const SEARCH_BOX = "Search chats, memory, documents and more";
+const DAY = 86_400_000;
+
+function chat(
+	id: string,
+	title: string,
+	overrides: Partial<WorkspaceSearchConversationResult> = {},
+): WorkspaceSearchConversationResult {
+	return {
+		id,
+		title,
+		projectId: null,
+		projectName: null,
+		status: "open",
+		sealedAt: null,
+		updatedAt: Date.now(),
+		href: `/chat/${id}`,
+		match: {
+			type: "title",
+			snippet: null,
+			messageId: null,
+			messageRole: null,
+		},
+		...overrides,
+	};
+}
+
+function document(
+	id: string,
+	name: string,
+	overrides: Partial<WorkspaceSearchDocumentResult> = {},
+): WorkspaceSearchDocumentResult {
+	return {
+		id,
+		displayArtifactId: id,
+		promptArtifactId: null,
+		familyArtifactIds: [id],
+		name,
+		mimeType: null,
+		sizeBytes: null,
+		conversationId: null,
+		summary: null,
+		documentOrigin: undefined,
+		documentFamilyStatus: null,
+		documentLabel: null,
+		updatedAt: Date.now(),
+		href: `/knowledge?open_artifact=${id}`,
+		sourceHref: null,
+		searchKind: "documents",
+		badge: "document",
+		originConversationTitle: null,
+		preview: null,
+		durationMs: null,
+		match: { type: "name", snippet: null },
+		...overrides,
+	};
+}
+
+function memory(
+	id: string,
+	text: string,
+	overrides: Partial<WorkspaceSearchMemoryResult> = {},
+): WorkspaceSearchMemoryResult {
+	return {
+		id,
+		scope: { kind: "personal" },
+		projectName: null,
+		text,
+		lastSaidAt: new Date(Date.now() - 3 * DAY).toISOString(),
+		href: `/knowledge?tab=memory&memoryScope=personal&memoryEntry=${id}&memoryQuery=x`,
+		...overrides,
+	};
+}
+
+function answer(
+	overrides: Partial<WorkspaceSearchResponse> = {},
+): WorkspaceSearchResponse {
+	return {
+		query: "thesis",
+		mode: "query",
+		scope: "all",
+		conversations: [],
+		memories: [],
+		documents: [],
+		totals: { chats: 0, memory: 0, documents: 0, media: 0, apps: 0 },
+		memorySearchable: false,
+		nextCursor: null,
+		...overrides,
+	};
+}
+
 describe("SearchModal", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		fetchWorkspaceSearch.mockResolvedValue({
-			mode: "default",
-			query: "",
-			conversations: [
-				{
-					id: "conv-1",
-					title: "Release notes",
-					projectId: "project-1",
-					projectName: "Launch",
-					status: "active",
-					sealedAt: null,
-					updatedAt: Date.now(),
-					href: "/chat/conv-1",
-					match: {
-						type: "title",
-						snippet: null,
-						messageId: null,
-						messageRole: null,
-					},
-				},
-			],
-			documents: [
-				{
-					id: "artifact-1",
-					displayArtifactId: "artifact-1",
-					promptArtifactId: null,
-					familyArtifactIds: ["artifact-1"],
-					name: "brand-playbook.pdf",
-					mimeType: "application/pdf",
-					sizeBytes: null,
-					conversationId: null,
-					summary: null,
-					documentOrigin: "uploaded",
-					documentFamilyStatus: null,
-					documentLabel: "Brand playbook",
-					updatedAt: Date.now(),
-					href: "/knowledge?server_open=artifact-1",
-					sourceHref: "/chat/conv-source?focus_message=msg-source",
-					match: {
-						type: "recent",
-						snippet: null,
-					},
-				},
-			],
-			documentOverflow: true,
-			knowledgeHref: "/knowledge",
-		});
+		uiLanguage.set("en");
+		fetchWorkspaceSearch.mockResolvedValue(
+			answer({
+				mode: "default",
+				query: "",
+				conversations: [
+					chat("conv-1", "Release notes", {
+						projectId: "project-1",
+						projectName: "Launch",
+						status: "open",
+					}),
+				],
+				documents: [
+					document("artifact-1", "brand-playbook.pdf", {
+						mimeType: "application/pdf",
+						documentOrigin: "uploaded",
+						documentLabel: "Brand playbook",
+						href: "/knowledge?server_open=artifact-1",
+						sourceHref: "/chat/conv-source?focus_message=msg-source",
+						badge: "uploaded",
+						match: { type: "recent", snippet: null },
+					}),
+				],
+				totals: { chats: 1, memory: 0, documents: 1, media: 0, apps: 0 },
+			}),
+		);
 		Object.defineProperty(window, "matchMedia", {
 			writable: true,
 			value: vi.fn().mockImplementation(() => ({
@@ -118,6 +195,22 @@ describe("SearchModal", () => {
 		sidebarOpen.set(true);
 	});
 
+	/** Types a query and waits for a section of the answer to be on screen. */
+	async function search(query: string, sectionTestId: string) {
+		const input = screen.getByLabelText(SEARCH_BOX);
+		await fireEvent.input(input, { target: { value: query } });
+		await waitFor(
+			() => {
+				expect(fetchWorkspaceSearch).toHaveBeenCalledWith(
+					expect.objectContaining({ query }),
+				);
+				expect(screen.getByTestId(sectionTestId)).toBeInTheDocument();
+			},
+			{ timeout: 750 },
+		);
+		return input;
+	}
+
 	it("shows recent conversations and documents from workspace search", async () => {
 		render(SearchModal, {
 			props: {
@@ -134,9 +227,10 @@ describe("SearchModal", () => {
 		expect(screen.getByText("Recent conversations")).toBeInTheDocument();
 		expect(screen.getByText("Recent documents")).toBeInTheDocument();
 		expect(screen.getByText("Brand playbook")).toBeInTheDocument();
+		// The row that linked to Knowledge is gone: "Show all" and the chips replace it.
 		expect(
-			screen.getByText("View all documents in Knowledge"),
-		).toBeInTheDocument();
+			screen.queryByText("View all documents in Knowledge"),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows a keep-typing hint instead of recents for a 1-char query", async () => {
@@ -154,7 +248,7 @@ describe("SearchModal", () => {
 
 		fetchWorkspaceSearch.mockClear();
 
-		const input = screen.getByLabelText("Search conversations and documents");
+		const input = screen.getByLabelText(SEARCH_BOX);
 		await fireEvent.input(input, { target: { value: "a" } });
 
 		// A 1-char query is too short to search: show the hint, hide recents,
@@ -215,55 +309,36 @@ describe("SearchModal", () => {
 		});
 
 		fetchWorkspaceSearch.mockClear();
-		fetchWorkspaceSearch.mockResolvedValueOnce({
-			mode: "query",
-			query: "brand",
-			conversations: [
-				{
-					id: "conv-query",
-					title: "Brand launch copy",
-					projectId: null,
-					projectName: null,
-					status: "active",
-					sealedAt: null,
-					updatedAt: Date.now(),
-					href: "/chat/conv-query?focus_message=msg-query",
-					match: {
-						type: "body",
-						messageId: "msg-query",
-						messageRole: "assistant",
-						snippet: "The brand voice belongs in the launch copy.",
-					},
-				},
-			],
-			documents: [
-				{
-					id: "artifact-query",
-					displayArtifactId: "artifact-query",
-					promptArtifactId: null,
-					familyArtifactIds: ["artifact-query"],
-					name: "Brand kit",
-					mimeType: null,
-					sizeBytes: null,
-					conversationId: "conv-query",
-					summary: null,
-					documentOrigin: "generated",
-					documentFamilyStatus: "historical",
-					documentLabel: null,
-					updatedAt: Date.now(),
-					href: "/knowledge?open_artifact=artifact-query&open_filename=Brand+kit",
-					sourceHref: null,
-					match: {
-						type: "summary",
-						snippet: "Brand colors and generated variants.",
-					},
-				},
-			],
-			documentOverflow: false,
-			knowledgeHref: "/knowledge",
-		});
+		fetchWorkspaceSearch.mockResolvedValueOnce(
+			answer({
+				query: "brand",
+				conversations: [
+					chat("conv-query", "Brand launch copy", {
+						href: "/chat/conv-query?focus_message=msg-query",
+						match: {
+							type: "body",
+							messageId: "msg-query",
+							messageRole: "assistant",
+							snippet: "The brand voice belongs in the launch copy.",
+						},
+					}),
+				],
+				documents: [
+					document("artifact-query", "Brand kit", {
+						documentOrigin: "generated",
+						documentFamilyStatus: "historical",
+						badge: "generated",
+						match: {
+							type: "summary",
+							snippet: "Brand colors and generated variants.",
+						},
+					}),
+				],
+				totals: { chats: 1, memory: 0, documents: 1, media: 0, apps: 0 },
+			}),
+		);
 
-		const input = screen.getByLabelText("Search conversations and documents");
+		const input = screen.getByLabelText(SEARCH_BOX);
 		await fireEvent.input(input, { target: { value: "b" } });
 		expect(fetchWorkspaceSearch).not.toHaveBeenCalled();
 
@@ -272,7 +347,7 @@ describe("SearchModal", () => {
 		await waitFor(
 			() => {
 				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "brand" });
-				expect(screen.getByText("Documents")).toBeInTheDocument();
+				expect(screen.getByTestId("search-section-documents")).toBeVisible();
 			},
 			{ timeout: 750 },
 		);
@@ -281,7 +356,7 @@ describe("SearchModal", () => {
 		expect(screen.getByText("Generated")).toBeInTheDocument();
 		expect(screen.getByText("Historical")).toBeInTheDocument();
 		const highlightedTerms = Array.from(
-			document.querySelectorAll(".search-highlight"),
+			globalThis.document.querySelectorAll(".search-highlight"),
 		).map((element) => element.textContent);
 		expect(highlightedTerms).toContain("Brand");
 		expect(highlightedTerms).toContain("brand");
@@ -317,23 +392,23 @@ describe("SearchModal", () => {
 			},
 		});
 
-		const input = screen.getByLabelText("Search conversations and documents");
+		const input = screen.getByLabelText(SEARCH_BOX);
 		await screen.findByText("Brand playbook");
 
 		const firstActiveId = input.getAttribute("aria-activedescendant");
 		expect(firstActiveId).toBeTruthy();
-		expect(document.getElementById(firstActiveId ?? "")).toHaveTextContent(
-			"Release notes",
-		);
+		expect(
+			globalThis.document.getElementById(firstActiveId ?? ""),
+		).toHaveTextContent("Release notes");
 
 		await fireEvent.keyDown(window, { key: "ArrowDown" });
 
 		const secondActiveId = input.getAttribute("aria-activedescendant");
 		expect(secondActiveId).toBeTruthy();
 		expect(secondActiveId).not.toBe(firstActiveId);
-		expect(document.getElementById(secondActiveId ?? "")).toHaveTextContent(
-			"Brand playbook",
-		);
+		expect(
+			globalThis.document.getElementById(secondActiveId ?? ""),
+		).toHaveTextContent("Brand playbook");
 	});
 
 	it("keeps focus inside the dialog when mobile pointer mode skips input autofocus", async () => {
@@ -347,9 +422,9 @@ describe("SearchModal", () => {
 			removeEventListener: vi.fn(),
 			dispatchEvent: vi.fn(),
 		}));
-		const outsideButton = document.createElement("button");
+		const outsideButton = globalThis.document.createElement("button");
 		outsideButton.textContent = "Outside";
-		document.body.appendChild(outsideButton);
+		globalThis.document.body.appendChild(outsideButton);
 		outsideButton.focus();
 
 		try {
@@ -367,9 +442,9 @@ describe("SearchModal", () => {
 	});
 
 	it("pulls focus back inside the dialog when Tab starts outside the modal", async () => {
-		const outsideButton = document.createElement("button");
+		const outsideButton = globalThis.document.createElement("button");
 		outsideButton.textContent = "Outside";
-		document.body.appendChild(outsideButton);
+		globalThis.document.body.appendChild(outsideButton);
 
 		try {
 			render(SearchModal, {
@@ -380,15 +455,13 @@ describe("SearchModal", () => {
 
 			const dialog = screen.getByRole("dialog", { name: "Search workspace" });
 			await waitFor(() =>
-				expect(
-					screen.getByLabelText("Search conversations and documents"),
-				).toHaveFocus(),
+				expect(screen.getByLabelText(SEARCH_BOX)).toHaveFocus(),
 			);
 
 			outsideButton.focus();
 			await fireEvent.keyDown(window, { key: "Tab" });
 
-			expect(dialog.contains(document.activeElement)).toBe(true);
+			expect(dialog.contains(globalThis.document.activeElement)).toBe(true);
 		} finally {
 			outsideButton.remove();
 		}
@@ -435,134 +508,664 @@ describe("SearchModal", () => {
 		expect(screen.queryByText("Release notes")).not.toBeInTheDocument();
 	});
 
-	describe("scope chips and the keyboard footer", () => {
-		function respondWithReport() {
-			fetchWorkspaceSearch.mockResolvedValue({
-				mode: "query",
-				query: "battery",
-				conversations: [
-					{
-						id: "conv-1",
-						title: "Atlas report on the EU rules",
-						projectId: null,
-						projectName: null,
-						status: "active",
-						sealedAt: null,
-						updatedAt: Date.now(),
-						href: "/chat/conv-1",
-						match: {
-							type: "title",
-							snippet: null,
-							messageId: null,
-							messageRole: null,
-						},
+	describe("the chips", () => {
+		function respondWithEveryKind(memorySearchable = true) {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					memories: memorySearchable
+						? [memory("m1", "Writing a thesis on timber housing")]
+						: [],
+					documents: [
+						document("d1", "Thesis outline"),
+						document("p1", "Timber house section", {
+							searchKind: "media",
+							badge: "image",
+						}),
+						document("a1", "Thesis deadline countdown", {
+							searchKind: "apps",
+							badge: "app",
+						}),
+					],
+					totals: {
+						chats: 2,
+						memory: memorySearchable ? 3 : 0,
+						documents: 5,
+						media: 2,
+						apps: 1,
 					},
-				],
-				documents: [
-					{
-						id: "artifact-1",
-						displayArtifactId: "artifact-1",
-						promptArtifactId: null,
-						familyArtifactIds: ["artifact-1"],
-						name: "invoice-2026-09.pdf",
-						mimeType: "application/pdf",
-						sizeBytes: null,
-						conversationId: null,
-						summary: null,
-						documentOrigin: "uploaded",
-						documentFamilyStatus: null,
-						documentLabel: null,
-						updatedAt: Date.now(),
-						href: "/knowledge?server_open=artifact-1",
-						sourceHref: null,
-						match: { type: "content", snippet: null },
-					},
-					{
-						id: "artifact-2",
-						displayArtifactId: "artifact-2",
-						promptArtifactId: null,
-						familyArtifactIds: ["artifact-2"],
-						name: "atlas-rules-2026-09.pdf",
-						mimeType: "application/pdf",
-						sizeBytes: null,
-						conversationId: null,
-						summary: null,
-						documentOrigin: "generated",
-						documentFamilyStatus: null,
-						documentLabel: null,
-						updatedAt: Date.now(),
-						href: "/knowledge?server_open=artifact-2",
-						sourceHref: null,
-						match: { type: "content", snippet: null },
-					},
-				],
-				documentOverflow: false,
-				knowledgeHref: "/knowledge",
-			});
+					memorySearchable,
+				}),
+			);
 		}
 
-		it("says what is searchable and carries the per-kind count", async () => {
-			respondWithReport();
+		it("are All, Chats, Memory, Documents, Pictures & videos and Apps, with the server's counts", async () => {
+			respondWithEveryKind();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const count = (id: string) =>
+				screen
+					.getByTestId(`search-scope-${id}`)
+					.textContent?.replace(/\s+/g, " ");
+			expect(count("all")).toBe("All 13");
+			expect(count("chats")).toBe("Chats 2");
+			expect(count("memory")).toBe("Memory 3");
+			expect(count("documents")).toBe("Documents 5");
+			expect(count("media")).toBe("Pictures & videos 2");
+			expect(count("apps")).toBe("Apps 1");
+		});
+
+		it("draws no Connections chip, and no Reports chip", async () => {
+			respondWithEveryKind();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			expect(screen.queryByTestId("search-scope-connections")).toBeNull();
+			expect(screen.queryByTestId("search-scope-reports")).toBeNull();
+			expect(screen.queryByText("Connections")).toBeNull();
+			expect(screen.queryByText("Coming soon")).toBeNull();
+		});
+
+		it("hides the Memory chip when memory is not searchable", async () => {
+			respondWithEveryKind(false);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			expect(screen.queryByTestId("search-scope-memory")).toBeNull();
+			expect(screen.getByTestId("search-scope-chats")).toBeInTheDocument();
+			expect(screen.queryByTestId("search-section-memory")).toBeNull();
+		});
+
+		it("show 99+ at the cap", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 100, memory: 0, documents: 7, media: 0, apps: 0 },
+				}),
+			);
 			render(SearchModal, { props: { isOpen: true } });
 
 			await screen.findByTestId("search-result-count");
 			expect(
-				screen.getByTestId("search-scope-conversations").textContent,
-			).toContain("1");
+				screen.getByTestId("search-scope-chats").textContent?.trim(),
+			).toContain("99+");
 			expect(
-				screen.getByTestId("search-scope-documents").textContent,
-			).toContain("1");
-			expect(screen.getByTestId("search-scope-reports").textContent).toContain(
-				"1",
+				screen.getByTestId("search-scope-all").textContent?.trim(),
+			).toContain("99+");
+			expect(
+				screen.getByTestId("search-scope-documents").textContent?.trim(),
+			).toContain("7");
+		});
+
+		it("speak Hungarian in a Hungarian interface", async () => {
+			uiLanguage.set("hu");
+			respondWithEveryKind();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const text = (id: string) =>
+				screen.getByTestId(`search-scope-${id}`).textContent ?? "";
+			expect(text("chats")).toContain("Beszélgetések");
+			expect(text("memory")).toContain("Memória");
+			expect(text("media")).toContain("Képek és videók");
+			expect(text("apps")).toContain("Alkalmazások");
+			expect(
+				screen.getByLabelText(
+					"Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol",
+				),
+			).toBeInTheDocument();
+		});
+
+		// The field's own hint has to fit a phone (about 250 px of field at 360),
+		// so it is a few words; what the field searches is its name, for a screen
+		// reader, and the chips under it show the kinds. The phone's width is
+		// measured in `tests/e2e/phone-polish.spec.ts`.
+		it("hints at the field in a few words and names it in full", async () => {
+			const words = {
+				en: {
+					hint: "Search everything",
+					name: "Search chats, memory, documents and more",
+				},
+				hu: {
+					hint: "Keresés mindenben",
+					name: "Keresés a beszélgetésekben, az emlékekben, a dokumentumokban és máshol",
+				},
+			} as const;
+			for (const language of ["en", "hu"] as const) {
+				uiLanguage.set(language);
+				const { unmount } = render(SearchModal, { props: { isOpen: true } });
+				expect(screen.getByLabelText(words[language].name)).toHaveAttribute(
+					"placeholder",
+					words[language].hint,
+				);
+				unmount();
+			}
+		});
+
+		it("scroll the chosen chip into view in the sideways-scrolling row", async () => {
+			respondWithEveryKind();
+			const scrollIntoView = vi.fn();
+			const original = HTMLElement.prototype.scrollIntoView;
+			HTMLElement.prototype.scrollIntoView = scrollIntoView;
+			try {
+				render(SearchModal, { props: { isOpen: true } });
+				await screen.findByTestId("search-result-count");
+				scrollIntoView.mockClear();
+				await fireEvent.click(screen.getByTestId("search-scope-apps"));
+				await waitFor(() =>
+					expect(scrollIntoView).toHaveBeenCalledWith(
+						expect.objectContaining({ inline: "nearest" }),
+					),
+				);
+			} finally {
+				HTMLElement.prototype.scrollIntoView = original;
+			}
+		});
+	});
+
+	describe("the sections", () => {
+		it("show three per kind in order, each with a Show all link when there are more", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [
+						chat("c1", "Thesis one"),
+						chat("c2", "Thesis two"),
+						chat("c3", "Thesis three"),
+					],
+					memories: [memory("m1", "Writing a thesis")],
+					documents: [document("d1", "Thesis outline")],
+					totals: { chats: 12, memory: 1, documents: 1, media: 0, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const sections = Array.from(
+				globalThis.document.querySelectorAll(
+					"[data-testid^='search-section-']",
+				),
+			).map((element) => element.getAttribute("data-testid"));
+			expect(sections).toEqual([
+				"search-section-chats",
+				"search-section-memory",
+				"search-section-documents",
+			]);
+			expect(
+				screen.getByRole("button", { name: "Show all 12" }),
+			).toBeInTheDocument();
+			// A kind whose few are all of it has no link.
+			expect(screen.getAllByRole("button", { name: /^Show all/ })).toHaveLength(
+				1,
 			);
 		});
 
-		it("ships Connections greyed and labelled as coming soon", async () => {
-			respondWithReport();
+		it("Show all selects the kind's chip and fetches it, for the typed query", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Alpha one")],
+					totals: { chats: 12, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
 			render(SearchModal, { props: { isOpen: true } });
+			await search("thesis", "search-section-chats");
 
-			await screen.findByTestId("search-result-count");
-			const connections = screen.getByTestId("search-scope-connections");
-			// Nothing in workspace-search reads connector data.
-			expect(connections.tagName).toBe("SPAN");
-			expect(connections).toHaveAttribute("aria-disabled", "true");
-			expect(connections).toHaveClass("search-scope-chip-disabled");
-			expect(connections.textContent).toContain("Coming soon");
-		});
+			fetchWorkspaceSearch.mockClear();
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "chats",
+					conversations: Array.from({ length: 12 }, (_, index) =>
+						chat(`c${index}`, `Alpha ${index}`),
+					),
+					totals: { chats: 12, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Show all 12" }),
+			);
 
-		it("gives a generated report its own heading rather than listing it twice", async () => {
-			respondWithReport();
-			render(SearchModal, { props: { isOpen: true } });
-
-			await screen.findByTestId("search-result-count");
-			// The section heading, alongside the chip of the same name.
-			expect(screen.getAllByText("Reports").length).toBeGreaterThanOrEqual(2);
-			// Listed under Reports only — Documents and Reports partition the
-			// document results between them.
-			expect(screen.getAllByText("atlas-rules-2026-09.pdf")).toHaveLength(1);
+			await waitFor(() =>
+				expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+					query: "thesis",
+					scope: "chats",
+				}),
+			);
+			expect(screen.getByTestId("search-scope-chats")).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			await screen.findByText("Alpha 11");
 			expect(
-				screen.getByTestId("search-scope-documents").textContent,
-			).toContain("1");
-		});
-
-		it("narrows the list when a scope is picked", async () => {
-			respondWithReport();
-			render(SearchModal, { props: { isOpen: true } });
-
-			await screen.findByTestId("search-result-count");
-			await fireEvent.click(screen.getByTestId("search-scope-conversations"));
-
-			expect(
-				screen.getByText("Atlas report on the EU rules"),
-			).toBeInTheDocument();
-			expect(screen.queryByText("invoice-2026-09.pdf")).not.toBeInTheDocument();
-			expect(
-				screen.queryByText("atlas-rules-2026-09.pdf"),
+				screen.queryByRole("button", { name: /^Show all/ }),
 			).not.toBeInTheDocument();
 		});
 
+		it("Load more appends the next page until there is none", async () => {
+			const page = (from: number, count: number, next: string | null) =>
+				answer({
+					scope: "chats",
+					conversations: Array.from({ length: count }, (_, index) =>
+						chat(`c${from + index}`, `Alpha ${from + index}`),
+					),
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+					nextCursor: next,
+				});
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c0", "Alpha 0")],
+					totals: { chats: 45, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await search("thesis", "search-section-chats");
+
+			fetchWorkspaceSearch.mockResolvedValue(page(0, 20, "o:20"));
+			await fireEvent.click(screen.getByTestId("search-scope-chats"));
+			await screen.findByText("Alpha 19");
+			expect(screen.queryByText("Alpha 20")).toBeNull();
+
+			fetchWorkspaceSearch.mockClear();
+			fetchWorkspaceSearch.mockResolvedValue(page(20, 20, "o:40"));
+			await fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+			await screen.findByText("Alpha 39");
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({
+				query: "thesis",
+				scope: "chats",
+				cursor: "o:20",
+			});
+			// The first page is still there, with the second after it.
+			expect(screen.getByText("Alpha 0")).toBeInTheDocument();
+
+			fetchWorkspaceSearch.mockResolvedValue(page(40, 5, null));
+			await fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+			await screen.findByText("Alpha 44");
+			expect(
+				screen.queryByRole("button", { name: "Load more" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("falls back to All when the chosen kind has nothing for a new query", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Mortise")],
+					documents: [document("d1", "Outline")],
+					totals: { chats: 5, memory: 0, documents: 4, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await search("thesis", "search-section-chats");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					scope: "documents",
+					documents: [document("d1", "Outline")],
+					totals: { chats: 5, memory: 0, documents: 4, media: 0, apps: 0 },
+				}),
+			);
+			await fireEvent.click(screen.getByTestId("search-scope-documents"));
+			await screen.findByTestId("search-section-documents");
+
+			// A new query that finds no documents: the chip would be empty.
+			fetchWorkspaceSearch.mockImplementation(
+				async (request: { scope?: string }) =>
+					request.scope === "documents"
+						? answer({
+								query: "dovetail",
+								scope: "documents",
+								totals: {
+									chats: 2,
+									memory: 0,
+									documents: 0,
+									media: 0,
+									apps: 0,
+								},
+							})
+						: answer({
+								query: "dovetail",
+								conversations: [chat("c9", "Tenon")],
+								totals: {
+									chats: 2,
+									memory: 0,
+									documents: 0,
+									media: 0,
+									apps: 0,
+								},
+							}),
+			);
+			const input = screen.getByLabelText(SEARCH_BOX);
+			await fireEvent.input(input, { target: { value: "dovetail" } });
+
+			await screen.findByText("Tenon", undefined, { timeout: 1500 });
+			expect(screen.getByTestId("search-scope-all")).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+		});
+	});
+
+	describe("the rows", () => {
+		it("draw a memory row with its scope and when it was last said", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					memories: [
+						memory("m1", "Writing a thesis on timber housing, due June 2027."),
+						memory("m2", "The thesis model is built at 1:50 scale.", {
+							scope: { kind: "project", projectId: "p1" },
+							projectName: "Thesis project",
+							lastSaidAt: new Date(Date.now() - 21 * DAY).toISOString(),
+						}),
+						memory("m3", "Her thesis supervisor is Prof. Costa.", {
+							lastSaidAt: null,
+						}),
+					],
+					totals: { chats: 0, memory: 3, documents: 0, media: 0, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const section = screen.getByTestId("search-section-memory");
+			const [first, second, third] = Array.from(
+				section.querySelectorAll(".search-result-item"),
+			);
+			expect(first.textContent).toContain("Writing a thesis on timber housing");
+			expect(first.textContent).toContain("Personal");
+			expect(first.textContent).toContain("said 3 days ago");
+			expect(second.textContent).toContain("Thesis project");
+			expect(second.textContent).toContain("said 3 weeks ago");
+			// An entry with no date says nothing about when.
+			expect(third.textContent).toContain("Personal");
+			expect(third.textContent).not.toContain("said");
+			expect(
+				first
+					.closest(".search-result-shell")
+					?.querySelector("svg")
+					?.getAttribute("class"),
+			).toContain("lucide-brain");
+		});
+
+		it("say the age in Hungarian, in the app's own words", async () => {
+			uiLanguage.set("hu");
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					memories: [memory("m1", "Szakdolgozat a faházakról")],
+					totals: { chats: 0, memory: 1, documents: 0, media: 0, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const row = screen.getByTestId("search-section-memory");
+			expect(row.textContent).toContain("Személyes");
+			expect(row.textContent).toContain("3 napja");
+			expect(row.textContent).not.toContain("said");
+		});
+
+		it("opens a memory row at its place in Memory", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					memories: [memory("m1", "Writing a thesis")],
+					totals: { chats: 0, memory: 1, documents: 0, media: 0, apps: 0 },
+					memorySearchable: true,
+				}),
+			);
+			const onClose = vi.fn();
+			render(SearchModal, { props: { isOpen: true, onClose } });
+
+			await fireEvent.click(await screen.findByText("Writing a"));
+
+			expect(goto).toHaveBeenCalledWith(
+				"/knowledge?tab=memory&memoryScope=personal&memoryEntry=m1&memoryQuery=x",
+			);
+			expect(onClose).toHaveBeenCalledTimes(1);
+		});
+
+		it("draw a picture row with its thumbnail and a video row with its duration", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("p1", "Timber house section", {
+							searchKind: "media",
+							badge: "image",
+							originConversationTitle: "Cover ideas",
+							preview: {
+								src: "/api/images/files/f1?variant=thumb&conversationId=c1",
+								width: 1248,
+								height: 832,
+							},
+							match: {
+								type: "content",
+								snippet:
+									"a cut-through section of a timber house for my thesis",
+							},
+						}),
+						document("v1", "Model turntable", {
+							searchKind: "media",
+							badge: "video",
+							originConversationTitle: "Cover ideas",
+							durationMs: 6000,
+							preview: {
+								src: "/api/images/files/f2?variant=poster&conversationId=c1",
+								width: 1280,
+								height: 704,
+							},
+						}),
+						document("p2", "Uploaded photo", {
+							searchKind: "media",
+							badge: "image",
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 0, media: 3, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const section = screen.getByTestId("search-section-media");
+			const rows = Array.from(
+				section.querySelectorAll(".search-result-document"),
+			);
+			const thumb = (row: Element) => row.querySelector("img");
+			expect(thumb(rows[0])?.getAttribute("src")).toBe(
+				"/api/images/files/f1?variant=thumb&conversationId=c1",
+			);
+			expect(rows[0].textContent).toContain("Image");
+			expect(rows[0].textContent).toContain("Made in “Cover ideas”");
+			expect(rows[0].textContent).toContain(
+				"a cut-through section of a timber house",
+			);
+			expect(thumb(rows[1])?.getAttribute("src")).toBe(
+				"/api/images/files/f2?variant=poster&conversationId=c1",
+			);
+			expect(rows[1].textContent).toContain("Video");
+			expect(rows[1].textContent).toContain("0:06");
+			// A picture with no thumbnail keeps an icon tile.
+			expect(thumb(rows[2])).toBeNull();
+			expect(rows[2].querySelector(".search-result-icon svg")).not.toBeNull();
+			expect(rows[1].querySelector(".search-result-icon svg")).not.toBeNull();
+		});
+
+		it("highlight words typed in another order", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					query: "kitchen plan",
+					conversations: [chat("c1", "Plan for the kitchen")],
+					totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await search("kitchen plan", "search-section-chats");
+
+			const highlighted = Array.from(
+				globalThis.document.querySelectorAll(".search-highlight"),
+			).map((element) => element.textContent);
+			expect(highlighted).toEqual(["Plan", "kitchen"]);
+		});
+
+		it("highlight a word without accents in an accented text", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					query: "arviz",
+					conversations: [chat("c1", "Árvíztűrő tükörfúrógép")],
+					totals: { chats: 1, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await search("arviz", "search-section-chats");
+
+			const highlighted = Array.from(
+				globalThis.document.querySelectorAll(".search-highlight"),
+			).map((element) => element.textContent);
+			expect(highlighted).toEqual(["Árvíz"]);
+		});
+
+		it("name each kind with its badge and its icon", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("doc", "Saturday plan", { badge: "document" }),
+						document("sl", "Trip recap", { badge: "slides" }),
+						document("cv", "Vienna trip board", { badge: "canvas" }),
+						document("up", "contract.pdf", { badge: "uploaded" }),
+						document("gen", "figures.xlsx", { badge: "generated" }),
+						document("rep", "Timber housing", { badge: "report" }),
+						document("sn", "House style", { badge: "skill_note" }),
+						document("im", "Harbour at dusk", {
+							badge: "image",
+							searchKind: "media",
+						}),
+						document("vi", "Turntable", {
+							badge: "video",
+							searchKind: "media",
+						}),
+						document("ap", "Trip cost splitter", {
+							badge: "app",
+							searchKind: "apps",
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 7, media: 2, apps: 1 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+
+			const row = (title: string) =>
+				screen.getByText(title).closest(".search-result-document");
+			const expected: Array<[string, string, string]> = [
+				["Saturday plan", "Document", "lucide-square-pen"],
+				["Trip recap", "Slides", "lucide-presentation"],
+				["Vienna trip board", "Canvas", "lucide-layout-dashboard"],
+				["contract.pdf", "Uploaded", "lucide-file-up"],
+				["figures.xlsx", "Generated", "lucide-file-text"],
+				["Timber housing", "Report", "lucide-book-open"],
+				["House style", "Skill note", "lucide-notebook-pen"],
+				["Harbour at dusk", "Image", "lucide-image"],
+				["Turntable", "Video", "lucide-film"],
+				["Trip cost splitter", "App", "lucide-app-window"],
+			];
+			for (const [title, badge, icon] of expected) {
+				const element = row(title);
+				expect(
+					element?.querySelector(".search-badge")?.textContent,
+					title,
+				).toBe(badge);
+				expect(
+					element
+						?.querySelector(".search-result-icon svg")
+						?.getAttribute("class"),
+					title,
+				).toContain(icon);
+			}
+		});
+
+		it("choosing a picture hands it to the knowledge page's panel", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("art-img", "Harbour at dusk", {
+							badge: "image",
+							searchKind: "media",
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 0, media: 1, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await fireEvent.click(await screen.findByText("Harbour at dusk"));
+
+			expect(goto).toHaveBeenCalledWith("/knowledge?open_artifact=art-img");
+		});
+	});
+
+	describe("the keyboard", () => {
+		function respondWithEveryKind() {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					memories: [memory("m1", "Writing a thesis on timber housing")],
+					documents: [
+						document("d1", "Thesis outline"),
+						document("p1", "Timber house section", {
+							searchKind: "media",
+							badge: "image",
+						}),
+						document("a1", "Thesis deadline countdown", {
+							searchKind: "apps",
+							badge: "app",
+						}),
+					],
+					totals: { chats: 1, memory: 1, documents: 1, media: 1, apps: 1 },
+					memorySearchable: true,
+				}),
+			);
+		}
+
+		it("moves through every kind with the arrow keys", async () => {
+			respondWithEveryKind();
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+
+			const input = screen.getByLabelText(SEARCH_BOX);
+			const activeText = () =>
+				globalThis.document.getElementById(
+					input.getAttribute("aria-activedescendant") ?? "",
+				)?.textContent ?? "";
+			const seen: string[] = [activeText()];
+			for (let index = 0; index < 4; index++) {
+				await fireEvent.keyDown(window, { key: "ArrowDown" });
+				seen.push(activeText());
+			}
+			expect(seen[0]).toContain("Thesis structure");
+			expect(seen[1]).toContain("Writing a thesis on timber housing");
+			expect(seen[2]).toContain("Thesis outline");
+			expect(seen[3]).toContain("Timber house section");
+			expect(seen[4]).toContain("Thesis deadline countdown");
+
+			// Round the end and back.
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+			expect(activeText()).toContain("Thesis structure");
+			await fireEvent.keyDown(window, { key: "ArrowUp" });
+			expect(activeText()).toContain("Thesis deadline countdown");
+		});
+
+		it("opens the active row, whatever its kind, with Enter", async () => {
+			respondWithEveryKind();
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+			await fireEvent.keyDown(window, { key: "Enter" });
+
+			expect(goto).toHaveBeenCalledWith(
+				"/knowledge?tab=memory&memoryScope=personal&memoryEntry=m1&memoryQuery=x",
+			);
+		});
+
 		it("states the keys that already work", async () => {
-			respondWithReport();
+			respondWithEveryKind();
 			render(SearchModal, { props: { isOpen: true } });
 
 			await screen.findByTestId("search-result-count");
@@ -632,12 +1235,18 @@ describe("SearchModal", () => {
 			open.mockRestore();
 		});
 
-		it("counts the results once something is typed", async () => {
-			respondWithReport();
+		it("counts the results once something is typed, from the server's totals", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 2, memory: 3, documents: 5, media: 2, apps: 1 },
+					memorySearchable: true,
+				}),
+			);
 			render(SearchModal, { props: { isOpen: true } });
 
 			const count = await screen.findByTestId("search-result-count");
-			expect(count.textContent).toContain("3 results across 3 kinds");
+			expect(count.textContent).toContain("13 results across 5 kinds");
 		});
 
 		it("carries no result count before anything is typed", async () => {
@@ -649,194 +1258,6 @@ describe("SearchModal", () => {
 			expect(
 				screen.queryByTestId("search-result-count"),
 			).not.toBeInTheDocument();
-		});
-	});
-
-	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row is
-	// labelled with its real kind, in the app's one vocabulary
-	// (`artifacts.type.*`), and gets its own icon — never a new badge-key
-	// family for the same five words.
-	describe("an artifact-family row", () => {
-		function makeArtifactFamilyDocument(
-			overrides: Partial<{
-				id: string;
-				name: string;
-				kind: "document" | "app" | "canvas" | "slides" | "image";
-			}>,
-		) {
-			const id = overrides.id ?? "art-1";
-			return {
-				id,
-				displayArtifactId: id,
-				promptArtifactId: null,
-				familyArtifactIds: [id],
-				name: overrides.name ?? "Vienna trip board",
-				mimeType: null,
-				sizeBytes: null,
-				conversationId: "conv-1",
-				summary: null,
-				documentOrigin: undefined,
-				documentFamilyStatus: null,
-				documentLabel: null,
-				kind: overrides.kind ?? "canvas",
-				updatedAt: Date.now(),
-				href: `/knowledge?open_artifact=${id}`,
-				sourceHref: null,
-				match: { type: "recent", snippet: null },
-			};
-		}
-
-		it("labels a kind-bearing row with artifacts.type.<kind>, not a searchModal badge key", async () => {
-			fetchWorkspaceSearch.mockResolvedValue({
-				mode: "default",
-				query: "",
-				conversations: [],
-				documents: [
-					makeArtifactFamilyDocument({
-						kind: "canvas",
-						name: "Vienna trip board",
-					}),
-				],
-				documentOverflow: false,
-				knowledgeHref: "/knowledge",
-			});
-
-			render(SearchModal, { props: { isOpen: true } });
-
-			await screen.findByText("Vienna trip board");
-			expect(screen.getByText("Canvas")).toBeInTheDocument();
-			// None of the pre-existing badge words leak onto this row.
-			expect(screen.queryByText("Generated")).not.toBeInTheDocument();
-			expect(screen.queryByText("Uploaded")).not.toBeInTheDocument();
-		});
-
-		it("picks the right Lucide icon per kind", async () => {
-			fetchWorkspaceSearch.mockResolvedValue({
-				mode: "default",
-				query: "",
-				conversations: [],
-				documents: [
-					makeArtifactFamilyDocument({
-						id: "art-doc",
-						kind: "document",
-						name: "Saturday plan",
-					}),
-					makeArtifactFamilyDocument({
-						id: "art-app",
-						kind: "app",
-						name: "Trip cost splitter",
-					}),
-					makeArtifactFamilyDocument({
-						id: "art-canvas",
-						kind: "canvas",
-						name: "Vienna trip board",
-					}),
-					makeArtifactFamilyDocument({
-						id: "art-slides",
-						kind: "slides",
-						name: "Trip recap",
-					}),
-				],
-				documentOverflow: false,
-				knowledgeHref: "/knowledge",
-			});
-
-			render(SearchModal, { props: { isOpen: true } });
-
-			await screen.findByText("Saturday plan");
-			const iconFor = (title: string) =>
-				screen
-					.getByText(title)
-					.closest(".search-result-document")
-					?.querySelector(".search-result-icon svg");
-
-			expect(iconFor("Saturday plan")?.getAttribute("class")).toContain(
-				"lucide-square-pen",
-			);
-			expect(iconFor("Trip cost splitter")?.getAttribute("class")).toContain(
-				"lucide-app-window",
-			);
-			expect(iconFor("Vienna trip board")?.getAttribute("class")).toContain(
-				"lucide-layout-dashboard",
-			);
-			expect(iconFor("Trip recap")?.getAttribute("class")).toContain(
-				"lucide-presentation",
-			);
-		});
-
-		it("shows an image result with the Image icon and the kind word Image", async () => {
-			fetchWorkspaceSearch.mockResolvedValue({
-				mode: "default",
-				query: "",
-				conversations: [],
-				documents: [
-					makeArtifactFamilyDocument({
-						id: "art-img",
-						kind: "image",
-						name: "Harbour at dusk",
-					}),
-				],
-				documentOverflow: false,
-				knowledgeHref: "/knowledge",
-			});
-
-			render(SearchModal, { props: { isOpen: true } });
-
-			await screen.findByText("Harbour at dusk");
-			const row = screen
-				.getByText("Harbour at dusk")
-				.closest(".search-result-document");
-			expect(
-				row?.querySelector(".search-result-icon svg")?.getAttribute("class"),
-			).toContain("lucide-image");
-			expect(screen.getByText("Image")).toBeInTheDocument();
-		});
-
-		it("choosing an image result hands it to the knowledge page's panel", async () => {
-			fetchWorkspaceSearch.mockResolvedValue({
-				mode: "default",
-				query: "",
-				conversations: [],
-				documents: [
-					makeArtifactFamilyDocument({
-						id: "art-img",
-						kind: "image",
-						name: "Harbour at dusk",
-					}),
-				],
-				documentOverflow: false,
-				knowledgeHref: "/knowledge",
-			});
-
-			render(SearchModal, { props: { isOpen: true } });
-
-			await fireEvent.click(await screen.findByText("Harbour at dusk"));
-
-			expect(goto).toHaveBeenCalledWith("/knowledge?open_artifact=art-img");
-		});
-
-		it("is reachable and keyboard-activatable like every other result row", async () => {
-			fetchWorkspaceSearch.mockResolvedValue({
-				mode: "default",
-				query: "",
-				conversations: [],
-				documents: [
-					makeArtifactFamilyDocument({
-						kind: "canvas",
-						name: "Vienna trip board",
-					}),
-				],
-				documentOverflow: false,
-				knowledgeHref: "/knowledge",
-			});
-
-			render(SearchModal, { props: { isOpen: true } });
-
-			await screen.findByText("Vienna trip board");
-			await fireEvent.keyDown(window, { key: "ArrowDown" });
-			await fireEvent.keyDown(window, { key: "Enter" });
-
-			expect(goto).toHaveBeenCalledWith("/knowledge?open_artifact=art-1");
 		});
 	});
 });

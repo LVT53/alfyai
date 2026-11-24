@@ -382,6 +382,19 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// Read by the Memory job's failure policy at each waiting slice's end.
+		key: "MEMORY_RETAIN_WAIT_MINUTES",
+		group: "memory",
+		control: int(1, 1440, "min"),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_CONSOLIDATION_WAIT_MINUTES",
+		group: "memory",
+		control: int(1, 1440, "min"),
+		effect: "live",
+	},
+	{
 		key: "MEMORY_JUDGE_DRY_RUN",
 		group: "memory",
 		control: { kind: "bool" },
@@ -408,6 +421,39 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		group: "memory",
 		control: int(0, undefined, "min"),
 		effect: "restart",
+	},
+	{
+		// Read by native recall on every search; no percent unit exists, so the
+		// labels carry "(%)".
+		key: "MEMORY_RECALL_CORE_PERCENT",
+		group: "memory",
+		control: int(0, 100),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_RECALL_PROJECT_PERCENT",
+		group: "memory",
+		control: int(0, 100),
+		effect: "live",
+	},
+	{
+		// Read whenever recall or the Memory page decides what is Earlier.
+		key: "MEMORY_TEMPORARY_EARLIER_DAYS",
+		group: "memory",
+		control: int(1, 3650, "days"),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_ONGOING_QUIET_DAYS",
+		group: "memory",
+		control: int(1, 3650, "days"),
+		effect: "live",
+	},
+	{
+		key: "MEMORY_ONGOING_EARLIER_DAYS",
+		group: "memory",
+		control: int(1, 3650, "days"),
+		effect: "live",
 	},
 	{
 		key: "WORKING_SET_DOCUMENT_TOKEN_BUDGET",

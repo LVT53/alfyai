@@ -12,6 +12,7 @@ import { shortlistSemanticMatchesBySubject } from "$lib/server/services/semantic
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
 import { usesNativeMemory } from "../memory-profile/chat-delivery";
 import { recallMemory } from "./native";
+import { formatRecalledMemory } from "./recall-format";
 import { buildMemoryReadSanitizer } from "./sanitize";
 import {
 	recordMemoryPromptTelemetry,
@@ -162,19 +163,20 @@ export async function getPersonaMemoryContext(
 ): Promise<PersonaMemoryContextResult> {
 	const query = params.query?.trim() || DEFAULT_PERSONA_RECALL_QUERY;
 	if (usesNativeMemory(params.userId)) {
+		// One clock decides what is Earlier and writes each row's age.
+		const now = new Date();
 		const recalled = await recallMemory(params.userId, {
 			conversationId: params.conversationId,
 			query,
 			tokenBudget: PERSONA_ACTIVE_PROFILE_TOKEN_BUDGET,
+			now,
 		});
 		return {
 			success: true,
 			mode: "persona",
 			status: recalled.length ? "available" : "empty",
 			source: "hindsight",
-			content: recalled.length
-				? recalled.map((item) => `- ${item.text}`).join("\n")
-				: null,
+			content: recalled.length ? formatRecalledMemory(recalled, now) : null,
 			evidenceCandidates:
 				params.includeEvidenceCandidates === false
 					? []

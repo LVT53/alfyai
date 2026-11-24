@@ -11,7 +11,7 @@ RUN test "$HINDSIGHT_COMMIT" = 9fb28dbd724dc1ce4da7cb4c49008e601db76c5f \
  && mkdir /opt/extensions \
  && cp -R hindsight-extensions/static-keys-tenant/hindsight_ext_static_keys_tenant /opt/extensions/ \
  && git rev-parse HEAD > /opt/extensions/engine-commit
-COPY alfyai_http.py alfyai_tenant.py alfyai_admission.py /opt/extensions/
+COPY alfyai_http.py alfyai_tenant.py alfyai_admission.py alfyai_admission_queue.py /opt/extensions/
 ENV PYTHONPATH=/opt/extensions \
     HINDSIGHT_API_TENANT_EXTENSION=alfyai_tenant:AlfyTenant \
     HINDSIGHT_API_HTTP_EXTENSION=alfyai_http:AlfyIdentity \
@@ -20,7 +20,7 @@ ENV PYTHONPATH=/opt/extensions \
     HINDSIGHT_API_LLM_TRACE_DELETE_WITH_DOCUMENT=true \
     HINDSIGHT_API_OTEL_TRACES_ENABLED=false \
     HINDSIGHT_API_LOG_LEVEL=warning
-RUN python -c 'import hindsight_ext_static_keys_tenant, alfyai_http'
+RUN python -c 'import hindsight_ext_static_keys_tenant, alfyai_http, alfyai_admission'
 RUN useradd --create-home --uid 10001 hindsight
 USER hindsight
 EXPOSE 8888

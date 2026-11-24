@@ -1,10 +1,12 @@
-// The clip's bytes, decoded and joined by the ffmpeg the box already has.
+// The clip's bytes, decoded by the ffmpeg the box already has.
 //
-// LTX hands back an mp4; the rest of the take needs frames out of it (the last
-// frame to chain a second segment, the poster, and the WHOLE clip as the
-// explicit filter's raw check stream) and, for a 10 s take, two clips joined. ffmpeg/ffprobe are
-// the deployment's own binaries (`ffmpeg`, `ffprobe` on PATH): the feasibility
-// trial used them for the concat, and no npm package decodes h264 here.
+// LTX hands back an mp4; the rest of the take needs frames out of it (the
+// poster, and the WHOLE clip as the explicit filter's raw check stream) and its
+// container stripped of ComfyUI's tags. ffmpeg/ffprobe are the deployment's own
+// binaries (`ffmpeg`, `ffprobe` on PATH): the feasibility trial used them for
+// the concat, and no npm package decodes h264 here. `extractLastFrame` and
+// `concatClips` served the 10 s chain; no take calls them since a 10 s take
+// became one render.
 //
 // Every call works in its own temp directory and cleans it up, so a failed
 // decode leaves nothing behind. A missing binary is `unavailable` (the take
@@ -192,7 +194,9 @@ export async function extractFrameAt(
 }
 
 /**
- * The clip's last decoded frame: what a 10 s take feeds the second segment.
+ * The clip's last decoded frame: what a 10 s take fed its second segment, back
+ * when a 10 s take was two. No take calls it now.
+ *
  * ffmpeg decodes the clip's last second and writes every frame to ONE file
  * (`-update 1`), so the file holds the very last frame whatever count ComfyUI
  * wrote. A single frame read near the end (`-sseof -0.1 -frames:v 1`) lands one
@@ -420,10 +424,10 @@ export function videoGifArgs(input: string, output: string): string[] {
 }
 
 /**
- * The clip as a GIF. The whole clip is converted: unlike a segment's guide,
- * nothing here stops at five seconds, so a ten-second take lands as ten
- * seconds of GIF. A missing binary is `unavailable`; a decode that fails is
- * `failed`, exactly as the chain's own calls answer.
+ * The clip as a GIF. The whole clip is converted: nothing here stops at five
+ * seconds, so a ten-second take lands as ten seconds of GIF. A missing binary
+ * is `unavailable`; a decode that fails is `failed`, exactly as the other
+ * media calls answer.
  */
 export async function convertToGif(
 	mp4: Uint8Array,
@@ -467,8 +471,9 @@ async function hasAudioStream(
 const JOIN_FADE_SECONDS = 0.04;
 
 /**
- * Two clips joined end to end, in order: a 10 s take's segments. Re-encoded
- * once, because the join is not a plain concatenation (review C-3):
+ * Two clips joined end to end, in order: the two segments of a 10 s take, back
+ * when a 10 s take was two; no take calls it now. Re-encoded once, because the
+ * join is not a plain concatenation (review C-3):
  *
  * - Segment 2 begins on its guide, segment 1's last frame (pass 2 pins its
  *   first latent frame to it), so its frame 0 is a copy of the frame just

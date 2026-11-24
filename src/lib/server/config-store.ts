@@ -11,7 +11,12 @@ import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
 import type { ImageModel, ModelConfig } from "./env";
-import { config as envConfig } from "./env";
+import {
+	config as envConfig,
+	parseWholeDays,
+	parseWholeMinutes,
+	parseWholePercent,
+} from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
 	getAvailableModelsWithProvidersForSettings,
@@ -137,6 +142,13 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_CONSOLIDATION_MODEL",
 	"MEMORY_JUDGE_IDLE_MINUTES",
 	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"MEMORY_RECALL_CORE_PERCENT",
+	"MEMORY_RECALL_PROJECT_PERCENT",
+	"MEMORY_TEMPORARY_EARLIER_DAYS",
+	"MEMORY_ONGOING_QUIET_DAYS",
+	"MEMORY_ONGOING_EARLIER_DAYS",
+	"MEMORY_RETAIN_WAIT_MINUTES",
+	"MEMORY_CONSOLIDATION_WAIT_MINUTES",
 	"HINDSIGHT_URL",
 	"HINDSIGHT_WORKER_ENABLED",
 	"HINDSIGHT_CONCURRENCY",
@@ -256,6 +268,13 @@ export interface RuntimeConfig {
 	memoryJudgeIdleMinutes: number;
 	memoryConsolidationIntervalMinutes: number;
 	memoryJudgeDryRun: boolean;
+	memoryRecallCorePercent: number;
+	memoryRecallProjectPercent: number;
+	memoryTemporaryEarlierDays: number;
+	memoryOngoingQuietDays: number;
+	memoryOngoingEarlierDays: number;
+	memoryRetainWaitMinutes: number;
+	memoryConsolidationWaitMinutes: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -421,6 +440,13 @@ function buildDefaultConfig(): RuntimeConfig {
 		memoryConsolidationIntervalMinutes:
 			envConfig.memoryConsolidationIntervalMinutes,
 		memoryJudgeDryRun: envConfig.memoryJudgeDryRun,
+		memoryRecallCorePercent: envConfig.memoryRecallCorePercent,
+		memoryRecallProjectPercent: envConfig.memoryRecallProjectPercent,
+		memoryTemporaryEarlierDays: envConfig.memoryTemporaryEarlierDays,
+		memoryOngoingQuietDays: envConfig.memoryOngoingQuietDays,
+		memoryOngoingEarlierDays: envConfig.memoryOngoingEarlierDays,
+		memoryRetainWaitMinutes: envConfig.memoryRetainWaitMinutes,
+		memoryConsolidationWaitMinutes: envConfig.memoryConsolidationWaitMinutes,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -1117,6 +1143,40 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (Number.isFinite(n) && n > 0)
 			config.memoryConsolidationIntervalMinutes = n;
 	},
+	// A share that is not a whole percent from 0 to 100 leaves the current
+	// value: a typo must not hand the whole recall budget to one lane.
+	MEMORY_RECALL_CORE_PERCENT: (config, value) => {
+		const percent = parseWholePercent(value);
+		if (percent !== null) config.memoryRecallCorePercent = percent;
+	},
+	MEMORY_RECALL_PROJECT_PERCENT: (config, value) => {
+		const percent = parseWholePercent(value);
+		if (percent !== null) config.memoryRecallProjectPercent = percent;
+	},
+	// An aging threshold that is not a whole day count from 1 to 3650 leaves
+	// the current value: a typo must not make every entry Earlier at once.
+	MEMORY_TEMPORARY_EARLIER_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryTemporaryEarlierDays = days;
+	},
+	MEMORY_ONGOING_QUIET_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryOngoingQuietDays = days;
+	},
+	MEMORY_ONGOING_EARLIER_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryOngoingEarlierDays = days;
+	},
+	// A wait that is not a whole minute count from 1 to 1440 leaves the current
+	// value: a typo must not make every Memory job give up on Hindsight at once.
+	MEMORY_RETAIN_WAIT_MINUTES: (config, value) => {
+		const minutes = parseWholeMinutes(value);
+		if (minutes !== null) config.memoryRetainWaitMinutes = minutes;
+	},
+	MEMORY_CONSOLIDATION_WAIT_MINUTES: (config, value) => {
+		const minutes = parseWholeMinutes(value);
+		if (minutes !== null) config.memoryConsolidationWaitMinutes = minutes;
+	},
 	HINDSIGHT_CURATION_MODEL: (config, value) => {
 		config.hindsightCurationModel = /^(model[12]|provider:[^:]+:[^:]+)$/.test(
 			value.trim(),
@@ -1647,6 +1707,57 @@ export function getParallelFreeMonthlyUsd(): number {
 }
 
 /**
+ * Admin-configurable. The shares of each chat's memory space that native
+ * Memory recall keeps: `corePercent` for the person's basics and, in a project
+ * chat, `projectPercent` for that project's own memories. Whole percents from
+ * 0 to 100; what the message is about fills the rest.
+ */
+export function getMemoryRecallShares(): {
+	corePercent: number;
+	projectPercent: number;
+} {
+	return {
+		corePercent: runtimeConfig.memoryRecallCorePercent,
+		projectPercent: runtimeConfig.memoryRecallProjectPercent,
+	};
+}
+
+/**
+ * Admin-configurable. When native Memory entries age, in whole days: a
+ * temporary entry is Earlier `temporaryEarlierDays` after the later of its
+ * last mention and its event; an ongoing one is quiet `ongoingQuietDays` and
+ * Earlier `ongoingEarlierDays` after its last mention
+ * (`memory-profile/entry-time.ts`).
+ */
+export function getMemoryAgingThresholds(): {
+	temporaryEarlierDays: number;
+	ongoingQuietDays: number;
+	ongoingEarlierDays: number;
+} {
+	return {
+		temporaryEarlierDays: runtimeConfig.memoryTemporaryEarlierDays,
+		ongoingQuietDays: runtimeConfig.memoryOngoingQuietDays,
+		ongoingEarlierDays: runtimeConfig.memoryOngoingEarlierDays,
+	};
+}
+
+/**
+ * Admin-configurable. How long a Memory job waits for Hindsight to finish, in
+ * all, across its attempts (`memory-profile/delivery-policy.ts`): a retain,
+ * and a consolidation or the bank's quiet before a capture. Waiting spends
+ * none of the job's attempts; past this the job ends `native_operation_timeout`.
+ */
+export function getMemoryNativeWaits(): {
+	retainMs: number;
+	consolidationMs: number;
+} {
+	return {
+		retainMs: runtimeConfig.memoryRetainWaitMinutes * 60_000,
+		consolidationMs: runtimeConfig.memoryConsolidationWaitMinutes * 60_000,
+	};
+}
+
+/**
  * ADR 0063: the model configured for each Atlas v3 task. A `null` entry means
  * the task inherits ATLAS_SYNTHESIS_MODEL or ATLAS_AUDIT_MODEL; the inheritance
  * itself lives in `atlas-v3/config.ts` so the choice of which key a task falls
@@ -1925,6 +2036,15 @@ export function getResolvedAdminConfigValues(
 		MEMORY_JUDGE_IDLE_MINUTES: String(config.memoryJudgeIdleMinutes),
 		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
 			config.memoryConsolidationIntervalMinutes,
+		),
+		MEMORY_RECALL_CORE_PERCENT: String(config.memoryRecallCorePercent),
+		MEMORY_RECALL_PROJECT_PERCENT: String(config.memoryRecallProjectPercent),
+		MEMORY_TEMPORARY_EARLIER_DAYS: String(config.memoryTemporaryEarlierDays),
+		MEMORY_ONGOING_QUIET_DAYS: String(config.memoryOngoingQuietDays),
+		MEMORY_ONGOING_EARLIER_DAYS: String(config.memoryOngoingEarlierDays),
+		MEMORY_RETAIN_WAIT_MINUTES: String(config.memoryRetainWaitMinutes),
+		MEMORY_CONSOLIDATION_WAIT_MINUTES: String(
+			config.memoryConsolidationWaitMinutes,
 		),
 		HINDSIGHT_URL: config.hindsightUrl,
 		HINDSIGHT_WORKER_ENABLED: String(config.hindsightWorkerEnabled),

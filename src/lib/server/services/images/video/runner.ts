@@ -335,8 +335,8 @@ async function followSegment(
 		} else if (event.type === "started") {
 			if (started) return;
 			started = true;
-			// The segment's prompt is on the GPU: the first one starts the
-			// countdown with the whole plan, a later one its own segment's load.
+			// The prompt is on the GPU: the first start begins the countdown with
+			// the whole plan; a re-followed prompt changes nothing (`take-eta.ts`).
 			const etaAt = eta.start(Date.now());
 			queue(() => enterPhase(ctx, "starting", etaAt));
 		} else if (event.type === "progress") {

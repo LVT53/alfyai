@@ -4,6 +4,8 @@
 		"scripts/repair-orphaned-generated-files.ts",
 		"scripts/seed-admin.ts",
 		"scripts/seed-test-user.ts",
+		// Memory part 2's documented rollback step (deploy/hindsight/README.md).
+		"scripts/memory-bank-config-restore.ts",
 		"scripts/validate-i18n.ts",
 		"scripts/verify-live-file-production-types.ts",
 		"scripts/evaluate-tool-guidance-ab.ts",
@@ -31,6 +33,13 @@
 		"scripts/memory-judge-eval.ts",
 		// The standalone operator CLI for inspecting and preparing Memory migration.
 		"scripts/memory-backfill.ts",
+		// Memory part 4's canonical operator tools (docs/plans/hindsight-memory/migration-runbook.md).
+		"scripts/memory-resend.ts",
+		"scripts/memory-reattach.ts",
+		"scripts/memory-recover-consolidation.ts",
+		"scripts/memory-drain.ts",
+		// The label migration's command (docs/plans/hindsight-memory/migration-runbook.md, "Label migration").
+		"scripts/memory-label-migration.ts",
 		"scripts/seed-campaign-data.ts",
 		"scripts/sweep-orphan-generated-artifacts.ts",
 		"scripts/verify-live-extraction-types.ts",
@@ -54,6 +63,12 @@
 		"docs/plans/hindsight-memory/native-lifecycle-acceptance/run.ts",
 		"docs/plans/hindsight-memory/integrated-native-benchmark/run.ts",
 		"docs/plans/hindsight-memory/integrated-native-benchmark/paired/run.ts",
+		// Memory part 2's documented acceptance command (synthetic, local Hindsight).
+		"docs/plans/hindsight-memory/part-2-acceptance/run.ts",
+		// The label migration's documented acceptance command (synthetic, Flash-Next).
+		"docs/plans/hindsight-memory/label-migration-acceptance/run.ts",
+		// The Earlier gate's documented blind measurement (synthetic, no model).
+		"docs/plans/hindsight-memory/label-migration-acceptance/earlier-blind.ts",
 		// Standalone synthetic paired migration rehearsal, invoked by its runbook.
 		"docs/plans/hindsight-memory/paired-migration-rehearsal/run.ts",
 		// Private owner-pilot operator preflight and its synthetic mirror verification.

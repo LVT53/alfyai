@@ -4,6 +4,10 @@ import type {
 	MemoryScope,
 	MemorySource,
 } from "$lib/memory-types";
+import {
+	getMemoryAgingThresholds,
+	getMemoryRecallShares,
+} from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
 	conversations,
@@ -17,6 +21,9 @@ import {
 	type NativeMemory,
 	NativeMemoryError,
 } from "../memory-profile/contracts";
+import type { MemoryTimeState } from "../memory-profile/entry-time";
+import { groupFactsById, memoryEntryView } from "../memory-profile/entry-view";
+import { readFactLabels } from "../memory-profile/fact-labels";
 import { nativeMemoryClient } from "../memory-profile/hindsight-client";
 import {
 	admittedNativeFacts,
@@ -28,11 +35,74 @@ import {
 	readPublishedMemory,
 } from "../memory-profile/publication";
 import { getMemoryAccount } from "../memory-profile/revisions";
-/** Native ranking can select only exact, still-admitted accepted observations. */
+import {
+	type MentionBank,
+	mentionBank,
+	mentionsMemoryEntry,
+	mentionWords,
+} from "./earlier-mention";
+import {
+	allocateRecall,
+	type RecallCandidate,
+	type RecallLane,
+} from "./recall-allocation";
+import {
+	parseEarlierStates,
+	RECALL_EARLIER_NOTE,
+	RECALL_PROJECT_HEADING,
+	RECALL_TIMES_NOTE,
+	recallLineTokens,
+} from "./recall-format";
+import { CORE_MEMORY_QUERY, messageRecallQuery } from "./recall-query";
+
+/** An accepted row recall may offer, with what its entry is built from. */
+interface OfferedRow {
+	bankId: string;
+	row: ReturnType<typeof readPublishedMemory>[number];
+	scope: MemoryScope;
+	facts: ReturnType<typeof admittedNativeFacts>;
+	ids: unknown[];
+	/** The entry as the model would read it, without its sources. */
+	entry: AdmittedMemoryEvidence & { timeState: MemoryTimeState };
+}
+
+/**
+ * An Earlier entry reaches a turn only from these top places of its bank's
+ * message ranking, and only when the message mentions it (`mentionsMemoryEntry`).
+ */
+const EARLIER_TOP_PLACES = 3;
+/** And at most this many reach one turn. */
+const EARLIER_PER_TURN = 3;
+
+/** The searches recall runs on a bank: the message's, and the basics'. */
+type RecallList = "message" | "core";
+
+/** How one bank's searches ended, for its lists and its log line. */
+interface BankSearch {
+	/** The observations each answered search ranked. */
+	rankings: Map<RecallList, NativeMemory[]>;
+	outcomes: ("answered" | "timed_out" | "failed")[];
+	slowestMs: number;
+}
+
+/**
+ * Native ranking can select only exact, still-admitted accepted observations.
+ * Each bank is searched with the person's message and, with `core` (the
+ * per-turn section), also for their basics; the tool searches with its query
+ * alone. Makes no model call.
+ */
 export async function recallMemory(
 	userId: string,
-	input: { conversationId: string; query: string; tokenBudget: number },
+	input: {
+		conversationId: string;
+		query: string;
+		tokenBudget: number;
+		core?: boolean;
+		/** The turn's one clock: it decides what is Earlier and each row's age. */
+		now?: Date;
+	},
 ): Promise<AdmittedMemoryEvidence[]> {
+	const now = input.now ?? new Date();
 	if (
 		!(await isMemoryActiveForConversation({
 			userId,
@@ -96,31 +166,79 @@ export async function recallMemory(
 			)
 			.all();
 	const banks = readableBanks(db);
-	const rankings = new Map<string, NativeMemory[] | null>();
+	const budget = Math.max(0, Math.floor(input.tokenBudget));
+	const message = messageRecallQuery(
+		input.query,
+		input.core ? chat.title : undefined,
+	);
+	// What an Earlier entry must be mentioned in to join a turn: the person's
+	// message as written. The chat's title helps a short message's search, but
+	// never makes a mention. Its words are read once per recall, and only when
+	// an Earlier entry ranks at the top.
+	let mentionedWords: string[] | undefined;
+	const mentions = (entryText: string, bank: MentionBank) => {
+		mentionedWords ??= mentionWords(input.query);
+		return mentionsMemoryEntry(mentionedWords, entryText, bank);
+	};
+	const searches: { list: RecallList; query: string }[] = [
+		...(message === null ? [] : [{ list: "message" as const, query: message }]),
+		...(input.core
+			? [{ list: "core" as const, query: CORE_MEMORY_QUERY }]
+			: []),
+	];
+	const searched = new Map<string, BankSearch>();
 	const confirmedEvidence = new Map<string, Map<string, NativeMemory>>();
 	for (const bank of banks) {
 		if (!isStillActive(db)) return [];
-		let ranking: NativeMemory[] | null = null;
+		const search: BankSearch = {
+			rankings: new Map(),
+			outcomes: [],
+			slowestMs: 0,
+		};
+		searched.set(bank.id, search);
+		const signal = AbortSignal.timeout(2_000);
+		let client: ReturnType<typeof nativeMemoryClient>;
 		try {
-			const client = nativeMemoryClient(
-				bank.id,
-				account.tenantId,
-				AbortSignal.timeout(2_000),
-			);
-			const matches = await client.recall(
-				input.query,
-				Math.max(0, Math.floor(input.tokenBudget)),
-				() => {
-					// Capability verification and name resolution can outlast consent.
-					if (
-						!readableBanks(db).some(({ id }) => id === bank.id) ||
-						!isStillActive(db)
-					)
-						throw new NativeMemoryError("native_cancelled", false);
-				},
-			);
-			ranking = matches.filter((m) => m.fact_type === "observation");
-			if (ranking.length && isStillActive(db)) {
+			client = nativeMemoryClient(bank.id, account.tenantId, signal);
+		} catch {
+			search.outcomes = searches.map(() => "failed");
+			continue;
+		}
+		const beforeDispatch = () => {
+			// Capability verification and name resolution can outlast consent.
+			if (
+				!readableBanks(db).some(({ id }) => id === bank.id) ||
+				!isStillActive(db)
+			)
+				throw new NativeMemoryError("native_cancelled", false);
+		};
+		// One client, so one capability check serves the bank's searches; each
+		// ends on its own, and a search that fails after the bank's time is up
+		// timed out.
+		const results = await Promise.all(
+			searches.map(async ({ list, query }) => {
+				const started = performance.now();
+				try {
+					const matches = await client.recall(query, budget, beforeDispatch);
+					search.rankings.set(
+						list,
+						matches.filter((m) => m.fact_type === "observation"),
+					);
+					return "answered" as const;
+				} catch {
+					return signal.aborted ? ("timed_out" as const) : ("failed" as const);
+				} finally {
+					search.slowestMs = Math.max(
+						search.slowestMs,
+						Math.round(performance.now() - started),
+					);
+				}
+			}),
+		);
+		search.outcomes = results;
+		const answered = [...search.rankings.values()];
+		try {
+			if (answered.some((ranking) => ranking.length) && isStillActive(db)) {
 				const { bridge, family } = db.transaction((tx) => ({
 					bridge: curatedNativeRankKeys(tx, bank),
 					family: approvedMigrationRankFamily(
@@ -131,15 +249,18 @@ export async function recallMemory(
 					),
 				}));
 				if (
-					ranking.some((rank) => {
-						const support = rank.source_memory_ids ?? [];
-						const key = nativeRankSupportKey(support);
-						return (
-							support.some((id) => family?.ids.has(id)) ||
-							(key && bridge.has(key))
-						);
-					})
+					answered.some((ranking) =>
+						ranking.some((rank) => {
+							const support = rank.source_memory_ids ?? [];
+							const key = nativeRankSupportKey(support);
+							return (
+								support.some((id) => family?.ids.has(id)) ||
+								(key && bridge.has(key))
+							);
+						}),
+					)
 				) {
+					// One evidence snapshot per bank, after its searches.
 					const snapshot = await client.list();
 					const unique = new Map(snapshot.map((row) => [row.id, row]));
 					if (unique.size === snapshot.length)
@@ -147,27 +268,46 @@ export async function recallMemory(
 				}
 			}
 		} catch {
-			/* Last accepted view remains useful during native outages. */
+			/* A failed snapshot keeps the answered rankings, unconfirmed. */
 		}
-		rankings.set(bank.id, ranking);
 	}
 	// Every eligible bank shares one live snapshot, including holds set during a native call.
-	return db.transaction((tx) => {
+	const thresholds = getMemoryAgingThresholds();
+	const entries = db.transaction((tx) => {
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
-		const output: AdmittedMemoryEvidence[] = [];
-		let remaining = Math.max(0, Math.floor(input.tokenBudget));
+		const offered = new Map<string, OfferedRow>();
+		// The per-turn path's Earlier rows, each at its place in its bank's
+		// message ranking: at most `EARLIER_PER_TURN` of them stay.
+		const earlier: { key: string; place: number; personal: boolean }[] = [];
+		const rows: Record<
+			MemoryScope["kind"],
+			Record<RecallList, RecallCandidate[]>
+		> = {
+			personal: { message: [], core: [] },
+			project: { message: [], core: [] },
+		};
 		for (const bank of banks) {
 			if (!readableIds.has(bank.id)) continue;
-			const ranking = rankings.get(bank.id) ?? null;
+			const search = searched.get(bank.id);
 			const accepted = readPublishedMemory(userId, bank.id, undefined, tx);
 			const facts = admittedNativeFacts(userId, bank.id, tx);
+			const factsById = groupFactsById(facts);
+			const labels = readFactLabels(tx, bank.id);
 			const scope: MemoryScope =
 				bank.scopeKey === "personal"
 					? { kind: "personal" }
 					: { kind: "project", projectId: bank.scopeKey.slice(8) };
-			const order = new Map<string, number>();
-			if (ranking) {
+			// Only a row whose sources can be read is offered.
+			const offerable = accepted.flatMap((row) => {
+				const ids: unknown = JSON.parse(row.sourceIdsJson);
+				return Array.isArray(ids) ? [{ row, ids }] : [];
+			});
+			// A bank whose every search failed offers every row in stored order.
+			const answered = search?.outcomes.includes("answered") ?? false;
+			let verifiedOrder = (_ranking: NativeMemory[]) =>
+				new Map<string, number>();
+			if (answered) {
 				const byId = new Map(accepted.map((row) => [row.nativeId, row]));
 				const bridge =
 					accepted[0]?.generation === bank.generation
@@ -211,105 +351,284 @@ export async function recallMemory(
 					if (live.fact_type === "observation")
 						for (const id of new Set(live.source_memory_ids ?? []))
 							liveCoverage.set(id, (liveCoverage.get(id) ?? 0) + 1);
-				for (const [index, rank] of ranking.entries()) {
-					const support = rank.source_memory_ids ?? [];
-					const key = nativeRankSupportKey(support);
-					if (!key) continue;
-					const direct = byId.get(rank.id);
-					const matchesDirect =
-						direct &&
-						direct.nativeText === rank.text &&
-						key ===
-							nativeRankSupportKey(
-								readAcknowledgedFacts(direct.sourceFingerprintsJson).map(
-									(fact) => fact.id,
-								),
-							);
-					if (
-						(direct && familyRows.has(direct.nativeId)) ||
-						support.some((id) => family?.ids.has(id))
-					) {
-						const match = verifiedFamily?.get(rank.id);
+				verifiedOrder = (ranking) => {
+					const order = new Map<string, number>();
+					for (const [index, rank] of ranking.entries()) {
+						const support = rank.source_memory_ids ?? [];
+						const key = nativeRankSupportKey(support);
+						if (!key) continue;
+						const direct = byId.get(rank.id);
+						const matchesDirect =
+							direct &&
+							direct.nativeText === rank.text &&
+							key ===
+								nativeRankSupportKey(
+									readAcknowledgedFacts(direct.sourceFingerprintsJson).map(
+										(fact) => fact.id,
+									),
+								);
+						if (
+							(direct && familyRows.has(direct.nativeId)) ||
+							support.some((id) => family?.ids.has(id))
+						) {
+							const match = verifiedFamily?.get(rank.id);
+							const live = evidence?.get(rank.id);
+							if (
+								match &&
+								match.text === match.prior.text &&
+								live?.text === rank.text &&
+								nativeRankSupportKey(live.source_memory_ids ?? []) === key &&
+								family?.rows.every(exactRankEvidence) &&
+								!order.has(match.prior.nativeId)
+							)
+								order.set(match.prior.nativeId, index);
+							continue;
+						}
+						if (matchesDirect && !bridged.has(direct.nativeId)) {
+							if (!order.has(direct.nativeId))
+								order.set(direct.nativeId, index);
+							continue;
+						}
+						const mapped = bridge.get(key);
+						const row = mapped ? byId.get(mapped) : undefined;
 						const live = evidence?.get(rank.id);
 						if (
-							match &&
-							match.text === match.prior.text &&
-							live?.text === rank.text &&
-							nativeRankSupportKey(live.source_memory_ids ?? []) === key &&
-							family?.rows.every(exactRankEvidence) &&
-							!order.has(match.prior.nativeId)
+							!row ||
+							!live ||
+							live.fact_type !== "observation" ||
+							live.text !== rank.text ||
+							nativeRankSupportKey(live.source_memory_ids ?? []) !== key ||
+							order.has(row.nativeId) ||
+							support.some((id) => liveCoverage.get(id) !== 1)
 						)
-							order.set(match.prior.nativeId, index);
-						continue;
+							continue;
+						if (exactRankEvidence(row)) order.set(row.nativeId, index);
 					}
-					if (matchesDirect && !bridged.has(direct.nativeId)) {
-						if (!order.has(direct.nativeId)) order.set(direct.nativeId, index);
-						continue;
-					}
-					const mapped = bridge.get(key);
-					const row = mapped ? byId.get(mapped) : undefined;
-					const live = evidence?.get(rank.id);
-					if (
-						!row ||
-						!live ||
-						live.fact_type !== "observation" ||
-						live.text !== rank.text ||
-						nativeRankSupportKey(live.source_memory_ids ?? []) !== key ||
-						order.has(row.nativeId) ||
-						support.some((id) => liveCoverage.get(id) !== 1)
-					)
-						continue;
-					if (exactRankEvidence(row)) order.set(row.nativeId, index);
-				}
-				accepted.sort(
-					(a, b) =>
-						(order.get(a.nativeId) ?? Infinity) -
-						(order.get(b.nativeId) ?? Infinity),
-				);
+					return order;
+				};
 			}
-			for (const row of accepted) {
-				if (ranking && !order.has(row.nativeId)) continue;
-				const tokens = estimateTokenCount(row.text);
-				if (tokens > remaining) continue;
-				const ids: unknown = JSON.parse(row.sourceIdsJson);
-				if (!Array.isArray(ids)) continue;
-				const sources: MemorySource[] = [];
-				const seen = new Set<string>();
-				for (const fact of facts.filter((f) => ids.includes(f.id))) {
-					const source = fact.source;
-					if (seen.has(source.id)) continue;
-					seen.add(source.id);
-					const origin = source.conversationId
-						? tx
-								.select()
-								.from(conversations)
-								.where(
-									and(
-										eq(conversations.id, source.conversationId),
-										eq(conversations.userId, userId),
-									),
-								)
-								.get()
-						: null;
-					// Do not expand source text into recall; the accepted row is the entire model-facing text.
-					sources.push({
-						id: source.id,
-						conversationId: origin?.id ?? null,
-						messageId: origin ? source.messageId : null,
-						title: origin?.title ?? "Memory",
-						quote: "",
-						assertedAt: source.assertedAt.toISOString(),
-						available: source.conversationId === null || Boolean(origin),
-					});
-				}
-				output.push({
+			// Each list holds the verified rows of its own search, in its order:
+			// none when that search failed while another answered.
+			const listRows = (list: RecallList) => {
+				if (!answered) return offerable;
+				const ranking = search?.rankings.get(list);
+				if (!ranking) return [];
+				const order = verifiedOrder(ranking);
+				return offerable
+					.filter(({ row }) => order.has(row.nativeId))
+					.sort(
+						(a, b) =>
+							(order.get(a.row.nativeId) ?? 0) -
+							(order.get(b.row.nativeId) ?? 0),
+					);
+			};
+			// The entry as the model reads it: when it was last said (its newest
+			// source), its kind once labelled, and whether it is Earlier now,
+			// built as the Memory page builds it (`memoryEntryView`).
+			const entryOf = (
+				row: (typeof accepted)[number],
+				ids: unknown[],
+			): OfferedRow["entry"] => {
+				const view = memoryEntryView(
+					{ sourceIds: ids, factsById, labels },
+					now,
+					thresholds,
+				);
+				const states = input.core
+					? []
+					: parseEarlierStates(row.nativeText, row.text);
+				return {
 					ref: { scope, generation: row.generation, rowId: row.nativeId },
 					text: row.text,
-					sources,
-				});
-				remaining -= tokens;
+					sources: [],
+					lastMentionedAt: view.lastMentionedAt,
+					kind: view.kind,
+					timeState: view.timeState,
+					...(states.length ? { earlierStates: states } : {}),
+				};
+			};
+			// How common each word is among the bank's entries, read once and
+			// only for an Earlier entry at the top.
+			let bankWords: MentionBank | undefined;
+			const mentioned = (text: string) => {
+				bankWords ??= mentionBank(accepted.map((row) => row.text));
+				return mentions(text, bankWords);
+			};
+			const lists: RecallList[] = input.core
+				? ["message", "core"]
+				: ["message"];
+			for (const list of lists)
+				for (const [place, { row, ids }] of listRows(list).entries()) {
+					const key = `${bank.id}:${row.nativeId}`;
+					const offer = offered.get(key) ?? {
+						bankId: bank.id,
+						row,
+						scope,
+						facts,
+						ids,
+						entry: entryOf(row, ids),
+					};
+					offered.set(key, offer);
+					if (offer.entry.timeState === "earlier") {
+						// Earlier entries never enter the core; in a turn one comes
+						// only when it ranks at the top for the person's message and
+						// the message mentions it (rank alone brings old entries into
+						// most turns of a small bank).
+						if (list === "core") continue;
+						if (input.core) {
+							if (
+								!answered ||
+								place >= EARLIER_TOP_PLACES ||
+								!mentioned(offer.entry.text)
+							)
+								continue;
+							earlier.push({
+								key,
+								place,
+								personal: scope.kind === "personal",
+							});
+						}
+					}
+					rows[scope.kind][list].push({
+						key,
+						tokens: recallLineTokens(offer.entry, now),
+					});
+				}
+		}
+		if (input.core) {
+			const kept = new Set(
+				[...earlier]
+					.sort(
+						(a, b) =>
+							a.place - b.place || Number(b.personal) - Number(a.personal),
+					)
+					.slice(0, EARLIER_PER_TURN)
+					.map(({ key }) => key),
+			);
+			// Once labels exist the core leads with lasting entries (spec, part 1):
+			// a current temporary or ongoing entry the basics search ranked higher
+			// waits behind them. Unlabelled entries count as lasting.
+			const lasting = ({ key }: RecallCandidate) => {
+				const kind = offered.get(key)?.entry.kind;
+				return !kind || kind === "lasting" ? 0 : 1;
+			};
+			for (const kind of ["personal", "project"] as const) {
+				rows[kind].message = rows[kind].message.filter(
+					({ key }) =>
+						kept.has(key) || offered.get(key)?.entry.timeState !== "earlier",
+				);
+				rows[kind].core = [...rows[kind].core].sort(
+					(a, b) => lasting(a) - lasting(b),
+				);
 			}
 		}
-		return output;
+		// The section goes into the prompt whole, so the budget holds every
+		// formatted line, the line on what the times mean, the line on Earlier
+		// entries when one may come and, in a project chat, the project's heading.
+		const marked = [
+			...rows.personal.message,
+			...rows.personal.core,
+			...rows.project.message,
+			...rows.project.core,
+		].some(({ key }) => {
+			const entry = offered.get(key)?.entry;
+			return entry?.timeState === "earlier" || !!entry?.earlierStates;
+		});
+		const sectionBudget = Math.max(
+			0,
+			budget -
+				estimateTokenCount(RECALL_TIMES_NOTE) -
+				(marked ? estimateTokenCount(RECALL_EARLIER_NOTE) : 0) -
+				(chat.projectId ? estimateTokenCount(RECALL_PROJECT_HEADING) : 0),
+		);
+		// The project's own entries get their share first, then the person's
+		// basics theirs; what the message is about fills the rest, both banks
+		// in turn, and a share left unused passes on.
+		const { corePercent, projectPercent } = getMemoryRecallShares();
+		const share = (percent: number) =>
+			Math.floor((sectionBudget * percent) / 100);
+		const lanes: RecallLane[] = [
+			...(chat.projectId
+				? [
+						{
+							lists: [[...rows.project.message, ...rows.project.core]],
+							capTokens: share(projectPercent),
+						},
+					]
+				: []),
+			...(input.core
+				? [{ lists: [rows.personal.core], capTokens: share(corePercent) }]
+				: []),
+			{
+				lists: chat.projectId
+					? [rows.personal.message, rows.project.message]
+					: [rows.personal.message],
+				capTokens: sectionBudget,
+			},
+		];
+		const chosen = allocateRecall(lanes, sectionBudget).flatMap((key) => {
+			const entry = offered.get(key);
+			return entry ? [entry] : [];
+		});
+		// The person's entries first, then the project's, each in the order chosen.
+		return [
+			...chosen.filter(({ scope }) => scope.kind === "personal"),
+			...chosen.filter(({ scope }) => scope.kind === "project"),
+		].map(({ bankId, facts, ids, entry: offeredEntry }) => {
+			const sources: MemorySource[] = [];
+			const seen = new Set<string>();
+			for (const fact of facts.filter((f) => ids.includes(f.id))) {
+				const source = fact.source;
+				if (seen.has(source.id)) continue;
+				seen.add(source.id);
+				const origin = source.conversationId
+					? tx
+							.select()
+							.from(conversations)
+							.where(
+								and(
+									eq(conversations.id, source.conversationId),
+									eq(conversations.userId, userId),
+								),
+							)
+							.get()
+					: null;
+				// Do not expand source text into recall; the accepted row is the entire model-facing text.
+				sources.push({
+					id: source.id,
+					conversationId: origin?.id ?? null,
+					messageId: origin ? source.messageId : null,
+					title: origin?.title ?? "Memory",
+					quote: "",
+					assertedAt: source.assertedAt.toISOString(),
+					available: source.conversationId === null || Boolean(origin),
+				});
+			}
+			const entry: AdmittedMemoryEvidence = { ...offeredEntry, sources };
+			return { bankId, entry };
+		});
 	});
+	for (const bank of banks) {
+		const search = searched.get(bank.id);
+		if (!search) continue;
+		const count = (outcome: BankSearch["outcomes"][number]) =>
+			search.outcomes.filter((ended) => ended === outcome).length;
+		// Content-free (services/AGENTS.md): no query, entry text or id.
+		console.info("[KNOWLEDGE_MEMORY] Recall", {
+			mode: input.core ? "turn" : "tool",
+			bank: bank.scopeKey === "personal" ? "personal" : "project",
+			searches: searches.length,
+			answered: count("answered"),
+			timedOut: count("timed_out"),
+			failed: count("failed"),
+			slowestMs: search.slowestMs,
+			fallback: count("answered") === 0,
+			rows: entries.filter(({ bankId }) => bankId === bank.id).length,
+			earlier: entries.filter(
+				({ bankId, entry }) =>
+					bankId === bank.id && entry.timeState === "earlier",
+			).length,
+		});
+	}
+	return entries.map(({ entry }) => entry);
 }

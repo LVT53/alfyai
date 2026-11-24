@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { estimateTokenCount } from "$lib/utils/tokens";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
+import { RECALL_TIMES_NOTE } from "../memory-context/recall-format";
+
+// Room for a few recalled rows, plus the line on what their times mean, which
+// recall reserves before any row once a row has a time. Without it these
+// recalls would find no room for a row and come back empty whatever their
+// scope, and an empty answer could no longer show Memory switched off.
+const RECALL_TEST_BUDGET = 100 + estimateTokenCount(RECALL_TIMES_NOTE);
 
 let h: EngineHarness;
 beforeEach(async () => {
@@ -33,6 +41,29 @@ it("inspect is read only when the enabled master switch permits older history", 
 	expect(report.sources[0].eligibility).toBe("eligible");
 	expect(db.select().from(s.memoryAccounts).all()).toHaveLength(0);
 	expect(db.select().from(s.memoryMigrationManifests).all()).toHaveLength(0);
+});
+it("never prepares or restarts the account the migration guard excludes, and writes nothing", async () => {
+	const { db, s } = await seed();
+	const { eq } = await import("drizzle-orm");
+	db.update(s.users)
+		.set({ memoryMigrationExcluded: true })
+		.where(eq(s.users.id, h.userId))
+		.run();
+	const m = await import("./migration");
+	await expect(m.prepareMemoryMigration(h.userId)).rejects.toThrow(
+		"memory_migration_excluded",
+	);
+	await expect(
+		m.restartMemoryPreparation(h.userId, {
+			manifestId: "any",
+			manifestHash: "0".repeat(64),
+		}),
+	).rejects.toThrow("memory_migration_excluded");
+	expect(db.select().from(s.memoryAccounts).all()).toHaveLength(0);
+	expect(db.select().from(s.memoryBanks).all()).toHaveLength(0);
+	expect(db.select().from(s.memoryMigrationManifests).all()).toHaveLength(0);
+	expect(db.select().from(s.memorySourceRevisions).all()).toHaveLength(0);
+	expect(db.select().from(s.memoryDeliveryJobs).all()).toHaveLength(0);
 });
 it("preparation checkpoints source jobs once, preserves dates, and refuses premature cutover", async () => {
 	const { db, s } = await seed();
@@ -240,6 +271,7 @@ async function nativeFixture(
 		source_memory_ids: string[];
 	}> = [];
 	const deletedBanks = new Set<string>();
+	const bankConfigs = new Map<string, unknown>();
 	const fetcher = vi.fn(
 		async (url: RequestInfo | URL, options?: RequestInit) => {
 			const path = String(url);
@@ -250,9 +282,14 @@ async function nativeFixture(
 			if (options?.method === "DELETE" && segments.length === 5) {
 				deletedBanks.add(bank);
 				for (const [key, f] of facts) if (f.bank === bank) facts.delete(key);
-			} else if (path.endsWith("/config"))
-				data = { config: contracts.NATIVE_BANK_CONFIG };
-			else if (path.endsWith("/memories") && options?.method === "POST") {
+			} else if (path.endsWith("/config")) {
+				// A bank answers with the config it was last sent (config 2 is per bank kind).
+				if (options?.method === "PATCH")
+					bankConfigs.set(bank, JSON.parse(String(options.body)).updates);
+				data = {
+					config: bankConfigs.get(bank) ?? contracts.NATIVE_BANK_CONFIG,
+				};
+			} else if (path.endsWith("/memories") && options?.method === "POST") {
 				const body = JSON.parse(String(options.body));
 				const again =
 					fixtureOptions.retainOnce &&
@@ -1979,6 +2016,7 @@ async function migrationReplayNative() {
 		after: unknown;
 		facts: Array<{ id: string; text: string }>;
 	}> = [];
+	const bankConfigs = new Map<string, unknown>();
 	const fetcher = async (url: RequestInfo | URL, options?: RequestInit) => {
 		const path = new URL(String(url));
 		const [, , , , bank, leaf, encodedId] = path.pathname.split("/");
@@ -1988,8 +2026,10 @@ async function migrationReplayNative() {
 		banks.set(bank, facts);
 		const body = options?.body ? JSON.parse(String(options.body)) : {};
 		let data: unknown = {};
-		if (leaf === "config") data = { config: NATIVE_BANK_CONFIG };
-		else if (leaf === "operations")
+		if (leaf === "config") {
+			if (options?.method === "PATCH") bankConfigs.set(bank, body.updates);
+			data = { config: bankConfigs.get(bank) ?? NATIVE_BANK_CONFIG };
+		} else if (leaf === "operations")
 			data = id ? { status: "completed" } : { operations: [] };
 		else if (leaf === "consolidate") data = { operation_id: "consolidate" };
 		else if (leaf === "memories" && options?.method === "POST") {
@@ -2805,7 +2845,7 @@ it.each(["delete source", "decline history"] as const)(
 				await recallMemory(h.userId, {
 					conversationId,
 					query: "Memory",
-					tokenBudget: 100,
+					tokenBudget: RECALL_TEST_BUDGET,
 				})
 			)
 				.map(({ text }) => text)
@@ -3348,7 +3388,7 @@ it("reuses the accepted project source when history is included again after a ro
 		await recallMemory(h.userId, {
 			conversationId: "chat",
 			query: "Memory",
-			tokenBudget: 100,
+			tokenBudget: RECALL_TEST_BUDGET,
 		}),
 	).toEqual([]);
 	expect(
@@ -8312,6 +8352,14 @@ it.each([
 		await h.engine.drain(t.jobs.memoryDeliveryJob);
 		const id = t.source()?.id;
 		expect(t.meaningCheck()?.checked).toEqual([id]);
+		if (first === "edited, then Hindsight restored the chat") {
+			// Hindsight brings the chat's own facts back (a re-extraction). The
+			// delivery's retry never sends its acknowledged retain again, so the
+			// restore is made here, where the re-sent retain used to make it.
+			const fact = t.f.facts.get(`${id}:fact`);
+			if (!fact) throw Error("test_fact_missing");
+			fact.text = chatsOwnFacts;
+		}
 		expect(await t.retry()).toBe(true);
 		// The new edit withdrew the earlier pass and saved what it was given.
 		expect(t.meaningCheck()).toMatchObject({

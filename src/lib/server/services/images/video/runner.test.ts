@@ -379,7 +379,7 @@ async function renderCheckpointedPrompt(
 }
 
 /** Posts the take's prompt the way an earlier attempt did, without following it. */
-async function submitSegmentOne(
+async function submitEarlierPrompt(
 	server: FakeComfyUi,
 	takeId: string,
 	promptId: string,
@@ -817,7 +817,7 @@ describe("Stop after a restart", () => {
 		// when the app comes back: the new attempt follows it from the checkpoint.
 		const server = await startLtx({ hangAfterPromptCount: 0 });
 		const takeId = await queueTake();
-		await submitSegmentOne(server, takeId, "posted-before-the-restart");
+		await submitEarlierPrompt(server, takeId, "posted-before-the-restart");
 		await writeCheckpoint(takeId, {
 			promptId: "posted-before-the-restart",
 			segment: 1,
@@ -854,7 +854,7 @@ describe("Stop after a restart", () => {
 });
 
 describe("a ComfyUI that restarts mid-render", () => {
-	it("renders the segment once more and still lands the clip", async () => {
+	it("renders the take once more and still lands the clip", async () => {
 		// A reload: the server goes dark, then comes back having forgotten the
 		// prompt it was rendering (its own restart, a deploy on the GPU box).
 		const server = await startLtx({ steps: 30, stepDelayMs: 40 });

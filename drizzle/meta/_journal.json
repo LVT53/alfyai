@@ -1072,6 +1072,34 @@
 			"when": 1777140000139,
 			"tag": "1777140000139_image_search_displays",
 			"breakpoints": true
+		},
+		{
+			"idx": 153,
+			"version": "6",
+			"when": 1777140000140,
+			"tag": "1777140000140_memory_fact_labels",
+			"breakpoints": true
+		},
+		{
+			"idx": 154,
+			"version": "6",
+			"when": 1777140000141,
+			"tag": "1777140000141_users_memory_migration_excluded",
+			"breakpoints": true
+		},
+		{
+			"idx": 155,
+			"version": "6",
+			"when": 1777140000143,
+			"tag": "1777140000143_memory_labels_unverified_epoch",
+			"breakpoints": true
+		},
+		{
+			"idx": 156,
+			"version": "6",
+			"when": 1777140000144,
+			"tag": "1777140000144_memory_overviews",
+			"breakpoints": true
 		}
 	]
 }

@@ -20,8 +20,9 @@ import type { ComfyGraph } from "../types";
  * `ffmpeg -f lavfi -i color=c=#336699:s=64x64:d=5:r=24 -c:v libx264
  * -pix_fmt yuv420p -preset veryfast -crf 30 -movflags +faststart`.
  * It is what a video graph answers by default, so the fake serves a clip the
- * runner can decode, chain and sample with ffmpeg without a GPU. A spec or a
- * test that needs another picture in the clip passes `videoBytes`.
+ * runner can decode and sample with ffmpeg without a GPU. A spec or a test
+ * that needs another picture or another length in the clip passes
+ * `videoBytes`.
  */
 export const FAKE_VIDEO_BYTES = new Uint8Array(
 	Buffer.from(
@@ -54,7 +55,7 @@ export type FakeComfyUiOptions = {
 	 * custom nodes use `videos` or `gifs`. Default `images`.
 	 */
 	videoOutputKey?: "images" | "videos" | "gifs";
-	/** Execution fails for every prompt after the first N (a chain's second segment). */
+	/** Execution fails for every prompt after the first N. */
 	failAfterPromptCount?: number;
 	/**
 	 * The exact progress series to send (one event per entry, `stepDelayMs`
@@ -64,7 +65,7 @@ export type FakeComfyUiOptions = {
 	progressPlan?: Array<{ value: number; max: number }>;
 	/**
 	 * Prompts after the first N render their steps and then never finish, so a
-	 * test can read the state of a take that is mid-segment. `releaseHanging()`
+	 * test can read the state of a take that is mid-render. `releaseHanging()`
 	 * lets them finish, like a ComfyUI that keeps rendering after the app died.
 	 */
 	hangAfterPromptCount?: number;

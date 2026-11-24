@@ -115,7 +115,7 @@ const guideDict = {
 		// ── It knows you ───────────────────────────────────────────────────
 		"guide.entry.memory.name": "Memory",
 		"guide.entry.memory.line":
-			"See what Alfy remembers, edit details or remove them. Project memories stay in their project. Eligible earlier chats can contribute while Memory is on. Earlier opt-outs and exclusions still apply. Ask directly to look up a past chat. If offered, review suggestions from earlier chats and choose which to keep.",
+			"See what Alfy remembers, grouped by subject, and edit or remove any detail. What is no longer current folds away under Earlier. Open the overview for a short summary, written when you open it and never sent to chats. Project memories stay in their project. Eligible earlier chats can contribute while Memory is on. Earlier opt-outs and exclusions still apply. Ask directly to look up a past chat. If offered, review suggestions from earlier chats and choose which to keep.",
 		"guide.entry.instructions.name": "Instructions",
 		"guide.entry.instructions.line":
 			"Rules Alfy follows in every chat, or in one project.",
@@ -152,7 +152,7 @@ const guideDict = {
 			"Folders with their own instructions and files.",
 		"guide.entry.search.name": "Search",
 		"guide.entry.search.line":
-			"Find any chat or document; Ctrl/⌘+K on a keyboard.",
+			"Find any chat, memory, document, picture, video or app; Ctrl/⌘+K on a keyboard.",
 		"guide.entry.tidySidebar.name": "Tidy the sidebar",
 		"guide.entry.tidySidebar.line":
 			"Pin, drag into folders, or select many at once.",
@@ -293,7 +293,7 @@ const guideDict = {
 		// ── It knows you ───────────────────────────────────────────────────
 		"guide.entry.memory.name": "Memória",
 		"guide.entry.memory.line":
-			"Nézd meg, mire emlékszik Alfy, szerkeszd vagy távolítsd el a részleteket. A projektek emlékei a projektben maradnak. Ha a Memória be van kapcsolva, a bevonható korábbi beszélgetésekből is megjegyezhet részleteket. A korábban kizárt beszélgetések és részletek továbbra is kimaradnak. Kérd meg Alfy-t, ha egy korábbi beszélgetésben szeretnél keresni. Ha elérhető, nézd át a korábbi beszélgetésekből származó javaslatokat, és válaszd ki, melyeket tartod meg.",
+			"Nézd meg témák szerint, mire emlékszik Alfy, és szerkeszd vagy távolítsd el bármelyik részletet. Ami már nem aktuális, a Korábbiak közé kerül. Az áttekintés rövid összefoglalót ad: megnyitáskor készül, és sosem kerül a beszélgetésekbe. A projektek emlékei a projektben maradnak. Ha a Memória be van kapcsolva, a bevonható korábbi beszélgetésekből is megjegyezhet részleteket. A korábban kizárt beszélgetések és részletek továbbra is kimaradnak. Kérd meg Alfy-t, ha egy korábbi beszélgetésben szeretnél keresni. Ha elérhető, nézd át a korábbi beszélgetésekből származó javaslatokat, és válaszd ki, melyeket tartod meg.",
 		"guide.entry.instructions.name": "Utasítások",
 		"guide.entry.instructions.line":
 			"Amit Alfy minden beszélgetésben betart, vagy csak egy projektben.",
@@ -329,7 +329,7 @@ const guideDict = {
 		"guide.entry.projects.line": "Mappák saját utasításokkal és fájlokkal.",
 		"guide.entry.search.name": "Keresés",
 		"guide.entry.search.line":
-			"Bármelyik beszélgetést vagy dokumentumot megtalálod; billentyűzeten: Ctrl/⌘+K.",
+			"Bármelyik beszélgetést, emléket, dokumentumot, képet, videót vagy alkalmazást megtalálod; billentyűzeten Ctrl/⌘+K.",
 		"guide.entry.tidySidebar.name": "Rendezd az oldalsávot",
 		"guide.entry.tidySidebar.line":
 			"Rögzíts, húzz mappákba, vagy jelölj ki egyszerre többet.",

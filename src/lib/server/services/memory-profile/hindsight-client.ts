@@ -5,7 +5,8 @@ import { db } from "$lib/server/db";
 import { memoryBanks } from "$lib/server/db/schema";
 import {
 	HINDSIGHT_ENGINE_COMMIT,
-	NATIVE_BANK_CONFIG,
+	KNOWN_NATIVE_BANK_CONFIGS,
+	type NativeBankConfig,
 	type NativeMemory,
 	NativeMemoryError,
 	type NativeOperation,
@@ -36,11 +37,44 @@ function memories(value: unknown): NativeMemory[] {
 			typeof r.fact_type !== "string" ||
 			(r.source_memory_ids !== undefined &&
 				(!Array.isArray(r.source_memory_ids) ||
-					r.source_memory_ids.some((x) => typeof x !== "string")))
+					r.source_memory_ids.some((x) => typeof x !== "string"))) ||
+			(r.tags !== undefined &&
+				r.tags !== null &&
+				(!Array.isArray(r.tags) ||
+					r.tags.some((x) => typeof x !== "string"))) ||
+			[r.occurred_start, r.occurred_end].some(
+				(date) =>
+					date !== undefined && date !== null && typeof date !== "string",
+			)
 		)
 			throw new NativeMemoryError("native_format_unsupported", false);
 		return r as unknown as NativeMemory;
 	});
+}
+
+/** Equal by value: arrays in order, objects whatever their key order (Postgres JSONB reorders keys). */
+function sameValue(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (Array.isArray(a) || Array.isArray(b))
+		return (
+			Array.isArray(a) &&
+			Array.isArray(b) &&
+			a.length === b.length &&
+			a.every((item, index) => sameValue(item, b[index]))
+		);
+	if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+	const keys = Object.keys(a);
+	return (
+		keys.length === Object.keys(b).length &&
+		keys.every(
+			(key) =>
+				Object.hasOwn(b, key) &&
+				sameValue(
+					(a as Record<string, unknown>)[key],
+					(b as Record<string, unknown>)[key],
+				),
+		)
+	);
 }
 
 function previewFacts(
@@ -253,24 +287,32 @@ export class HindsightClient {
 			);
 		}
 	}
-	async configure(beforeDispatch: () => Promise<void>): Promise<void> {
+	async configure(
+		config: NativeBankConfig,
+		beforeDispatch: () => Promise<void>,
+	): Promise<void> {
 		// The pinned PATCH validates, creates the bank if absent, and persists
 		// its config. A separate PUT would add another ambiguous mutation.
-		await this.request(
-			"/config",
-			"PATCH",
-			{ updates: NATIVE_BANK_CONFIG },
-			beforeDispatch,
-		);
-		await this.verifyConfig();
+		await this.request("/config", "PATCH", { updates: config }, beforeDispatch);
+		await this.verifyConfig([config]);
 	}
-	async verifyConfig(): Promise<void> {
+	/**
+	 * Passes when the bank's live config equals one of `accepted` on every key
+	 * that config names, compared by value (labels are arrays of objects).
+	 */
+	async verifyConfig(
+		accepted: readonly NativeBankConfig[] = KNOWN_NATIVE_BANK_CONFIGS,
+	): Promise<void> {
 		const config = await this.request("/config");
 		const effective = object(config.config ?? config);
-		for (const [key, value] of Object.entries(NATIVE_BANK_CONFIG)) {
-			if (effective[key] !== value)
-				throw new NativeMemoryError("native_config_mismatch", false);
-		}
+		if (
+			!accepted.some((expected) =>
+				Object.entries(expected).every(([key, value]) =>
+					sameValue(effective[key], value),
+				),
+			)
+		)
+			throw new NativeMemoryError("native_config_mismatch", false);
 	}
 	async extractDrafts(
 		{ content, timestamp }: { content: string; timestamp: string },
@@ -334,6 +376,14 @@ export class HindsightClient {
 		if (typeof r.operation_id !== "string")
 			throw new NativeMemoryError("native_format_unsupported", false);
 		return r.operation_id;
+	}
+	/**
+	 * Resets the bank's facts Hindsight marked failed in consolidation, so the
+	 * next consolidation takes them up again (`POST …/consolidation/recover` at
+	 * the pin). An operator's step, never a delivery's.
+	 */
+	async recoverConsolidation(): Promise<Record<string, unknown>> {
+		return this.request("/consolidation/recover", "POST", {});
 	}
 	async pendingOperations(): Promise<NativeOperation[]> {
 		const result: NativeOperation[] = [];

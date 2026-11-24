@@ -309,7 +309,9 @@ describe("Sidebar — the guide's Show me", () => {
 	let restoreLayout: () => void = () => undefined;
 
 	const searchPill = () =>
-		screen.getByRole("button", { name: "Search conversations and documents" });
+		screen.getByRole("button", {
+			name: "Search chats, memory, documents and more",
+		});
 	const projectsHeader = () => screen.getByTestId("sidebar-projects-header");
 	const ringing = () => [...document.querySelectorAll(".spotlight-ring")];
 
@@ -786,7 +788,7 @@ describe("Sidebar — the ? that opens the feature guide", () => {
 					.map((button) => button.getAttribute("aria-label")),
 			).toEqual([
 				"New chat",
-				"Search conversations and documents",
+				"Search chats, memory, documents and more",
 				"Open knowledge base",
 				"What AlfyAI can do",
 			]);

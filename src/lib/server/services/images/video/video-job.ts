@@ -44,7 +44,7 @@ export const videoJob = defineJobKind({
 	userRetry: { from: ["failed", "cancelled"] },
 	// A take that goes (back) to the queue starts its display columns afresh and
 	// forgets which kind of Stop an earlier run was given. The checkpoint is the
-	// engine's and survives on purpose: that is what resumes a segment. A claim
+	// engine's and survives on purpose: that is what resumes a render. A claim
 	// stamps `phase_at` in its own transaction: from that moment the take holds
 	// the GPU for the cross-engine gate (`idle-free.ts`).
 	onTransition: (tx, row, to) => {
@@ -100,7 +100,7 @@ export async function enqueueVideoTake(input: {
  * Stops a take. `interrupt: true` (the card's own Stop, the default) may stop
  * the prompt ComfyUI is already rendering. `interrupt: false` (the composer's
  * Stop) cancels a take that has not reached ComfyUI (no prompt id recorded) and
- * otherwise only deletes a prompt still waiting in ComfyUI's queue: a segment
+ * otherwise only deletes a prompt still waiting in ComfyUI's queue: a render
  * that has started finishes and then the take stops at its next boundary, so
  * nothing is cancelled and false comes back.
  *

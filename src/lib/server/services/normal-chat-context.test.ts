@@ -2424,6 +2424,12 @@ describe("prepareOutboundChatContext", () => {
 				reuseFrom: reuseData,
 			}),
 		);
+		// One clock per turn: the rebuild writes the memory section's ages from
+		// the same instant as the first build.
+		const [[firstBuild], [rebuild]] = mocks.buildConstructedContext.mock
+			.calls as [[{ now?: Date }], [{ now?: Date }]];
+		expect(firstBuild.now).toBeInstanceOf(Date);
+		expect(rebuild.now?.getTime()).toBe(firstBuild.now?.getTime());
 		expect(prepared.inputValue).toBe(compressedInput);
 		expect(prepared.contextStatus).toBe(compressedStatus);
 		expect(prepared.contextDebug).toBe(compressedDebug);

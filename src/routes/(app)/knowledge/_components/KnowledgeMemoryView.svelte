@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, tick } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { fly } from "svelte/transition";
 import { ArrowLeft, Check, Info } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
@@ -9,6 +9,8 @@ import {
 	fetchMemoryDetail,
 	fetchMemoryOperation,
 	fetchMemoryOperationByRequest,
+	fetchMemorySubject,
+	fetchMemorySubjectIndex,
 	submitMemoryAction,
 } from "$lib/client/api/memory";
 import { ApiError } from "$lib/client/api/http";
@@ -18,9 +20,13 @@ import type {
 	MemoryDetail as Detail,
 	MemoryOperation,
 	MemoryPage,
+	MemoryPageLayout,
 	MemoryRef,
 	MemoryRow,
 	MemoryScope,
+	MemorySubjectIndex,
+	MemorySubjectKey,
+	MemorySubjectPage,
 } from "$lib/memory-types";
 import {
 	reducedMotionAware,
@@ -34,8 +40,29 @@ import MemoryQuarantineReview from "./MemoryQuarantineReview.svelte";
 import MemoryDetail from "./MemoryDetail.svelte";
 import MemoryEditor from "./MemoryEditor.svelte";
 import MemoryRemoveDialog from "./MemoryRemoveDialog.svelte";
+import MemoryOverviewSheet from "./MemoryOverviewSheet.svelte";
+import MemorySubjectIndexView from "./MemorySubjectIndex.svelte";
 import "./memory-replacement.css";
-let { memoryEnabled }: { memoryEnabled: boolean | null } = $props();
+let {
+	memoryEnabled,
+	layout = "list",
+	initialScope,
+	initialEntryId,
+	initialQuery,
+}: {
+	memoryEnabled: boolean | null;
+	/** The subject index once the account's labels are verified; today's list until then. */
+	layout?: MemoryPageLayout;
+	/** A link from search: the scope, the entry and the search to open on. Read once, when the view mounts. */
+	initialScope?: MemoryScope;
+	initialEntryId?: string;
+	initialQuery?: string;
+} = $props();
+const linked = untrack(() =>
+	initialScope
+		? { scope: initialScope, entryId: initialEntryId, query: initialQuery }
+		: null,
+);
 let view = $state<"list" | "detail" | "edit" | "add" | "remove">("list");
 let scopeValue = $state("personal");
 let query = $state("");
@@ -84,6 +111,21 @@ let rememberedRow = "";
 let listScroll = 0;
 let listAbort: AbortController | undefined;
 let detailAbort: AbortController | undefined;
+// The subject index (layout "subjects"): the index, the opened subject and its
+// entries live here, so a detail opened from a subject comes back to it.
+let subjectIndex = $state<MemorySubjectIndex | null>(null);
+let indexFailed = $state(false);
+let opened = $state<MemorySubjectKey | null>(null);
+let subjectPage = $state<MemorySubjectPage | null>(null);
+let subjectLoading = $state(false);
+let subjectFailed = $state(false);
+let overviewOpen = $state(false);
+let indexSequence = 0;
+let subjectSequence = 0;
+// How many pages of the opened subject are shown: a refresh reads that many again.
+let subjectPages = 1;
+let indexAbort: AbortController | undefined;
+let subjectAbort: AbortController | undefined;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
@@ -195,7 +237,140 @@ function scheduleBackground() {
 			if (alive) void load("refresh");
 		}, 3000);
 }
+function forgetSubject() {
+	subjectSequence++;
+	subjectAbort?.abort();
+	opened = null;
+	subjectPage = null;
+	subjectPages = 1;
+	subjectLoading = false;
+	subjectFailed = false;
+}
+/** A read that meets a stale page restarts from the top at most this many times. */
+const SUBJECT_RESTARTS = 2;
+/**
+ * Reads the opened subject: its first `pages` pages from the top (opening it, or
+ * reading it again after Memory moved on), or, with a `cursor`, the one page
+ * after those shown. A read lands as a whole, so a failed one leaves what is
+ * shown as it was.
+ */
+async function loadSubjectPage(
+	subject: MemorySubjectKey,
+	options: { cursor?: string; pages?: number; restarts?: number } = {},
+) {
+	const { cursor, pages = 1, restarts = 0 } = options;
+	const seq = ++subjectSequence;
+	const key = scopeValue;
+	subjectAbort?.abort();
+	const abort = new AbortController();
+	subjectAbort = abort;
+	subjectLoading = true;
+	subjectFailed = false;
+	const read = (after?: string) =>
+		fetchMemorySubject(
+			{
+				scope,
+				subject,
+				state: subject === "all" ? "earlier" : "current",
+				...(after ? { cursor: after } : {}),
+			},
+			abort.signal,
+		);
+	const current = () => alive && seq === subjectSequence && key === scopeValue;
+	try {
+		let result = await read(cursor);
+		if (!current()) return;
+		let entries =
+			cursor && subjectPage
+				? [...subjectPage.entries, ...result.entries]
+				: result.entries;
+		let count = cursor ? subjectPages + 1 : 1;
+		while (!cursor && count < pages && result.nextCursor) {
+			result = await read(result.nextCursor);
+			if (!current()) return;
+			entries = [...entries, ...result.entries];
+			count++;
+		}
+		subjectPage = { ...result, entries };
+		subjectPages = count;
+	} catch (cause) {
+		if (isAbort(cause) || !current()) return;
+		// Memory changed between pages: read again from the top, as many pages
+		// as the person had, and the one they asked for.
+		if (
+			(cursor || pages > 1) &&
+			restarts < SUBJECT_RESTARTS &&
+			cause instanceof ApiError &&
+			cause.status === 409
+		)
+			void loadSubjectPage(subject, {
+				pages: cursor ? subjectPages + 1 : pages,
+				restarts: restarts + 1,
+			});
+		else subjectFailed = true;
+	} finally {
+		if (seq === subjectSequence) subjectLoading = false;
+	}
+}
+/**
+ * A refresh keeps what the person has loaded of the opened subject. It reads
+ * the subject again only when Memory changed under it (a new generation, which
+ * also ends the pages' cursors), and then as many pages as they had. A read the
+ * person asked for, opening the subject or More, is never cut short.
+ */
+function refreshOpenedSubject(next: MemorySubjectIndex) {
+	if (!opened || subjectLoading) return;
+	if (subjectPage?.generation === next.generation) return;
+	void loadSubjectPage(opened, { pages: subjectPage ? subjectPages : 1 });
+}
+/** The subject index and the opened subject, read again with the list. */
+async function loadSubjects() {
+	if (layout !== "subjects") return;
+	const seq = ++indexSequence;
+	const key = scopeValue;
+	indexAbort?.abort();
+	indexAbort = new AbortController();
+	try {
+		const next = await fetchMemorySubjectIndex(scope, indexAbort.signal);
+		if (!alive || seq !== indexSequence || key !== scopeValue) return;
+		subjectIndex = next;
+		indexFailed = false;
+		refreshOpenedSubject(next);
+	} catch (cause) {
+		if (isAbort(cause) || !alive || seq !== indexSequence) return;
+		if (accessLost(cause)) subjectIndex = null;
+		indexFailed = true;
+	}
+}
+async function openSubject(subject: MemorySubjectKey) {
+	opened = subject;
+	subjectPage = null;
+	void loadSubjectPage(subject);
+	await tick();
+	const heading = root?.querySelector<HTMLElement>(
+		"[data-memory-subject-heading]",
+	);
+	heading?.focus({ preventScroll: true });
+	heading?.scrollIntoView?.({
+		block: "nearest",
+		behavior: prefersReducedMotion() ? "instant" : "smooth",
+	});
+}
+async function closeSubject() {
+	const subject = opened;
+	forgetSubject();
+	await tick();
+	if (subject)
+		root
+			?.querySelector<HTMLButtonElement>(
+				`[data-memory-subject="${CSS.escape(subject)}"]`,
+			)
+			?.focus();
+}
 async function load(mode: "replace" | "more" | "refresh" = "replace") {
+	// A search shows today's rows, not the index: it is read again when the
+	// search is cleared.
+	if (mode !== "more" && !query.trim()) void loadSubjects();
 	const seq = ++loadSequence;
 	const requestedScope = scope;
 	const requestedQuery = query;
@@ -268,6 +443,8 @@ function selectScope(value: string) {
 	scopeValue = value;
 	query = "";
 	page = null;
+	subjectIndex = null;
+	forgetSubject();
 	pagesLoaded = 1;
 	notice = "";
 	resetRecordFeedback();
@@ -338,7 +515,16 @@ function restoreListFocus(preferred: "row" | "add" | "search" = "row") {
 				? root?.querySelector<HTMLButtonElement>("[data-memory-add]:enabled")
 				: null;
 	if (target) target.focus({ preventScroll: true });
-	else root?.querySelector<HTMLInputElement>("[data-memory-search]")?.focus();
+	else {
+		// An opened subject is a screen of its own on a phone and hides the
+		// search: its heading is where the person was, and a place everywhere.
+		const place =
+			layout === "subjects" && opened && !query.trim()
+				? root?.querySelector<HTMLElement>("[data-memory-subject-heading]")
+				: null;
+		if (place) place.focus({ preventScroll: true });
+		else root?.querySelector<HTMLInputElement>("[data-memory-search]")?.focus();
+	}
 }
 async function back(preferred: "row" | "search" = "row") {
 	const target = view === "add" ? "add" : missingLatest ? "search" : preferred;
@@ -661,9 +847,60 @@ async function reconcileDetached() {
 			detachedTimer = setTimeout(() => void reconcileDetached(), 3000);
 	}
 }
+// `view` changes while `open` awaits; a function reads it afresh where a
+// comparison would be narrowed to the last thing this function assigned.
+const detailIsOpen = () => view === "detail";
+/**
+ * Opens what a link from search names: that entry's detail, found wherever it
+ * sits in the scope's list, or, when the entry has changed since (no such row
+ * now), the scope's list with the search filled in. The same code runs when the
+ * view mounts with a link and when another link arrives while it is showing.
+ */
+export async function openLink(link: {
+	scope: MemoryScope;
+	entryId?: string | null;
+	query?: string;
+}) {
+	invalidateNavigation();
+	const epoch = navigationEpoch;
+	clearTimeout(searchTimer);
+	page = null;
+	detail = null;
+	draft = "";
+	notice = "";
+	resetRecordFeedback();
+	if (scopeKey(link.scope) !== scopeValue) subjectIndex = null;
+	forgetSubject();
+	scopeValue = scopeKey(link.scope);
+	query = "";
+	pagesLoaded = 1;
+	view = "list";
+	if (!alive) return;
+	if (link.entryId) {
+		let found: MemoryRow | null = null;
+		try {
+			found = await findCurrentRow(
+				{ scope: link.scope, generation: "", rowId: link.entryId },
+				() => alive && epoch === navigationEpoch,
+			);
+		} catch {
+			// Not finding the row is the same as the row having changed.
+		}
+		if (!alive || epoch !== navigationEpoch) return;
+		if (found) {
+			// The list is read behind the detail, for Back.
+			void load();
+			await open(found);
+			if (!alive || epoch !== navigationEpoch || detailIsOpen()) return;
+		}
+	}
+	query = link.query ?? "";
+	await load();
+}
 export function capture(): MemoryVisit {
 	return {
 		scopeValue,
+		subject: opened,
 		detached: [...detached],
 		query,
 		pages: pagesLoaded,
@@ -681,7 +918,10 @@ export async function restore(value: MemoryVisit) {
 	detail = null;
 	draft = "";
 	resetRecordFeedback();
+	if (value.scopeValue !== scopeValue) subjectIndex = null;
+	forgetSubject();
 	scopeValue = value.scopeValue;
+	opened = (value.subject as MemorySubjectKey | null | undefined) ?? null;
 	query = value.query;
 	pagesLoaded = Math.max(1, value.pages);
 	rememberedRow = value.rowId;
@@ -709,7 +949,8 @@ export async function restore(value: MemoryVisit) {
 }
 onMount(() => {
 	alive = true;
-	void load();
+	if (linked) void openLink(linked);
+	else void load();
 	if (pending) void poll();
 	if (detached.length) void reconcileDetached();
 	const refresh = () => {
@@ -724,6 +965,10 @@ onMount(() => {
 		invalidateNavigation();
 		loadSequence++;
 		listAbort?.abort();
+		indexSequence++;
+		indexAbort?.abort();
+		subjectSequence++;
+		subjectAbort?.abort();
 		clearTimeout(searchTimer);
 		clearTimeout(pollTimer);
 		clearTimeout(backgroundTimer);
@@ -743,10 +988,11 @@ onMount(() => {
  {#if stale}<div class="memory-notice"><Info size={18} strokeWidth={1.8} aria-hidden="true"/><div><p>{$t('memoryNew.stale')}</p>{#if latestDetail}<blockquote>{latestDetail.row.text}</blockquote><button type="button" class="btn-secondary memory-button" onclick={continueEditing}>{$t('memoryNew.continueEditing')}</button>{:else if missingLatest}<p>{$t("memoryNew.identityChanged")}</p><button type="button" class="btn-secondary memory-button" onclick={()=>void back()}>{$t("memoryNew.back")}</button>{:else}<button type="button" class="btn-secondary memory-button" onclick={()=>void checkLatest()} disabled={detailLoading}>{$t('memoryNew.reviewLatest')}</button>{/if}</div></div>{/if}
  {#key view}<div in:change={{x:view==='list'?-8:8,duration:MOTION_DURATION.standard,easing:MOTION_EASE.out}}>
  {#if view==='list'}
-  <header class="memory-heading"><h2 tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2><p class="memory-description">{$t('memoryNew.intro')}</p></header>
+  {#if layout==='subjects'}<h2 class="sr-only" tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2>{:else}<header class="memory-heading"><h2 tabindex="-1" data-memory-heading>{$t('memoryNew.title')}</h2><p class="memory-description">{$t('memoryNew.intro')}</p></header>{/if}
   {#if page?.status==='queued'||page?.status==='working'}<p class="memory-status" role="status">{$t('memoryNew.updating')} {$t('memoryNew.updatingHelp')}</p>{:else if page?.status==='failed'&&backgroundErrorDismissed!==`${scopeValue}:${page.generation}`}<ErrorMessage error={$t('memoryNew.backgroundFailed')} canRetry={false} onRetry={()=>{}} onClose={()=>backgroundErrorDismissed=`${scopeValue}:${page?.generation}`}/>{/if}
   <MemoryQuarantineReview projects={$projects} {memoryOff} preparing={page?.authority === "preparing"} onKeep={() => void load("refresh")}/>
-  <MemoryList {page} bind:query {scopeValue} projects={$projects} {loading} {disabled} busy={false} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")}/>
+  {#if layout==='subjects'}<MemorySubjectIndexView index={subjectIndex} {page} bind:query {scopeValue} projects={$projects} {loading} {indexFailed} {disabled} {opened} {subjectPage} {subjectLoading} {subjectFailed} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")} onOpenSubject={(subject)=>void openSubject(subject)} onCloseSubject={()=>void closeSubject()} onSubjectMore={()=>{if(opened&&subjectPage?.nextCursor)void loadSubjectPage(opened,{cursor:subjectPage.nextCursor});}} onOpenOverview={()=>overviewOpen=true}/>
+  {:else}<MemoryList {page} bind:query {scopeValue} projects={$projects} {loading} {disabled} busy={false} onScope={selectScope} onSearch={search} onOpen={open} onAdd={startAdd} onMore={()=>void load("more")}/>{/if}
   {#if notice}<p class="memory-status"><Check size={15} strokeWidth={1.8} aria-hidden="true"/>{notice}</p>{/if}
  {:else}
   <button type="button" class="btn-ghost memory-back memory-button" onclick={()=>void back()}><ArrowLeft size={16} strokeWidth={1.8} aria-hidden="true"/>{$t('memoryNew.back')}</button>
@@ -754,4 +1000,5 @@ onMount(() => {
   {:else if view==='edit'||view==='add'}<MemoryEditor bind:draft savedText={view==='edit'?(detail?.row.text??null):null} {scopeLabel} busy={editorBusy} disabled={disabled||stale} onDraftChange={draftChanged} onSave={()=>void send()} onCancel={()=>{if(view==='add')void back();else void setView('detail');}}/>
   {:else if view==='remove'&&detail}<MemoryRemoveDialog text={detail.row.text} {scopeLabel} busy={editorBusy} disabled={disabled||stale||excludedHere} onRemove={()=>void send()} onCancel={()=>void setView('detail')}/>{/if}
  {/if}</div>{/key}
+ {#if overviewOpen&&layout==='subjects'}<MemoryOverviewSheet {scope} title={$t(scope.kind==='personal'?'memorySubjects.overviewPersonal':'memorySubjects.overviewProject')} onClose={()=>overviewOpen=false}/>{/if}
 </section>

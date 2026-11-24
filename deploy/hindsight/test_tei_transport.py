@@ -14,7 +14,7 @@ from alfyai_tei_transport import create_app, relay_host
 
 NATIVE_HOST = "172.30.40.2"
 EMBED = {
-    "model": "/qwen3-embedding-4b",
+    "model": "/qwen3-embedding-0.6b",
     "input": ["synthetic text"],
     "dimensions": 1024,
     "encoding_format": "base64",
@@ -78,6 +78,8 @@ class TeiDeploymentTests(unittest.TestCase):
             self.assertIn("NET_RAW", native["cap_drop"])
             self.assertIn("NET_RAW", services["postgres"]["cap_drop"])
             self.assertEqual(native["environment"]["HINDSIGHT_API_EMBEDDINGS_PROVIDER"], "openai")
+            # The relay answers 400 to any other model name, so Compose and the relay change together.
+            self.assertEqual(native["environment"]["HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL"], EMBED["model"])
             self.assertEqual(native["environment"]["HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS"], "1024")
             self.assertEqual(native["environment"]["HINDSIGHT_API_EMBEDDINGS_QUERY_PREFIX"], settings["ALFYAI_TEI_EMBEDDING_QUERY_PREFIX"])
             self.assertEqual(native["environment"]["HINDSIGHT_API_RERANKER_PROVIDER"], "tei")

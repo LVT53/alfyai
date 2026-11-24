@@ -1,29 +1,34 @@
 <script lang="ts">
-import { onDestroy, tick } from "svelte";
+import { onDestroy, tick, untrack } from "svelte";
 import { fade } from "svelte/transition";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
 import { conversationDisplayTitle } from "$lib/shared/conversation-title";
+import { matchRanges, searchTerms } from "$lib/shared/workspace-search-text";
 import { getFocusableElements } from "$lib/utils/focus-trap";
+import { formatAgo } from "$lib/utils/time";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import { chordsAreDrawn } from "$lib/components/artifacts/document/keyboard-shortcuts";
+import { videoDurationLabel } from "$lib/components/artifacts/video/video-card-view";
 import { reducedMotionAware } from "$lib/utils/motion";
 import {
 	AppWindow,
+	BookOpen,
+	Brain,
 	ChevronRight,
 	ExternalLink,
 	FileText,
 	FileUp,
+	Film,
 	Folder,
 	Image,
 	LayoutDashboard,
-	Library,
 	MessageSquare,
-	NotebookText,
+	NotebookPen,
+	Play,
 	Presentation,
 	Search,
-	Sparkles,
 	SquarePen,
 	TextSearch,
 	X,
@@ -36,10 +41,11 @@ import {
 import { fetchWorkspaceSearch } from "$lib/client/api/workspace-search";
 import {
 	buildSearchScopeChips,
-	filterRowsByScope,
+	formatScopeCount,
 	resolveActiveScope,
+	rowMatchesScope,
 	type SearchScopeId,
-	summariseScopedResults,
+	summariseTotals,
 } from "./search-scopes";
 import {
 	currentConversationId,
@@ -47,10 +53,13 @@ import {
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
 import type {
+	WorkspaceSearchBadge,
 	WorkspaceSearchConversationResult,
 	WorkspaceSearchDocumentResult,
+	WorkspaceSearchKind,
+	WorkspaceSearchMemoryResult,
 	WorkspaceSearchResponse,
-} from "$lib/server/services/workspace-search";
+} from "$lib/server/services/workspace-search/types";
 
 // prefers-reduced-motion: the CSS reset in app.css cannot reach this
 // JS-driven transition (see motion.ts), so wrap it explicitly.
@@ -64,28 +73,47 @@ type SearchRow =
 	  }
 	| {
 			id: string;
-			kind: "document";
-			document: WorkspaceSearchDocumentResult;
+			kind: "memory";
+			memory: WorkspaceSearchMemoryResult;
 	  }
 	| {
 			id: string;
-			kind: "knowledge-overflow";
+			kind: "document";
+			document: WorkspaceSearchDocumentResult;
 	  };
 
-type SearchSectionId = "conversations" | "documents" | "reports";
-
 type SearchSection = {
-	id: SearchSectionId;
+	kind: WorkspaceSearchKind;
 	titleKey: I18nKey;
 	rows: SearchRow[];
+	/** The kind's true count when "Show all" would show more than this section does. */
+	showAllTotal: number | null;
+	/** Another page of this kind can be loaded. */
+	canLoadMore: boolean;
 };
 
 const SCOPE_LABEL_KEYS: Record<SearchScopeId, I18nKey> = {
 	all: "searchModal.scopeAll",
-	conversations: "searchModal.scopeConversations",
+	chats: "searchModal.scopeConversations",
+	memory: "searchModal.scopeMemory",
 	documents: "searchModal.scopeDocuments",
-	reports: "searchModal.scopeReports",
-	connections: "searchModal.scopeConnections",
+	media: "searchModal.scopeMedia",
+	apps: "searchModal.scopeApps",
+};
+
+// A picture, a video, a Document, Slides, a Canvas and an App say their kind in
+// the app's own words (`artifacts.type.*`); only the file kinds have words here.
+const BADGE_KEYS: Record<WorkspaceSearchBadge, I18nKey> = {
+	document: "artifacts.type.document",
+	slides: "artifacts.type.slides",
+	canvas: "artifacts.type.canvas",
+	app: "artifacts.type.app",
+	image: "artifacts.type.image",
+	video: "artifacts.type.video",
+	uploaded: "searchModal.badgeUploaded",
+	generated: "searchModal.badgeGenerated",
+	report: "searchModal.badgeReport",
+	skill_note: "searchModal.badgeSkillNote",
 };
 
 type HighlightPart = {
@@ -102,11 +130,13 @@ let {
 } = $props();
 
 let searchQuery = $state("");
+// The answer for the chosen scope, with every page loaded so far appended.
 let searchResponse = $state<WorkspaceSearchResponse | null>(null);
 let searchLoading = $state(false);
+let loadingMore = $state(false);
 let searchError = $state(false);
 let activeRowId = $state<string | null>(null);
-// The scope the user picked. What is actually applied is `activeScope` below,
+// The chip the user picked. What is actually applied is `activeScope` below,
 // which falls back to All when the pick has nothing in it any more.
 let requestedScope = $state<SearchScopeId>("all");
 let modalRef = $state<HTMLDivElement | undefined>(undefined);
@@ -114,7 +144,7 @@ let searchInputRef = $state<HTMLInputElement | undefined>(undefined);
 let previousFocus: HTMLElement | null = null;
 let wasOpen = false;
 let latestRequestId = 0;
-let lastStartedQuery: string | null = null;
+let lastStartedKey: string | null = null;
 
 const SEARCH_DEBOUNCE_MS = 180;
 
@@ -123,6 +153,20 @@ const requestedSearchQuery = $derived(
 	trimmedSearchQuery.length >= 2 ? trimmedSearchQuery : "",
 );
 const isQueryMode = $derived((searchResponse?.mode ?? "default") === "query");
+const totals = $derived(
+	searchResponse?.totals ?? {
+		chats: 0,
+		memory: 0,
+		documents: 0,
+		media: 0,
+		apps: 0,
+	},
+);
+const scopeChips = $derived(
+	buildSearchScopeChips(totals, searchResponse?.memorySearchable ?? false),
+);
+const activeScope = $derived(resolveActiveScope(requestedScope, scopeChips));
+
 const conversationRows = $derived(
 	(searchResponse?.conversations ?? []).map(
 		(conversation): SearchRow => ({
@@ -132,108 +176,114 @@ const conversationRows = $derived(
 		}),
 	),
 );
-const allDocumentRows = $derived([
-	...(searchResponse?.documents ?? []).map(
+const memoryRows = $derived(
+	(searchResponse?.memories ?? []).map(
+		(memory): SearchRow => ({
+			id: `memory:${memory.id}`,
+			kind: "memory",
+			memory,
+		}),
+	),
+);
+const documentRows = $derived(
+	(searchResponse?.documents ?? []).map(
 		(document): SearchRow => ({
 			id: `document:${document.displayArtifactId}`,
 			kind: "document",
 			document,
 		}),
 	),
-	...(searchResponse?.documentOverflow
-		? [{ id: "knowledge-overflow", kind: "knowledge-overflow" } as SearchRow]
-		: []),
-]);
+);
 
 /** What the scope logic needs to know about a row, and nothing more. */
 function toScopeableRow(row: SearchRow) {
 	return {
 		id: row.id,
 		kind: row.kind,
-		documentOrigin:
-			row.kind === "document" ? row.document.documentOrigin : null,
+		searchKind: row.kind === "document" ? row.document.searchKind : undefined,
 	};
 }
 
-const allRows = $derived([...conversationRows, ...allDocumentRows]);
-const scopeChips = $derived(buildSearchScopeChips(allRows.map(toScopeableRow)));
-const activeScope = $derived(resolveActiveScope(requestedScope, scopeChips));
-
 function rowsInScope(rows: SearchRow[]): SearchRow[] {
-	if (activeScope === "all") return rows;
-	const keep = new Set(
-		filterRowsByScope(rows.map(toScopeableRow), activeScope).map(
-			(row) => row.id,
-		),
+	return rows.filter((row) =>
+		rowMatchesScope(toScopeableRow(row), activeScope),
 	);
-	return rows.filter((row) => keep.has(row.id));
 }
 
-// An Atlas report's output arrives here as a generated artifact. Giving it its
-// own heading is what lets the Reports chip mean something; the two groups
-// partition the document results, so nothing is listed twice.
-const reportRows = $derived(
-	allDocumentRows.filter(
-		(row) =>
-			row.kind === "document" && row.document.documentOrigin === "generated",
-	),
-);
-const documentRows = $derived(
-	allDocumentRows.filter((row) => !reportRows.includes(row)),
-);
 const searchSections = $derived.by<SearchSection[]>(() => {
-	const conversations = rowsInScope(conversationRows);
-	const documents = rowsInScope(documentRows);
-	const reports = rowsInScope(reportRows);
+	const response = searchResponse;
+	if (!response) return [];
+	const loadedForScope =
+		activeScope !== "all" &&
+		response.scope === activeScope &&
+		response.nextCursor !== null;
+	function buildSection(
+		kind: WorkspaceSearchKind,
+		titleKey: I18nKey,
+		rows: SearchRow[],
+	): SearchSection | null {
+		const shown = rowsInScope(rows);
+		if (!shown.length) return null;
+		return {
+			kind,
+			titleKey,
+			rows: shown,
+			showAllTotal:
+				isQueryMode && activeScope === "all" && totals[kind] > shown.length
+					? totals[kind]
+					: null,
+			canLoadMore: loadedForScope && activeScope === kind,
+		};
+	}
+	const ofKind = (kind: "documents" | "media" | "apps") =>
+		documentRows.filter(
+			(row) => row.kind === "document" && row.document.searchKind === kind,
+		);
+	if (!isQueryMode) {
+		// Before anything is typed: the newest chats and the newest documents of any kind.
+		return [
+			buildSection(
+				"chats",
+				"searchModal.recentConversations",
+				conversationRows,
+			),
+			activeScope === "all"
+				? buildSection("documents", "searchModal.recentDocuments", documentRows)
+				: null,
+			...(activeScope === "all"
+				? []
+				: [
+						buildSection(
+							"documents",
+							"searchModal.scopeDocuments",
+							ofKind("documents"),
+						),
+						buildSection("media", "searchModal.scopeMedia", ofKind("media")),
+						buildSection("apps", "searchModal.scopeApps", ofKind("apps")),
+					]),
+		].filter((entry): entry is SearchSection => entry !== null);
+	}
 	return [
-		conversations.length
-			? {
-					id: "conversations" as const,
-					titleKey: (isQueryMode
-						? "searchModal.conversations"
-						: "searchModal.recentConversations") as I18nKey,
-					rows: conversations,
-				}
-			: null,
-		documents.length
-			? {
-					id: "documents" as const,
-					titleKey: (isQueryMode
-						? "searchModal.documents"
-						: "searchModal.recentDocuments") as I18nKey,
-					rows: documents,
-				}
-			: null,
-		reports.length
-			? {
-					id: "reports" as const,
-					titleKey: (isQueryMode
-						? "searchModal.reports"
-						: "searchModal.recentReports") as I18nKey,
-					rows: reports,
-				}
-			: null,
-	].filter((section): section is SearchSection => section !== null);
+		buildSection("chats", "searchModal.scopeConversations", conversationRows),
+		buildSection("memory", "searchModal.scopeMemory", memoryRows),
+		buildSection(
+			"documents",
+			"searchModal.scopeDocuments",
+			ofKind("documents"),
+		),
+		buildSection("media", "searchModal.scopeMedia", ofKind("media")),
+		buildSection("apps", "searchModal.scopeApps", ofKind("apps")),
+	].filter((entry): entry is SearchSection => entry !== null);
 });
-const visibleRows = $derived(searchSections.flatMap((section) => section.rows));
+const visibleRows = $derived(searchSections.flatMap((entry) => entry.rows));
 const hasResults = $derived(visibleRows.length > 0);
-const resultSummary = $derived(
-	summariseScopedResults(visibleRows.map(toScopeableRow)),
-);
+const resultSummary = $derived(summariseTotals(totals));
 const activeResultElementId = $derived(
 	activeRowId ? searchResultElementId(activeRowId) : undefined,
 );
-const highlightTerms = $derived(
-	Array.from(
-		new Set(
-			(searchResponse?.query ?? "")
-				.trim()
-				.split(/\s+/)
-				.map((term) => term.trim().toLowerCase())
-				.filter(Boolean),
-		),
-	).sort((a, b) => b.length - a.length),
-);
+// The words of the query, folded the way the server matched them, so a word typed
+// without accents or in another order is lit in the text it found.
+const highlightTerms = $derived(searchTerms(searchResponse?.query ?? ""));
 
 function portal(node: HTMLElement) {
 	document.body.appendChild(node);
@@ -285,7 +335,10 @@ $effect(() => {
 	const query = requestedSearchQuery;
 	const delay = query ? SEARCH_DEBOUNCE_MS : 0;
 	const timeout = window.setTimeout(() => {
-		void runWorkspaceSearch(query);
+		void runWorkspaceSearch(
+			query,
+			untrack(() => requestedScope),
+		);
 	}, delay);
 
 	return () => window.clearTimeout(timeout);
@@ -317,27 +370,49 @@ function scrollActiveRowIntoView() {
 	row.scrollIntoView({ block: "nearest" });
 }
 
-async function runWorkspaceSearch(query: string) {
-	if (query === lastStartedQuery && searchResponse) return;
+/** The chip row scrolls sideways on a phone: the chosen chip is brought into view. */
+function scrollChipIntoView(id: SearchScopeId) {
+	if (!browser) return;
+	const chip = modalRef?.querySelector<HTMLElement>(
+		`[data-testid="search-scope-${id}"]`,
+	);
+	if (typeof chip?.scrollIntoView !== "function") return;
+	chip.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+
+async function runWorkspaceSearch(query: string, scope: SearchScopeId) {
+	// Before anything is typed there is one view; a chip only narrows it.
+	const kind = query ? scope : "all";
+	const key = `${query}|${kind}`;
+	if (key === lastStartedKey && searchResponse) return;
 
 	const requestId = ++latestRequestId;
-	lastStartedQuery = query;
+	lastStartedKey = key;
 	searchLoading = true;
+	loadingMore = false;
 	searchError = false;
 
 	try {
 		const response = (await fetchWorkspaceSearch({
 			query,
+			...(kind === "all" ? {} : { scope: kind }),
 		})) as WorkspaceSearchResponse;
 		if (requestId !== latestRequestId) return;
 		searchResponse = {
-			mode: response.mode,
-			query: response.query,
+			...response,
 			conversations: response.conversations ?? [],
+			memories: response.memories ?? [],
 			documents: response.documents ?? [],
-			documentOverflow: response.documentOverflow,
-			knowledgeHref: response.knowledgeHref,
+			totals: response.totals ?? totals,
+			memorySearchable: response.memorySearchable ?? false,
+			nextCursor: response.nextCursor ?? null,
 		};
+		// A kind with nothing for this query is no longer a chip worth being on.
+		if (kind !== "all" && searchResponse.totals[kind] === 0) {
+			requestedScope = "all";
+			lastStartedKey = null;
+			void runWorkspaceSearch(query, "all");
+		}
 	} catch {
 		if (requestId !== latestRequestId) return;
 		searchError = true;
@@ -348,14 +423,57 @@ async function runWorkspaceSearch(query: string) {
 	}
 }
 
+/** The next page of the chosen kind, appended after the ones already shown. */
+async function loadMore() {
+	const current = searchResponse;
+	if (!current?.nextCursor || loadingMore || activeScope === "all") return;
+	const requestId = latestRequestId;
+	loadingMore = true;
+	try {
+		const page = (await fetchWorkspaceSearch({
+			query: requestedSearchQuery,
+			scope: activeScope,
+			cursor: current.nextCursor,
+		})) as WorkspaceSearchResponse;
+		if (requestId !== latestRequestId) return;
+		searchResponse = {
+			...current,
+			conversations: [...current.conversations, ...(page.conversations ?? [])],
+			memories: [...current.memories, ...(page.memories ?? [])],
+			documents: [...current.documents, ...(page.documents ?? [])],
+			totals: page.totals ?? current.totals,
+			nextCursor: page.nextCursor ?? null,
+		};
+	} catch {
+		if (requestId === latestRequestId) searchError = true;
+	} finally {
+		if (requestId === latestRequestId) loadingMore = false;
+	}
+}
+
+function selectScope(id: SearchScopeId) {
+	if (
+		id !== "all" &&
+		!scopeChips.some((chip) => chip.id === id && chip.count > 0)
+	) {
+		return;
+	}
+	requestedScope = id;
+	void tick().then(() => scrollChipIntoView(id));
+	// Before anything is typed the chip only narrows the recents; with a query it
+	// asks the server for that kind's page.
+	if (isQueryMode) void runWorkspaceSearch(requestedSearchQuery, id);
+}
+
 function handleClose() {
 	latestRequestId += 1;
 	searchQuery = "";
 	searchResponse = null;
 	searchLoading = false;
+	loadingMore = false;
 	searchError = false;
 	activeRowId = null;
-	lastStartedQuery = null;
+	lastStartedKey = null;
 	requestedScope = "all";
 	onClose();
 	previousFocus?.focus();
@@ -396,7 +514,7 @@ const newTabModifierLabel = (() => {
 		userAgentData?: { platform?: string };
 	};
 	const platform = nav.userAgentData?.platform ?? nav.platform ?? "";
-	return /mac/i.test(platform) ? "\u2318" : "Ctrl";
+	return /mac/i.test(platform) ? "⌘" : "Ctrl";
 })();
 
 // A focused button owns a plain Enter — that is how the close and clear
@@ -480,27 +598,25 @@ async function activateRow(row: SearchRow) {
 		await openConversation(row.conversation);
 		return;
 	}
-	if (row.kind === "document") {
-		await openDocument(row.document);
+	if (row.kind === "memory") {
+		await openMemory(row.memory);
 		return;
 	}
-	await openKnowledge();
+	await openDocument(row.document);
 }
 
 /** Where a row goes — the same destination Enter would navigate to. */
 function rowHref(row: SearchRow): string {
 	if (row.kind === "conversation") return conversationHref(row.conversation);
-	if (row.kind === "document") {
-		return (
-			row.document.href ||
-			buildKnowledgeWorkspaceHref({
-				artifactId: row.document.displayArtifactId,
-				filename: documentFilename(row.document),
-				mimeType: row.document.mimeType,
-			})
-		);
-	}
-	return searchResponse?.knowledgeHref || "/knowledge";
+	if (row.kind === "memory") return row.memory.href;
+	return (
+		row.document.href ||
+		buildKnowledgeWorkspaceHref({
+			artifactId: row.document.displayArtifactId,
+			filename: documentFilename(row.document),
+			mimeType: row.document.mimeType,
+		})
+	);
 }
 
 /**
@@ -557,6 +673,14 @@ async function openDocument(document: WorkspaceSearchDocumentResult) {
 	}
 }
 
+async function openMemory(memory: WorkspaceSearchMemoryResult) {
+	handleClose();
+	await goto(memory.href);
+	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+		sidebarOpen.set(false);
+	}
+}
+
 function sourceConversationHref(document: WorkspaceSearchDocumentResult) {
 	return document.sourceHref;
 }
@@ -572,14 +696,6 @@ async function openDocumentSource(
 	await goto(href);
 }
 
-async function openKnowledge() {
-	handleClose();
-	await goto(searchResponse?.knowledgeHref || "/knowledge");
-	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
-		sidebarOpen.set(false);
-	}
-}
-
 function conversationMeta(conversation: WorkspaceSearchConversationResult) {
 	if (conversation.match.type === "body") {
 		return $t("searchModal.messageMatch");
@@ -587,60 +703,38 @@ function conversationMeta(conversation: WorkspaceSearchConversationResult) {
 	return conversation.projectName?.trim() || "";
 }
 
-function documentBadgeKey(document: WorkspaceSearchDocumentResult) {
-	// The artifact family (Feature 2, ADR-0066) reuses `artifacts.type.*` — the
-	// app's one kind-label vocabulary (ruling 22) — instead of a second badge-
-	// key family for the same five words.
-	if (document.kind) return `artifacts.type.${document.kind}` as I18nKey;
-	if (document.documentOrigin === "generated")
-		return "searchModal.badgeGenerated";
-	if (document.documentOrigin === "skill_note")
-		return "searchModal.badgeSkillNote";
-	return "searchModal.badgeUploaded";
+/** "Personal", or the project's name, then when it was last said (when it has a date). */
+function memoryMeta(memory: WorkspaceSearchMemoryResult) {
+	const scope =
+		memory.scope.kind === "personal"
+			? $t("memoryNew.personal")
+			: memory.projectName?.trim() || $t("memoryNew.project");
+	const ago = memory.lastSaidAt ? formatAgo(memory.lastSaidAt, { t: $t }) : "";
+	return ago
+		? { scope, said: $t("searchModal.memorySaid", { ago }) }
+		: { scope, said: "" };
 }
 
 function highlightParts(value: string | null | undefined): HighlightPart[] {
 	const text = value ?? "";
-	if (!text || highlightTerms.length === 0) {
+	const ranges = matchRanges(text, highlightTerms);
+	if (!text || ranges.length === 0) {
 		return [{ text, highlight: false }];
 	}
 
-	const lowerText = text.toLowerCase();
 	const parts: HighlightPart[] = [];
 	let index = 0;
-
-	while (index < text.length) {
-		let nextIndex = -1;
-		let nextTerm = "";
-
-		for (const term of highlightTerms) {
-			const matchIndex = lowerText.indexOf(term, index);
-			if (
-				matchIndex !== -1 &&
-				(nextIndex === -1 ||
-					matchIndex < nextIndex ||
-					(matchIndex === nextIndex && term.length > nextTerm.length))
-			) {
-				nextIndex = matchIndex;
-				nextTerm = term;
-			}
+	for (const range of ranges) {
+		if (range.start > index) {
+			parts.push({ text: text.slice(index, range.start), highlight: false });
 		}
-
-		if (nextIndex === -1) {
-			parts.push({ text: text.slice(index), highlight: false });
-			break;
-		}
-
-		if (nextIndex > index) {
-			parts.push({ text: text.slice(index, nextIndex), highlight: false });
-		}
-
-		const endIndex = nextIndex + nextTerm.length;
-		parts.push({ text: text.slice(nextIndex, endIndex), highlight: true });
-		index = endIndex;
+		parts.push({ text: text.slice(range.start, range.end), highlight: true });
+		index = range.end;
 	}
-
-	return parts.length ? parts : [{ text, highlight: false }];
+	if (index < text.length) {
+		parts.push({ text: text.slice(index), highlight: false });
+	}
+	return parts;
 }
 
 onDestroy(() => {
@@ -692,7 +786,7 @@ onDestroy(() => {
 						bind:this={searchInputRef}
 						bind:value={searchQuery}
 						type="text"
-						aria-label={$t('searchModal.placeholder')}
+						aria-label={$t('searchModal.inputLabel')}
 						aria-activedescendant={activeResultElementId}
 						aria-controls="workspace-search-results"
 						placeholder={$t('searchModal.placeholder')}
@@ -714,40 +808,25 @@ onDestroy(() => {
 			</div>
 
 			<div class="search-scope-band border-b px-4 py-2" role="group" aria-label={$t('searchModal.scopeLabel')}>
-				<div class="flex flex-wrap items-center gap-1.5">
+				<div class="search-scope-row">
 					{#each scopeChips as chip (chip.id)}
-						{#if chip.available}
-							<button
-								type="button"
-								class="search-scope-chip"
-								class:active={activeScope === chip.id}
-								aria-pressed={activeScope === chip.id}
-								aria-label={$t('searchModal.scopeCountLabel', {
-									name: $t(SCOPE_LABEL_KEYS[chip.id]),
-									count: chip.count,
-								})}
-								data-testid={`search-scope-${chip.id}`}
-								onclick={() => (requestedScope = chip.id)}
-							>
-								<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
-								{#if chip.id !== 'all' || chip.count > 0}
-									<span class="search-scope-count">{chip.count}</span>
-								{/if}
-							</button>
-						{:else}
-							<!-- Nothing indexes connector data yet, so the chip says so
-							     instead of returning an empty list that reads like
-							     "you have nothing there". -->
-							<span
-								class="search-scope-chip search-scope-chip-disabled"
-								data-testid={`search-scope-${chip.id}`}
-								title={$t('searchModal.scopeConnectionsComingSoon')}
-								aria-disabled="true"
-							>
-								<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
-								<span class="search-scope-soon">{$t('searchModal.scopeComingSoon')}</span>
-							</span>
-						{/if}
+						<button
+							type="button"
+							class="search-scope-chip"
+							class:active={activeScope === chip.id}
+							aria-pressed={activeScope === chip.id}
+							aria-label={$t('searchModal.scopeCountLabel', {
+								name: $t(SCOPE_LABEL_KEYS[chip.id]),
+								count: formatScopeCount(chip.count),
+							})}
+							data-testid={`search-scope-${chip.id}`}
+							onclick={() => selectScope(chip.id)}
+						>
+							<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
+							{#if chip.id !== 'all' || chip.count > 0}
+								<span class="search-scope-count">{formatScopeCount(chip.count)}</span>
+							{/if}
+						</button>
 					{/each}
 				</div>
 			</div>
@@ -795,8 +874,8 @@ onDestroy(() => {
 							</div>
 						{/if}
 
-						{#each searchSections as section (section.id)}
-							<section class="space-y-1.5">
+						{#each searchSections as section (section.kind)}
+							<section class="space-y-1.5" data-testid={`search-section-${section.kind}`}>
 								<div class="px-2 text-[10px] font-sans font-medium uppercase tracking-[0.12em] text-text-muted">
 									{$t(section.titleKey)}
 								</div>
@@ -851,7 +930,40 @@ onDestroy(() => {
 													<ChevronRight size={14} strokeWidth={2.1} class="shrink-0 text-icon-muted" aria-hidden="true" />
 												</button>
 											</div>
-										{:else if row.kind === 'document'}
+										{:else if row.kind === 'memory'}
+											{@const meta = memoryMeta(row.memory)}
+											<div
+												class="search-result-shell search-result-memory rounded-lg"
+												class:active={row.id === activeRowId}
+												onpointerenter={() => (activeRowId = row.id)}
+											>
+												<button
+													id={searchResultElementId(row.id)}
+													type="button"
+													class="search-result-item flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
+													onclick={() => openMemory(row.memory)}
+												>
+													<div class="search-result-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
+														<Brain size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+													</div>
+													<div class="min-w-0 flex-1">
+														<p class="line-clamp-2 text-[13px] font-sans font-medium leading-5 text-text-primary">
+															{#each highlightParts(row.memory.text) as part}
+																<span class:search-highlight={part.highlight}>{part.text}</span>
+															{/each}
+														</p>
+														<div class="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] font-sans text-text-muted">
+															<span class="truncate">{meta.scope}</span>
+															{#if meta.said}
+																<span aria-hidden="true">·</span>
+																<span class="shrink-0">{meta.said}</span>
+															{/if}
+														</div>
+													</div>
+													<ChevronRight size={14} strokeWidth={2.1} class="shrink-0 text-icon-muted" aria-hidden="true" />
+												</button>
+											</div>
+										{:else}
 											<div
 												class="search-result-shell search-result-document flex items-stretch rounded-lg"
 												class:active={row.id === activeRowId}
@@ -863,22 +975,45 @@ onDestroy(() => {
 													class="search-result-item flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
 													onclick={() => openDocument(row.document)}
 												>
-													<div class="search-result-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
-														{#if row.document.kind === 'app'}
+													<div
+														class="search-result-icon flex shrink-0 items-center justify-center rounded-md"
+														class:h-8={!row.document.preview}
+														class:w-8={!row.document.preview}
+														class:search-result-thumb={Boolean(row.document.preview)}
+													>
+														{#if row.document.preview}
+															<img
+																src={row.document.preview.src}
+																alt=""
+																width={row.document.preview.width ?? undefined}
+																height={row.document.preview.height ?? undefined}
+																loading="lazy"
+																decoding="async"
+																class="search-thumb"
+															/>
+															{#if row.document.badge === 'video'}
+																<Play size={16} strokeWidth={2.4} class="search-thumb-play" fill="currentColor" aria-hidden="true" />
+																{#if row.document.durationMs}
+																	<span class="search-thumb-duration">{videoDurationLabel(row.document.durationMs)}</span>
+																{/if}
+															{/if}
+														{:else if row.document.badge === 'app'}
 															<AppWindow size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.kind === 'canvas'}
+														{:else if row.document.badge === 'canvas'}
 															<LayoutDashboard size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.kind === 'image'}
+														{:else if row.document.badge === 'image'}
 															<Image size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.kind === 'slides'}
+														{:else if row.document.badge === 'video'}
+															<Film size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.badge === 'slides'}
 															<Presentation size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.kind === 'document'}
+														{:else if row.document.badge === 'document'}
 															<SquarePen size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.documentOrigin === 'generated'}
-															<Sparkles size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.documentOrigin === 'skill_note'}
-															<NotebookText size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-														{:else if row.document.documentOrigin === 'uploaded'}
+														{:else if row.document.badge === 'report'}
+															<BookOpen size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.badge === 'skill_note'}
+															<NotebookPen size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.badge === 'uploaded'}
 															<FileUp size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
 														{:else}
 															<FileText size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
@@ -891,11 +1026,18 @@ onDestroy(() => {
 																	<span class:search-highlight={part.highlight}>{part.text}</span>
 																{/each}
 															</div>
-															<span class="search-badge shrink-0">{$t(documentBadgeKey(row.document))}</span>
+															<span class="search-badge shrink-0">{$t(BADGE_KEYS[row.document.badge])}</span>
 															{#if row.document.documentFamilyStatus === 'historical'}
 																<span class="search-badge shrink-0">{$t('searchModal.badgeHistorical')}</span>
 															{/if}
 														</div>
+														{#if row.document.originConversationTitle}
+															<div class="mt-0.5 truncate text-[11px] font-sans text-text-muted">
+																{$t('searchModal.madeIn', {
+																	chat: conversationDisplayTitle(row.document.originConversationTitle, $t('chat.untitledConversation')),
+																})}
+															</div>
+														{/if}
 														{#if row.document.name && row.document.name !== documentTitle(row.document)}
 															<div class="mt-0.5 truncate text-[11px] font-sans text-text-muted">
 																{#each highlightParts(row.document.name) as part}
@@ -925,30 +1067,30 @@ onDestroy(() => {
 													</button>
 												{/if}
 											</div>
-										{:else}
-											<div
-												class="search-result-shell rounded-lg"
-												class:active={row.id === activeRowId}
-												onpointerenter={() => (activeRowId = row.id)}
-											>
-												<button
-													id={searchResultElementId(row.id)}
-													type="button"
-													class="search-result-item flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
-													onclick={openKnowledge}
-												>
-													<div class="search-result-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
-														<Library size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
-													</div>
-													<div class="min-w-0 flex-1 truncate text-[13px] font-sans font-medium text-text-primary">
-														{$t('searchModal.viewAllDocuments')}
-													</div>
-													<ChevronRight size={14} strokeWidth={2.1} class="shrink-0 text-icon-muted" aria-hidden="true" />
-												</button>
-											</div>
 										{/if}
 									{/each}
 								</div>
+								{#if section.showAllTotal !== null}
+									<button
+										type="button"
+										class="search-section-link"
+										onclick={() => selectScope(section.kind)}
+									>
+										<span>{$t('searchModal.showAll', { count: formatScopeCount(section.showAllTotal) })}</span>
+										<ChevronRight size={13} strokeWidth={2.2} aria-hidden="true" />
+									</button>
+								{/if}
+								{#if section.canLoadMore}
+									<button
+										type="button"
+										class="search-section-link"
+										disabled={loadingMore}
+										onclick={loadMore}
+									>
+										{#if loadingMore}<Spinner size={13} />{/if}
+										<span>{$t('searchModal.loadMore')}</span>
+									</button>
+								{/if}
 							</section>
 						{/each}
 					</div>
@@ -1042,7 +1184,22 @@ onDestroy(() => {
 		background: color-mix(in srgb, var(--surface-page) 30%, transparent 70%);
 	}
 
+	.search-scope-row {
+		display: flex;
+		flex-wrap: nowrap;
+		align-items: center;
+		gap: 0.375rem;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.search-scope-row::-webkit-scrollbar {
+		display: none;
+	}
+
 	.search-scope-chip {
+		flex: none;
 		display: inline-flex;
 		align-items: center;
 		gap: 0.3rem;
@@ -1076,23 +1233,9 @@ onDestroy(() => {
 		color: var(--accent);
 	}
 
-	.search-scope-chip-disabled,
-	.search-scope-chip-disabled:hover {
-		cursor: default;
-		opacity: 0.45;
-		border-color: color-mix(in srgb, var(--border-default) 70%, transparent 30%);
-		color: var(--text-muted);
-	}
-
 	.search-scope-count {
 		font-variant-numeric: tabular-nums;
 		opacity: 0.8;
-	}
-
-	.search-scope-soon {
-		font-size: 10px;
-		font-style: italic;
-		opacity: 0.85;
 	}
 
 	.search-modal-footer {
@@ -1255,12 +1398,79 @@ onDestroy(() => {
 		font-weight: 700;
 	}
 
+	/* A picture's or a video's thumbnail: 48 px, cropped to a square, with a
+	   clip's play mark and length over it. */
+	.search-result-thumb {
+		position: relative;
+		width: 3rem;
+		height: 3rem;
+		overflow: hidden;
+	}
+
+	.search-thumb {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	:global(.search-thumb-play) {
+		position: absolute;
+		inset: 0;
+		margin: auto;
+		color: #fff;
+		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+	}
+
+	.search-thumb-duration {
+		position: absolute;
+		right: 3px;
+		bottom: 3px;
+		padding: 1px 4px;
+		border-radius: 4px;
+		background: rgba(0, 0, 0, 0.66);
+		color: #fff;
+		font-family: var(--font-sans);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		line-height: 1.2;
+	}
+
+	/* "Show all N" and "Load more" at the foot of a section. */
+	.search-section-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		margin-left: 2.5rem;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.375rem;
+		background: transparent;
+		color: var(--accent);
+		font-family: var(--font-sans);
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.search-section-link:hover,
+	.search-section-link:focus-visible {
+		background: color-mix(in srgb, var(--accent) 10%, transparent 90%);
+		outline: none;
+	}
+
+	.search-section-link:disabled {
+		cursor: default;
+		opacity: 0.6;
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		:global(.search-portal-backdrop),
 		.search-result-shell,
 		.search-modal-icon-button,
 		.search-source-button,
-		.search-scope-chip {
+		.search-scope-chip,
+		.search-section-link {
 			animation: none !important;
 			transition: none !important;
 		}

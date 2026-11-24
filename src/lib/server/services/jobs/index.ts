@@ -34,6 +34,7 @@ export { defineJobKind } from "./define";
 export { describeJob } from "./ledger";
 export {
 	drain,
+	drainUser,
 	inspectJobsForTests,
 	resetJobsForTests,
 	runInline,

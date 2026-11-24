@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import Database from "better-sqlite3";
 import { login, waitForHydration } from "./helpers";
+import { keepAdminOnTodaysMemoryPage } from "./memory-helpers";
 
 const CAPTURE_DIR =
 	process.env.REDESIGN_CAPTURE_DIR ??
@@ -176,12 +177,20 @@ function conversation(
 	};
 }
 
+// A row as the server sends it: the chip it belongs to (`searchKind`), the
+// word on it (`badge`) and, for what a chat made, the chat's title.
 function document(
 	id: string,
 	name: string,
 	origin: "uploaded" | "generated" | "skill_note",
 	snippet: string | null,
 	familyStatus: "active" | "historical" | null = null,
+	extra: {
+		searchKind?: "documents" | "media" | "apps";
+		badge?: string;
+		mimeType?: string;
+		madeIn?: string;
+	} = {},
 ) {
 	return {
 		id,
@@ -189,7 +198,7 @@ function document(
 		promptArtifactId: null,
 		familyArtifactIds: [id],
 		name,
-		mimeType: "application/pdf",
+		mimeType: extra.mimeType ?? "application/pdf",
 		sizeBytes: 1_400_000,
 		conversationId: null,
 		summary: null,
@@ -199,13 +208,21 @@ function document(
 		updatedAt: Date.now(),
 		href: `/knowledge?open_artifact=${id}`,
 		sourceHref: null,
+		searchKind: extra.searchKind ?? "documents",
+		badge: extra.badge ?? origin,
+		originConversationTitle: extra.madeIn ?? null,
+		preview: null,
+		durationMs: null,
 		match: { type: snippet ? "content" : "recent", snippet },
 	};
 }
 
+// What the empty box shows: the newest three chats and the newest three
+// documents of any kind, with the chip counts of what is shown.
 const SEARCH_RECENTS = {
 	mode: "default",
 	query: "",
+	scope: "all",
 	conversations: [
 		conversation(
 			"conv-1",
@@ -215,24 +232,36 @@ const SEARCH_RECENTS = {
 		),
 		conversation("conv-2", "Nextcloud folder clean-up plan", null, "Homelab"),
 		conversation("conv-3", "Flash-Next serving config on alfyroot", null),
-		conversation("conv-4", "Balaton trip photo sort", null),
 	],
+	memories: [],
 	documents: [
 		document(
 			"artifact-1",
 			"atlas-battery-rules-2026-09.pdf",
 			"generated",
 			null,
+			null,
+			{ badge: "report", madeIn: "Atlas report on EU battery rules" },
 		),
 		document("artifact-2", "invoice-2026-09.pdf", "uploaded", null),
+		document("artifact-5", "Balaton sunset", "generated", null, null, {
+			searchKind: "media",
+			badge: "image",
+			mimeType: "image/png",
+			madeIn: "Balaton trip photo sort",
+		}),
 	],
-	documentOverflow: true,
-	knowledgeHref: "/knowledge",
+	totals: { chats: 3, memory: 0, documents: 2, media: 1, apps: 0 },
+	memorySearchable: true,
+	nextCursor: null,
 };
 
+// What "battery" finds: a few of each kind under All, and the true count of
+// every kind in its chip.
 const SEARCH_RESULTS = {
 	mode: "query",
 	query: "battery",
+	scope: "all",
 	conversations: [
 		conversation(
 			"conv-5",
@@ -245,12 +274,24 @@ const SEARCH_RESULTS = {
 			"…the battery-backed cache on GPU0…",
 		),
 	],
+	memories: [
+		{
+			id: "memory-battery",
+			scope: { kind: "personal" },
+			projectName: null,
+			text: "Comparing the two EU battery-rule drafts for an Atlas report.",
+			lastSaidAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+			href: "/knowledge?tab=memory&memoryEntry=memory-battery&memoryQuery=battery",
+		},
+	],
 	documents: [
 		document(
 			"artifact-1",
 			"atlas-battery-rules-2026-09.pdf",
 			"generated",
 			"…Annex II of the battery regulation now covers…",
+			null,
+			{ badge: "report", madeIn: "Atlas report on EU battery rules" },
 		),
 		document(
 			"artifact-3",
@@ -258,6 +299,7 @@ const SEARCH_RESULTS = {
 			"generated",
 			"Superseded by v3",
 			"historical",
+			{ badge: "report" },
 		),
 		document(
 			"artifact-4",
@@ -265,9 +307,29 @@ const SEARCH_RESULTS = {
 			"skill_note",
 			"…battery chemistry notes…",
 		),
+		document(
+			"artifact-6",
+			"Battery cell cross-section",
+			"generated",
+			null,
+			null,
+			{
+				searchKind: "media",
+				badge: "image",
+				mimeType: "image/png",
+				madeIn: "Atlas report on EU battery rules",
+			},
+		),
+		document("artifact-7", "Battery swap countdown", "generated", null, null, {
+			searchKind: "apps",
+			badge: "app",
+			mimeType: "text/html",
+			madeIn: "Flash-Next serving config on alfyroot",
+		}),
 	],
-	documentOverflow: true,
-	knowledgeHref: "/knowledge?q=battery",
+	totals: { chats: 14, memory: 1, documents: 12, media: 3, apps: 1 },
+	memorySearchable: true,
+	nextCursor: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -750,21 +812,27 @@ test.describe("everyday redesign screens", () => {
 
 	for (const theme of ["light", "dark"] as const) {
 		test(`knowledge Memory list (${theme})`, async ({ page }) => {
+			// Today's list, kept by an account whose labels are not verified.
+			const restoreMemoryPage = keepAdminOnTodaysMemoryPage();
 			await stubMemory(page);
-			await page.goto("/knowledge?tab=memory");
-			await waitForHydration(page);
-			await setTheme(page, theme);
-			await expect(page.getByTestId("memory-list")).toBeVisible();
-			await expect(
-				page.getByRole("combobox", { name: "Memory space" }),
-			).toBeVisible();
-			await capture(page, `knowledge-memory-${theme}`, theme);
-			await page
-				.getByRole("searchbox", { name: "Search memories" })
-				.fill("nextcloud");
-			await expect(
-				page.getByRole("searchbox", { name: "Search memories" }),
-			).toHaveValue("nextcloud");
+			try {
+				await page.goto("/knowledge?tab=memory");
+				await waitForHydration(page);
+				await setTheme(page, theme);
+				await expect(page.getByTestId("memory-list")).toBeVisible();
+				await expect(
+					page.getByRole("combobox", { name: "Memory space" }),
+				).toBeVisible();
+				await capture(page, `knowledge-memory-${theme}`, theme);
+				await page
+					.getByRole("searchbox", { name: "Search memories" })
+					.fill("nextcloud");
+				await expect(
+					page.getByRole("searchbox", { name: "Search memories" }),
+				).toHaveValue("nextcloud");
+			} finally {
+				restoreMemoryPage();
+			}
 		});
 		test(`knowledge documents tab (${theme})`, async ({ page }) => {
 			const seeded = seedDocuments();
@@ -899,20 +967,36 @@ test.describe("everyday redesign screens", () => {
 			await setTheme(page, theme);
 
 			await page
-				.getByRole("button", { name: "Search conversations and documents" })
+				.getByRole("button", {
+					name: "Search chats, memory, documents and more",
+				})
 				.click();
 			const modal = page.getByRole("dialog", { name: "Search workspace" });
 			await modal.waitFor({ state: "visible" });
 
 			// The empty box is already useful: recents under their own headings.
 			await expect(modal.getByText("Recent conversations")).toBeVisible();
+			await expect(modal.getByText("Recent documents")).toBeVisible();
 			await expect(modal.getByTestId("search-result-count")).toHaveCount(0);
 			await capture(page, `search-recents-${theme}`, theme);
 
 			await modal.locator('input[type="text"]').fill("battery");
-			await expect(modal.getByTestId("search-result-count")).toBeVisible();
-			// Four kinds of result, each under its own heading.
-			await expect(modal.getByText("Reports")).toHaveCount(2);
+			// Every kind of result sits under its own heading, and the summary and
+			// the chips count each kind in full, beyond the few rows All shows.
+			await expect(modal.getByTestId("search-result-count")).toHaveText(
+				"31 results across 5 kinds",
+			);
+			for (const kind of ["chats", "memory", "documents", "media", "apps"]) {
+				await expect(modal.getByTestId(`search-section-${kind}`)).toBeVisible();
+			}
+			await expect(modal.getByTestId("search-scope-chats")).toHaveAttribute(
+				"aria-label",
+				"Chats — 14 results",
+			);
+			await expect(modal.getByTestId("search-scope-documents")).toHaveAttribute(
+				"aria-label",
+				"Documents — 12 results",
+			);
 			await capture(page, `search-results-${theme}`, theme);
 		});
 

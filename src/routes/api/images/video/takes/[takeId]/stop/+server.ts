@@ -7,7 +7,7 @@ import { findOwnVideoTake } from "$lib/server/services/images/video/card-actions
 import { cancelVideoTake } from "$lib/server/services/images/video/video-job";
 import type { RequestHandler } from "./$types";
 
-/** The card's own Stop: may interrupt the segment ComfyUI is already rendering. */
+/** The card's own Stop: may interrupt the prompt ComfyUI is already rendering. */
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const take = await findOwnVideoTake({

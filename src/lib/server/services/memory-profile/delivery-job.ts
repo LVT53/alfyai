@@ -16,8 +16,8 @@ import type { Tx } from "../jobs/types";
 import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
-	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 } from "./contracts";
+import { decideMemoryDeliveryFailure } from "./delivery-policy";
 import {
 	type RepairPlan,
 	readDependencyRepairPlan,
@@ -27,16 +27,19 @@ import {
 import {
 	assertMemoryBankFence,
 	assertMemoryDependencySourceCurrent,
+	retainEndRecorded,
 } from "./revisions";
 
+/** Whether Memory jobs may run in this process: the worker switch, and no restore hold. */
+export function memoryDeliveryEnabled(): boolean {
+	const config = getConfig();
+	return config.hindsightWorkerEnabled && !config.hindsightRestoreHold;
+}
 export const memoryDeliveryJob = defineJobKind({
 	name: "memory",
 	logPrefix: "[MEMORY]",
 	tables: { jobs: memoryDeliveryJobs, attempts: memoryDeliveryAttempts },
-	enabled: () => {
-		const config = getConfig();
-		return config.hindsightWorkerEnabled && !config.hindsightRestoreHold;
-	},
+	enabled: memoryDeliveryEnabled,
 	// One active mutation per user is stricter than per-bank and prevents native bank overlap.
 	limits: () => ({ global: getConfig().hindsightConcurrency, perUser: 1 }),
 	lease: () => ({ heartbeatMs: 15_000, staleAfterMs: 120_000 }),
@@ -95,10 +98,9 @@ export const memoryDeliveryJob = defineJobKind({
 		code: "memory_worker_lost",
 		message: "Memory preparation was interrupted.",
 	}),
+	// Waiting on Hindsight spends no attempt; see delivery-policy.ts.
 	onFailure: (failure, history) =>
-		failure.retryable && history.attempts < NATIVE_DELIVERY_ATTEMPT_LIMIT
-			? { requeue: true, delayMs: Math.min(60_000, 5_000 * history.attempts) }
-			: { requeue: false, retryable: failure.retryable },
+		decideMemoryDeliveryFailure(failure, history),
 	userRetry: { from: ["failed"], requireRetryable: true },
 	handler: () => import("./delivery-runner").then((m) => m.runMemoryDelivery),
 });
@@ -331,6 +333,8 @@ export function bankCleanupInputs(
 							),
 						)
 						.all()
+						// An ended retain is never sent again: nothing to settle.
+						.filter((source) => !retainEndRecorded(source))
 						.map((source) => source.nativeOperationId)
 						.filter(Boolean),
 				]),

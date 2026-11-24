@@ -35,8 +35,6 @@ describe("GET /api/workspace-search", () => {
 			mode: "query",
 			conversations: [],
 			documents: [],
-			documentOverflow: false,
-			knowledgeHref: null,
 		});
 	});
 
@@ -48,14 +46,14 @@ describe("GET /api/workspace-search", () => {
 		expect(mockRequireAuth).toHaveBeenCalledTimes(1);
 		expect(mockSearchWorkspace).toHaveBeenCalledWith("user-1", {
 			query: "atlas",
+			scope: "all",
+			cursor: null,
 		});
 		expect(data).toEqual({
 			query: "atlas",
 			mode: "query",
 			conversations: [],
 			documents: [],
-			documentOverflow: false,
-			knowledgeHref: null,
 		});
 	});
 
@@ -84,8 +82,6 @@ describe("GET /api/workspace-search", () => {
 					match: { type: "name", snippet: null },
 				},
 			],
-			documentOverflow: false,
-			knowledgeHref: null,
 		});
 
 		const response = await GET(
@@ -96,6 +92,66 @@ describe("GET /api/workspace-search", () => {
 		expect(data.documents[0]).toMatchObject({
 			displayArtifactId: "art-canvas-1",
 			kind: "canvas",
+		});
+	});
+
+	it("passes the chosen kind and the page cursor to the service", async () => {
+		await GET(
+			makeEvent(
+				"http://localhost/api/workspace-search?q=kitchen+plan&scope=chats&cursor=o%3A20",
+			),
+		);
+
+		expect(mockSearchWorkspace).toHaveBeenCalledWith("user-1", {
+			query: "kitchen plan",
+			scope: "chats",
+			cursor: "o:20",
+		});
+	});
+
+	it("accepts each of the six scopes and falls back to all for any other", async () => {
+		for (const scope of [
+			"all",
+			"chats",
+			"memory",
+			"documents",
+			"media",
+			"apps",
+		]) {
+			mockSearchWorkspace.mockClear();
+			await GET(
+				makeEvent(
+					`http://localhost/api/workspace-search?q=atlas&scope=${scope}`,
+				),
+			);
+			expect(mockSearchWorkspace).toHaveBeenCalledWith("user-1", {
+				query: "atlas",
+				scope,
+				cursor: null,
+			});
+		}
+		for (const scope of ["connections", "reports", "", "CHATS"]) {
+			mockSearchWorkspace.mockClear();
+			await GET(
+				makeEvent(
+					`http://localhost/api/workspace-search?q=atlas&scope=${scope}`,
+				),
+			);
+			expect(mockSearchWorkspace).toHaveBeenCalledWith("user-1", {
+				query: "atlas",
+				scope: "all",
+				cursor: null,
+			});
+		}
+	});
+
+	it("still reads the older query parameter", async () => {
+		await GET(makeEvent("http://localhost/api/workspace-search?query=vienna"));
+
+		expect(mockSearchWorkspace).toHaveBeenCalledWith("user-1", {
+			query: "vienna",
+			scope: "all",
+			cursor: null,
 		});
 	});
 });

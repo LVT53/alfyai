@@ -13,6 +13,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { JobRunContext, Tx } from "../jobs/types";
+import { memoryAdmissionFor } from "./admission";
 import { ensureConfiguredBank } from "./bank-configuration";
 import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
@@ -33,6 +34,7 @@ import {
 	type ReplayCheck,
 } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
+import { countedDeliveryAttempt } from "./delivery-policy";
 import {
 	type NativeSettlement,
 	runDependencyRepair,
@@ -424,7 +426,14 @@ function guardedModel(
 			check?.(tx);
 		});
 	};
-	const model = override ?? createCurationModel(ctx.signal);
+	// A curation job is background work in the admission queue, in its tenant's lane.
+	const model =
+		override ??
+		createCurationModel(
+			ctx.signal,
+			undefined,
+			memoryAdmissionFor(ctx.row.userId, "background"),
+		);
 	return (prompt, input, schema, thinkingMode, assertCurrent) => {
 		beforeDispatch();
 		return model(prompt, input, schema, thinkingMode, () => {
@@ -747,7 +756,8 @@ export async function runMemoryAction(
 		// An older receipt can still hold a staged Edit after exhausting retries.
 		// When reclaimed, compensate before applying that proposal again.
 		if (
-			ctx.attempt.number > NATIVE_DELIVERY_ATTEMPT_LIMIT &&
+			countedDeliveryAttempt(ctx.row, ctx.attempt.number) >
+				NATIVE_DELIVERY_ATTEMPT_LIMIT &&
 			initial?.kind === "edit" &&
 			initial.cleanupPending &&
 			saved?.proposal &&
@@ -803,7 +813,8 @@ export async function runMemoryAction(
 			!intent.outcome &&
 			(terminal ||
 				(code === collectiveRejection &&
-					ctx.attempt.number >= NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
+					countedDeliveryAttempt(ctx.row, ctx.attempt.number) >=
+						NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
 			code !== "memory_control_changed" &&
 			code !== "memory_cancelled"
 		) {

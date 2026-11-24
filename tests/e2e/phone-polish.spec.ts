@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import commonDict from "../../src/lib/i18n/common";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
@@ -30,6 +31,9 @@ import {
  */
 
 const PHONE_WIDTHS = [390, 360, 430] as const;
+
+/** The sidebar's search pill, as it is named to assistive technology (the English interface). */
+const SEARCH_PILL = commonDict.en["sidebar.searchConversations"];
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -103,9 +107,33 @@ async function seedChat(
 	return id;
 }
 
-async function openPhoneSidebar(page: Page) {
-	await page.getByRole("button", { name: "Oldalsáv ki/bekapcsolása" }).click();
+async function openPhoneSidebar(
+	page: Page,
+	toggleName = "Oldalsáv ki/bekapcsolása",
+) {
+	await page.getByRole("button", { name: toggleName }).click();
 	await expect(page.locator("aside.sidebar-panel")).toBeVisible();
+}
+
+/** What a field's placeholder needs of its width, and what the field has to give it. */
+async function placeholderFit(
+	field: Locator,
+): Promise<{ needed: number; room: number }> {
+	return field.evaluate((el) => {
+		const input = el as HTMLInputElement;
+		const probe = document.createElement("span");
+		const style = getComputedStyle(input);
+		probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${style.font};letter-spacing:${style.letterSpacing}`;
+		probe.textContent = input.placeholder;
+		document.body.append(probe);
+		const needed = probe.getBoundingClientRect().width;
+		probe.remove();
+		const room =
+			input.clientWidth -
+			Number.parseFloat(style.paddingLeft) -
+			Number.parseFloat(style.paddingRight);
+		return { needed, room };
+	});
 }
 
 for (const width of PHONE_WIDTHS) {
@@ -262,9 +290,7 @@ test.describe("no keyboard chord on a touch screen (390 px, touch)", () => {
 		const sidebar = page.locator("aside.sidebar-panel");
 		await expect(sidebar).toBeVisible();
 		await waitForMotionToSettle(page);
-		const searchPill = sidebar.getByRole("button", {
-			name: "Search conversations",
-		});
+		const searchPill = sidebar.getByRole("button", { name: SEARCH_PILL });
 		await expect(searchPill).toBeVisible();
 		await expect(sidebar.getByTestId("search-shortcut-hint")).toBeHidden();
 
@@ -330,7 +356,7 @@ test.describe("keyboard chords stay on a desktop with a mouse", () => {
 		);
 		await ensureSidebarExpanded(page);
 		await expect(page.getByTestId("search-shortcut-hint")).toBeVisible();
-		await page.getByRole("button", { name: "Search conversations" }).click();
+		await page.getByRole("button", { name: SEARCH_PILL }).click();
 		const modal = page.getByRole("dialog");
 		await expect(modal.locator(".search-kbd").first()).toBeVisible();
 	});
@@ -692,21 +718,37 @@ for (const width of [360, 390] as const) {
 			await page.locator(".search-pill").tap();
 			const field = page.getByRole("dialog").getByRole("textbox");
 			await expect(field).toBeVisible();
-			const clipped = await field.evaluate((el) => {
-				const input = el as HTMLInputElement;
-				const probe = document.createElement("span");
-				const style = getComputedStyle(input);
-				probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${style.font};letter-spacing:${style.letterSpacing}`;
-				probe.textContent = input.placeholder;
-				document.body.append(probe);
-				const needed = probe.getBoundingClientRect().width;
-				probe.remove();
-				const room =
-					input.clientWidth -
-					Number.parseFloat(style.paddingLeft) -
-					Number.parseFloat(style.paddingRight);
-				return { needed, room };
-			});
+			const clipped = await placeholderFit(field);
+			expect(
+				clipped.needed,
+				"the placeholder fits its field",
+			).toBeLessThanOrEqual(clipped.room);
+		});
+	});
+}
+
+/**
+ * The same field in English: it said what it searches in as many words as the
+ * Hungarian did, and an English phone has no more room for them.
+ */
+for (const width of [360, 390] as const) {
+	test.describe(`the search field at ${width} px (English, touch)`, () => {
+		test.use({
+			viewport: { width, height: 844 },
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("the search field's placeholder is not cut off", async ({ page }) => {
+			const user = await createTourUser("en");
+			await markToursSeen(user);
+			await login(page, user.email, user.password);
+			await page.goto("/", { waitUntil: "networkidle" });
+			await openPhoneSidebar(page, "Toggle sidebar");
+			await page.locator(".search-pill").tap();
+			const field = page.getByRole("dialog").getByRole("textbox");
+			await expect(field).toBeVisible();
+			const clipped = await placeholderFit(field);
 			expect(
 				clipped.needed,
 				"the placeholder fits its field",

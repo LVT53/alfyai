@@ -20,6 +20,7 @@ import {
 	historicalMemoryExclusion,
 } from "./history-eligibility";
 import { parseJsonRecord } from "./internal-json";
+import { memoryMigrationGuard } from "./migration-guard";
 
 function accountFor(userId: string) {
 	const user = db
@@ -231,8 +232,9 @@ export async function recordHistoryImportChoice(
 				};
 			});
 	});
-	// A saved choice is not a migration trigger for legacy accounts. Existing prepared/native accounts resume their manifest.
-	if (prepare) {
+	// A saved choice is not a migration trigger for legacy accounts. Existing prepared/native accounts resume their manifest,
+	// except the account the permanent tester rule excludes: its choice is kept and none of its history is migrated.
+	if (prepare && memoryMigrationGuard(userId).allowed) {
 		const { prepareMemoryMigration } = await import("./migration");
 		await prepareMemoryMigration(userId);
 	}

@@ -713,6 +713,49 @@ function assertAuthoredMigrationSourceCurrent(
 		throw Error("memory_source_changed");
 }
 
+/**
+ * The keys a source's retain bookkeeping keeps on its revision's `context`
+ * beside the content envelope: the one resubmission (`delivery-runner.ts`), the
+ * recorded terminal end, and an operator's resend (`operator-tools.ts`). They
+ * belong to that revision's operations, so context resolution never sends them
+ * (it reads only the envelope's messages) and a replacement revision never
+ * inherits them (`withoutRetainBookkeeping`).
+ */
+export const RETAIN_RESUBMITTED_FROM = "nativeRetainResubmittedFrom";
+export const RETAIN_ENDED = "nativeRetainEnded";
+export const RETAIN_RESENT_FROM = "nativeRetainResentFrom";
+const RETAIN_BOOKKEEPING_KEYS: readonly string[] = [
+	RETAIN_RESUBMITTED_FROM,
+	RETAIN_ENDED,
+	RETAIN_RESENT_FROM,
+];
+/**
+ * Whether the revision's current retain has a recorded terminal end: it will
+ * never be sent again, and its end is known, so nothing waits on or asks
+ * Hindsight about that operation (which Hindsight may have forgotten).
+ */
+export function retainEndRecorded(source: {
+	context: string;
+	nativeOperationId: string | null;
+}): boolean {
+	const end = parseJsonRecord(source.context)[RETAIN_ENDED];
+	return (
+		!!source.nativeOperationId &&
+		!!end &&
+		typeof end === "object" &&
+		(end as Record<string, unknown>).operationId === source.nativeOperationId
+	);
+}
+/** A revision's context envelope without its retain bookkeeping. */
+export function withoutRetainBookkeeping(
+	envelope: Record<string, unknown>,
+): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(envelope).filter(
+			([key]) => !RETAIN_BOOKKEEPING_KEYS.includes(key),
+		),
+	);
+}
 /** Context references are resolved from live authorized rows at the final dispatch boundary. */
 export function resolveMemorySourceContext(
 	tx: Tx,

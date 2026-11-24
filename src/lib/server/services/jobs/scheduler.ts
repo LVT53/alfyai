@@ -396,6 +396,31 @@ function startDrain(kind: JobKind): void {
 }
 
 /**
+ * Runs every claimable job of ONE user now, one at a time, in the caller's
+ * async context, under the kind's caps and its enable switch: an operator's
+ * drain of one account (the Memory drain tool), which must leave every other
+ * account's jobs to their own workers. Like `drain`, it works in a process that
+ * never called `startJobs`, and it ends after claiming the same job ten times
+ * in a row. It returns when nothing of that user's is claimable now; a job put
+ * back behind a delay is the caller's to wait for.
+ */
+export async function drainUser(kind: JobKind, userId: string): Promise<void> {
+	const { definition } = internalsOf(kind);
+	let lastJobId: string | null = null;
+	let inARow = 0;
+	for (;;) {
+		if (jobsState().stopped || !definition.enabled()) return;
+		const workerId = workerIdFor(kind.name);
+		const claimed = claimNext(kind, { workerId, userId });
+		if (!claimed) return;
+		await runAttempt(kind, claimed, { workerId });
+		inARow = claimed.row.id === lastJobId ? inARow + 1 : 1;
+		lastJobId = claimed.row.id;
+		if (inARow >= MAX_CLAIMS_OF_ONE_JOB_IN_A_ROW) return;
+	}
+}
+
+/**
  * Runs every claimable job of the kind now, one at a time, in the caller's async
  * context. For tests and scripts; the scheduler drains on its own. It waits its
  * turn behind a drain already running (one drain at a time per kind) and works

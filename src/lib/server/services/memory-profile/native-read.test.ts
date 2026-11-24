@@ -223,3 +223,355 @@ it("batches list source counts without loading quotations for a thousand-source 
 	);
 	prepare.mockRestore();
 });
+
+// ── Search over the entries the Memory page shows ────────────────────────
+
+import type { MemoryScope } from "$lib/memory-types";
+import { searchTerms } from "$lib/shared/workspace-search-text";
+
+const WINDOW = { offset: 0, limit: 20, countCap: 100 };
+
+/** Memory with a personal bank and a project, each entry from a source of its own. */
+async function searchFixture() {
+	const { db } = await import("$lib/server/db");
+	const s = await import("$lib/server/db/schema");
+	const r = await import("./revisions");
+	const { eq } = await import("drizzle-orm");
+	r.ensureMemoryBank(h.userId, { kind: "personal" });
+	db.update(s.memoryAccounts).set({ authority: "hindsight" }).run();
+	for (const [id, name] of [
+		["p1", "Thesis project"],
+		["p2", "Garden"],
+	] as const)
+		db.insert(s.projects).values({ id, userId: h.userId, name }).run();
+	const sourceOf = new Map<string, string>();
+	function addEntry(
+		scope: MemoryScope,
+		nativeId: string,
+		text: string,
+		saidAt: string,
+		editedAt: string | null = null,
+	) {
+		const bank = r.ensureMemoryBank(h.userId, scope);
+		const source = r.recordMemorySource({
+			userId: h.userId,
+			bankId: bank.id,
+			epoch: 0,
+			eventId: `e-${nativeId}`,
+			lineageId: `l-${nativeId}`,
+			text: `said: ${text}`,
+			context: "",
+			assertedAt: new Date(saidAt),
+			...(editedAt ? { explicitEditAt: new Date(editedAt) } : {}),
+		});
+		const fact = { id: `fact-${nativeId}`, text };
+		db.update(s.memorySourceRevisions)
+			.set({ state: "accepted", acknowledgedFactsJson: JSON.stringify([fact]) })
+			.where(eq(s.memorySourceRevisions.id, source.id))
+			.run();
+		db.update(s.memoryBanks)
+			.set({ generation: "g" })
+			.where(eq(s.memoryBanks.id, bank.id))
+			.run();
+		db.insert(s.memoryPublishedRows)
+			.values({
+				id: `row-${nativeId}`,
+				nativeId,
+				bankId: bank.id,
+				generation: "g",
+				epoch: 0,
+				text,
+				nativeText: text,
+				sourceIdsJson: JSON.stringify([fact.id]),
+				sourceFingerprintsJson: JSON.stringify([fact]),
+				updatedAt: new Date(saidAt),
+			})
+			.run();
+		sourceOf.set(nativeId, source.id);
+		return bank;
+	}
+	return { db, s, r, eq, addEntry, sourceOf };
+}
+
+const PERSONAL: MemoryScope = { kind: "personal" };
+const THESIS: MemoryScope = { kind: "project", projectId: "p1" };
+const GARDEN: MemoryScope = { kind: "project", projectId: "p2" };
+
+it("searches every bank the person can see", async () => {
+	const f = await searchFixture();
+	f.addEntry(
+		PERSONAL,
+		"n1",
+		"Writing a thesis on timber housing",
+		"2026-11-01",
+	);
+	f.addEntry(PERSONAL, "n2", "Plan for the kitchen", "2026-11-02");
+	f.addEntry(
+		THESIS,
+		"n3",
+		"The thesis model is built at 1:50 scale",
+		"2026-11-03",
+	);
+	const read = await import("./native-read");
+	const found = read.searchMemoryEntries(
+		h.userId,
+		searchTerms("thesis"),
+		WINDOW,
+	);
+	expect(found.searchable).toBe(true);
+	expect(found.total).toBe(2);
+	expect(found.entries.map((entry) => entry.ref.rowId).sort()).toEqual([
+		"n1",
+		"n3",
+	]);
+	expect(found.entries.find((entry) => entry.ref.rowId === "n3")).toMatchObject(
+		{
+			projectName: "Thesis project",
+			ref: { scope: THESIS, generation: "g", rowId: "n3" },
+			text: "The thesis model is built at 1:50 scale",
+		},
+	);
+	expect(found.entries.find((entry) => entry.ref.rowId === "n1")).toMatchObject(
+		{
+			projectName: null,
+			ref: { scope: PERSONAL },
+		},
+	);
+});
+
+it("takes words in any order, with accents and capitals folded", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Plan for the kitchen", "2026-11-01");
+	f.addEntry(PERSONAL, "n2", "Árvíztűrő tükörfúrógép", "2026-11-02");
+	const read = await import("./native-read");
+	const ids = (query: string) =>
+		read
+			.searchMemoryEntries(h.userId, searchTerms(query), WINDOW)
+			.entries.map((entry) => entry.ref.rowId);
+	expect(ids("kitchen plan")).toEqual(["n1"]);
+	expect(ids("ARVIZ")).toEqual(["n2"]);
+	expect(ids("kitchen budget")).toEqual([]);
+});
+
+it("says when each entry was last said, newest first, an edit counting as saying it again", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "old", "Thesis note A", "2026-01-10");
+	f.addEntry(PERSONAL, "mid", "Thesis note B", "2026-03-10");
+	// Said in January, edited in June: June is when it was last said.
+	f.addEntry(THESIS, "edited", "Thesis note C", "2026-01-20", "2026-06-20");
+	const read = await import("./native-read");
+	const found = read.searchMemoryEntries(
+		h.userId,
+		searchTerms("thesis"),
+		WINDOW,
+	);
+	expect(found.entries.map((entry) => entry.ref.rowId)).toEqual([
+		"edited",
+		"mid",
+		"old",
+	]);
+	expect(found.entries.map((entry) => entry.lastSaidAt)).toEqual([
+		"2026-06-20T00:00:00.000Z",
+		"2026-03-10T00:00:00.000Z",
+		"2026-01-10T00:00:00.000Z",
+	]);
+});
+
+it("pages the entries and counts them up to the cap", async () => {
+	const f = await searchFixture();
+	for (let index = 0; index < 7; index++)
+		f.addEntry(
+			PERSONAL,
+			`n${index}`,
+			`Thesis note ${index}`,
+			`2026-02-0${index + 1}`,
+		);
+	const read = await import("./native-read");
+	const terms = searchTerms("thesis");
+	const first = read.searchMemoryEntries(h.userId, terms, {
+		offset: 0,
+		limit: 3,
+		countCap: 100,
+	});
+	expect(first.entries.map((entry) => entry.ref.rowId)).toEqual([
+		"n6",
+		"n5",
+		"n4",
+	]);
+	expect(first).toMatchObject({ total: 7, hasMore: true });
+	const last = read.searchMemoryEntries(h.userId, terms, {
+		offset: 6,
+		limit: 3,
+		countCap: 100,
+	});
+	expect(last.entries.map((entry) => entry.ref.rowId)).toEqual(["n0"]);
+	expect(last.hasMore).toBe(false);
+	const capped = read.searchMemoryEntries(h.userId, terms, {
+		offset: 0,
+		limit: 3,
+		countCap: 5,
+	});
+	expect(capped.total).toBe(5);
+});
+
+it("skips a project the person no longer owns", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Thesis note", "2026-11-01");
+	f.addEntry(GARDEN, "n2", "Thesis shed", "2026-11-02");
+	f.db.delete(f.s.projects).where(f.eq(f.s.projects.id, "p2")).run();
+	// The bank is still there; only the person's claim on its project is gone.
+	expect(
+		f.db
+			.select()
+			.from(f.s.memoryBanks)
+			.where(f.eq(f.s.memoryBanks.scopeKey, "project:p2"))
+			.all(),
+	).toHaveLength(1);
+	const read = await import("./native-read");
+	const found = read.searchMemoryEntries(
+		h.userId,
+		searchTerms("thesis"),
+		WINDOW,
+	);
+	expect(found.entries.map((entry) => entry.ref.rowId)).toEqual(["n1"]);
+});
+
+it("skips a bank it cannot read, so the others still answer", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Thesis note", "2026-11-01");
+	f.addEntry(THESIS, "n2", "Thesis model", "2026-11-02");
+	f.db
+		.update(f.s.memoryBanks)
+		.set({ status: "retired" })
+		.where(f.eq(f.s.memoryBanks.scopeKey, "project:p1"))
+		.run();
+	const read = await import("./native-read");
+	const found = read.searchMemoryEntries(
+		h.userId,
+		searchTerms("thesis"),
+		WINDOW,
+	);
+	expect(found.searchable).toBe(true);
+	expect(found.entries.map((entry) => entry.ref.rowId)).toEqual(["n1"]);
+	f.db
+		.update(f.s.memoryBanks)
+		.set({ status: "repair_blocked" })
+		.where(f.eq(f.s.memoryBanks.scopeKey, "project:p1"))
+		.run();
+	expect(
+		read
+			.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW)
+			.entries.map((entry) => entry.ref.rowId),
+	).toEqual(["n1"]);
+});
+
+it("returns nothing when Memory is off or the account is not on native Memory", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Thesis note", "2026-11-01");
+	const read = await import("./native-read");
+	const none = { entries: [], total: 0, hasMore: false, searchable: false };
+	f.db.update(f.s.users).set({ memoryEnabled: false }).run();
+	expect(
+		read.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW),
+	).toEqual(none);
+	f.db.update(f.s.users).set({ memoryEnabled: true }).run();
+	f.db.update(f.s.memoryAccounts).set({ authority: "legacy" }).run();
+	expect(
+		read.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW),
+	).toEqual(none);
+	f.db.update(f.s.memoryAccounts).set({ authority: "preparing" }).run();
+	expect(
+		read.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW),
+	).toEqual(none);
+	// A person with no Memory at all.
+	expect(
+		read.searchMemoryEntries("not-user", searchTerms("thesis"), WINDOW),
+	).toEqual(none);
+});
+
+it("says it is searchable, with no words searched, for a native account with Memory on", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Thesis note", "2026-11-01");
+	const read = await import("./native-read");
+	expect(read.searchMemoryEntries(h.userId, [], WINDOW)).toEqual({
+		entries: [],
+		total: 0,
+		hasMore: false,
+		searchable: true,
+	});
+});
+
+it("hides an entry the page hides", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "shown", "Thesis note that stays", "2026-11-01");
+	f.addEntry(
+		PERSONAL,
+		"hidden",
+		"Thesis note that was taken back",
+		"2026-11-02",
+	);
+	f.r.revokeMemorySources(h.userId, [f.sourceOf.get("hidden") ?? ""]);
+	const read = await import("./native-read");
+	// The page and the search agree on what is there.
+	expect(
+		read
+			.listMemory(h.userId, { scope: PERSONAL })
+			.rows.map((row) => row.ref.rowId),
+	).toEqual(["shown"]);
+	expect(
+		read
+			.searchMemoryEntries(h.userId, searchTerms("thesis"), WINDOW)
+			.entries.map((entry) => entry.ref.rowId),
+	).toEqual(["shown"]);
+});
+
+it("the Memory page finds words in any order, and with or without accents", async () => {
+	const f = await searchFixture();
+	f.addEntry(PERSONAL, "n1", "Plan for the kitchen", "2026-11-01");
+	f.addEntry(PERSONAL, "n2", "Árvíztűrő tükörfúrógép", "2026-11-02");
+	f.addEntry(PERSONAL, "n3", "Garden shed", "2026-11-03");
+	const read = await import("./native-read");
+	const rows = (query: string) =>
+		read
+			.listMemory(h.userId, { scope: PERSONAL, query })
+			.rows.map((row) => row.ref.rowId);
+	expect(rows("kitchen plan")).toEqual(["n1"]);
+	expect(rows("  KITCHEN  plan ")).toEqual(["n1"]);
+	expect(rows("arviz")).toEqual(["n2"]);
+	expect(rows("kitchen budget")).toEqual([]);
+	// A query with no words once cleaned is no query.
+	expect(rows("!!").sort()).toEqual(["n1", "n2", "n3"]);
+	expect(rows("").sort()).toEqual(["n1", "n2", "n3"]);
+});
+
+it("entryLastSaidAt takes the newest source date of an entry's facts", async () => {
+	await searchFixture();
+	const { entryLastSaidAt, factSaidTimes } = await import("./publication");
+	const times = factSaidTimes([
+		{
+			id: "a",
+			source: { assertedAt: new Date("2026-01-01"), explicitEditAt: null },
+		},
+		{
+			// The same fact, acknowledged again by a later source.
+			id: "a",
+			source: { assertedAt: new Date("2026-02-01"), explicitEditAt: null },
+		},
+		{
+			id: "b",
+			source: {
+				assertedAt: new Date("2026-01-05"),
+				explicitEditAt: new Date("2026-03-05"),
+			},
+		},
+		{
+			id: "c",
+			source: { assertedAt: new Date("2025-12-01"), explicitEditAt: null },
+		},
+	]);
+	expect(entryLastSaidAt(["a"], times)).toBe("2026-02-01T00:00:00.000Z");
+	expect(entryLastSaidAt(["a", "b"], times)).toBe("2026-03-05T00:00:00.000Z");
+	expect(entryLastSaidAt(["c", "a"], times)).toBe("2026-02-01T00:00:00.000Z");
+	expect(entryLastSaidAt(["unknown"], times)).toBeNull();
+	expect(entryLastSaidAt([], times)).toBeNull();
+});

@@ -33,8 +33,9 @@ export type EtaPlan = readonly EtaStage[];
 export type TakeEta = {
 	/**
 	 * ComfyUI started a prompt: the first one begins the countdown with the
-	 * whole plan ahead; one that follows a finished segment begins the next
-	 * segment's load; any other (a re-followed prompt) changes nothing.
+	 * whole plan ahead; one that follows a finished prompt begins the next
+	 * prompt's load (a plan with a second load); any other (a re-followed
+	 * prompt) changes nothing.
 	 */
 	start(now?: number): number;
 	/**
@@ -43,7 +44,7 @@ export type TakeEta = {
 	 * never negative progress.
 	 */
 	progress(sample: { value: number; max: number }, now?: number): number;
-	/** ComfyUI is done with the segment: what is left is decoding and the app's own work. */
+	/** ComfyUI is done with the prompt: what is left is decoding and the app's own work. */
 	enter(kind: "finish", now?: number): number;
 };
 

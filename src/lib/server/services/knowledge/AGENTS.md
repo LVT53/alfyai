@@ -94,7 +94,7 @@ Do:
   - [`src/lib/server/services/knowledge/project-knowledge.ts`](project-knowledge.ts) — owns project-file links and the project's FILES (`listProjectKnowledge`: what a turn's prompt section and file-name mentions read, so it never lists a Document, App or Canvas — a family row is not prompt-ready as a linked source and a mention of its name would 409 the turn); the person's bundle, files plus what the chats made, is `listProjectBundle` in the artifacts service
 - Related services:
   - [`src/lib/server/services/working-set.ts`](../working-set.ts)
-  - [`src/lib/server/services/workspace-search.ts`](../workspace-search.ts)
+  - [`src/lib/server/services/workspace-search/`](../workspace-search/)
   - [`src/lib/server/services/document-resolution.ts`](../document-resolution.ts)
   - [`src/lib/server/services/extraction/`](../extraction/) — durable document extraction: the job kind (`extraction-job.ts`) and its handler (`extraction-runner.ts`) run on the job engine in `services/jobs/`, which owns the lifecycle, the claim, the lease and the take-back; HEIC and HEIF reach the document reader as a PNG of at most 4096 px (`reader-input.ts`, through `decodeImageToPng` in `vision/prepare-image.ts`) with the stored original untouched; replaced the deleted `document-extraction.ts`
   - [`src/lib/shared/file-types/`](../../../shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
@@ -176,7 +176,7 @@ Rules:
 - Auto-rename on name conflicts (counter suffix) - no overwrite
 - File preview uses client-side libraries (pdf.js, mammoth, exceljs, pptxviewjs), no external services
 - Storage quota is display-only - no enforcement
-- Global Workspace Search surfaces conversation, project, message, and document hits through `/api/workspace-search`; document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path
+- Global Workspace Search surfaces conversation, project, message, Memory-entry, document, picture, video and app hits through `/api/workspace-search`; document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path, and a memory result opens the Memory tab on its entry (`?tab=memory&memoryScope=…&memoryEntry=…&memoryQuery=…`)
 
 
 Do not:

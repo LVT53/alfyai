@@ -33,6 +33,7 @@ import {
 	carriedMemorySources,
 	isEditResendWithdrawal,
 	memoryTextHash,
+	withoutRetainBookkeeping,
 } from "./revisions";
 
 type Source = typeof memorySourceRevisions.$inferSelect;
@@ -440,7 +441,8 @@ export async function runDependencyRepair(
 	);
 	const physicalId = (id: string) => physicalSources.get(id) ?? id;
 	const stepContext = (context: string, mapId: (id: string) => string) => {
-		const envelope = parseJsonRecord(context);
+		// The original's retain bookkeeping belongs to its operations, not to the replacement.
+		const envelope = withoutRetainBookkeeping(parseJsonRecord(context));
 		const messages = Array.isArray(envelope.messages) ? envelope.messages : [];
 		return {
 			...envelope,

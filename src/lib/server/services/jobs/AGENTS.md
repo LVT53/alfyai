@@ -9,7 +9,7 @@ All background work (Atlas research, document extraction, file production, and t
 Everything a caller uses is exported from [`index.ts`](./index.ts), which imports no kind and no handler:
 
 - Define: `defineJobKind(definition)`; build a kind's tables with `jobColumns()` and `jobAttemptColumns()` (plus `liveClaimIndex` and `jobAttemptIndexes` for their indexes).
-- Start and stop, once per process from `hooks.server.ts`: `startJobs(kinds)`, `stopJobs()`. `drain(kind)` runs the claimable jobs now (tests, scripts).
+- Start and stop, once per process from `hooks.server.ts`: `startJobs(kinds)`, `stopJobs()`. `drain(kind)` runs the claimable jobs now (tests, scripts); `drainUser(kind, userId)` runs one user's only (an operator's drain of one account, which leaves every other account's jobs to their workers).
 - Act: `enqueue`, `cancel`, `cancelAll`, `retry`, `reopen`, `recover`, `wake`, `runInline`, `waitForVerdict`; read: `describeJob`. `subscribeToJobSettled(kind, jobId, listener, { signal })` is the read-only seam for a caller that shows a verdict instead of waiting for it (a route's SSE channel): it hears ONE job settle in this process, returns its unsubscribe, and assumes nothing about the job — a caller pairs it with a read.
 - `enqueueAtomic(kind, prepare)` commits the jobs returned by a synchronous domain mutation in the same transaction. Memory uses it to commit source revocation and its durable cleanup jobs together.
 

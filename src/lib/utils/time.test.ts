@@ -1,5 +1,8 @@
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { formatMediumDateTime, formatRelativeTime } from "./time";
+import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
+import { formatAgo, formatMediumDateTime, formatRelativeTime } from "./time";
 
 describe("formatRelativeTime", () => {
 	beforeEach(() => {
@@ -88,5 +91,62 @@ describe("formatMediumDateTime", () => {
 		expect(
 			formatMediumDateTime(new Date("2024-03-15T12:00:00.000Z").getTime()),
 		).toBe(expected);
+	});
+});
+
+describe("formatAgo", () => {
+	const DAY = 86_400_000;
+	const NOW = Date.parse("2026-11-23T12:00:00.000Z");
+	const ago = (days: number) => new Date(NOW - days * DAY).toISOString();
+
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it.each([
+		[
+			"en",
+			[
+				"today",
+				"yesterday",
+				"3 days ago",
+				"2 weeks ago",
+				"2 months ago",
+				"2 years ago",
+			],
+		],
+		["hu", ["ma", "tegnap", "3 napja", "2 hete", "2 hónapja", "2 éve"]],
+	] as const)(
+		"says it in whole days, weeks, months and years in %s",
+		(language, words) => {
+			uiLanguage.set(language);
+			const translate = get(t);
+			const days = [0, 1, 3, 14, 60, 730];
+			expect(
+				days.map((count) => formatAgo(ago(count), { t: translate, now: NOW })),
+			).toEqual([...words]);
+		},
+	);
+
+	it("reads a unix time in seconds or milliseconds, and says nothing for a time it cannot read", () => {
+		const translate = get(t);
+		const threeDays = NOW - 3 * DAY;
+		expect(
+			formatAgo(Math.floor(threeDays / 1000), { t: translate, now: NOW }),
+		).toBe("3 days ago");
+		expect(formatAgo(threeDays, { t: translate, now: NOW })).toBe("3 days ago");
+		expect(formatAgo("not a date", { t: translate, now: NOW })).toBe("");
+	});
+
+	it("counts a time in the future as today and defaults to the clock", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+		try {
+			const translate = get(t);
+			expect(formatAgo(NOW + 5 * DAY, { t: translate })).toBe("today");
+			expect(formatAgo(ago(3), { t: translate })).toBe("3 days ago");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

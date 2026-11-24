@@ -1,0 +1,410 @@
+/* The Memory page's subject index (layout C, Memory part 3). One markup for
+   a phone and a computer: below 720px of card an opened subject replaces the
+   index (a pushed screen with a back link); at 720px and up the index shows
+   as tiles, and as a list beside the opened subject's pane. Built on
+   memory-replacement.css (cards, rows, search, buttons). */
+.memory-subjects {
+	container-type: inline-size;
+	container-name: memory-subjects;
+}
+.memory-subjects-top {
+	display: grid;
+	grid-template-columns: minmax(0, auto) 1fr auto;
+	grid-template-areas:
+		"scope . add"
+		"overview overview overview"
+		"search search search";
+	align-items: center;
+	gap: 12px;
+	padding: 20px 20px 8px;
+}
+.memory-subjects-scope {
+	grid-area: scope;
+	min-width: 0;
+}
+.memory-subjects-add {
+	grid-area: add;
+}
+.memory-subjects .memory-subjects-search {
+	grid-area: search;
+	margin: 0;
+}
+.memory-overview-row {
+	grid-area: overview;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	width: 100%;
+	min-width: 0;
+	padding: 14px 16px;
+	border: 0;
+	border-radius: var(--radius-lg);
+	background: color-mix(
+		in srgb,
+		var(--text-primary) 5%,
+		var(--surface-elevated)
+	);
+	color: var(--text-primary);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--duration-standard) var(--ease-out);
+}
+.memory-overview-row:hover {
+	background: color-mix(
+		in srgb,
+		var(--text-primary) 8%,
+		var(--surface-elevated)
+	);
+}
+.memory-overview-row:focus-visible,
+.memory-subject-row:focus-visible,
+.memory-earlier-row:focus-visible,
+.memory-entry:focus-visible,
+.memory-subject-back:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+}
+.memory-overview-mark {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border-radius: var(--radius-md);
+	background: var(--accent-tint);
+	color: var(--accent-text);
+}
+.memory-overview-copy {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.memory-overview-title {
+	font-size: 16px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+.memory-overview-hint {
+	font-size: 14px;
+	line-height: 1.4;
+	color: var(--text-muted);
+}
+.memory-overview-chevron {
+	flex: none;
+	color: var(--icon-muted);
+}
+.memory-subjects-body {
+	padding: 4px 20px 20px;
+}
+.memory-subject-index {
+	display: flex;
+	flex-direction: column;
+}
+.memory-subject-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas:
+		"head count"
+		"preview preview";
+	gap: 4px 12px;
+	width: 100%;
+	padding: 16px 0;
+	border: 0;
+	border-bottom: 1px solid var(--border-default);
+	background: transparent;
+	color: var(--text-primary);
+	text-align: left;
+	cursor: pointer;
+}
+.memory-subject-head {
+	grid-area: head;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	min-width: 0;
+}
+.memory-subject-name {
+	font-size: 17px;
+	font-weight: 600;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+.memory-subject-count {
+	grid-area: count;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	align-self: start;
+	padding-top: 2px;
+	font-size: 14px;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+/* A subject's preview wraps to two lines and then ends in an ellipsis, as
+   the phone mockup draws it (3-phone-index.png). */
+.memory-subject-preview {
+	grid-area: preview;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	font-size: 15px;
+	line-height: 1.5;
+	color: var(--text-muted);
+}
+.memory-tag {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 9px;
+	border-radius: var(--radius-full);
+	background: var(--accent-tint);
+	color: var(--accent-text);
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	white-space: nowrap;
+}
+.memory-tag-quiet {
+	background: transparent;
+	color: var(--text-muted);
+	box-shadow: inset 0 0 0 1px var(--border-default);
+}
+.memory-earlier-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	width: 100%;
+	margin-top: 16px;
+	padding: 14px 16px;
+	border: 1px dashed var(--border-default);
+	border-radius: var(--radius-lg);
+	background: transparent;
+	color: var(--text-primary);
+	text-align: left;
+	cursor: pointer;
+}
+.memory-earlier-caret {
+	flex: none;
+	margin-top: 4px;
+	color: var(--icon-muted);
+	transition: transform var(--duration-standard) var(--ease-out);
+}
+.memory-earlier-caret-open {
+	transform: rotate(90deg);
+}
+/* The title and its preview read as two lines at most, then an ellipsis: the
+   mockups draw the Earlier rows that way (3, 4, 8 and 9), and a preview that
+   runs to three entries of two hundred characters would not. */
+.memory-earlier-copy {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+	min-width: 0;
+	font-size: 15px;
+	line-height: 1.5;
+}
+.memory-earlier-title {
+	font-weight: 600;
+	margin-right: 8px;
+}
+.memory-earlier-preview {
+	color: var(--text-muted);
+	overflow-wrap: anywhere;
+}
+.memory-subject-pane {
+	min-width: 0;
+}
+.memory-subject-back {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0 0 8px -4px;
+	padding: 6px 4px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 15px;
+	cursor: pointer;
+}
+.memory-subjects .memory-subject-title {
+	margin: 0 0 8px;
+	font-size: 20px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+.memory-subject-title:focus {
+	outline: none;
+}
+.memory-subject-title:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 4px;
+	border-radius: var(--radius-sm);
+}
+.memory-entries {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.memory-entry {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	width: 100%;
+	padding: 14px 0;
+	border: 0;
+	border-bottom: 1px solid var(--border-default);
+	background: transparent;
+	color: var(--text-primary);
+	text-align: left;
+	cursor: pointer;
+}
+.memory-entry-text {
+	font-size: 16px;
+	line-height: 1.55;
+	overflow-wrap: anywhere;
+}
+.memory-entry:hover .memory-entry-text {
+	text-decoration: underline;
+	text-decoration-color: var(--border-default);
+	text-underline-offset: 3px;
+}
+.memory-entry-earlier {
+	font-size: 14px;
+	line-height: 1.5;
+	color: var(--text-muted);
+	overflow-wrap: anywhere;
+}
+.memory-entry-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+	font-size: 14px;
+	line-height: 1.5;
+	color: var(--text-muted);
+}
+.memory-earlier-fold .memory-earlier-row {
+	margin-top: 18px;
+}
+.memory-earlier-entries {
+	padding: 4px 4px 0 28px;
+}
+
+/* A phone: an opened subject is a screen of its own. */
+@container memory-subjects (max-width: 719.98px) {
+	.memory-subjects-has-subject .memory-subjects-top,
+	.memory-subjects-has-subject .memory-subject-index {
+		display: none;
+	}
+	.memory-subjects-has-subject .memory-subjects-body {
+		padding-top: 16px;
+	}
+}
+
+/* A computer: tiles, and a list beside the opened subject. */
+@container memory-subjects (min-width: 720px) {
+	.memory-subjects-top {
+		grid-template-columns: minmax(0, auto) minmax(12rem, 28rem) 1fr auto;
+		grid-template-areas:
+			"scope search . add"
+			"overview overview overview overview";
+		padding: 24px 24px 8px;
+	}
+	.memory-subjects-body {
+		padding: 8px 24px 24px;
+	}
+	.memory-subject-back {
+		display: none;
+	}
+	.memory-subject-index {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 14px;
+	}
+	.memory-subject-row {
+		padding: 16px 20px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+	.memory-subject-row:hover {
+		background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+	}
+	.memory-subject-name {
+		font-size: 16px;
+	}
+	.memory-index-earlier {
+		grid-column: 1 / -1;
+		margin-top: 2px;
+	}
+	.memory-subjects-has-subject .memory-subjects-body {
+		display: grid;
+		grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr);
+		gap: 28px;
+	}
+	.memory-subjects-has-subject .memory-subject-index {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding-right: 24px;
+		border-right: 1px solid var(--border-default);
+	}
+	.memory-subjects-has-subject .memory-subject-row {
+		grid-template-areas: "head count";
+		padding: 11px 16px;
+		border: 0;
+		border-radius: var(--radius-md);
+	}
+	.memory-subjects-has-subject .memory-subject-name {
+		font-weight: 400;
+	}
+	.memory-subjects-has-subject .memory-subject-preview,
+	.memory-subjects-has-subject .memory-subject-chevron,
+	.memory-subjects-has-subject .memory-subject-row .memory-tag {
+		display: none;
+	}
+	.memory-subjects-has-subject .memory-subject-current {
+		background: color-mix(
+			in srgb,
+			var(--text-primary) 5%,
+			var(--surface-elevated)
+		);
+	}
+	.memory-subjects-has-subject .memory-subject-current .memory-subject-name {
+		font-weight: 600;
+	}
+	.memory-subjects-has-subject .memory-index-earlier {
+		margin-top: 0;
+		padding: 11px 16px;
+		border: 0;
+		border-radius: var(--radius-md);
+		color: var(--text-muted);
+	}
+	.memory-subjects-has-subject .memory-index-earlier .memory-earlier-copy {
+		display: flex;
+		flex: 1;
+		justify-content: space-between;
+	}
+	.memory-subjects-has-subject .memory-index-earlier .memory-earlier-title {
+		font-weight: 400;
+	}
+	.memory-subjects-has-subject .memory-index-earlier .memory-earlier-dot,
+	.memory-subjects-has-subject .memory-index-earlier .memory-earlier-preview,
+	.memory-subjects-has-subject .memory-index-earlier .memory-earlier-caret {
+		display: none;
+	}
+	.memory-subjects-has-subject .memory-index-earlier .memory-earlier-title {
+		display: flex;
+		flex: 1;
+		justify-content: space-between;
+	}
+}
