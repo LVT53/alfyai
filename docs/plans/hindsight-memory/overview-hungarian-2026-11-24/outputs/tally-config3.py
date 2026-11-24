@@ -19,7 +19,7 @@ PERSONAL = [
     ("p05", "projects", r"Lisszabon", r"Lisbon", "trip to Lisbon"),
     ("p06", "work_study", r"könyvesbolt|arculat", r"book ?shop|bookstore|brand|identity", "bookshop identity"),
     ("p07", "projects", r"kunyhó|kerti ház|faház", r"shed|hut|cabin", "garden shed"),
-    ("p08", "projects", r"ukulele", r"ukulele", "ukulele"),
+    ("p08", "projects", r"ukulel[eé]", r"ukulele", "ukulele"),
     ("p09", "home_family", r"új lakás|lakást keres|nagyobb lakás|újat keres|új, nagyobb|új otthon|lakáskeres", r"new (flat|apartment|home|place)|larger|bigger|looking for|searching", "looking for a new flat"),
     ("p10", "interests", r"japán", r"Japanese", "learns Japanese"),
     ("p11", "interests", r"keny[eé]r|kovász", r"sourdough|bread|baking|bakes", "sourdough"),
