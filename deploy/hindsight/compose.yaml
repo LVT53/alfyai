@@ -32,11 +32,13 @@ services:
       HINDSIGHT_API_EMBEDDINGS_PROVIDER: onnx
       HINDSIGHT_API_RERANKER_PROVIDER: flashrank
       HINDSIGHT_API_RERANKER_FLASHRANK_MODEL: ms-marco-MultiBERT-L-12
-      # Never above one while admission refuses instead of queueing: over-budget calls get 429
-      # and exhaust the engine's three quick LLM retries, failing the whole retain.
+      # One until measured. The admission gateway now holds a call over the budget in its
+      # queue instead of answering 429 at once, so fan-out may rise, one step at a time and
+      # only as README.md ("When fan-out and retries may change") allows.
       HINDSIGHT_API_LLM_MAX_CONCURRENT: "1"
-      # App curation calls share the same budget: wait them out (backoff 1 s up to 60 s)
-      # instead of failing consolidation or extraction after three quick retries.
+      # Twelve until measured. A full queue or a spent wait still answers 429, which these
+      # retries wait out (backoff 1 s up to 60 s) instead of failing consolidation or
+      # extraction; back toward the default 3 only after a week with no refusals (README.md).
       HINDSIGHT_API_LLM_MAX_RETRIES: "12"
       HINDSIGHT_API_LLM_PROVIDER: openai
       HINDSIGHT_API_LLM_BASE_URL: http://127.0.0.1:8888/ext/alfyai/inference/v1
