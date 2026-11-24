@@ -136,11 +136,6 @@ describe("scoreEarlierCandidates", () => {
 
 	it.each([
 		[
-			"no reranker is configured",
-			() => rerankTexts.mockResolvedValue(null),
-			"not_configured",
-		],
-		[
 			"the call timed out",
 			() =>
 				rerankTexts.mockRejectedValue(
@@ -172,4 +167,61 @@ describe("scoreEarlierCandidates", () => {
 			expect(JSON.stringify(warn.mock.calls)).not.toContain("dentist");
 		},
 	);
+
+	it("sends a query without a lone surrogate, however the cuts fall inside an emoji", async () => {
+		rerankTexts.mockResolvedValue([{ index: 0, score: 0.5 }]);
+		// The 4,000-unit head ends between the halves of one emoji, and the
+		// 2,000-unit tail begins between the halves of another.
+		const message = `${"a".repeat(3_999)}\u{1F600}${"b".repeat(100_000)}\u{1F600}${"c".repeat(1_999)}`;
+		await scoreEarlierCandidates(message, candidates.slice(0, 1));
+		const { query } = rerankTexts.mock.calls[0]?.[0] ?? {};
+		// 6,001 characters cut, less the two halves the cuts left alone.
+		expect(query).toHaveLength(5_999);
+		expect(
+			/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
+				query,
+			),
+		).toBe(false);
+	});
+
+	it("takes a score outside 0 to 1 for no score, as a server that answers raw logits gives", async () => {
+		rerankTexts.mockResolvedValue([
+			{ index: 0, score: -4.2 },
+			{ index: 1, score: 1.7 },
+			{ index: 2, score: 0.4 },
+		]);
+		const scores = await scoreEarlierCandidates("anything", candidates);
+		expect([...(scores?.keys() ?? [])]).toEqual(["q:7"]);
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("gives no scores, and says so, when every score is outside 0 to 1", async () => {
+		rerankTexts.mockResolvedValue([
+			{ index: 0, score: -4.2 },
+			{ index: 1, score: 3.1 },
+		]);
+		expect(await scoreEarlierCandidates("anything", candidates)).toBeNull();
+		expect(warn).toHaveBeenCalledWith(
+			"[KNOWLEDGE_MEMORY] Earlier rerank unavailable",
+			{ code: "scores" },
+		);
+	});
+
+	it("says a missing reranker once per process, but a timeout every time", async () => {
+		vi.resetModules();
+		const fresh = await import("./earlier-rerank");
+		rerankTexts.mockResolvedValue(null);
+		await fresh.scoreEarlierCandidates("how did it go?", candidates);
+		await fresh.scoreEarlierCandidates("and then?", candidates);
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledWith(
+			"[KNOWLEDGE_MEMORY] Earlier rerank unavailable",
+			{ code: "not_configured" },
+		);
+		warn.mockClear();
+		rerankTexts.mockRejectedValue(new DOMException("aborted", "AbortError"));
+		await fresh.scoreEarlierCandidates("how did it go?", candidates);
+		await fresh.scoreEarlierCandidates("and then?", candidates);
+		expect(warn).toHaveBeenCalledTimes(2);
+	});
 });

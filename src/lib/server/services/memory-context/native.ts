@@ -43,10 +43,12 @@ import {
 	mentionWords,
 } from "./earlier-mention";
 import {
-	type EarlierCandidate,
 	type EarlierScores,
 	earlierJoins,
+	earlierScoreOf,
+	type JudgedCandidate,
 	scoreEarlierCandidates,
+	scoresChangeADecision,
 } from "./earlier-rerank";
 import {
 	allocateRecall,
@@ -335,7 +337,7 @@ export async function recallMemory(
 	const earlierFloors = getMemoryEarlierRerank();
 	// The Earlier entries this turn must judge (each in its bank's top places),
 	// and what the reranker scored them once it has.
-	const earlierCandidates: (EarlierCandidate & {
+	const earlierCandidates: (JudgedCandidate & {
 		place: number;
 		personal: boolean;
 	})[] = [];
@@ -545,18 +547,22 @@ export async function recallMemory(
 						if (list === "core") continue;
 						if (input.core) {
 							if (!answered || place >= EARLIER_TOP_PLACES) continue;
+							const byWords = mentioned(offer.entry.text);
 							if (!earlierScores)
 								earlierCandidates.push({
 									key,
 									text: offer.entry.text,
+									byWords,
 									place,
 									personal: scope.kind === "personal",
 								});
-							const scored = earlierScores?.get(key);
 							if (
 								!earlierJoins(
-									scored?.text === offer.entry.text ? scored.score : undefined,
-									() => mentioned(offer.entry.text),
+									earlierScoreOf(earlierScores, {
+										key,
+										text: offer.entry.text,
+									}),
+									() => byWords,
 									earlierFloors,
 								)
 							)
@@ -687,21 +693,28 @@ export async function recallMemory(
 			return { bankId, entry };
 		});
 	};
-	// The first read judges the Earlier entries by the words alone, as before,
-	// and lists the ones the reranker may judge. When there are some, one call
-	// scores them and a second read (a fresh snapshot, so consent and edits made
-	// meanwhile count) judges them by score. With no scores the first read stands.
+	// The first read judges the Earlier entries by the words alone and lists the
+	// ones the reranker may judge. When there are some, one call scores them.
+	// Consent is checked again after it, whatever it answered; and when a score
+	// moves an entry from the words' verdict, a second read (a fresh snapshot, so
+	// edits made meanwhile count) judges them by score. Otherwise the first read
+	// stands.
 	let entries = db.transaction(readEntries);
 	if (input.core && earlierCandidates.length) {
-		earlierScores =
-			(await scoreEarlierCandidates(
-				input.query,
-				[...earlierCandidates].sort(
-					(a, b) =>
-						a.place - b.place || Number(b.personal) - Number(a.personal),
-				),
-			)) ?? undefined;
-		if (earlierScores) entries = db.transaction(readEntries);
+		const scores = await scoreEarlierCandidates(
+			input.query,
+			[...earlierCandidates].sort(
+				(a, b) => a.place - b.place || Number(b.personal) - Number(a.personal),
+			),
+		);
+		if (!isStillActive(db)) entries = [];
+		else if (
+			scores &&
+			scoresChangeADecision(earlierCandidates, scores, earlierFloors)
+		) {
+			earlierScores = scores;
+			entries = db.transaction(readEntries);
+		}
 	}
 	logSearched(entries);
 	return entries.map(({ entry }) => entry);

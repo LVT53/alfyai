@@ -1838,7 +1838,7 @@ it.each([
 		"error",
 	],
 ])(
-	"falls back to the words alone when %s, and says so once",
+	"falls back to the words alone when %s, and says why",
 	async (_when, arrange, code) => {
 		toothacheBank();
 		arrange();
@@ -1846,11 +1846,15 @@ it.each([
 		try {
 			const named = await turn("personal", "Is my toothache back?");
 			expect(textsOf(named)).toEqual(["Had a toothache", "Lives in Graz"]);
-			expect(warn).toHaveBeenCalledTimes(1);
-			expect(warn).toHaveBeenCalledWith(
-				"[KNOWLEDGE_MEMORY] Earlier rerank unavailable",
-				{ code },
-			);
+			// A missing reranker is said once per process (earlier-rerank.test.ts);
+			// a timeout or an error is said on every turn it happens.
+			if (code !== "not_configured") {
+				expect(warn).toHaveBeenCalledTimes(1);
+				expect(warn).toHaveBeenCalledWith(
+					"[KNOWLEDGE_MEMORY] Earlier rerank unavailable",
+					{ code },
+				);
+			}
 			warn.mockClear();
 			const unrelated = await turn(
 				"personal",
@@ -1919,4 +1923,82 @@ it("returns nothing when the person turns Memory off while the reranker is worki
 		return [{ index: 0, score: 0.9 }];
 	});
 	expect(await turn("personal", "Is my toothache back?")).toEqual([]);
+});
+
+/** What a reranker call does to the world while it works: Memory is switched off. */
+function switchMemoryOff() {
+	drizzle(sqlite, { schema })
+		.update(schema.users)
+		.set({ memoryEnabled: false })
+		.where(eq(schema.users.id, "u"))
+		.run();
+}
+
+it.each([
+	[
+		"times out",
+		() => {
+			switchMemoryOff();
+			throw new DOMException("aborted", "AbortError");
+		},
+	],
+	[
+		"fails",
+		() => {
+			switchMemoryOff();
+			throw new Error("TEI request failed: 503");
+		},
+	],
+	[
+		"answers with nothing",
+		() => {
+			switchMemoryOff();
+			return [];
+		},
+	],
+])(
+	"returns nothing when the person turns Memory off while a reranker that then %s is working",
+	async (_how, whileWorking) => {
+		toothacheBank();
+		rerankTexts.mockImplementation(async () => whileWorking());
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(await turn("personal", "Is my toothache back?")).toEqual([]);
+		} finally {
+			warn.mockRestore();
+		}
+	},
+);
+
+it("does not read Memory again when the reranker's scores change no decision", async () => {
+	toothacheBank();
+	// The words say no and so does the score: the first read stands, so an
+	// edit made while the reranker worked is not read (consent still is).
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.memoryPublishedRows)
+			.set({ text: "Lives in Vienna" })
+			.where(eq(schema.memoryPublishedRows.nativeId, "n-bp-1"))
+			.run();
+		return [{ index: 0, score: 0.0001 }];
+	});
+	const result = await turn("personal", "Thanks, that helps a lot!");
+	expect(textsOf(result)).toEqual(["Lives in Graz"]);
+});
+
+it("reads Memory again when a score changes a decision, so an edit made meanwhile shows", async () => {
+	toothacheBank();
+	rerankTexts.mockImplementation(async () => {
+		drizzle(sqlite, { schema })
+			.update(schema.memoryPublishedRows)
+			.set({ text: "Lives in Vienna" })
+			.where(eq(schema.memoryPublishedRows.nativeId, "n-bp-1"))
+			.run();
+		return [{ index: 0, score: 0.4 }];
+	});
+	const result = await turn(
+		"personal",
+		"Did the dentist ever sort out that molar?",
+	);
+	expect(textsOf(result)).toEqual(["Had a toothache", "Lives in Vienna"]);
 });

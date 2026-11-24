@@ -19,7 +19,7 @@ import { clipMentionText } from "./earlier-mention";
  * as ranked in the top three): 77% of the messages about an entry bring it in,
  * 8% of the unrelated ones bring one, and a wrong extra entry rides along 16%
  * of the time (`docs/plans/hindsight-memory/label-migration-acceptance/
- * earlier-rerank/`). With no score the word rule decides alone, as before.
+ * earlier-rerank/`). With no score the word rule decides alone.
  */
 export interface EarlierRerankThresholds {
 	/** A score at or above this lets an entry in. */
@@ -32,6 +32,11 @@ export interface EarlierRerankThresholds {
 export interface EarlierCandidate {
 	key: string;
 	text: string;
+}
+
+/** A candidate with the word rule's verdict on it, so a score can be told to change that verdict or not. */
+export interface JudgedCandidate extends EarlierCandidate {
+	byWords: boolean;
 }
 
 /** The reranker's score for each candidate it scored, with the text it scored. */
@@ -60,7 +65,47 @@ export function earlierJoins(
 	return score >= wordMin && mentionedByWords();
 }
 
-type Unavailable = "not_configured" | "timeout" | "error" | "empty";
+/**
+ * The score of a candidate, or undefined when it has none or was scored on
+ * other text: a score is a judgement of the text it was given.
+ */
+export function earlierScoreOf(
+	scores: EarlierScores | undefined,
+	candidate: EarlierCandidate,
+): number | undefined {
+	const scored = scores?.get(candidate.key);
+	return scored && scored.text === candidate.text ? scored.score : undefined;
+}
+
+/** Whether the scores move any candidate from the word rule's verdict, so that judging again is worth it. */
+export function scoresChangeADecision(
+	candidates: readonly JudgedCandidate[],
+	scores: EarlierScores,
+	floors: EarlierRerankThresholds,
+): boolean {
+	return candidates.some(
+		(candidate) =>
+			earlierJoins(
+				earlierScoreOf(scores, candidate),
+				() => candidate.byWords,
+				floors,
+			) !== candidate.byWords,
+	);
+}
+
+type Unavailable = "not_configured" | "timeout" | "error" | "empty" | "scores";
+
+/** No reranker is the deployment's choice, not a fault: it is said once per process. */
+let saidNotConfigured = false;
+
+function unavailable(code: Unavailable): null {
+	if (code === "not_configured") {
+		if (saidNotConfigured) return null;
+		saidNotConfigured = true;
+	}
+	console.warn("[KNOWLEDGE_MEMORY] Earlier rerank unavailable", { code });
+	return null;
+}
 
 /** fetch ends a call its deadline aborted with an `AbortError` (`TimeoutError` for a timeout signal). */
 function endedByItsDeadline(error: unknown): boolean {
@@ -68,25 +113,27 @@ function endedByItsDeadline(error: unknown): boolean {
 	return name === "AbortError" || name === "TimeoutError";
 }
 
+/** A half of an emoji the cut left alone; a JSON body with it is refused by the reranker. */
+const LONE_SURROGATE =
+	/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
 /**
  * Scores a turn's Earlier candidates against the person's message in one
  * call. The message is the person's own words, never the chat's title, cut as
  * the word rule cuts it. Returns null, and logs one content-free line with the
  * reason, when there are no scores to use (no reranker, a timeout, an error,
- * an empty answer): the word rule then decides alone, and a turn never fails
- * for it. Returns null without a line when there is nothing to score.
+ * an empty answer, scores outside 0 to 1): the word rule then decides alone,
+ * and a turn never fails for it. Returns null without a line when there is
+ * nothing to score. A score outside 0 to 1 is no score: a server that answers
+ * raw logits would otherwise veto or admit every entry.
  */
 export async function scoreEarlierCandidates(
 	message: string,
 	candidates: readonly EarlierCandidate[],
 ): Promise<EarlierScores | null> {
-	const query = clipMentionText(message).trim();
+	const query = clipMentionText(message).replace(LONE_SURROGATE, "").trim();
 	const asked = candidates.slice(0, EARLIER_RERANK_MAX_TEXTS);
 	if (!query || !asked.length) return null;
-	const unavailable = (code: Unavailable) => {
-		console.warn("[KNOWLEDGE_MEMORY] Earlier rerank unavailable", { code });
-		return null;
-	};
 	let results: Awaited<ReturnType<typeof rerankTexts>>;
 	try {
 		results = await rerankTexts({
@@ -103,7 +150,8 @@ export async function scoreEarlierCandidates(
 	const scores = new Map<string, { text: string; score: number }>();
 	for (const { index, score } of results) {
 		const candidate = asked[index];
-		if (candidate) scores.set(candidate.key, { text: candidate.text, score });
+		if (candidate && Number.isFinite(score) && score >= 0 && score <= 1)
+			scores.set(candidate.key, { text: candidate.text, score });
 	}
-	return scores;
+	return scores.size ? scores : unavailable("scores");
 }
