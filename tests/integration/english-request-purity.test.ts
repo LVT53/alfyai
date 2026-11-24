@@ -811,6 +811,8 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 	"lib/server/services/images/picture-check/request-terms.ts":
 		"the explicit-request word list, matched against make_image's prompt and title",
 	"lib/server/services/chat-turn/context-selection.ts": "context cues",
+	"lib/server/services/memory-context/earlier-mention.ts":
+		"stop words, matched against the person's message and Memory entries, never sent",
 	"lib/server/services/chat-turn/past-chat-request.ts":
 		"Hungarian chat-title syntax matched against the person's own request, never sent to the model",
 	"lib/server/services/chat-turn/proactive-connector-context.ts":
