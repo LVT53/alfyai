@@ -1526,13 +1526,32 @@ it.each([false, true])(
 			ckReject,
 		]);
 		const { eq } = await import("drizzle-orm");
+		// The rows as publication writes them: each fact with its dates.
+		const stored = f.db
+			.select()
+			.from(f.s.memorySourceRevisions)
+			.where(eq(f.s.memorySourceRevisions.id, f.source.id))
+			.get();
+		if (!stored) throw Error("missing source");
 		for (const [id, text] of [
 			["kayak", "green kayak"],
 			["sister", "sister bicycle"],
 		])
 			f.db
 				.update(f.s.memoryPublishedRows)
-				.set({ text, nativeText: text, nativeId: `observation-${id}` })
+				.set({
+					text,
+					nativeText: text,
+					nativeId: `observation-${id}`,
+					sourceFingerprintsJson: JSON.stringify([
+						{
+							id,
+							text,
+							mentionedAt: null,
+							assertedAtMs: stored.assertedAt.getTime(),
+						},
+					]),
+				})
 				.where(eq(f.s.memoryPublishedRows.id, id))
 				.run();
 		const fetch = fixture.fetcher.getMockImplementation();
@@ -1601,8 +1620,14 @@ it.each([false, true])(
 			query: "kayak and bicycle",
 			tokenBudget: 500,
 		});
-		expect(recalled.map(({ text }) => text)).toEqual(
-			changed ? ["sister bicycle"] : ["green kayak", "sister bicycle"],
+		// Recall shows the cards the page shows, as soon as the page does: a
+		// re-rendered observation reaches its published card through its
+		// support, and only ever with the card's own wording (follow-up B).
+		const cards = (entries: typeof rows) =>
+			entries.map(({ ref, text }) => `${ref.rowId}|${text}`).sort();
+		expect(cards(recalled)).toEqual(cards(rows));
+		expect(recalled.map(({ text }) => text)).not.toContain(
+			"the kayak was green",
 		);
 	},
 );

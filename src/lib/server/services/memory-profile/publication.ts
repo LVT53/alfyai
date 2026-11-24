@@ -1277,6 +1277,31 @@ export function curatedNativeRankKeys(
 	return keys;
 }
 
+/**
+ * A native rank can reach any published row through its complete, unique
+ * support. Hindsight can rebuild an observation under a new id or in new
+ * words over exactly the same facts (a refused correction's staged draft
+ * deleted, a consolidation after a cleanup) while the page keeps showing the
+ * published card until the next publication. Keys each row of the current
+ * generation whose facts no other row of it holds (hidden rows counted) to the
+ * row's native id. Recall confirms every such rank against Hindsight's live
+ * list before it orders the row, and only ever shows the row's own wording.
+ */
+export function publishedSupportRankKeys(
+	tx: Tx,
+	bank: typeof memoryBanks.$inferSelect,
+) {
+	const keys = new Map<string, string>();
+	if (!bank.generation) return keys;
+	for (const { row, facts } of uniquePublishedSupport(
+		publishedRowsForGeneration(tx, bank.id, bank.epoch, bank.generation),
+	)) {
+		const support = nativeRankSupportKey(facts.map(({ id }) => id));
+		if (support) keys.set(support, row.nativeId);
+	}
+	return keys;
+}
+
 /** A verified receipt identifies the prior family to compare within the captured generation. */
 export function curatedObservationChanges(
 	tx: Tx,
