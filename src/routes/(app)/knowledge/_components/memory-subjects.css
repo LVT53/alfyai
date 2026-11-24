@@ -144,14 +144,19 @@
 	color: var(--text-muted);
 	font-variant-numeric: tabular-nums;
 }
+/* A subject's preview wraps to two lines and then ends in an ellipsis, as
+   the phone mockup draws it (3-phone-index.png). */
 .memory-subject-preview {
 	grid-area: preview;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
 	overflow: hidden;
+	overflow-wrap: anywhere;
 	font-size: 15px;
 	line-height: 1.5;
 	color: var(--text-muted);
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 .memory-tag {
 	display: inline-flex;
@@ -193,7 +198,15 @@
 .memory-earlier-caret-open {
 	transform: rotate(90deg);
 }
+/* The title and its preview read as two lines at most, then an ellipsis: the
+   mockups draw the Earlier rows that way (3, 4, 8 and 9), and a preview that
+   runs to three entries of two hundred characters would not. */
 .memory-earlier-copy {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
 	min-width: 0;
 	font-size: 15px;
 	line-height: 1.5;

@@ -194,7 +194,7 @@ const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
 
 /** Serves the page's reads; the Overview's write waits until `release` is called. */
-async function stub(page: Page) {
+async function stub(page: Page, served: MemorySubjectIndex = index) {
 	let release: () => void = () => {};
 	const released = new Promise<void>((resolve) => {
 		release = resolve;
@@ -208,7 +208,7 @@ async function stub(page: Page) {
 		route.fulfill({ json: detail }),
 	);
 	await page.route(at("/api/knowledge/memory/subjects"), (route) =>
-		route.fulfill({ json: index }),
+		route.fulfill({ json: served }),
 	);
 	await page.route(
 		(url) => url.pathname.startsWith("/api/knowledge/memory/subjects/"),
@@ -254,10 +254,14 @@ async function stub(page: Page) {
 	return { release, overviewWrites };
 }
 
-async function mount(page: Page, viewport: { width: number; height: number }) {
+async function mount(
+	page: Page,
+	viewport: { width: number; height: number },
+	served?: MemorySubjectIndex,
+) {
 	await page.setViewportSize(viewport);
 	await login(page);
-	const stubs = await stub(page);
+	const stubs = await stub(page, served);
 	await page.goto("/knowledge?tab=memory");
 	await waitForHydration(page);
 	await expect(page.getByTestId("memory-subjects")).toBeVisible();
@@ -393,6 +397,49 @@ for (const language of ["en", "hu"] as const) {
 		await expect(sheet).toHaveCount(0);
 	});
 }
+
+test("previews wrap to two lines and stop there, as the mockups draw them", async ({
+	page,
+}) => {
+	const long =
+		"A remembered detail that goes on about an ordinary matter, with more clauses and more words than a phone row has room for in two lines of text, so the page has to cut it short. ".repeat(
+			2,
+		);
+	await mount(page, PHONE, {
+		...index,
+		subjects: index.subjects.map((item) =>
+			item.subject === "about_you" ? { ...item, preview: long } : item,
+		),
+		earlier: { count: 5, preview: [long, long, long] },
+	});
+	const lines = (selector: string, nth: number) =>
+		page
+			.locator(selector)
+			.nth(nth)
+			.evaluate((element) => {
+				const line = Number.parseFloat(getComputedStyle(element).lineHeight);
+				return {
+					lines: Math.round(element.clientHeight / line),
+					cut: element.scrollHeight > element.clientHeight + 1,
+				};
+			});
+	// A long preview is cut after two lines, ending in an ellipsis; a short one
+	// that needs two shows both, and nothing is cut.
+	expect(await lines(".memory-subject-preview", 0)).toEqual({
+		lines: 2,
+		cut: true,
+	});
+	expect(await lines(".memory-subject-preview", 2)).toEqual({
+		lines: 2,
+		cut: false,
+	});
+	// The Earlier row's title and preview read as two lines at most.
+	expect(await lines(".memory-earlier-copy", 0)).toEqual({
+		lines: 2,
+		cut: true,
+	});
+	await expectNoOverflow(page);
+});
 
 test("Hungarian rows fit a 360px phone", async ({ page }) => {
 	await setUiLanguage("hu");
