@@ -3464,6 +3464,84 @@ export async function checkSourceDependencyCuration(
 	);
 }
 
+/**
+ * A changed resend its final check refused for good leaves nothing it wrote
+ * behind in the chats it carried: every fact its proposal rewrote or
+ * invalidated goes back to the text the person sees (its accepted,
+ * acknowledged text), so the refused change never holds the bank's later
+ * learning. A fact no longer admitted (removed or edited away since) is never
+ * restored, and nothing else is written.
+ */
+export async function restoreRefusedSourceEdit(
+	ctx: Context,
+	client: HindsightClient,
+	native: NativeSettlement,
+	source: Source,
+) {
+	const action = db
+		.select()
+		.from(memoryActions)
+		.where(
+			and(
+				eq(memoryActions.userId, source.userId),
+				eq(memoryActions.requestId, source.id),
+				eq(memoryActions.kind, "source_edit"),
+			),
+		)
+		.get();
+	if (!action) return;
+	const intent = parseActionIntent(action.intentJson);
+	if (!intent.proposal || intent.outcome) return;
+	const original = new Map(intent.facts.map((fact) => [fact.id, fact]));
+	const touched = intent.proposal.filter(
+		(fact) =>
+			original.has(fact.id) && original.get(fact.id)?.text !== fact.text,
+	);
+	if (!touched.length) return;
+	const admitted = () =>
+		new Map(
+			db.transaction((tx) => {
+				actionFence(tx, ctx);
+				return admittedNativeFacts(source.userId, source.bankId, tx).map(
+					(fact) => [fact.id, fact] as const,
+				);
+			}),
+		);
+	const live = new Map(
+		(await client.list())
+			.filter((fact) => fact.fact_type !== "observation")
+			.map((fact) => [fact.id, fact]),
+	);
+	let restored = false;
+	for (const { id } of touched) {
+		const owner = original.get(id)?.sourceId;
+		const shown = admitted().get(id);
+		if (!owner || !shown || shown.source.id !== owner) continue;
+		const current = live.get(id);
+		if (current) {
+			if (current.document_id !== owner || current.text === shown.text)
+				continue;
+			await fence(ctx);
+			await client.editFact(id, { text: shown.text });
+		} else {
+			if (
+				!(await client.matchesArchivedFact({
+					id,
+					sourceId: owner,
+					text: shown.text,
+				}))
+			)
+				continue;
+			await fence(ctx);
+			await client.editFact(id, { state: "valid" });
+		}
+		restored = true;
+	}
+	if (!restored) return;
+	await fence(ctx);
+	await native.settle(client, [await client.consolidate()], ctx.signal);
+}
+
 export async function checkDeletedSourceRepair(
 	ctx: Context,
 	result: CandidateCheck & {

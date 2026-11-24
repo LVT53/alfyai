@@ -18,11 +18,12 @@ import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
+	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 	type NativeMemory,
 	type NativeOperation,
 } from "./contracts";
 import { memoryResendTransitions } from "./curation-lineage";
-import type { NativeWaitKind } from "./delivery-policy";
+import { countedDeliveryAttempt, type NativeWaitKind } from "./delivery-policy";
 import { runDependencyRepair } from "./dependency-repair";
 import {
 	configuredNativeBinding,
@@ -836,6 +837,7 @@ export async function runMemoryDelivery(
 			prepareUnchangedSourceCuration,
 			unchangedSourceInventory,
 			checkSourceDependencyCuration,
+			restoreRefusedSourceEdit,
 			verifyNewAssertionCuration,
 		} = await import("./curation-runner");
 		const checkPendingCuration = (tx: Tx) =>
@@ -1165,7 +1167,26 @@ export async function runMemoryDelivery(
 					}),
 			},
 		);
-		if (curated) await checkSourceDependencyCuration(ctx, source, repair);
+		if (curated)
+			await checkSourceDependencyCuration(ctx, source, repair).catch(
+				async (error: unknown) => {
+					// Refused for good: what the change wrote in the chats it
+					// carried goes back before the delivery fails.
+					if (
+						error instanceof NativeMemoryError &&
+						error.code === "memory_dependency_check_rejected" &&
+						countedDeliveryAttempt(row, ctx.attempt.number) >=
+							NATIVE_DELIVERY_ATTEMPT_LIMIT
+					)
+						await restoreRefusedSourceEdit(
+							ctx,
+							client,
+							{ capture: captureSettledNative, settle },
+							source,
+						);
+					throw error;
+				},
+			);
 		else await replayed.verifyDependencies(repair);
 		memories = repair.memories;
 		const acknowledged = memories

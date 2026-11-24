@@ -3528,6 +3528,7 @@ it.each([
 	"accepted carried",
 	"repeated exact resend while queued",
 	"accepted carried next edit",
+	"refused changed resend after exact carry",
 	"changed carry checks a surviving dependent",
 	"removed carried fact with a dependent reply",
 	"remove after dependent exact resend",
@@ -3620,6 +3621,7 @@ it.each([
 		const appendFact = "I collect maps.";
 		const appended = `${corrected} ${appendFact}`;
 		const reply = "Yes, I do. I also sort stamps.";
+		const laterMessage = "I collect maps.";
 		let retains: Array<{
 			content: string;
 			context: string;
@@ -3635,6 +3637,7 @@ it.each([
 			mode === "repeated exact resend while queued" ||
 			mode === "accepted carried" ||
 			mode === "accepted carried next edit" ||
+			mode === "refused changed resend after exact carry" ||
 			mode === "changed carry checks a surviving dependent" ||
 			mode === "changed carry supplies original context" ||
 			mode === "extra observation on exact resend" ||
@@ -3673,6 +3676,12 @@ it.each([
 										]
 									: []),
 							];
+				else if (item.content === laterMessage)
+					nativeFacts.push({
+						id: "maps",
+						text: laterMessage,
+						document_id: item.document_id,
+					});
 				else if (item.content === reply) {
 					if (
 						(removeCarried || removeCorrection) &&
@@ -4212,6 +4221,69 @@ it.each([
 			if (mode === "correction after alias" || removeLateCorrection) {
 				await saveCorrection();
 				remembered = corrected;
+			}
+			if (mode === "refused changed resend after exact carry") {
+				// The changed resend rewrites the carried fact natively, and its
+				// final check refuses the result on every attempt.
+				const rewritten = "I preferred decaf in the afternoon once.";
+				fixture.model.mockImplementation(
+					async (_prompt, input: Record<string, unknown>) => {
+						if ("facts" in input)
+							return { facts: [{ id: "decaf", text: rewritten }] };
+						if ("displayed_observations" in input) return ckReject;
+						if ("original_facts" in input) return ckOkay;
+						return {
+							forget: [],
+							replace: ["decaf to black tea"],
+							preserve: [],
+						};
+					},
+				);
+				await deleteMessages(["after"], { editSourceMessageId: "after" });
+				const edited = await persist("edited", "after", corrected);
+				const deliveryOf = (sourceId: string) =>
+					f.db
+						.select()
+						.from(f.s.memoryDeliveryJobs)
+						.where(eq(f.s.memoryDeliveryJobs.sourceId, sourceId))
+						.all()
+						.find(({ kind }) => kind === "source");
+				vi.useFakeTimers({ toFake: ["Date"] });
+				for (let round = 0; round < 12; round++) {
+					await h.engine.drain(job.memoryDeliveryJob);
+					if (deliveryOf(edited.id)?.status !== "queued") break;
+					vi.setSystemTime(Date.now() + 10 * 60_000);
+				}
+				expect(deliveryOf(edited.id)).toMatchObject({
+					status: "failed",
+					errorCode: "memory_dependency_check_rejected",
+				});
+				expect(fixture.patches).toContain("decaf");
+				// What the refused change wrote natively is undone: the carried
+				// fact holds the text the person sees again.
+				expect(nativeFacts.find(({ id }) => id === "decaf")).toMatchObject({
+					text: drink,
+					document_id: previous.id,
+				});
+				expect(
+					read.listMemory(h.userId, { scope }).rows.map(({ text }) => text),
+				).toEqual([drink]);
+				// Later learning does not wait on the refused resend, and its
+				// own retained fact never shows.
+				const later = await persist("later", undefined, laterMessage);
+				await h.engine.drain(job.memoryDeliveryJob);
+				expect(deliveryOf(later.id)).toMatchObject({
+					status: "succeeded",
+					errorCode: null,
+				});
+				vi.useRealTimers();
+				expect(
+					read
+						.listMemory(h.userId, { scope })
+						.rows.map(({ text }) => text)
+						.sort(),
+				).toEqual([drink, laterMessage].sort());
+				return;
 			}
 			if (
 				mode === "accepted carried next edit" ||
