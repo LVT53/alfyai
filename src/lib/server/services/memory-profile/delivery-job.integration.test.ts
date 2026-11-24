@@ -1776,6 +1776,43 @@ describe("Memory delivery waits for Hindsight without spending attempts", () => 
 		expect(new Set(fake.posted)).toEqual(new Set([f.source.nativeOperationId]));
 	});
 
+	it("acceptance: under a busy model no delivery ends native_operation_timeout while Hindsight works, and waiting spends no attempt", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		// The model is held busy: the retain takes 20 minutes and the consolidation
+		// another 40, each well past the old 180-second wait.
+		slowHindsight(f, {
+			stepMs: 4 * 60_000,
+			retainDoneAt: start + 20 * 60_000,
+			consolidationDoneAt: start + 60 * 60_000,
+		});
+		await f.enqueue();
+		const seen: Array<{ status: string; code: string | null }> = [];
+		for (let round = 0; round < 60; round++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const row = job(f);
+			if (!row) throw new Error("Missing job");
+			seen.push({ status: row.status, code: row.errorCode });
+			if (row.status !== "queued") break;
+			vi.setSystemTime(Date.now() + 61_000);
+		}
+		expect(seen.at(-1)).toEqual({ status: "succeeded", code: null });
+		// Never failed, never timed out: every handback was a wait on Hindsight.
+		expect(seen.some((s) => s.code === "native_operation_timeout")).toBe(false);
+		expect(seen.some((s) => s.status === "failed")).toBe(false);
+		expect(new Set(seen.slice(0, -1).map((s) => s.code))).toEqual(
+			new Set(["native_retain_waiting", "native_consolidation_waiting"]),
+		);
+		const row = job(f);
+		const { parseDeliveryRetryState } = await import("./delivery-policy");
+		const waits = parseDeliveryRetryState(
+			JSON.parse(row?.retryState ?? "null"),
+		).waits;
+		// Every attempt but the one that finished was a wait: none was counted.
+		expect((row?.attemptCount ?? 0) - waits).toBe(1);
+	}, 60_000);
+
 	it("ends a delivery native_operation_timeout only once the consolidation's whole wait has passed", async () => {
 		const f = await setup();
 		vi.useFakeTimers({ toFake: ["Date"] });
