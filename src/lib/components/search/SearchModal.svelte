@@ -1171,13 +1171,21 @@ onDestroy(() => {
 				</span>
 				{/if}
 				{#if isQueryMode && hasResults}
+					<!-- A kind counted to the cap makes the sum a floor: it reads 99+, as the chips do. -->
 					<span class="search-result-count" data-testid="search-result-count">
 						{resultSummary.results === 1
 							? $t('searchModal.resultSummaryOne')
-							: $t('searchModal.resultSummary', {
-									results: resultSummary.results,
-									kinds: resultSummary.kinds,
-								})}
+							: $t(
+									resultSummary.kinds === 1
+										? 'searchModal.resultSummaryOneKind'
+										: 'searchModal.resultSummary',
+									{
+										results: resultSummary.capped
+											? formatScopeCount(resultSummary.results)
+											: resultSummary.results,
+										kinds: resultSummary.kinds,
+									},
+								)}
 					</span>
 				{/if}
 			</div>

@@ -1423,6 +1423,32 @@ describe("SearchModal", () => {
 			expect(count.textContent).toContain("13 results across 5 kinds");
 		});
 
+		it("says 99+ when a kind's count stopped at the cap", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 100, memory: 0, documents: 3, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			const count = await screen.findByTestId("search-result-count");
+			expect(count.textContent?.trim()).toBe("99+ results across 2 kinds");
+		});
+
+		it("says kind in the singular for one kind", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					conversations: [chat("c1", "Thesis structure")],
+					totals: { chats: 4, memory: 0, documents: 0, media: 0, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+
+			const count = await screen.findByTestId("search-result-count");
+			expect(count.textContent?.trim()).toBe("4 results across 1 kind");
+		});
+
 		it("carries no result count before anything is typed", async () => {
 			render(SearchModal, { props: { isOpen: true } });
 
