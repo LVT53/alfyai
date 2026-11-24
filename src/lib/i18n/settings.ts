@@ -1729,7 +1729,7 @@ const settingsDict = {
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
 			"Wait for Memory to save a chat",
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
-			"Minutes a Memory job waits for the memory service to finish reading a chat before it gives up. Waiting uses none of the job's tries.",
+			"Minutes a Memory job waits for the memory service to finish reading a chat, or saving a Memory edit, before it gives up. Waiting uses none of the job's tries.",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
 			"Wait for Memory to sort its entries",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
@@ -3988,7 +3988,7 @@ const settingsDict = {
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
 			"Várakozás egy beszélgetés mentésére",
 		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
-			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás feldolgoz egy beszélgetést, mielőtt feladja. A várakozás nem számít próbálkozásnak.",
+			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás feldolgoz egy beszélgetést vagy egy szerkesztést, mielőtt feladja. A várakozás nem számít próbálkozásnak.",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
 			"Várakozás a bejegyzések rendezésére",
 		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
