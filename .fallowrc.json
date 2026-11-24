@@ -82,6 +82,10 @@
 		"docs/plans/hindsight-memory/label-migration-acceptance/run.ts",
 		// The Earlier gate's documented blind measurement (synthetic, no model).
 		"docs/plans/hindsight-memory/label-migration-acceptance/earlier-blind.ts",
+		// The Overview probe's documented command (synthetic scopes, the shared model bridge): the app's own
+		// composeMemoryOverview under vitest (docs/plans/hindsight-memory/overview-hungarian-2026-11-24.md).
+		"docs/plans/hindsight-memory/overview-hungarian-2026-11-24/probe.lab.ts",
+		"docs/plans/hindsight-memory/overview-hungarian-2026-11-24/vitest.config.ts",
 		// Standalone synthetic paired migration rehearsal, invoked by its runbook.
 		"docs/plans/hindsight-memory/paired-migration-rehearsal/run.ts",
 		// Private owner-pilot operator preflight and its synthetic mirror verification.
