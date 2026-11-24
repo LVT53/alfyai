@@ -236,9 +236,12 @@ export async function recallMemory(
 			}),
 		);
 		search.outcomes = results;
-		const answered = [...search.rankings.values()];
+		const answeredRankings = [...search.rankings.values()];
 		try {
-			if (answered.some((ranking) => ranking.length) && isStillActive(db)) {
+			if (
+				answeredRankings.some((ranking) => ranking.length) &&
+				isStillActive(db)
+			) {
 				const { bridge, family } = db.transaction((tx) => ({
 					bridge: curatedNativeRankKeys(tx, bank),
 					family: approvedMigrationRankFamily(
@@ -249,7 +252,7 @@ export async function recallMemory(
 					),
 				}));
 				if (
-					answered.some((ranking) =>
+					answeredRankings.some((ranking) =>
 						ranking.some((rank) => {
 							const support = rank.source_memory_ids ?? [];
 							const key = nativeRankSupportKey(support);
