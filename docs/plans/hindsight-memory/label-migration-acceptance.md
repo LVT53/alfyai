@@ -49,4 +49,29 @@ False matches of the unrelated messages (message index: Earlier entries): 1: `v2
 
 **What the misses are.** Every one of the 41 missed about-messages shares no significant word with its entry: they name the thing in other words, which no word rule reads. Of the 12 unrelated false matches, 6 are words the stop list lacks ("using", "mostly", "through", "főleg") and 6 are one ordinary word in another sense ("cold", "book", "report", "keeper", "budgeting", "podcasts"). Not retuned after the measurement: the owner decides.
 
-**Limits.** A message about an entry still needs the entry in its bank's top three, which only a real Hindsight measures; the worst case above puts every Earlier entry there for every message. A message mentions an entry written in the other language only through a shared name or word; the model's `memory_context` tool, which ranks by meaning, still returns Earlier entries wherever they rank. No score floor was added: Hindsight's recall returns no relevance score at the pin.
+**Limits.** A message about an entry still needs the entry in its bank's top three, which only a real Hindsight measures; the worst case above puts every Earlier entry there for every message. A message mentions an entry written in the other language only through a shared name or word; the model's `memory_context` tool, which ranks by meaning, still returns Earlier entries wherever they rank. No score floor was added to the word rule: Hindsight's recall returns no relevance score at the pin. The app's own reranker supplies one, below.
+
+## The reranker check (2026-11-24)
+
+The word rule missed both blind targets (52% about an entry, 25% unrelated) and cannot bridge two languages, so the orchestrating session measured production's reranker on the same blind set, and the gate now uses it.
+
+**Measurement.** Production's TEI reranker, `bge-reranker-v2-m3` (sigmoid scores, `truncate: true`, at most 32 texts a request, batches of 20), scored every blind-set message (86 about an entry, 40 unrelated, 10 Hungarian about English) against the 43 temporary and ongoing facts of part 2's extraction: 136 messages against 43 entries, 3.1 s in all, run on the box so its key never left it. The worst case is the one above: every Earlier entry counts as ranked in its bank's top three for every message. The word rule's verdicts for the same pairs are in `lex.json`. Method, script and raw scores: [label-migration-acceptance/earlier-rerank/](label-migration-acceptance/earlier-rerank/README.md). Synthetic text only.
+
+| Rule | About an entry | Wrong extra entry as well | Unrelated | Cross-language |
+|---|---|---|---|---|
+| The word rule (before) | 45 of 86 (52%) | 45 of 86 (52%) | 10 of 40 (25%) | 0 of 10 |
+| Reranker score at or above 0.005, alone | 46 of 86 (53%) | 7 of 86 (8%) | 2 of 40 (5%) | 7 of 10 |
+| **Built:** score at or above 0.002, or the words agree and the score is at or above 0.0005 | **66 of 86 (77%)** | 14 of 86 (16%) | **3 of 40 (8%)** | **7 of 10 (70%)** |
+| Target (spec) | at least 8 in 10 | | at most 1 in 10 | reported |
+
+- **Held out.** The two floors were picked on half the entries and tested on the other half: picked on the even entries and tested on the odd, about 79% about and 7% unrelated; picked on the odd and tested on the even, about 75% and 7%. Both picks land on a main floor of 0.002 and a word floor between 0.0002 and 0.0005. The defaults are `MEMORY_EARLIER_RERANK_MIN` 0.002 and `MEMORY_EARLIER_RERANK_WORD_MIN` 0.0005.
+- **Against the targets.** Unrelated is met (8%, at most 10%). About is 77%, just short of 8 in 10 in this worst case. Cross-language goes from none to 7 of 10.
+- **Reproduced by the code.** `src/lib/server/services/memory-context/earlier-rerank.acceptance.test.ts` runs the stored scores and word verdicts through `earlierJoins` at the shipped defaults and holds every figure of the table above.
+
+**What runs in a turn.** In `recallMemory`'s per-turn path only (the `memory_context` tool reads no reranker and returns Earlier entries as before), an Earlier entry in its bank's top three joins when the reranker scores it at or above `MEMORY_EARLIER_RERANK_MIN`, or at or above `MEMORY_EARLIER_RERANK_WORD_MIN` when the word rule agrees as well, and never below that. The turn makes one reranker call for all its Earlier candidates (at most six; the person's own words, never the chat's title, cut at their first 4,000 and last 2,000 characters; 500 ms), through the app's TEI reranker client and `TEI_RERANKER_*` settings. A score applies only to the text it was given, and the entries are read again after the call, so consent and edits made meanwhile count. With no reranker configured, a timeout, an error or an empty answer the word rule decides alone and one content-free line, `[KNOWLEDGE_MEMORY] Earlier rerank unavailable` with a code (`not_configured`, `timeout`, `error`, `empty`), says why; a turn never fails for it. Both floors are decimals from 0 to 1 in Settings, Advanced, Memory, and a word floor set above the main floor reads as the main floor. Code: `memory-context/earlier-rerank.ts`, wired in `memory-context/native.ts`; tests in `earlier-rerank.test.ts` (each branch, the one batched call, the fallbacks) and `native.test.ts` (the whole turn, the title never used as the query, a megabyte message, the tool unchanged, consent and edits during the call).
+
+**Limits.**
+- The worst case still assumes every Earlier entry ranks in its bank's top three; the rank half needs a real Hindsight.
+- The floors were chosen on this set. The held-out halves are the check; a second blind set would be the proof.
+- The measurement covers the reranker only. The cost in a turn was not measured end to end under load: the 3.1 s above covered 5,848 pairs (about half a millisecond a pair), and a turn scores at most six entries, bounded at 500 ms, with the word rule as the fallback.
+- A wrong extra entry rides along in 16% of the messages about an entry (the word rule: 52%); the cap of three Earlier entries a turn still holds.
