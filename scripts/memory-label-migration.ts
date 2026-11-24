@@ -37,8 +37,15 @@ try {
 if (args) process.exitCode = await run(args);
 
 /** Checks and names the paired backup; false when the run must not write. */
-function backupReady(dir: string, accounts: string[]): boolean {
-	const backup = checkPairedBackup(dir, accounts);
+async function backupReady(dir: string, accounts: string[]): Promise<boolean> {
+	// The live database, which the backup is compared with and must not be.
+	const { getDatabasePath } = await import("../src/lib/server/env");
+	const backup = checkPairedBackup(
+		dir,
+		accounts,
+		new Date(),
+		getDatabasePath(),
+	);
 	if (!backup.ok) {
 		console.log(`backup: refused ${backup.code}`);
 		return false;
@@ -60,7 +67,8 @@ async function run(args: LabelMigrationArguments): Promise<number> {
 			console.log(JSON.stringify(dry));
 			return dry.outcome === "dry_run" ? 0 : 1;
 		}
-		if (!args.backup || !backupReady(args.backup, [args.user])) return 1;
+		if (!args.backup || !(await backupReady(args.backup, [args.user])))
+			return 1;
 		const done = rollbackLabelMigration({ userId: args.user, execute: true });
 		for (const line of rollbackLines(done)) console.log(line);
 		console.log(JSON.stringify(done));
@@ -86,7 +94,7 @@ async function run(args: LabelMigrationArguments): Promise<number> {
 		console.log("nothing to label");
 		return 0;
 	}
-	if (!args.backup || !backupReady(args.backup, accounts)) return 1;
+	if (!args.backup || !(await backupReady(args.backup, accounts))) return 1;
 	console.log("execute:");
 	const report = await runLabelMigration(
 		{ ...scope, execute: true },

@@ -2,11 +2,13 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LabelMigrationReport } from "../src/lib/server/services/memory-profile/label-migration";
@@ -128,9 +130,136 @@ describe("the paired backup check", () => {
 		expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({ ok: true });
 		rmSync(path);
 		const gz = join(dir, "hindsight.sql.gz");
-		writeFileSync(gz, Buffer.from([0x1f, 0x8b, 8, 0]));
+		writeFileSync(gz, gzipSync("--\n-- PostgreSQL database dump\n--\n"));
 		utimesSync(gz, hoursAgo(1), hoursAgo(1));
 		expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({ ok: true });
+	});
+
+	it("inflates a gzipped file and refuses one that is not a PostgreSQL dump", () => {
+		appBackup(["u1"]);
+		const gz = join(dir, "hindsight.sql.gz");
+		writeFileSync(gz, gzipSync("just some notes"));
+		utimesSync(gz, hoursAgo(1), hoursAgo(1));
+		expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+			ok: false,
+			code: "backup_postgres_missing",
+		});
+		// A gzip header alone is not a dump either.
+		writeFileSync(gz, Buffer.from([0x1f, 0x8b, 8, 0]));
+		utimesSync(gz, hoursAgo(1), hoursAgo(1));
+		expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+			ok: false,
+			code: "backup_postgres_missing",
+		});
+	});
+
+	it("refuses a backup more than four hours old", () => {
+		appBackup(["u1"], hoursAgo(5));
+		nativeDump(hoursAgo(5));
+		expect(checkPairedBackup(dir, ["u1"], now)).toEqual({
+			ok: false,
+			code: "backup_stale",
+		});
+	});
+
+	it("skips a dangling link in the folder", () => {
+		appBackup(["u1"]);
+		nativeDump();
+		symlinkSync(join(dir, "gone.db"), join(dir, "dangling.db"));
+		expect(checkPairedBackup(dir, ["u1"], now)).toMatchObject({ ok: true });
+	});
+
+	/** An app database with the columns the comparison reads, for one account. */
+	function appDatabase(
+		path: string,
+		account: {
+			epoch?: number;
+			unverified?: number | null;
+			generation?: string;
+			classifierLabels?: number;
+		} = {},
+	) {
+		rmSync(path, { force: true });
+		const sqlite = new Database(path);
+		sqlite.exec(`
+			CREATE TABLE memory_accounts (user_id TEXT PRIMARY KEY, epoch INTEGER, labels_unverified_epoch INTEGER);
+			CREATE TABLE memory_banks (id TEXT PRIMARY KEY, user_id TEXT, epoch INTEGER, status TEXT, generation TEXT);
+			CREATE TABLE memory_fact_labels (bank_id TEXT, native_fact_id TEXT, origin TEXT);
+		`);
+		const epoch = account.epoch ?? 0;
+		sqlite
+			.prepare("INSERT INTO memory_accounts VALUES ('u1', ?, ?)")
+			.run(
+				epoch,
+				account.unverified === undefined ? epoch : account.unverified,
+			);
+		sqlite
+			.prepare("INSERT INTO memory_banks VALUES ('b1', 'u1', ?, 'ready', ?)")
+			.run(epoch, account.generation ?? "g1");
+		for (let i = 0; i < (account.classifierLabels ?? 0); i++)
+			sqlite
+				.prepare(
+					"INSERT INTO memory_fact_labels VALUES ('b1', ?, 'classifier')",
+				)
+				.run(`f${i}`);
+		sqlite.close();
+		return path;
+	}
+
+	it("compares the backup with the live database for the accounts to label", () => {
+		const live = appDatabase(
+			join(dir, "..", `${dir.split("/").pop()}-live.db`),
+		);
+		try {
+			appDatabase(join(dir, "chat-20261125T0100Z.db"));
+			utimesSync(join(dir, "chat-20261125T0100Z.db"), hoursAgo(1), hoursAgo(1));
+			nativeDump();
+			expect(checkPairedBackup(dir, ["u1"], now, live)).toMatchObject({
+				ok: true,
+			});
+			for (const differs of [
+				{ epoch: 1 },
+				{ unverified: null },
+				{ generation: "g2" },
+				{ classifierLabels: 3 },
+			]) {
+				appDatabase(join(dir, "chat-20261125T0100Z.db"), differs);
+				utimesSync(
+					join(dir, "chat-20261125T0100Z.db"),
+					hoursAgo(1),
+					hoursAgo(1),
+				);
+				expect(checkPairedBackup(dir, ["u1"], now, live)).toEqual({
+					ok: false,
+					code: "backup_differs_from_live",
+				});
+			}
+		} finally {
+			rmSync(live, { force: true });
+		}
+	});
+
+	it("refuses the live database itself, also through a link", () => {
+		const live = appDatabase(join(dir, "chat.db"));
+		utimesSync(live, hoursAgo(1), hoursAgo(1));
+		nativeDump();
+		expect(checkPairedBackup(dir, ["u1"], now, live)).toEqual({
+			ok: false,
+			code: "backup_is_live_database",
+		});
+		const elsewhere = mkdtempSync(join(tmpdir(), "label-migration-link-"));
+		try {
+			symlinkSync(live, join(elsewhere, "chat-backup.db"));
+			const dump = join(elsewhere, "hindsight.sql");
+			writeFileSync(dump, "--\n-- PostgreSQL database dump\n--\n");
+			utimesSync(dump, hoursAgo(1), hoursAgo(1));
+			expect(checkPairedBackup(elsewhere, ["u1"], now, live)).toEqual({
+				ok: false,
+				code: "backup_is_live_database",
+			});
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
 	});
 
 	it("refuses a missing folder, a missing half, or a database that is not the app's", () => {
