@@ -84,6 +84,8 @@ export async function rerankTexts(params: {
 	truncate?: boolean;
 	returnText?: boolean;
 	maxTexts?: number;
+	/** A deadline shorter than TEI_TIMEOUT_MS, for a caller whose answer is optional. */
+	timeoutMs?: number;
 	onDiagnostics?: (diagnostics: TeiRerankDiagnostics) => void;
 }): Promise<TeiRerankResult[] | null> {
 	const trimmedQuery = params.query.trim();
@@ -128,6 +130,7 @@ export async function rerankTexts(params: {
 		baseUrl: config.teiRerankerUrl,
 		path: "/rerank",
 		apiKey: config.teiRerankerApiKey,
+		timeoutMs: params.timeoutMs,
 		body: {
 			query: params.query,
 			texts,
