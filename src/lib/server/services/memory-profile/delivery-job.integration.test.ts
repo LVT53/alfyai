@@ -868,6 +868,45 @@ describe("bank configuration 2 reaches every bank", () => {
 		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
 	});
 
+	it("marks the epoch's labels unverified when it upgrades a config-1 bank", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(false);
+	});
+
+	it("marks them when a creation the previous release sent landed as config 1", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(memoryLabelsVerified(h.userId)).toBe(false);
+	});
+
+	it("leaves them verified for a bank created at config 2", async () => {
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const f = await setup();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
 	it("verifies a bank already on config 2 without a PATCH", async () => {
 		const native = await import("./contracts");
 		const { f, patches } = await boundAt(

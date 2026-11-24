@@ -3340,6 +3340,12 @@ export const memoryAccounts = sqliteTable("memory_accounts", {
 	historyDecidedAt: integer("history_decided_at", { mode: "timestamp" }),
 	historyPolicyVersion: text("history_policy_version").notNull().default("1"),
 	historyStatus: text("history_status").notNull().default("not_requested"),
+	/**
+	 * The epoch whose banks may hold facts from before bank config 2 (Memory
+	 * part 3): until the label migration clears it, the account keeps today's
+	 * Memory page. Read through `memory-profile/labels-verified.ts` only.
+	 */
+	labelsUnverifiedEpoch: integer("labels_unverified_epoch"),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
 		.default(sql`(unixepoch())`),

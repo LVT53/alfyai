@@ -5,6 +5,7 @@ import {
 	type KnowledgeLibrarySortKey,
 } from "$lib/server/services/knowledge";
 import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
+import { memoryPageLayout } from "$lib/server/services/memory-profile/labels-verified";
 import {
 	parseFileFamilyFilter,
 	parseKnowledgeKindFilter,
@@ -59,5 +60,7 @@ export const load: PageServerLoad = async (event) => {
 		isUserMemoryEnabled(user.id),
 	]);
 
-	return { library, memoryEnabled };
+	// An account whose labels are not verified yet keeps today's Memory list
+	// (Memory part 3), decided before the first paint.
+	return { library, memoryEnabled, memoryLayout: memoryPageLayout(user.id) };
 };

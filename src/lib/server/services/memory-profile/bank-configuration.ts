@@ -16,6 +16,7 @@ import {
 	type NativeBinding,
 	NativeMemoryError,
 } from "./hindsight-client";
+import { markMemoryLabelsUnverified } from "./labels-verified";
 
 /**
  * Settles the one PATCH that created a bank (`NATIVE_BANK_CONFIG_PENDING`) by
@@ -64,12 +65,17 @@ export async function ensureConfiguredBank(
 	}
 	const moveVersion = async (from: string | null, to: string) => {
 		const recorded = await ctx.write((tx) => {
-			if (fence(tx).nativeConfigVersion !== from)
+			const current = fence(tx);
+			if (current.nativeConfigVersion !== from)
 				throw new NativeMemoryError("native_config_unconfirmed", true);
 			tx.update(memoryBanks)
 				.set({ nativeConfigVersion: to })
 				.where(eq(memoryBanks.id, bank.id))
 				.run();
+			// A bank on config 1 may hold facts without labels: its epoch keeps
+			// today's Memory page until the label migration verifies it.
+			if (from === HINDSIGHT_ENGINE_COMMIT || to === HINDSIGHT_ENGINE_COMMIT)
+				markMemoryLabelsUnverified(tx, current.userId, current.epoch);
 		});
 		if (!recorded) throw new NativeMemoryError("memory_cancelled", false);
 	};

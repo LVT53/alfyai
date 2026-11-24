@@ -37,6 +37,8 @@ export function memorySubjectsFor(
 		? PROJECT_MEMORY_SUBJECTS
 		: PERSONAL_MEMORY_SUBJECTS;
 }
+/** The Memory page an account gets: the subject index once its labels are verified, today's list until then. */
+export type MemoryPageLayout = "subjects" | "list";
 export interface MemoryRef {
 	scope: MemoryScope;
 	generation: string;
