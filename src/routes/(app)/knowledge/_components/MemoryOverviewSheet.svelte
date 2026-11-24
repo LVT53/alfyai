@@ -122,17 +122,12 @@ const footnote = $derived.by(() => {
   {:else if phase === "written" && overview?.text}
    <p class="memory-overview-text" data-memory-overview-text>{overview.text}</p>
    <p class="memory-overview-footnote">{footnote}</p>
+   <div class="memory-overview-actions"><button type="button" class="btn-secondary memory-overview-action" onclick={() => void write(true)}>{$t("memorySubjects.rewrite")}</button><button type="button" class="btn-primary memory-overview-action" onclick={onClose}>{$t("memorySubjects.done")}</button></div>
   {:else if phase === "failed"}
    <p class="memory-overview-failed" role="alert">{$t(changed ? "memorySubjects.overviewChanged" : "memorySubjects.overviewFailed")}</p>
+   <div class="memory-overview-actions"><button type="button" class="btn-secondary memory-overview-action" onclick={() => void write(false)}>{$t("memorySubjects.tryAgain")}</button><button type="button" class="btn-primary memory-overview-action" onclick={onClose}>{$t("memorySubjects.done")}</button></div>
   {/if}
  </div>
- {#snippet footer()}
-  {#if phase === "written"}
-   <span class="memory-overview-actions"><button type="button" class="btn-secondary memory-overview-action" onclick={() => void write(true)}>{$t("memorySubjects.rewrite")}</button><button type="button" class="btn-primary memory-overview-action" onclick={onClose}>{$t("memorySubjects.done")}</button></span>
-  {:else if phase === "failed"}
-   <span class="memory-overview-actions"><button type="button" class="btn-secondary memory-overview-action" onclick={() => void write(false)}>{$t("memorySubjects.tryAgain")}</button><button type="button" class="btn-primary memory-overview-action" onclick={onClose}>{$t("memorySubjects.done")}</button></span>
-  {/if}
- {/snippet}
 </DialogShell>
 <style>
 .memory-overview-sheet{font-family:var(--font-sans);color:var(--text-primary)}
@@ -149,12 +144,12 @@ const footnote = $derived.by(() => {
 .memory-overview-writing-title{margin:0;font-size:17px;font-weight:600}
 .memory-overview-writing-from{margin:0;font-size:15px;color:var(--text-muted)}
 .memory-overview-skeleton{display:flex;flex-direction:column;gap:12px;padding:24px 0 8px}
-.memory-overview-skeleton span{display:block;height:14px;border-radius:var(--radius-full);background:var(--surface-page)}
+.memory-overview-skeleton span{display:block;height:14px;border-radius:var(--radius-full);background:color-mix(in srgb,var(--text-primary) 7%,transparent)}
 .memory-overview-skeleton span:nth-child(1){width:92%}.memory-overview-skeleton span:nth-child(2){width:82%}.memory-overview-skeleton span:nth-child(3){width:64%}
 .memory-overview-text{margin:0;font-size:17px;line-height:1.7;overflow-wrap:anywhere}
 .memory-overview-footnote{margin:16px 0 0;font-size:14px;line-height:1.55;color:var(--text-muted)}
 .memory-overview-failed{margin:0;font-size:15px;line-height:1.55}
-.memory-overview-actions{display:flex;flex:1;justify-content:flex-end;gap:12px}
+.memory-overview-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
 .memory-overview-action{min-height:44px;padding:10px 22px;border-radius:var(--radius-md);font-size:15px;font-weight:600}
 @media (max-width:639.98px){.memory-overview-actions{justify-content:stretch}.memory-overview-action{flex:1}}
 </style>

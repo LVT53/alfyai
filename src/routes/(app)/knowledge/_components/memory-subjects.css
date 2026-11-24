@@ -25,7 +25,7 @@
 .memory-subjects-add {
 	grid-area: add;
 }
-.memory-subjects-search {
+.memory-subjects .memory-subjects-search {
 	grid-area: search;
 	margin: 0;
 }
@@ -39,14 +39,22 @@
 	padding: 14px 16px;
 	border: 0;
 	border-radius: var(--radius-lg);
-	background: var(--surface-page);
+	background: color-mix(
+		in srgb,
+		var(--text-primary) 5%,
+		var(--surface-elevated)
+	);
 	color: var(--text-primary);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color var(--duration-standard) var(--ease-out);
 }
 .memory-overview-row:hover {
-	background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-page));
+	background: color-mix(
+		in srgb,
+		var(--text-primary) 8%,
+		var(--surface-elevated)
+	);
 }
 .memory-overview-row:focus-visible,
 .memory-subject-row:focus-visible,
@@ -182,6 +190,9 @@
 	color: var(--icon-muted);
 	transition: transform var(--duration-standard) var(--ease-out);
 }
+.memory-earlier-caret-open {
+	transform: rotate(90deg);
+}
 .memory-earlier-copy {
 	min-width: 0;
 	font-size: 15px;
@@ -211,7 +222,7 @@
 	font-size: 15px;
 	cursor: pointer;
 }
-.memory-subject-title {
+.memory-subjects .memory-subject-title {
 	margin: 0 0 8px;
 	font-size: 20px;
 	font-weight: 600;
@@ -349,7 +360,11 @@
 		display: none;
 	}
 	.memory-subjects-has-subject .memory-subject-current {
-		background: var(--surface-page);
+		background: color-mix(
+			in srgb,
+			var(--text-primary) 5%,
+			var(--surface-elevated)
+		);
 	}
 	.memory-subjects-has-subject .memory-subject-current .memory-subject-name {
 		font-weight: 600;

@@ -59,7 +59,7 @@ onDestroy(() => abort?.abort());
 </script>
 <div class="memory-earlier-fold" data-testid="memory-earlier-fold">
  <button type="button" class="memory-earlier-row" aria-expanded={open} aria-controls={listId} onclick={toggle}>
-  <ChevronRight size={14} strokeWidth={2} class={open ? "memory-earlier-caret memory-chevron-open" : "memory-earlier-caret"} aria-hidden="true"/>
+  <ChevronRight size={14} strokeWidth={2} class={open ? "memory-earlier-caret memory-earlier-caret-open" : "memory-earlier-caret"} aria-hidden="true"/>
   <span class="memory-earlier-copy"><span class="memory-earlier-title">{$t("memorySubjects.earlierIn", { subject: $t(subjectWordKey(subject)) })} · {count}</span> {#if !open && preview.length}<span class="memory-earlier-preview">{preview.join(", ")}</span>{/if}</span>
  </button>
  {#if open}
