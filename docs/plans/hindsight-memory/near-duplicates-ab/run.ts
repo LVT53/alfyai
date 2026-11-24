@@ -142,7 +142,29 @@ const FACTS: Record<string, FactSpec> = {
 		text: "A felhasználó kerékpárja narancssárga. | Involving: user",
 	},
 };
-const SCENARIOS: Record<string, { load: string[]; deleteDocument: string }> = {
+/** The recorded events as the app sends them (the real path: the model extracts the facts, consolidation follows each retain). */
+const REAL_EVENTS = [
+	{
+		doc: "old",
+		at: "2026-11-01T12:00:00Z",
+		text: "User: Van egy piros kerékpárom és egy fehér kajakom. Rövid válaszokat kérek. A húgom Győrben él.",
+	},
+	{ doc: "newer", at: "2026-11-10T12:00:00Z", text: "User: A kerékpárom kék. Most részletes válaszokat kérek." },
+	{
+		doc: "correction",
+		at: "2026-11-12T12:00:00Z",
+		text: "User: Javítás: a kerékpárom zöld. A korábbi kék leírás téves volt; nem változott meg a színe.",
+	},
+	{
+		doc: "old-replay",
+		at: "2026-11-01T12:00:00Z",
+		text: "User: Van egy piros kerékpárom és egy fehér kajakom. Rövid válaszokat kérek. A húgom Győrben él.",
+	},
+	{ doc: "pending", at: "2026-11-20T12:00:00Z", text: "User: A kerékpárom narancssárga." },
+];
+const SCENARIOS: Record<string, { load: string[]; deleteDocument: string; real?: boolean }> = {
+	// The whole path to the deletion as the recorded run takes it: concise extraction by the model, auto-consolidation.
+	real: { load: [], deleteDocument: "pending", real: true },
 	// The bicycle and kayak facts only: five facts, then the deletion (five consolidator calls, then four).
 	short: {
 		load: ["old-bike", "newer", "correction", "replay-bike", "pending"],
@@ -401,6 +423,8 @@ export function sideChecks(observations: Observation[]) {
 		inventedDate: statements.some((s) => /\b(19|20)\d{2}\b/.test(s)),
 		/** the sister's row kept (only meaningful when the scenario holds her facts) */
 		sisterKept: has(all, "húga", "győr"),
+		/** one row states the bicycle and the kayak together (statement only, engine notes left out): the facets joined */
+		compoundRow: has(statements, "kerékp", "kajak"),
 		rows: observations.length,
 	};
 }
@@ -455,6 +479,47 @@ async function oneRun(variant: Variant, index: number, scenario: string) {
 	};
 	try {
 		await configure(bank, variantConfig(variant));
+		if (spec.real) {
+			// The recorded stages, extraction by the model and the engine's own consolidation after each retain.
+			for (const event of REAL_EVENTS) {
+				const operationId = randomUUID();
+				await call(bank, "POST", "/memories", {
+					items: [
+						{
+							content: event.text,
+							context: CONTEXT,
+							timestamp: new Date(event.at).toISOString(),
+							document_id: event.doc,
+							tags: [event.doc],
+							metadata: { chat_id: `chat-${event.doc}`, message_id: `message-${event.doc}` },
+						},
+					],
+					async: true,
+					operation_id: operationId,
+				});
+				await waitOperation(bank, operationId, deadline);
+				await settle(bank, deadline);
+			}
+			record.loadedFacts = REAL_EVENTS.length;
+			const beforeReal = snapshot(await listAll(bank));
+			record.beforeDeletion = beforeReal;
+			log(scope, `retained and consolidated: ${beforeReal.observations.length} rows; deleting ${spec.deleteDocument}`);
+			await call(bank, "DELETE", `/documents/${encodeURIComponent(spec.deleteDocument)}`);
+			await settle(bank, deadline);
+			const afterReal = snapshot(await listAll(bank));
+			record.afterDeletion = afterReal;
+			record.analysis = analyse(afterReal.observations);
+			record.analysisBefore = analyse(beforeReal.observations);
+			record.status = "ok";
+			const ar = record.analysis;
+			log(
+				scope,
+				`${ar.twin ? "TWIN " : ""}${ar.near ? "NEAR " : ""}${ar.duplicate ? "" : "clean "}| ${afterReal.observations.length} rows | ${afterReal.observations
+					.map((o) => JSON.stringify(o.text))
+					.join(" ; ")}`,
+			);
+			return record;
+		}
 		// After the app's PATCH: the facts are stored as given, and the consolidations are explicit.
 		await call(bank, "PATCH", "/config", {
 			updates: { retain_extraction_mode: "chunks", enable_auto_consolidation: false },
@@ -555,6 +620,7 @@ function summary(scenario: string) {
 			twinOnly: count((a) => a.twin && !a.near),
 			nearOnly: count((a) => a.near && !a.twin),
 			twinAndNear: count((a) => a.twin && a.near),
+			compoundRow: count((a) => a.checks.compoundRow),
 			greenCurrentMissing: count((a) => !a.checks.greenCurrent),
 			kayakLost: count((a) => !a.checks.kayakKept),
 			orangeLeak: count((a) => a.checks.orangeLeak),
@@ -567,7 +633,63 @@ function summary(scenario: string) {
 			secondsMean: ok.length ? Math.round(ok.reduce((n, r) => n + r.seconds, 0) / ok.length) : null,
 		};
 	}
-	console.log(JSON.stringify({ scenario, table }, null, "\t"));
+	// Two-sided Fisher exact tests of each variant against the baseline, on "has a duplicate pair".
+	const fisher = (a: number, b: number, c: number, d: number) => {
+		const choose = (n: number, k: number) => {
+			let r = 1;
+			for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+			return r;
+		};
+		const n1 = a + b;
+		const n2 = c + d;
+		const k = a + c;
+		const total = n1 + n2;
+		const pmf = (x: number) => (choose(n1, x) * choose(n2, k - x)) / choose(total, k);
+		const observed = pmf(a);
+		let p = 0;
+		for (let x = Math.max(0, k - n2); x <= Math.min(n1, k); x++) if (pmf(x) <= observed * (1 + 1e-9)) p += pmf(x);
+		return +Math.min(1, p).toFixed(3);
+	};
+	const base = table.base;
+	const fisherVsBase: Json = {};
+	if (base && base.duplicate + base.clean > 0)
+		for (const variant of VARIANTS.filter((v) => v !== "base")) {
+			const t = table[variant];
+			if (t.duplicate + t.clean === 0) continue;
+			fisherVsBase[variant] = {
+				anyDuplicate: fisher(base.duplicate, base.clean, t.duplicate, t.clean),
+				nearOrTwinAndNear: fisher(
+					base.nearOnly + base.twinAndNear,
+					base.runs - base.failed - base.nearOnly - base.twinAndNear,
+					t.nearOnly + t.twinAndNear,
+					t.runs - t.failed - t.nearOnly - t.twinAndNear,
+				),
+			};
+		}
+	console.log(JSON.stringify({ scenario, table, fisherVsBase }, null, "\t"));
+}
+
+/** Prints each run's final rows with the documents behind each row, to read them. */
+function show(scenario: string, only?: string) {
+	for (const variant of VARIANTS.filter((v) => !only || v === only)) {
+		const files = readdirSync(RESULTS)
+			.filter((f) => f.startsWith(`${scenario}-${variant}-`) && f.endsWith(".json"))
+			.sort();
+		for (const file of files) {
+			const r = JSON.parse(readFileSync(path.join(RESULTS, file), "utf8")) as Json;
+			if (r.status !== "ok") {
+				if (r.status === "failed") console.log(`\n## ${file}: FAILED ${r.error}`);
+				continue;
+			}
+			const a = analyse(r.afterDeletion.observations as Observation[]);
+			const docs = new Map<string, string>(r.afterDeletion.raw.map((x: Json) => [x.id, String(x.document_id)]));
+			console.log(
+				`\n## ${file} (${r.seconds}s) ${a.twin ? "TWIN " : ""}${a.near ? "NEAR " : ""}${a.duplicate ? "" : "clean"}${a.checks.compoundRow ? " COMPOUND" : ""}`,
+			);
+			for (const o of r.afterDeletion.observations as Observation[])
+				console.log(`  - ${o.text}   [${o.source_memory_ids.map((s) => docs.get(s) ?? "?").join(", ")}]`);
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------------------
@@ -579,6 +701,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		for (const variant of VARIANTS) console.log(`--- ${variant}\n${variantConfig(variant).observations_mission}\n`);
 	} else if (mode === "summary") {
 		summary(scenarioName);
+	} else if (mode === "show") {
+		show(scenarioName, args[1] && !args[1].startsWith("--") ? args[1] : undefined);
 	} else if (mode === "run") {
 		const variant = args[1] as Variant;
 		const runs = Number(args[2] ?? "1");
