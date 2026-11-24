@@ -13,6 +13,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { JobRunContext, Tx } from "../jobs/types";
+import { memoryAdmissionFor } from "./admission";
 import { ensureConfiguredBank } from "./bank-configuration";
 import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
@@ -424,7 +425,14 @@ function guardedModel(
 			check?.(tx);
 		});
 	};
-	const model = override ?? createCurationModel(ctx.signal);
+	// A curation job is background work in the admission queue, in its tenant's lane.
+	const model =
+		override ??
+		createCurationModel(
+			ctx.signal,
+			undefined,
+			memoryAdmissionFor(ctx.row.userId, "background"),
+		);
 	return (prompt, input, schema, thinkingMode, assertCurrent) => {
 		beforeDispatch();
 		return model(prompt, input, schema, thinkingMode, () => {

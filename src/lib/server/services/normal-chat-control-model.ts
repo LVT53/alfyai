@@ -75,6 +75,12 @@ export type JsonControlMessageOptions = {
 	allowEmptyTextOnLengthFinish?: boolean;
 	skipStructuredOutputs?: boolean;
 	fetch?: typeof fetch;
+	/**
+	 * The whole call's timeout for `sendJsonControlMessage`, instead of the
+	 * configured REQUEST_TIMEOUT_MS: a memory call that may wait in the
+	 * admission queue first needs longer (memory-profile/admission.ts).
+	 */
+	requestTimeoutMs?: number;
 };
 
 function createControlModelProvider(params: {
@@ -363,7 +369,7 @@ export async function sendJsonControlMessage(
 			message,
 			provider,
 			options,
-			config.requestTimeoutMs,
+			options.requestTimeoutMs ?? config.requestTimeoutMs,
 		)),
 		modelId: selectedModelId,
 	};

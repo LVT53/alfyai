@@ -63,6 +63,14 @@ it("uses the private inference binding without a selectable chat model", async (
 				],
 			});
 		});
+	const control = await import("../normal-chat-control-model");
+	const viaProvider = vi.spyOn(control, "sendJsonControlMessageViaProvider");
+	const timeouts: number[] = [];
+	const timeout = AbortSignal.timeout.bind(AbortSignal);
+	vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+		timeouts.push(ms);
+		return timeout(ms);
+	});
 	const { createCurationModel } = await import("./curation");
 	const assertCurrent = vi.fn();
 	const call = createCurationModel(new AbortController().signal);
@@ -91,6 +99,17 @@ it("uses the private inference binding without a selectable chat model", async (
 	expect(new Headers(init?.headers).get("authorization")).toBe(
 		"Bearer private-gateway-key",
 	);
+	// The admission queue's class: background by default, with no tenant lane.
+	expect(new Headers(init?.headers).get("x-alfyai-admission-priority")).toBe(
+		"background",
+	);
+	expect(new Headers(init?.headers).get("x-alfyai-admission-wait-ms")).toBe(
+		"600000",
+	);
+	expect(new Headers(init?.headers).has("x-alfyai-admission-lane")).toBe(false);
+	// The call may wait its declared ten minutes in the queue and still run its own three.
+	expect(timeouts).toContain(780_000);
+	expect(viaProvider.mock.calls[0]?.[3]).toBeGreaterThanOrEqual(780_000);
 	expect(JSON.parse(String(init?.body))).toMatchObject({
 		model: "qwen3-6-27b",
 		enable_thinking: true,
@@ -250,3 +269,64 @@ it.each([undefined, "on"] as const)(
 		expect(transport).not.toHaveBeenCalled();
 	},
 );
+
+it("declares an interactive call and its tenant's lane to the admission queue", async () => {
+	const cfg = await import("$lib/server/config-store");
+	vi.spyOn(cfg, "getConfig").mockReturnValue({
+		...cfg.getConfig(),
+		hindsightCurationGatewayModel: "qwen3-6-27b",
+		hindsightInferenceKey: "private-gateway-key",
+	});
+	const endpoints = await import("./private-endpoint");
+	const transport = vi
+		.spyOn(endpoints, "fetchPrivateMemory")
+		.mockImplementation(async () =>
+			Response.json({
+				id: "synthetic",
+				model: "qwen3-6-27b",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: '{"ok":true}' },
+						finish_reason: "stop",
+					},
+				],
+			}),
+		);
+	const timeouts: number[] = [];
+	const timeout = AbortSignal.timeout.bind(AbortSignal);
+	vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+		timeouts.push(ms);
+		return timeout(ms);
+	});
+	const { createCurationModel } = await import("./curation");
+	const { memoryAdmissionHeaders } = await import("./admission");
+	const tenantId = "8a1c3e3a-6c39-4c4b-9d0e-6b2a8f0e1c77";
+	const call = createCurationModel(new AbortController().signal, undefined, {
+		priority: "interactive",
+		tenantId,
+	});
+	await expect(
+		call(
+			"Return JSON",
+			{},
+			{
+				type: "object",
+				properties: { ok: { type: "boolean" } },
+				required: ["ok"],
+			},
+		),
+	).resolves.toEqual({ ok: true });
+	const headers = new Headers(transport.mock.calls[0]?.[1]?.headers);
+	const expected = memoryAdmissionHeaders({
+		priority: "interactive",
+		tenantId,
+	});
+	expect(headers.get("x-alfyai-admission-priority")).toBe("interactive");
+	expect(headers.get("x-alfyai-admission-wait-ms")).toBe("120000");
+	expect(headers.get("x-alfyai-admission-lane")).toBe(
+		expected["X-AlfyAI-Admission-Lane"],
+	);
+	expect(headers.get("authorization")).toBe("Bearer private-gateway-key");
+	expect(timeouts).toContain(300_000);
+});

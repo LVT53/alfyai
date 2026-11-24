@@ -7,6 +7,12 @@ import {
 	sendJsonControlMessageViaProvider,
 } from "../normal-chat-control-model";
 import { resolveNormalChatModelRunProvider } from "../normal-chat-model";
+import {
+	BACKGROUND_MEMORY_ADMISSION,
+	type MemoryAdmission,
+	memoryAdmissionHeaders,
+	memoryAdmissionTimeoutMs,
+} from "./admission";
 import { NativeMemoryError } from "./hindsight-client";
 import {
 	approvedMemoryBase,
@@ -162,9 +168,17 @@ function validateEditIntent(value: unknown): EditIntent {
 		throw Error("memory_edit_invalid");
 	return value as unknown as EditIntent;
 }
+/**
+ * The memory model path: a JSON call to the local model through Hindsight's
+ * admission gateway, never a chat model's own route. `admission` says where
+ * the call waits in the gateway's queue (memory-profile/admission.ts):
+ * background by default; the Overview, which a person waits for, passes
+ * `interactive`. Its timeout covers the declared wait plus the model's run.
+ */
 export function createCurationModel(
 	signal: AbortSignal,
 	beforeDispatch?: () => void,
+	admission: MemoryAdmission = BACKGROUND_MEMORY_ADMISSION,
 ): CurationModel {
 	return async (prompt, input, schema, thinkingMode = "off", assertCurrent) => {
 		const config = getConfig();
@@ -210,12 +224,21 @@ export function createCurationModel(
 					apiKey: config.hindsightInferenceKey,
 				};
 		assertEndpoint(provider.baseUrl);
+		const timeoutMs = Math.max(
+			config.requestTimeoutMs,
+			memoryAdmissionTimeoutMs(admission.priority),
+		);
 		const options: JsonControlMessageOptions = {
 			systemPrompt: prompt,
 			fetch: async (url, init) => {
 				const target = new URL(url instanceof Request ? url.url : String(url));
 				assertEndpoint(target.toString());
-				return fetchPrivateMemory(url, init, undefined, () => {
+				const headers = new Headers(init?.headers);
+				for (const [name, value] of Object.entries(
+					memoryAdmissionHeaders(admission),
+				))
+					headers.set(name, value);
+				return fetchPrivateMemory(url, { ...init, headers }, undefined, () => {
 					beforeDispatch?.();
 					assertCurrent?.();
 				});
@@ -224,9 +247,13 @@ export function createCurationModel(
 			maxTokens: 8192,
 			temperature: 0,
 			jsonSchema: { name: "memory_edit", schema, strict: true },
-			signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]),
+			signal: AbortSignal.any([
+				signal,
+				AbortSignal.timeout(memoryAdmissionTimeoutMs(admission.priority)),
+			]),
 			allowReasoningFallback: false,
 			allowStructuredOutputFallback: thinkingMode !== "on",
+			requestTimeoutMs: timeoutMs,
 		};
 		const message = JSON.stringify(input);
 		const result = modelId
@@ -235,7 +262,7 @@ export function createCurationModel(
 					message,
 					provider,
 					options,
-					config.requestTimeoutMs,
+					timeoutMs,
 				);
 		if (thinkingMode === "on" && hasLengthFinishReason(result.rawResponse))
 			throw new NativeMemoryError("memory_curation_incomplete", true);
