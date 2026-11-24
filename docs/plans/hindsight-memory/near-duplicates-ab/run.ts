@@ -162,7 +162,13 @@ const REAL_EVENTS = [
 	},
 	{ doc: "pending", at: "2026-11-20T12:00:00Z", text: "User: A kerékpárom narancssárga." },
 ];
-const SCENARIOS: Record<string, { load: string[]; deleteDocument: string; real?: boolean }> = {
+/**
+ * In the app's own extraction one retain makes several facts and the engine stamps each a little later than the
+ * one before (`SECONDS_PER_FACT` = 0.01 s per position), so the recorded first call after the deletion sees the
+ * sister's and the short-answers rows "stated after this fact". The "flag" scenarios give the facts those offsets.
+ */
+const FLAG_OFFSET_MS: Record<string, number> = { "old-short": 10, "old-sister": 20, "replay-sister": 20 };
+const SCENARIOS: Record<string, { load: string[]; deleteDocument: string; real?: boolean; flagged?: boolean }> = {
 	// The whole path to the deletion as the recorded run takes it: concise extraction by the model, auto-consolidation.
 	real: { load: [], deleteDocument: "pending", real: true },
 	// The bicycle and kayak facts only: five facts, then the deletion (five consolidator calls, then four).
@@ -182,6 +188,18 @@ const SCENARIOS: Record<string, { load: string[]; deleteDocument: string; real?:
 	mini: {
 		load: ["old-bike", "old-sister", "old-short", "replay-bike", "pending"],
 		deleteDocument: "pending",
+	},
+	// The same with the recorded stamps (the sister's and short-answers rows are newer than the compound fact).
+	miniflag: {
+		load: ["old-bike", "old-short", "old-sister", "replay-bike", "pending"],
+		deleteDocument: "pending",
+		flagged: true,
+	},
+	// The full case with the recorded stamps: what the app's own extraction does to the timestamps of one retain's facts.
+	fullflag: {
+		load: ["old-bike", "old-short", "old-sister", "newer", "correction", "replay-bike", "replay-sister", "pending"],
+		deleteDocument: "pending",
+		flagged: true,
 	},
 	// All the recorded case's facts before the deletion.
 	full: {
@@ -455,6 +473,8 @@ export function shapeOf(observations: Observation[]) {
 	if (a.twin) return "twin";
 	if (a.near) return "near";
 	if (a.checks.compoundRow) return "compound-only";
+	// The white kayak is in no row any more (its facts are still there; the observation layer dropped it).
+	if (!a.checks.kayakKept) return "kayak-lost";
 	return "clean";
 }
 
@@ -476,6 +496,15 @@ function snapshot(rows: Json[]) {
 			source_memory_ids: (r.source_memory_ids ?? []) as string[],
 		})),
 	};
+}
+
+/** What each consolidation run did, as the engine counts it (rows created, updated, merged, deleted), oldest first. */
+async function consolidationCounts(bank: string) {
+	const ops = ((await call(bank, "GET", "/operations?limit=100&offset=0")).operations ?? []) as Json[];
+	return ops
+		.filter((op) => op.operation_type === "consolidation")
+		.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+		.map((op) => ({ at: op.created_at, status: op.status, detail: op.progress?.detail ?? null }));
 }
 
 /** Each surviving observation's own change log (what the engine keeps of its earlier texts), to see which step wrote a row. */
@@ -540,6 +569,7 @@ async function oneRun(variant: Variant, index: number, scenario: string) {
 			const afterReal = snapshot(await listAll(bank));
 			record.afterDeletion = afterReal;
 			record.histories = await observationHistories(bank, afterReal.observations);
+			record.consolidations = await consolidationCounts(bank);
 			record.analysis = analyse(afterReal.observations);
 			record.analysisBefore = analyse(beforeReal.observations);
 			record.status = "ok";
@@ -558,13 +588,14 @@ async function oneRun(variant: Variant, index: number, scenario: string) {
 		});
 		for (const key of spec.load) {
 			const fact = FACTS[key];
+			const at = new Date(Date.parse(fact.at) + (spec.flagged ? (FLAG_OFFSET_MS[key] ?? 0) : 0)).toISOString();
 			const operationId = randomUUID();
 			await call(bank, "POST", "/memories", {
 				items: [
 					{
 						content: fact.text,
 						context: CONTEXT,
-						timestamp: new Date(fact.at).toISOString(),
+						timestamp: at,
 						document_id: fact.doc,
 						tags: [fact.doc],
 						metadata: {},
@@ -590,6 +621,7 @@ async function oneRun(variant: Variant, index: number, scenario: string) {
 		const after = snapshot(await listAll(bank));
 		record.afterDeletion = after;
 		record.histories = await observationHistories(bank, after.observations);
+		record.consolidations = await consolidationCounts(bank);
 		record.analysis = analyse(after.observations);
 		record.analysisBefore = analyse(before.observations);
 		record.status = "ok";
@@ -637,7 +669,10 @@ function claimIndex(scenario: string, variant: string) {
 function summary(scenario: string) {
 	const table: Json = {};
 	for (const variant of VARIANTS) {
-		const files = readdirSync(RESULTS).filter((f) => f.startsWith(`${scenario}-${variant}-`) && f.endsWith(".json"));
+		// A comma-separated scenario list pools those scenarios (e.g. "short,full").
+		const files = readdirSync(RESULTS).filter(
+			(f) => scenario.split(",").some((sc) => f.startsWith(`${sc}-${variant}-`)) && f.endsWith(".json"),
+		);
 		const since = option("--since");
 		const rows = files
 			.map((f) => JSON.parse(readFileSync(path.join(RESULTS, f), "utf8")) as Json)
@@ -666,11 +701,11 @@ function summary(scenario: string) {
 			),
 			compoundRow: count((a) => a.checks.compoundRow),
 			// The colour checks need the recorded colour changes: not meaningful in the mini scenario.
-			greenCurrentMissing: scenario === "mini" ? null : count((a) => !a.checks.greenCurrent),
+			greenCurrentMissing: scenario.startsWith("mini") ? null : count((a) => !a.checks.greenCurrent),
 			kayakLost: count((a) => !a.checks.kayakKept),
 			orangeLeak: count((a) => a.checks.orangeLeak),
-			oldColourCurrent: scenario === "mini" ? null : count((a) => a.checks.oldColourCurrent),
-			historyKept: scenario === "mini" ? null : count((a) => a.checks.historyKept),
+			oldColourCurrent: scenario.startsWith("mini") ? null : count((a) => a.checks.oldColourCurrent),
+			historyKept: scenario.startsWith("mini") ? null : count((a) => a.checks.historyKept),
 			inventedDate: count((a) => a.checks.inventedDate),
 			rowsMean: ok.length
 				? +(ok.reduce((n, r) => n + r.afterDeletion.observations.length, 0) / ok.length).toFixed(2)
@@ -753,7 +788,7 @@ function show(scenario: string, only?: string) {
 			const a = analyse(r.afterDeletion.observations as Observation[]);
 			const docs = new Map<string, string>(r.afterDeletion.raw.map((x: Json) => [x.id, String(x.document_id)]));
 			console.log(
-				`\n## ${file} (${r.seconds}s) ${a.twin ? "TWIN " : ""}${a.near ? "NEAR " : ""}${a.duplicate ? "" : "clean"}${a.checks.compoundRow ? " COMPOUND" : ""}`,
+				`\n## ${file} (${r.seconds}s) ${shapeOf(r.afterDeletion.observations as Observation[]).toUpperCase()}`,
 			);
 			for (const o of r.afterDeletion.observations as Observation[])
 				console.log(`  - ${o.text}   [${o.source_memory_ids.map((s) => docs.get(s) ?? "?").join(", ")}]`);
