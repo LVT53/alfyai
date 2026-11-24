@@ -1619,7 +1619,7 @@ it("the tool returns Earlier entries and earlier states, marked", async () => {
 		"- Had the flu (earlier, temporary, said 7 weeks ago)",
 	);
 	expect(content).toContain(
-		"  - earlier: The user worked at Harbor Bank. (said 18 months ago)",
+		"  - earlier: The user worked at Harbor Bank. (as of 18 months ago)",
 	);
 	// The per-turn section shows no earlier states.
 	const section = await turn();

@@ -1,8 +1,9 @@
 /**
  * The dates the subject index's page writes (Memory part 3): when an entry was
  * last mentioned ("Last mentioned 3 days ago", "Last mentioned 14 November")
- * and when an earlier state was said ("said March 2025"). The words around
- * them are the dictionary's; the dates are written in the reader's language.
+ * and the date an earlier state is given ("Earlier: ... · as of March 2025":
+ * when it stood, never when it was said or ended). The words around them are
+ * the dictionary's; the dates are written in the reader's language.
  */
 export type MentionedWhen =
 	| { kind: "today" }
@@ -51,7 +52,7 @@ export function mentionedWhen(
 	};
 }
 
-/** The month and year an earlier state was said: "March 2025", "2025. március". */
+/** The month and year an earlier state is dated: "March 2025", "2025. március". */
 export function monthAndYear(
 	iso: string | null,
 	language: string,
