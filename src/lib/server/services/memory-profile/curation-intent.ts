@@ -125,27 +125,35 @@ export function parseActionIntent(json: string | null): ActionIntentRecord {
 	return value as unknown as ActionIntentRecord;
 }
 
-/** A text's words, lowercased, with how many times each occurs. */
-function wordCounts(text: string) {
+/**
+ * A message's sentences and lines, each with its spacing folded and its
+ * closing mark dropped, with how many times each occurs.
+ */
+function sentenceCounts(text: string) {
 	const counts = new Map<string, number>();
-	for (const word of text
-		.toLowerCase()
-		.normalize("NFC")
-		.match(/[\p{L}\p{N}]+/gu) ?? [])
-		counts.set(word, (counts.get(word) ?? 0) + 1);
+	for (const line of text.normalize("NFC").split(/\r?\n/u))
+		for (const part of line.split(/(?<=[.!?…])\s+/u)) {
+			const sentence = part
+				.replace(/\s+/gu, " ")
+				.replace(/[.!?…]+$/u, "")
+				.trim();
+			if (sentence) counts.set(sentence, (counts.get(sentence) ?? 0) + 1);
+		}
 	return counts;
 }
 
 /**
- * Whether the person's edit of their message took anything away: a word of
- * the message before (counted) that the message after no longer has. An edit
- * that only added to the message took nothing away.
+ * Whether the person's edit of their message took anything away: a sentence
+ * (or line) of the message before, counted, that the message after no longer
+ * has word for word. An edit that only added sentences, anywhere, took nothing
+ * away; any change inside a sentence, even of one letter, counts as taking it
+ * away.
  */
 export function sourceEditTookAway(intent: ActionIntentRecord) {
 	if (intent.request.kind !== "edit") return true;
-	const after = wordCounts(intent.request.text);
-	for (const [word, count] of wordCounts(intent.before))
-		if ((after.get(word) ?? 0) < count) return true;
+	const after = sentenceCounts(intent.request.text);
+	for (const [sentence, count] of sentenceCounts(intent.before))
+		if ((after.get(sentence) ?? 0) < count) return true;
 	return false;
 }
 
