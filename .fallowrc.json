@@ -65,6 +65,13 @@
 		"docs/plans/hindsight-memory/native-lifecycle-acceptance/run.ts",
 		"docs/plans/hindsight-memory/integrated-native-benchmark/run.ts",
 		"docs/plans/hindsight-memory/integrated-native-benchmark/paired/run.ts",
+		// The 2026-11-24 regression run's documented commands (synthetic, local Hindsight):
+		// its model bridge and activity stand-in, the benchmark's isolated recheck and the
+		// rebuilt current-list holdout (docs/plans/hindsight-memory/regression-2026-11-24.md).
+		"docs/plans/hindsight-memory/regression-2026-11-24/bridge.cjs",
+		"docs/plans/hindsight-memory/regression-2026-11-24/activity.cjs",
+		"docs/plans/hindsight-memory/integrated-native-benchmark/recheck-2026-11-24.ts",
+		"docs/plans/hindsight-memory/current-list-followup/regression-2026-11-24.ts",
 		// Memory part 2's documented acceptance command (synthetic, local Hindsight).
 		"docs/plans/hindsight-memory/part-2-acceptance/run.ts",
 		// The label migration's documented acceptance command (synthetic, Flash-Next).
