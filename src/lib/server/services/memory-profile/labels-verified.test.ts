@@ -94,35 +94,56 @@ describe("migration 143", () => {
 			.filter((statement) => statement && !/\bALTER TABLE\b/i.test(statement));
 	}
 
-	it("leaves the tester account untouched, whatever it holds", async () => {
+	// Migration 141 flagged the tester once, by address; from then on the rule
+	// is read by user id (migration-guard.ts), so this migration reads the flag.
+	it("leaves the flagged account untouched by id, whatever its address", async () => {
 		const { db, schema, state } = await modules();
 		const { sql } = await import("drizzle-orm");
+		// The tester changed address after the flag was set; another account has
+		// taken the old address and was never flagged.
 		db.insert(schema.users)
-			.values({
-				id: "tester",
-				email: "Tester@Tester.com",
-				passwordHash: "synthetic",
-			})
+			.values([
+				{
+					id: "tester",
+					email: "renamed@example.test",
+					passwordHash: "synthetic",
+					memoryMigrationExcluded: true,
+				},
+				{
+					id: "same-address",
+					email: "Tester@Tester.com",
+					passwordHash: "synthetic",
+				},
+			])
 			.run();
-		db.insert(schema.memoryAccounts)
-			.values({ userId: "tester", tenantId: "tenant-tester" })
-			.run();
-		db.insert(schema.memoryBanks)
-			.values({
-				id: "tester-bank",
-				userId: "tester",
-				scopeKey: "personal",
-				epoch: 0,
-			})
-			.run();
+		for (const userId of ["tester", "same-address"]) {
+			db.insert(schema.memoryAccounts)
+				.values({ userId, tenantId: `tenant-${userId}` })
+				.run();
+			db.insert(schema.memoryBanks)
+				.values({
+					id: `${userId}-bank`,
+					userId,
+					scopeKey: "personal",
+					epoch: 0,
+				})
+				.run();
+		}
 		for (const statement of markingStatements()) db.run(sql.raw(statement));
-		expect(
+		const marks = Object.fromEntries(
 			db
-				.select({ epoch: schema.memoryAccounts.labelsUnverifiedEpoch })
+				.select({
+					userId: schema.memoryAccounts.userId,
+					epoch: schema.memoryAccounts.labelsUnverifiedEpoch,
+				})
 				.from(schema.memoryAccounts)
-				.get()?.epoch,
-		).toBeNull();
+				.all()
+				.map(({ userId, epoch }) => [userId, epoch]),
+		);
+		expect(marks.tester).toBeNull();
+		expect(marks["same-address"]).toBe(0);
 		expect(state.memoryLabelsVerified("tester")).toBe(true);
+		expect(state.memoryLabelsVerified("same-address")).toBe(false);
 	});
 
 	it("marks accounts with a bank in their current epoch and no other", async () => {
