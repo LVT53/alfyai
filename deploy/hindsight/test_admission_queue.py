@@ -230,6 +230,7 @@ class WaitingTests(unittest.IsolatedAsyncioTestCase):
                 "waited": 1,
                 "wait_ms": 3000,
                 "max_wait_ms": 3000,
+                "abandoned": 0,
             },
         )
 
@@ -429,6 +430,47 @@ class LeavingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (status["active"], status["waiting"], status["rejected"], status["waited"]), (0, 0, 0, 2)
         )
+
+    async def test_a_waiter_whose_caller_left_is_not_admitted_when_the_slot_frees_before_its_next_tick(self):
+        # A long tick: the slot frees while the waiter sleeps, after its caller left.
+        queue = AdmissionQueue(max_waiting=4, limit=lambda: 1)
+        calls = Calls(queue, tick_s=10.0)
+        left = []
+
+        async def abandoned():
+            return bool(left)
+
+        await calls.start("busy", NATIVE)
+        gone = await calls.start("gone", NATIVE, abandoned=abandoned)
+        waiting_next = await calls.start("next", NATIVE)
+        left.append(True)
+        queue.release()  # the slot frees before "gone" looks at its caller again
+        with self.assertRaises(asyncio.CancelledError):
+            await settled(gone)
+        # The slot went on to the next caller, never to the one who left.
+        await until(lambda: "next" in calls.admitted)
+        self.assertEqual(calls.admitted, ["busy", "next"])
+        status = queue.status()
+        self.assertEqual((status["active"], status["waiting"]), (1, 0))
+        self.assertEqual(status["abandoned"], 1)
+        queue.release()
+        await settled(waiting_next)
+
+    async def test_status_counts_every_caller_that_left_while_it_waited(self):
+        queue = AdmissionQueue(max_waiting=4, limit=lambda: 1)
+        calls = Calls(queue)
+        left = []
+
+        async def abandoned():
+            return bool(left)
+
+        await calls.start("busy", NATIVE)
+        gone = await calls.start("gone", NATIVE, abandoned=abandoned)
+        left.append(True)
+        with self.assertRaises(asyncio.CancelledError):
+            await settled(gone)
+        self.assertEqual(queue.status()["abandoned"], 1)
+        self.assertEqual(queue.status()["rejected"], 0)
 
     async def test_a_failing_refresh_takes_its_waiter_out_of_the_queue(self):
         async def refresh():

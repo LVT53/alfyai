@@ -204,6 +204,7 @@ class AdmissionQueue:
         self._waited = 0
         self._wait_ms = 0
         self._max_wait_ms = 0
+        self._abandoned = 0
 
     async def acquire(
         self,
@@ -219,9 +220,11 @@ class AdmissionQueue:
         wait, and AdmissionRefused("wait_exceeded") once the call has waited
         `ticket.max_wait_s`. While it waits, every `tick_s` it awaits `refresh()`, admits
         whoever the limit now allows, then asks `abandoned()`: True means its caller is
-        gone, and it leaves with asyncio.CancelledError. A waiter that leaves for any
-        reason (refused, abandoned, cancelled, a callback that raised) is never admitted
-        later; one admitted in the moment it left gives its slot to the next.
+        gone, and it leaves with asyncio.CancelledError. A waiter is also asked once more
+        when it is admitted, so a caller that left between two ticks never gets the slot.
+        A waiter that leaves for any reason (refused, abandoned, cancelled, a callback that
+        raised) is never admitted later; one admitted in the moment it left gives its slot
+        to the next.
         """
         if not isinstance(ticket, Ticket):
             raise TypeError("acquire takes a Ticket")
@@ -249,13 +252,14 @@ class AdmissionQueue:
                 except TimeoutError:
                     pass
                 if waiter.future.done():
+                    # Admitted while it slept: its caller may have left since the last tick.
+                    await self._still_wanted(abandoned)
                     admitted = True
                     return
                 if refresh is not None:
                     await refresh()
                 self.dispatch()
-                if abandoned is not None and await abandoned():
-                    raise asyncio.CancelledError()
+                await self._still_wanted(abandoned)
                 if waiter.future.done():
                     admitted = True
                     return
@@ -265,6 +269,12 @@ class AdmissionQueue:
         finally:
             if not admitted:
                 self._leave(waiter)
+
+    async def _still_wanted(self, abandoned):
+        """Leaves with asyncio.CancelledError when the caller is gone, counting it."""
+        if abandoned is not None and await abandoned():
+            self._abandoned += 1
+            raise asyncio.CancelledError()
 
     def release(self, elapsed_ms: int = 0) -> None:
         """Give back the slot of an admitted call that ran `elapsed_ms`; the next waiter goes on."""
@@ -286,7 +296,12 @@ class AdmissionQueue:
             waiter.future.set_result(None)
 
     def status(self) -> dict:
-        """Counters since the process started; `rejected` is both refusals together."""
+        """Counters since the process started; `rejected` is both refusals together.
+
+        `abandoned` counts the callers that left before their call went on: while they
+        waited, or as they were admitted. Not a refusal, but a sign that a caller's own
+        timeout is shorter than the wait it was given.
+        """
         return {
             "active": self._active,
             "peak": self._peak,
@@ -299,6 +314,7 @@ class AdmissionQueue:
             "waited": self._waited,
             "wait_ms": self._wait_ms,
             "max_wait_ms": self._max_wait_ms,
+            "abandoned": self._abandoned,
         }
 
     def _take_slot(self):

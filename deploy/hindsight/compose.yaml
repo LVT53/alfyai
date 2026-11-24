@@ -40,6 +40,11 @@ services:
       # retries wait out (backoff 1 s up to 60 s) instead of failing consolidation or
       # extraction; back toward the default 3 only after a week with no refusals (README.md).
       HINDSIGHT_API_LLM_MAX_RETRIES: "12"
+      # Hindsight gives up on its own model call after this many seconds (120 by default),
+      # and the admission queue may hold that call up to HINDSIGHT_API_HTTP_ADMISSION_NATIVE_WAIT_S
+      # (600) before the model's own run (up to 180). It must outlast both, or Hindsight's
+      # retries would do the waiting again; test_effective_config.py checks it in the image.
+      HINDSIGHT_API_LLM_TIMEOUT: "800"
       HINDSIGHT_API_LLM_PROVIDER: openai
       HINDSIGHT_API_LLM_BASE_URL: http://127.0.0.1:8888/ext/alfyai/inference/v1
       HINDSIGHT_API_SKIP_LLM_VERIFICATION: "true"
