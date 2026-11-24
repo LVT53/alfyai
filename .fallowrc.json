@@ -40,6 +40,8 @@
 		"scripts/memory-drain.ts",
 		// The label migration's command (docs/plans/hindsight-memory/migration-runbook.md, "Label migration").
 		"scripts/memory-label-migration.ts",
+		// Workspace Search Stage B's speed check and fill timing, run by hand on synthetic data.
+		"scripts/workspace-search-speed.ts",
 		"scripts/seed-campaign-data.ts",
 		"scripts/sweep-orphan-generated-artifacts.ts",
 		"scripts/verify-live-extraction-types.ts",
