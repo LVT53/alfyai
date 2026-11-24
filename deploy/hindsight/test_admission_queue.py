@@ -190,15 +190,29 @@ class LimitAtAdmissionTests(unittest.IsolatedAsyncioTestCase):
             if taken:
                 reading[0] = taken[-1]
 
-        queue = AdmissionQueue(max_waiting=4, limit=lambda: admission_limit(reading[0], NOW_MS))
+        # The queue's own admission order. The order the calls record themselves in is
+        # not it: the waiter whose tick took the reading returns at once, and the
+        # others wake later in whatever order the event loop runs them.
+        names, dispatched = {}, []
+
+        class RecordingQueue(AdmissionQueue):
+            def _record_wait(self, waiter):
+                super()._record_wait(waiter)
+                dispatched.append(names[id(waiter.ticket)])
+
+        queue = RecordingQueue(max_waiting=4, limit=lambda: admission_limit(reading[0], NOW_MS))
         calls = Calls(queue)
         await calls.start("live", app("aa", "interactive"))
         for name in ("n1", "n2", "n3"):
-            await calls.start(name, NATIVE, refresh=refresh)
+            ticket = Ticket("background", "native", "native", 600.0)  # one per call
+            names[id(ticket)] = name
+            await calls.start(name, ticket, refresh=refresh)
         self.assertEqual(calls.admitted, ["live"])
         taken.append(IDLE)  # the next reading says the household is idle
         await until(lambda: len(calls.admitted) == 4)  # no call finished in between
-        self.assertEqual(calls.admitted, ["live", "n1", "n2", "n3"])
+        self.assertEqual(dispatched, ["n1", "n2", "n3"])
+        self.assertEqual(calls.admitted[0], "live")
+        self.assertCountEqual(calls.admitted[1:], ["n1", "n2", "n3"])
         self.assertEqual(queue.status()["active"], 4)
 
 
