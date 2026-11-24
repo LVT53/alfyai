@@ -98,7 +98,7 @@ Policy: a waiting code continues the streak of its own kind (`since` kept) or st
 
 **Interfaces:**
 - Consumes: Task 3's policy (`native_retain_resubmit_due` is a `retain` wait).
-- Produces: revision context keys `nativeRetainResubmittedFrom` (kept) and `nativeRetainEnded: { operationId: string; reason: "failed" | "cancelled" | "facts_left_behind" }`; `RETAIN_RESUBMIT_DELAY_MS = 60_000`.
+- Produces: revision context keys `nativeRetainResubmittedFrom` (kept) and `nativeRetainEnded: { operationId: string; reason: "resubmit_failed" | "cancelled" | "facts_left_behind" }`; `RETAIN_RESUBMIT_DELAY_MS = 60_000`.
 
 - **S1:** when the first send's settle finds the retain failed, the attempt ends with `native_retain_resubmit_due` and `retryAfterMs` 60 s (not counted) before anything is rotated; the next attempt asks Hindsight, finds the operation failed, and records and sends the resubmission in one go (see N5).
 - **S2:** every terminal end of a retain (the resubmission failed, a cancel, facts left behind) writes `nativeRetainEnded` for the current operation id in a fenced write before failing. An attempt that finds it for the current id fails terminal at once and sends nothing, whatever Hindsight remembers.
