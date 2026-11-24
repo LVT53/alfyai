@@ -170,6 +170,17 @@ The suites ran again on the same scratch stack, restarted from this worktree (pi
 
 A last cats-and-diet run at `e4c5798f7` took the other path: the cats Edit was refused and rolled back, so the colours the person asked to change stay as they were (the 13 archived checks about the Edit's result fail on that path, as when the morning's Edit was refused; follow-up 1's checker refusals are unchanged), the Remove applied, the changed resend was accepted and the later statement published. The user's own diet never came back in any run.
 
+### Privacy review of the branch
+
+An independent review (Opus) of `8f401d4f9..e4c5798f7` asked whether anything removed or edited can come back. Its two critical findings and two important ones are fixed, each test first, in `dcb5bfb84` and `8e7c6dc2c` (unit and integration tests only; the real-engine runs above predate them):
+
+- **A retried Remove's exclusion lapsed.** It applied only while the Remove's job had ended, so a replay the hold exempts could publish, during the retry, the observation the refused final check had rejected. The exclusion no longer depends on the job; only the Remove's own publication sees past it.
+- **The family missed facts Hindsight had merged into the removed card** while their chat was in flight, or behind a row hidden for the moment. The family now counts every row of the asked generation and, saved with the proposal before any write, every fact sharing a live observation with a revoked fact.
+- **A refused Remove's repair-held dependents** (the chat's later messages) blocked every later publication; they join the exclusion.
+- **The undo of a refused resend ran once**; it now runs on every refused retry.
+
+The review also confirmed what holds: every row is written by `publishNativeSnapshot` and every read (page, recall, search, Overview) goes through `readPublishedMemory`/`admittedNativeFacts`; no fact-level revocation is ever deleted; the keep path re-admits only what was published; the twin collapse never hides a row whose wording or support differs; the changed test expectations are at least as strict.
+
 ### Found on the way, not fixed (the owner's call)
 
 - **A. A re-rendered accepted Edit card holds later learning.** Run e: after the held changed resend was put back, Hindsight re-rendered the accepted Bodza edit's card ("Bodza szürke." under a new id over the same fact), and the existing guard for an accepted edit's wording (`curatedObservationChanges`) refused the next unrelated delivery 3 times (`memory_candidate_curation_drift`). Any consolidation that re-renders an edited card can do this. Proposed: publish such a card with its accepted wording when its support is exactly the same (recall already reaches edited rows by support), never Hindsight's new wording.
@@ -177,3 +188,5 @@ A last cats-and-diet run at `e4c5798f7` took the other path: the cats Edit was r
 - **C. Near-duplicate rows after a deletion come from the engine.** Hindsight's consolidator drops a merge its answer asks for when the same answer updates the merge target (`consolidator.py` at the pin, as the morning's Hindsight log shows three times), leaving a "green bicycle" row beside "green bicycle and white kayak". The fix belongs in the engine (apply the merge), and config 2's two added observation-mission sentences are the likely trigger (not A/B tested).
 - **D. The smallest unit left out is an observation.** A later fact Hindsight merges into an observation resting on an excluded fact stays out with it (maple), and a shared raw fact hides both people's cards (Luca). Nothing excluded shows; some unrelated content can stay hidden until Hindsight builds it apart.
 - **E. Sources that failed `memory_curation_publication_held` before this release stay failed** (the release only stops new ones). `scripts/memory-resend.ts` or a reopen retries them.
+- **F. A refused changed resend's own dependency repair is not released.** The chat's later messages it held (`repair_held`) and their retained replacements are now left out instead of failing later publications, but they stay hidden; releasing them needs a compensation of that repair. It happens when the person keeps chatting while a refused resend retries.
+- **G. The undo of a refused correction re-validates the carried chat's accepted wording** (review, design call): a detail the person deleted from their message stays in Memory after a refused changed resend, as it was before the resend. Excluding the touched facts instead would be the privacy-first choice.
