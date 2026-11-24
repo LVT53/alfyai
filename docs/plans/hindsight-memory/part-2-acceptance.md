@@ -33,6 +33,8 @@ node --import tsx docs/plans/hindsight-memory/part-2-acceptance/run.ts report
 | A real-world change: the new state current, the old one kept as earlier | 5/20 (automatic) | 18/20 by hand (16/20 automatic) | at least 16/20 | **pass** |
 | A correction leaves no trace of the wrong value | 17/20 | 18/20 (EN 9/10, HU 9/10) | today's suites still pass | no worse than config 1; suites not run |
 | Time | | the tests below | | **pass** |
+| Label entities' effect on recall (60 questions, top three) | 29/60 | 27/60 | no harm | **no measurable effect** |
+| Earlier entries stay out of turns not about them (small bank, 10 unrelated messages) | | 9/10 reach a temporary entry in the top three | never on its own | **open** (see Recall) |
 | Regression gate | | not run | at or above today's | **not run** |
 
 "Config 2" is the final wording: the targets were first measured with the first wording, which missed brainstorms and lasting labels, and the wording was revised once (commit `1e779c63e`). The classifier, the fallback for labels, meets every label target too (below).
@@ -86,6 +88,21 @@ The automatic grader counts an observation that names the old value as earlier o
 **Corrections.** Both configs fail the same two: the spec's own case, "my sister lives in Graz, not Vienna", where "works at a hospital there" stays "in Vienna" (config 1 the same), and "I don't speak Italian", kept as the person's own negation (config 1 the same). Config 1 also keeps "allergic to eggs, not milk". So config 2's history sentence does not weaken corrections on this set; the Graz/Vienna residue is older than part 2. One config 2 oddity: the Graz/Vienna chat, in English, got two observations written in German.
 
 **Where earlier states live (review Important 3).** At the pin Hindsight writes a dated earlier-state note only when an older fact arrives after the observation it changes (`consolidator.py`, the `later` and `marked` branch); a change told in order keeps the old value only if the model writes it into the observation's text. Neither config produced a single dated note in 40 scenarios. Config 2's sentence is what keeps the old value (20/20 against 12/20) and stops invented end dates, so it stays, but the history it keeps is undated prose inside the current entry ("The user lives in Norwich; previously lived in Exeter"). The spec's page line "Earlier: lived in Budapest · said March 2025" therefore cannot come from notes for ordinary changes: part 3 needs another source (Hindsight keeps an observation's earlier versions, `GET /memories/{id}/history`) or shows the text as it is. This is a spec finding for the owner, not something this part can change without changing Hindsight.
+
+## Recall
+
+**Label entities.** The same 60 personal facts (lasting, ongoing, temporary; one document each, dated across 2026) retained and consolidated into one bank per config, then the same 60 questions ("What do you know about <name>?", in each fact's language) against both. Recall makes no model call; this stack ranks with ONNX embeddings and FlashRank, not production's GPU embedder and BGE reranker.
+
+| | Config 1 (no labels) | Config 2 (`kind:` and `subject:` entities) |
+| --- | --- | --- |
+| Observations | 59 | 55 |
+| The fact ranked first | 17/60 | 18/60 |
+| In the top three | 29/60 | 27/60 |
+| Anywhere in the results | 53/60 | 54/60 |
+
+No measurable effect at this size. The integrated benchmark would measure it at scale (Regression gate).
+
+**Earlier entries for a message that is not about them (review Minor 4).** In the config 2 bank, 10 unrelated messages ("Thanks, that helps a lot!", "How do I convert Fahrenheit to Celsius?", five of each in Hungarian): **9 of 10 put a temporary entry in the top three**, so the spec's rule as built (an Earlier entry may join a turn from the top three places of its bank's message ranking) would bring Earlier entries into most turns of a small bank. FlashRank scores "Thanks, that helps a lot!" at 0.99 against Hungarian temporary entries here, so no score floor can be calibrated on this stack. **Open before rollout:** measure the same on a non-production Hindsight with production's embedder and BGE reranker; if unrelated messages still reach Earlier entries, admit an Earlier entry only above a reranker score measured there, or not by rank alone. `RECALL_EARLIER_NOTE` tells the model to bring such an entry up only when the conversation is about it, which softens but does not remove this.
 
 ## Time
 
