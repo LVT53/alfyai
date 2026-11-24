@@ -95,6 +95,11 @@ interface Config {
 	memoryTemporaryEarlierDays: number;
 	memoryOngoingQuietDays: number;
 	memoryOngoingEarlierDays: number;
+	// The Earlier gate's reranker floors, scores from 0 to 1: an Earlier entry
+	// in the top three joins a turn at or above `memoryEarlierRerankMin`, or at
+	// or above `memoryEarlierRerankWordMin` when the words agree.
+	memoryEarlierRerankMin: number;
+	memoryEarlierRerankWordMin: number;
 	// How long a Memory job waits for Hindsight, across its attempts, in whole
 	// minutes: for a retain, and for a consolidation or the bank's quiet.
 	memoryRetainWaitMinutes: number;
@@ -436,6 +441,18 @@ export function parseWholeMinutes(value: string | undefined): number | null {
 	if (!/^\d{1,4}$/.test(trimmed)) return null;
 	const minutes = Number(trimmed);
 	return minutes >= 1 && minutes <= 1440 ? minutes : null;
+}
+
+/**
+ * A plain decimal from 0 to 1 ("0.002", ".5", "1"), or null for anything else
+ * (a sign, an exponent, a word), so the caller keeps what it had: a typo must
+ * not move a score floor to a value nobody typed.
+ */
+export function parseUnitInterval(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d*\.?\d+$/.test(trimmed)) return null;
+	const parsed = Number(trimmed);
+	return parsed >= 0 && parsed <= 1 ? parsed : null;
 }
 
 /**
@@ -806,6 +823,10 @@ function readConfig(): Config {
 			parseWholeDays(process.env.MEMORY_ONGOING_QUIET_DAYS) ?? 21,
 		memoryOngoingEarlierDays:
 			parseWholeDays(process.env.MEMORY_ONGOING_EARLIER_DAYS) ?? 90,
+		memoryEarlierRerankMin:
+			parseUnitInterval(process.env.MEMORY_EARLIER_RERANK_MIN) ?? 0.002,
+		memoryEarlierRerankWordMin:
+			parseUnitInterval(process.env.MEMORY_EARLIER_RERANK_WORD_MIN) ?? 0.0005,
 		memoryRetainWaitMinutes:
 			parseWholeMinutes(process.env.MEMORY_RETAIN_WAIT_MINUTES) ?? 30,
 		memoryConsolidationWaitMinutes:
