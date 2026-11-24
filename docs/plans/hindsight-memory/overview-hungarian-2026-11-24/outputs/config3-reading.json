@@ -329,6 +329,87 @@
 			"missing": []
 		}
 	},
+	"config3-after1-large-scope": {
+		"_about": "104 entries (personal.large.json), English, the shipped prompt, 3 runs: the entries nowhere in the paragraph, by index into the file (first pass by pattern, each checked against the text).",
+		"personal/en/1": {
+			"chars": 1925,
+			"missing": [
+				46,
+				47,
+				53,
+				54,
+				55,
+				56,
+				58,
+				59,
+				60,
+				61,
+				62,
+				65,
+				66,
+				67,
+				68,
+				69,
+				74,
+				75,
+				81,
+				82,
+				83,
+				88,
+				89,
+				98,
+				102,
+				103
+			],
+			"sentences": 10
+		},
+		"personal/en/2": {
+			"chars": 2744,
+			"missing": [
+				43,
+				46,
+				60,
+				66,
+				69,
+				102
+			],
+			"sentences": 9
+		},
+		"personal/en/3": {
+			"chars": 1813,
+			"missing": [
+				2,
+				6,
+				33,
+				34,
+				40,
+				46,
+				48,
+				53,
+				54,
+				55,
+				56,
+				58,
+				59,
+				60,
+				61,
+				65,
+				68,
+				74,
+				75,
+				78,
+				88,
+				89,
+				92,
+				96,
+				98,
+				99,
+				102,
+				103
+			],
+			"sentences": 10
+		}
+	},
 	"config3-after2": {
 		"personal/en/1": {
 			"E": [],

@@ -9,11 +9,13 @@
 // headers are sent. No key is read, printed or stored. Synthetic data only.
 //
 //   OVERVIEW_PROBE_LABEL=<name> [OVERVIEW_PROBE_RUNS=5] [OVERVIEW_PROBE_OUT=<dir>] [OVERVIEW_PROBE_BRIDGE=<url>] \
-//     [OVERVIEW_PROBE_ENTRIES=en] \
+//     [OVERVIEW_PROBE_ENTRIES=en|large] \
 //     npx vitest run -c docs/plans/hindsight-memory/overview-hungarian-2026-11-24/vitest.config.ts
 //
 // `OVERVIEW_PROBE_ENTRIES=en` reads `personal.en.json` and `project.en.json` (the same facts worded as an
 // English account's entries) and writes only the `en` paragraphs: an English account over English entries.
+// `OVERVIEW_PROBE_ENTRIES=large` reads `personal.large.json` (about a hundred entries, English) and writes
+// only its personal `en` paragraphs: how long the paragraph gets when there are many entries.
 //
 // It writes `<out>/<label>.json` (default out: `outputs/` beside this file), after every call: the prompts the
 // model received, one sample request body (so the sampling and the schema can be read off it), and a result
@@ -45,8 +47,11 @@ const OUT = process.env.OVERVIEW_PROBE_OUT ?? join(HERE, "outputs");
 const BRIDGE = process.env.OVERVIEW_PROBE_BRIDGE ?? "http://127.0.0.1:18891/v1";
 const MODEL_NAME = "qwen3-6-27b";
 const ENTRIES = process.env.OVERVIEW_PROBE_ENTRIES ?? "";
-const LANGUAGES = ENTRIES === "en" ? (["en"] as const) : (["hu", "en"] as const);
-const SCOPES = ["personal", "project"] as const;
+const LANGUAGES = ENTRIES ? (["en"] as const) : (["hu", "en"] as const);
+const SCOPES =
+	ENTRIES === "large"
+		? (["personal"] as const)
+		: (["personal", "project"] as const);
 const CALL_TIMEOUT_MS = 600_000;
 
 interface Scope {
@@ -64,11 +69,10 @@ describe("the Overview probe (calls a model; not part of npm test)", () => {
 		"writes the scopes' paragraphs with the app's own prompt",
 		async () => {
 			if (!LABEL) throw new Error("set OVERVIEW_PROBE_LABEL");
-			const suffix = ENTRIES === "en" ? ".en" : "";
-			const scopes = {
-				personal: loadScope(`personal${suffix}.json`),
-				project: loadScope(`project${suffix}.json`),
-			};
+			const suffix = ENTRIES ? `.${ENTRIES}` : "";
+			const scopes = Object.fromEntries(
+				SCOPES.map((name) => [name, loadScope(`${name}${suffix}.json`)]),
+			) as Record<(typeof SCOPES)[number], Scope>;
 			const prompts = new Set<string>();
 			let sampleRequest: unknown = null;
 			let lastExtras: unknown = null;
