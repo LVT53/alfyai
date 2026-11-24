@@ -767,12 +767,53 @@ describe("SearchModal", () => {
 				"search-section-documents",
 			]);
 			expect(
-				screen.getByRole("button", { name: "Show all 12" }),
+				screen.getByRole("button", { name: "Show all 12 chats" }),
 			).toBeInTheDocument();
 			// A kind whose few are all of it has no link.
 			expect(screen.getAllByRole("button", { name: /^Show all/ })).toHaveLength(
 				1,
 			);
+		});
+
+		it("Show all names its kind, in both languages", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(
+				answer({
+					documents: [
+						document("d1", "Thesis outline"),
+						document("p1", "Thesis cover", {
+							searchKind: "media",
+							badge: "image",
+						}),
+					],
+					totals: { chats: 0, memory: 0, documents: 5, media: 4, apps: 0 },
+				}),
+			);
+			render(SearchModal, { props: { isOpen: true } });
+			await screen.findByTestId("search-result-count");
+			expect(
+				screen.getByRole("button", { name: "Show all 5 documents" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Show all 4 pictures and videos" }),
+			).toBeInTheDocument();
+			uiLanguage.set("hu");
+			expect(
+				await screen.findByRole("button", { name: "Mind a(z) 5 dokumentum" }),
+			).toBeInTheDocument();
+		});
+
+		it("names every kind in the hint when nothing matches", async () => {
+			fetchWorkspaceSearch.mockResolvedValue(answer());
+			render(SearchModal, { props: { isOpen: true } });
+			const input = screen.getByLabelText(SEARCH_BOX);
+			await fireEvent.input(input, { target: { value: "zzz-nothing" } });
+			expect(
+				await screen.findByText(
+					"Try another word from a chat, memory, document, picture, video or app",
+					{},
+					{ timeout: 1000 },
+				),
+			).toBeInTheDocument();
 		});
 
 		it("Show all selects the kind's chip and fetches it, for the typed query", async () => {
@@ -796,7 +837,7 @@ describe("SearchModal", () => {
 				}),
 			);
 			await fireEvent.click(
-				screen.getByRole("button", { name: "Show all 12" }),
+				screen.getByRole("button", { name: "Show all 12 chats" }),
 			);
 
 			await waitFor(() =>

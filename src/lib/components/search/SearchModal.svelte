@@ -101,6 +101,15 @@ const SCOPE_LABEL_KEYS: Record<SearchScopeId, I18nKey> = {
 	apps: "searchModal.scopeApps",
 };
 
+// "Show all 12 chats": the link names what it opens, for a screen reader too.
+const SHOW_ALL_KEYS: Record<WorkspaceSearchKind, I18nKey> = {
+	chats: "searchModal.showAllChats",
+	memory: "searchModal.showAllMemory",
+	documents: "searchModal.showAllDocuments",
+	media: "searchModal.showAllMedia",
+	apps: "searchModal.showAllApps",
+};
+
 // A picture, a video, a Document, Slides, a Canvas and an App say their kind in
 // the app's own words (`artifacts.type.*`); only the file kinds have words here.
 const BADGE_KEYS: Record<WorkspaceSearchBadge, I18nKey> = {
@@ -1135,7 +1144,7 @@ onDestroy(() => {
 											keepFocusInDialog();
 										}}
 									>
-										<span>{$t('searchModal.showAll', { count: formatScopeCount(section.showAllTotal) })}</span>
+										<span>{$t(SHOW_ALL_KEYS[section.kind], { count: formatScopeCount(section.showAllTotal) })}</span>
 										<ChevronRight size={13} strokeWidth={2.2} aria-hidden="true" />
 									</button>
 								{/if}

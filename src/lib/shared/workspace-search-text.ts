@@ -46,8 +46,18 @@ export function foldForSearch(text: string): string {
 	return folded;
 }
 
+/** A run of # or + right after a letter or digit, then only punctuation: "C#", "C++,". */
+const LANGUAGE_SUFFIX = /(?<=[\p{L}\p{N}])[#+]+(?=[^\p{L}\p{N}]*$)/u;
+
+/**
+ * A word without the punctuation at its edges, except a # or + run that ends
+ * it right after a letter or digit: "C#" and "C++" stay themselves, not "c".
+ */
 function trimEdges(word: string): string {
-	return word.replace(EDGE_NON_WORD_CHARS, "");
+	const suffix = LANGUAGE_SUFFIX.exec(word);
+	if (!suffix) return word.replace(EDGE_NON_WORD_CHARS, "");
+	const head = word.slice(0, suffix.index).replace(EDGE_NON_WORD_CHARS, "");
+	return head === "" ? "" : `${head}${suffix[0]}`;
 }
 
 function cutToChars(word: string, maxChars: number): string {
