@@ -27,7 +27,11 @@ import {
 	memoryMigrationGuard,
 } from "./migration-guard";
 import { readAcknowledgedFacts, readPublishedMemory } from "./publication";
-import { assertMemoryBankFence, memoryTextHash } from "./revisions";
+import {
+	assertMemoryBankAccess,
+	assertMemoryBankFence,
+	memoryTextHash,
+} from "./revisions";
 
 /**
  * The label migration (Memory redesign, "The label migration for existing
@@ -750,16 +754,30 @@ export interface LabelRollbackReport {
 	banks: number;
 	/** The classifier's labels returned (or, in a dry run, to return) to unlabelled. */
 	labels: number;
+	/** Whether the label migration had verified this epoch (`labels_verified_epoch`). */
+	epochVerified: boolean;
 }
 
 /**
  * Undoes the label migration for one account's current epoch: the classifier's
  * labels go back to unlabelled (event dates kept, so the next publication
- * reads them as it read old facts before), and the epoch is marked unverified
- * again, so the account gets today's Memory page. The migration is the only
- * writer of classifier labels today; a fallback classifier for new facts
- * would make this undo its labels too. A dry run unless `execute`; the
- * permanent tester rule's guard first.
+ * reads them as it read old facts before), and the epoch's verification is
+ * taken back (`revokeMemoryLabelsVerified`), so the account gets today's
+ * Memory page. A dry run unless `execute`; the permanent tester rule's guard
+ * first. It works with Memory off (it writes only the app's own label rows
+ * and the page mark, which the switch does not govern), and refuses an epoch
+ * the migration never ran on (`label_migration_not_run`: no classifier label
+ * and not recorded as verified), so a new epoch is never sent to today's page.
+ *
+ * What it cannot restore, because nothing records it: whether a fact had a
+ * label row before (the migration adds one for a fact with none; the undone
+ * row has no kind or subject, which reads as no row does, and the next
+ * publication refreshes it from Hindsight); a subject Hindsight's extraction
+ * gave a fact without a kind (the classifier wrote over it; the next
+ * publication copies it back from the fact's tags, and today's page, where the
+ * account is sent, shows no subjects); and the rows' `updated_at`. It undoes
+ * every classifier label of the epoch: the migration is their only writer
+ * today, so a fallback classifier for new facts would need its own record.
  */
 export function rollbackLabelMigration(
 	input: { userId: string; execute: boolean },
@@ -771,6 +789,7 @@ export function rollbackLabelMigration(
 		outcome: "refused",
 		banks: 0,
 		labels: 0,
+		epochVerified: false,
 	};
 	const guard = memoryMigrationGuard(input.userId, database);
 	if (!guard.allowed) {
@@ -812,6 +831,11 @@ export function rollbackLabelMigration(
 			.from(memoryFactLabels)
 			.where(classified(bank.id))
 			.all().length;
+	report.epochVerified = account.labelsVerifiedEpoch === account.epoch;
+	if (!report.labels && !report.epochVerified) {
+		report.code = "label_migration_not_run";
+		return report;
+	}
 	if (!input.execute) {
 		report.outcome = "dry_run";
 		return report;
@@ -820,7 +844,15 @@ export function rollbackLabelMigration(
 		database.transaction((tx) => {
 			const now = new Date();
 			for (const bank of banks) {
-				assertMemoryBankFence(tx, input.userId, bank.id, account.epoch);
+				// The bank's fence without the Memory switch, as an owner's export:
+				// a rollback with Memory off still takes its labels back.
+				assertMemoryBankAccess(
+					tx,
+					input.userId,
+					bank.id,
+					account.epoch,
+					"owner-export",
+				);
 				tx.update(memoryFactLabels)
 					.set({
 						kind: null,

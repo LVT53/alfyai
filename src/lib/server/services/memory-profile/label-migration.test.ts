@@ -956,7 +956,11 @@ describe("the label migration's rollback", () => {
 			userId: "user-1",
 			execute: false,
 		});
-		expect(dry).toMatchObject({ outcome: "dry_run", labels: 3 });
+		expect(dry).toMatchObject({
+			outcome: "dry_run",
+			labels: 3,
+			epochVerified: true,
+		});
 		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
 		const done = migration.rollbackLabelMigration({
 			userId: "user-1",
@@ -987,6 +991,52 @@ describe("the label migration's rollback", () => {
 			unverified: 0,
 			verified: null,
 		});
+	});
+
+	it("works with Memory off: the labels and the verification are taken back", async () => {
+		const fake = fakeNative();
+		const bank = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		h.sqlite
+			.prepare("UPDATE users SET memory_enabled = 0 WHERE id = 'user-1'")
+			.run();
+		expect(
+			migration.rollbackLabelMigration({ userId: "user-1", execute: true }),
+		).toMatchObject({ outcome: "done", labels: 3 });
+		expect(labelRows(bank.id).filter(({ kind }) => kind)).toHaveLength(0);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+	});
+
+	it("refuses an epoch the migration never ran on, and leaves its page as it is", async () => {
+		const fake = fakeNative();
+		await seedAccount("user-1", fake.facts, { count: 3 });
+		const { migration, verified } = await modules();
+		// Marked, never migrated: nothing to undo.
+		expect(
+			migration.rollbackLabelMigration({ userId: "user-1", execute: true }),
+		).toMatchObject({ outcome: "refused", code: "label_migration_not_run" });
+		expect(accountMarks("user-1")).toEqual({
+			epoch: 0,
+			unverified: 0,
+			verified: null,
+		});
+		// A new epoch (Clear Memory) reads verified with no labels of the
+		// migration's: a rollback must not send it to today's page.
+		await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		h.sqlite
+			.prepare("UPDATE memory_accounts SET epoch = 1 WHERE user_id = 'user-1'")
+			.run();
+		expect(
+			migration.rollbackLabelMigration({ userId: "user-1", execute: true }),
+		).toMatchObject({ outcome: "refused", code: "label_migration_not_run" });
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
 	});
 
 	it("refuses the tester", async () => {

@@ -253,6 +253,6 @@ export function labelMigrationLines(report: LabelMigrationReport): string[] {
 
 export function rollbackLines(report: LabelRollbackReport): string[] {
 	return [
-		`rollback ${report.userId} ${report.outcome} banks=${report.banks} labels=${report.labels}${report.code ? ` code=${report.code}` : ""}`,
+		`rollback ${report.userId} ${report.outcome} banks=${report.banks} labels=${report.labels} epochVerified=${report.epochVerified}${report.code ? ` code=${report.code}` : ""}`,
 	];
 }
