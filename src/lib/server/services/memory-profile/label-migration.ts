@@ -34,8 +34,11 @@ import { assertMemoryBankFence } from "./revisions";
  * labels are verified and it gets the new Memory page. One account at a time,
  * resumable, on the local model at background priority behind live turns.
  *
+ * Every raw fact of every bank of the account's current epoch is labelled,
+ * config-1 and config-2 banks alike, before the account is verified.
  * It only adds labels where the app reads them (`memory_fact_labels`, through
- * `recordClassifiedFactLabels`) and clears the account's mark
+ * `recordClassifiedFactLabels`; part 3's triggers drop the banks' cached
+ * Overviews, as they should) and clears the account's mark
  * (`markMemoryLabelsVerified`). It never changes an entry's text, support,
  * dates or visibility, and never writes to Hindsight: what it is given of
  * Hindsight can only list a bank's facts. The permanent tester rule's guard
@@ -63,7 +66,7 @@ export interface LabelMigrationAccount {
 	/** The code the account failed with (or, in a dry run, will fail with). */
 	failure?: string;
 	banks: number;
-	/** Banks still on config 1: their upgrade marks the epoch unverified again. */
+	/** Banks still on config 1: labelled like the rest (only a delivery upgrades a bank, never this run). */
 	configOneBanks: number;
 	/** Raw facts Hindsight holds in these banks (observations are not facts). */
 	facts: number;

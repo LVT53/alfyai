@@ -445,6 +445,72 @@ describe("the label migration", () => {
 		expect(unknown.accounts[0]).toMatchObject({ skipped: "unknown_account" });
 	});
 
+	it("labels a config-1 bank like any other, and verifies only once every bank of the epoch is labelled", async () => {
+		const fake = fakeNative();
+		const personal = await seedAccount("user-1", fake.facts, { count: 3 });
+		const { db, schema, revisions, verified, migration } = await modules();
+		const { eq } = await import("drizzle-orm");
+		const { HINDSIGHT_ENGINE_COMMIT } = await import("./contracts");
+		db.insert(schema.projects)
+			.values({ id: "synthetic-project", userId: "user-1", name: "Garden" })
+			.run();
+		const project = revisions.ensureMemoryBank("user-1", {
+			kind: "project",
+			projectId: "synthetic-project",
+		});
+		// Still on config 1: its next delivery would upgrade it, not this run.
+		db.update(schema.memoryBanks)
+			.set({ nativeConfigVersion: HINDSIGHT_ENGINE_COMMIT })
+			.where(eq(schema.memoryBanks.id, project.id))
+			.run();
+		fake.facts.set(project.id, rawFacts("project", 2, "project plan"));
+		// The config-1 bank's calls fail: the account must not be verified.
+		const failing = await migration.runLabelMigration(
+			{ execute: true },
+			{
+				listFacts: fake.listFacts,
+				model: () => async (_prompt, input) => {
+					const facts = (input as { facts: { text: string }[] }).facts;
+					if (facts.some(({ text }) => text.startsWith("project")))
+						throw new Error("busy");
+					return labelAll(input);
+				},
+			},
+		);
+		expect(failing.accounts[0]).toMatchObject({
+			outcome: "failed",
+			failure: "model_unavailable",
+			banks: 2,
+			configOneBanks: 1,
+			labelled: 3,
+		});
+		expect(labelRows(personal.id).filter(({ kind }) => kind)).toHaveLength(3);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(false);
+		const done = await migration.runLabelMigration(
+			{ execute: true },
+			{ listFacts: fake.listFacts, model: fake.model },
+		);
+		expect(done.accounts[0]).toMatchObject({
+			outcome: "verified",
+			alreadyLabelled: 3,
+			labelled: 2,
+			configOneBanks: 1,
+		});
+		expect(labelRows(project.id).map(({ origin }) => origin)).toEqual([
+			"classifier",
+			"classifier",
+		]);
+		expect(verified.memoryLabelsVerified("user-1")).toBe(true);
+		// The migration never upgrades a bank: that would write to Hindsight.
+		expect(
+			db
+				.select({ version: schema.memoryBanks.nativeConfigVersion })
+				.from(schema.memoryBanks)
+				.where(eq(schema.memoryBanks.id, project.id))
+				.get()?.version,
+		).toBe(HINDSIGHT_ENGINE_COMMIT);
+	});
+
 	it("asks the memory model path at background priority, in the account's tenant lane", async () => {
 		const fake = fakeNative();
 		await seedAccount("user-1", fake.facts, { count: 2 });
