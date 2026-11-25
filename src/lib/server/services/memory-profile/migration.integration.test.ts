@@ -3704,6 +3704,11 @@ it("recovers two completed retains without accepting either alone or sending the
 		fact_type: "observation",
 		source_memory_ids: sources.map((source) => `${source.id}:fact`),
 	});
+	// Both retains completed, from before a chat was held back while another
+	// chat's facts sat unpublished: today the second would never be sent.
+	db.update(s.memorySourceRevisions)
+		.set({ nativeSubmitted: true, nativeAcknowledged: true })
+		.run();
 	await h.engine.drain(jobs.memoryDeliveryJob);
 	expect(
 		db
@@ -3711,7 +3716,7 @@ it("recovers two completed retains without accepting either alone or sending the
 			.from(s.memoryDeliveryJobs)
 			.all()
 			.map((j) => j.errorCode),
-	).toEqual(["memory_preparation_failed", "memory_preparation_failed"]);
+	).toEqual(["memory_bank_unpublished_facts", "memory_bank_unpublished_facts"]);
 	expect(migration.verifyMemoryMigration(h.userId, manifest.id).ready).toBe(
 		false,
 	);
@@ -5011,6 +5016,55 @@ it.each([
 			await claim(cleanup?.id ?? "");
 		}
 		const before = visible();
+		if (variant.startsWith("withdrawn")) {
+			// A withdrawn corroborating chat cannot be restored exactly while a
+			// sibling shares the authored fact: the cleanup is put back to try
+			// again, and later history waits behind it instead of being sent.
+			expect(
+				db
+					.select()
+					.from(s.memoryDeliveryJobs)
+					.all()
+					.find((job) => job.kind === "source_cleanup"),
+			).toMatchObject({
+				status: "queued",
+				errorCode: "memory_cleanup_publication_unverified",
+			});
+			expect(
+				claimNext(jobs.memoryDeliveryJob, {
+					workerId: "corroboration-lifecycle",
+					jobId: jobFor(second.id)?.id ?? "",
+				}),
+			).toBeNull();
+			expect(jobFor(second.id)).toMatchObject({
+				status: "queued",
+				startedAt: null,
+			});
+			// Its counted retries run out and it ends; then later history runs
+			// and still fails closed.
+			const cleanupJob = () =>
+				db
+					.select()
+					.from(s.memoryDeliveryJobs)
+					.all()
+					.find((job) => job.kind === "source_cleanup");
+			for (
+				let round = 0;
+				round < 5 && cleanupJob()?.status === "queued";
+				round++
+			) {
+				db.update(s.memoryDeliveryJobs)
+					.set({ runAfter: null })
+					.where(eq(s.memoryDeliveryJobs.id, cleanupJob()?.id ?? ""))
+					.run();
+				await claim(cleanupJob()?.id ?? "");
+			}
+			expect(cleanupJob()).toMatchObject({
+				status: "failed",
+				errorCode: "memory_cleanup_publication_unverified",
+				retryable: true,
+			});
+		}
 		await claim(jobFor(second.id)?.id ?? "");
 		if (variant === "later history") {
 			expect(jobFor(second.id)?.status).toBe("succeeded");
@@ -5022,19 +5076,6 @@ it.each([
 			expect(supportOf(`${first}:observation`)).toEqual([first]);
 			return;
 		}
-		// A withdrawn corroborating chat cannot be restored exactly while a
-		// sibling shares the authored fact, so later history fails closed.
-		if (variant.startsWith("withdrawn"))
-			expect(
-				db
-					.select()
-					.from(s.memoryDeliveryJobs)
-					.all()
-					.find((job) => job.kind === "source_cleanup"),
-			).toMatchObject({
-				status: "queued",
-				errorCode: "memory_cleanup_publication_unverified",
-			});
 		expect(jobFor(second.id)).toMatchObject({
 			status: "failed",
 			errorCode: "memory_preparation_failed",

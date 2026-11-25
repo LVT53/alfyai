@@ -52,6 +52,8 @@ import {
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
 	readPublishedMemory,
+	unpublishedChats,
+	unpublishedChatsError,
 	verifiedSourceCleanupSnapshot,
 } from "./publication";
 import {
@@ -316,6 +318,64 @@ export async function captureSettledNative(
 		throw new NativeMemoryError("native_consolidation_incomplete", true);
 	return second;
 }
+/**
+ * Before a chat's first send: refuses while another chat of the bank, sent and
+ * never published (`unpublishedChats`), has facts in Hindsight, waiting while
+ * that chat's delivery is live and ending retryable for the operator's repair
+ * once it is not, so nothing more lands in a bank that cannot publish. The
+ * bank is quiet here (the caller drained it). Returns the unpublished chats
+ * that hold no fact there, for the fenced write to check again.
+ */
+async function chatsClearedForSend(
+	client: HindsightClient,
+	row: typeof memoryDeliveryJobs.$inferSelect,
+	bank: typeof memoryBanks.$inferSelect,
+): Promise<Set<string>> {
+	const found = db.transaction((tx) =>
+		unpublishedChats(tx, bank, row.sourceId ? [row.sourceId] : []),
+	);
+	if (!found.chats.length) return new Set();
+	// Nothing of this chat is in Hindsight yet: it may wait for a live one.
+	const blocking = landedChats(found, await client.list());
+	if (blocking.length) throw unpublishedChatsError(blocking, "wait");
+	return new Set(found.chats.map((chat) => chat.id));
+}
+/**
+ * The unpublished chats whose facts are in this snapshot. A fact publication
+ * leaves out anyway (a Remove's family) holds nothing.
+ */
+function landedChats(
+	found: ReturnType<typeof unpublishedChats>,
+	memories: NativeMemory[],
+) {
+	const landed = new Set<string>();
+	for (const fact of memories)
+		if (
+			fact.fact_type !== "observation" &&
+			fact.document_id &&
+			!found.excludedFactIds.has(fact.id)
+		)
+			landed.add(fact.document_id);
+	return found.chats.filter((chat) => landed.has(chat.id));
+}
+/**
+ * Before a dependency repair writes replacements: refuses while another
+ * chat's unpublished facts are in the snapshot, waiting for a live one and
+ * ending retryable for one whose delivery ended, since replacements written
+ * now would sit unpublished beside them, each refusing the other's
+ * publication.
+ */
+function assertNoUnpublishedChatFacts(
+	bank: typeof memoryBanks.$inferSelect,
+	except: string[],
+	memories: NativeMemory[],
+) {
+	const blocking = landedChats(
+		db.transaction((tx) => unpublishedChats(tx, bank, except)),
+		memories,
+	);
+	if (blocking.length) throw unpublishedChatsError(blocking, "wait");
+}
 function assertDelivery(tx: Tx, row: typeof memoryDeliveryJobs.$inferSelect) {
 	const bank = assertMemoryBankFence(tx, row.userId, row.bankId, row.epoch);
 	const account = tx
@@ -564,9 +624,18 @@ export async function runMemoryDelivery(
 				await drainNative(client, ctx.signal);
 				await client.deleteDocument(source.id);
 			}
+			// The withdrawn chat is out of Hindsight. Its repair waits while
+			// another chat is in flight (a DELETE of a missing document is a
+			// no-op, so the retry deletes again harmlessly), and never writes into
+			// a bank holding another chat's unpublished facts.
+			const liveChats = db
+				.transaction((tx) => unpublishedChats(tx, bank))
+				.chats.filter((chat) => chat.live);
+			if (liveChats.length) throw unpublishedChatsError(liveChats, "wait");
 			const memories = await captureSettledNative(client, ctx.signal);
 			if (memories.some((f) => f.document_id === source.id))
 				throw new NativeMemoryError("memory_cleanup_incomplete", true);
+			assertNoUnpublishedChatFacts(bank, [], memories);
 			const { checkDeletedSourceRepair, replaySourceCuration } = await import(
 				"./curation-runner"
 			);
@@ -620,6 +689,7 @@ export async function runMemoryDelivery(
 							memories: repair.memories,
 							checkedActionIds: repair.replays.map((r) => r.actionId),
 							sourceIds: repair.sourceIds,
+							onUnpublishedChat: "wait",
 						});
 						return;
 					}
@@ -647,6 +717,7 @@ export async function runMemoryDelivery(
 					publishNativeSnapshot(tx, {
 						...recoveryInput,
 						prepared: recovery.prepared,
+						onUnpublishedChat: "wait",
 					});
 				},
 			});
@@ -908,6 +979,9 @@ export async function runMemoryDelivery(
 			if (memories.some((fact) => fact.document_id === source.id))
 				throw new NativeMemoryError("memory_cleanup_incomplete", true);
 			replayed.verify(memories);
+			// Its repair writes replacements: never beside another chat's
+			// unpublished facts.
+			assertNoUnpublishedChatFacts(bank, [source.id], memories);
 			const repair = await runDependencyRepair(
 				ctx,
 				client,
@@ -970,6 +1044,7 @@ export async function runMemoryDelivery(
 							checkedActionIds: [...replayed.checks, ...repair.replays].map(
 								(entry) => entry.actionId,
 							),
+							onUnpublishedChat: "end",
 						});
 				},
 			});
@@ -977,6 +1052,13 @@ export async function runMemoryDelivery(
 		}
 		const assertedAt =
 			unchanged?.explicitEditAt ?? source.explicitEditAt ?? source.assertedAt;
+		// A chat never sent is not sent while another chat's facts sit in
+		// Hindsight unpublished: each would refuse the other's publication
+		// (`unpublishedChats`). The chats found without facts there are checked
+		// again in the fenced write that marks this one sent.
+		const clearedChats = source.nativeSubmitted
+			? null
+			: await chatsClearedForSend(client, row, bank);
 		// A retain an earlier attempt saw finish is never sent or asked about again.
 		// A job requeued while it waits on Hindsight comes back here, and Hindsight
 		// forgets an operation's receipt in time: a POST of the same ID then would
@@ -986,6 +1068,13 @@ export async function runMemoryDelivery(
 				!(await ctx.write((tx) => {
 					source = assertDelivery(tx, row).source;
 					checkPendingCuration(tx);
+					if (clearedChats) {
+						const unchecked = unpublishedChats(tx, bank, [
+							source.id,
+						]).chats.filter((chat) => !clearedChats.has(chat.id));
+						if (unchecked.length)
+							throw unpublishedChatsError(unchecked, "wait");
+					}
 					tx.update(memorySourceRevisions)
 						.set({ nativeSubmitted: true })
 						.where(eq(memorySourceRevisions.id, source.id))
@@ -1284,6 +1373,7 @@ export async function runMemoryDelivery(
 					prepared,
 					verifiedCuratedChanges,
 					verifiedCuratedDiff,
+					onUnpublishedChat: "end",
 					checkedActionIds: [...replayed.checks, ...repair.replays].map(
 						(r) => r.actionId,
 					),
