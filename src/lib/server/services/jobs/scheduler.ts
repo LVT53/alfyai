@@ -25,7 +25,7 @@
 import { eq, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { internalsOf } from "./define";
-import { claimNext, readJobRow } from "./ledger";
+import { claimNext, otherUserJobDue, readJobRow } from "./ledger";
 import { type TakeBackResult, takeBack } from "./recovery";
 import { runAttempt } from "./runner";
 import { jobsState, type KindSchedulerState, kindScheduler } from "./state";
@@ -48,6 +48,9 @@ const BACKOFF_TIMER_MARGIN_MS = 1_000;
 
 /** Never sleep longer than this in one hop; the idle tick re-arms the rest. */
 const BACKOFF_TIMER_MAX_MS = 3_600_000;
+
+/** How often a drain that gives way to other accounts looks again. */
+const GIVE_WAY_POLL_MS = 2_000;
 
 // ---------------------------------------------------------------------------
 // Worker ids
@@ -403,13 +406,40 @@ function startDrain(kind: JobKind): void {
  * never called `startJobs`, and it ends after claiming the same job ten times
  * in a row. It returns when nothing of that user's is claimable now; a job put
  * back behind a delay is the caller's to wait for.
+ *
+ * With `giveWayForMs`, before each claim it waits while another account has a
+ * job of the kind due that became due less than that long ago, so the other
+ * accounts' workers take their work first: a kind that runs one job at a time
+ * box-wide otherwise holds all of it behind the whole drain, since the drain
+ * claims again the moment a job ends. A due job nobody takes up within that
+ * long holds the drain no longer.
  */
-export async function drainUser(kind: JobKind, userId: string): Promise<void> {
+export async function drainUser(
+	kind: JobKind,
+	userId: string,
+	options: {
+		giveWayForMs?: number;
+		/** What a drain that gives way waits on; real time by default. */
+		clock?: { now(): number; sleep(ms: number): Promise<void> };
+	} = {},
+): Promise<void> {
 	const { definition } = internalsOf(kind);
+	const { giveWayForMs } = options;
+	const clock = options.clock ?? {
+		now: () => Date.now(),
+		sleep: (ms: number) =>
+			new Promise<void>((resolve) => setTimeout(resolve, ms)),
+	};
 	let lastJobId: string | null = null;
 	let inARow = 0;
 	for (;;) {
 		if (jobsState().stopped || !definition.enabled()) return;
+		if (giveWayForMs !== undefined)
+			while (
+				!jobsState().stopped &&
+				otherUserJobDue(kind, userId, clock.now(), clock.now() - giveWayForMs)
+			)
+				await clock.sleep(GIVE_WAY_POLL_MS);
 		const workerId = workerIdFor(kind.name);
 		const claimed = claimNext(kind, { workerId, userId });
 		if (!claimed) return;

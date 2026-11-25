@@ -139,6 +139,39 @@ export function readJobRow(kind: JobKind, jobId: string): ShapeRow | null {
 	);
 }
 
+/**
+ * Whether someone other than `userId` has a job of the kind that is due now
+ * and became due (the later of its last change and its `run_after`) at or
+ * after `sinceMs`: what an operator's drain of one account gives way to
+ * (`drainUser`'s `giveWayForMs`). A job due for longer than that is one no
+ * worker is taking up, and holds nobody.
+ */
+export function otherUserJobDue(
+	kind: JobKind,
+	userId: string,
+	nowMs: number,
+	sinceMs: number,
+): boolean {
+	const { jobs } = internalsOf(kind);
+	const now = Math.floor(nowMs / 1000);
+	const since = Math.floor(sinceMs / 1000);
+	return (
+		db
+			.select({ id: jobs.id })
+			.from(jobs)
+			.where(
+				and(
+					sql`${jobs.userId} <> ${userId}`,
+					eq(jobs.status, "queued"),
+					or(isNull(jobs.runAfter), sql`${jobs.runAfter} <= ${now}`),
+					sql`max(${jobs.updatedAt}, coalesce(${jobs.runAfter}, 0)) >= ${since}`,
+				),
+			)
+			.limit(1)
+			.get() !== undefined
+	);
+}
+
 /** An attempt's status, or null when there is no such attempt. */
 export function readAttemptStatus(
 	kind: JobKind,

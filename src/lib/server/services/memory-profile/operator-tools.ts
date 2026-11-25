@@ -546,6 +546,17 @@ function userJobs(userId: string) {
 /** How long the drain waits before it looks again at a job it could not run now. */
 const DRAIN_RECHECK_MS = 5_000;
 
+/**
+ * Before each of its claims the drain gives way to every other account's due
+ * Memory job that became due less than this long ago (`drainUser`'s
+ * `giveWayForMs`): one Memory job runs box-wide, and a drain that claimed
+ * again the moment a job ended held everyone else's new memories behind the
+ * whole account (a 2,000-message import: two days). Their workers look every
+ * 30 seconds; a due job none of them takes up within this long holds it no
+ * longer.
+ */
+const DRAIN_GIVE_WAY_MS = 5 * 60_000;
+
 function countByStatus(jobs: Array<{ status: string }>) {
 	const counts: Record<string, number> = {};
 	for (const job of jobs) counts[job.status] = (counts[job.status] ?? 0) + 1;
@@ -557,9 +568,10 @@ function countByStatus(jobs: Array<{ status: string }>) {
  * It retries each failed job whose failure is retryable once (the person's own
  * Retry, under the job's own attempt limit), then runs the account's claimable
  * jobs (`drainUser`), waiting for each job put back behind a delay (a hold, a
- * wait on Hindsight) instead of stopping, for at most `maxMinutes`. It never
- * stops at a failed or held job, and ends with every job it did not finish:
- * its id, kind, status and error code.
+ * wait on Hindsight) instead of stopping, for at most `maxMinutes`. Before
+ * each claim it gives way to other accounts' due jobs (`DRAIN_GIVE_WAY_MS`).
+ * It never stops at a failed or held job, and ends with every job it did not
+ * finish: its id, kind, status and error code.
  */
 export function drainMemory(input: {
 	userId: string;
@@ -602,7 +614,10 @@ export function drainMemory(input: {
 				let rounds = 0;
 				for (;;) {
 					rounds += 1;
-					await drainUser(memoryDeliveryJob, input.userId);
+					await drainUser(memoryDeliveryJob, input.userId, {
+						giveWayForMs: DRAIN_GIVE_WAY_MS,
+						clock,
+					});
 					const open = userJobs(input.userId).filter(
 						(job) => job.status === "queued" || job.status === "running",
 					);
