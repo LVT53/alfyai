@@ -163,6 +163,109 @@ describe("importConversations", () => {
 		);
 	});
 
+	describe("the dates an imported chat keeps", () => {
+		// The sidebar orders chats by when they last changed, so an imported chat
+		// dated at the import sat on top of every chat as today's.
+		it("dates the chat by its last ChatGPT activity and keeps its creation at the import", async () => {
+			harness.seedUser();
+			const before = Date.now();
+			const parsed = harness.makeParsedConversation({
+				updatedAt: new Date("2024-01-15T12:30:00Z"),
+			});
+			const result = await runImport({ conversations: [parsed] });
+			const after = Date.now();
+
+			const conv = harness.readConversation(result.conversationIds[0]);
+			expect(conv?.updatedAt).toEqual(new Date("2024-01-15T12:30:00Z"));
+			// Memory tells a dated imported message from one the export gave no
+			// time by the chat's creation, so that stays the import's own time.
+			expect(conv?.createdAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+			expect(conv?.createdAt.getTime()).toBeLessThanOrEqual(after + 1000);
+		});
+
+		it("takes its newest message when that is later than the export's update time", async () => {
+			harness.seedUser();
+			const parsed = harness.makeParsedConversation({
+				updatedAt: new Date("2024-01-15T12:00:30Z"),
+			});
+			const result = await runImport({ conversations: [parsed] });
+
+			expect(
+				harness.readConversation(result.conversationIds[0])?.updatedAt,
+			).toEqual(new Date("2024-01-15T12:01:00Z"));
+		});
+
+		it("takes its newest message when the export gives the chat no update time", async () => {
+			harness.seedUser();
+			// The parser reads a missing update_time as 0.
+			const parsed = harness.makeParsedConversation({ updatedAt: new Date(0) });
+			const result = await runImport({ conversations: [parsed] });
+
+			expect(
+				harness.readConversation(result.conversationIds[0])?.updatedAt,
+			).toEqual(new Date("2024-01-15T12:01:00Z"));
+		});
+
+		it("keeps the import's time when the export dates nothing in the chat", async () => {
+			harness.seedUser();
+			const before = Date.now();
+			const parsed = harness.makeParsedConversation({
+				updatedAt: new Date(0),
+				messages: [{ role: "user", content: "No timestamp" }],
+			});
+			const result = await runImport({ conversations: [parsed] });
+			const after = Date.now();
+
+			const updatedAt = harness
+				.readConversation(result.conversationIds[0])
+				?.updatedAt.getTime();
+			expect(updatedAt).toBeGreaterThanOrEqual(before - 1000);
+			expect(updatedAt).toBeLessThanOrEqual(after + 1000);
+		});
+
+		it("never dates a chat after the import", async () => {
+			harness.seedUser();
+			const parsed = harness.makeParsedConversation({
+				updatedAt: new Date("2099-01-01T00:00:00Z"),
+			});
+			const result = await runImport({ conversations: [parsed] });
+			const after = Date.now();
+
+			const conv = harness.readConversation(result.conversationIds[0]);
+			expect(conv?.updatedAt.getTime()).toBeLessThanOrEqual(after + 1000);
+			expect(conv?.updatedAt.getTime()).toBeLessThanOrEqual(
+				conv?.createdAt.getTime() ?? 0,
+			);
+		});
+
+		it("dates a ChatGPT branch's copy the same as its chat", async () => {
+			harness.seedUser();
+			const parsed = harness.makeParsedConversation({
+				updatedAt: new Date("2024-01-15T12:30:00Z"),
+				branches: [
+					harness.makeBranch("div-n1", "branch-n1", 0.5, [
+						{
+							role: "user",
+							content: "Hello",
+							createdAt: new Date("2024-01-15T12:00:00Z"),
+						},
+						{
+							role: "assistant",
+							content: "Alternative response",
+							createdAt: new Date("2024-01-15T12:00:05Z"),
+						},
+					]),
+				],
+			});
+			const result = await runImport({ conversations: [parsed] });
+
+			const [fork] = harness.readForks(result.conversationIds[0]);
+			expect(
+				harness.readConversation(fork.forkConversationId)?.updatedAt,
+			).toEqual(new Date("2024-01-15T12:30:00Z"));
+		});
+	});
+
 	it("calls onProgress callback for each conversation", async () => {
 		harness.seedUser();
 		const parsed1 = harness.makeParsedConversation({ title: "A" });
