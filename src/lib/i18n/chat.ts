@@ -502,6 +502,8 @@ const chatDict = {
 		"chatgptImport.deselectAll": "Deselect all",
 		"chatgptImport.dropHere": "Drop ZIP file here",
 		"chatgptImport.importComplete": "Import complete",
+		"chatgptImport.groupCount":
+			"{count} {count, plural, one {conversation} other {conversations}}",
 		"chatgptImport.importError": "Import failed",
 		"chatgptImport.importSelected": "Import {count} selected",
 		"chatgptImport.importedCount":
@@ -517,11 +519,15 @@ const chatDict = {
 			"Your own messages in these chats can also shape your Memory.",
 		"chatgptImport.noConversations": "No conversations found in this ZIP file.",
 		"chatgptImport.noProject": "No folder",
+		"chatgptImport.noProjectGroup": "Not in a project",
 		"chatgptImport.parseError":
 			"Could not read conversations from the ZIP file.",
 		"chatgptImport.previewTitle": "Select Conversations to Import",
 		"chatgptImport.processed": "{current} of {total} processed",
+		"chatgptImport.projectGroup": "ChatGPT project {number}",
 		"chatgptImport.projectLabel": "Project folder",
+		"chatgptImport.projectsNote":
+			"ChatGPT's export doesn't include project names, so they're numbered here. Untick a project to leave all of its conversations out.",
 		"chatgptImport.searchPlaceholder": "Search conversations...",
 		"chatgptImport.selectAll": "Select all",
 		"chatgptImport.selectFile": "Select ZIP file",
@@ -1778,6 +1784,7 @@ const chatDict = {
 		"chatgptImport.deselectAll": "Kijelölés megszüntetése",
 		"chatgptImport.dropHere": "Ejtse ide a ZIP fájlt",
 		"chatgptImport.importComplete": "Importálás kész",
+		"chatgptImport.groupCount": "{count} beszélgetés",
 		"chatgptImport.importError": "Importálás sikertelen",
 		"chatgptImport.importSelected": "{count} kijelölt importálása",
 		"chatgptImport.importedCount": "{count} beszélgetés sikeresen importálva.",
@@ -1791,11 +1798,15 @@ const chatDict = {
 		"chatgptImport.noConversations":
 			"Nem található beszélgetés ebben a ZIP fájlban.",
 		"chatgptImport.noProject": "Nincs mappa",
+		"chatgptImport.noProjectGroup": "Projekten kívül",
 		"chatgptImport.parseError":
 			"Nem sikerült beolvasni a beszélgetéseket a ZIP fájlból.",
 		"chatgptImport.previewTitle": "Válassza ki az importálandó beszélgetéseket",
 		"chatgptImport.processed": "{current} / {total} feldolgozva",
+		"chatgptImport.projectGroup": "{number}. ChatGPT-projekt",
 		"chatgptImport.projectLabel": "Projekt mappa",
+		"chatgptImport.projectsNote":
+			"A ChatGPT exportja nem tartalmazza a projektek nevét, ezért itt sorszámot kapnak. Ha egy projekt kijelölését megszünteti, egyik beszélgetése sem kerül át.",
 		"chatgptImport.searchPlaceholder": "Keresés a beszélgetések között...",
 		"chatgptImport.selectAll": "Összes kijelölése",
 		"chatgptImport.selectFile": "ZIP fájl kiválasztása",

@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { importChatGPTData } from "$lib/client/api/chatgpt-import";
+import {
+	importChatGPTData,
+	packChatGPTUpload,
+} from "$lib/client/api/chatgpt-import";
 import { ApiError } from "$lib/client/api/http";
 import { uiLanguage } from "$lib/stores/settings";
 import ImportChatGPTModal from "./ImportChatGPTModal.svelte";
@@ -55,12 +58,20 @@ vi.mock("jszip", () => {
 	};
 });
 
+// What the dialog uploads: the packed ticked conversations, not the dropped file.
+const { PACKED_UPLOAD } = vi.hoisted(() => ({
+	PACKED_UPLOAD: new File(["packed"], "chatgpt-export.zip", {
+		type: "application/zip",
+	}),
+}));
+
 vi.mock("$lib/client/api/chatgpt-import", () => ({
 	importChatGPTData: vi.fn().mockResolvedValue({
 		jobId: "job-123",
 		conversationIds: ["conv-1", "conv-2"],
 		errors: [],
 	}),
+	packChatGPTUpload: vi.fn().mockResolvedValue(PACKED_UPLOAD),
 }));
 
 function createZipFile(name = "export.zip"): File {
@@ -468,6 +479,26 @@ describe("ImportChatGPTModal", () => {
 			expect(importChatGPTData).not.toHaveBeenCalled();
 		});
 
+		it("uploads the ticked conversations alone, never the export as it was dropped", async () => {
+			await openPreview();
+
+			await fireEvent.click(screen.getByLabelText(/Chat Two/));
+			await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Import 1 selected" }),
+			);
+
+			await waitFor(() => expect(importChatGPTData).toHaveBeenCalledTimes(1));
+			expect(packChatGPTUpload).toHaveBeenCalledWith(mockConversations, [
+				"conv-1",
+			]);
+			expect(importChatGPTData).toHaveBeenCalledWith(
+				PACKED_UPLOAD,
+				["conv-1"],
+				null,
+			);
+		});
+
 		it("leaves a conversation out of the list when the export gives it no id", async () => {
 			exportedConversations = [
 				...mockConversations,
@@ -487,6 +518,168 @@ describe("ImportChatGPTModal", () => {
 			expect(screen.getByText(/conversations found/)).toHaveTextContent(
 				"2 conversations found",
 			);
+		});
+	});
+
+	describe("ChatGPT projects", () => {
+		// A late-2026 export records a chat's project only as the project's id.
+		const PROJECT_A = "g-p-0123456789abcdef0123456789abcdef";
+		const PROJECT_B = "g-p-fedcba9876543210fedcba9876543210";
+
+		function chat(id: string, title: string, projectId: string | null) {
+			return {
+				id,
+				conversation_id: id,
+				conversation_template_id: projectId,
+				title,
+				create_time: 1700000000,
+				update_time: 1700000100,
+				mapping: {
+					m: { message: { id: "m" }, parent: null, children: [] },
+				},
+			};
+		}
+
+		const projectExport = [
+			chat("conv-a1", "Alpha one", PROJECT_A),
+			chat("conv-loose", "Loose chat", null),
+			chat("conv-b1", "Beta one", PROJECT_B),
+			chat("conv-a2", "Alpha two", PROJECT_A),
+			// A custom GPT's chat: its template is a GPT, not a folder.
+			chat("conv-gpt", "GPT chat", "g-abc123"),
+		];
+
+		async function openProjectPreview(dropLabel = "Drop ZIP file here") {
+			exportedConversations = projectExport;
+			render(ImportChatGPTModal, {
+				props: { show: true, onClose: vi.fn(), projects: [] },
+			});
+			await fireEvent.drop(screen.getByRole("button", { name: dropLabel }), {
+				dataTransfer: { files: [createZipFile()] },
+			});
+			await screen.findByText("Alpha one");
+		}
+
+		function projectBox(name: RegExp): HTMLInputElement {
+			return screen.getByRole("checkbox", { name }) as HTMLInputElement;
+		}
+
+		it("puts each project's chats under a numbered heading, and says why it is numbered", async () => {
+			await openProjectPreview();
+
+			const headings = screen
+				.getAllByTestId("chatgpt-import-group")
+				.map((group) => group.textContent?.replace(/\s+/g, " ").trim());
+			expect(headings).toEqual([
+				"ChatGPT project 1 2 conversations",
+				"ChatGPT project 2 1 conversation",
+				"Not in a project 2 conversations",
+			]);
+			expect(
+				screen.getByText(
+					"ChatGPT's export doesn't include project names, so they're numbered here. Untick a project to leave all of its conversations out.",
+				),
+			).toBeInTheDocument();
+		});
+
+		it("leaves out every chat of a project whose box is unticked", async () => {
+			await openProjectPreview();
+
+			await fireEvent.click(projectBox(/ChatGPT project 1/));
+			expect(
+				(screen.getByLabelText(/Alpha one/) as HTMLInputElement).checked,
+			).toBe(false);
+			expect(
+				(screen.getByLabelText(/Alpha two/) as HTMLInputElement).checked,
+			).toBe(false);
+			await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "Import 3 selected" }),
+			);
+
+			await waitFor(() => expect(importChatGPTData).toHaveBeenCalledTimes(1));
+			expect(importChatGPTData).toHaveBeenCalledWith(
+				PACKED_UPLOAD,
+				["conv-loose", "conv-b1", "conv-gpt"],
+				null,
+			);
+			expect(packChatGPTUpload).toHaveBeenCalledWith(projectExport, [
+				"conv-loose",
+				"conv-b1",
+				"conv-gpt",
+			]);
+		});
+
+		it("shows a project as partly ticked when only some of its chats are, and ticks them all when pressed", async () => {
+			await openProjectPreview();
+
+			await fireEvent.click(screen.getByLabelText(/Alpha two/));
+			const box = projectBox(/ChatGPT project 1/);
+			expect(box.checked).toBe(false);
+			expect(box.indeterminate).toBe(true);
+
+			await fireEvent.click(box);
+			expect(box.checked).toBe(true);
+			expect(box.indeterminate).toBe(false);
+			expect(
+				(screen.getByLabelText(/Alpha two/) as HTMLInputElement).checked,
+			).toBe(true);
+		});
+
+		it("acts on the whole project while a search hides some of its chats", async () => {
+			await openProjectPreview();
+
+			await fireEvent.input(
+				screen.getByPlaceholderText("Search conversations..."),
+				{ target: { value: "Alpha one" } },
+			);
+			expect(screen.queryByText("Alpha two")).not.toBeInTheDocument();
+			expect(screen.queryByText("ChatGPT project 2")).not.toBeInTheDocument();
+			await fireEvent.click(projectBox(/ChatGPT project 1/));
+			await fireEvent.input(
+				screen.getByPlaceholderText("Search conversations..."),
+				{ target: { value: "" } },
+			);
+
+			expect(
+				(screen.getByLabelText(/Alpha two/) as HTMLInputElement).checked,
+			).toBe(false);
+			expect(screen.getByText(/conversations found/)).toHaveTextContent(
+				"5 conversations found · 3 selected",
+			);
+		});
+
+		it("draws the list without headings when no chat is in a project", async () => {
+			render(ImportChatGPTModal, {
+				props: { show: true, onClose: vi.fn(), projects: [] },
+			});
+			await fireEvent.drop(
+				screen.getByRole("button", { name: "Drop ZIP file here" }),
+				{ dataTransfer: { files: [createZipFile()] } },
+			);
+			await screen.findByText("Chat One");
+
+			expect(screen.queryByTestId("chatgpt-import-group")).toBeNull();
+			expect(screen.queryByText(/project names/)).toBeNull();
+		});
+
+		it("says it in Hungarian for a Hungarian reader", async () => {
+			uiLanguage.set("hu");
+			await openProjectPreview("Ejtse ide a ZIP fájlt");
+
+			const headings = screen
+				.getAllByTestId("chatgpt-import-group")
+				.map((group) => group.textContent?.replace(/\s+/g, " ").trim());
+			expect(headings).toEqual([
+				"1. ChatGPT-projekt 2 beszélgetés",
+				"2. ChatGPT-projekt 1 beszélgetés",
+				"Projekten kívül 2 beszélgetés",
+			]);
+			expect(
+				screen.getByText(
+					"A ChatGPT exportja nem tartalmazza a projektek nevét, ezért itt sorszámot kapnak. Ha egy projekt kijelölését megszünteti, egyik beszélgetése sem kerül át.",
+				),
+			).toBeInTheDocument();
 		});
 	});
 

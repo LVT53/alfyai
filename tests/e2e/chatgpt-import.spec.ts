@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import JSZip from "jszip";
 import { login } from "./helpers";
@@ -15,11 +16,18 @@ const LEAVE_OUT = `Import e2e ${RUN} leave out`;
 const KEEP_TWO = `Import e2e ${RUN} keep two`;
 const TITLE_PREFIX = `Import e2e ${RUN}`;
 
-function exportEntry(title: string) {
+// A ChatGPT project's id as a late-2026 export writes it: "g-p-" and 32 hex
+// digits. The export never names a project.
+function projectId(): string {
+	return `g-p-${randomUUID().replaceAll("-", "")}`;
+}
+
+function exportEntry(title: string, inProject: string | null = null) {
 	const id = randomUUID();
 	return {
 		id,
 		conversation_id: id,
+		conversation_template_id: inProject,
 		title,
 		create_time: 1700000000,
 		update_time: 1700000100,
@@ -114,6 +122,84 @@ test.describe("importing from ChatGPT", () => {
 			dialog.getByText("2 conversations imported successfully."),
 		).toBeVisible({ timeout: 20_000 });
 
+		const imported = await importedConversations(page);
+		expect(imported.map(({ title }) => title).sort()).toEqual(
+			[KEEP_ONE, KEEP_TWO].sort(),
+		);
+	});
+
+	test("leaves out every chat of a ChatGPT project the person unticks", async ({
+		page,
+	}) => {
+		const firstProject = projectId();
+		const secondProject = projectId();
+		const inFirst = ["A", "B"].map((letter) =>
+			exportEntry(`${TITLE_PREFIX} project one ${letter}`, firstProject),
+		);
+		const inSecond = exportEntry(`${TITLE_PREFIX} project two`, secondProject);
+		const inNone = exportEntry(`${TITLE_PREFIX} in no project`);
+		const zip = new JSZip();
+		zip.file(
+			"conversations.json",
+			JSON.stringify([inFirst[0], inNone, inSecond, inFirst[1]]),
+		);
+
+		await page.goto("/settings", { waitUntil: "domcontentloaded" });
+		await page.getByRole("button", { name: "Choose a ZIP file…" }).click();
+		const dialog = page.getByRole("dialog");
+		await dialog.locator('input[type="file"]').setInputFiles({
+			name: "chatgpt-export.zip",
+			mimeType: "application/zip",
+			buffer: Buffer.from(await zip.generateAsync({ type: "nodebuffer" })),
+		});
+
+		await expect(dialog.getByText("4 conversations found")).toBeVisible();
+		await dialog.getByRole("checkbox", { name: /ChatGPT project 1/ }).uncheck();
+		await expect(dialog.getByText("· 2 selected")).toBeVisible();
+		await dialog.getByRole("button", { name: "Next" }).click();
+		await dialog.getByRole("button", { name: "Import 2 selected" }).click();
+
+		await expect(
+			dialog.getByText("2 conversations imported successfully."),
+		).toBeVisible({ timeout: 20_000 });
+		const imported = await importedConversations(page);
+		expect(imported.map(({ title }) => title).sort()).toEqual(
+			[inSecond.title, inNone.title].sort(),
+		);
+	});
+
+	test("imports from an export larger than the server takes in one request", async ({
+		page,
+	}, testInfo) => {
+		// A real export carries its attachments as .dat files; this one carries
+		// 110 MB of them, past the server's 100 MB request limit, which refuses
+		// the export sent whole. The dialog sends the ticked chats alone.
+		const zip = new JSZip();
+		zip.file(
+			"conversations.json",
+			JSON.stringify([exportEntry(KEEP_ONE), exportEntry(KEEP_TWO)]),
+		);
+		zip.file("file-e2e-attachment.dat", randomBytes(110 * 1024 * 1024));
+		const exported = await zip.generateAsync({ type: "nodebuffer" });
+		expect(exported.byteLength).toBeGreaterThan(100 * 1024 * 1024);
+		const exportPath = testInfo.outputPath("large-chatgpt-export.zip");
+		// Playwright takes a file this size by its path, not as a buffer.
+		await writeFile(exportPath, exported);
+
+		await page.goto("/settings", { waitUntil: "domcontentloaded" });
+		await page.getByRole("button", { name: "Choose a ZIP file…" }).click();
+		const dialog = page.getByRole("dialog");
+		await dialog.locator('input[type="file"]').setInputFiles(exportPath);
+
+		await expect(dialog.getByText("2 conversations found")).toBeVisible({
+			timeout: 20_000,
+		});
+		await dialog.getByRole("button", { name: "Next" }).click();
+		await dialog.getByRole("button", { name: "Import 2 selected" }).click();
+
+		await expect(
+			dialog.getByText("2 conversations imported successfully."),
+		).toBeVisible({ timeout: 20_000 });
 		const imported = await importedConversations(page);
 		expect(imported.map(({ title }) => title).sort()).toEqual(
 			[KEEP_ONE, KEEP_TWO].sort(),
