@@ -661,6 +661,73 @@ describe("accepted native publication", () => {
 		);
 		// Still on its way: another publication waits for it, as before.
 		expect(() => republish(f)).toThrow("memory_candidate_unaccepted");
+		// A chat delivery or a cleanup answers in its own words: a cleanup
+		// waits for the live delivery, a chat whose own facts are there ends
+		// retryable (the claim holds the other behind it).
+		const answer = (onUnpublishedChat: "wait" | "end") => {
+			try {
+				f.db.transaction((tx) => {
+					const bank = tx
+						.select()
+						.from(f.schema.memoryBanks)
+						.where(eqId(f.schema.memoryBanks.id, f.bank.id))
+						.get();
+					f.pub.publishNativeSnapshot(tx, {
+						userId: h.userId,
+						bankId: f.bank.id,
+						epoch: 0,
+						expectedRevision: bank?.revision ?? -1,
+						memories: f.memories,
+						onUnpublishedChat,
+					});
+				});
+			} catch (error) {
+				return {
+					code: (error as { code?: string }).code,
+					retryable: (error as { retryable?: boolean }).retryable,
+					message: (error as Error).message,
+				};
+			}
+			return null;
+		};
+		expect(answer("wait")).toMatchObject({
+			code: "native_bank_busy_waiting",
+			retryable: true,
+		});
+		expect(answer("end")).toMatchObject({
+			code: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		// A fact nobody can account for beside it is still refused: the chat's
+		// code is only for an observation every failing fact of which is an
+		// unpublished chat's.
+		const terrace = f.memories.findIndex(
+			(memory) => memory.id === "observation-terrace",
+		);
+		const alone = f.memories[terrace];
+		f.memories[terrace] = {
+			id: "observation-mixed",
+			text: "Coffee on the terrace, and more",
+			fact_type: "observation",
+			source_memory_ids: ["terrace", "unknown-fact"],
+		};
+		expect(answer("end")).toMatchObject({
+			code: undefined,
+			message: "memory_candidate_unaccepted",
+		});
+		f.memories[terrace] = alone;
+		// Its delivery failed for another reason: nothing will publish it until
+		// an operator repairs the bank, so even a cleanup ends retryable.
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({ status: "failed", errorCode: "native_operation_timeout" })
+			.where(eqId(f.schema.memoryDeliveryJobs.id, "held-job"))
+			.run();
+		expect(answer("wait")).toMatchObject({
+			code: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(() => republish(f)).toThrow("memory_candidate_unaccepted");
 		// Its own check refused it: it never publishes, and nothing waits on it.
 		f.db
 			.update(f.schema.memoryDeliveryJobs)

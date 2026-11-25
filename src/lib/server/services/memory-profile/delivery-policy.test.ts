@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { FailureHistory, JobFailure } from "../jobs/types";
 import {
+	BANK_BUSY_WAITING,
 	countedDeliveryAttempt,
 	decideMemoryDeliveryFailure,
 	freshDeliveryAttempts,
 	NATIVE_WAIT_CODES,
 	parseDeliveryRetryState,
+	UNPUBLISHED_CHAT_FACTS,
 } from "./delivery-policy";
 
 const waits = { retainMs: 30 * 60_000, consolidationMs: 60 * 60_000 };
@@ -43,7 +45,36 @@ describe("the Memory delivery failure policy", () => {
 			native_retain_waiting: "retain",
 			native_consolidation_waiting: "consolidation",
 			native_retain_resubmit_due: "retain",
+			native_bank_busy_waiting: "consolidation",
 		});
+	});
+
+	it("waits for another chat's live delivery like a consolidation, without spending an attempt", () => {
+		const start = 1_000_000;
+		const { decisions, state } = run(
+			[1, 2, 3, 4].map((i) => ({
+				failure: failure(BANK_BUSY_WAITING, {
+					retryAfterMs: 30_000,
+					diagnostics: { waitStartedAt: start },
+				}),
+				atMs: start + i * 60_000,
+			})),
+		);
+		for (const decision of decisions)
+			expect(decision).toMatchObject({
+				requeue: true,
+				delayMs: 30_000,
+				code: BANK_BUSY_WAITING,
+			});
+		expect(parseDeliveryRetryState(state).waits).toBe(4);
+	});
+
+	it("ends a job that met another chat's unpublished facts at once, retryable, its attempt unspent", () => {
+		const { decisions, state } = run([
+			{ failure: failure(UNPUBLISHED_CHAT_FACTS), atMs: 1_000_000 },
+		]);
+		expect(decisions[0]).toMatchObject({ requeue: false, retryable: true });
+		expect(parseDeliveryRetryState(state).waits).toBe(1);
 	});
 
 	it("requeues a job that waited on Hindsight without spending an attempt", () => {

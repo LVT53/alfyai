@@ -24,6 +24,22 @@ import { NATIVE_DELIVERY_ATTEMPT_LIMIT } from "./contracts";
  */
 export type NativeWaitKind = "retain" | "consolidation";
 
+/**
+ * Another chat of the bank has facts in Hindsight that nobody published and
+ * its delivery is still queued or running: this job waits for it to publish
+ * (a wait, like Hindsight's own; `unpublishedChats` in publication.ts).
+ */
+export const BANK_BUSY_WAITING = "native_bank_busy_waiting";
+
+/**
+ * Another chat of the bank has facts in Hindsight that nobody published and
+ * its delivery failed or was cancelled: nothing publishes them until an
+ * operator repairs the bank, so this job ends at once, retryable, its
+ * attempt unspent. A chat not yet sent is refused before it sends anything
+ * (`delivery-runner.ts`), so it adds nothing more to repair.
+ */
+export const UNPUBLISHED_CHAT_FACTS = "memory_bank_unpublished_facts";
+
 /** The failure codes that mean "Hindsight is still working", and which wait each is. */
 export const NATIVE_WAIT_CODES: Readonly<Record<string, NativeWaitKind>> = {
 	native_retain_waiting: "retain",
@@ -31,6 +47,8 @@ export const NATIVE_WAIT_CODES: Readonly<Record<string, NativeWaitKind>> = {
 	// A failed retain's one resubmission, held back so it does not meet the
 	// refusal that failed the first send: part of the retain's wait.
 	native_retain_resubmit_due: "retain",
+	// Another chat's delivery is publishing what it sent.
+	[BANK_BUSY_WAITING]: "consolidation",
 };
 
 /** How soon a waiting job is claimable again when its failure names no delay. */
@@ -137,6 +155,14 @@ export function decideMemoryDeliveryFailure(
 		since: null,
 		firstWaitAt: null,
 	};
+	// Retrying cannot help until an operator repairs the bank, and the job
+	// sent nothing: it ends now, its attempt discounted like a wait.
+	if (failure.code === UNPUBLISHED_CHAT_FACTS)
+		return {
+			requeue: false,
+			retryable: true,
+			state: { ...next, waits: state.waits + 1 },
+		};
 	return failure.retryable && counted < NATIVE_DELIVERY_ATTEMPT_LIMIT
 		? {
 				requeue: true,

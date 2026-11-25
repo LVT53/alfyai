@@ -2285,3 +2285,595 @@ describe("Memory delivery waits for Hindsight without spending attempts", () => 
 		).toBe(true);
 	});
 });
+
+describe("work in flight holds its bank", () => {
+	// A job put back mid-flight is queued, not running, yet its writes may sit
+	// in Hindsight unpublished: an import's next delivery was sent while one
+	// waited, each refused the other's publication, and every later delivery
+	// of the bank failed (2026-11-25).
+	async function bankWork() {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const first = (await f.enqueue()).row.id;
+		const enqueue = async (
+			bankId: string,
+			name: string,
+			kind: "source" | "action" | "source_cleanup" = "source",
+		) => {
+			const source =
+				kind === "action"
+					? null
+					: f.rev.recordMemorySource({
+							userId: h.userId,
+							bankId,
+							epoch: 0,
+							eventId: `${name}-event`,
+							lineageId: `${name}-message`,
+							text: `Synthetic ${name} statement`,
+							context: "User statement",
+							assertedAt: new Date("2026-11-19"),
+						});
+			const job = await f.jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId,
+				epoch: 0,
+				kind,
+				...(source ? { sourceId: source.id } : { actionId: `${name}-action` }),
+				requestId: `${name}-request`,
+			});
+			return { id: job.row.id, sourceId: source?.id ?? null };
+		};
+		const set = (
+			id: string,
+			values: Partial<typeof f.schema.memoryDeliveryJobs.$inferInsert>,
+		) =>
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set(values)
+				.where(eq(f.schema.memoryDeliveryJobs.id, id))
+				.run();
+		/** What the failure policy leaves: queued again after an attempt, with its code. */
+		const putBack = (
+			id: string,
+			{
+				code = "native_consolidation_waiting",
+				due = true,
+				startedAt = new Date(Date.now() - 600_000),
+			}: { code?: string | null; due?: boolean; startedAt?: Date } = {},
+		) =>
+			set(id, {
+				status: "queued",
+				errorCode: code,
+				startedAt,
+				runAfter: new Date(Date.now() + (due ? -1_000 : 60_000)),
+			});
+		const sent = (sourceId: string) =>
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({ nativeSubmitted: true, nativeAcknowledged: true })
+				.where(eq(f.schema.memorySourceRevisions.id, sourceId))
+				.run();
+		const claim = () =>
+			h.ledger.claimNext(f.jobs.memoryDeliveryJob, {
+				workerId: "test-worker",
+				userId: h.userId,
+			})?.row.id ?? null;
+		return { f, first, enqueue, set, putBack, sent, claim };
+	}
+
+	it("claims in the usual order when nothing is in flight", async () => {
+		const { f, first, enqueue, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+
+		expect(claim()).toBe(first);
+	});
+
+	it("starts no new chat delivery of the bank while a sent one is put back mid-flight", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		sent(f.source.id);
+		putBack(first, { due: false });
+		await enqueue(f.bank.id, "other");
+
+		expect(claim()).toBeNull();
+	});
+
+	it("resumes the chat in flight when due, before newer work the claim order puts first", async () => {
+		const { f, first, enqueue, set, putBack, sent, claim } = await bankWork();
+		sent(f.source.id);
+		putBack(first);
+		const other = await enqueue(f.bank.id, "other");
+		set(other.id, { priority: 0 });
+		set(first, { priority: 10 });
+
+		expect(claim()).toBe(first);
+	});
+
+	it("holds the bank behind a sent chat put back for a counted failure or a lost worker, not only a wait", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+		sent(f.source.id);
+		putBack(first, { code: "native_unavailable", due: false });
+		expect(claim()).toBeNull();
+		putBack(first, { code: "memory_worker_lost", due: false });
+		expect(claim()).toBeNull();
+	});
+
+	it("does not hold the bank behind a chat put back before it was sent", async () => {
+		// Nothing of it is in Hindsight: a live chat of the bank goes on.
+		const { f, first, enqueue, putBack, claim } = await bankWork();
+		const other = await enqueue(f.bank.id, "other");
+		putBack(first, { code: "native_unavailable", due: false });
+
+		expect(claim()).toBe(other.id);
+	});
+
+	it("holds the bank behind a chat put back in the middle of its dependency repair, though it sent no chat", async () => {
+		// An unchanged resend never sends its chat, but its repair retains
+		// replacements that nothing published yet.
+		const { f, first, enqueue, set, putBack, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+		putBack(first, { code: "native_retain_waiting", due: false });
+		set(first, {
+			checkpoint: JSON.stringify({
+				dependencyRepair: { version: 1, steps: [] },
+			}),
+		});
+		expect(claim()).toBeNull();
+
+		// A malformed checkpoint holds nothing and breaks nothing.
+		set(first, { checkpoint: "{not json" });
+		expect(claim()).not.toBeNull();
+	});
+
+	it("holds the bank behind a sent chat whose job was reopened by hand", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+		// An operator's reattach: the job is queued with no code, its chat sent.
+		sent(f.source.id);
+		putBack(first, { code: null, due: false });
+
+		expect(claim()).toBeNull();
+		putBack(first, { code: null });
+		expect(claim()).toBe(first);
+	});
+
+	it("holds a reopened job that sent nothing behind a chat in flight", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		const other = await enqueue(f.bank.id, "other");
+		// A Retry or an operator's resend: queued again, no code, nothing sent.
+		putBack(first, { code: null });
+		sent(other.sourceId as string);
+		putBack(other.id, { startedAt: new Date(Date.now() - 60_000) });
+
+		expect(claim()).toBe(other.id);
+	});
+
+	it("lets one sent chat in flight run at a time: the earliest started, even while it is not due", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		const other = await enqueue(f.bank.id, "other");
+		sent(f.source.id);
+		sent(other.sourceId as string);
+		putBack(first, { startedAt: new Date(Date.now() - 600_000) });
+		putBack(other.id, { startedAt: new Date(Date.now() - 60_000) });
+		expect(claim()).toBe(first);
+
+		putBack(first, { due: false, startedAt: new Date(Date.now() - 600_000) });
+		expect(claim()).toBeNull();
+	});
+
+	it("ranks a sent chat before an action put back earlier", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		const action = await enqueue(f.bank.id, "note", "action");
+		putBack(action.id, { startedAt: new Date(Date.now() - 3_600_000) });
+		sent(f.source.id);
+		putBack(first, { startedAt: new Date(Date.now() - 60_000) });
+
+		// Earliest started alone would hold the chat behind the action.
+		expect(claim()).toBe(first);
+	});
+
+	it("lets a person's action through while a chat is in flight, and holds a new chat behind an action in flight", async () => {
+		const { f, first, enqueue, putBack, sent, set, claim } = await bankWork();
+		// A pending Remove or Edit holds the chats' publications until it ends
+		// (`assertCurationPublication`): holding it behind a chat would leave
+		// each waiting for the other.
+		const action = await enqueue(f.bank.id, "note", "action");
+		sent(f.source.id);
+		putBack(first, { due: false });
+		expect(claim()).toBe(action.id);
+
+		set(first, {
+			status: "queued",
+			errorCode: null,
+			startedAt: null,
+			runAfter: null,
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: false, nativeAcknowledged: false })
+			.run();
+		putBack(action.id, { due: false });
+		expect(claim()).toBeNull();
+		putBack(action.id);
+		expect(claim()).toBe(action.id);
+	});
+
+	it("lets a withdrawn chat's cleanup through while a chat is in flight, and holds new chats while the cleanup is in flight", async () => {
+		const { f, first, enqueue, putBack, sent, set, claim } = await bankWork();
+		sent(f.source.id);
+		putBack(first, { due: false });
+		const cleanup = await enqueue(f.bank.id, "withdrawn", "source_cleanup");
+		expect(claim()).toBe(cleanup.id);
+
+		// Put back mid-flight, its repair may have written replacements that
+		// nothing published yet: a new chat waits for it.
+		putBack(cleanup.id, { due: false });
+		set(first, {
+			status: "queued",
+			errorCode: null,
+			startedAt: null,
+			runAfter: null,
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: false, nativeAcknowledged: false })
+			.run();
+		expect(claim()).toBeNull();
+		putBack(cleanup.id);
+		expect(claim()).toBe(cleanup.id);
+	});
+
+	it("holds only the bank whose work is in flight", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		f.db
+			.insert(f.schema.projects)
+			.values({ id: "synthetic-project", userId: h.userId, name: "Garden" })
+			.run();
+		const project = f.rev.ensureMemoryBank(h.userId, {
+			kind: "project",
+			projectId: "synthetic-project",
+		});
+		sent(f.source.id);
+		putBack(first, { due: false });
+		await enqueue(f.bank.id, "held-chat");
+		const elsewhere = await enqueue(project.id, "project-chat");
+
+		expect(claim()).toBe(elsewhere.id);
+	});
+});
+
+describe("another chat's unpublished facts in Hindsight", () => {
+	/**
+	 * A second chat of the bank, sent, its retain finished and its facts in
+	 * Hindsight's listing, with its delivery job in `status`.
+	 */
+	async function withOtherChat(
+		status: "queued" | "failed",
+		options: { errorCode?: string; landed?: boolean } = {},
+	) {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const other = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "other-event",
+			lineageId: "other-message",
+			text: "My oar is red",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, other.id))
+			.run();
+		const otherJob = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: other.id,
+			requestId: "other-request",
+		});
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({
+				status,
+				startedAt: new Date(Date.now() - 600_000),
+				errorCode: options.errorCode ?? "memory_preparation_failed",
+				runAfter: new Date(Date.now() + 3_600_000),
+			})
+			.where(eq(f.schema.memoryDeliveryJobs.id, otherJob.row.id))
+			.run();
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list") || options.landed === false)
+				return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = [
+				...data.items,
+				{
+					id: "other-fact",
+					text: "Red oar",
+					fact_type: "world",
+					consolidated_at: "2026-11-19T00:00:00Z",
+					document_id: other.id,
+				},
+				{
+					id: "other-observation",
+					text: "Red oar",
+					fact_type: "observation",
+					source_memory_ids: ["other-fact"],
+				},
+			];
+			return new Response(
+				JSON.stringify({ ...data, total: items.length, items }),
+			);
+		});
+		const posts = () =>
+			f.fetcher.mock.calls.filter(
+				([url, init]) =>
+					String(url).endsWith("/memories") && init?.method === "POST",
+			).length;
+		const mine = () =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.sourceId, f.source.id))
+				.get();
+		const myChat = () =>
+			f.db
+				.select()
+				.from(f.schema.memorySourceRevisions)
+				.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+				.get();
+		return { f, other, otherJob: otherJob.row.id, posts, mine, myChat };
+	}
+
+	it("sends no chat while a chat that failed after sending holds facts there, and ends retryable with its attempt unspent", async () => {
+		const { f, posts, mine, myChat } = await withOtherChat("failed");
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(posts()).toBe(0);
+		expect(myChat()?.nativeSubmitted).toBe(false);
+		const { parseDeliveryRetryState } = await import("./delivery-policy");
+		expect(
+			parseDeliveryRetryState(JSON.parse(mine()?.retryState ?? "null")).waits,
+		).toBe(1);
+	});
+
+	it("sends as usual when the failed chat left no fact in Hindsight", async () => {
+		const { f, posts, mine } = await withOtherChat("failed", {
+			landed: false,
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()?.status).toBe("succeeded");
+		expect(posts()).toBe(1);
+	});
+
+	it("leaves a chat refused for its content out instead of waiting on it", async () => {
+		const { f, mine } = await withOtherChat("failed", {
+			errorCode: "memory_dependency_check_rejected",
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()?.status).toBe("succeeded");
+	});
+
+	it("ends retryable, not for good, when its publication meets the facts of another sent chat whose delivery is live", async () => {
+		// Both chats' facts are in Hindsight (from before this rule): the claim
+		// holds the other behind this one, so waiting would hold both. Each ends
+		// retryable for the operator's repair.
+		const { f, mine, myChat } = await withOtherChat("queued", {
+			errorCode: "native_consolidation_waiting",
+		});
+		const { eq } = await import("drizzle-orm");
+		// This chat was sent by an earlier attempt, which began before the
+		// other's: it is the bank's first piece in flight and goes on to publish.
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		const job = await f.enqueue();
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({
+				startedAt: new Date(Date.now() - 3_600_000),
+				errorCode: "native_consolidation_waiting",
+			})
+			.where(eq(f.schema.memoryDeliveryJobs.id, job.row.id))
+			.run();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(myChat()?.state).toBe("pending");
+	});
+
+	/** This test's own chat withdrawn after it was delivered, with its cleanup queued; Hindsight forgets a deleted document's facts. */
+	async function withdrawn(f: Fixture) {
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		f.rev.revokeMemorySources(h.userId, [f.source.id]);
+		const transport = f.fetcher.getMockImplementation();
+		if (!transport) throw new Error("Missing fixture fetch");
+		const gone = new Set<string>();
+		f.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (init?.method === "DELETE" && path.includes("/documents/"))
+				gone.add(decodeURIComponent(path.split("/documents/")[1]));
+			const response = await transport(url, init);
+			if (!path.includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<{
+					id: string;
+					document_id?: string;
+					source_memory_ids?: string[];
+				}>;
+			};
+			const dropped = new Set(
+				data.items
+					.filter((item) => item.document_id && gone.has(item.document_id))
+					.map((item) => item.id),
+			);
+			const items = data.items.filter(
+				(item) =>
+					!dropped.has(item.id) &&
+					!(item.source_memory_ids ?? []).some((id) => dropped.has(id)),
+			);
+			return new Response(
+				JSON.stringify({ ...data, total: items.length, items }),
+			);
+		});
+		const cleanup = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source_cleanup",
+			sourceId: f.source.id,
+			requestId: `source-cleanup:${f.source.id}`,
+		});
+		const job = () =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.id, cleanup.row.id))
+				.get();
+		const deleted = () => gone.has(f.source.id);
+		return { job, deleted };
+	}
+
+	it("a withdrawn chat's cleanup takes it out of Hindsight, then waits before its repair while another chat is in flight", async () => {
+		const { f, posts } = await withOtherChat("queued", {
+			errorCode: "native_consolidation_waiting",
+		});
+		const cleanup = await withdrawn(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(cleanup.deleted()).toBe(true);
+		expect(cleanup.job()).toMatchObject({
+			status: "queued",
+			errorCode: "native_bank_busy_waiting",
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("a cleanup ends retryable before its repair when a chat whose delivery ended holds facts there", async () => {
+		const { f, posts } = await withOtherChat("failed");
+		const cleanup = await withdrawn(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(cleanup.deleted()).toBe(true);
+		expect(cleanup.job()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("stays retryable when its publication meets the facts of a chat whose delivery failed", async () => {
+		const { f, mine } = await withOtherChat("failed");
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+	});
+});
+
+describe("an import drained while a delivery waits on Hindsight (2026-11-25)", () => {
+	it("sends the next chat of the bank only once the waiting one has published", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		// The consolidation outlasts the five-minute wait slice, so the first
+		// delivery is handed back, queued, while Hindsight still works.
+		const fake = slowHindsight(f, {
+			stepMs: 3 * 60_000,
+			retainDoneAt: 0,
+			consolidationDoneAt: start + 12 * 60_000,
+		});
+		const first = await f.enqueue();
+		const next = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "next-event",
+			lineageId: "next-message",
+			text: "My oar is red",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		const second = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: next.id,
+			requestId: "next-request",
+		});
+		const { eq } = await import("drizzle-orm");
+		const status = (id: string) =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.id, id))
+				.get();
+
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(status(first.row.id)).toMatchObject({
+			status: "queued",
+			errorCode: "native_consolidation_waiting",
+		});
+		// The old claim rule started the next chat here, mid-consolidation.
+		expect(status(second.row.id)).toMatchObject({
+			status: "queued",
+			startedAt: null,
+		});
+		expect(fake.posted).toEqual([f.source.nativeOperationId]);
+
+		for (let round = 0; round < 40; round++) {
+			if (status(second.row.id)?.status === "succeeded") break;
+			vi.setSystemTime(Date.now() + 61_000);
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+		}
+		expect(status(first.row.id)?.status).toBe("succeeded");
+		expect(status(second.row.id)?.status).toBe("succeeded");
+		expect(fake.posted).toEqual([
+			f.source.nativeOperationId,
+			next.nativeOperationId,
+		]);
+	});
+});

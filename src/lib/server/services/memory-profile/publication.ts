@@ -13,6 +13,7 @@ import {
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { type ActionIntentRecord, parseActionIntent } from "./curation-intent";
+import { BANK_BUSY_WAITING, UNPUBLISHED_CHAT_FACTS } from "./delivery-policy";
 import { recordNativeFactLabels } from "./fact-labels";
 import { NativeMemoryError } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
@@ -1142,6 +1143,103 @@ export function withoutExcludedEvidence(
 	);
 }
 
+/** A chat of the bank whose facts Hindsight may hold unpublished (`unpublishedChats`). */
+export interface UnpublishedChat {
+	id: string;
+	/** A delivery of it is queued or running: it will publish or end. */
+	live: boolean;
+}
+
+/**
+ * The bank's chats (source revisions) whose facts Hindsight may hold while
+ * nothing published them: sent, still pending or staged, never delivered, and
+ * not left out for good (`excludedNativeEvidence`). Publication refuses any
+ * observation resting on such a fact, so while one is there no other chat,
+ * action or cleanup of the bank can publish, and a chat sent meanwhile adds
+ * facts that refuse that one's publication in turn (an import, 2026-11-25:
+ * one delivery waited on Hindsight, the next was sent, both failed, and so
+ * did every later one of the bank). Whether its facts did land is
+ * Hindsight's to say: a chat sent whose retain failed holds none.
+ */
+export function unpublishedChats(
+	tx: Tx,
+	bank: { id: string; userId: string; epoch: number },
+	except: readonly string[] = [],
+): {
+	chats: UnpublishedChat[];
+	/** Facts publication leaves out anyway (`excludedNativeEvidence`): they hold nothing. */
+	excludedFactIds: ReadonlySet<string>;
+} {
+	const rows = tx
+		.select({
+			id: memorySourceRevisions.id,
+			status: memoryDeliveryJobs.status,
+		})
+		.from(memorySourceRevisions)
+		// Only chats a `source` delivery sends; a person's own notes go with
+		// their action and are judged with it.
+		.innerJoin(
+			memoryDeliveryJobs,
+			and(
+				eq(memoryDeliveryJobs.sourceId, memorySourceRevisions.id),
+				eq(memoryDeliveryJobs.kind, "source"),
+			),
+		)
+		.where(
+			and(
+				eq(memorySourceRevisions.userId, bank.userId),
+				eq(memorySourceRevisions.bankId, bank.id),
+				eq(memorySourceRevisions.epoch, bank.epoch),
+				eq(memorySourceRevisions.nativeSubmitted, true),
+				inArray(memorySourceRevisions.state, ["pending", "staged"]),
+			),
+		)
+		.all();
+	if (!rows.length) return { chats: [], excludedFactIds: new Set() };
+	const excluded = excludedNativeEvidence(tx, bank);
+	const left = new Set([...except, ...excluded.sourceIds]);
+	const chats = new Map<string, { live: boolean; delivered: boolean }>();
+	for (const { id, status } of rows) {
+		if (left.has(id)) continue;
+		const chat = chats.get(id) ?? { live: false, delivered: false };
+		if (status === "queued" || status === "running") chat.live = true;
+		if (status === "succeeded") chat.delivered = true;
+		chats.set(id, chat);
+	}
+	return {
+		chats: [...chats]
+			.filter(([, chat]) => !chat.delivered)
+			.map(([id, chat]) => ({ id, live: chat.live })),
+		excludedFactIds: excluded.factIds,
+	};
+}
+
+/** How soon a job waiting for another chat's delivery looks again. */
+const BANK_BUSY_RECHECK_MS = 30_000;
+
+/**
+ * What a job does about another chat's unpublished facts: `wait` while that
+ * chat's delivery is live (a chat not yet sent, a source cleanup: neither
+ * holds that delivery back), `end` at once, retryable, either way (a chat
+ * whose own facts are in Hindsight: the claim holds the other behind it, so
+ * waiting would hold both). Ending leaves both for the operator's repair
+ * (`delivery-policy.ts`).
+ */
+export type UnpublishedChatAnswer = "wait" | "end";
+
+/** Why a job may not go on while these chats' facts sit unpublished. */
+export function unpublishedChatsError(
+	chats: UnpublishedChat[],
+	answer: UnpublishedChatAnswer,
+) {
+	return answer === "wait" && chats.some((chat) => chat.live)
+		? new NativeMemoryError(BANK_BUSY_WAITING, true, {
+				retryAfterMs: BANK_BUSY_RECHECK_MS,
+				waitStartedAt: Date.now(),
+			})
+		: new NativeMemoryError(UNPUBLISHED_CHAT_FACTS, true);
+}
+
 /**
  * Keep another delivery from adopting or adding to an unresolved manual
  * candidate. A Remove holds the bank only while its job may still run: once
@@ -1736,6 +1834,14 @@ export function publishNativeSnapshot(
 		verifiedCuratedDiff?: { sourceId: string; proofs: ReadonlySet<string> };
 		/** The publishing Remove itself: its own exclusion does not apply to its own result. */
 		ownActionId?: string;
+		/**
+		 * A chat delivery (`end`) or a source cleanup (`wait`): another chat's
+		 * facts, sent and never published, make it wait or end retryable
+		 * (`unpublishedChats`, `UnpublishedChatAnswer`) instead of failing for
+		 * good. A person's action keeps the plain refusal: a pending Remove or
+		 * Edit holds the chats' publications, so it must never wait on a chat.
+		 */
+		onUnpublishedChat?: UnpublishedChatAnswer;
 	},
 ) {
 	const prepared = new Map(
@@ -1932,29 +2038,58 @@ export function publishNativeSnapshot(
 		throw new NativeMemoryError("memory_candidate_curation_drift", true);
 	const generation = randomUUID();
 	const checked: Array<{ observation: NativeMemory; text: string }> = [];
+	let unpublished: Map<string, UnpublishedChat> | undefined;
+	/** The other chat, sent and never published, whose fact this is. */
+	const unpublishedChatOf = (factId: string) => {
+		const documentId = raw.get(factId)?.document_id;
+		if (!input.onUnpublishedChat || !documentId) return [];
+		unpublished ??= new Map(
+			unpublishedChats(tx, bank, input.sourceIds).chats.map((chat) => [
+				chat.id,
+				chat,
+			]),
+		);
+		const chat = unpublished.get(documentId);
+		return chat ? [chat] : [];
+	};
+	/** An unrecognized, changed or revoked supporting fact. */
+	const unaccepted = (id: string) => {
+		const a = acknowledged.get(id);
+		return (
+			!a ||
+			raw.get(id)?.text !== a.text ||
+			revoked.some(
+				(r) =>
+					r.sourceId === a.source.id ||
+					(r.nativeFactId === id &&
+						(r.nativeTextHash === null ||
+							r.nativeTextHash === memoryTextHash(a.text))),
+			)
+		);
+	};
 	for (const observation of memories.filter(
 		(m) => m.fact_type === "observation",
 	)) {
 		const ids = observation.source_memory_ids ?? [];
 		// Any unrecognized, changed or revoked supporting fact quarantines the whole candidate row.
-		if (
-			!ids.length ||
-			ids.some((id) => {
-				const a = acknowledged.get(id);
-				return (
-					!a ||
-					raw.get(id)?.text !== a.text ||
-					revoked.some(
-						(r) =>
-							r.sourceId === a.source.id ||
-							(r.nativeFactId === id &&
-								(r.nativeTextHash === null ||
-									r.nativeTextHash === memoryTextHash(a.text))),
-					)
-				);
-			})
-		)
+		const failing = ids.filter(unaccepted);
+		if (!ids.length || failing.length) {
+			// Another chat's facts, sent and not yet published: nothing here is
+			// wrong, so a chat delivery or a cleanup waits for that chat, or,
+			// when its delivery has ended, stays retryable for the operator's
+			// repair, instead of failing for good. Only when every failing
+			// fact is such a chat's: a changed or revoked one is still refused.
+			const waitingFor = failing.map((id) =>
+				acknowledged.has(id) ? [] : unpublishedChatOf(id),
+			);
+			if (
+				input.onUnpublishedChat &&
+				failing.length &&
+				waitingFor.every((chats) => chats.length)
+			)
+				throw unpublishedChatsError(waitingFor.flat(), input.onUnpublishedChat);
 			throw new Error("memory_candidate_unaccepted");
+		}
 		checked.push({
 			observation,
 			text: prepared.get(observation.id) ?? observation.text,

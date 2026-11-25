@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
 
@@ -57,6 +58,10 @@ async function setup() {
 		facts: [] as Fact[],
 		pending: [] as string[],
 		posted: [] as string[],
+		/** Documents deleted, in order. */
+		deleted: [] as string[],
+		/** true = a deleted document's facts stay listed, as if the delete did not take. */
+		keepFactsOnDelete: false,
 		recovered: 0,
 		consolidations: 0,
 		/** How the next retain ends. */
@@ -67,7 +72,14 @@ async function setup() {
 		let data: unknown = {};
 		if (path.endsWith("/config"))
 			data = { config: contracts.nativeBankConfig("personal") };
-		else if (path.endsWith("/memories") && init?.method === "POST") {
+		else if (path.includes("/documents/") && init?.method === "DELETE") {
+			const id = decodeURIComponent(path.split("/documents/")[1]);
+			hindsight.deleted.push(id);
+			if (!hindsight.keepFactsOnDelete)
+				hindsight.facts = hindsight.facts.filter((f) => f.document_id !== id);
+			// Hindsight consolidates what is left again: the bank is busy until then.
+			hindsight.pending.push(`rebuild-after-${id}`);
+		} else if (path.endsWith("/memories") && init?.method === "POST") {
 			const body = JSON.parse(String(init.body));
 			hindsight.posted.push(body.operation_id);
 			if (!hindsight.operations.has(body.operation_id)) {
@@ -179,17 +191,113 @@ async function setup() {
 			.where(eq(schema.users.id, userId))
 			.run();
 	};
+	const { eq } = await import("drizzle-orm");
+	const jobById = (id: string) =>
+		db
+			.select()
+			.from(schema.memoryDeliveryJobs)
+			.where(eq(schema.memoryDeliveryJobs.id, id))
+			.get();
+	const attemptById = (id: string) =>
+		db
+			.select()
+			.from(schema.memoryDeliveryAttempts)
+			.where(eq(schema.memoryDeliveryAttempts.id, id))
+			.get();
+	const setJob = (
+		id: string,
+		values: Partial<typeof schema.memoryDeliveryJobs.$inferInsert>,
+	) =>
+		db
+			.update(schema.memoryDeliveryJobs)
+			.set(values)
+			.where(eq(schema.memoryDeliveryJobs.id, id))
+			.run();
+	/** Another chat of the same bank, its delivery queued. */
+	async function enqueueChat(name: string, runAfter?: Date) {
+		const chat = rev.recordMemorySource({
+			userId: h.userId,
+			bankId: bank.id,
+			epoch: 0,
+			eventId: `${name}-event`,
+			lineageId: `${name}-message`,
+			text: `Synthetic ${name} statement`,
+			context: JSON.stringify({ messages: [] }),
+			assertedAt: new Date("2026-11-19"),
+		});
+		const queued = await jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: chat.id,
+			requestId: `${name}-request`,
+			runAfter,
+		});
+		return { source: chat, jobId: queued.row.id };
+	}
+	/**
+	 * What the failure policy leaves of a job an attempt began: queued again,
+	 * started once, and the error that put it back still on it.
+	 */
+	const putBack = (
+		id: string,
+		dueInMs: number,
+		code = "native_retain_waiting",
+	) =>
+		setJob(id, {
+			status: "queued",
+			errorCode: code,
+			attemptCount: 1,
+			startedAt: new Date(Date.now() - 600_000),
+			runAfter: new Date(Date.now() + dueInMs),
+		});
+	/** A job whose process died: `running`, its lease ten minutes stale. */
+	const leaveRunning = (id: string, attemptCount = 1) => {
+		const old = new Date(Date.now() - 10 * 60_000);
+		const attemptId = randomUUID();
+		setJob(id, {
+			status: "running",
+			currentAttemptId: attemptId,
+			attemptCount,
+			startedAt: old,
+			updatedAt: old,
+		});
+		db.insert(schema.memoryDeliveryAttempts)
+			.values({
+				id: attemptId,
+				jobId: id,
+				attemptNumber: attemptCount,
+				status: "running",
+				workerId: "memory:gone-host:1:dead",
+				claimedAt: old,
+				heartbeatAt: old,
+				startedAt: old,
+				createdAt: old,
+				updatedAt: old,
+			})
+			.run();
+		return attemptId;
+	};
 	return {
 		db,
 		schema,
 		jobs,
 		tools,
+		config,
+		rev,
 		bank,
 		source,
 		hindsight,
 		fetcher,
 		enqueue,
+		enqueueChat,
 		job,
+		jobById,
+		attemptById,
+		setJob,
+		putBack,
+		leaveRunning,
 		revision,
 		failedDelivery,
 		markExcluded,
@@ -522,6 +630,319 @@ describe("the Memory operator tools", () => {
 				code: "job_not_found",
 			});
 			expect(written(f)).toEqual(before);
+		});
+
+		// A chat whose retain landed but whose delivery failed after: its facts hold
+		// the bank up, and the way out is to delete the document and send it again.
+		describe("with deleteLanded", () => {
+			/** A failed delivery whose retain completed, acknowledged, its document holding a fact. */
+			async function landedDelivery(f: Fixture) {
+				const jobId = await f.failedDelivery("completed");
+				f.db
+					.update(f.schema.memorySourceRevisions)
+					.set({
+						nativeAcknowledged: true,
+						acknowledgedFactsJson: JSON.stringify([
+							{ id: "delivered", text: "Green kayak" },
+						]),
+					})
+					.run();
+				return jobId;
+			}
+			const stepNames = (report: { steps: Array<{ step: string }> }) =>
+				report.steps.map((s) => s.step);
+
+			it("looks without writing on a dry run, and says how many facts it would delete", async () => {
+				const f = await setup();
+				const jobId = await landedDelivery(f);
+				const before = written(f);
+				const dry = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: false,
+					deleteLanded: true,
+				});
+				expect(dry.outcome).toBe("dry_run");
+				expect(dry.steps.map((s) => [s.step, s.ok])).toEqual([
+					["guard", true],
+					["job", true],
+					["operation", true],
+					["bank_quiet", true],
+					["document", true],
+				]);
+				expect(dry.steps[1]).toMatchObject({ counts: { acknowledged: 1 } });
+				expect(dry.steps[2]).toMatchObject({ detail: "completed" });
+				expect(dry.steps[4]).toMatchObject({ counts: { facts: 1 } });
+				expect(written(f)).toEqual(before);
+				expect(f.hindsight.deleted).toEqual([]);
+			});
+
+			it("deletes the document, waits for the bank to be quiet, and sends the chat again as if never sent", async () => {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				const jobId = await landedDelivery(f);
+				const old = f.source.nativeOperationId as string;
+				const sleeps: number[] = [];
+				const done = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+					deleteLanded: true,
+					clock: {
+						now: () => Date.now(),
+						sleep: async (ms) => {
+							sleeps.push(ms);
+							// Hindsight finishes consolidating what was left a few looks later.
+							if (sleeps.length === 2) f.hindsight.pending.length = 0;
+							vi.setSystemTime(Date.now() + ms);
+						},
+					},
+				});
+				expect(done.outcome).toBe("done");
+				expect(stepNames(done)).toEqual([
+					"guard",
+					"job",
+					"operation",
+					"bank_quiet",
+					"document",
+					"delete_document",
+					"bank_settled",
+					"document_after",
+					"resend",
+				]);
+				expect(f.hindsight.deleted).toEqual([f.source.id]);
+				expect(sleeps).toEqual([2_000, 2_000]);
+				expect(
+					done.steps.find((s) => s.step === "document_after"),
+				).toMatchObject({ counts: { facts: 0 } });
+				const fresh = f.revision()?.nativeOperationId as string;
+				expect(fresh).not.toBe(old);
+				expect(f.revision()).toMatchObject({
+					nativeSubmitted: false,
+					nativeAcknowledged: false,
+					acknowledgedFactsJson: "[]",
+				});
+				expect(JSON.parse(f.revision()?.context ?? "{}")).toEqual({
+					messages: [],
+					nativeRetainResentFrom: old,
+				});
+				expect(f.job()).toMatchObject({ status: "queued", errorCode: null });
+				// The job sends the whole chat once more, under the fresh operation.
+				await h.engine.drain(f.jobs.memoryDeliveryJob);
+				expect(f.hindsight.posted).toEqual([fresh]);
+				expect(f.job()?.status).toBe("succeeded");
+			});
+
+			it("sends again without deleting when nothing is left under the document", async () => {
+				const f = await setup();
+				const jobId = await f.failedDelivery("failed");
+				f.db
+					.update(f.schema.memorySourceRevisions)
+					.set({
+						nativeAcknowledged: true,
+						acknowledgedFactsJson: JSON.stringify([
+							{ id: "gone", text: "Green kayak" },
+						]),
+					})
+					.run();
+				const done = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+					deleteLanded: true,
+					clock: testClock,
+				});
+				expect(done.outcome).toBe("done");
+				expect(stepNames(done)).toEqual([
+					"guard",
+					"job",
+					"operation",
+					"bank_quiet",
+					"document",
+					"resend",
+				]);
+				expect(f.hindsight.deleted).toEqual([]);
+				expect(f.revision()).toMatchObject({
+					nativeSubmitted: false,
+					nativeAcknowledged: false,
+					acknowledgedFactsJson: "[]",
+				});
+				expect(f.job()?.status).toBe("queued");
+			});
+
+			it("refuses facts_remain, leaving the chat as it was, when the facts are still listed after the delete", async () => {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				const jobId = await landedDelivery(f);
+				f.hindsight.keepFactsOnDelete = true;
+				// The bank is quiet again at the first look.
+				const inner = f.fetcher.getMockImplementation();
+				if (!inner) throw Error("Missing fixture fetch");
+				f.fetcher.mockImplementation(async (url, init) => {
+					const response = await inner(url, init);
+					if (init?.method === "DELETE") f.hindsight.pending.length = 0;
+					return response;
+				});
+				const revisionBefore = JSON.stringify(f.revision());
+				const report = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+					deleteLanded: true,
+					clock: testClock,
+				});
+				expect(report.outcome).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({
+					step: "document_after",
+					ok: false,
+					code: "facts_remain",
+					counts: { facts: 1 },
+				});
+				expect(f.hindsight.deleted).toEqual([f.source.id]);
+				expect(f.job()?.status).toBe("failed");
+				expect(JSON.stringify(f.revision())).toBe(revisionBefore);
+			});
+
+			it("refuses bank_busy, leaving the chat as it was, when the bank never goes quiet after the delete", async () => {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				vi.spyOn(f.config, "getMemoryNativeWaits").mockReturnValue({
+					retainMs: 30_000,
+					consolidationMs: 10_000,
+				});
+				const jobId = await landedDelivery(f);
+				const start = Date.now();
+				const revisionBefore = JSON.stringify(f.revision());
+				const report = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+					deleteLanded: true,
+					clock: testClock,
+				});
+				expect(report.outcome).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({
+					step: "bank_settled",
+					ok: false,
+					code: "bank_busy",
+					counts: { pending: 1 },
+				});
+				// It waited the consolidation wait out and no longer.
+				expect(Date.now() - start).toBe(10_000);
+				expect(f.job()?.status).toBe("failed");
+				expect(JSON.stringify(f.revision())).toBe(revisionBefore);
+			});
+
+			it("refuses at the reopen, after the delete, when the chat changed in between", async () => {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				const jobId = await landedDelivery(f);
+				const inner = f.fetcher.getMockImplementation();
+				if (!inner) throw Error("Missing fixture fetch");
+				f.fetcher.mockImplementation(async (url, init) => {
+					const response = await inner(url, init);
+					if (init?.method === "DELETE") {
+						// The bank is quiet at once, and another operator's resend lands.
+						f.hindsight.pending.length = 0;
+						f.db
+							.update(f.schema.memorySourceRevisions)
+							.set({ nativeOperationId: "another-resend" })
+							.run();
+					}
+					return response;
+				});
+				const report = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+					deleteLanded: true,
+					clock: testClock,
+				});
+				expect(report.outcome).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({
+					step: "resend",
+					ok: false,
+					code: "reopen_refused",
+				});
+				expect(f.job()?.status).toBe("failed");
+				expect(f.revision()?.nativeOperationId).toBe("another-resend");
+			});
+
+			it.each<[string, string, string, (f: Fixture) => void]>([
+				[
+					"the retain is still running",
+					"operation",
+					"operation_processing",
+					(f) =>
+						f.hindsight.operations.set(
+							f.source.nativeOperationId as string,
+							"processing",
+						),
+				],
+				[
+					"the bank is busy",
+					"bank_quiet",
+					"bank_busy",
+					(f) => f.hindsight.pending.push("other-operation"),
+				],
+				[
+					"another process is running the job",
+					"job",
+					"job_running",
+					(f) =>
+						f.db
+							.update(f.schema.memoryDeliveryJobs)
+							.set({ status: "running" })
+							.run(),
+				],
+				[
+					"the chat was withdrawn",
+					"job",
+					"source_revoked",
+					(f) =>
+						f.db
+							.update(f.schema.memorySourceRevisions)
+							.set({ state: "revoked" })
+							.run(),
+				],
+			])(
+				"still refuses, deleting nothing, when %s",
+				async (situation, step, code, arrange) => {
+					const f = await setup();
+					const jobId = await landedDelivery(f);
+					arrange(f);
+					const before = written(f);
+					const report = await f.tools.resendDelivery({
+						userId: h.userId,
+						jobId,
+						execute: true,
+						deleteLanded: true,
+						clock: testClock,
+					});
+					expect(report.outcome, situation).toBe("refused");
+					expect(report.steps.at(-1)).toMatchObject({ step, ok: false, code });
+					expect(f.hindsight.deleted).toEqual([]);
+					expect(written(f)).toEqual(before);
+				},
+			);
+
+			it("without the flag still refuses an acknowledged delivery whose retain landed", async () => {
+				const f = await setup();
+				const jobId = await landedDelivery(f);
+				const before = written(f);
+				const report = await f.tools.resendDelivery({
+					userId: h.userId,
+					jobId,
+					execute: true,
+				});
+				expect(report.outcome).toBe("refused");
+				expect(report.steps.at(-1)).toMatchObject({
+					step: "job",
+					code: "retain_already_acknowledged",
+				});
+				expect(written(f)).toEqual(before);
+				expect(f.hindsight.deleted).toEqual([]);
+			});
 		});
 	});
 
@@ -1026,6 +1447,277 @@ describe("the Memory operator tools", () => {
 			]);
 			expect(f.hindsight.posted).toEqual([]);
 		});
+
+		// A drain stopped mid-attempt (its process killed) leaves its job `running`
+		// with a lease that goes stale and nobody to take it back: it held the box's
+		// one Memory slot, and every account's Memory with it, for forty minutes.
+		it("takes back this account's own job whose worker died, and leaves another account's alone", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			// Room for the other account's dead row beside this one: only the scope is under test.
+			vi.spyOn(f.config, "getConfig").mockReturnValue({
+				...f.config.getConfig(),
+				hindsightConcurrency: 2,
+			});
+			const mine = await f.enqueue();
+			const deadAttempt = f.leaveRunning(mine.row.id);
+			const other = h.fixture.seedUser("user-2");
+			const otherBank = f.rev.ensureMemoryBank(other, { kind: "personal" });
+			const theirs = await f.jobs.enqueueMemoryDelivery({
+				userId: other,
+				bankId: otherBank.id,
+				epoch: 0,
+				kind: "provision",
+				requestId: "their-request",
+			});
+			const theirAttempt = f.leaveRunning(theirs.row.id);
+
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				clock: testClock,
+			});
+
+			expect(report.outcome).toBe("done");
+			expect(report.steps.map((s) => s.step)).toEqual([
+				"guard",
+				"jobs",
+				"worker_enabled",
+				"recover_stale",
+				"retry_failed",
+				"drain",
+				"summary",
+			]);
+			expect(report.steps.find((s) => s.step === "jobs")).toMatchObject({
+				counts: { running: 1 },
+			});
+			expect(
+				report.steps.find((s) => s.step === "recover_stale"),
+			).toMatchObject({ ok: true, counts: { recovered: 1 } });
+			expect(f.attemptById(deadAttempt)).toMatchObject({
+				status: "failed",
+				errorCode: "memory_worker_lost",
+			});
+			// It ran again, to the end.
+			expect(f.jobById(mine.row.id)?.status).toBe("succeeded");
+			expect(f.hindsight.posted).toEqual([f.source.nativeOperationId]);
+			// The other account's worker is theirs to take back.
+			expect(f.jobById(theirs.row.id)?.status).toBe("running");
+			expect(f.attemptById(theirAttempt)?.status).toBe("running");
+		});
+
+		it("leaves a job whose worker still beats alone", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const running = await f.enqueue();
+			const attempt = f.leaveRunning(running.row.id);
+			f.db
+				.update(f.schema.memoryDeliveryAttempts)
+				.set({ heartbeatAt: new Date() })
+				.run();
+			const before = written(f);
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				maxMinutes: 1,
+				clock: testClock,
+			});
+			expect(
+				report.steps.find((s) => s.step === "recover_stale"),
+			).toMatchObject({ counts: { recovered: 0 } });
+			expect(f.attemptById(attempt)?.status).toBe("running");
+			expect(written(f)).toEqual(before);
+		});
+
+		it("retries a job the recovery settled as failed for want of tries", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const mine = await f.enqueue();
+			// Its third attempt is the one that died: the policy has no try left to give.
+			f.leaveRunning(mine.row.id, 3);
+
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				clock: testClock,
+			});
+
+			expect(
+				report.steps.find((s) => s.step === "recover_stale"),
+			).toMatchObject({ counts: { recovered: 1 } });
+			expect(report.steps.find((s) => s.step === "retry_failed")).toMatchObject(
+				{
+					ids: [mine.row.id],
+				},
+			);
+			expect(f.jobById(mine.row.id)?.status).toBe("succeeded");
+		});
+
+		it("resumes its own put-back job before it gives way to another account's due job", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const other = h.fixture.seedUser("user-2");
+			const otherBank = f.rev.ensureMemoryBank(other, { kind: "personal" });
+			const theirs = await f.jobs.enqueueMemoryDelivery({
+				userId: other,
+				bankId: otherBank.id,
+				epoch: 0,
+				kind: "provision",
+				requestId: "their-request",
+			});
+			const mine = await f.enqueue();
+			f.putBack(mine.row.id, -1_000);
+			const atFirstWait: Array<string | undefined> = [];
+
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				clock: {
+					now: () => Date.now(),
+					sleep: async (ms) => {
+						atFirstWait.push(f.jobById(mine.row.id)?.status);
+						vi.setSystemTime(Date.now() + ms);
+					},
+				},
+			});
+
+			expect(report.outcome).toBe("done");
+			// Its wait budget ran while it sat: it was taken up before any waiting.
+			expect(atFirstWait[0]).toBe("succeeded");
+			expect(f.jobById(theirs.row.id)?.status).toBe("queued");
+		});
+
+		describe("past its time limit", () => {
+			// A job put back waiting on Hindsight, due after the limit, and another
+			// chat of the account that was never attempted, due after it too.
+			async function limitedDrain(maxMinutes: number) {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				const first = await f.enqueue();
+				f.putBack(first.row.id, 90_000);
+				const second = await f.enqueueChat(
+					"second",
+					new Date(Date.now() + 75_000),
+				);
+				const start = Date.now();
+				const report = await f.tools.drainMemory({
+					userId: h.userId,
+					execute: true,
+					maxMinutes,
+					clock: testClock,
+				});
+				return {
+					f,
+					first: first.row.id,
+					second,
+					report,
+					elapsed: Date.now() - start,
+				};
+			}
+
+			it("finishes the job it put back, and starts no job that was never attempted", async () => {
+				const { f, first, second, report, elapsed } = await limitedDrain(1);
+
+				expect(report.outcome).toBe("done");
+				expect(f.jobById(first)?.status).toBe("succeeded");
+				expect(f.jobById(second.jobId)).toMatchObject({
+					status: "queued",
+					attemptCount: 0,
+				});
+				// Only the first chat was sent; it ran after the limit.
+				expect(f.hindsight.posted).toEqual([f.source.nativeOperationId]);
+				expect(elapsed).toBeGreaterThan(60_000);
+				expect(report.steps.find((s) => s.step === "drain")).toMatchObject({
+					ok: true,
+					counts: { finishedAfterDeadline: 1, leftInFlight: 0 },
+				});
+				expect(report.steps.find((s) => s.step === "summary")?.skipped).toEqual(
+					[{ id: second.jobId, kind: "source", status: "queued", code: null }],
+				);
+			});
+
+			it("starts that other chat too when the limit has not passed", async () => {
+				const { f, first, second, report } = await limitedDrain(10);
+
+				expect(f.jobById(first)?.status).toBe("succeeded");
+				expect(f.jobById(second.jobId)?.status).toBe("succeeded");
+				expect(report.steps.find((s) => s.step === "drain")).toMatchObject({
+					counts: { finishedAfterDeadline: 0, leftInFlight: 0 },
+				});
+			});
+
+			it("ends its tail at both of Hindsight's waits, leaving a job it could not claim", async () => {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				vi.spyOn(f.config, "getMemoryNativeWaits").mockReturnValue({
+					retainMs: 60_000,
+					consolidationMs: 120_000,
+				});
+				// Another account's job holds the one slot (HINDSIGHT_CONCURRENCY 1) all along.
+				const other = h.fixture.seedUser("user-2");
+				const otherBank = f.rev.ensureMemoryBank(other, { kind: "personal" });
+				const theirs = await f.jobs.enqueueMemoryDelivery({
+					userId: other,
+					bankId: otherBank.id,
+					epoch: 0,
+					kind: "provision",
+					requestId: "their-request",
+				});
+				f.setJob(theirs.row.id, { status: "running" });
+				const mine = await f.enqueue();
+				f.putBack(mine.row.id, -1_000);
+				const start = Date.now();
+
+				const report = await f.tools.drainMemory({
+					userId: h.userId,
+					execute: true,
+					maxMinutes: 1,
+					clock: testClock,
+				});
+
+				expect(report.outcome).toBe("done");
+				// The limit, then the two waits, and no further than one look past them.
+				expect(Date.now() - start).toBeGreaterThanOrEqual(60_000 + 180_000);
+				expect(Date.now() - start).toBeLessThan(60_000 + 180_000 + 10_000);
+				expect(report.steps.find((s) => s.step === "drain")).toMatchObject({
+					ok: true,
+					counts: { finishedAfterDeadline: 0, leftInFlight: 1 },
+				});
+				expect(report.steps.find((s) => s.step === "summary")?.skipped).toEqual(
+					[
+						{
+							id: mine.row.id,
+							kind: "source",
+							status: "queued",
+							code: "native_retain_waiting",
+						},
+					],
+				);
+				expect(f.hindsight.posted).toEqual([]);
+			});
+
+			it("does not wait on a drain that has nothing in flight", async () => {
+				const f = await setup();
+				vi.useFakeTimers({ toFake: ["Date"] });
+				// Never attempted, and not due until well past the limit.
+				await f.enqueueChat("later", new Date(Date.now() + 10 * 60_000));
+				const start = Date.now();
+
+				const report = await f.tools.drainMemory({
+					userId: h.userId,
+					execute: true,
+					maxMinutes: 1,
+					clock: testClock,
+				});
+
+				expect(report.outcome).toBe("done");
+				// It ended with the limit: there was nothing to finish.
+				expect(Date.now() - start).toBeLessThan(60_000 + 10_000);
+				expect(report.steps.find((s) => s.step === "drain")).toMatchObject({
+					counts: { finishedAfterDeadline: 0, leftInFlight: 0 },
+				});
+			});
+		});
 	});
 });
 
@@ -1034,6 +1726,12 @@ it("prints nothing of a chat's text in any report", async () => {
 	const jobId = await f.failedDelivery("completed");
 	const reports = await Promise.all([
 		f.tools.resendDelivery({ userId: h.userId, jobId, execute: false }),
+		f.tools.resendDelivery({
+			userId: h.userId,
+			jobId,
+			execute: false,
+			deleteLanded: true,
+		}),
 		f.tools.reattachDelivery({ userId: h.userId, jobId, execute: false }),
 	]);
 	expect(JSON.stringify(reports)).not.toMatch(/kayak/i);
