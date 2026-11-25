@@ -8,7 +8,7 @@ import {
 	memoryDeliveryJobs,
 	memorySourceRevisions,
 } from "$lib/server/db/schema";
-import { drainUser, reopen, retry } from "../jobs";
+import { drainUser, recover, reopen, retry } from "../jobs";
 import { memoryDeliveryEnabled, memoryDeliveryJob } from "./delivery-job";
 import { freshDeliveryAttempts } from "./delivery-policy";
 import {
@@ -254,29 +254,50 @@ async function documentFacts(client: HindsightClient, sourceId: string) {
  * a fresh operation ID, written as not yet sent so nothing polls it before the
  * job sends it, its retain bookkeeping is cleared and the old ID is kept as
  * `nativeRetainResentFrom`; the job is reopened with its whole attempt limit.
+ *
+ * With `deleteLanded` it also takes a chat whose retain did land (its
+ * operation completed, its document holds facts, the revision may be
+ * acknowledged): the repair of a bank those facts hold up. It deletes the
+ * document in Hindsight, waits until the bank is quiet again (Hindsight then
+ * consolidates what is left afresh), checks that no fact remains under the
+ * document, and writes the revision as never sent and never acknowledged
+ * before it reopens the job. The checks that come first are the same, so a
+ * busy bank or a retain still running refuses before anything is deleted.
  */
 export function resendDelivery(input: {
 	userId: string;
 	jobId: string;
 	execute: boolean;
+	deleteLanded?: boolean;
+	clock?: OperatorClock;
 }): Promise<OperatorReport> {
+	const clock = input.clock ?? realClock;
+	const deleteLanded = input.deleteLanded === true;
 	return runTool("resend", input.userId, input.execute, async (step) => {
 		await guard(step, input.userId);
 		const found = await step(
 			"job",
 			() => {
 				const delivery = failedSourceDelivery(input.userId, input.jobId);
-				if (delivery.source.nativeAcknowledged)
+				if (delivery.source.nativeAcknowledged && !deleteLanded)
 					throw new Refusal("retain_already_acknowledged");
 				return delivery;
 			},
 			({ job, source }) => ({
 				ids: [job.id, source.id],
-				counts: { attempts: job.attemptCount },
+				counts: {
+					attempts: job.attemptCount,
+					...(deleteLanded
+						? { acknowledged: source.nativeAcknowledged ? 1 : 0 }
+						: {}),
+				},
 			}),
 		);
 		const { job, source } = found;
 		const client = clientFor(found.bank, found.account);
+		const endedOperation = deleteLanded
+			? ["completed", "failed", "cancelled", "not_found"]
+			: ["failed", "cancelled", "not_found"];
 		await step(
 			"operation",
 			async () => {
@@ -284,24 +305,56 @@ export function resendDelivery(input: {
 					client,
 					source.nativeOperationId as string,
 				);
-				if (!["failed", "cancelled", "not_found"].includes(status))
+				if (!endedOperation.includes(status))
 					throw new Refusal(`operation_${status}`, { detail: status });
 				return status;
 			},
 			(status) => ({ detail: status }),
 		);
 		await quietBank(step, client);
-		await step(
+		const facts = await step(
 			"document",
 			async () => {
 				const facts = await documentFacts(client, source.id);
-				if (facts)
+				if (facts && !deleteLanded)
 					throw new Refusal("facts_under_document", { counts: { facts } });
 				return facts;
 			},
 			(facts) => ({ counts: { facts } }),
 		);
 		if (!input.execute) return "dry_run";
+		if (deleteLanded && facts > 0) {
+			await step(
+				"delete_document",
+				() => client.deleteDocument(source.id),
+				() => ({ ids: [source.id] }),
+			);
+			// Hindsight drops every observation that cited the document's facts and
+			// consolidates the rest again: the resend must not meet that half done.
+			await step(
+				"bank_settled",
+				async () => {
+					const pending = await waitForQuietBank(
+						client,
+						getMemoryNativeWaits().consolidationMs,
+						clock,
+					);
+					if (pending) throw new Refusal("bank_busy", { counts: { pending } });
+					return pending;
+				},
+				(pending) => ({ counts: { pending } }),
+			);
+			await step(
+				"document_after",
+				async () => {
+					const left = await documentFacts(client, source.id);
+					if (left)
+						throw new Refusal("facts_remain", { counts: { facts: left } });
+					return left;
+				},
+				(left) => ({ counts: { facts: left } }),
+			);
+		}
 		const freshId = randomUUID();
 		await step(
 			"resend",
@@ -325,6 +378,11 @@ export function resendDelivery(input: {
 							.set({
 								nativeOperationId: freshId,
 								nativeSubmitted: false,
+								// A chat that had landed starts over: its delivery acknowledged
+								// facts that are gone now.
+								...(deleteLanded
+									? { nativeAcknowledged: false, acknowledgedFactsJson: "[]" }
+									: {}),
 								context: JSON.stringify({
 									...envelope,
 									[RETAIN_RESENT_FROM]: source.nativeOperationId,
@@ -439,6 +497,23 @@ async function waitForOperation(
 	}
 }
 
+/**
+ * Polls until Hindsight holds no pending or processing operation of the bank,
+ * for at most `waitMs`. Returns how many were left at the last look.
+ */
+async function waitForQuietBank(
+	client: HindsightClient,
+	waitMs: number,
+	clock: OperatorClock,
+): Promise<number> {
+	const deadline = clock.now() + waitMs;
+	for (;;) {
+		const pending = (await client.pendingOperations()).length;
+		if (!pending || clock.now() >= deadline) return pending;
+		await clock.sleep(2_000);
+	}
+}
+
 /** Time for the tools that wait; tests hand in their own. */
 export interface OperatorClock {
 	now(): number;
@@ -543,6 +618,24 @@ function userJobs(userId: string) {
 		.all();
 }
 
+type DeliveryJob = typeof memoryDeliveryJobs.$inferSelect;
+
+/**
+ * Work an attempt began and the failure policy put back (a wait on Hindsight, a
+ * counted retry, a lost worker): `drainUser`'s `resumeOnly` claims exactly
+ * these. A job a person or an operator reopened has no error and is not one.
+ */
+function putBack(job: DeliveryJob) {
+	return (
+		job.status === "queued" && job.startedAt !== null && job.errorCode !== null
+	);
+}
+
+/** What a drain past its time limit still waits for: a job put back, or one that runs. */
+function inFlight(job: DeliveryJob) {
+	return job.status === "running" || putBack(job);
+}
+
 /** How long the drain waits before it looks again at a job it could not run now. */
 const DRAIN_RECHECK_MS = 5_000;
 
@@ -553,7 +646,8 @@ const DRAIN_RECHECK_MS = 5_000;
  * again the moment a job ended held everyone else's new memories behind the
  * whole account (a 2,000-message import: two days). Their workers look every
  * 30 seconds; a due job none of them takes up within this long holds it no
- * longer.
+ * longer. A job of its own that was put back is resumed first, without giving
+ * way.
  */
 const DRAIN_GIVE_WAY_MS = 5 * 60_000;
 
@@ -565,11 +659,23 @@ function countByStatus(jobs: Array<{ status: string }>) {
 
 /**
  * Drains one account's Memory jobs to the end, from an operator's process.
- * It retries each failed job whose failure is retryable once (the person's own
- * Retry, under the job's own attempt limit), then runs the account's claimable
- * jobs (`drainUser`), waiting for each job put back behind a delay (a hold, a
- * wait on Hindsight) instead of stopping, for at most `maxMinutes`. Before
- * each claim it gives way to other accounts' due jobs (`DRAIN_GIVE_WAY_MS`).
+ * It first takes back this account's own jobs whose worker died (a drain
+ * stopped mid-attempt leaves one `running` and holding the box's one Memory
+ * slot), retries each failed job whose failure is retryable once (the person's
+ * own Retry, under the job's own attempt limit), then runs the account's
+ * claimable jobs (`drainUser`), waiting for each job put back behind a delay (a
+ * hold, a wait on Hindsight) instead of stopping, for at most `maxMinutes`.
+ * Before each claim of new work it gives way to other accounts' due jobs
+ * (`DRAIN_GIVE_WAY_MS`).
+ *
+ * `maxMinutes` ends the starting of work, not the finishing of it: past it the
+ * drain starts no job that was never attempted, but keeps resuming the jobs it
+ * put back and waits for one that runs (`resumeOnly`), because a job left
+ * put back mid-flight would hold its bank until the next drain. That tail is
+ * bounded by both of Hindsight's waits together (`getMemoryNativeWaits`), the
+ * longest a job the failure policy keeps waiting can last, so a job that never
+ * becomes claimable cannot keep the drain for ever.
+ *
  * It never stops at a failed or held job, and ends with every job it did not
  * finish: its id, kind, status and error code.
  */
@@ -583,7 +689,7 @@ export function drainMemory(input: {
 	const maxMs = Math.max(1, input.maxMinutes ?? 60) * 60_000;
 	return runTool("drain", input.userId, input.execute, async (step) => {
 		await guard(step, input.userId);
-		const before = await step(
+		await step(
 			"jobs",
 			() => userJobs(input.userId),
 			(jobs) => ({ counts: countByStatus(jobs) }),
@@ -592,11 +698,24 @@ export function drainMemory(input: {
 		await step("worker_enabled", () => {
 			if (!memoryDeliveryEnabled()) throw new Refusal("memory_worker_disabled");
 		});
+		// Only rows whose lease is stale: a job another process is running and
+		// beating on is left alone.
+		await step(
+			"recover_stale",
+			async () =>
+				(
+					await recover(memoryDeliveryJob, {
+						where: (jobs) => eq(jobs.userId, input.userId),
+					})
+				).recovered,
+			(recovered) => ({ counts: { recovered } }),
+		);
 		await step(
 			"retry_failed",
 			async () => {
 				const retried: string[] = [];
-				for (const job of before)
+				// Read after the recovery: it may have settled a job as failed.
+				for (const job of userJobs(input.userId))
 					if (
 						job.status === "failed" &&
 						job.retryable &&
@@ -608,20 +727,42 @@ export function drainMemory(input: {
 			(retried) => ({ ids: retried, counts: { retried: retried.length } }),
 		);
 		const deadline = clock.now() + maxMs;
-		const rounds = await step(
+		const drained = await step(
 			"drain",
 			async () => {
+				const waits = getMemoryNativeWaits();
+				const tailMs = waits.retainMs + waits.consolidationMs;
+				const tail = { since: null as number | null, carried: [] as string[] };
+				/** Whether the time limit has passed; the first look past it names what is in flight. */
+				const pastLimit = () => {
+					if (tail.since === null && clock.now() >= deadline) {
+						tail.since = clock.now();
+						tail.carried = userJobs(input.userId)
+							.filter(inFlight)
+							.map((job) => job.id);
+					}
+					return tail.since !== null;
+				};
 				let rounds = 0;
+				let left = 0;
 				for (;;) {
 					rounds += 1;
-					await drainUser(memoryDeliveryJob, input.userId, {
-						giveWayForMs: DRAIN_GIVE_WAY_MS,
-						clock,
-					});
-					const open = userJobs(input.userId).filter(
-						(job) => job.status === "queued" || job.status === "running",
+					await drainUser(
+						memoryDeliveryJob,
+						input.userId,
+						pastLimit()
+							? { resumeOnly: true, clock }
+							: { giveWayForMs: DRAIN_GIVE_WAY_MS, clock },
 					);
-					if (!open.length || clock.now() >= deadline) return rounds;
+					const late = pastLimit();
+					const open = userJobs(input.userId).filter(
+						late
+							? inFlight
+							: (job) => job.status === "queued" || job.status === "running",
+					);
+					const until = late ? (tail.since as number) + tailMs : deadline;
+					left = open.length;
+					if (!open.length || (late && clock.now() >= until)) break;
 					// Wait for the first job put back behind a delay. One another
 					// process is running, or one already due that this drain could
 					// not claim (another process holds its bank, its account's turn
@@ -637,11 +778,26 @@ export function drainMemory(input: {
 						),
 					);
 					await clock.sleep(
-						Math.max(500, Math.min(next, deadline) - clock.now() + 1_000),
+						Math.max(500, Math.min(next, until) - clock.now() + 1_000),
 					);
 				}
+				const finished = new Set(
+					userJobs(input.userId)
+						.filter(
+							(job) => job.status !== "queued" && job.status !== "running",
+						)
+						.map((job) => job.id),
+				);
+				return {
+					rounds,
+					finishedAfterDeadline: tail.carried.filter((id) => finished.has(id))
+						.length,
+					leftInFlight: left,
+				};
 			},
-			(rounds) => ({ counts: { rounds } }),
+			({ rounds, finishedAfterDeadline, leftInFlight }) => ({
+				counts: { rounds, finishedAfterDeadline, leftInFlight },
+			}),
 		);
 		await step(
 			"summary",
@@ -659,7 +815,10 @@ export function drainMemory(input: {
 						})),
 				};
 			},
-			(summary) => ({ ...summary, counts: { ...summary.counts, rounds } }),
+			(summary) => ({
+				...summary,
+				counts: { ...summary.counts, rounds: drained.rounds },
+			}),
 		);
 		return "done";
 	});
