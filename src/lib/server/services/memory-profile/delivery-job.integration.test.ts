@@ -3026,6 +3026,37 @@ describe("a person's note or a repair's replacement unpublished in Hindsight", (
 		expect(posts()).toBe(0);
 	});
 
+	it("still stops a chat for leftover facts no consolidation has taken up yet: the next one will cite them", async () => {
+		const { f, writer, posts, mine } = await withWriter(
+			"replacement",
+			"failed",
+			{ cited: false },
+		);
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = data.items.map((item) =>
+				item.document_id === writer.id
+					? { ...item, consolidated_at: null }
+					: item,
+			);
+			return new Response(JSON.stringify({ ...data, items }));
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+		});
+		expect(posts()).toBe(0);
+	});
+
 	it("sends as usual when no observation rests on the leftover facts: publication judges observations", async () => {
 		const { f, posts, mine } = await withWriter("replacement", "failed", {
 			cited: false,

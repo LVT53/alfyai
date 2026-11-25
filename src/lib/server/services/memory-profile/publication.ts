@@ -1214,8 +1214,13 @@ export function unpublishedChats(
 			),
 		)
 		.all();
+	// Nothing listed, nothing to judge: the exclusion read is skipped.
+	if (!revisions.length)
+		return {
+			chats: [],
+			excluded: { factIds: new Set<string>(), sourceIds: new Set<string>() },
+		};
 	const excluded = excludedNativeEvidence(tx, bank);
-	if (!revisions.length) return { chats: [], excluded };
 	const left = new Set([...except, ...excluded.sourceIds]);
 	const candidates = revisions.filter(({ id }) => !left.has(id));
 	// Each writer's jobs: a chat's own `source` jobs, a note's action jobs, a
@@ -1304,8 +1309,10 @@ export function unpublishedChats(
  * The unpublished writers (`unpublishedChats`) whose facts in this snapshot
  * publication would refuse: a fact an observation rests on, once what
  * publication leaves out anyway is gone with every observation resting on it
- * (`withoutExcludedEvidence`). A fact no observation rests on refuses
- * nothing: publication judges observations.
+ * (`withoutExcludedEvidence`), or one not consolidated yet, which the next
+ * consolidation (the asker's own included) will put under an observation. A
+ * consolidated fact no observation rests on refuses nothing: publication
+ * judges observations.
  */
 export function landedChats(
 	found: ReturnType<typeof unpublishedChats>,
@@ -1325,7 +1332,9 @@ export function landedChats(
 		if (
 			fact.fact_type !== "observation" &&
 			fact.document_id &&
-			cited.has(fact.id)
+			(cited.has(fact.id) ||
+				!fact.consolidated_at ||
+				fact.consolidation_failed_at)
 		)
 			landed.add(fact.document_id);
 	return found.chats.filter((chat) => landed.has(chat.id));
