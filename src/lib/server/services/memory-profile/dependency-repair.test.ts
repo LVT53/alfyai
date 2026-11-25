@@ -2735,7 +2735,11 @@ it.each([
 					.get(),
 			).toMatchObject({
 				status: "queued",
-				errorCode: "memory_dependency_restore_pending",
+				// A rollback that already retained a replacement is live work in
+				// flight: the cleanup waits for it before it captures anything.
+				errorCode: descendant
+					? "native_bank_busy_waiting"
+					: "memory_dependency_restore_pending",
 			});
 			expect(f.retained).toHaveLength(scheduledRetains);
 			f.db

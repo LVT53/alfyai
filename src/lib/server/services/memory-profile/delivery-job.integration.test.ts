@@ -2877,3 +2877,194 @@ describe("an import drained while a delivery waits on Hindsight (2026-11-25)", (
 		]);
 	});
 });
+
+describe("a person's note or a repair's replacement unpublished in Hindsight", () => {
+	/**
+	 * A writer of the bank with no chat delivery of its own, sent, its facts in
+	 * Hindsight's listing (cited by an observation unless `cited` is false),
+	 * owned by a job in `status`.
+	 */
+	async function withWriter(
+		kind: "note" | "replacement",
+		status: "queued" | "failed" | "succeeded",
+		options: { cited?: boolean } = {},
+	) {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const { randomUUID } = await import("node:crypto");
+		const actionId = randomUUID();
+		const owner = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: kind === "note" ? "action" : "source_cleanup",
+			...(kind === "note" ? { actionId } : { sourceId: f.source.id }),
+			requestId: `${kind}-owner`,
+		});
+		const writer = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId:
+				kind === "note"
+					? `manual:${actionId}`
+					: `dependency:${owner.row.id}:${f.source.id}`,
+			lineageId: kind === "note" ? actionId : "replaced-message",
+			text: "Synthetic written statement",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				nativeSubmitted: true,
+				nativeAcknowledged: true,
+				...(kind === "replacement" ? { state: "repair_held" } : {}),
+			})
+			.where(eq(f.schema.memorySourceRevisions.id, writer.id))
+			.run();
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			// Queued, it stays live and is not due within the test.
+			.set({ status, runAfter: new Date(Date.now() + 3_600_000) })
+			.where(eq(f.schema.memoryDeliveryJobs.id, owner.row.id))
+			.run();
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = [
+				...data.items,
+				{
+					id: "written-fact",
+					text: "Written statement",
+					fact_type: "world",
+					consolidated_at: "2026-11-19T00:00:00Z",
+					document_id: writer.id,
+				},
+				...(options.cited === false
+					? []
+					: [
+							{
+								id: "written-observation",
+								text: "Written statement",
+								fact_type: "observation",
+								source_memory_ids: ["written-fact"],
+							},
+						]),
+			];
+			return new Response(
+				JSON.stringify({ ...data, total: items.length, items }),
+			);
+		});
+		const posts = () =>
+			f.fetcher.mock.calls.filter(
+				([url, init]) =>
+					String(url).endsWith("/memories") && init?.method === "POST",
+			).length;
+		const mine = () =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.sourceId, f.source.id))
+				.all()
+				.find((job) => job.kind === "source");
+		const { unpublishedChats } = await import("./publication");
+		const listed = (ownJobId?: string) =>
+			f.db.transaction(
+				(tx) => unpublishedChats(tx, f.bank, [], ownJobId).chats,
+			);
+		return { f, writer, owner: owner.row.id, posts, mine, listed };
+	}
+
+	it("lists a person's note as live while its action's job is queued", async () => {
+		const note = await withWriter("note", "queued");
+		expect(note.listed()).toEqual([
+			{ id: note.writer.id, kind: "note", live: true },
+		]);
+	});
+
+	it("lists a repair's replacement as ended once its job failed, and never to that job itself", async () => {
+		const replacement = await withWriter("replacement", "failed");
+		expect(replacement.listed()).toEqual([
+			{ id: replacement.writer.id, kind: "replacement", live: false },
+		]);
+		expect(replacement.listed(replacement.owner)).toEqual([]);
+	});
+
+	it("lists nothing once the writer's job succeeded", async () => {
+		const done = await withWriter("note", "succeeded");
+		expect(done.listed()).toEqual([]);
+	});
+
+	it("does not send a chat while a person's note, sent by an action still running, has facts there", async () => {
+		const { f, posts, mine } = await withWriter("note", "queued");
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "queued",
+			errorCode: "native_bank_busy_waiting",
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("ends a chat retryable before it sends while a replacement whose repair ended has facts there", async () => {
+		const { f, posts, mine } = await withWriter("replacement", "failed");
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("still stops a chat for leftover facts no consolidation has taken up yet: the next one will cite them", async () => {
+		const { f, writer, posts, mine } = await withWriter(
+			"replacement",
+			"failed",
+			{ cited: false },
+		);
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = data.items.map((item) =>
+				item.document_id === writer.id
+					? { ...item, consolidated_at: null }
+					: item,
+			);
+			return new Response(JSON.stringify({ ...data, items }));
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("sends as usual when no observation rests on the leftover facts: publication judges observations", async () => {
+		const { f, posts, mine } = await withWriter("replacement", "failed", {
+			cited: false,
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()?.status).toBe("succeeded");
+		expect(posts()).toBe(1);
+	});
+});

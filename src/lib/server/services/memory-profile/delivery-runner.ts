@@ -48,6 +48,7 @@ import {
 	approvedMigrationObservationWording,
 	assertCurationPublication,
 	keepPublishedGeneration,
+	landedChats,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
@@ -332,7 +333,7 @@ async function chatsClearedForSend(
 	bank: typeof memoryBanks.$inferSelect,
 ): Promise<Set<string>> {
 	const found = db.transaction((tx) =>
-		unpublishedChats(tx, bank, row.sourceId ? [row.sourceId] : []),
+		unpublishedChats(tx, bank, row.sourceId ? [row.sourceId] : [], row.id),
 	);
 	if (!found.chats.length) return new Set();
 	// Nothing of this chat is in Hindsight yet: it may wait for a live one.
@@ -341,39 +342,23 @@ async function chatsClearedForSend(
 	return new Set(found.chats.map((chat) => chat.id));
 }
 /**
- * The unpublished chats whose facts are in this snapshot. A fact publication
- * leaves out anyway (a Remove's family) holds nothing.
- */
-function landedChats(
-	found: ReturnType<typeof unpublishedChats>,
-	memories: NativeMemory[],
-) {
-	const landed = new Set<string>();
-	for (const fact of memories)
-		if (
-			fact.fact_type !== "observation" &&
-			fact.document_id &&
-			!found.excludedFactIds.has(fact.id)
-		)
-			landed.add(fact.document_id);
-	return found.chats.filter((chat) => landed.has(chat.id));
-}
-/**
  * Before a dependency repair writes replacements: refuses while another
- * chat's unpublished facts are in the snapshot, waiting for a live one and
- * ending retryable for one whose delivery ended, since replacements written
- * now would sit unpublished beside them, each refusing the other's
- * publication.
+ * writer's unpublished facts are in the snapshot, waiting for a live one and
+ * ending retryable for a chat whose delivery ended, since replacements
+ * written now would sit unpublished beside them, each refusing the other's
+ * publication. A note or a replacement whose job ended (a cancelled Edit's)
+ * is left to the repair, which may be what settles it.
  */
 function assertNoUnpublishedChatFacts(
+	row: typeof memoryDeliveryJobs.$inferSelect,
 	bank: typeof memoryBanks.$inferSelect,
 	except: string[],
 	memories: NativeMemory[],
 ) {
 	const blocking = landedChats(
-		db.transaction((tx) => unpublishedChats(tx, bank, except)),
+		db.transaction((tx) => unpublishedChats(tx, bank, except, row.id)),
 		memories,
-	);
+	).filter((writer) => writer.live || writer.kind === "chat");
 	if (blocking.length) throw unpublishedChatsError(blocking, "wait");
 }
 function assertDelivery(tx: Tx, row: typeof memoryDeliveryJobs.$inferSelect) {
@@ -629,13 +614,13 @@ export async function runMemoryDelivery(
 			// no-op, so the retry deletes again harmlessly), and never writes into
 			// a bank holding another chat's unpublished facts.
 			const liveChats = db
-				.transaction((tx) => unpublishedChats(tx, bank))
+				.transaction((tx) => unpublishedChats(tx, bank, [], row.id))
 				.chats.filter((chat) => chat.live);
 			if (liveChats.length) throw unpublishedChatsError(liveChats, "wait");
 			const memories = await captureSettledNative(client, ctx.signal);
 			if (memories.some((f) => f.document_id === source.id))
 				throw new NativeMemoryError("memory_cleanup_incomplete", true);
-			assertNoUnpublishedChatFacts(bank, [], memories);
+			assertNoUnpublishedChatFacts(row, bank, [], memories);
 			const { checkDeletedSourceRepair, replaySourceCuration } = await import(
 				"./curation-runner"
 			);
@@ -981,7 +966,7 @@ export async function runMemoryDelivery(
 			replayed.verify(memories);
 			// Its repair writes replacements: never beside another chat's
 			// unpublished facts.
-			assertNoUnpublishedChatFacts(bank, [source.id], memories);
+			assertNoUnpublishedChatFacts(row, bank, [source.id], memories);
 			const repair = await runDependencyRepair(
 				ctx,
 				client,
@@ -1069,9 +1054,12 @@ export async function runMemoryDelivery(
 					source = assertDelivery(tx, row).source;
 					checkPendingCuration(tx);
 					if (clearedChats) {
-						const unchecked = unpublishedChats(tx, bank, [
-							source.id,
-						]).chats.filter((chat) => !clearedChats.has(chat.id));
+						const unchecked = unpublishedChats(
+							tx,
+							bank,
+							[source.id],
+							row.id,
+						).chats.filter((chat) => !clearedChats.has(chat.id));
 						if (unchecked.length)
 							throw unpublishedChatsError(unchecked, "wait");
 					}
