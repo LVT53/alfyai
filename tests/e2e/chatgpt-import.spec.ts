@@ -22,6 +22,29 @@ function projectId(): string {
 	return `g-p-${randomUUID().replaceAll("-", "")}`;
 }
 
+function exportMessage(
+	id: string,
+	role: "user" | "assistant",
+	text: string,
+	createTime: number,
+) {
+	return {
+		id,
+		author: { role, name: null, metadata: {} },
+		create_time: createTime,
+		update_time: null,
+		content: { content_type: "text", parts: [text] },
+		status: "finished_successfully",
+		end_turn: null,
+		weight: 1,
+		metadata: {},
+		recipient: "all",
+		channel: null,
+	};
+}
+
+// A chat as a late-2026 export writes it: each node names its parent and no
+// node lists its children (an import of such an export failed for every chat).
 function exportEntry(title: string, inProject: string | null = null) {
 	const id = randomUUID();
 	return {
@@ -31,25 +54,27 @@ function exportEntry(title: string, inProject: string | null = null) {
 		title,
 		create_time: 1700000000,
 		update_time: 1700000100,
-		current_node: "question",
+		current_node: "answer",
 		mapping: {
 			question: {
 				id: "question",
 				parent: null,
-				children: [],
-				message: {
-					id: "question",
-					author: { role: "user", name: null, metadata: {} },
-					create_time: 1700000000,
-					update_time: null,
-					content: { content_type: "text", parts: [`A question for ${title}`] },
-					status: "finished_successfully",
-					end_turn: null,
-					weight: 1,
-					metadata: {},
-					recipient: "all",
-					channel: null,
-				},
+				message: exportMessage(
+					"question",
+					"user",
+					`A question for ${title}`,
+					1700000000,
+				),
+			},
+			answer: {
+				id: "answer",
+				parent: "question",
+				message: exportMessage(
+					"answer",
+					"assistant",
+					`An answer for ${title}`,
+					1700000050,
+				),
 			},
 		},
 	};

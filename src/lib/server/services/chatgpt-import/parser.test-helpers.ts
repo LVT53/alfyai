@@ -109,12 +109,13 @@ export function makeCodeMessage(
 	});
 }
 
+/** A node as an older export writes it, its children listed. */
 export function makeNode(
 	id: string,
 	message: ChatGPTMessage | null,
 	parent: string | null,
 	children: string[],
-): ChatGPTMappingNode {
+): ChatGPTMappingNode & { children: string[] } {
 	return { id, message, parent, children };
 }
 

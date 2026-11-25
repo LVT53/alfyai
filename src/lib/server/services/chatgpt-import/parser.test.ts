@@ -1255,3 +1255,86 @@ describe("parseConversationsJson with a selection", () => {
 		expect(result.errors).toEqual([]);
 	});
 });
+
+// ─── A late-2026 export: nodes name their parent, never their children ──
+
+describe("an export whose nodes carry no children (late 2026)", () => {
+	// Exports from late 2026 give each node only id, message and parent: every
+	// chat of one such export failed with "Cannot read properties of undefined
+	// (reading 'length')" where the parser read a node's children.
+	function node(
+		id: string,
+		message: ChatGPTMessage | null,
+		parent: string | null,
+	): ChatGPTMappingNode {
+		return { id, message, parent };
+	}
+	function msg(
+		id: string,
+		role: "user" | "assistant",
+		text: string,
+		weight = 1,
+	): ChatGPTMessage {
+		return makeTextMessage(text, {
+			id,
+			author: { role, name: null, metadata: {} },
+			weight,
+		});
+	}
+
+	it("imports the chat's messages without an error", async () => {
+		const zip = await makeZipWithConversations([
+			makeConversation({
+				mapping: {
+					root: node("root", null, null),
+					q: node("q", msg("m1", "user", "Hello"), "root"),
+					a: node("a", msg("m2", "assistant", "Hi there"), "q"),
+				},
+				current_node: "a",
+			}),
+		]);
+
+		const result = await parseConversationsJson(zip);
+
+		expect(result.errors).toEqual([]);
+		expect(result.conversations).toHaveLength(1);
+		expect(result.conversations[0].messages.map((m) => m.content)).toEqual([
+			"Hello",
+			"Hi there",
+		]);
+	});
+
+	it("still finds ChatGPT's branches, from the parent each node names", () => {
+		const mapping: Record<string, ChatGPTMappingNode> = {
+			n1: node("n1", msg("m1", "user", "Q1"), null),
+			n2a: node("n2a", msg("m2a", "assistant", "A1 v1"), "n1"),
+			n2b: node("n2b", msg("m2b", "assistant", "A1 v2", 0.5), "n1"),
+			n3a: node("n3a", msg("m3a", "user", "Q2 after v1"), "n2a"),
+			n3b: node("n3b", msg("m3b", "user", "Q2 after v2"), "n2b"),
+		};
+
+		const result = detectBranches(mapping, "n3a");
+
+		expect(result).toHaveLength(1);
+		expect(result[0].divergenceNodeId).toBe("n1");
+		expect(result[0].branchNodeId).toBe("n2b");
+		expect(result[0].messages.map((m) => m.content)).toEqual([
+			"Q1",
+			"A1 v2",
+			"Q2 after v2",
+		]);
+	});
+
+	it("follows the highest-weight leaf when the export names no current node", () => {
+		const mapping: Record<string, ChatGPTMappingNode> = {
+			n1: node("n1", msg("m1", "user", "Q"), null),
+			low: node("low", msg("m2", "assistant", "Old answer", 0.3), "n1"),
+			high: node("high", msg("m3", "assistant", "Kept answer", 1), "n1"),
+		};
+
+		expect(reconstructThread(mapping, null).map((m) => m.content)).toEqual([
+			"Q",
+			"Kept answer",
+		]);
+	});
+});
