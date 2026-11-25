@@ -1143,75 +1143,192 @@ export function withoutExcludedEvidence(
 	);
 }
 
-/** A chat of the bank whose facts Hindsight may hold unpublished (`unpublishedChats`). */
+/**
+ * A writer of the bank whose facts Hindsight may hold unpublished
+ * (`unpublishedChats`): a chat, a person's note or a repair's replacement.
+ */
 export interface UnpublishedChat {
+	/** Its source revision, which is also its document in Hindsight. */
 	id: string;
-	/** A delivery of it is queued or running: it will publish or end. */
+	kind: "chat" | "note" | "replacement";
+	/** The job that sends and publishes it is queued or running: it will publish or end. */
 	live: boolean;
 }
 
+/** The owner of a note (`manual:<action id>`) or a replacement (`dependency:<job id>:…`). */
+function writerOwner(
+	eventId: string,
+): { actionId: string } | { jobId: string } | null {
+	if (eventId.startsWith("manual:"))
+		return { actionId: eventId.slice("manual:".length) };
+	const [prefix, jobId] = eventId.split(":");
+	return prefix === "dependency" && jobId ? { jobId } : null;
+}
+
 /**
- * The bank's chats (source revisions) whose facts Hindsight may hold while
- * nothing published them: sent, still pending or staged, never delivered, and
- * not left out for good (`excludedNativeEvidence`). Publication refuses any
+ * The bank's writers (source revisions) whose facts Hindsight may hold while
+ * nothing published them: sent, not yet published or withdrawn, and not left
+ * out for good (`excludedNativeEvidence`). Publication refuses any
  * observation resting on such a fact, so while one is there no other chat,
- * action or cleanup of the bank can publish, and a chat sent meanwhile adds
+ * action or cleanup of the bank can publish, and a writer sent meanwhile adds
  * facts that refuse that one's publication in turn (an import, 2026-11-25:
  * one delivery waited on Hindsight, the next was sent, both failed, and so
- * did every later one of the bank). Whether its facts did land is
- * Hindsight's to say: a chat sent whose retain failed holds none.
+ * did every later one of the bank). Three kinds: a chat, pending or staged,
+ * which its own `source` job sends; a person's note (`manual:<action id>`),
+ * pending or staged, which its action's job sends (a failed action takes its
+ * note out of Hindsight itself); and a dependency repair's replacement
+ * (`repair_held`, `dependency:<job id>:…`), which the repairing job sends. A
+ * writer is live while a job that owns it is queued or running, and left out
+ * once one succeeded; `ownJobId`'s own writers are never the asker's
+ * obstacle. Whether its facts did land is Hindsight's to say: a writer sent
+ * whose retain failed holds none.
  */
 export function unpublishedChats(
 	tx: Tx,
 	bank: { id: string; userId: string; epoch: number },
 	except: readonly string[] = [],
+	ownJobId?: string,
 ): {
 	chats: UnpublishedChat[];
-	/** Facts publication leaves out anyway (`excludedNativeEvidence`): they hold nothing. */
-	excludedFactIds: ReadonlySet<string>;
+	/** What publication leaves out anyway (`excludedNativeEvidence`): it holds nothing. */
+	excluded: ReturnType<typeof excludedNativeEvidence>;
 } {
-	const rows = tx
+	const revisions = tx
 		.select({
 			id: memorySourceRevisions.id,
-			status: memoryDeliveryJobs.status,
+			eventId: memorySourceRevisions.eventId,
+			state: memorySourceRevisions.state,
 		})
 		.from(memorySourceRevisions)
-		// Only chats a `source` delivery sends; a person's own notes go with
-		// their action and are judged with it.
-		.innerJoin(
-			memoryDeliveryJobs,
-			and(
-				eq(memoryDeliveryJobs.sourceId, memorySourceRevisions.id),
-				eq(memoryDeliveryJobs.kind, "source"),
-			),
-		)
 		.where(
 			and(
 				eq(memorySourceRevisions.userId, bank.userId),
 				eq(memorySourceRevisions.bankId, bank.id),
 				eq(memorySourceRevisions.epoch, bank.epoch),
 				eq(memorySourceRevisions.nativeSubmitted, true),
-				inArray(memorySourceRevisions.state, ["pending", "staged"]),
+				inArray(memorySourceRevisions.state, [
+					"pending",
+					"staged",
+					"repair_held",
+				]),
 			),
 		)
 		.all();
-	if (!rows.length) return { chats: [], excludedFactIds: new Set() };
 	const excluded = excludedNativeEvidence(tx, bank);
+	if (!revisions.length) return { chats: [], excluded };
 	const left = new Set([...except, ...excluded.sourceIds]);
-	const chats = new Map<string, { live: boolean; delivered: boolean }>();
-	for (const { id, status } of rows) {
-		if (left.has(id)) continue;
-		const chat = chats.get(id) ?? { live: false, delivered: false };
-		if (status === "queued" || status === "running") chat.live = true;
-		if (status === "succeeded") chat.delivered = true;
-		chats.set(id, chat);
-	}
-	return {
-		chats: [...chats]
-			.filter(([, chat]) => !chat.delivered)
-			.map(([id, chat]) => ({ id, live: chat.live })),
-		excludedFactIds: excluded.factIds,
-	};
+	const candidates = revisions.filter(({ id }) => !left.has(id));
+	// Each writer's jobs: a chat's own `source` jobs, a note's action jobs, a
+	// replacement's repairing job.
+	const sourceJobs = tx
+		.select({
+			id: memoryDeliveryJobs.id,
+			sourceId: memoryDeliveryJobs.sourceId,
+			status: memoryDeliveryJobs.status,
+		})
+		.from(memoryDeliveryJobs)
+		.where(
+			and(
+				eq(memoryDeliveryJobs.kind, "source"),
+				inArray(
+					memoryDeliveryJobs.sourceId,
+					candidates.map(({ id }) => id),
+				),
+			),
+		)
+		.all();
+	const owners = candidates.map(({ eventId }) => writerOwner(eventId));
+	const actionIds = owners.flatMap((owner) =>
+		owner && "actionId" in owner ? [owner.actionId] : [],
+	);
+	const jobIds = owners.flatMap((owner) =>
+		owner && "jobId" in owner ? [owner.jobId] : [],
+	);
+	const ownerJobs =
+		actionIds.length || jobIds.length
+			? tx
+					.select({
+						id: memoryDeliveryJobs.id,
+						actionId: memoryDeliveryJobs.actionId,
+						status: memoryDeliveryJobs.status,
+					})
+					.from(memoryDeliveryJobs)
+					.where(
+						or(
+							actionIds.length
+								? and(
+										eq(memoryDeliveryJobs.kind, "action"),
+										inArray(memoryDeliveryJobs.actionId, actionIds),
+									)
+								: undefined,
+							jobIds.length
+								? inArray(memoryDeliveryJobs.id, jobIds)
+								: undefined,
+						),
+					)
+					.all()
+			: [];
+	const chats: UnpublishedChat[] = [];
+	candidates.forEach(({ id, state }, index) => {
+		const owner = owners[index];
+		const jobs = sourceJobs.some((job) => job.sourceId === id)
+			? state === "repair_held"
+				? []
+				: sourceJobs.filter((job) => job.sourceId === id)
+			: owner && "actionId" in owner && state !== "repair_held"
+				? ownerJobs.filter((job) => job.actionId === owner.actionId)
+				: owner && "jobId" in owner && state === "repair_held"
+					? ownerJobs.filter((job) => job.id === owner.jobId)
+					: [];
+		// A revision no job of these sends (an original held for its own
+		// repair) is that repair's to settle, not a writer here.
+		if (!jobs.length) return;
+		if (ownJobId && jobs.some((job) => job.id === ownJobId)) return;
+		if (jobs.some((job) => job.status === "succeeded")) return;
+		chats.push({
+			id,
+			kind: sourceJobs.some((job) => job.sourceId === id)
+				? "chat"
+				: state === "repair_held"
+					? "replacement"
+					: "note",
+			live: jobs.some(
+				(job) => job.status === "queued" || job.status === "running",
+			),
+		});
+	});
+	return { chats, excluded };
+}
+
+/**
+ * The unpublished writers (`unpublishedChats`) whose facts in this snapshot
+ * publication would refuse: a fact an observation rests on, once what
+ * publication leaves out anyway is gone with every observation resting on it
+ * (`withoutExcludedEvidence`). A fact no observation rests on refuses
+ * nothing: publication judges observations.
+ */
+export function landedChats(
+	found: ReturnType<typeof unpublishedChats>,
+	memories: NativeMemory[],
+): UnpublishedChat[] {
+	if (!found.chats.length) return [];
+	const judged = withoutExcludedEvidence(memories, found.excluded);
+	const cited = new Set(
+		judged.flatMap((memory) =>
+			memory.fact_type === "observation"
+				? (memory.source_memory_ids ?? [])
+				: [],
+		),
+	);
+	const landed = new Set<string>();
+	for (const fact of judged)
+		if (
+			fact.fact_type !== "observation" &&
+			fact.document_id &&
+			cited.has(fact.id)
+		)
+			landed.add(fact.document_id);
+	return found.chats.filter((chat) => landed.has(chat.id));
 }
 
 /** How soon a job waiting for another chat's delivery looks again. */
