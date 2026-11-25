@@ -2,13 +2,23 @@
 import { tick } from "svelte";
 import JSZip from "jszip";
 import { t } from "$lib/i18n";
-import { Upload, Check, AlertCircle } from "@lucide/svelte";
+import {
+	Upload,
+	Check,
+	AlertCircle,
+	Folder,
+	MessageSquare,
+} from "@lucide/svelte";
 import type { Project } from "$lib/server/services/projects";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
-import { importChatGPTData } from "$lib/client/api/chatgpt-import";
+import {
+	importChatGPTData,
+	packChatGPTUpload,
+} from "$lib/client/api/chatgpt-import";
 import { ApiError } from "$lib/client/api/http";
 import {
 	exportedConversationId,
+	exportedConversationProjectId,
 	readExportedConversations,
 } from "$lib/shared/chatgpt-export";
 
@@ -27,10 +37,21 @@ interface ChatGPTConversation {
 interface ParsedChat {
 	/** What the export calls the conversation: the name the server imports it by. */
 	id: string;
+	/** The ChatGPT project (a folder in ChatGPT's sidebar) it is in, or null. */
+	projectId: string | null;
 	title: string;
 	createTime: number;
 	messageCount: number;
 	selected: boolean;
+}
+
+/** The chats of one ChatGPT project, or of none, as the list draws them. */
+interface ChatGroup {
+	/** The project's id, or null for the chats that are in no project. */
+	projectId: string | null;
+	/** The project's number in the list, from 1; null for the chats in none. */
+	number: number | null;
+	chats: ParsedChat[];
 }
 
 let {
@@ -63,6 +84,10 @@ let importResult: {
 let errorMessage = $state("");
 let isDragging = $state(false);
 let fileInputRef: HTMLInputElement | null = $state(null);
+// The export's conversation entries as read, kept for the upload, which takes
+// the ticked ones alone (`packChatGPTUpload`). Plain, not state: nothing is
+// drawn from them, and an export's chats can run to tens of megabytes.
+let exportEntries: unknown[] = [];
 
 $effect(() => {
 	if (!show) {
@@ -70,6 +95,7 @@ $effect(() => {
 		tick().then(() => {
 			importState = "upload";
 			file = null;
+			exportEntries = [];
 			parsedChats = [];
 			filteredChats = [];
 			searchQuery = "";
@@ -105,6 +131,37 @@ const selectedIds = $derived(
 
 const selectedCount = $derived(selectedIds.length);
 
+// The chats by ChatGPT project, the projects numbered in the order the export
+// first lists them (it names none), then the chats in no project. Empty when
+// no chat is in a project, and the list is drawn without headings.
+const chatGroups: ChatGroup[] = $derived.by(() => {
+	const byProject = new Map<string, ChatGroup>();
+	const inNoProject: ParsedChat[] = [];
+	for (const chat of parsedChats) {
+		if (chat.projectId === null) {
+			inNoProject.push(chat);
+			continue;
+		}
+		let group = byProject.get(chat.projectId);
+		if (!group) {
+			group = {
+				projectId: chat.projectId,
+				number: byProject.size + 1,
+				chats: [],
+			};
+			byProject.set(chat.projectId, group);
+		}
+		group.chats.push(chat);
+	}
+	if (byProject.size === 0) return [];
+	const groups = [...byProject.values()];
+	if (inNoProject.length > 0)
+		groups.push({ projectId: null, number: null, chats: inNoProject });
+	return groups;
+});
+
+const shownChatIds = $derived(new Set(filteredChats.map((chat) => chat.id)));
+
 function countMessages(mapping: ChatGPTConversation["mapping"]): number {
 	let count = 0;
 	for (const node of Object.values(mapping)) {
@@ -139,6 +196,7 @@ async function parseZip(uploadedFile: File): Promise<void> {
 			return [
 				{
 					id,
+					projectId: exportedConversationProjectId(conv),
 					title: conv.title || "Untitled",
 					createTime: conv.create_time,
 					messageCount: countMessages(conv.mapping),
@@ -149,6 +207,7 @@ async function parseZip(uploadedFile: File): Promise<void> {
 		if (parsedChats.length === 0) {
 			throw new Error($t("chatgptImport.noConversations"));
 		}
+		exportEntries = read.entries;
 		filteredChats = parsedChats;
 		importState = "preview";
 	} catch (err) {
@@ -207,11 +266,21 @@ function toggleSelectAll(): void {
 	}
 }
 
-function toggleChat(index: number): void {
-	const chat = filteredChats[index];
-	if (chat) {
-		chat.selected = !chat.selected;
-	}
+function toggleChat(chat: ParsedChat): void {
+	chat.selected = !chat.selected;
+}
+
+function groupTicks(group: ChatGroup): "all" | "some" | "none" {
+	const ticked = group.chats.filter((chat) => chat.selected).length;
+	if (ticked === 0) return "none";
+	return ticked === group.chats.length ? "all" : "some";
+}
+
+// A project's box ticks every chat in it, or unticks them all once all are
+// ticked: the whole project, including chats a search hides.
+function toggleGroup(group: ChatGroup): void {
+	const tickAll = groupTicks(group) !== "all";
+	for (const chat of group.chats) chat.selected = tickAll;
 }
 
 function goToConfig(): void {
@@ -229,8 +298,11 @@ async function startImport(): Promise<void> {
 	importProgress = { current: 0, total: selectedCount };
 
 	try {
+		// The ticked conversations go up alone, never the export as picked: its
+		// attachments can take it past what the server accepts in one request.
+		const upload = await packChatGPTUpload(exportEntries, selectedIds);
 		const result = await importChatGPTData(
-			file,
+			upload,
 			selectedIds,
 			selectedProjectId,
 		);
@@ -271,6 +343,29 @@ function handleRetry(): void {
 	importState = "upload";
 }
 </script>
+
+{#snippet chatRow(chat: ParsedChat, inGroup: boolean)}
+	<label
+		class="flex cursor-pointer items-center gap-3 rounded-md border border-border-subtle p-3 transition-colors hover:bg-surface-elevated"
+		class:ml-6={inGroup}
+		class:bg-surface-elevated={chat.selected}
+	>
+		<input
+			type="checkbox"
+			checked={chat.selected}
+			onchange={() => toggleChat(chat)}
+			class="h-4 w-4 accent-accent"
+		/>
+		<div class="flex flex-1 flex-col gap-0.5">
+			<span class="text-sm font-medium text-text-primary">
+				{chat.title}
+			</span>
+			<span class="text-xs text-text-muted">
+				{formatDate(chat.createTime)} · {$t("chatgptImport.messages", { count: chat.messageCount })}
+			</span>
+		</div>
+	</label>
+{/snippet}
 
 {#if show}
 	<DialogShell
@@ -350,6 +445,9 @@ function handleRetry(): void {
 							<span class="ml-1">· {$t("chatgptImport.selectedCount", { count: selectedCount })}</span>
 						{/if}
 					</p>
+					{#if chatGroups.length > 0}
+						<p class="text-xs text-text-muted">{$t("chatgptImport.projectsNote")}</p>
+					{/if}
 
 					<div
 						class="flex max-h-[50vh] flex-col gap-2 overflow-y-auto rounded-lg border border-border-default p-2"
@@ -360,27 +458,46 @@ function handleRetry(): void {
 							<p class="py-8 text-center text-sm text-text-muted">
 								{$t("chatgptImport.noConversations")}
 							</p>
+						{:else if chatGroups.length === 0}
+							{#each filteredChats as chat (chat.id)}
+								{@render chatRow(chat, false)}
+							{/each}
 						{:else}
-							{#each filteredChats as chat, i (chat.id)}
-								<label
-									class="flex cursor-pointer items-center gap-3 rounded-md border border-border-subtle p-3 transition-colors hover:bg-surface-elevated"
-									class:bg-surface-elevated={chat.selected}
-								>
-									<input
-										type="checkbox"
-										checked={chat.selected}
-										onchange={() => toggleChat(i)}
-										class="h-4 w-4 accent-accent"
-									/>
-									<div class="flex flex-1 flex-col gap-0.5">
-										<span class="text-sm font-medium text-text-primary">
-											{chat.title}
-										</span>
-										<span class="text-xs text-text-muted">
-											{formatDate(chat.createTime)} · {$t("chatgptImport.messages", { count: chat.messageCount })}
-										</span>
-									</div>
-								</label>
+							{#each chatGroups as group (group.projectId ?? "")}
+								{@const shown = group.chats.filter((chat) => shownChatIds.has(chat.id))}
+								{#if shown.length > 0}
+									{@const ticks = groupTicks(group)}
+									<label
+										class="flex cursor-pointer items-center gap-3 rounded-md p-2 transition-colors hover:bg-surface-elevated"
+										data-testid="chatgpt-import-group"
+									>
+										<input
+											type="checkbox"
+											checked={ticks === "all"}
+											indeterminate={ticks === "some"}
+											onchange={() => toggleGroup(group)}
+											class="h-4 w-4 accent-accent"
+										/>
+										{#if group.number === null}
+											<MessageSquare class="h-4 w-4 shrink-0 text-icon-muted" size={16} strokeWidth={1.75} aria-hidden="true" />
+										{:else}
+											<Folder class="h-4 w-4 shrink-0 text-icon-muted" size={16} strokeWidth={1.75} aria-hidden="true" />
+										{/if}
+										<div class="flex flex-1 flex-col gap-0.5">
+											<span class="text-sm font-medium text-text-primary">
+												{group.number === null
+													? $t("chatgptImport.noProjectGroup")
+													: $t("chatgptImport.projectGroup", { number: group.number })}
+											</span>
+											<span class="text-xs text-text-muted">
+												{$t("chatgptImport.groupCount", { count: group.chats.length })}
+											</span>
+										</div>
+									</label>
+									{#each shown as chat (chat.id)}
+										{@render chatRow(chat, true)}
+									{/each}
+								{/if}
 							{/each}
 						{/if}
 					</div>
