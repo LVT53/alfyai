@@ -407,24 +407,35 @@ function startDrain(kind: JobKind): void {
  * in a row. It returns when nothing of that user's is claimable now; a job put
  * back behind a delay is the caller's to wait for.
  *
- * With `giveWayForMs`, before each claim it waits while another account has a
- * job of the kind due that became due less than that long ago, so the other
- * accounts' workers take their work first: a kind that runs one job at a time
- * box-wide otherwise holds all of it behind the whole drain, since the drain
- * claims again the moment a job ends. A due job nobody takes up within that
- * long holds the drain no longer.
+ * A job of the user's put back after an attempt (queued again by the failure
+ * policy: a wait on Hindsight, a counted retry) is resumed first, the moment it
+ * is due and without giving way: its wait budget runs while it sits, and a
+ * drain that left it would leave it holding its bank.
+ *
+ * With `giveWayForMs`, before each claim of anything else it waits while
+ * another account has a job of the kind due that became due less than that long
+ * ago, so the other accounts' workers take their work first: a kind that runs
+ * one job at a time box-wide otherwise holds all of it behind the whole drain,
+ * since the drain claims again the moment a job ends. A due job nobody takes up
+ * within that long holds the drain no longer.
+ *
+ * With `resumeOnly` it claims those put-back jobs and nothing else, and never
+ * gives way: a drain past its time limit finishes what it started and starts
+ * nothing new.
  */
 export async function drainUser(
 	kind: JobKind,
 	userId: string,
 	options: {
 		giveWayForMs?: number;
+		/** Claim only the user's jobs put back after an attempt, and never give way. */
+		resumeOnly?: boolean;
 		/** What a drain that gives way waits on; real time by default. */
 		clock?: { now(): number; sleep(ms: number): Promise<void> };
 	} = {},
 ): Promise<void> {
 	const { definition } = internalsOf(kind);
-	const { giveWayForMs } = options;
+	const { giveWayForMs, resumeOnly = false } = options;
 	const clock = options.clock ?? {
 		now: () => Date.now(),
 		sleep: (ms: number) =>
@@ -434,14 +445,22 @@ export async function drainUser(
 	let inARow = 0;
 	for (;;) {
 		if (jobsState().stopped || !definition.enabled()) return;
-		if (giveWayForMs !== undefined)
-			while (
-				!jobsState().stopped &&
-				otherUserJobDue(kind, userId, clock.now(), clock.now() - giveWayForMs)
-			)
-				await clock.sleep(GIVE_WAY_POLL_MS);
 		const workerId = workerIdFor(kind.name);
-		const claimed = claimNext(kind, { workerId, userId });
+		let claimed = claimNext(kind, { workerId, userId, resumeOnly: true });
+		if (!claimed && !resumeOnly) {
+			// A put-back job of the user's that falls due while the drain gives way
+			// is resumed at the next poll, not after the whole wait.
+			if (giveWayForMs !== undefined)
+				while (
+					!claimed &&
+					!jobsState().stopped &&
+					otherUserJobDue(kind, userId, clock.now(), clock.now() - giveWayForMs)
+				) {
+					await clock.sleep(GIVE_WAY_POLL_MS);
+					claimed = claimNext(kind, { workerId, userId, resumeOnly: true });
+				}
+			claimed ??= claimNext(kind, { workerId, userId });
+		}
 		if (!claimed) return;
 		await runAttempt(kind, claimed, { workerId });
 		inARow = claimed.row.id === lastJobId ? inARow + 1 : 1;
