@@ -63,15 +63,15 @@ async function exportZip(...titles: string[]): Promise<Buffer> {
 
 async function importedConversations(
 	page: Page,
-): Promise<{ id: string; title: string }[]> {
+): Promise<{ id: string; title: string; updatedAt: number }[]> {
 	return page.evaluate(async (prefix) => {
 		const response = await fetch("/api/conversations");
 		const { conversations } = (await response.json()) as {
-			conversations: { id: string; title: string }[];
+			conversations: { id: string; title: string; updatedAt: number }[];
 		};
 		return conversations
 			.filter((conversation) => conversation.title.startsWith(prefix))
-			.map(({ id, title }) => ({ id, title }));
+			.map(({ id, title, updatedAt }) => ({ id, title, updatedAt }));
 	}, TITLE_PREFIX);
 }
 
@@ -126,6 +126,11 @@ test.describe("importing from ChatGPT", () => {
 		expect(imported.map(({ title }) => title).sort()).toEqual(
 			[KEEP_ONE, KEEP_TWO].sort(),
 		);
+		// The sidebar orders chats by when they last changed: an imported chat
+		// keeps ChatGPT's date (the export's update_time), not the import's.
+		expect(imported.map(({ updatedAt }) => updatedAt)).toEqual([
+			1700000100, 1700000100,
+		]);
 	});
 
 	test("leaves out every chat of a ChatGPT project the person unticks", async ({
