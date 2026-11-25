@@ -875,6 +875,51 @@ describe("the Memory operator tools", () => {
 			expect(JSON.stringify(report)).not.toMatch(/kayak|bassoon/i);
 		});
 
+		it("gives way to another account's due job, and takes its own once that one is taken up", async () => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const { eq } = await import("drizzle-orm");
+			const rev = await import("./revisions");
+			const other = h.fixture.seedUser("user-2");
+			const otherBank = rev.ensureMemoryBank(other, { kind: "personal" });
+			const theirs = await f.jobs.enqueueMemoryDelivery({
+				userId: other,
+				bankId: otherBank.id,
+				epoch: 0,
+				kind: "provision",
+				requestId: "their-request",
+			});
+			const mine = await f.enqueue();
+			const statusOf = (id: string) =>
+				f.db
+					.select()
+					.from(f.schema.memoryDeliveryJobs)
+					.where(eq(f.schema.memoryDeliveryJobs.id, id))
+					.get()?.status;
+			const waited: string[] = [];
+			const report = await f.tools.drainMemory({
+				userId: h.userId,
+				execute: true,
+				clock: {
+					now: () => Date.now(),
+					sleep: async (ms) => {
+						waited.push(`${ms}ms with mine ${statusOf(mine.row.id)}`);
+						// Their own worker takes their job while this drain waits.
+						f.db
+							.update(f.schema.memoryDeliveryJobs)
+							.set({ status: "succeeded" })
+							.where(eq(f.schema.memoryDeliveryJobs.id, theirs.row.id))
+							.run();
+						vi.setSystemTime(Date.now() + ms);
+					},
+				},
+			});
+
+			expect(waited[0]).toBe("2000ms with mine queued");
+			expect(report.outcome).toBe("done");
+			expect(statusOf(mine.row.id)).toBe("succeeded");
+		});
+
 		it("refuses with the Memory worker off, retrying nothing", async () => {
 			const f = await setup();
 			await f.enqueue();
