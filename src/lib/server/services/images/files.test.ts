@@ -1,5 +1,5 @@
 // @vitest-environment node
-// @always-run: exercises file or process inputs outside Vitest’s import graph.
+// @self-contained: reads image files generated in its temporary workdir.
 import { existsSync } from "node:fs";
 import {
 	mkdtemp,
