@@ -1,12 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
-import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
-import {
-	createSession,
-	verifyPassword,
-} from "../../src/lib/server/services/auth";
-import { isTwoStepEnabled } from "../../src/lib/server/services/two-step/store";
 import { e2eBaseUrl, e2eReusesServers, e2eSlot } from "./e2e-env";
 
 export const TEST_EMAIL = process.env.E2E_EMAIL || "admin@local";
@@ -53,14 +46,25 @@ export async function login(
 	email = TEST_EMAIL,
 	password = TEST_PASSWORD,
 ): Promise<void> {
+	// Reused servers own their sign-in and session storage.
+	if (e2eReusesServers()) return loginThroughForm(page, email, password);
+
 	await test.step(
 		"sign in",
 		async () => {
-			if (e2eReusesServers()) {
-				throw new Error(
-					"login(): direct sessions require a server started by this Playwright run; use loginThroughForm() with a reused server",
-				);
-			}
+			// Spec discovery loads this helper before a worker database exists.
+			const [
+				{ db },
+				{ users },
+				{ createSession, verifyPassword },
+				{ isTwoStepEnabled },
+			] = await Promise.all([
+				import("../../src/lib/server/db"),
+				import("../../src/lib/server/db/schema"),
+				import("../../src/lib/server/services/auth"),
+				import("../../src/lib/server/services/two-step/store"),
+			]);
+
 			const user = await db
 				.select({ id: users.id, passwordHash: users.passwordHash })
 				.from(users)
