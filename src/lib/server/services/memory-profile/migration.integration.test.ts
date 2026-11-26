@@ -3268,18 +3268,26 @@ it("keeps project history out of personal Memory after project deletion with no 
 	expect(db.select().from(s.conversations).get()?.projectId).toBeNull();
 	expect(db.select().from(s.memoryAccounts).all()).toEqual([]);
 
-	await allowMigrationHistory();
-	expect
-		.soft(migration.inspectMemoryMigration(h.userId).sources[0])
-		.toMatchObject({
-			id: "m",
-			eligibility: "held",
-		});
-	const prepared = await migration.prepareMemoryMigration(h.userId);
-	await h.engine.drain(memoryDeliveryJob);
-	expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(
-		true,
-	);
+	// The later personal turn uses SQLite's real clock. Record the historical
+	// consent and the new enabled interval in an earlier persisted second.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(Date.now() - 2000);
+		await allowMigrationHistory();
+		expect
+			.soft(migration.inspectMemoryMigration(h.userId).sources[0])
+			.toMatchObject({
+				id: "m",
+				eligibility: "held",
+			});
+		const prepared = await migration.prepareMemoryMigration(h.userId);
+		await h.engine.drain(memoryDeliveryJob);
+		expect(migration.cutoverMemoryMigration(h.userId, prepared.id).ready).toBe(
+			true,
+		);
+	} finally {
+		vi.useRealTimers();
+	}
 	const personalBank = db
 		.select()
 		.from(s.memoryBanks)
