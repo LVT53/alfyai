@@ -1,0 +1,199 @@
+// @vitest-environment node
+// Reviewer-owned probes. Fake transports only: no network, no real provider, synthetic key.
+import { streamText } from "ai";
+import { describe, expect, it, vi } from "vitest";
+import { createOpenAICompatibleProviderForNormalChatModelRun } from "../src/lib/server/services/normal-chat-model/openai-compatible-provider";
+import { createClosingGateway } from "./verify-closing-provider";
+
+async function wireBody(
+	provider: Record<string, unknown>,
+	modelName: string,
+	disableThinking: boolean,
+) {
+	const bodies: Record<string, unknown>[] = [];
+	const transport = vi.fn<typeof fetch>(async (_url, init) => {
+		bodies.push(JSON.parse(String(init?.body)));
+		return new Response("data: [DONE]\n\n", {
+			headers: { "content-type": "text/event-stream" },
+		});
+	});
+	const gate = createClosingGateway({
+		caseName: "B",
+		endpoint: "https://api.example.invalid/v1/chat/completions",
+		modelName,
+		disableThinking,
+		fetch: transport,
+	});
+	const compat = createOpenAICompatibleProviderForNormalChatModelRun({
+		provider: {
+			id: "p",
+			displayName: "Synthetic",
+			baseUrl: "https://api.example.invalid/v1",
+			apiKey: "synthetic",
+			maxModelContext: 32000,
+			...provider,
+		} as never,
+		fetch: gate.fetch,
+		includeUsage: true,
+	});
+	gate.enter("working");
+	const result = streamText({
+		model: compat(modelName),
+		prompt: "x",
+		maxOutputTokens: 1024, // what the runner hands the engine for case B
+		maxRetries: 0,
+		onError: () => {},
+	});
+	for await (const _ of result.fullStream) {
+		/* drain */
+	}
+	return bodies[0];
+}
+
+describe("Kimi B cap shape", () => {
+	it("K1 Kimi family: the app's own compat layer renames the engine cap, the runner then adds max_tokens: two competing cap fields", async () => {
+		const kimi = await wireBody(
+			{ name: "moonshot", modelName: "kimi-k2.5" },
+			"kimi-k2.5",
+			false,
+		);
+		const deepseek = await wireBody(
+			{ name: "deepseek", modelName: "deepseek-flash", baseUrl: "https://api.example.invalid/v1" },
+			"deepseek-flash",
+			true,
+		);
+		const pick = (b: Record<string, unknown>) => ({
+			max_tokens: b.max_tokens,
+			max_completion_tokens: b.max_completion_tokens,
+			thinking: b.thinking,
+			keys: Object.keys(b).sort().join(","),
+		});
+		console.log("K1 kimi", JSON.stringify(pick(kimi)));
+		console.log("K1 deepseek", JSON.stringify(pick(deepseek)));
+		expect(kimi.max_tokens).toBe(32);
+		expect(kimi.max_completion_tokens).toBe(1024);
+		expect(deepseek.max_tokens).toBe(32);
+		expect(deepseek.max_completion_tokens).toBeUndefined();
+	});
+});
+
+describe("cap fields per adapter family (binding shapes used by the repo's own tests)", () => {
+	it.each([
+		["fireworks-ai kimi", { name: "fireworks-ai", modelName: "accounts/fireworks/models/kimi-k3", baseUrl: "https://api.fireworks.ai/inference/v1" }, "accounts/fireworks/models/kimi-k3"],
+		["local qwen", { name: "local", modelName: "Qwen3.8-Flash-Next", baseUrl: "http://127.0.0.1:9000/v1" }, "Qwen3.8-Flash-Next"],
+	] as const)("%s", async (label, provider, modelName) => {
+		const bodies: Record<string, unknown>[] = [];
+		const base = provider.baseUrl;
+		const transport = vi.fn<typeof fetch>(async (_u, init) => {
+			bodies.push(JSON.parse(String(init?.body)));
+			return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+		});
+		const gate = createClosingGateway({ caseName: "B", endpoint: `${base}/chat/completions`, modelName, disableThinking: false, fetch: transport });
+		const compat = createOpenAICompatibleProviderForNormalChatModelRun({
+			provider: { id: "p", displayName: label.includes("kimi") ? "Kimi K3 (display name from the catalogue row)" : "Qwen3.8 Flash Next", apiKey: "synthetic", maxModelContext: 32000, ...provider } as never,
+			fetch: gate.fetch,
+			includeUsage: true,
+		});
+		gate.enter("working");
+		const r = streamText({ model: compat(modelName), prompt: "x", maxOutputTokens: 1024, maxRetries: 0, onError: () => {} });
+		for await (const _ of r.fullStream) {
+			/* drain */
+		}
+		const b = bodies[0];
+		console.log("K2", label, JSON.stringify({ max_tokens: b.max_tokens, max_completion_tokens: b.max_completion_tokens }));
+		if (label.includes("kimi")) {
+			expect(b.max_tokens).toBe(32);
+			expect(b.max_completion_tokens).toBe(1024);
+		} else {
+			expect(b.max_tokens).toBe(32);
+			expect(b.max_completion_tokens).toBeUndefined();
+		}
+	});
+});
+
+describe("runner oracle probes (offline, fake SSE)", () => {
+	const frame = (d: unknown, finish: string | null) =>
+		`data: ${JSON.stringify({
+			id: "p",
+			object: "chat.completion.chunk",
+			created: 1,
+			model: "deepseek-flash",
+			choices: [{ index: 0, delta: d, finish_reason: finish }],
+			...(finish ? { usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 } } : {}),
+		})}\n\n`;
+	async function run(
+		caseName: "A" | "B",
+		script: (n: number) => string,
+	) {
+		const { accountingReadFixture } = await import("../tests/integration/accounting-read-fixture");
+		const f = await accountingReadFixture();
+		const original = globalThis.fetch;
+		try {
+			const { db } = await import("../src/lib/server/db");
+			const { providerModels } = await import("../src/lib/server/db/schema");
+			db.update(providerModels).set({ name: "deepseek-flash" }).run();
+			globalThis.fetch = (url, init) =>
+				String(url).startsWith("data:") ? original(url, init) : Promise.reject(new Error("aux"));
+			const { runClosingCase } = await import("./verify-closing-provider");
+			let n = 0;
+			const transport = vi.fn<typeof fetch>(
+				async () =>
+					new Response(script(n++), { headers: { "content-type": "text/event-stream" } }),
+			);
+			const result = await runClosingCase({
+				caseName,
+				userId: "u",
+				modelId: "provider:p:m",
+				provider: {
+					id: "p",
+					name: "deepseek",
+					displayName: "Synthetic",
+					baseUrl: "https://api.deepseek.com",
+					apiKey: "synthetic-secret-do-not-print",
+					modelName: "deepseek-flash",
+					maxModelContext: 32000,
+				},
+				fetch: transport,
+			});
+			return { result, calls: transport.mock.calls.length };
+		} finally {
+			globalThis.fetch = original;
+			f.close();
+		}
+	}
+
+	it("O1 case B whose working call ends naturally (Kimi B shape) is reported as accounting_not_ready, not inconclusive", async () => {
+		const { result, calls } = await run("B", () =>
+			frame({ content: "1\n2\n3\n" }, null) + frame({}, "stop") + "data: [DONE]\n\n",
+		);
+		console.log("O1", JSON.stringify({ status: result.status, code: result.code, calls, attempts: result.attempts.length, receipt: result.receiptMatches, completion: result.completion }));
+		expect(result.status).toBe("failed");
+		expect(result.code).toBe("accounting_not_ready");
+		expect(calls).toBe(1);
+	});
+
+	it("O2 closingDeltas counts reasoning deltas; case B passes on any non-blank closing text", async () => {
+		const { result } = await run("B", (n) =>
+			n === 0
+				? frame({ content: "1\n2\n" }, null) + frame({}, "length") + "data: [DONE]\n\n"
+				: Array.from({ length: 5 }, () => frame({ reasoning_content: "think " }, null)).join("") +
+					frame({ content: "x" }, null) +
+					frame({}, "stop") +
+					"data: [DONE]\n\n",
+		);
+		console.log("O2", JSON.stringify({ status: result.status, code: result.code, closingDeltas: result.closingDeltas, answerBytes: result.answerBytes }));
+		expect(result.status).toBe("passed");
+		expect(result.closingDeltas).toBeGreaterThan(1);
+		expect(result.answerBytes).toBe(1);
+	});
+
+	it("O3 the synthetic key never appears in the report", async () => {
+		const { result } = await run("A", (n) =>
+			n === 0
+				? frame({ tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "lookup_product", arguments: "{}" } }] }, null) + frame({}, "tool_calls") + "data: [DONE]\n\n"
+				: frame({ content: "PRODUCT=391" }, null) + frame({}, "stop") + "data: [DONE]\n\n",
+		);
+		expect(result.status).toBe("passed");
+		expect(JSON.stringify(result)).not.toContain("synthetic-secret");
+	});
+});

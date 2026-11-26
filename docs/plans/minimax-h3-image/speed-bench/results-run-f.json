@@ -1,0 +1,42 @@
+[
+ {
+  "name": "e2-fresh-seed",
+  "prompt_id": "fc414524-e56b-4578-838b-3ca8820c81fa",
+  "status": "success",
+  "submit": 1795019466.106417,
+  "done": 1795019517.597472,
+  "fetched": 1795019520.216727,
+  "wall_s": 51.49,
+  "fetch_s": 2.62,
+  "comfy_start_ms": 1795019466184,
+  "comfy_end_ms": 1795019517208,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-f/e2-fresh-seed.png",
+    15254173
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 51.02
+ },
+ {
+  "name": "e1-fresh-seed",
+  "prompt_id": "f5cacde6-2002-48a6-a3a5-65b789203887",
+  "status": "success",
+  "submit": 1795019523.7278311,
+  "done": 1795019555.5825999,
+  "fetched": 1795019558.5100129,
+  "wall_s": 31.85,
+  "fetch_s": 2.93,
+  "comfy_start_ms": 1795019523818,
+  "comfy_end_ms": 1795019555223,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-f/e1-fresh-seed.png",
+    15761772
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 31.41
+ }
+]

@@ -1,0 +1,262 @@
+[
+ {
+  "name": "warm-street-s6",
+  "prompt_id": "5ae12a75-27c8-4450-a714-01817825b3b0",
+  "status": "success",
+  "submit": 1795014757.73707,
+  "done": 1795014777.518582,
+  "fetched": 1795014782.6839879,
+  "wall_s": 19.78,
+  "fetch_s": 5.17,
+  "comfy_start_ms": 1795014757843,
+  "comfy_end_ms": 1795014777157,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/warm-street-s6.png",
+    17950995
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 19.31
+ },
+ {
+  "name": "street-s6",
+  "prompt_id": "a0ed8040-f764-4d82-a850-a847a87c32a8",
+  "status": "success",
+  "submit": 1795014782.849857,
+  "done": 1795014783.0576131,
+  "fetched": 1795014792.239647,
+  "wall_s": 0.21,
+  "fetch_s": 9.18,
+  "comfy_start_ms": 1795014782928,
+  "comfy_end_ms": 1795014782929,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/street-s6.png",
+    17950995
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 0.0
+ },
+ {
+  "name": "room-s6",
+  "prompt_id": "47fe51f1-2248-4abe-b903-7081b909846a",
+  "status": "success",
+  "submit": 1795014792.407352,
+  "done": 1795014808.5844889,
+  "fetched": 1795014814.670969,
+  "wall_s": 16.18,
+  "fetch_s": 6.09,
+  "comfy_start_ms": 1795014792487,
+  "comfy_end_ms": 1795014808186,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/room-s6.png",
+    16900903
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 15.7
+ },
+ {
+  "name": "fisher-s6",
+  "prompt_id": "7044d2e9-a9d0-4f45-8991-d8e93517d190",
+  "status": "success",
+  "submit": 1795014814.836318,
+  "done": 1795014837.727496,
+  "fetched": 1795014844.558644,
+  "wall_s": 22.89,
+  "fetch_s": 6.83,
+  "comfy_start_ms": 1795014814916,
+  "comfy_end_ms": 1795014837373,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/fisher-s6.png",
+    16809657
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 22.46
+ },
+ {
+  "name": "street-s4",
+  "prompt_id": "58b503e8-6254-461c-9fb6-27b721514de9",
+  "status": "success",
+  "submit": 1795014844.730588,
+  "done": 1795014856.854656,
+  "fetched": 1795014863.412833,
+  "wall_s": 12.12,
+  "fetch_s": 6.56,
+  "comfy_start_ms": 1795014844810,
+  "comfy_end_ms": 1795014856503,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/street-s4.png",
+    18112915
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 11.69
+ },
+ {
+  "name": "room-s4",
+  "prompt_id": "d6b98e19-c806-4693-a276-3f3370a76f11",
+  "status": "success",
+  "submit": 1795014863.580214,
+  "done": 1795014875.595059,
+  "fetched": 1795014880.205821,
+  "wall_s": 12.01,
+  "fetch_s": 4.61,
+  "comfy_start_ms": 1795014863660,
+  "comfy_end_ms": 1795014875237,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/room-s4.png",
+    17579169
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 11.58
+ },
+ {
+  "name": "fisher-s4",
+  "prompt_id": "bd240cff-e0b9-412c-9e65-2fbbad446fed",
+  "status": "success",
+  "submit": 1795014880.369262,
+  "done": 1795014892.417887,
+  "fetched": 1795014895.125451,
+  "wall_s": 12.05,
+  "fetch_s": 2.71,
+  "comfy_start_ms": 1795014880453,
+  "comfy_end_ms": 1795014892058,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/fisher-s4.png",
+    17687353
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 11.61
+ },
+ {
+  "name": "street-s3",
+  "prompt_id": "8daa24b7-5da2-4b4e-aade-52fd782e3c35",
+  "status": "success",
+  "submit": 1795014895.290525,
+  "done": 1795014914.328073,
+  "fetched": 1795014916.78208,
+  "wall_s": 19.04,
+  "fetch_s": 2.45,
+  "comfy_start_ms": 1795014895370,
+  "comfy_end_ms": 1795014913974,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/street-s3.png",
+    19290043
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 18.6
+ },
+ {
+  "name": "room-s3",
+  "prompt_id": "6f80b8f1-4b9f-4557-b670-866abe99afcc",
+  "status": "success",
+  "submit": 1795014916.946883,
+  "done": 1795014927.050496,
+  "fetched": 1795014929.445119,
+  "wall_s": 10.1,
+  "fetch_s": 2.39,
+  "comfy_start_ms": 1795014917025,
+  "comfy_end_ms": 1795014926696,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/room-s3.png",
+    18671771
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 9.67
+ },
+ {
+  "name": "fisher-s3",
+  "prompt_id": "10c1be4f-2745-421a-9b6f-1738120413cb",
+  "status": "success",
+  "submit": 1795014929.6088052,
+  "done": 1795014939.7609642,
+  "fetched": 1795014942.338361,
+  "wall_s": 10.15,
+  "fetch_s": 2.58,
+  "comfy_start_ms": 1795014929689,
+  "comfy_end_ms": 1795014939406,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/fisher-s3.png",
+    18960694
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 9.72
+ },
+ {
+  "name": "edit-s6",
+  "prompt_id": "d7cff245-dc59-47de-8102-d51a06c0399e",
+  "status": "success",
+  "submit": 1795014944.6403148,
+  "done": 1795014975.839372,
+  "fetched": 1795014978.189769,
+  "wall_s": 31.2,
+  "fetch_s": 2.35,
+  "comfy_start_ms": 1795014944719,
+  "comfy_end_ms": 1795014975483,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/edit-s6.png",
+    18176491
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 30.76
+ },
+ {
+  "name": "edit-s3",
+  "prompt_id": "1f38af2e-fb29-4013-8197-e550caa2b8bf",
+  "status": "success",
+  "submit": 1795014979.9731789,
+  "done": 1795014993.6312718,
+  "fetched": 1795014996.484333,
+  "wall_s": 13.66,
+  "fetch_s": 2.85,
+  "comfy_start_ms": 1795014980057,
+  "comfy_end_ms": 1795014993283,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/edit-s3.png",
+    17636660
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 13.23
+ },
+ {
+  "name": "street-s6-again",
+  "prompt_id": "09fd973b-e2b0-4cd6-bfe6-7ce58949734f",
+  "status": "success",
+  "submit": 1795014996.648642,
+  "done": 1795015013.0547829,
+  "fetched": 1795015016.16165,
+  "wall_s": 16.41,
+  "fetch_s": 3.11,
+  "comfy_start_ms": 1795014996729,
+  "comfy_end_ms": 1795015012692,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-a/street-s6-again.png",
+    17950995
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 15.96
+ }
+]

@@ -1,0 +1,97 @@
+
+=== job at 1795020066 (39.0 s)
+  pre      2.1 s  states {'R': 7, 'S': 2}  worker user 1.6 s sys 0.3 s  minflt 5133 majflt 183  others user 4.3 sys 3.2  disk read 1557 MB (rchar 700 MB) write 0 MB
+         cgroup {'pgfault': 48248, 'pgmajfault': 2560, 'pgscan_direct': 0, 'pgscan_kswapd': 189936, 'workingset_refault_file': 397520, 'max_events': 0}  mem {'cur_mb': 37290, 'anon_mb': 6281, 'file_mb': 30890, 'mapped_mb': 1756, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 2)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+         kstack x1: folio_wait_bit_common < filemap_update_page < filemap_get_pages < filemap_read
+  te       3.6 s  states {'S': 6, 'R': 8, 'D': 1}  worker user 2.6 s sys 0.1 s  minflt 167 majflt 9  others user 0.6 sys 7.5  disk read 1007 MB (rchar 13496 MB) write 0 MB
+         cgroup {'pgfault': 991, 'pgmajfault': 13, 'pgscan_direct': 0, 'pgscan_kswapd': 84890, 'workingset_refault_file': 258001, 'max_events': 0}  mem {'cur_mb': 37970, 'anon_mb': 6281, 'file_mb': 31567, 'mapped_mb': 1772, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('0', 4), ('futex_do_wait', 2), ('folio_wait_bit_common', 1)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+         kstack x1: folio_wait_bit_common < filemap_fault < __do_fault < do_read_fault
+  sample  24.6 s  states {'R': 95, 'S': 3}  worker user 13.8 s sys 8.8 s  minflt 471 majflt 74  others user 1.8 sys 12.8  disk read 5654 MB (rchar 20026 MB) write 0 MB
+         cgroup {'pgfault': 1808, 'pgmajfault': 82, 'pgscan_direct': 0, 'pgscan_kswapd': 584794, 'workingset_refault_file': 1429181, 'max_events': 0}  mem {'cur_mb': 41341, 'anon_mb': 6281, 'file_mb': 34939, 'mapped_mb': 1878, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 2), ('0', 1)]
+         kstack x4: futex_do_wait < __futex_wait < futex_wait < do_futex
+  post     8.7 s  states {'S': 1, 'R': 34}  worker user 1.3 s sys 7.4 s  minflt 61678 majflt 0  others user 0.1 sys 0.2  disk read 22 MB (rchar 770 MB) write 11 MB  <-- STALL
+         cgroup {'pgfault': 61678, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 5705, 'max_events': 0}  mem {'cur_mb': 41641, 'anon_mb': 6553, 'file_mb': 34967, 'mapped_mb': 1878, 'dirty_mb': 11, 'wb_mb': 0}
+         wchan [('0', 1)]
+
+=== job at 1795020118 (36.6 s)
+  pre      1.3 s  states {'R': 5}  worker user 0.9 s sys 0.2 s  minflt 3769 majflt 0  others user 0.4 sys 0.3  disk read 10 MB (rchar 378 MB) write 0 MB
+         cgroup {'pgfault': 44916, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 2782, 'max_events': 0}  mem {'cur_mb': 41490, 'anon_mb': 6389, 'file_mb': 34981, 'mapped_mb': 1878, 'dirty_mb': 0, 'wb_mb': 0}
+  te       3.6 s  states {'R': 13, 'S': 2}  worker user 2.7 s sys 0.1 s  minflt 19 majflt 0  others user 0.6 sys 6.6  disk read 577 MB (rchar 12042 MB) write 0 MB
+         cgroup {'pgfault': 109, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 94404, 'workingset_refault_file': 147837, 'max_events': 0}  mem {'cur_mb': 41592, 'anon_mb': 6281, 'file_mb': 35190, 'mapped_mb': 1878, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('0', 1), ('futex_do_wait', 1)]
+         kstack x1: futex_do_wait < __futex_wait < futex_wait < do_futex
+  sample  24.0 s  states {'S': 4, 'R': 92}  worker user 13.9 s sys 8.9 s  minflt 5 majflt 0  others user 1.1 sys 9.2  disk read 799 MB (rchar 14125 MB) write 0 MB
+         cgroup {'pgfault': 4, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 79971, 'workingset_refault_file': 204789, 'max_events': 0}  mem {'cur_mb': 42050, 'anon_mb': 6281, 'file_mb': 35649, 'mapped_mb': 1878, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 4)]
+         kstack x6: futex_do_wait < __futex_wait < futex_wait < do_futex
+  post     7.7 s  states {'S': 1, 'R': 30}  worker user 1.3 s sys 6.5 s  minflt 36639 majflt 0  others user 0.1 sys 0.2  disk read 0 MB (rchar 770 MB) write 10 MB  <-- STALL
+         cgroup {'pgfault': 36639, 'pgmajfault': 0, 'pgscan_direct': 128, 'pgscan_kswapd': 101197, 'workingset_refault_file': 4, 'max_events': 0}  mem {'cur_mb': 41938, 'anon_mb': 6553, 'file_mb': 35264, 'mapped_mb': 1878, 'dirty_mb': 10, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+         kstack x1: futex_do_wait < __futex_wait < futex_wait < do_futex
+
+=== job at 1795020157 (25.1 s)
+  pre      0.1 s  states {'R': 1}  worker user 0.1 s sys 0.0 s  minflt 0 majflt 0  others user 0.0 sys 0.7  disk read 0 MB (rchar 866 MB) write 0 MB
+         cgroup {'pgfault': 0, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 0, 'max_events': 0}  mem {'cur_mb': 41807, 'anon_mb': 6417, 'file_mb': 35269, 'mapped_mb': 1878, 'dirty_mb': 15, 'wb_mb': 0}
+  te       1.6 s  states {'R': 6, 'S': 1}  worker user 0.8 s sys 0.1 s  minflt 0 majflt 0  others user 0.2 sys 6.0  disk read 1087 MB (rchar 10565 MB) write 0 MB
+         cgroup {'pgfault': 0, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 111012, 'workingset_refault_file': 278288, 'max_events': 0}  mem {'cur_mb': 42189, 'anon_mb': 6145, 'file_mb': 35923, 'mapped_mb': 1878, 'dirty_mb': 15, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+  sample  12.7 s  states {'S': 3, 'R': 48}  worker user 8.5 s sys 3.3 s  minflt 3 majflt 0  others user 0.6 sys 7.2  disk read 17 MB (rchar 11296 MB) write 0 MB
+         cgroup {'pgfault': 3, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 4491, 'max_events': 0}  mem {'cur_mb': 42203, 'anon_mb': 6145, 'file_mb': 35938, 'mapped_mb': 1878, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 2), ('0', 1)]
+         kstack x3: futex_do_wait < __futex_wait < futex_wait < do_futex
+  post    10.8 s  states {'R': 43}  worker user 1.3 s sys 9.5 s  minflt 51969 majflt 0  others user 0.1 sys 0.2  disk read 0 MB (rchar 770 MB) write 17 MB  <-- STALL
+         cgroup {'pgfault': 51969, 'pgmajfault': 0, 'pgscan_direct': 835, 'pgscan_kswapd': 0, 'workingset_refault_file': 75, 'max_events': 0}  mem {'cur_mb': 42354, 'anon_mb': 6281, 'file_mb': 35953, 'mapped_mb': 1878, 'dirty_mb': 17, 'wb_mb': 0}
+
+=== job at 1795020196 (31.8 s)
+  pre      2.7 s  states {'S': 1, 'R': 10}  worker user 1.0 s sys 1.6 s  minflt 11436 majflt 0  others user 0.5 sys 0.4  disk read 0 MB (rchar 376 MB) write 0 MB
+         cgroup {'pgfault': 37251, 'pgmajfault': 0, 'pgscan_direct': 130, 'pgscan_kswapd': 0, 'workingset_refault_file': 124, 'max_events': 0}  mem {'cur_mb': 42371, 'anon_mb': 6281, 'file_mb': 35969, 'mapped_mb': 1876, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+         kstack x1: futex_do_wait < __futex_wait < futex_wait < do_futex
+  te       3.6 s  states {'R': 14, 'S': 1}  worker user 2.8 s sys 0.1 s  minflt 21 majflt 0  others user 0.6 sys 6.3  disk read 18 MB (rchar 11397 MB) write 0 MB
+         cgroup {'pgfault': 620, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 4762, 'max_events': 0}  mem {'cur_mb': 42389, 'anon_mb': 6281, 'file_mb': 35988, 'mapped_mb': 1876, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+  sample  24.0 s  states {'S': 5, 'R': 91}  worker user 14.1 s sys 8.8 s  minflt 5 majflt 0  others user 1.2 sys 8.7  disk read 8 MB (rchar 13695 MB) write 0 MB
+         cgroup {'pgfault': 4, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 2200, 'max_events': 0}  mem {'cur_mb': 42399, 'anon_mb': 6281, 'file_mb': 35996, 'mapped_mb': 1876, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 3), ('0', 2)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+  post     1.5 s  states {'S': 1, 'R': 6}  worker user 1.5 s sys 0.2 s  minflt 4446 majflt 0  others user 0.1 sys 0.2  disk read 0 MB (rchar 770 MB) write 14 MB
+         cgroup {'pgfault': 4446, 'pgmajfault': 0, 'pgscan_direct': 128, 'pgscan_kswapd': 140554, 'workingset_refault_file': 52, 'max_events': 0}  mem {'cur_mb': 41999, 'anon_mb': 6417, 'file_mb': 35462, 'mapped_mb': 1873, 'dirty_mb': 14, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+         kstack x1: futex_do_wait < __futex_wait < futex_wait < do_futex
+
+=== job at 1795020232 (18.0 s)
+  pre      0.1 s  states {'S': 1}  worker user 0.1 s sys 0.0 s  minflt 0 majflt 0  others user 0.0 sys 0.2  disk read 16 MB (rchar 320 MB) write 0 MB
+         cgroup {'pgfault': 0, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 4274, 'max_events': 0}  mem {'cur_mb': 42017, 'anon_mb': 6417, 'file_mb': 35478, 'mapped_mb': 1873, 'dirty_mb': 14, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+  te       1.5 s  states {'S': 3, 'R': 4}  worker user 0.7 s sys 0.1 s  minflt 1 majflt 0  others user 0.2 sys 5.7  disk read 502 MB (rchar 10257 MB) write 0 MB
+         cgroup {'pgfault': 1, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 128618, 'max_events': 0}  mem {'cur_mb': 42230, 'anon_mb': 6145, 'file_mb': 35964, 'mapped_mb': 1873, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 2), ('0', 1)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+  sample  12.7 s  states {'S': 1, 'R': 51}  worker user 8.6 s sys 3.4 s  minflt 2 majflt 0  others user 0.7 sys 7.4  disk read 397 MB (rchar 12236 MB) write 0 MB
+         cgroup {'pgfault': 2, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 101645, 'max_events': 0}  mem {'cur_mb': 42592, 'anon_mb': 6145, 'file_mb': 36327, 'mapped_mb': 1873, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('futex_do_wait', 1)]
+         kstack x1: futex_do_wait < __futex_wait < futex_wait < do_futex
+  post     3.7 s  states {'R': 15}  worker user 1.3 s sys 2.4 s  minflt 1891 majflt 0  others user 0.1 sys 0.2  disk read 6 MB (rchar 770 MB) write 17 MB  <-- STALL
+         cgroup {'pgfault': 1891, 'pgmajfault': 0, 'pgscan_direct': 64, 'pgscan_kswapd': 83326, 'workingset_refault_file': 1577, 'max_events': 0}  mem {'cur_mb': 42556, 'anon_mb': 6417, 'file_mb': 36019, 'mapped_mb': 1873, 'dirty_mb': 17, 'wb_mb': 0}
+
+=== job at 1795020254 (35.7 s)
+  pre      1.3 s  states {'R': 4, 'S': 2}  worker user 1.0 s sys 0.1 s  minflt 3258 majflt 0  others user 0.6 sys 0.4  disk read 72 MB (rchar 506 MB) write 0 MB
+         cgroup {'pgfault': 23974, 'pgmajfault': 0, 'pgscan_direct': 64, 'pgscan_kswapd': 0, 'workingset_refault_file': 18258, 'max_events': 0}  mem {'cur_mb': 42495, 'anon_mb': 6281, 'file_mb': 36092, 'mapped_mb': 1873, 'dirty_mb': 19, 'wb_mb': 0}
+         wchan [('futex_do_wait', 2)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+  te       3.6 s  states {'S': 4, 'R': 11}  worker user 2.9 s sys 0.1 s  minflt 16 majflt 0  others user 0.5 sys 5.5  disk read 150 MB (rchar 10241 MB) write 0 MB
+         cgroup {'pgfault': 112, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 38466, 'max_events': 0}  mem {'cur_mb': 42584, 'anon_mb': 6281, 'file_mb': 36183, 'mapped_mb': 1873, 'dirty_mb': 19, 'wb_mb': 0}
+         wchan [('0', 3), ('futex_do_wait', 1)]
+         kstack x2: futex_do_wait < __futex_wait < futex_wait < do_futex
+  sample  24.1 s  states {'S': 2, 'R': 94}  worker user 14.0 s sys 8.9 s  minflt 4 majflt 0  others user 1.1 sys 8.8  disk read 146 MB (rchar 13354 MB) write 0 MB
+         cgroup {'pgfault': 4, 'pgmajfault': 0, 'pgscan_direct': 0, 'pgscan_kswapd': 0, 'workingset_refault_file': 37560, 'max_events': 0}  mem {'cur_mb': 42730, 'anon_mb': 6281, 'file_mb': 36330, 'mapped_mb': 1873, 'dirty_mb': 0, 'wb_mb': 0}
+         wchan [('0', 2)]
+  post     6.6 s  states {'R': 26}  worker user 1.2 s sys 5.3 s  minflt 4957 majflt 0  others user 0.0 sys 0.2  disk read 0 MB (rchar 770 MB) write 11 MB  <-- STALL
+         cgroup {'pgfault': 4957, 'pgmajfault': 0, 'pgscan_direct': 911, 'pgscan_kswapd': 115646, 'workingset_refault_file': 0, 'max_events': 0}  mem {'cur_mb': 42561, 'anon_mb': 6553, 'file_mb': 35886, 'mapped_mb': 1873, 'dirty_mb': 11, 'wb_mb': 0}

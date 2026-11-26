@@ -1,0 +1,424 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ServerHealth } from "$lib/client/api/health";
+import {
+	type AskRuntimeEvent,
+	createNormalChatClientTurnRuntime,
+	type NormalChatClientTurnRuntimeAdapters,
+	type NormalChatMessageListEvent,
+	type NormalChatRuntimeSnapshot,
+} from "$lib/client/normal-chat-client-turn-runtime";
+import {
+	applyNormalChatOutputView,
+	normalChatOutputView,
+} from "$lib/client/normal-chat-output-view";
+import type { ServerUpdateKind } from "$lib/client/server-update-watch";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import type {
+	StreamCallbacks,
+	StreamChatOptions,
+	StreamHandle,
+	StreamMetadata,
+	StreamTimingSnapshot,
+} from "$lib/services/streaming";
+import type { AskAnswer } from "$lib/shared/ask-user";
+import { projectNormalChatFinalization } from "$lib/shared/normal-chat-completion";
+import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
+import { finalizeStreamingMessageList } from "../../routes/(app)/chat/[conversationId]/_helpers";
+
+type StreamInvocation = {
+	message: string;
+	conversationId: string;
+	callbacks: StreamCallbacks;
+	options?: StreamChatOptions;
+	handle: StreamHandle;
+};
+
+function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
+	return {
+		id: "atlas-job-1",
+		conversationId: "conv-1",
+		assistantMessageId: "assistant-1",
+		action: "create",
+		parentAtlasJobId: null,
+		profile: "in-depth",
+		title: "Atlas research",
+		status: "queued",
+		stage: "queued",
+		progress: { percent: 0, stage: "queued", details: { queries: [] } },
+		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+		usage: {
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			costUsdMicros: 0,
+		},
+		outputs: {
+			fileProductionJobId: null,
+			htmlChatGeneratedFileId: null,
+			pdfChatGeneratedFileId: null,
+			markdownChatGeneratedFileId: null,
+		},
+		error: null,
+		createdAt: 1,
+		updatedAt: 1,
+		completedAt: null,
+		...overrides,
+	};
+}
+
+function conversationContextStatusFixture(): ConversationContextStatus {
+	return {
+		conversationId: "conv-1",
+		userId: "user-1",
+		estimatedTokens: 5_000,
+		promptTokens: 5_000,
+		promptTokensSource: "estimated",
+		maxContextTokens: 10_000,
+		thresholdTokens: 12_000,
+		targetTokens: 10_000,
+		compactionApplied: false,
+		compactionMode: "none",
+		routingStage: "deterministic",
+		routingConfidence: 100,
+		verificationStatus: "skipped",
+		layersUsed: [],
+		workingSetCount: 0,
+		workingSetArtifactIds: [],
+		workingSetApplied: false,
+		taskStateApplied: false,
+		promptArtifactCount: 0,
+		recentTurnCount: 0,
+		summary: null,
+		updatedAt: 1,
+	};
+}
+
+// R1 (ADR-0060) — the nine message-list mutations the runtime used to drive
+// through nine separate adapter members now go through one
+// `applyMessageListEvent` dispatch. These sub-spies keep each mutation's own
+// call-recording (and default in-memory list behaviour) intact for
+// assertions and per-test overrides, without reintroducing nine adapter
+// members.
+type MessageListEventHandlers = {
+	appendUserMessage: (message: ChatMessage) => void;
+	appendAssistantPlaceholder: (placeholder: ChatMessage) => void;
+	appendTokenChunk: (placeholderId: string, chunk: string) => void;
+	appendThinkingChunk: (placeholderId: string, chunk: string) => void;
+	applyToolCallUpdate: (
+		placeholderId: string,
+		name: string,
+		input: Record<string, unknown>,
+		status: "running" | "done" | "failed",
+		details: unknown,
+	) => void;
+	applyResponseActivityUpdate: (placeholderId: string, entry: unknown) => void;
+	setAssistantRuntimePhase: (placeholderId: string, phase: unknown) => void;
+	removeMessage: (messageId: string) => void;
+	finalizeStreamingMessage: (params: {
+		canonicalMessage?: ChatMessage;
+		placeholderId: string;
+		clientUserMessageId: string | null;
+		metadata?: StreamMetadata;
+	}) => void;
+};
+
+function makeAdapters(
+	overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+	messageListOverrides: Partial<MessageListEventHandlers> = {},
+) {
+	const snapshots: NormalChatRuntimeSnapshot[] = [];
+	const streamInvocations: StreamInvocation[] = [];
+	const messages: ChatMessage[] = [];
+	let idSequence = 0;
+
+	const messageListEvents = {
+		appendUserMessage: vi.fn(
+			messageListOverrides.appendUserMessage ??
+				((message: ChatMessage) => {
+					messages.push(message);
+				}),
+		),
+		appendAssistantPlaceholder: vi.fn(
+			messageListOverrides.appendAssistantPlaceholder ??
+				((placeholder: ChatMessage) => {
+					messages.push(placeholder);
+				}),
+		),
+		appendTokenChunk: vi.fn(
+			messageListOverrides.appendTokenChunk ??
+				((placeholderId: string, chunk: string) => {
+					const message = messages.find((item) => item.id === placeholderId);
+					if (message) message.content += chunk;
+				}),
+		),
+		appendThinkingChunk: vi.fn(messageListOverrides.appendThinkingChunk),
+		applyToolCallUpdate: vi.fn(messageListOverrides.applyToolCallUpdate),
+		applyResponseActivityUpdate: vi.fn(
+			messageListOverrides.applyResponseActivityUpdate,
+		),
+		setAssistantRuntimePhase: vi.fn(
+			messageListOverrides.setAssistantRuntimePhase ??
+				((placeholderId: string, phase: unknown) => {
+					const message = messages.find((item) => item.id === placeholderId);
+					if (message)
+						message.runtimePhase = phase as ChatMessage["runtimePhase"];
+				}),
+		),
+		removeMessage: vi.fn(
+			messageListOverrides.removeMessage ??
+				((messageId: string) => {
+					const index = messages.findIndex((item) => item.id === messageId);
+					if (index !== -1) messages.splice(index, 1);
+				}),
+		),
+		finalizeStreamingMessage: vi.fn(
+			messageListOverrides.finalizeStreamingMessage ??
+				(({
+					placeholderId,
+					metadata,
+					canonicalMessage,
+				}: {
+					canonicalMessage?: ChatMessage;
+					placeholderId: string;
+					clientUserMessageId: string | null;
+					metadata?: StreamMetadata;
+				}) => {
+					if (canonicalMessage) {
+						messages.splice(
+							0,
+							messages.length,
+							...finalizeStreamingMessageList(messages, {
+								placeholderId,
+								clientUserMessageId: null,
+								metadata,
+								canonicalMessage,
+							}),
+						);
+						return;
+					}
+					const message = messages.find((item) => item.id === placeholderId);
+					if (message) {
+						message.id = metadata?.assistantMessageId ?? message.id;
+						message.isStreaming = false;
+						message.runtimePhase = undefined;
+					}
+				}),
+		),
+	} satisfies MessageListEventHandlers;
+
+	const applyMessageListEvent = vi.fn((event: NormalChatMessageListEvent) => {
+		switch (event.type) {
+			case "appendUser":
+				messageListEvents.appendUserMessage(event.message);
+				return;
+			case "appendAssistantPlaceholder":
+				messageListEvents.appendAssistantPlaceholder(event.placeholder);
+				return;
+			case "applyNormalChatOutput":
+				messages.splice(
+					0,
+					messages.length,
+					...applyNormalChatOutputView(
+						messages,
+						event.placeholderId,
+						event.view,
+					),
+				);
+				return;
+			case "appendToken":
+				messageListEvents.appendTokenChunk(event.placeholderId, event.chunk);
+				return;
+			case "appendThinking":
+				messageListEvents.appendThinkingChunk(event.placeholderId, event.chunk);
+				return;
+			case "applyToolCall":
+				messageListEvents.applyToolCallUpdate(
+					event.placeholderId,
+					event.name,
+					event.input,
+					event.status,
+					event.details,
+				);
+				return;
+			case "applyResponseActivity":
+				messageListEvents.applyResponseActivityUpdate(
+					event.placeholderId,
+					event.entry,
+				);
+				return;
+			case "setRuntimePhase":
+				messageListEvents.setAssistantRuntimePhase(
+					event.placeholderId,
+					event.phase,
+				);
+				return;
+			case "remove":
+				messageListEvents.removeMessage(event.messageId);
+				return;
+			case "finalize":
+				messageListEvents.finalizeStreamingMessage({
+					...(event.canonicalMessage
+						? { canonicalMessage: event.canonicalMessage }
+						: {}),
+					placeholderId: event.placeholderId,
+					clientUserMessageId: event.clientUserMessageId,
+					metadata: event.metadata,
+				});
+				return;
+		}
+	});
+
+	const adapters: NormalChatClientTurnRuntimeAdapters = {
+		streamChat: vi.fn((message, conversationId, callbacks, options) => {
+			const handle = {
+				stop: vi.fn(),
+				detach: vi.fn(),
+			};
+			streamInvocations.push({
+				message,
+				conversationId,
+				callbacks,
+				options,
+				handle,
+			});
+			return handle;
+		}),
+		checkForOrphanedStream: vi.fn(async () => null),
+		getStreamBufferInfo: vi.fn(async () => null),
+		submitAtlasTurn: vi.fn(async () => ({
+			message: "Atlas is queued.",
+			atlasJob: atlasJobFixture(),
+		})),
+		getConversationId: vi.fn(() => "conv-1"),
+		getSelectedModel: vi.fn(() => "model1" as ModelId),
+		getReasoningDepth: vi.fn((): ReasoningDepth => "thorough"),
+		getPersonalityProfileId: vi.fn(() => null),
+		getActiveDocumentArtifactId: vi.fn(() => undefined),
+		getMessages: vi.fn(() => messages),
+		isReadOnly: vi.fn(() => false),
+		isEditResendPending: vi.fn(() => false),
+		isEditOpen: vi.fn(() => false),
+		isBrowserHidden: vi.fn(() => false),
+		randomId: vi.fn(() => `id-${++idSequence}`),
+		schedule: vi.fn((callback, _delay) => {
+			callback();
+			return 1 as unknown as ReturnType<typeof setTimeout>;
+		}),
+		onStateChange: vi.fn((snapshot) => {
+			snapshots.push(snapshot);
+		}),
+		setConversationModelSelection: vi.fn(),
+		clearDraft: vi.fn(),
+		clearAttachedArtifacts: vi.fn(() => []),
+		recordConversationActivity: vi.fn(),
+		applyMessageListEvent,
+		applyStreamMetadata: vi.fn(),
+		attachFileProductionJobsToAssistantMessage: vi.fn(),
+		refreshPendingWrites: vi.fn(),
+		pollMessageEvidence: vi.fn(),
+		refreshMessageCost: vi.fn(),
+		hydrateConversationDetail: vi.fn(),
+		pollForCompletion: vi.fn(),
+		loadPersistedData: vi.fn(),
+		// A server that answers and is not draining: nothing waits for an update
+		// unless a test says the server is away.
+		fetchServerHealth: vi.fn(
+			async (): Promise<ServerHealth> => ({ state: "up" }),
+		),
+		// No new version, and the page says a lost connection is no update.
+		isNewVersionLive: vi.fn(() => false),
+		askServerUpdate: vi.fn(async (): Promise<ServerUpdateKind> => "none"),
+		mergeGeneratedFiles: vi.fn(),
+		setContextCompressionMarkers: vi.fn(),
+		maybeTriggerTitleGeneration: vi.fn(),
+		runManualContextCompression: vi.fn(async () => undefined),
+		restorePayloadToDraft: vi.fn(),
+		markPendingSkillUnavailable: vi.fn((payload) => ({
+			...payload,
+			pendingSkill: payload.pendingSkill
+				? { ...payload.pendingSkill, unavailable: true }
+				: payload.pendingSkill,
+		})),
+		isPendingSkillUnavailableError: vi.fn(
+			(error) =>
+				(error as { code?: string })?.code === "pending_skill_unavailable",
+		),
+		isForkedSourceHistoryConfirmationRequired: vi.fn(
+			(error) =>
+				(error as { code?: string })?.code ===
+				"forked_source_history_confirmation_required",
+		),
+		toFriendlySendError: vi.fn((error) =>
+			error instanceof Error ? error.message : "Stream failed",
+		),
+		setSendError: vi.fn(),
+		onBackgroundInterrupted: vi.fn(),
+		onForkedSourceHistoryConfirmationRequired: vi.fn(),
+		...overrides,
+	};
+
+	return {
+		adapters,
+		streamInvocations,
+		messages,
+		snapshots,
+		messageListEvents,
+	};
+}
+
+
+// Reviewer B: the client half of the unsaved-answer observation. The server
+// observes an answered model completion whose assistant row was never saved as
+// {state: "terminal", assistantMessageId: null, completion.outcome: "answered"}
+// (see zz-review-B-unsaved-answer-observation.test.ts). Feed exactly that payload.
+describe("REVIEW-B unsaved answered terminal", () => {
+	it("does not settle an answered terminal with no saved row as a successful reply", async () => {
+		vi.useFakeTimers();
+		const made = makeAdapters({
+			schedule: vi.fn((cb, ms) => setTimeout(cb, ms)),
+			readChatMessages: vi.fn(async () => []),
+		});
+		const runtime = createNormalChatClientTurnRuntime(made.adapters);
+		await runtime.reconnectToOrphanedStream("observer", "A");
+		runtime.queue({
+			message: "Queued follow-up",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		expect(runtime.snapshot().queuedTurn?.message).toBe("Queued follow-up");
+		made.streamInvocations[0].callbacks.onEnd("", {
+			observation: {
+				version: 1,
+				streamId: "observer",
+				conversationId: "conv-1",
+				state: "terminal",
+				assistantMessageId: null,
+				completion: {
+					version: 1,
+					turnId: "t",
+					segmentId: "s",
+					phase: "working",
+					outcome: "answered",
+					stopCause: "natural_stop",
+					workingStopCause: "natural_stop",
+					closingAttempted: false,
+				},
+			},
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		const errors = (made.adapters.setSendError as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+		console.log("REVIEW-B setSendError calls:", JSON.stringify(errors));
+		console.log("REVIEW-B stream invocations:", made.streamInvocations.map((s) => s.message));
+		console.log("REVIEW-B last row outcome:", normalChatOutputView(made.messages.at(-1) ?? { id: "x", role: "assistant", content: "", timestamp: 0 })?.completion?.outcome);
+		// A finalization failure must stay a failure: no queued follow-up is sent
+		// on top of a reply that does not exist, and an error is shown.
+		expect(made.streamInvocations.map((s) => s.message)).not.toContain("Queued follow-up");
+		expect(errors.at(-1)).not.toBeNull();
+		vi.useRealTimers();
+	});
+});

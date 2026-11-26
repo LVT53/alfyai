@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>File analysis, first mockup</title>
+<!-- File analysis (ADR-0064 goal 3). First mockup, approved by the owner on 2026-11-10. Example data only.
+     Drawn as an inline widget in a Claude session and saved here as a standalone page. The --surface-1 style
+     variables in :root stand in for that widget host's. The two chat frames use AlfyAI's own light and dark tokens
+     from src/app.css. Icons are the Tabler webfont here; the real UI uses Lucide (@lucide/svelte). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{--surface-1:#f3f2ec;--border:rgba(0,0,0,.1);--border-strong:rgba(0,0,0,.25);--text-primary:#1a1a1a;--text-secondary:#5f5e5a;--text-muted:#888780;--radius:8px}
+@media (prefers-color-scheme:dark){:root{--surface-1:#262624;--border:rgba(255,255,255,.12);--border-strong:rgba(255,255,255,.28);--text-primary:#ececec;--text-secondary:#b4b2a9;--text-muted:#888780}body{background:#161615}}
+body{margin:0;padding:28px 16px 72px;background:#ffffff;color:var(--text-primary);font:16px/1.7 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif}
+main{max-width:680px;margin:0 auto}
+.al{--pg:#fafaf8;--el:#f4f3ee;--tx:#1a1a1a;--mu:#6b6b6b;--bd:rgba(0,0,0,.09);--ac:#c15f3c;--bo:#2b2f36;--ok:#3f7a4a;background:var(--pg);color:var(--bo);border:1px solid var(--bd);border-radius:12px;padding:16px 18px;font:14px/1.6 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif;display:flex;flex-direction:column;gap:12px}
+[data-mode="dark"] .al{--pg:#1a1a1a;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--bd:rgba(255,255,255,.1);--ac:#d4836b;--bo:#dcdcdc;--ok:#8cc49a}
+@media (prefers-color-scheme:dark){:root:not([data-mode]) .al{--pg:#1a1a1a;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--bd:rgba(255,255,255,.1);--ac:#d4836b;--bo:#dcdcdc;--ok:#8cc49a}}
+.al i.ti{font-size:16px;vertical-align:-3px;flex:none}
+.al .mu{color:var(--mu)}
+.al .tt{color:var(--tx)}
+.al .row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mu);flex-wrap:wrap}
+.al .card{border:1px solid var(--bd);border-radius:12px;overflow:hidden;max-width:520px}
+.al .mini{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--bd);border-radius:5px;font-size:12px;color:var(--tx)}
+.al .pill{border:1px solid var(--bd);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--mu)}
+.lb{font-size:13px;font-weight:500;color:var(--text-secondary);margin:2px 2px 0}
+.fb{display:flex;gap:8px;align-items:center;background:var(--surface-1);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 10px}
+.fb i{font-size:18px;color:var(--text-secondary)}
+.ft{font-size:13px;font-weight:500;color:var(--text-primary);line-height:1.3}
+.fs{font-size:12px;color:var(--text-secondary);line-height:1.3}
+</style>
+</head>
+<body>
+<main>
+<h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">Mockup of AlfyAI analysing an uploaded spreadsheet: first the progress view, then the finished answer with a chart and a cleaned file, and a strip showing where the file goes.</h2>
+<div style="background:var(--surface-1);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px">
+<div class="lb">While it works</div>
+<div class="al">
+<div style="align-self:flex-end;max-width:86%;background:var(--el);border-radius:10px;padding:10px 13px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:8px;border:1px solid var(--bd);border-radius:8px;background:var(--pg);padding:6px 10px;font-size:12.5px">
+<i class="ti ti-file-spreadsheet" style="color:var(--ac)" aria-hidden="true"></i>
+<span class="tt">Household budget 2026.xlsx</span>
+<span class="mu">318 KB</span>
+</div>
+<div>Which categories grew the most since January? Make me a chart.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div class="row"><i class="ti ti-check" style="color:var(--ok)" aria-hidden="true"></i><span class="tt">Read Household budget 2026.xlsx</span><span>3 sheets, 1,284 rows</span></div>
+<div class="row"><i class="ti ti-check" style="color:var(--ok)" aria-hidden="true"></i><span class="tt">Cleaned the data</span><span>14 dates fixed, 9 duplicate rows merged</span></div>
+<div class="row"><i class="ti ti-loader-2" style="color:var(--ac)" aria-hidden="true"></i><span class="tt">Calculating the change per category…</span></div>
+</div>
+</div>
+<div class="lb" style="margin-top:8px">When it's done</div>
+<div class="al">
+<div class="row"><i class="ti ti-chevron-right" aria-hidden="true"></i><span>Worked for 14 s · 4 steps</span></div>
+<div>
+<div>Groceries and utilities grew the most between January and October.</div>
+<ul style="margin:6px 0 0;padding-left:20px">
+<li>Groceries: <span style="font-weight:500">+18%</span>, from 142,000 Ft to 167,500 Ft a month.</li>
+<li>Utilities: <span style="font-weight:500">+14%</span>, from 31,500 Ft to 35,900 Ft.</li>
+<li>Dining out is the one thing that shrank: <span style="font-weight:500">−9%</span>.</li>
+</ul>
+</div>
+<div class="card">
+<div style="display:flex;align-items:center;gap:9px;padding:8px 11px">
+<div style="width:27px;height:27px;border-radius:7px;background:var(--el);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--ac);flex:none"><i class="ti ti-chart-bar" aria-hidden="true"></i></div>
+<div style="min-width:0;flex:1"><div class="tt" style="font-size:13px;font-weight:500">Change in monthly spending since January</div><div class="mu" style="font-size:11.5px">Chart · PNG · 61 KB</div></div>
+<span class="mini">Open</span><span class="mini" aria-label="Download"><i class="ti ti-download" aria-hidden="true"></i></span>
+</div>
+<div style="background:#ffffff;padding:6px 8px 4px">
+<svg viewBox="0 0 520 250" width="100%" role="img" aria-label="Horizontal bar chart of the change in monthly spending since January, by category" style="display:block">
+<title>Change in monthly spending since January</title>
+<text x="20" y="20" font-size="12" font-weight="500" fill="#3a3a3a">Change in monthly spending, January to October</text>
+<line x1="152.5" y1="32" x2="152.5" y2="222" stroke="#e7e4dd"/>
+<line x1="377.5" y1="32" x2="377.5" y2="222" stroke="#e7e4dd"/>
+<line x1="490" y1="32" x2="490" y2="222" stroke="#e7e4dd"/>
+<line x1="265" y1="32" x2="265" y2="222" stroke="#9a978f"/>
+<rect x="265" y="44" width="202.5" height="22" rx="2" fill="#c15f3c"/>
+<rect x="265" y="74" width="157.5" height="22" rx="2" fill="#c15f3c"/>
+<rect x="265" y="104" width="67.5" height="22" rx="2" fill="#d9d4c8"/>
+<rect x="265" y="134" width="22.5" height="22" rx="2" fill="#d9d4c8"/>
+<rect x="231.25" y="164" width="33.75" height="22" rx="2" fill="#a9b4c4"/>
+<rect x="163.75" y="194" width="101.25" height="22" rx="2" fill="#a9b4c4"/>
+<g font-size="12" fill="#3a3a3a" text-anchor="end">
+<text x="118" y="59">Groceries</text>
+<text x="118" y="89">Utilities</text>
+<text x="118" y="119">Transport</text>
+<text x="118" y="149">Insurance</text>
+<text x="118" y="179">Subscriptions</text>
+<text x="118" y="209">Dining out</text>
+<text x="226" y="179" font-weight="500">−3%</text>
+<text x="158" y="209" font-weight="500">−9%</text>
+</g>
+<g font-size="12" fill="#3a3a3a" font-weight="500">
+<text x="473" y="59">+18%</text>
+<text x="428" y="89">+14%</text>
+<text x="338" y="119">+6%</text>
+<text x="293" y="149">+2%</text>
+</g>
+<g font-size="11" fill="#6b6b6b" text-anchor="middle">
+<text x="152.5" y="240">−10%</text>
+<text x="265" y="240">0</text>
+<text x="377.5" y="240">+10%</text>
+<text x="490" y="240">+20%</text>
+</g>
+</svg>
+</div>
+</div>
+<div class="card" style="padding:6px 12px 8px">
+<div style="display:flex;align-items:center;gap:8px;min-height:30px">
+<i class="ti ti-file-spreadsheet" style="color:var(--mu)" aria-hidden="true"></i>
+<span class="tt" style="font-size:13px">Household budget 2026 (cleaned).xlsx</span>
+<span class="mu" style="font-size:12px">296 KB</span>
+<span style="margin-left:auto;display:flex;gap:6px"><span class="mini">Open</span><span class="mini" aria-label="Download"><i class="ti ti-download" aria-hidden="true"></i></span></span>
+</div>
+<div class="mu" style="font-size:11.5px">Your original file is untouched.</div>
+</div>
+<div class="row"><i class="ti ti-code" aria-hidden="true"></i><span class="tt">Show how this was calculated</span><span>Python, 11 lines</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill">Break groceries down by month</span><span class="pill">Which month cost the most?</span></div>
+</div>
+</div>
+<div class="lb" style="margin:1.25rem 2px 8px">Where your file goes</div>
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+<div class="fb"><i class="ti ti-upload" aria-hidden="true"></i><div><div class="ft">Your upload</div><div class="fs">Excel, CSV, JSON</div></div></div>
+<i class="ti ti-arrow-right" style="color:var(--text-muted);font-size:16px" aria-hidden="true"></i>
+<div style="position:relative;border:1px dashed var(--border-strong);border-radius:12px;padding:22px 8px 8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+<span style="position:absolute;top:5px;left:12px;font-size:11px;color:var(--text-secondary)">Stays on your server</span>
+<div class="fb"><i class="ti ti-lock" aria-hidden="true"></i><div><div class="ft">Private copy</div><div class="fs">read-only, per run</div></div></div>
+<i class="ti ti-arrow-right" style="color:var(--text-muted);font-size:16px" aria-hidden="true"></i>
+<div class="fb"><i class="ti ti-terminal-2" aria-hidden="true"></i><div><div class="ft">Offline sandbox</div><div class="fs">pandas, no internet</div></div></div>
+</div>
+<i class="ti ti-arrow-right" style="color:var(--text-muted);font-size:16px" aria-hidden="true"></i>
+<div class="fb"><i class="ti ti-layout-cards" aria-hidden="true"></i><div><div class="ft">Cards in the chat</div><div class="fs">chart, cleaned file</div></div></div>
+</div>
+</main>
+</body>
+</html>

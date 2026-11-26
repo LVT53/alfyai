@@ -1,0 +1,47 @@
+# DRAFT, not installed (2026-11-18). The 0.34 version of /etc/systemd/system/vllm-flashnext.service.
+# Differences from the live 0.31 unit:
+#   - venv and cache roots: vllm-0.31 -> vllm-0.34
+#   - --engram-config: {"cpu_offload": true} -> {"cpu_offload": false, "disk_offload": true}
+#     (the N-gram table is read from the checkpoint on NVMe, not pinned in host RAM)
+#   - VLLM_USE_V2_MODEL_RUNNER removed (model runner V1 is gone in 0.34; V2 is the only runner)
+# --gpu-memory-utilization 0.95 (was 0.92): since 0.34 it is a hard cap on everything vLLM uses, measured after warmup;
+# 0.95 leaves 4.9 GB of GPU0 for zonos3 (about 1.5 GB), the MPS server and the driver reserve. Tune 0.94-0.96 in the window.
+# (unset, 0.34 defaults to 1.0 and fills the card). Fallbacks if needed: --no-enable-extensible-kv-cache (old sizing),
+# {"cpu_offload": true} (old table placement), or the 0.31 unit (rollback, about 3 minutes).
+[Service]
+EnvironmentFile=/etc/vllm/flashnext.env
+User=alfyws
+WorkingDirectory=/home/alfyws
+Environment=PATH=/home/alfyws/venvs/vllm-0.34/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=CUDA_HOME=/usr/local/cuda
+Environment=CUDA_DEVICE_ORDER=PCI_BUS_ID
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=HF_HUB_OFFLINE=1
+Environment=VLLM_NO_USAGE_STATS=1
+Environment=DO_NOT_TRACK=1
+Environment=VLLM_CACHE_ROOT=/home/alfyws/.cache/vllm-0.34
+Environment=TORCHINDUCTOR_CACHE_DIR=/home/alfyws/.cache/vllm-0.34/torchinductor
+Environment=TRITON_CACHE_DIR=/home/alfyws/.cache/vllm-0.34/triton
+Environment=VLLM_SPARSE_INDEXER_MAX_LOGITS_MB=512
+Environment=VLLM_WORKER_MULTIPROC_METHOD=spawn
+Environment=TOKENIZERS_PARALLELISM=false
+ExecStart=/home/alfyws/venvs/vllm-0.34/bin/vllm serve /home/alfyws/hf_models/flashnext/v031/jpezzulli-orcarouter-uncensored-nvfp4 \
+  --served-model-name qwen3-6-27b qwen3-8-flash-next flash-next \
+  --host 0.0.0.0 --port 30000 \
+  --trust-remote-code \
+  --gpu-memory-utilization 0.95 \
+  --max-model-len 262144 \
+  --max-num-seqs 16 \
+  --max-num-batched-tokens 8192 \
+  --kv-cache-dtype fp8 \
+  --attention-config '{"indexer_kv_dtype":"fp8"}' \
+  --engram-config '{"cpu_offload": false, "disk_offload": true}' \
+  --mamba-cache-mode align \
+  --enable-chunked-prefill \
+  --enable-prefix-caching \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder \
+  --reasoning-parser qwen3 \
+  --speculative-config '{"method":"mtp","num_speculative_tokens":3,"model":"/home/alfyws/hf_models/flashnext/v031/mtp-drafter-nvfp4"}'
+# The other [Unit]/[Service]/[Install] lines (Restart=always, LimitMEMLOCK=infinity, the MPS drop-in) stay as in the live unit;
+# copy the live file and change only the lines above.

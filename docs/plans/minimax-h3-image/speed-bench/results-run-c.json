@@ -1,0 +1,22 @@
+[
+ {
+  "name": "edit-native-s6",
+  "prompt_id": "0c01c151-8347-4f19-b986-65fb0a1ebaa2",
+  "status": "success",
+  "submit": 1795015275.570199,
+  "done": 1795015322.91009,
+  "fetched": 1795015325.6060631,
+  "wall_s": 47.34,
+  "fetch_s": 2.7,
+  "comfy_start_ms": 1795015275755,
+  "comfy_end_ms": 1795015322300,
+  "images": [
+   [
+    "/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-5hjrLm/0ca6d57c-7fad-406a-a092-b6b7812c88c2/scratchpad/h3speed/run-c/edit-native-s6.png",
+    8960838
+   ]
+  ],
+  "meta": {},
+  "comfy_exec_s": 46.55
+ }
+]

@@ -1,0 +1,325 @@
+// Review-C scaffolding: the real runtime, deferred stream adapters and the real
+// page message-list helpers (finalize/output/remove) so effects are visible rows.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
+import type { ServerHealth } from "$lib/client/api/health";
+import {
+	createNormalChatClientTurnRuntime,
+	type NormalChatClientTurnRuntimeAdapters,
+	type NormalChatMessageListEvent,
+} from "$lib/client/normal-chat-client-turn-runtime";
+import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
+import type { ServerUpdateKind } from "$lib/client/server-update-watch";
+import type { ModelId } from "$lib/model-types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import type {
+	StreamCallbacks,
+	StreamChatOptions,
+	StreamHandle,
+} from "$lib/services/streaming";
+import {
+	finalizeStreamingMessageList,
+	removeMessageById,
+} from "../../routes/(app)/chat/[conversationId]/_helpers";
+
+type Invocation = {
+	message: string;
+	conversationId: string;
+	callbacks: StreamCallbacks;
+	options?: StreamChatOptions;
+	handle: StreamHandle & {
+		stop: ReturnType<typeof vi.fn>;
+		detach: ReturnType<typeof vi.fn>;
+	};
+};
+
+function harness(overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {}) {
+	const state = {
+		messages: [] as ChatMessage[],
+		conversationId: "conv-1",
+		errors: [] as (string | null)[],
+	};
+	const invocations: Invocation[] = [];
+	let id = 0;
+	let streamSeq = 0;
+	const apply = (event: NormalChatMessageListEvent) => {
+		const m = state.messages;
+		switch (event.type) {
+			case "appendUser":
+				state.messages = [...m, event.message];
+				return;
+			case "appendAssistantPlaceholder":
+				state.messages = [...m, event.placeholder];
+				return;
+			case "applyNormalChatOutput":
+				state.messages = applyNormalChatOutputView(
+					m,
+					event.placeholderId,
+					event.view,
+				);
+				return;
+			case "appendToken":
+				state.messages = m.map((row) =>
+					row.id === event.placeholderId
+						? { ...row, content: row.content + event.chunk }
+						: row,
+				);
+				return;
+			case "setRuntimePhase":
+				state.messages = m.map((row) =>
+					row.id === event.placeholderId
+						? { ...row, runtimePhase: event.phase }
+						: row,
+				);
+				return;
+			case "remove":
+				state.messages = removeMessageById(m, event.messageId);
+				return;
+			case "finalize":
+				state.messages = finalizeStreamingMessageList(m, {
+					placeholderId: event.placeholderId,
+					canonicalMessage: event.canonicalMessage,
+					clientUserMessageId: event.clientUserMessageId,
+					metadata: event.metadata,
+				});
+				return;
+			default:
+				return;
+		}
+	};
+	const applyMessageListEvent = vi.fn(apply);
+	const adapters: NormalChatClientTurnRuntimeAdapters = {
+		streamChat: vi.fn((message, conversationId, callbacks, options) => {
+			const handle = {
+				streamId: options?.reconnectToStreamId ?? `stream-${++streamSeq}`,
+				stop: vi.fn(),
+				detach: vi.fn(),
+			};
+			invocations.push({ message, conversationId, callbacks, options, handle });
+			return handle;
+		}),
+		checkForOrphanedStream: vi.fn(async () => null),
+		getStreamBufferInfo: vi.fn(async () => null),
+		submitAtlasTurn: vi.fn(async () => {
+			throw new Error("no atlas in review harness");
+		}),
+		getConversationId: () => state.conversationId,
+		getSelectedModel: () => "model1" as ModelId,
+		getReasoningDepth: () => "thorough",
+		getPersonalityProfileId: () => null,
+		getActiveDocumentArtifactId: () => undefined,
+		getMessages: () => state.messages,
+		isReadOnly: () => false,
+		isEditResendPending: () => false,
+		isEditOpen: () => false,
+		isBrowserHidden: () => false,
+		randomId: () => `id-${++id}`,
+		schedule: (cb, ms) => setTimeout(cb, ms),
+		setConversationModelSelection: vi.fn(),
+		clearDraft: vi.fn(),
+		clearAttachedArtifacts: () => [],
+		recordConversationActivity: vi.fn(),
+		applyMessageListEvent,
+		applyStreamMetadata: vi.fn(),
+		attachFileProductionJobsToAssistantMessage: vi.fn(),
+		refreshPendingWrites: vi.fn(),
+		pollMessageEvidence: vi.fn(),
+		refreshMessageCost: vi.fn(),
+		hydrateConversationDetail: vi.fn(),
+		pollForCompletion: vi.fn(),
+		loadPersistedData: vi.fn(),
+		readChatMessages: vi.fn(async () => null),
+		fetchServerHealth: vi.fn(
+			async (): Promise<ServerHealth> => ({ state: "up" }),
+		),
+		isNewVersionLive: () => false,
+		askServerUpdate: vi.fn(async (): Promise<ServerUpdateKind> => "none"),
+		maybeTriggerTitleGeneration: vi.fn(),
+		runManualContextCompression: vi.fn(async () => undefined),
+		restorePayloadToDraft: vi.fn(),
+		markPendingSkillUnavailable: (p) => p,
+		isPendingSkillUnavailableError: () => false,
+		isForkedSourceHistoryConfirmationRequired: () => false,
+		toFriendlySendError: (e) => e.message,
+		setSendError: vi.fn((message: string | null) => {
+			state.errors.push(message);
+		}),
+		onBackgroundInterrupted: vi.fn(),
+		...overrides,
+	};
+	const runtime = createNormalChatClientTurnRuntime(adapters);
+	return { adapters, runtime, invocations, state };
+}
+
+const aSend = (message: string) => ({
+	message,
+	attachmentIds: [],
+	attachments: [],
+	pendingAttachments: [],
+});
+
+
+const provisionalView = (text: string) => {
+	const acc = createNormalChatOutputAccumulator();
+	const scope = {
+		version: 1,
+		turnId: "turn-1",
+		segmentId: "seg-1",
+		attemptId: "a1",
+		stepId: "a1:0",
+		phase: "working",
+	} as const;
+	acc.apply({ ...scope, sequence: 1, type: "step_start" });
+	acc.apply({
+		...scope,
+		sequence: 2,
+		type: "block_start",
+		blockId: "b1",
+		nativeId: "t",
+		kind: "text",
+		role: "provisional",
+	});
+	acc.apply({ ...scope, sequence: 3, type: "block_delta", blockId: "b1", text });
+	return acc.getProjection();
+};
+
+describe("review 2 (T): client runtime", () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+
+	it("E/1.4a: a healthy pending turn is not given up because the browser clock runs ahead of the server", async () => {
+		const h = harness();
+		await h.runtime.reconnectToOrphanedStream("orphan", "A");
+		expect(h.invocations).toHaveLength(1);
+		// Server clock is 5 minutes behind this browser. The server still has
+		// 200 s of working + closing budget left by its own clock.
+		const serverNow = Date.now() - 300_000;
+		h.invocations[0].callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: "orphan",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			segmentId: "seg-1",
+			deadlineAt: serverNow + 200_000,
+		});
+		await vi.advanceTimersByTimeAsync(2_100);
+		process.stdout.write(
+			`skew ${JSON.stringify({ isSending: h.runtime.snapshot().isSending, errors: h.state.errors, invocations: h.invocations.length })}\n`,
+		);
+		// Still observing: the turn has 200 s left; a 2 s poll must not give up.
+		expect(h.state.errors).not.toContain("chat.observationUnavailable");
+		expect(h.runtime.snapshot().isSending).toBe(true);
+	});
+
+	it("E/1.4c: a delivered turn whose reply was never saved is not a clean success and keeps the queue", async () => {
+		const h = harness();
+		await h.runtime.reconnectToOrphanedStream("observer", "A");
+		h.runtime.queue({
+			message: "Queued follow-up",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		expect(h.runtime.snapshot().queuedTurn?.message).toBe("Queued follow-up");
+		h.invocations[0].callbacks.onEnd("", {
+			observation: {
+				version: 1,
+				streamId: "observer",
+				conversationId: "conv-1",
+				state: "terminal",
+				assistantMessageId: null,
+				completion: {
+					version: 1,
+					turnId: "t",
+					segmentId: "s",
+					phase: "working",
+					outcome: "delivered",
+					stopCause: "natural_stop",
+					workingStopCause: "natural_stop",
+					closingAttempted: false,
+				},
+			},
+		} as never);
+		await vi.advanceTimersByTimeAsync(0);
+		process.stdout.write(
+			`delivered ${JSON.stringify({ sent: h.invocations.map((i) => i.message), errors: h.state.errors, queued: h.runtime.snapshot().queuedTurn?.message ?? null })}\n`,
+		);
+		expect(h.invocations.map((i) => i.message)).not.toContain("Queued follow-up");
+	});
+
+	it("D: a pre-disconnect provisional preview stays in the answer area while the turn is only observed", async () => {
+		const h = harness({
+			checkForOrphanedStream: vi.fn(async () => "stream-1"),
+		});
+		await h.runtime.send(aSend("A"));
+		const live = h.invocations[0];
+		live.callbacks.onNormalChatOutput?.(provisionalView("Let me search the web for that."));
+		// The connection drops (a TypeError, no status): network-drop recovery
+		// rejoins the same stream with the retained partial.
+		live.callbacks.onError(new TypeError("Failed to fetch"));
+		await vi.advanceTimersByTimeAsync(5_000);
+		const rejoin = h.invocations.find((i) => i.options?.reconnectToStreamId);
+		expect(rejoin).toBeDefined();
+		// Replay of this long turn is unavailable: the server sends a pending observation.
+		rejoin?.callbacks.onWaiting?.({
+			version: 1,
+			state: "pending",
+			streamId: rejoin.options?.reconnectToStreamId ?? "",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			segmentId: "seg-1",
+			deadlineAt: Date.now() + 200_000,
+		});
+		await vi.advanceTimersByTimeAsync(30_000);
+		const row = h.state.messages.at(-1) as ChatMessage & {
+			normalChatOutputView?: { blocks: { role: string; text: string }[] };
+		};
+		process.stdout.write(
+			`stale ${JSON.stringify({ phase: row?.runtimePhase, isStreaming: row?.isStreaming, content: row?.content, blocks: row?.normalChatOutputView?.blocks.map((b) => [b.role, b.text]), invocations: h.invocations.length })}\n`,
+		);
+		// MessageBubble.displayContent shows provisional blocks of the last step
+		// whenever isStreaming && runtimePhase !== "finalizing" && !completion.
+		const shown =
+			Boolean(row?.isStreaming) &&
+			row?.runtimePhase !== "finalizing" &&
+			(row?.normalChatOutputView?.blocks ?? []).some(
+				(b) => b.role === "provisional" && b.text,
+			);
+		// While only polling, the browser no longer sees the step: a tool call
+		// meanwhile would have withdrawn the text. It must not stay as the answer.
+		expect(shown).toBe(false);
+	});
+
+	it("1.3 control: without Stop the capacity backoff still sends again (fence does not starve a healthy turn)", async () => {
+		const h = harness();
+		await h.runtime.send(aSend("A"));
+		h.invocations[0].callbacks.onError(
+			Object.assign(new Error("Server at capacity"), {
+				status: 503,
+				code: "CAPACITY_EXCEEDED",
+				reason: "user_limit",
+			}),
+		);
+		await vi.advanceTimersByTimeAsync(600);
+		const fresh = h.invocations.filter((i) => !i.options?.reconnectToStreamId);
+		process.stdout.write(`capacity-control ${fresh.length}\n`);
+		expect(fresh).toHaveLength(2);
+		// Stop during the SECOND backoff, then a new send before the old timer fires.
+		fresh[1].callbacks.onError(
+			Object.assign(new Error("Server at capacity"), {
+				status: 503,
+				code: "CAPACITY_EXCEEDED",
+				reason: "user_limit",
+			}),
+		);
+		expect(h.runtime.stop()).toBe(true);
+		await vi.advanceTimersByTimeAsync(0);
+		await h.runtime.send(aSend("B"));
+		const before = h.invocations.filter((i) => !i.options?.reconnectToStreamId).length;
+		await vi.advanceTimersByTimeAsync(2_000);
+		const after = h.invocations.filter((i) => !i.options?.reconnectToStreamId);
+		process.stdout.write(`capacity-variation ${JSON.stringify(after.map((i) => i.message))}\n`);
+		expect(after.length).toBe(before);
+	});
+});
