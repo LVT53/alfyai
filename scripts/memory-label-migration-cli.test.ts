@@ -1,3 +1,4 @@
+// @always-run: runs the label migration CLI in a subprocess.
 import { execFileSync } from "node:child_process";
 import {
 	chmodSync,

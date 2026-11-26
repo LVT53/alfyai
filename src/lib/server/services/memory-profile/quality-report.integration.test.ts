@@ -1,3 +1,4 @@
+// @always-run: inspects the reporting service source.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type MemoryKind,

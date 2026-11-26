@@ -1,3 +1,4 @@
+// @always-run: scans the source tree for disallowed imports.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { eq } from "drizzle-orm";

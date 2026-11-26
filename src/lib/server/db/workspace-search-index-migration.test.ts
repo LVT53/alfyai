@@ -1,3 +1,4 @@
+// @always-run: uses the migration journal and SQL files.
 import {
 	copyFileSync,
 	existsSync,

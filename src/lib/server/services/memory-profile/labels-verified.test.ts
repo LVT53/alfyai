@@ -1,3 +1,4 @@
+// @always-run: inspects the label epoch migration SQL.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
