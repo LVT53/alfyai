@@ -2594,7 +2594,7 @@ describe("MessageBubble", () => {
 		);
 		expect(
 			screen.getByRole("button", {
-				name: "Confirm: Save note.txt to /AlfyAI",
+				name: "Working…: Save note.txt to /AlfyAI",
 			}),
 		).toBeDisabled();
 	});
