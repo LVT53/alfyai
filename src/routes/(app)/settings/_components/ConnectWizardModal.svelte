@@ -186,7 +186,7 @@ async function submitCredentials(run: (signal: AbortSignal) => Promise<void>) {
 let selectedCapabilities = $state<Set<Capability>>(
 	new Set(
 		initialRequestedCapabilities.length > 0 ||
-		(initialProvider === "onedrive" && initialReconnectConnectionId)
+			(initialProvider === "onedrive" && initialReconnectConnectionId)
 			? (initialRequestedCapabilities as Capability[]).filter((capability) =>
 					providerEntry?.capabilities.includes(capability),
 				)
