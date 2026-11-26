@@ -50,9 +50,9 @@ Phased stays the agent default. The translation sample took longer because the s
 
 The gate detected a translation use with neither locale, then a separate English-only translation with a missing Hungarian entry. It also detected a tool error code without UI words. Changing `vitest.config.ts` selected the full 1,562-file suite and passed 30,500 active tests, with 10 skips.
 
-## Acceptance remaining
+## Release acceptance
 
-The release target needs three passing full releases within ten minutes under the measured-run criteria. All runs in the comparison began with swap in use. The fastest passing full run took 14m59s. The one-week and two-week observations depend on merge and elapsed time.
+On November 26, 2026, the owner accepted about fifteen minutes for the full Mac release. Three passing runs within ten minutes under the measured-run criteria remain a stretch goal. All runs in the comparison began with swap in use. The fastest passing full run took 14m59s. The one-week and two-week observations depend on merge and elapsed time.
 
 ## Final Mac verification
 
