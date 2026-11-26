@@ -71,6 +71,14 @@ test("follows literal Vite glob imports with negative patterns", () => {
 	).toEqual([]);
 });
 
+test("leaves raw Vite glob reads in Node", () => {
+	expect(
+		scanFixture(
+			'import.meta.glob("./lib/**/*.ts", { query: "?raw", import: "default" });',
+		),
+	).toEqual([]);
+});
+
 test.each([
 	['export const browser = typeof (window) !== "undefined";', "typeof window"],
 	["export const browser = !import.meta .env.SSR;", "import.meta.env.SSR"],

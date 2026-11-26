@@ -132,7 +132,26 @@ function isLocalVariable(reference, name) {
 	return false;
 }
 
-function inspect(file, source) {
+function isRawGlob(options) {
+	if (!options || !ts.isObjectLiteralExpression(options)) return false;
+	// Check the last property so an override or spread stays conservative.
+	for (const property of [...options.properties].reverse()) {
+		if (
+			ts.isSpreadAssignment(property) ||
+			ts.isComputedPropertyName(property.name)
+		)
+			return false;
+		if (property.name.text !== "query") continue;
+		return (
+			ts.isPropertyAssignment(property) &&
+			ts.isStringLiteralLike(property.initializer) &&
+			/^\??raw(?:&|$)/.test(property.initializer.text)
+		);
+	}
+	return false;
+}
+
+function inspect(file, source, isTestEntry) {
 	const imports = new Set();
 	const globs = [];
 	let reason;
@@ -148,7 +167,8 @@ function inspect(file, source) {
 		if (
 			ts.isCallExpression(node) &&
 			importMetaAccess(node.expression, "glob") &&
-			node.arguments.length
+			node.arguments.length &&
+			!isRawGlob(node.arguments[1])
 		) {
 			const input = node.arguments[0];
 			const patterns = ts.isArrayLiteralExpression(input)
@@ -184,12 +204,14 @@ function inspect(file, source) {
 			if (property === "SSR" && importMetaAccess(expression, "env"))
 				reason ??= "import.meta.env.SSR";
 			if (
+				isTestEntry &&
 				browserGlobals.has(receiver) &&
 				!isLocalVariable(node.expression, receiver)
 			)
 				testReason ??= `${receiver} property access`;
 		}
 		if (
+			isTestEntry &&
 			ts.isIdentifier(node) &&
 			["HTMLElement", "HTMLCanvasElement", "customElements"].includes(node.text)
 		)
@@ -202,7 +224,8 @@ function inspect(file, source) {
 
 export function browserEnvironmentViolations(root, testFiles) {
 	const modules = new Map();
-	function readModule(file) {
+	const entries = new Set(testFiles.map((file) => join(root, file)));
+	function readModule(file, entryOnly = false) {
 		if (!modules.has(file)) {
 			if (svelteSource.test(file)) {
 				modules.set(file, { reason: "Svelte source" });
@@ -212,7 +235,17 @@ export function browserEnvironmentViolations(root, testFiles) {
 				const environment = source.match(
 					/@(?:vitest|jest)-environment\s+([\w-]+)\b/,
 				)?.[1];
-				const { imports, globs, reason, testReason } = inspect(file, source);
+				// Declared browser entries need no AST unless a Node test imports them.
+				if (
+					entryOnly &&
+					(environment === "jsdom" || environment === "happy-dom")
+				)
+					return { environment };
+				const { imports, globs, reason, testReason } = inspect(
+					file,
+					source,
+					entries.has(file),
+				);
 				const dependencies = [...imports]
 					.map((specifier) => localModule(root, file, specifier))
 					.filter(Boolean);
@@ -226,7 +259,7 @@ export function browserEnvironmentViolations(root, testFiles) {
 	const violations = [];
 	for (const file of testFiles) {
 		const entry = join(root, file);
-		const { environment } = readModule(entry);
+		const { environment } = readModule(entry, true);
 		if (environment === "jsdom" || environment === "happy-dom") continue;
 		const seen = new Set();
 		const pending = [entry];
