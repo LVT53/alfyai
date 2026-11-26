@@ -98,7 +98,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 // "PT45M", "P2W", optionally sign-prefixed) into signed milliseconds. Returns
 // null for anything it can't parse or a bare "P" with no components — the
 // caller then falls back to the RFC default end rather than a bogus zero.
-function parseICalDuration(value: string): number | null {
+export function parseICalDuration(value: string): number | null {
 	const m = value
 		.trim()
 		.match(
@@ -341,7 +341,7 @@ export function parseVCards(vcardText: string): ParsedVCard[] {
 
 // CalDAV time-range filters use iCal's "basic" UTC form (no dashes/colons,
 // always Z) regardless of what format the caller's ISO timestamp used.
-function toICalUtcTimestamp(iso: string): string {
+export function toICalUtcTimestamp(iso: string): string {
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) {
 		throw new Error(`Invalid timeMin/timeMax value: ${iso}`);

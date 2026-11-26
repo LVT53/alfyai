@@ -107,9 +107,9 @@ export const PROVIDER_META: Record<
 		group: "product",
 	},
 	onedrive: {
-		capabilities: ["files"],
+		capabilities: ["files", "calendar"],
 		connectMethod: "oauth",
-		displayName: "OneDrive",
+		displayName: "Microsoft",
 		group: "product",
 	},
 	// Task 9b: widened from Task 9a's ["tasks"] — a generic caldav connection
@@ -147,6 +147,7 @@ export const OAUTH_CAPABILITY_SCOPES: Partial<
 	},
 	onedrive: {
 		files: "Files.Read",
+		calendar: "Calendars.ReadBasic",
 	},
 };
 
@@ -161,7 +162,7 @@ export const CAPABILITY_META: Record<
 > = {
 	calendar: {
 		tier: "proactive",
-		providers: ["google", "apple", "caldav"],
+		providers: ["google", "apple", "caldav", "onedrive"],
 		displayName: "Calendar",
 	},
 	email: {

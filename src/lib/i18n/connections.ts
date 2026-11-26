@@ -406,7 +406,8 @@ const connectionsDict = {
 		"connections.provider.owntracks.blurb":
 			"Where you are, from your own phone",
 		"connections.provider.github.blurb": "Your repositories and issues",
-		"connections.provider.onedrive.blurb": "Your files",
+		"connections.provider.onedrive.blurb":
+			"OneDrive files and Outlook Calendar",
 		"connections.provider.caldav.blurb":
 			"Any standards-based calendar or address book",
 		"connections.provider.contacts.blurb": "A CardDAV address book",
@@ -1014,7 +1015,7 @@ const connectionsDict = {
 		"connections.provider.plex.blurb": "A saját filmjeid és sorozataid",
 		"connections.provider.owntracks.blurb": "Hol vagy — a saját telefonodról",
 		"connections.provider.github.blurb": "A tárolóid és hibajegyeid",
-		"connections.provider.onedrive.blurb": "A fájljaid",
+		"connections.provider.onedrive.blurb": "OneDrive-fájlok és Outlook-naptár",
 		"connections.provider.caldav.blurb":
 			"Bármely szabványos naptár vagy címjegyzék",
 		"connections.provider.contacts.blurb": "Egy CardDAV címjegyzék",

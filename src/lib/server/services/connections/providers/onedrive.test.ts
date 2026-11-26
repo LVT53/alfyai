@@ -141,6 +141,19 @@ describe("onedriveConnectStart", () => {
 	});
 });
 
+it("requests Outlook calendar reads independently from OneDrive file access", async () => {
+	setConfiguredEnv();
+	const { onedriveConnectStart } = await import("./onedrive");
+	const { authUrl } = await onedriveConnectStart({
+		userId: "userA",
+		origin: "https://app.example.com",
+		capabilities: ["calendar"],
+	});
+	const scopes = new URL(authUrl).searchParams.get("scope")?.split(" ");
+	expect(scopes).toContain("Calendars.ReadBasic");
+	expect(scopes).not.toContain("Files.Read");
+});
+
 describe("signOAuthState / verifyOAuthState", () => {
 	it("verifies a freshly signed state and returns its payload", async () => {
 		setSigningKeyOnly();
@@ -340,6 +353,32 @@ describe("onedriveConnectFinish", () => {
 	});
 });
 
+it("a reconnect keeps only selected, granted capabilities even if Graph repeats an old grant", async () => {
+	setConfiguredEnv();
+	const original = await seedConnection();
+	const { signOAuthState, onedriveConnectFinish } = await import("./onedrive");
+	const fetch = vi.fn(async (input: RequestInfo | URL) =>
+		String(input) === TOKEN_URL
+			? jsonResponse(200, {
+					access_token: "calendar-only",
+					refresh_token: "new-refresh",
+					expires_in: 3600,
+					scope: "User.Read Files.Read Calendars.ReadBasic",
+					token_type: "Bearer",
+				})
+			: jsonResponse(200, { mail: original.accountIdentifier }),
+	);
+	const { connection } = await onedriveConnectFinish({
+		origin: "https://app.example.com",
+		code: "code",
+		state: signOAuthState({ userId: "userA", capabilities: ["calendar"] }),
+		fetch,
+	});
+	expect(connection.id).toBe(original.id);
+	expect(connection.capabilities).toEqual(["calendar"]);
+	expect(connection.oauthScopes).toEqual(["User.Read", "Calendars.ReadBasic"]);
+});
+
 async function seedConnection(opts?: { tokenExpiresAt?: number }) {
 	seedUser("userA");
 	const { createConnection } = await import("../store");
@@ -488,6 +527,89 @@ describe("onedriveRefreshAccessToken", () => {
 		expect(updated?.status).toBe("needs_reauth");
 	});
 });
+
+it("reuses the fresh encrypted access token for reads", async () => {
+	setConfiguredEnv();
+	const conn = await seedConnection({
+		tokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
+	});
+	const { onedriveGetAccessTokenForRead } = await import("./onedrive");
+	const fetch = vi.fn();
+	expect(await onedriveGetAccessTokenForRead(conn, { fetch })).toBe(
+		"old-access",
+	);
+	expect(fetch).not.toHaveBeenCalled();
+});
+
+it("refuses Outlook reads using a file-only grant even with a cached token", async () => {
+	setConfiguredEnv();
+	const conn = await seedConnection({
+		tokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
+	});
+	const { onedriveGetAccessTokenForRead } = await import("./onedrive");
+	const fetch = vi.fn();
+	await expect(
+		onedriveGetAccessTokenForRead(
+			{ ...conn, capabilities: ["files", "calendar"] },
+			{ fetch },
+			"calendar",
+		),
+	).rejects.toMatchObject({ code: "needs_reauth" });
+	expect(fetch).not.toHaveBeenCalled();
+});
+it("shares a rotating refresh between concurrent Microsoft reads and asks only for granted capabilities", async () => {
+	setConfiguredEnv();
+	const conn = await seedConnection();
+	const { updateConnection } = await import("../store");
+	await updateConnection("userA", conn.id, {
+		capabilities: ["calendar"],
+		oauthScopes: ["Calendars.ReadBasic"],
+	});
+	const { onedriveRefreshAccessToken } = await import("./onedrive");
+	const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+		const scopes = new URLSearchParams(String(init?.body))
+			.get("scope")
+			?.split(" ");
+		expect(scopes).toContain("Calendars.ReadBasic");
+		expect(scopes).not.toContain("Files.Read");
+		return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+	});
+	const reads = await Promise.all([
+		onedriveRefreshAccessToken("userA", conn.id, { fetch }),
+		onedriveRefreshAccessToken("userA", conn.id, { fetch }),
+	]);
+	expect(reads).toEqual(["new-token", "new-token"]);
+	expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+	{ enabled: ["calendar"], expectedPath: "/me/calendar?$select=id" },
+	{ enabled: [], expectedPath: "/me?$select=id" },
+])(
+	"checks $expectedPath for enabled services $enabled",
+	async ({ enabled, expectedPath }) => {
+		setConfiguredEnv();
+		const conn = await seedConnection({
+			tokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
+		});
+		const { onedriveAdapter } = await import("./onedrive");
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			expect(String(input)).toBe(GRAPH_BASE + expectedPath);
+			return jsonResponse(200, { id: "calendar" });
+		});
+		const result = await onedriveAdapter.checkHealth(
+			JSON.stringify({ accessToken: "cached", refreshToken: "refresh" }),
+			{
+				...conn,
+				capabilities: enabled,
+				oauthScopes: ["Files.Read", "Calendars.ReadBasic"],
+			},
+			{ fetch },
+		);
+		expect(result.status).toBe("connected");
+		expect(fetch).toHaveBeenCalledOnce();
+	},
+);
 
 describe("onedriveAdapter.checkHealth", () => {
 	it("skips the network refresh and confirms via GET /me/drive when the access token is nowhere near expiry", async () => {

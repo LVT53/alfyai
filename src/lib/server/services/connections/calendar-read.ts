@@ -1,6 +1,7 @@
 import { appleListEvents } from "./providers/apple-caldav";
 import { caldavListEvents } from "./providers/caldav-tasks";
 import { googleListEvents } from "./providers/google-calendar";
+import { outlookListEvents } from "./providers/outlook-calendar";
 import type { ConnectionPublic } from "./store";
 
 export async function listConnectionEvents(
@@ -23,6 +24,8 @@ export async function listConnectionEvents(
 			const events = await list(userId, conn.id, { timeMin, timeMax });
 			return events.slice(0, maxResults);
 		}
+		case "onedrive":
+			return outlookListEvents(conn, options);
 		case "google":
 			return googleListEvents(userId, conn.id, {
 				timeMin,

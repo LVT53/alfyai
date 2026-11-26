@@ -114,13 +114,11 @@ and back-end module seams are defined by
 - **IMAP email** (with write)
 - **Apple CalDAV** and **CalDAV tasks**
 - **GitHub** (read-only)
-- **Nextcloud files** and **OneDrive** (read-only)
+- **Nextcloud files**, **OneDrive files** and **Outlook Calendar** (Microsoft OAuth reads)
 - **Immich** (with write) and **Plex**
 - **OwnTracks** (location)
 
-OAuth callback routes live under `src/routes/api/oauth/` (`google`, `onedrive`). Only Google uses an
-OAuth client secret (`GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`); the other providers
-authenticate per-provider inside the app.
+OAuth callback routes live under `src/routes/api/oauth/` (`google`, `onedrive`). Microsoft uses the existing `ONEDRIVE_CLIENT_ID` and `ONEDRIVE_CLIENT_SECRET` for both OneDrive and Outlook. In the Microsoft app registration use a Web redirect URI of `{origin}/api/oauth/onedrive/callback`. The delegated Graph permissions are `User.Read` to identify the account, `Files.Read` when files are selected, and `Calendars.ReadBasic` when calendar is selected. A file-only account can opt into Calendar in Settings → Connections. Google uses `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`.
 
 ## Document extraction (MinerU)
 

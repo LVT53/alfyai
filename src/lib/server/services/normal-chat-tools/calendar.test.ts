@@ -1,3 +1,17 @@
+import { davFreeBusy } from "../connections/dav/free-busy";
+import {
+	outlookBusyIntervals,
+	outlookListCalendars,
+	outlookListEvents,
+} from "../connections/providers/outlook-calendar";
+
+vi.mock("../connections/dav/free-busy", () => ({ davFreeBusy: vi.fn() }));
+vi.mock("../connections/providers/outlook-calendar", () => ({
+	outlookBusyIntervals: vi.fn(),
+	outlookListCalendars: vi.fn(),
+	outlookListEvents: vi.fn(),
+}));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -201,7 +215,7 @@ describe("runCalendarTool", () => {
 				sourceType: "tool",
 				action: "list_events",
 				message:
-					"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.",
+					"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, CalDAV or Microsoft Outlook account in Settings to check your calendar.",
 				events: [],
 				busy: [],
 				calendars: [],
@@ -480,6 +494,174 @@ describe("runCalendarTool", () => {
 		expect(Number.isNaN(new Date(call?.timeMax as string).getTime())).toBe(
 			false,
 		);
+	});
+
+	it("merges overlapping work and personal busy time, and labels their default-calendar scope", async () => {
+		const personal = makeConn({ id: "personal", label: "Personal" });
+		const work = makeConn({
+			id: "work",
+			provider: "onedrive",
+			label: "OneDrive",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([personal, work]);
+		googleFreeBusyMock.mockResolvedValue([
+			{
+				calendarId: "primary",
+				busy: [{ start: "2026-07-09T08:00:00Z", end: "2026-07-09T09:30:00Z" }],
+			},
+		]);
+		vi.mocked(outlookBusyIntervals).mockResolvedValue([
+			{ start: "2026-07-09T09:00:00Z", end: "2026-07-09T10:00:00Z" },
+		]);
+		const result = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability", start: "2026-07-09", end: "2026-07-09" },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload.busy).toEqual([
+			{
+				calendarId: "combined",
+				busy: [{ start: "2026-07-09T08:00:00Z", end: "2026-07-09T10:00:00Z" }],
+			},
+		]);
+		expect(result.modelPayload.message).toContain(
+			"OneDrive (default calendar)",
+		);
+		expect(result.modelPayload.message).toContain(
+			"Personal (default calendar)",
+		);
+	});
+	it("includes an unavailable configured calendar in coverage without making a free-time claim", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn(),
+			makeConn({
+				id: "work",
+				label: "Work",
+				provider: "onedrive",
+				status: "needs_reauth",
+			}),
+		]);
+		googleFreeBusyMock.mockResolvedValue([{ calendarId: "primary", busy: [] }]);
+		const result = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability" },
+			LOCAL_MODEL_ID,
+		);
+		expect(resolveConnectionsForCapabilityMock).toHaveBeenCalledWith(
+			"user-1",
+			"calendar",
+			{ includeUnavailable: true },
+		);
+		expect(result.modelPayload.success).toBe(false);
+		expect(result.modelPayload.message).toMatch(/Couldn't check Work/);
+		expect(reasonCodeOf(result.modelPayload)).toBe("availability_incomplete");
+	});
+	it("scopes Outlook discovery and availability to a selected legacy OneDrive account", async () => {
+		vi.mocked(outlookBusyIntervals).mockClear();
+		const outlook = makeConn({
+			id: "work",
+			label: "OneDrive",
+			provider: "onedrive",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn(),
+			outlook,
+		]);
+		vi.mocked(outlookListCalendars).mockResolvedValueOnce([
+			{ id: "work-cal", summary: "Work" },
+		]);
+		vi.mocked(outlookBusyIntervals).mockResolvedValueOnce([]);
+		const calendars = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars", account: "outlook" },
+			LOCAL_MODEL_ID,
+		);
+		expect(calendars.modelPayload.calendars).toEqual([
+			{ id: "work-cal", summary: "Work" },
+		]);
+		vi.mocked(outlookListEvents).mockResolvedValueOnce([]);
+		const events = await runCalendarTool(
+			"user-1",
+			{ action: "list_events", account: "outlook", calendarId: "work-cal" },
+			LOCAL_MODEL_ID,
+		);
+		expect(events.modelPayload.success).toBe(true);
+		expect(outlookListEvents).toHaveBeenCalledWith(
+			outlook,
+			expect.objectContaining({ calendarId: "work-cal" }),
+		);
+		await runCalendarTool(
+			"user-1",
+			{
+				action: "check_availability",
+				calendarId: "work-cal",
+				account: "outlook",
+			},
+			LOCAL_MODEL_ID,
+		);
+		expect(outlookBusyIntervals).toHaveBeenCalledWith(
+			outlook,
+			expect.objectContaining({ calendarId: "work-cal" }),
+		);
+		expect(googleFreeBusyMock).not.toHaveBeenCalled();
+	});
+	it("checks both Outlook accounts with the same label and honors a unique email for scoped reads", async () => {
+		const accounts = ["work@example.com", "private@example.com"].map(
+			(accountIdentifier, index) =>
+				makeConn({
+					id: String(index),
+					provider: "onedrive",
+					label: "Microsoft",
+					accountIdentifier,
+				}),
+		);
+		resolveConnectionsForCapabilityMock.mockResolvedValue(accounts);
+		vi.mocked(outlookBusyIntervals).mockClear().mockResolvedValue([]);
+		const result = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability", account: "outlook" },
+			LOCAL_MODEL_ID,
+		);
+		expect(outlookBusyIntervals).toHaveBeenCalledTimes(2);
+		for (const account of accounts)
+			expect(result.modelPayload.message).toContain(account.accountIdentifier);
+		const ambiguous = await runCalendarTool(
+			"user-1",
+			{
+				action: "check_availability",
+				account: "outlook",
+				calendarId: "private",
+			},
+			LOCAL_MODEL_ID,
+		);
+		expect(ambiguous.modelPayload.success).toBe(false);
+		expect(outlookBusyIntervals).toHaveBeenCalledTimes(2);
+		await runCalendarTool(
+			"user-1",
+			{
+				action: "check_availability",
+				account: "private@example.com",
+				calendarId: "private",
+			},
+			LOCAL_MODEL_ID,
+		);
+		expect(outlookBusyIntervals).toHaveBeenLastCalledWith(
+			accounts[1],
+			expect.objectContaining({ calendarId: "private" }),
+		);
+	});
+	it("asks for the owning account instead of passing a private calendar id to multiple providers", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn(),
+			makeConn({ id: "other", provider: "onedrive" }),
+		]);
+		const result = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability", calendarId: "private-calendar" },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload.success).toBe(false);
+		expect(googleFreeBusyMock).not.toHaveBeenCalled();
 	});
 
 	it("check_availability summarizes free/busy", async () => {
@@ -772,7 +954,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		expect(reasonCodeOf(outcome.modelPayload)).toBe("needs_reconnect");
 	});
 
-	it("check_availability with only a caldav connection returns a graceful note instead of calling any adapter", async () => {
+	it("check_availability with only a caldav connection uses the calendar server’s free/busy report", async () => {
 		const conn = makeConn({
 			id: "conn-caldav",
 			provider: "caldav",
@@ -782,19 +964,21 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		});
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 
+		vi.mocked(davFreeBusy).mockResolvedValueOnce([
+			{ calendarId: "personal", busy: [] },
+		]);
 		const outcome = await runCalendarTool(
 			"user-1",
 			{ action: "check_availability" },
 			LOCAL_MODEL_ID,
 		);
 
-		expect(outcome.modelPayload.success).toBe(false);
-		expect(outcome.modelPayload.message).toContain(
-			"Google Calendar connection",
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(davFreeBusy).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: "caldav" }),
+			expect.objectContaining({ timeMin: expect.any(String) }),
 		);
 		expect(googleFreeBusyMock).not.toHaveBeenCalled();
-		expect(caldavListEventsMock).not.toHaveBeenCalled();
-		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 	});
 
 	it("list_events dispatches to appleListEvents for an apple connection, never touching googleListEvents", async () => {
@@ -880,7 +1064,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		expect(outcome.modelPayload.message).toContain("Bob Apple");
 	});
 
-	it("check_availability with only an apple connection returns a graceful note instead of calling any adapter", async () => {
+	it("check_availability with only an apple connection uses the calendar server’s free/busy report", async () => {
 		const appleConn = makeConn({
 			id: "conn-apple",
 			provider: "apple",
@@ -889,22 +1073,24 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		});
 		resolveConnectionsForCapabilityMock.mockResolvedValue([appleConn]);
 
+		vi.mocked(davFreeBusy).mockResolvedValueOnce([
+			{ calendarId: "personal", busy: [] },
+		]);
 		const outcome = await runCalendarTool(
 			"user-1",
 			{ action: "check_availability" },
 			LOCAL_MODEL_ID,
 		);
 
-		expect(outcome.modelPayload.success).toBe(false);
-		expect(outcome.modelPayload.message).toContain(
-			"Google Calendar connection",
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(davFreeBusy).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: "apple" }),
+			expect.objectContaining({ timeMin: expect.any(String) }),
 		);
 		expect(googleFreeBusyMock).not.toHaveBeenCalled();
-		expect(appleListEventsMock).not.toHaveBeenCalled();
-		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 	});
 
-	it("check_availability with BOTH google and apple connections still uses google, ignoring apple", async () => {
+	it("check_availability reads busy periods across Google and Apple", async () => {
 		const googleConn = makeConn({ id: "conn-google", provider: "google" });
 		const appleConn = makeConn({
 			id: "conn-apple",
@@ -914,6 +1100,9 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		resolveConnectionsForCapabilityMock.mockResolvedValue([
 			appleConn,
 			googleConn,
+		]);
+		vi.mocked(davFreeBusy).mockResolvedValueOnce([
+			{ calendarId: "home", busy: [] },
 		]);
 		googleFreeBusyMock.mockResolvedValue([{ calendarId: "primary", busy: [] }]);
 
@@ -2354,13 +2543,11 @@ describe("runCalendarTool — multi-calendar reads (Gap A5 + Trap C1)", () => {
 		);
 
 		expect(outcome.modelPayload.success).toBe(false);
-		expect(outcome.modelPayload.message).toContain(
-			"needs a Google Calendar connection",
-		);
+		expect(outcome.modelPayload.message).toContain("cannot list calendars");
 		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 	});
 
-	it("check_availability with an account that matches none of the Google connections names no such account", async () => {
+	it("check_availability with an account that matches none of the calendar connections names no such account", async () => {
 		const google = makeConn({
 			id: "conn-google",
 			provider: "google",
@@ -2378,12 +2565,12 @@ describe("runCalendarTool — multi-calendar reads (Gap A5 + Trap C1)", () => {
 
 		const outcome = await runCalendarTool(
 			"user-1",
-			{ action: "check_availability", account: "apple" },
+			{ action: "check_availability", account: "absent" },
 			LOCAL_MODEL_ID,
 		);
 
 		expect(outcome.modelPayload.success).toBe(false);
-		expect(outcome.modelPayload.message).toContain('"apple"');
+		expect(outcome.modelPayload.message).toContain('"absent"');
 		expect(googleFreeBusyMock).not.toHaveBeenCalled();
 		expect(reasonCodeOf(outcome.modelPayload)).toBe("no_such_account");
 	});

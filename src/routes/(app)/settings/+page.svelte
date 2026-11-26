@@ -1062,21 +1062,23 @@ function startConnect(provider: ConnectionProvider) {
 function reconnectConnection(connectionId: string) {
 	const target = connections.find((conn) => conn.id === connectionId);
 	reconnectConnectionId = connectionId;
-	wizardRequestedCapabilities = [];
+	wizardRequestedCapabilities =
+		target?.provider === "onedrive" ? target.capabilities : [];
 	connectWizardProvider = (target?.provider as ConnectionProvider) ?? null;
 }
 
 // Connections redesign — "Ask again" on a capability the provider denied.
 // Re-opens the same wizard in reconnect mode with the denied capability
-// pre-ticked alongside everything already granted, so the consent screen is
-// asked for the union rather than silently narrowing what already works.
+// pre-ticked. Microsoft preserves the user’s current switches during consent.
 function askAgainForCapability(connectionId: string, capability: string) {
 	const target = connections.find((conn) => conn.id === connectionId);
 	if (!target) return;
 	reconnectConnectionId = connectionId;
-	wizardRequestedCapabilities = [
-		...new Set([...(target.grantedCapabilities ?? []), capability]),
-	];
+	const alreadySelected =
+		target.provider === "onedrive"
+			? target.capabilities
+			: (target.grantedCapabilities ?? []);
+	wizardRequestedCapabilities = [...new Set([...alreadySelected, capability])];
 	connectWizardProvider = target.provider as ConnectionProvider;
 }
 

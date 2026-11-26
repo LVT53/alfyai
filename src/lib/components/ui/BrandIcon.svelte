@@ -35,7 +35,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 	email: "Email",
 	contacts: "Contacts",
 	github: "GitHub",
-	onedrive: "OneDrive",
+	onedrive: "Microsoft",
 	caldav: "CalDAV",
 };
 

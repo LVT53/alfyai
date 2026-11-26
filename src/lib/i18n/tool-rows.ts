@@ -215,6 +215,8 @@ const toolRowsDict = {
 			"Calendar needs to be connected again. You can do it in Settings › Connections.",
 		"toolRows.connector.calendar.no_such_account":
 			"There's no connected calendar by that name.",
+		"toolRows.connector.calendar.availability_incomplete":
+			"Alfy checked some calendars. The others were unavailable, so a shared free slot is unconfirmed.",
 		"toolRows.connector.calendar.account_unreachable":
 			"Your calendar didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.calendar.writes_turned_off":
@@ -684,6 +686,8 @@ const toolRowsDict = {
 			"A naptárt újra csatlakoztatni kell. A Beállítások › Kapcsolatok alatt megteheted.",
 		"toolRows.connector.calendar.no_such_account":
 			"Nincs ilyen nevű csatlakoztatott naptár.",
+		"toolRows.connector.calendar.availability_incomplete":
+			"Alfy csak néhány naptárat tudott ellenőrizni, ezért a közös szabad időpont bizonytalan.",
 		"toolRows.connector.calendar.account_unreachable":
 			"A naptár nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.calendar.writes_turned_off":
