@@ -243,7 +243,9 @@ function filesWithSmokeTests() {
 
 function gateWorkers(args) {
 	const available = Math.max(2, Math.min(CAPS.overlap, cpus().length - 2));
-	const requested = Number(args.workers || 6);
+	// On the 14-core Mac, 5 browser + 3 Vitest took 14m59s. With 6 + 2,
+	// Vitest alone took 16m51s. Keep the extra unit slot in a release.
+	const requested = Number(args.workers || (args.mode === "release" ? 5 : 6));
 	if (!Number.isSafeInteger(requested) || requested < 1) {
 		throw new Error("Browser worker count must be a positive whole number");
 	}

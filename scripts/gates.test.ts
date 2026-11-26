@@ -7,7 +7,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpus, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -1114,6 +1114,20 @@ describe("the default schedule", () => {
 	it("is overlap for the release gate and phased for an agent's run", () => {
 		expect(parseArgs(["release", "/tmp/gates-test"]).schedule).toBe("overlap");
 		expect(parseArgs(["agent", "/tmp/gates-test"]).schedule).toBe("phased");
+	});
+
+	it("reserves room for three Vitest workers on the release Mac", () => {
+		const steps = defineSteps({
+			...options,
+			schedule: "overlap",
+		});
+		const available = Math.max(2, Math.min(8, cpus().length - 2));
+		const browserWorkers = Math.min(5, available - 1);
+		const unitWorkers = Math.min(
+			Math.max(1, Math.floor(cpus().length / 4)),
+			available - browserWorkers,
+		);
+		expect(steps.vitest.cmd).toContain(`--maxWorkers=${unitWorkers}`);
 	});
 
 	it("is whatever --schedule says", () => {
