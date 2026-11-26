@@ -111,6 +111,8 @@ describe("the vitest step", () => {
 		expect(result.ok).toBe(true);
 		expect(result.text).toContain("1035 passed");
 		expect(result.text).toContain("17408 passed");
+		expect(result.counts).toEqual({ files: 1036, tests: 17410 });
+		expect(result.text).toContain("worker time: import 499s, environment 497s");
 	});
 
 	it("fails when any test or file failed, whatever the exit code said", () => {
@@ -743,6 +745,13 @@ describe("the Playwright report", () => {
 		expect(green).toEqual({
 			ok: true,
 			text: "686 passed, 23 skipped, 0 failed, 0 flaky",
+			counts: {
+				passed: 686,
+				skipped: 23,
+				failed: 0,
+				flaky: 0,
+				workers: undefined,
+			},
 		});
 		expect(
 			readPlaywrightReport(
@@ -812,6 +821,18 @@ describe("the schedule", () => {
 	for (const schedule of ["phased", "overlap"]) {
 		describe(`(${schedule})`, () => {
 			const steps = defineSteps(options(schedule));
+
+			it("writes a Vitest JSON report alongside the human log", () => {
+				expect(steps.vitest.cmd).toEqual(
+					expect.arrayContaining([
+						"npx",
+						"vitest",
+						"run",
+						"--reporter=default",
+						"--reporter=./scripts/gates-vitest-reporter.mjs",
+					]),
+				);
+			});
 
 			it.each(["check", "vitest"])(
 				"%s waits for the build: it syncs .svelte-kit/, which the build reads",

@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 /** Ordinary fake chat flows need room for the real prompt and complete tool catalogue.
  * Capacity-boundary specs configure their own models instead of using this helper. */
@@ -32,31 +32,37 @@ export async function login(
 	email = TEST_EMAIL,
 	password = TEST_PASSWORD,
 ) {
-	await page.goto("/login", { waitUntil: "domcontentloaded" });
-	const result = await page.evaluate(
-		async ({ email: nextEmail, password: nextPassword }) => {
-			const response = await fetch("/api/auth/login", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ email: nextEmail, password: nextPassword }),
+	await test.step(
+		"sign in",
+		async () => {
+			await page.goto("/login", { waitUntil: "domcontentloaded" });
+			const result = await page.evaluate(
+				async ({ email: nextEmail, password: nextPassword }) => {
+					const response = await fetch("/api/auth/login", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ email: nextEmail, password: nextPassword }),
+					});
+
+					return {
+						ok: response.ok,
+						status: response.status,
+					};
+				},
+				{ email, password },
+			);
+
+			expect(result.ok, `Login failed with status ${result.status}`).toBe(true);
+			await page.goto("/", { waitUntil: "domcontentloaded" });
+			await expect(page.getByTestId("message-input")).toBeVisible({
+				timeout: 15000,
 			});
-
-			return {
-				ok: response.ok,
-				status: response.status,
-			};
+			await expect(page.getByTestId("message-input")).toBeEnabled({
+				timeout: 15000,
+			});
 		},
-		{ email, password },
+		{ box: true },
 	);
-
-	expect(result.ok, `Login failed with status ${result.status}`).toBe(true);
-	await page.goto("/", { waitUntil: "domcontentloaded" });
-	await expect(page.getByTestId("message-input")).toBeVisible({
-		timeout: 15000,
-	});
-	await expect(page.getByTestId("message-input")).toBeEnabled({
-		timeout: 15000,
-	});
 }
 
 /**

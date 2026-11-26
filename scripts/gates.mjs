@@ -37,6 +37,7 @@ import {
 	closeSync,
 	existsSync,
 	mkdirSync,
+	mkdtempSync,
 	openSync,
 	readdirSync,
 	readFileSync,
@@ -45,6 +46,11 @@ import {
 import { cpus, loadavg } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+	playwrightTimings,
+	slowestUnitFiles,
+	vitestSplit,
+} from "./gates-measure.mjs";
 
 // The repo this script lives in, wherever it is run from; `<out-dir>` is the caller's.
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -192,7 +198,8 @@ function filesWithSmokeTests() {
  * code and returns `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
  */
 export function defineSteps(args) {
-	const jsonReport = join(args.outDir, "playwright.json");
+	const reportDir = args.reportDir ?? args.outDir;
+	const jsonReport = join(reportDir, "playwright.json");
 	const e2eArgs = [];
 	const e2eEnv = {
 		...(args.port ? { E2E_PORT: String(args.port) } : {}),
@@ -226,10 +233,17 @@ export function defineSteps(args) {
 			parse: (log) => ({ ok: true, text: lastLine(log) }),
 		},
 		vitest: {
-			cmd:
-				args.schedule === "overlap"
-					? ["npx", "vitest", "run", `--maxWorkers=${vitestThreads}`]
-					: ["npm", "test"],
+			cmd: [
+				"npx",
+				"vitest",
+				"run",
+				...(args.schedule === "overlap"
+					? [`--maxWorkers=${vitestThreads}`]
+					: []),
+				"--reporter=default",
+				"--reporter=./scripts/gates-vitest-reporter.mjs",
+			],
+			env: { ALFYAI_VITEST_REPORT: join(reportDir, "vitest.json") },
 			after: ["build"],
 			parse: parseVitestLog,
 		},
@@ -319,9 +333,22 @@ export function parseVitestLog(log) {
 	const files = text.match(/Test Files\s+(.*)/)?.[1]?.trim();
 	const tests = text.match(/\n\s*Tests\s+(.*)/)?.[1]?.trim();
 	const failed = /\bfailed\b/.test(`${files ?? ""} ${tests ?? ""}`);
+	const split = vitestSplit(text);
+	const workerTime = split
+		? "; worker time: " +
+			Object.entries(split)
+				.sort((a, b) => b[1] - a[1])
+				.map(([name, seconds]) => `${name} ${Math.floor(seconds)}s`)
+				.join(", ")
+		: "";
+	const total = (line) => {
+		const count = line?.match(/\((\d+)\)$/)?.[1];
+		return count === undefined ? null : Number(count);
+	};
 	return {
 		ok: Boolean(tests) && !failed,
-		text: `files ${files ?? "?"}; tests ${tests ?? "?"}`,
+		text: `files ${files ?? "?"}; tests ${tests ?? "?"}${workerTime}`,
+		counts: { files: total(files), tests: total(tests) },
 	};
 }
 
@@ -519,6 +546,17 @@ export function compareFallow(currentPath, baselinePath) {
 	};
 }
 
+function playwrightCost(report, path) {
+	const cost = playwrightTimings(report);
+	try {
+		const total = JSON.parse(readFileSync(`${path}.sign-in.json`, "utf8"));
+		if (Number.isFinite(total) && total >= 0) cost.signInMs = total;
+	} catch {
+		// Older reports only contain sign-in steps from the test body.
+	}
+	return cost;
+}
+
 export function readPlaywrightReport(path) {
 	let report;
 	try {
@@ -547,7 +585,23 @@ export function readPlaywrightReport(path) {
 		`${expected} passed, ${skipped} skipped, ${unexpected} failed, ${flaky} flaky${workers ? ` on ${workers} workers` : ""}`,
 	];
 	for (const title of failed.slice(0, 12)) lines.push(`      FAILED ${title}`);
-	return { ok: unexpected === 0 && flaky === 0, text: lines.join("\n") };
+	const cost = playwrightCost(report, path);
+	if (cost.files.length)
+		lines.push(
+			`      slowest: ${cost.files
+				.slice(0, 5)
+				.map(({ file, ms }) => `${file} ${minutes(ms)}`)
+				.join(", ")}`,
+		);
+	if (cost.workers.length)
+		lines.push(
+			`      workers: ${cost.workers.length}, the first idle ${minutes(cost.tailMs)} before the end; sign-in ${minutes(cost.signInMs)} in all`,
+		);
+	return {
+		ok: unexpected === 0 && flaky === 0,
+		text: lines.join("\n"),
+		counts: { passed: expected, failed: unexpected, flaky, skipped, workers },
+	};
 }
 
 // ------------------------------------------------------------------ running
@@ -652,6 +706,7 @@ export async function runSteps(
 				ms: ran.endedAt - ran.startedAt,
 				startOffset: ran.startedAt - startedAt,
 				text: verdict.text,
+				...(verdict.counts && { counts: verdict.counts }),
 			};
 			log(
 				`  ${name.padEnd(10)} ${result.ok ? "ok  " : "FAIL"} ${minutes(result.ms)}`,
@@ -729,6 +784,7 @@ export function summarise({ header, results, startedAt, endedAt, outDir }) {
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	mkdirSync(args.outDir, { recursive: true });
+	args.reportDir = mkdtempSync(join(args.outDir, "reports-"));
 	const steps = defineSteps(args);
 	const startedAt = Date.now();
 	const header = [
@@ -740,6 +796,27 @@ async function main() {
 	const results = await runSteps(args, steps, { startedAt });
 
 	const endedAt = Date.now();
+	const cost = {};
+	for (const suite of ["playwright", "vitest"]) {
+		if (!("code" in results[suite])) continue;
+		try {
+			const path = join(args.reportDir, `${suite}.json`);
+			const report = JSON.parse(readFileSync(path, "utf8"));
+			cost[suite] =
+				suite === "playwright"
+					? playwrightCost(report, path)
+					: {
+							split: vitestSplit(
+								stripAnsi(
+									readFileSync(join(args.outDir, "vitest.log"), "utf8"),
+								),
+							),
+							slowest: slowestUnitFiles(report, 5, ROOT),
+						};
+		} catch {
+			// Timing is diagnostic and a crashed test process may have no report.
+		}
+	}
 	const { summary, passed } = summarise({
 		header,
 		results,
@@ -756,6 +833,8 @@ async function main() {
 				mode: args.mode,
 				head: git(["rev-parse", "HEAD"]),
 				results,
+				cost,
+				reportDir: args.reportDir,
 				totalMs: endedAt - startedAt,
 			},
 			null,

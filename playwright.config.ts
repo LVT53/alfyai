@@ -60,7 +60,11 @@ export default defineConfig({
   // one on `vite dev`). Each worker has a server and a database of its own.
   workers: e2eWorkerCount(),
   reporter: process.env.E2E_JSON_REPORT
-    ? [['list'], ['json', { outputFile: process.env.E2E_JSON_REPORT }]]
+    ? [
+        ['list'],
+        ['json', { outputFile: process.env.E2E_JSON_REPORT }],
+        ['./tests/e2e/sign-in-reporter.ts', { outputFile: process.env.E2E_JSON_REPORT + '.sign-in.json' }],
+      ]
     : 'list',
   use: {
     baseURL: e2eBaseUrl(SLOT),
