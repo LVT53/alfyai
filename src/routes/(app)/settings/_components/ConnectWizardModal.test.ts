@@ -246,6 +246,44 @@ describe("ConnectWizardModal", () => {
 		});
 	});
 
+	it("shows optional Google event editing only for eligible initial calendar consent", async () => {
+		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
+		render(
+			ConnectWizardModal,
+			baseProps({
+				provider: "google",
+				canRequestGoogleCalendarEditing: true,
+				redirectTo: vi.fn(),
+			}),
+		);
+		const edit = screen.getByRole("checkbox", {
+			name: "Request Google Calendar editing",
+		});
+		expect(edit).not.toBeChecked();
+		await fireEvent.click(edit);
+		await fireEvent.click(screen.getByLabelText("Calendar"));
+		expect(
+			screen.queryByRole("checkbox", {
+				name: "Request Google Calendar editing",
+			}),
+		).toBeNull();
+		await fireEvent.click(screen.getByLabelText("Calendar"));
+		expect(
+			screen.getByRole("checkbox", { name: "Request Google Calendar editing" }),
+		).not.toBeChecked();
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: "Request Google Calendar editing" }),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue to Google" }),
+		);
+		expect(mockStartGoogleConnect).toHaveBeenCalledWith(
+			expect.arrayContaining(["calendar"]),
+			undefined,
+			true,
+		);
+	});
+
 	describe("oauth (OneDrive)", () => {
 		it("starts OneDrive connect with the checked capabilities and redirects", async () => {
 			mockStartOneDriveConnect.mockResolvedValue({

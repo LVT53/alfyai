@@ -177,11 +177,13 @@ export type GoogleConnectStartResponse = OAuthConnectStartResponse;
 export async function startGoogleConnect(
 	capabilities: string[],
 	calendarWriteConnectionId?: string,
+	requestCalendarEditing?: boolean,
 ): Promise<OAuthConnectStartResponse> {
 	return postJson<OAuthConnectStartResponse>(
 		"/api/connections/google/start",
 		{
 			capabilities,
+			...(requestCalendarEditing ? { requestCalendarEditing: true } : {}),
 			...(calendarWriteConnectionId ? { calendarWriteConnectionId } : {}),
 		},
 		"Failed to start Google connect",
@@ -191,10 +193,11 @@ export async function startGoogleConnect(
 // POST /api/connections/onedrive/start — src/routes/api/connections/onedrive/start/+server.ts
 export async function startOneDriveConnect(
 	capabilities: string[],
+	options?: { writePermissions?: string[]; connectionId?: string },
 ): Promise<OAuthConnectStartResponse> {
 	return postJson<OAuthConnectStartResponse>(
 		"/api/connections/onedrive/start",
-		{ capabilities },
+		{ capabilities, ...options },
 		"Failed to start OneDrive connect",
 	);
 }

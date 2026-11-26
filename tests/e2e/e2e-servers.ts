@@ -281,6 +281,8 @@ export function serverCommand(
 		// The same dotenv preload the dev server always had: a developer's .env still applies.
 		dotenv_config_path: ".env",
 		PLAYWRIGHT_TEST: "1",
+		// Browser fixtures cover the optional Google consent control.
+		GOOGLE_CALENDAR_EVENT_EDITING_ENABLED: "true",
 		// The explicit-picture filter's classifier is the stub here (honoured only
 		// with PLAYWRIGHT_TEST): it flags one marker colour, so no spec needs the
 		// model file or an explicit picture (images-picture-filter.spec.ts).

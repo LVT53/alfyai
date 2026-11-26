@@ -1,5 +1,9 @@
 import { json } from "@sveltejs/kit";
 import type { Capability } from "$lib/server/services/connections/registry";
+import {
+	isMicrosoftWritePermission,
+	type MicrosoftWritePermission,
+} from "$lib/shared/microsoft-permissions";
 import { requireApiUser } from "./auth";
 import { isCapability } from "./capabilities";
 import { createJsonErrorResponse } from "./responses";
@@ -119,18 +123,28 @@ export async function handleCredentialConnect<T, R>(opts: {
 export async function handleOAuthConnectStart<R>(opts: {
 	event: ApiEvent;
 	acceptsCalendarWriteTarget?: boolean;
+	acceptsMicrosoftPermissions?: boolean;
 	connectStart: (input: {
 		userId: string;
 		origin: string;
 		capabilities: Capability[];
 		calendarWriteConnectionId?: string;
+		requestCalendarEditing?: boolean;
+		connectionId?: string;
+		writePermissions?: MicrosoftWritePermission[];
 	}) => Promise<R>;
 	errorType: ErrorClass;
 	fallbackError: string;
 }): Promise<Response> {
 	const user = requireApiUser(opts.event);
 
-	let body: { capabilities?: unknown; calendarWriteConnectionId?: unknown };
+	let body: {
+		capabilities?: unknown;
+		requestCalendarEditing?: unknown;
+		calendarWriteConnectionId?: unknown;
+		connectionId?: unknown;
+		writePermissions?: unknown;
+	};
 	try {
 		body = await opts.event.request.json();
 	} catch {
@@ -147,6 +161,24 @@ export async function handleOAuthConnectStart<R>(opts: {
 		);
 	}
 
+	const microsoft = opts.acceptsMicrosoftPermissions;
+	const target = microsoft ? body.connectionId : undefined;
+	const writes = microsoft ? body.writePermissions : undefined;
+	if (target !== undefined && (typeof target !== "string" || !target.trim()))
+		return createJsonErrorResponse("Invalid Microsoft connection ID", 400);
+	if (
+		writes !== undefined &&
+		(!Array.isArray(writes) || !writes.every(isMicrosoftWritePermission))
+	)
+		return createJsonErrorResponse("Invalid Microsoft write permissions", 400);
+	const requestEditing = opts.acceptsCalendarWriteTarget
+		? body.requestCalendarEditing
+		: undefined;
+	if (requestEditing !== undefined && typeof requestEditing !== "boolean")
+		return createJsonErrorResponse(
+			"Invalid Google Calendar editing selection",
+			400,
+		);
 	const writeId = opts.acceptsCalendarWriteTarget
 		? body.calendarWriteConnectionId
 		: undefined;
@@ -162,6 +194,9 @@ export async function handleOAuthConnectStart<R>(opts: {
 			userId: user.id,
 			origin: opts.event.url.origin,
 			capabilities,
+			...(typeof target === "string" ? { connectionId: target } : {}),
+			...(Array.isArray(writes) ? { writePermissions: writes } : {}),
+			...(requestEditing === true ? { requestCalendarEditing: true } : {}),
 			...(typeof writeId === "string"
 				? { calendarWriteConnectionId: writeId }
 				: {}),

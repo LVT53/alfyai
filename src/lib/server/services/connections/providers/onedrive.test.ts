@@ -111,7 +111,7 @@ describe("onedriveConnectStart", () => {
 		}
 	});
 
-	it("builds an authUrl with client_id, redirect_uri, prompt=consent, mapped scopes and a state when configured", async () => {
+	it("builds an authUrl with client_id, redirect_uri, account selection, mapped scopes and a state when configured", async () => {
 		setConfiguredEnv();
 		const { onedriveConnectStart } = await import("./onedrive");
 
@@ -130,7 +130,7 @@ describe("onedriveConnectStart", () => {
 			"https://app.example.com/api/oauth/onedrive/callback",
 		);
 		expect(url.searchParams.get("response_type")).toBe("code");
-		expect(url.searchParams.get("prompt")).toBe("consent");
+		expect(url.searchParams.get("prompt")).toBe("select_account");
 
 		const scope = url.searchParams.get("scope") ?? "";
 		expect(scope).toContain("Files.Read");
@@ -230,7 +230,10 @@ describe("onedriveConnectFinish", () => {
 				if (url.startsWith(`${GRAPH_BASE}/me?`)) {
 					const headers = new Headers(init?.headers);
 					expect(headers.get("Authorization")).toBe("Bearer access-abc");
-					return jsonResponse(200, { mail: "alice@example.com" });
+					return jsonResponse(200, {
+						id: "ms-alice",
+						mail: "alice@example.com",
+					});
 				}
 				throw new Error(`Unexpected fetch to ${url}`);
 			},
@@ -279,7 +282,10 @@ describe("onedriveConnectFinish", () => {
 					token_type: "Bearer",
 				});
 			}
-			return jsonResponse(200, { userPrincipalName: "alice@outlook.com" });
+			return jsonResponse(200, {
+				id: "ms-alice",
+				userPrincipalName: "alice@outlook.com",
+			});
 		});
 
 		const { connection } = await onedriveConnectFinish({
@@ -313,7 +319,7 @@ describe("onedriveConnectFinish", () => {
 					token_type: "Bearer",
 				});
 			}
-			return jsonResponse(200, { mail: "alice@example.com" });
+			return jsonResponse(200, { id: "ms-alice", mail: "alice@example.com" });
 		});
 		const first = await onedriveConnectFinish({
 			code: "code-1",
@@ -333,7 +339,7 @@ describe("onedriveConnectFinish", () => {
 					token_type: "Bearer",
 				});
 			}
-			return jsonResponse(200, { mail: "alice@example.com" });
+			return jsonResponse(200, { id: "ms-alice", mail: "alice@example.com" });
 		});
 		const second = await onedriveConnectFinish({
 			code: "code-2",
@@ -366,7 +372,7 @@ it("a reconnect keeps only selected, granted capabilities even if Graph repeats 
 					scope: "User.Read Files.Read Calendars.ReadBasic",
 					token_type: "Bearer",
 				})
-			: jsonResponse(200, { mail: original.accountIdentifier }),
+			: jsonResponse(200, { id: "ms-alice", mail: original.accountIdentifier }),
 	);
 	const { connection } = await onedriveConnectFinish({
 		origin: "https://app.example.com",
@@ -1373,5 +1379,119 @@ describe("registry adapter shape", () => {
 		const { onedriveAdapter } = await import("./onedrive");
 		expect(onedriveAdapter.provider).toBe("onedrive");
 		expect(onedriveAdapter.requiresSecret).toBe(true);
+	});
+});
+
+describe("Microsoft delegated account and permission boundaries", () => {
+	it("signs selected write permissions, asks for separate mail-send consent and preserves read defaults", async () => {
+		setConfiguredEnv();
+		const { onedriveConnectStart, verifyOAuthState } = await import(
+			"./onedrive"
+		);
+		const { authUrl } = await onedriveConnectStart({
+			userId: "userA",
+			origin: "https://app.example.com",
+			capabilities: ["email", "contacts"],
+			writePermissions: ["send"],
+		});
+		const url = new URL(authUrl);
+		const scopes = url.searchParams.get("scope")?.split(" ");
+		expect(scopes).toEqual(
+			expect.arrayContaining(["Contacts.Read", "Mail.Read", "Mail.Send"]),
+		);
+		expect(scopes).not.toContain("Mail.ReadWrite");
+		expect(scopes).not.toContain("Files.ReadWrite");
+		expect(
+			verifyOAuthState(url.searchParams.get("state") ?? "").writePermissions,
+		).toEqual(["send"]);
+		await expect(
+			onedriveConnectStart({
+				userId: "userA",
+				origin: "https://app.example.com",
+				capabilities: ["files"],
+				writePermissions: ["send"],
+			}),
+		).rejects.toMatchObject({ code: "invalid_write_target" });
+	});
+
+	it("preserves the legacy row when a personal and an organizational identity share an address", async () => {
+		setConfiguredEnv();
+		const old = await seedConnection();
+		const { signOAuthState, onedriveConnectFinish } = await import(
+			"./onedrive"
+		);
+		const fetch = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === TOKEN_URL)
+					return jsonResponse(200, {
+						access_token: "new",
+						refresh_token: "fresh",
+						expires_in: 3600,
+						scope: "User.Read Mail.Read Mail.Send",
+					});
+				const id =
+					new Headers(init?.headers).get("Authorization") ===
+					"Bearer old-access"
+						? "original-stable"
+						: "other-stable";
+				return jsonResponse(200, {
+					id,
+					mail: null,
+					userPrincipalName: old.accountIdentifier,
+				});
+			},
+		);
+		const authorize = (connectionId?: string) =>
+			onedriveConnectFinish({
+				origin: "https://app.example.com",
+				code: "mock",
+				state: signOAuthState({
+					userId: old.userId,
+					connectionId,
+					capabilities: ["email"],
+					writePermissions: ["send"],
+				}),
+				fetch,
+			});
+		await expect(authorize(old.id)).rejects.toMatchObject({
+			code: "wrong_account",
+		});
+		const { connection } = await authorize();
+		expect(connection.id).not.toBe(old.id);
+		expect(connection.config.microsoftAccountId).toBe("other-stable");
+		expect(connection.oauthScopes).toContain("Mail.Send");
+		expect(connection.allowWrites).toBe(true);
+		const { getConnection } = await import("../store");
+		expect(await getConnection(old.userId, old.id)).toMatchObject({
+			allowWrites: false,
+			oauthScopes: ["Files.Read"],
+		});
+		expect((await authorize()).connection.id).toBe(connection.id);
+	});
+
+	it("does not let an in-flight refresh replace a newer signed-in credential", async () => {
+		setConfiguredEnv();
+		const old = await seedConnection();
+		const { onedriveRefreshAccessToken } = await import("./onedrive");
+		const { updateConnection, getConnectionSecret } = await import("../store");
+		const fresh = JSON.stringify({
+			accessToken: "new-authority",
+			refreshToken: "new-rotation",
+		});
+		const fetch = vi.fn(async () => {
+			await updateConnection(old.userId, old.id, {
+				secret: fresh,
+				oauthScopes: ["Calendars.ReadBasic"],
+			});
+			return jsonResponse(200, {
+				access_token: "late",
+				refresh_token: "late-rotation",
+				expires_in: 3600,
+			});
+		});
+		await expect(
+			onedriveRefreshAccessToken(old.userId, old.id, { fetch }),
+		).rejects.toMatchObject({ code: "request_failed" });
+		expect(await getConnectionSecret(old.userId, old.id)).toBe(fresh);
 	});
 });

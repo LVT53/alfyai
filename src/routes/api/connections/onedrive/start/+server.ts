@@ -13,6 +13,7 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = (event) =>
 	handleOAuthConnectStart({
 		event,
+		acceptsMicrosoftPermissions: true,
 		errorType: OneDriveError,
 		fallbackError: "Failed to start OneDrive connect",
 		connectStart: onedriveConnectStart,

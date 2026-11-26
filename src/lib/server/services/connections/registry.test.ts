@@ -88,7 +88,7 @@ describe("connections registry", () => {
 	// capability (alongside nextcloud), connected via OAuth like Google.
 	it("registers Microsoft OAuth for OneDrive files and Outlook calendars", () => {
 		expect(PROVIDER_META.onedrive).toEqual({
-			capabilities: ["files", "calendar"],
+			capabilities: ["files", "calendar", "email", "contacts"],
 			connectMethod: "oauth",
 			displayName: "Microsoft",
 			group: "product",
@@ -176,6 +176,7 @@ describe("connections registry", () => {
 			"nextcloud",
 			"contacts",
 			"caldav",
+			"onedrive",
 		]);
 	});
 });

@@ -1,4 +1,5 @@
 import type { ConnectionProvider } from "$lib/server/db/schema";
+import { MICROSOFT_READ_SCOPES } from "$lib/shared/microsoft-permissions";
 import type { ConnectionPublic } from "./store";
 
 export type Capability =
@@ -107,7 +108,7 @@ export const PROVIDER_META: Record<
 		group: "product",
 	},
 	onedrive: {
-		capabilities: ["files", "calendar"],
+		capabilities: ["files", "calendar", "email", "contacts"],
 		connectMethod: "oauth",
 		displayName: "Microsoft",
 		group: "product",
@@ -145,10 +146,7 @@ export const OAUTH_CAPABILITY_SCOPES: Partial<
 		calendar: "https://www.googleapis.com/auth/calendar.readonly",
 		contacts: "https://www.googleapis.com/auth/contacts.readonly",
 	},
-	onedrive: {
-		files: "Files.Read",
-		calendar: "Calendars.ReadBasic",
-	},
+	onedrive: MICROSOFT_READ_SCOPES,
 };
 
 // Per-capability metadata.
@@ -167,7 +165,7 @@ export const CAPABILITY_META: Record<
 	},
 	email: {
 		tier: "proactive",
-		providers: ["imap"],
+		providers: ["imap", "onedrive"],
 		displayName: "Email",
 	},
 	files: {
@@ -192,7 +190,14 @@ export const CAPABILITY_META: Record<
 	},
 	contacts: {
 		tier: "explicit",
-		providers: ["google", "apple", "nextcloud", "contacts", "caldav"],
+		providers: [
+			"google",
+			"apple",
+			"nextcloud",
+			"contacts",
+			"caldav",
+			"onedrive",
+		],
 		displayName: "Contacts",
 	},
 	repos: {

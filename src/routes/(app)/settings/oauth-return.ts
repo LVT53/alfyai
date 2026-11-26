@@ -20,6 +20,10 @@ const OAUTH_ERROR_REASON_KEYS: Record<string, I18nKey> = {
 	// Task 8 — mirrors the google_oauth_* codes above; see
 	// src/routes/api/oauth/onedrive/callback/+server.ts's errorRedirectPath
 	// calls for where these codes come from.
+	onedrive_oauth_admin_approval:
+		"connections.oauthReturn.reason.onedrive_oauth_admin_approval",
+	onedrive_oauth_wrong_account:
+		"connections.oauthReturn.reason.onedrive_oauth_wrong_account",
 	onedrive_oauth_denied: "connections.oauthReturn.reason.onedrive_oauth_denied",
 	onedrive_oauth_invalid_request:
 		"connections.oauthReturn.reason.onedrive_oauth_invalid_request",

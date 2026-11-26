@@ -15,6 +15,10 @@
 // the grant. It never revokes anything.
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import {
+	isMicrosoftReadCapability,
+	microsoftReadGranted,
+} from "$lib/shared/microsoft-permissions";
+import {
 	type Capability,
 	OAUTH_CAPABILITY_SCOPES,
 	PROVIDER_META,
@@ -48,6 +52,13 @@ function caldavGranted(config: Record<string, unknown>): Capability[] {
 export function grantedCapabilitiesFor(conn: GrantSource): Capability[] {
 	const catalogue = PROVIDER_META[conn.provider]?.capabilities ?? [];
 
+	if (conn.provider === "onedrive") {
+		return catalogue.filter(
+			(c) =>
+				isMicrosoftReadCapability(c) &&
+				microsoftReadGranted(conn.oauthScopes, c),
+		);
+	}
 	const scopeMap = OAUTH_CAPABILITY_SCOPES[conn.provider];
 	if (scopeMap) {
 		const granted = new Set(conn.oauthScopes);

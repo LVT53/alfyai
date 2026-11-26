@@ -384,6 +384,58 @@ test.describe("settings connections tab", () => {
 			).toBeVisible();
 		});
 
+		test("requests Google Calendar editing only when the checkbox is selected", async ({
+			page,
+		}) => {
+			const endpoint = "**/api/connections/google/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({ json: { authUrl: "/about" } }),
+			);
+			await page.getByTestId("connections-add-google").click();
+			const editing = page.getByRole("checkbox", {
+				name: "Request Google Calendar editing",
+			});
+			await expect(editing).not.toBeChecked();
+			await editing.press("Space");
+			const sent = page.waitForRequest(endpoint);
+			await page.getByRole("button", { name: "Continue to Google" }).click();
+			expect((await sent).postDataJSON()).toEqual({
+				capabilities: expect.arrayContaining(["calendar"]),
+				requestCalendarEditing: true,
+			});
+		});
+
+		test("keeps Microsoft mail edits separate from sending", async ({
+			page,
+		}) => {
+			const endpoint = "**/api/connections/onedrive/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({ json: { authUrl: "/about" } }),
+			);
+			await page.getByTestId("connections-add-onedrive").click();
+			const chooser = page.getByRole("dialog");
+			await chooser
+				.getByRole("checkbox", { name: "Files", exact: true })
+				.press("Space");
+			await chooser
+				.getByRole("checkbox", { name: "Email", exact: true })
+				.press("Space");
+			await expect(
+				chooser.getByRole("checkbox", { name: "Manage email and drafts" }),
+			).not.toBeChecked();
+			await chooser
+				.getByRole("checkbox", { name: "Send email", exact: true })
+				.press("Space");
+			const sent = page.waitForRequest(endpoint);
+			await chooser
+				.getByRole("button", { name: "Continue to Microsoft" })
+				.click();
+			expect((await sent).postDataJSON()).toEqual({
+				capabilities: ["email"],
+				writePermissions: ["send"],
+			});
+		});
+
 		test("lets a Microsoft user connect Outlook Calendar without OneDrive files", async ({
 			page,
 		}) => {

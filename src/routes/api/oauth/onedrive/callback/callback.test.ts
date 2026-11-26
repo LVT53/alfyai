@@ -84,7 +84,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const GRAPH_ME_URL =
-	"https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName";
+	"https://graph.microsoft.com/v1.0/me?$select=id,mail,userPrincipalName";
 
 function makeEvent(
 	searchParams: Record<string, string>,
@@ -184,7 +184,7 @@ describe("GET /api/oauth/onedrive/callback — user-binding guard", () => {
 				});
 			}
 			if (url === GRAPH_ME_URL) {
-				return jsonResponse(200, { mail: "alice@example.com" });
+				return jsonResponse(200, { id: "ms-alice", mail: "alice@example.com" });
 			}
 			throw new Error(`Unexpected fetch to ${url}`);
 		});
@@ -210,3 +210,28 @@ describe("GET /api/oauth/onedrive/callback — user-binding guard", () => {
 		expect(await listConnectionsForUser("userA")).toHaveLength(1);
 	});
 });
+
+it.each([
+	[
+		"AADSTS90094: Administrator consent is required.",
+		"onedrive_oauth_admin_approval",
+	],
+	["AADSTS90095: Request approval.", "onedrive_oauth_admin_approval"],
+	["AADSTS65004: User declined consent.", "onedrive_oauth_denied"],
+])(
+	"explains institutional approval separately from cancellation (%s)",
+	async (description, reason) => {
+		const { GET } = await import("./+server");
+		await expect(
+			GET(
+				makeEvent(
+					{ error: "access_denied", error_description: description },
+					"userA",
+				),
+			),
+		).rejects.toMatchObject({
+			status: 302,
+			location: expect.stringContaining(reason),
+		});
+	},
+);

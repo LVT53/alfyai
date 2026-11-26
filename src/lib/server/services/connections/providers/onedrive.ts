@@ -1,8 +1,20 @@
 // Microsoft account OAuth and OneDrive file reads. The existing provider ID
 // and callback URL also serve Outlook Calendar with separate read consent.
+
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
 import { config as envConfig } from "$lib/server/env";
+import {
+	isMicrosoftReadCapability,
+	isMicrosoftWritePermission,
+	MICROSOFT_READ_SCOPES,
+	MICROSOFT_WRITE_SCOPES,
+	type MicrosoftReadCapability,
+	type MicrosoftWritePermission,
+	microsoftReadGranted,
+	microsoftWriteCapability,
+} from "$lib/shared/microsoft-permissions";
+import { oneDriveDocumentUrl } from "$lib/shared/onedrive-links";
 import { registerConnectionAdapter } from "../adapters";
 import {
 	bearerAuthHeader,
@@ -17,10 +29,10 @@ import {
 import {
 	type ConnectionPublic,
 	createConnection,
-	findConnectionByAccount,
 	getConnection,
 	getConnectionSecret,
-	setConnectionSecret,
+	getConnectionSecretSnapshot,
+	listConnectionsForUser,
 	updateConnection,
 } from "../store";
 
@@ -48,6 +60,9 @@ const STATE_TTL_SECONDS = 10 * 60;
 
 export type OneDriveErrorCode =
 	| "not_configured"
+	| "wrong_account"
+	| "invalid_write_target"
+	| "admin_approval"
 	| "invalid_state"
 	| "invalid_grant"
 	| "token_exchange_failed"
@@ -87,22 +102,29 @@ const BASE_SCOPES = [
 	"User.Read",
 ];
 
-function scopesForCapabilities(capabilities: Capability[]): string[] {
+function scopesForCapabilities(
+	capabilities: Capability[],
+	writePermissions: MicrosoftWritePermission[] = [],
+): string[] {
 	const mapped = capabilities
 		.map((capability) => CAPABILITY_SCOPES[capability])
 		.filter((scope): scope is string => Boolean(scope));
-	return [...new Set([...BASE_SCOPES, ...mapped])];
+	return [
+		...new Set([
+			...BASE_SCOPES,
+			...mapped,
+			...writePermissions.map(
+				(permission) => MICROSOFT_WRITE_SCOPES[permission],
+			),
+		]),
+	];
 }
 
 function capabilitiesFromScope(scope: string): Capability[] {
-	const granted = new Set(scope.split(/\s+/).filter(Boolean));
-	const capabilities: Capability[] = [];
-	for (const [capability, requiredScope] of Object.entries(
-		CAPABILITY_SCOPES,
-	) as [Capability, string][]) {
-		if (granted.has(requiredScope)) capabilities.push(capability);
-	}
-	return capabilities;
+	const scopes = scope.split(/\s+/).filter(Boolean);
+	return Object.keys(MICROSOFT_READ_SCOPES)
+		.filter(isMicrosoftReadCapability)
+		.filter((cap) => microsoftReadGranted(scopes, cap));
 }
 
 function redirectUriFor(origin: string): string {
@@ -131,6 +153,8 @@ function requireOneDriveCredentials(): {
 // ---------------------------------------------------------------------------
 
 export type OneDriveOAuthStatePayload = {
+	connectionId?: string;
+	writePermissions?: MicrosoftWritePermission[];
 	userId: string;
 	capabilities: Capability[];
 	nonce: string;
@@ -157,7 +181,13 @@ function isValidStatePayload(
 		typeof candidate.userId === "string" &&
 		candidate.userId.length > 0 &&
 		Array.isArray(candidate.capabilities) &&
-		candidate.capabilities.every((c) => typeof c === "string") &&
+		candidate.capabilities.every(isMicrosoftReadCapability) &&
+		(candidate.connectionId === undefined ||
+			(typeof candidate.connectionId === "string" &&
+				!!candidate.connectionId)) &&
+		(candidate.writePermissions === undefined ||
+			(Array.isArray(candidate.writePermissions) &&
+				candidate.writePermissions.every(isMicrosoftWritePermission))) &&
 		typeof candidate.nonce === "string" &&
 		candidate.nonce.length > 0 &&
 		typeof candidate.exp === "number" &&
@@ -166,6 +196,8 @@ function isValidStatePayload(
 }
 
 export function signOAuthState(params: {
+	connectionId?: string;
+	writePermissions?: MicrosoftWritePermission[];
 	userId: string;
 	capabilities: Capability[];
 }): string {
@@ -173,6 +205,10 @@ export function signOAuthState(params: {
 	const payload: OneDriveOAuthStatePayload = {
 		userId: params.userId,
 		capabilities: params.capabilities,
+		...(params.connectionId ? { connectionId: params.connectionId } : {}),
+		...(params.writePermissions?.length
+			? { writePermissions: params.writePermissions }
+			: {}),
 		nonce: randomBytes(16).toString("hex"),
 		exp: Math.floor(Date.now() / 1000) + STATE_TTL_SECONDS,
 	};
@@ -236,12 +272,38 @@ export function verifyOAuthState(state: string): OneDriveOAuthStatePayload {
 // ---------------------------------------------------------------------------
 
 export async function onedriveConnectStart(params: {
+	connectionId?: string;
+	writePermissions?: MicrosoftWritePermission[];
 	userId: string;
 	origin: string;
 	capabilities: Capability[];
 }): Promise<{ authUrl: string }> {
 	const { clientId } = requireOneDriveCredentials();
+	if (
+		!params.capabilities.length ||
+		!params.capabilities.every(isMicrosoftReadCapability) ||
+		params.writePermissions?.some(
+			(p) =>
+				!isMicrosoftWritePermission(p) ||
+				!params.capabilities.includes(microsoftWriteCapability(p)),
+		)
+	) {
+		throw new OneDriveError(
+			"Choose a Microsoft service for each permission",
+			"invalid_write_target",
+		);
+	}
+	const target = params.connectionId
+		? await getConnection(params.userId, params.connectionId)
+		: null;
+	if (params.connectionId && target?.provider !== "onedrive")
+		throw new OneDriveError(
+			"Microsoft connection unavailable",
+			"invalid_write_target",
+		);
 	const state = signOAuthState({
+		connectionId: params.connectionId,
+		writePermissions: params.writePermissions,
 		userId: params.userId,
 		capabilities: params.capabilities,
 	});
@@ -251,10 +313,17 @@ export async function onedriveConnectStart(params: {
 	url.searchParams.set("redirect_uri", redirectUriFor(params.origin));
 	url.searchParams.set("response_type", "code");
 	url.searchParams.set("response_mode", "query");
-	url.searchParams.set("prompt", "consent");
+	url.searchParams.set("prompt", target ? "consent" : "select_account");
+	if (target)
+		url.searchParams.set(
+			"login_hint",
+			String(target.config.microsoftLogin ?? target.accountIdentifier),
+		);
 	url.searchParams.set(
 		"scope",
-		scopesForCapabilities(params.capabilities).join(" "),
+		scopesForCapabilities(params.capabilities, params.writePermissions).join(
+			" ",
+		),
 	);
 	url.searchParams.set("state", state);
 
@@ -298,13 +367,17 @@ function isValidTokenResponse(value: unknown): value is OneDriveTokenResponse {
 
 function isValidUserinfo(
 	value: unknown,
-): value is { mail?: string; userPrincipalName?: string } {
+): value is { id: string; mail?: string; userPrincipalName?: string } {
 	if (!value || typeof value !== "object") return false;
 	const v = value as Record<string, unknown>;
 	const mail = typeof v.mail === "string" ? v.mail : "";
 	const upn =
 		typeof v.userPrincipalName === "string" ? v.userPrincipalName : "";
-	return mail.length > 0 || upn.length > 0;
+	return (
+		typeof v.id === "string" &&
+		!!v.id.trim() &&
+		(mail.length > 0 || upn.length > 0)
+	);
 }
 
 type StoredOneDriveSecret = {
@@ -329,6 +402,10 @@ function parseStoredSecret(raw: string): StoredOneDriveSecret | null {
 async function upsertOneDriveConnection(params: {
 	userId: string;
 	email: string;
+	graphId: string;
+	fetchImpl: typeof fetch;
+	upn?: string;
+	connectionId?: string;
 	capabilities: Capability[];
 	refreshToken?: string;
 	accessToken: string;
@@ -337,10 +414,84 @@ async function upsertOneDriveConnection(params: {
 }): Promise<ConnectionPublic> {
 	const tokenExpiresAt = Math.floor(Date.now() / 1000) + params.expiresIn;
 	const grantedScopes = params.scope.split(/\s+/).filter(Boolean);
-	const existing = await findConnectionByAccount(
-		params.userId,
-		"onedrive",
-		params.email,
+	const accounts = (await listConnectionsForUser(params.userId)).filter(
+		(c) => c.provider === "onedrive",
+	);
+	const aliases = [params.email, params.upn]
+		.filter((v): v is string => !!v)
+		.map((v) => v.toLowerCase());
+	const target = params.connectionId
+		? accounts.find((c) => c.id === params.connectionId)
+		: undefined;
+	const aliasMatch = (c: ConnectionPublic) =>
+		aliases.includes(c.accountIdentifier.toLowerCase());
+	const old =
+		target ??
+		accounts.find((c) => !c.config.microsoftAccountId && aliasMatch(c));
+	let existing =
+		target ??
+		accounts.find((c) => c.config.microsoftAccountId === params.graphId);
+	if (
+		!existing?.config.microsoftAccountId &&
+		old &&
+		!old.config.microsoftAccountId &&
+		aliasMatch(old)
+	) {
+		// A personal and an organizational account can share an address. Resolve a
+		// legacy row using its old token before attaching a new identity to it.
+		const raw = await getConnectionSecret(old.userId, old.id);
+		const stored = raw ? parseStoredSecret(raw) : null;
+		let oldId: unknown;
+		if (stored) {
+			try {
+				const check = async (token: string) =>
+					providerFetch(`${GRAPH_BASE}/me?$select=id`, {
+						fetch: params.fetchImpl,
+						headers: bearerAuthHeader(token),
+						timeoutError: onedriveTimeout,
+					});
+				let response = await check(stored.accessToken);
+				if (response.status === 401 && stored.refreshToken)
+					response = await check(
+						await onedriveRefreshAccessToken(old.userId, old.id, {
+							fetch: params.fetchImpl,
+						}),
+					);
+				if (response.ok)
+					oldId = ((await response.json()) as { id?: unknown }).id;
+			} catch {
+				/* The new account must leave an unverifiable legacy row alone. */
+			}
+		}
+		existing = oldId === params.graphId ? old : undefined;
+	}
+	if (
+		params.connectionId &&
+		(!existing ||
+			existing.id !== params.connectionId ||
+			(existing.config.microsoftAccountId
+				? existing.config.microsoftAccountId !== params.graphId
+				: !aliasMatch(existing)))
+	) {
+		throw new OneDriveError(
+			"Choose the same Microsoft account to reconnect",
+			"wrong_account",
+		);
+	}
+	const accountIdentifier = accounts.some(
+		(c) =>
+			c.id !== existing?.id &&
+			c.accountIdentifier.toLowerCase() === params.email.toLowerCase(),
+	)
+		? (existing?.accountIdentifier ?? `${params.email} (${params.graphId})`)
+		: params.email;
+	const config = {
+		...existing?.config,
+		microsoftAccountId: params.graphId,
+		microsoftLogin: params.upn || params.email,
+	};
+	const allowWrites = Object.values(MICROSOFT_WRITE_SCOPES).some((scope) =>
+		grantedScopes.includes(scope),
 	);
 
 	// Microsoft only reliably returns refresh_token on first consent (or a
@@ -364,13 +515,11 @@ async function upsertOneDriveConnection(params: {
 	} satisfies StoredOneDriveSecret);
 
 	if (existing) {
-		await setConnectionSecret(
-			params.userId,
-			existing.id,
-			secret,
-			tokenExpiresAt,
-		);
 		const updated = await updateConnection(params.userId, existing.id, {
+			secret,
+			config,
+			accountIdentifier,
+			allowWrites,
 			status: "connected",
 			statusDetail: null,
 			capabilities: params.capabilities,
@@ -387,11 +536,12 @@ async function upsertOneDriveConnection(params: {
 		userId: params.userId,
 		provider: "onedrive",
 		label: "Microsoft",
-		accountIdentifier: params.email,
+		accountIdentifier,
+		allowWrites,
 		capabilities: params.capabilities,
 		status: "connected",
 		secret,
-		config: {},
+		config,
 		oauthScopes: grantedScopes,
 		tokenExpiresAt,
 	});
@@ -408,7 +558,9 @@ export async function onedriveConnectFinish(
 	const statePayload = verifyOAuthState(params.state);
 	const { clientId, clientSecret } = requireOneDriveCredentials();
 
-	const tokenResponse = await fetchImpl(MS_TOKEN_URL, {
+	const tokenResponse = await providerFetch(MS_TOKEN_URL, {
+		fetch: fetchImpl,
+		timeoutError: onedriveTimeout,
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -422,6 +574,16 @@ export async function onedriveConnectFinish(
 	const tokenBody: unknown = await tokenResponse.json().catch(() => null);
 
 	if (!tokenResponse.ok || !isValidTokenResponse(tokenBody)) {
+		if (
+			isErrorBody(tokenBody) &&
+			(tokenBody.error === "admin_consent_required" ||
+				/\bAADSTS9009[45]\b/i.test(tokenBody.error_description ?? ""))
+		) {
+			throw new OneDriveError(
+				"Organization approval is required",
+				"admin_approval",
+			);
+		}
 		const code =
 			isErrorBody(tokenBody) && tokenBody.error === "invalid_grant"
 				? "invalid_grant"
@@ -429,9 +591,13 @@ export async function onedriveConnectFinish(
 		throw new OneDriveError("OneDrive token exchange failed", code);
 	}
 
-	const userinfoResponse = await fetchImpl(
-		`${GRAPH_BASE}/me?$select=mail,userPrincipalName`,
-		{ headers: { Authorization: `Bearer ${tokenBody.access_token}` } },
+	const userinfoResponse = await providerFetch(
+		`${GRAPH_BASE}/me?$select=id,mail,userPrincipalName`,
+		{
+			fetch: fetchImpl,
+			timeoutError: onedriveTimeout,
+			headers: bearerAuthHeader(tokenBody.access_token),
+		},
 	);
 	const userinfoBody: unknown = await userinfoResponse.json().catch(() => null);
 	if (!userinfoResponse.ok || !isValidUserinfo(userinfoBody)) {
@@ -445,7 +611,10 @@ export async function onedriveConnectFinish(
 	// Graph can include previously consented scopes. Persist only the scopes
 	// requested in this signed flow, including when reconnecting with less access.
 	const requestedScopes = new Set(
-		scopesForCapabilities(statePayload.capabilities),
+		scopesForCapabilities(
+			statePayload.capabilities,
+			statePayload.writePermissions,
+		),
 	);
 	const scope = tokenBody.scope
 		.split(/\s+/)
@@ -454,6 +623,10 @@ export async function onedriveConnectFinish(
 	const connection = await upsertOneDriveConnection({
 		userId: statePayload.userId,
 		email,
+		graphId: userinfoBody.id,
+		fetchImpl,
+		upn: userinfoBody.userPrincipalName,
+		connectionId: statePayload.connectionId,
 		capabilities: capabilitiesFromScope(scope),
 		refreshToken: tokenBody.refresh_token,
 		accessToken: tokenBody.access_token,
@@ -472,6 +645,7 @@ type OneDriveRefreshResponse = {
 	access_token: string;
 	expires_in: number;
 	refresh_token?: string;
+	scope?: string;
 };
 
 function isValidRefreshResponse(
@@ -521,9 +695,9 @@ async function refreshAccessToken(
 		);
 	}
 
-	const secretRaw = await getConnectionSecret(userId, connectionId);
-	const secret = secretRaw ? parseStoredSecret(secretRaw) : null;
-	if (!secret?.refreshToken) {
+	const snapshot = await getConnectionSecretSnapshot(userId, connectionId);
+	const secret = snapshot ? parseStoredSecret(snapshot.value) : null;
+	if (!snapshot || !secret?.refreshToken) {
 		await updateConnection(userId, connectionId, {
 			status: "needs_reauth",
 			statusDetail: "No refresh token stored for this OneDrive connection",
@@ -546,9 +720,16 @@ async function refreshAccessToken(
 			refresh_token: secret.refreshToken,
 			client_id: clientId,
 			client_secret: clientSecret,
-			scope: scopesForCapabilities(
-				capabilitiesFromScope(conn.oauthScopes.join(" ")),
-			).join(" "),
+			scope: [
+				...new Set([
+					...BASE_SCOPES,
+					...conn.oauthScopes.filter(
+						(scope) =>
+							Object.values(MICROSOFT_READ_SCOPES).some((s) => s === scope) ||
+							Object.values(MICROSOFT_WRITE_SCOPES).some((s) => s === scope),
+					),
+				]),
+			].join(" "),
 		}).toString(),
 	});
 	const body: unknown = await response.json().catch(() => null);
@@ -562,10 +743,15 @@ async function refreshAccessToken(
 			// google.ts's identical comment on why this matters for
 			// checkHealth's persisted statusDetail.
 			const detail = "Microsoft rejected the stored refresh token";
-			await updateConnection(userId, connectionId, {
-				status: "needs_reauth",
-				statusDetail: detail,
-			});
+			await updateConnection(
+				userId,
+				connectionId,
+				{
+					status: "needs_reauth",
+					statusDetail: detail,
+				},
+				snapshot.version,
+			);
 			throw new OneDriveError(detail, "invalid_grant");
 		}
 		throw new OneDriveError(
@@ -581,15 +767,35 @@ async function refreshAccessToken(
 	}
 
 	const tokenExpiresAt = Math.floor(Date.now() / 1000) + body.expires_in;
-	await setConnectionSecret(
+	const returnedScopes =
+		typeof body.scope === "string" ? new Set(body.scope.split(/\s+/)) : null;
+	const oauthScopes = returnedScopes
+		? conn.oauthScopes.filter((scope) => returnedScopes.has(scope))
+		: conn.oauthScopes;
+	const narrowed = conn.oauthScopes.some(
+		(scope) =>
+			!oauthScopes.includes(scope) &&
+			(Object.values(MICROSOFT_READ_SCOPES).some((s) => s === scope) ||
+				Object.values(MICROSOFT_WRITE_SCOPES).some((s) => s === scope)),
+	);
+	const refreshed = await updateConnection(
 		userId,
 		connectionId,
-		JSON.stringify({
-			refreshToken: body.refresh_token ?? secret.refreshToken,
-			accessToken: body.access_token,
-		} satisfies StoredOneDriveSecret),
-		tokenExpiresAt,
+		{
+			secret: JSON.stringify({
+				refreshToken: body.refresh_token ?? secret.refreshToken,
+				accessToken: body.access_token,
+			} satisfies StoredOneDriveSecret),
+			tokenExpiresAt,
+			...(narrowed ? { oauthScopes } : {}),
+		},
+		snapshot.version,
 	);
+	if (!refreshed || narrowed)
+		throw new OneDriveError(
+			"Microsoft permissions changed during token refresh",
+			"request_failed",
+		);
 
 	return body.access_token;
 }
@@ -653,9 +859,15 @@ async function checkHealth(
 				status: "needs_reauth",
 				detail: "Microsoft access is missing for an enabled service",
 			};
-		const paths: string[] = conn.capabilities.map((capability) =>
-			capability === "files" ? "/me/drive" : "/me/calendar?$select=id",
-		);
+		const probe: Record<MicrosoftReadCapability, string> = {
+			files: "/me/drive",
+			calendar: "/me/calendar?$select=id",
+			email: "/me/mailFolders/inbox?$select=id",
+			contacts: "/me/contacts?$select=id&$top=1",
+		};
+		const paths = conn.capabilities
+			.filter(isMicrosoftReadCapability)
+			.map((cap) => probe[cap]);
 		if (paths.length === 0) paths.push("/me?$select=id");
 		const responses = await Promise.all(
 			paths.map((path) =>
@@ -763,11 +975,11 @@ function assertNotAuthFailure(response: Response): void {
 export async function onedriveGetAccessTokenForRead(
 	conn: ConnectionPublic,
 	opts?: FetchOpt,
-	capability: "files" | "calendar" = "files",
+	capability: MicrosoftReadCapability = "files",
 ): Promise<string> {
 	if (
 		!conn.capabilities.includes(capability) ||
-		!capabilitiesFromScope(conn.oauthScopes.join(" ")).includes(capability)
+		!microsoftReadGranted(conn.oauthScopes, capability)
 	) {
 		throw new OneDriveError(
 			"The selected Microsoft permission is unavailable",
@@ -1085,5 +1297,5 @@ export async function onedriveReadFile(
 // carries its own `webUrl` (see OneDriveItem.webUrl); this is only a
 // fallback for the rare case that field is absent.
 export function onedriveWebUrl(item: { webUrl: string | null }): string {
-	return item.webUrl ?? "https://onedrive.live.com/";
+	return oneDriveDocumentUrl(item.webUrl) ?? "https://onedrive.live.com/";
 }

@@ -1,6 +1,7 @@
 import { redirect } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	OneDriveError,
 	onedriveConnectFinish,
 	verifyOAuthState,
 } from "$lib/server/services/connections/providers/onedrive";
@@ -24,7 +25,19 @@ export const GET: RequestHandler = async (event) => {
 	const params = event.url.searchParams;
 	const oauthError = params.get("error");
 	if (oauthError) {
-		throw redirect(302, errorRedirectPath("onedrive_oauth_denied"));
+		const adminApproval =
+			oauthError === "admin_consent_required" ||
+			/\bAADSTS9009[45]\b/i.test(params.get("error_description") ?? "");
+		throw redirect(
+			302,
+			errorRedirectPath(
+				adminApproval
+					? "onedrive_oauth_admin_approval"
+					: oauthError === "access_denied"
+						? "onedrive_oauth_denied"
+						: "onedrive_oauth_failed",
+			),
+		);
 	}
 
 	const code = params.get("code");
@@ -48,7 +61,11 @@ export const GET: RequestHandler = async (event) => {
 
 	try {
 		await onedriveConnectFinish({ code, state, origin: event.url.origin });
-	} catch {
+	} catch (err) {
+		if (err instanceof OneDriveError && err.code === "wrong_account")
+			throw redirect(302, errorRedirectPath("onedrive_oauth_wrong_account"));
+		if (err instanceof OneDriveError && err.code === "admin_approval")
+			throw redirect(302, errorRedirectPath("onedrive_oauth_admin_approval"));
 		throw redirect(302, errorRedirectPath("onedrive_oauth_failed"));
 	}
 

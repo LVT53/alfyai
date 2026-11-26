@@ -17,6 +17,11 @@ import {
 } from "$lib/server/services/connections/store";
 import { normalizeAllowlistPath } from "$lib/server/services/connections/write-guard";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
+import {
+	MICROSOFT_WRITE_SCOPES,
+	type MicrosoftWritePermission,
+	microsoftCanWrite,
+} from "$lib/shared/microsoft-permissions";
 import type { RequestHandler } from "./$types";
 
 interface PatchBody {
@@ -70,6 +75,28 @@ export const PATCH: RequestHandler = async (event) => {
 	) {
 		return createJsonErrorResponse(
 			"Google Calendar event editing requires Google’s consent",
+			403,
+		);
+	}
+	if (
+		body.allowWrites === true &&
+		connection.provider === "onedrive" &&
+		!(Object.keys(MICROSOFT_WRITE_SCOPES) as MicrosoftWritePermission[]).some(
+			(p) =>
+				microsoftCanWrite(
+					{
+						...connection,
+						allowWrites: true,
+						capabilities: Array.isArray(body.capabilities)
+							? body.capabilities
+							: connection.capabilities,
+					},
+					p,
+				),
+		)
+	) {
+		return createJsonErrorResponse(
+			"Reconnect to grant the requested Microsoft permission",
 			403,
 		);
 	}

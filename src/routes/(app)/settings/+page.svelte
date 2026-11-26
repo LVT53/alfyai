@@ -1434,6 +1434,7 @@ $effect(() => {
 				provider={connectWizardProvider}
 				{reconnectConnectionId}
 				reconnectConnection={reconnectConnectionRecord}
+				canRequestGoogleCalendarEditing={(data as SettingsPageData).googleCalendarWriteReviewEnabled ?? false}
 				requestedCapabilities={wizardRequestedCapabilities}
 				{isAdmin}
 				onOpenAdminIntegrations={openAdminIntegrations}

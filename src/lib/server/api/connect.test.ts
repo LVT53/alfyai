@@ -159,6 +159,34 @@ describe("handleCredentialConnect", () => {
 });
 
 describe("handleOAuthConnectStart", () => {
+	it("accepts a boolean initial editing request only on the Google route", async () => {
+		const connectStart = vi
+			.fn()
+			.mockResolvedValue({ authUrl: "https://consent" });
+		const opts = {
+			connectStart,
+			errorType: ProviderError,
+			fallbackError: "failed",
+		};
+		const input = { capabilities: ["calendar"], requestCalendarEditing: true };
+		const success = await handleOAuthConnectStart({
+			...opts,
+			event: makeEvent(input),
+			acceptsCalendarWriteTarget: true,
+		});
+		expect(success.status).toBe(200);
+		expect(connectStart.mock.calls[0][0].requestCalendarEditing).toBe(true);
+		await handleOAuthConnectStart({ ...opts, event: makeEvent(input) });
+		expect(connectStart.mock.calls[1][0]).not.toHaveProperty(
+			"requestCalendarEditing",
+		);
+		const malformed = await handleOAuthConnectStart({
+			...opts,
+			event: makeEvent({ ...input, requestCalendarEditing: "true" }),
+			acceptsCalendarWriteTarget: true,
+		});
+		expect(malformed.status).toBe(400);
+	});
 	it("passes an explicit valid calendar write target only to opted-in providers", async () => {
 		const connectStart = vi
 			.fn()

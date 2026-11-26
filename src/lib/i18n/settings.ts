@@ -1842,7 +1842,7 @@ const settingsDict = {
 			"Empty means the Google connector reports “not configured”.",
 		"admin.system.keys.ONEDRIVE_CLIENT_ID.label": "Microsoft app id",
 		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning":
-			"Used for OneDrive files and Outlook Calendar.",
+			"Used for the selected OneDrive and Outlook services.",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label": "Microsoft app secret",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.meaning":
 			"Empty means the Microsoft connector reports “not configured”.",
@@ -4111,7 +4111,7 @@ const settingsDict = {
 		"admin.system.keys.ONEDRIVE_CLIENT_ID.label":
 			"Microsoft-alkalmazásazonosító",
 		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning":
-			"A OneDrive-fájlokhoz és az Outlook-naptárhoz.",
+			"A kiválasztott OneDrive- és Outlook-szolgáltatásokhoz.",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label":
 			"Microsoft-alkalmazástitok",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.meaning":

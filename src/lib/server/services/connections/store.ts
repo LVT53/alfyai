@@ -230,6 +230,7 @@ export async function updateConnection(
 		oauthScopes: string[];
 		tokenExpiresAt: number | null;
 	}>,
+	expectedSecretVersion?: string,
 ): Promise<ConnectionPublic | null> {
 	const now = new Date();
 	const set: Partial<typeof userConnections.$inferInsert> = {
@@ -286,7 +287,14 @@ export async function updateConnection(
 	const [row] = await db
 		.update(userConnections)
 		.set(set)
-		.where(scoped(userId, id))
+		.where(
+			and(
+				scoped(userId, id),
+				expectedSecretVersion === undefined
+					? undefined
+					: eq(userConnections.secretIv, expectedSecretVersion),
+			),
+		)
 		.returning();
 	return row ? toPublic(row) : null;
 }
@@ -316,11 +324,19 @@ export async function setConnectionSecret(
 	return result.changes > 0;
 }
 
-// The ONLY read path for the plaintext secret. Never part of ConnectionPublic.
 export async function getConnectionSecret(
 	userId: string,
 	id: string,
 ): Promise<string | null> {
+	return (await getConnectionSecretSnapshot(userId, id))?.value ?? null;
+}
+
+// The random IV changes every time the encrypted secret is replaced. A refresh
+// can use it to avoid replacing credentials from a newer consent callback.
+export async function getConnectionSecretSnapshot(
+	userId: string,
+	id: string,
+): Promise<{ value: string; version: string } | null> {
 	const [row] = await db
 		.select({
 			secretCiphertext: userConnections.secretCiphertext,
@@ -332,11 +348,14 @@ export async function getConnectionSecret(
 	if (!row?.secretCiphertext || !row.secretIv || !row.secretAuthTag) {
 		return null;
 	}
-	return decryptConnectionSecret({
-		ciphertext: row.secretCiphertext,
-		iv: row.secretIv,
-		authTag: row.secretAuthTag,
-	});
+	return {
+		version: row.secretIv,
+		value: decryptConnectionSecret({
+			ciphertext: row.secretCiphertext,
+			iv: row.secretIv,
+			authTag: row.secretAuthTag,
+		}),
+	};
 }
 
 // Issue 6.4 — sets the SEPARATE write-scoped secret (distinct columns from

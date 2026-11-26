@@ -191,6 +191,19 @@ const connectionsDict = {
 			"This request didn't match your session. Please try again.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"Google couldn't complete the connection. Please try again.",
+		"connections.google.optionalEditing": "Request Google Calendar editing",
+		"connections.google.optionalEditingAbout":
+			"After connecting, turn on Let Alfy write when you are ready. Each change asks for confirmation.",
+		"connections.microsoft.optionalWrites":
+			"Optional changes · each requires your confirmation",
+		"connections.microsoft.write.files": "Edit OneDrive files",
+		"connections.microsoft.write.calendar": "Edit calendar events",
+		"connections.microsoft.write.email": "Manage email and drafts",
+		"connections.microsoft.write.send": "Send email",
+		"connections.oauthReturn.reason.onedrive_oauth_admin_approval":
+			"Your organization requires an administrator to approve these permissions. Ask your IT team for access, then reconnect.",
+		"connections.oauthReturn.reason.onedrive_oauth_wrong_account":
+			"Choose the same Microsoft account you are reconnecting.",
 		"connections.oauthReturn.reason.onedrive_oauth_denied":
 			"You declined the Microsoft permission request.",
 		"connections.oauthReturn.reason.onedrive_oauth_invalid_request":
@@ -222,6 +235,7 @@ const connectionsDict = {
 		// changes anything in a connected account. write-card.ts on the server
 		// names what is being done, these say it. The question and the button
 		// are per action, because "Save it" on an email is a wrong promise.
+		"connections.writeConfirm.openShare": "Open shared link",
 		"connections.writeConfirm.cardLabel": "Needs your OK: {title}",
 		"connections.writeConfirm.confirm": "Confirm",
 		"connections.writeConfirm.cancel": "Cancel",
@@ -242,6 +256,11 @@ const connectionsDict = {
 		"connections.writeConfirm.cancelError": "Couldn't cancel this. Try again.",
 
 		"connections.writeConfirm.question.emailSend": "Send this email?",
+		"connections.writeConfirm.question.emailDraft": "Save this draft?",
+		"connections.writeConfirm.question.emailEditDraft":
+			"Save these draft changes?",
+		"connections.writeConfirm.question.emailSendDraft":
+			"Send this saved draft?",
 		"connections.writeConfirm.question.emailTrash": "Move this email to Trash?",
 		"connections.writeConfirm.question.emailMarkRead":
 			"Mark this email as read?",
@@ -253,6 +272,13 @@ const connectionsDict = {
 		"connections.writeConfirm.question.calendarCreate": "Add this event?",
 		"connections.writeConfirm.question.calendarUpdate": "Change this event?",
 		"connections.writeConfirm.question.calendarDelete": "Delete this event?",
+		"connections.writeConfirm.question.folderMove":
+			"Move this folder and its contents?",
+		"connections.writeConfirm.question.folderRename": "Rename this folder?",
+		"connections.writeConfirm.question.folderDelete":
+			"Move this folder and its contents to the trash?",
+		"connections.writeConfirm.question.folderShare":
+			"Create a public link to this folder and everything in it?",
 		"connections.writeConfirm.question.filesSave": "Save this file?",
 		"connections.writeConfirm.question.filesReplace": "Replace this file?",
 		"connections.writeConfirm.question.filesMove": "Move this file?",
@@ -266,6 +292,9 @@ const connectionsDict = {
 			"Add these photos to the album?",
 
 		"connections.writeConfirm.approve.emailSend": "Send",
+		"connections.writeConfirm.approve.emailDraft": "Save draft",
+		"connections.writeConfirm.approve.emailEditDraft": "Save changes",
+		"connections.writeConfirm.approve.emailSendDraft": "Send draft",
 		"connections.writeConfirm.approve.emailTrash": "Move to Trash",
 		"connections.writeConfirm.approve.emailMarkRead": "Mark as read",
 		"connections.writeConfirm.approve.emailMarkUnread": "Mark as unread",
@@ -286,6 +315,9 @@ const connectionsDict = {
 		// What a settled card says in the activity row it folds into.
 		"connections.writeConfirm.done.generic": "Done",
 		"connections.writeConfirm.done.emailSend": "Sent",
+		"connections.writeConfirm.done.emailDraft": "Draft saved",
+		"connections.writeConfirm.done.emailEditDraft": "Draft updated",
+		"connections.writeConfirm.done.emailSendDraft": "Submitted to Outlook",
 		"connections.writeConfirm.done.emailTrash": "Moved to Trash",
 		"connections.writeConfirm.done.emailMarkRead": "Marked as read",
 		"connections.writeConfirm.done.emailMarkUnread": "Marked as unread",
@@ -317,11 +349,17 @@ const connectionsDict = {
 		// unregistered provider, `unsupported_operation`) where nothing was
 		// sent; "may not have gone through" still tells the truth there.
 		// Check the account before trying again.
+		"connections.writeConfirm.note.outlookSendFailed":
+			"Check Sent Items in Outlook before sending again. If the email is there, Outlook already accepted it.",
 		"connections.writeConfirm.note.failed":
 			"This may not have gone through. Check the connected account before trying again.",
 
 		"connections.writeConfirm.fact.to": "To",
 		"connections.writeConfirm.fact.cc": "Cc",
+		"connections.writeConfirm.fact.cancellationRecipients":
+			"Attendees Outlook will send cancellation notices to",
+		"connections.writeConfirm.fact.bcc": "Bcc",
+		"connections.writeConfirm.fact.attachments": "Attachment",
 		"connections.writeConfirm.fact.from": "From",
 		"connections.writeConfirm.fact.newName": "New name",
 		"connections.writeConfirm.fact.newTime": "New time",
@@ -417,7 +455,7 @@ const connectionsDict = {
 			"Where you are, from your own phone",
 		"connections.provider.github.blurb": "Your repositories and issues",
 		"connections.provider.onedrive.blurb":
-			"OneDrive files and Outlook Calendar",
+			"OneDrive files, Outlook Calendar, email and contacts",
 		"connections.provider.caldav.blurb":
 			"Any standards-based calendar or address book",
 		"connections.provider.contacts.blurb": "A CardDAV address book",
@@ -833,6 +871,20 @@ const connectionsDict = {
 			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
+		"connections.google.optionalEditing":
+			"Google Naptár szerkesztési engedélyének kérése",
+		"connections.google.optionalEditingAbout":
+			"Csatlakozás után te kapcsolhatod be az írást. Minden módosítást külön jóváhagysz.",
+		"connections.microsoft.optionalWrites":
+			"Választható módosítások · mindegyiket külön jóváhagyod",
+		"connections.microsoft.write.files": "OneDrive-fájlok szerkesztése",
+		"connections.microsoft.write.calendar": "Naptáresemények szerkesztése",
+		"connections.microsoft.write.email": "Levelek és piszkozatok kezelése",
+		"connections.microsoft.write.send": "Levelek küldése",
+		"connections.oauthReturn.reason.onedrive_oauth_admin_approval":
+			"A szervezetednél rendszergazdai jóváhagyás szükséges ezekhez az engedélyekhez. Kérj hozzáférést az informatikai csapatodtól, majd csatlakozz újra.",
+		"connections.oauthReturn.reason.onedrive_oauth_wrong_account":
+			"Válaszd ki az újracsatlakoztatni kívánt Microsoft-fiókot.",
 		"connections.oauthReturn.reason.onedrive_oauth_denied":
 			"Elutasítottad a Microsoft jogosultságkérését.",
 		"connections.oauthReturn.reason.onedrive_oauth_invalid_request":
@@ -863,6 +915,7 @@ const connectionsDict = {
 
 		// Az engedélykártya (WriteConfirmCard.svelte): Alfy megkérdez, mielőtt
 		// bármit módosítana egy csatlakoztatott fiókban.
+		"connections.writeConfirm.openShare": "Megosztott link megnyitása",
 		"connections.writeConfirm.cardLabel": "Jóváhagyásra vár: {title}",
 		"connections.writeConfirm.confirm": "Jóváhagyás",
 		"connections.writeConfirm.cancel": "Mégse",
@@ -884,6 +937,12 @@ const connectionsDict = {
 			"Nem sikerült megszakítani. Próbáld újra.",
 
 		"connections.writeConfirm.question.emailSend": "Elküldjem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailDraft":
+			"Mentsem ezt a piszkozatot?",
+		"connections.writeConfirm.question.emailEditDraft":
+			"Mentsem a piszkozat módosításait?",
+		"connections.writeConfirm.question.emailSendDraft":
+			"Elküldjem ezt a mentett piszkozatot?",
 		"connections.writeConfirm.question.emailTrash":
 			"A kukába tegyem ezt az e-mailt?",
 		"connections.writeConfirm.question.emailMarkRead":
@@ -900,6 +959,14 @@ const connectionsDict = {
 			"Módosítsam ezt az eseményt?",
 		"connections.writeConfirm.question.calendarDelete":
 			"Töröljem ezt az eseményt?",
+		"connections.writeConfirm.question.folderMove":
+			"Áthelyezzem a mappát a tartalmával együtt?",
+		"connections.writeConfirm.question.folderRename":
+			"Átnevezzem ezt a mappát?",
+		"connections.writeConfirm.question.folderDelete":
+			"A kukába tegyem a mappát a tartalmával együtt?",
+		"connections.writeConfirm.question.folderShare":
+			"Létrehozzak nyilvános linket a mappához és a teljes tartalmához?",
 		"connections.writeConfirm.question.filesSave": "Elmentsem ezt a fájlt?",
 		"connections.writeConfirm.question.filesReplace": "Felülírjam ezt a fájlt?",
 		"connections.writeConfirm.question.filesMove": "Áthelyezzem ezt a fájlt?",
@@ -914,6 +981,9 @@ const connectionsDict = {
 			"Hozzáadjam a fotókat az albumhoz?",
 
 		"connections.writeConfirm.approve.emailSend": "Küldés",
+		"connections.writeConfirm.approve.emailDraft": "Piszkozat mentése",
+		"connections.writeConfirm.approve.emailEditDraft": "Módosítások mentése",
+		"connections.writeConfirm.approve.emailSendDraft": "Piszkozat küldése",
 		"connections.writeConfirm.approve.emailTrash": "Kukába",
 		"connections.writeConfirm.approve.emailMarkRead": "Olvasott",
 		"connections.writeConfirm.approve.emailMarkUnread": "Olvasatlan",
@@ -933,6 +1003,9 @@ const connectionsDict = {
 
 		"connections.writeConfirm.done.generic": "Kész",
 		"connections.writeConfirm.done.emailSend": "Elküldve",
+		"connections.writeConfirm.done.emailDraft": "Piszkozat mentve",
+		"connections.writeConfirm.done.emailEditDraft": "Piszkozat módosítva",
+		"connections.writeConfirm.done.emailSendDraft": "Átadva az Outlooknak",
 		"connections.writeConfirm.done.emailTrash": "A kukában",
 		"connections.writeConfirm.done.emailMarkRead": "Olvasottnak jelölve",
 		"connections.writeConfirm.done.emailMarkUnread": "Olvasatlannak jelölve",
@@ -954,11 +1027,17 @@ const connectionsDict = {
 		"connections.writeConfirm.status.expired": "Lejárt",
 		"connections.writeConfirm.note.expired":
 			"Ez a kérés lejárt. Kérd újra, ha még kell.",
+		"connections.writeConfirm.note.outlookSendFailed":
+			"Újraküldés előtt ellenőrizd az Elküldött elemek mappát az Outlookban. Ha ott van a levél, az Outlook már elfogadta.",
 		"connections.writeConfirm.note.failed":
 			"Lehet, hogy nem ment át. Nézd meg a csatlakoztatott fiókot, mielőtt újra próbálod.",
 
 		"connections.writeConfirm.fact.to": "Címzett",
 		"connections.writeConfirm.fact.cc": "Másolat",
+		"connections.writeConfirm.fact.cancellationRecipients":
+			"Résztvevők száma, akiknek az Outlook lemondási értesítést küld",
+		"connections.writeConfirm.fact.bcc": "Titkos másolat",
+		"connections.writeConfirm.fact.attachments": "Melléklet",
 		"connections.writeConfirm.fact.from": "Feladó",
 		"connections.writeConfirm.fact.newName": "Új név",
 		"connections.writeConfirm.fact.newTime": "Új időpont",
@@ -1037,7 +1116,8 @@ const connectionsDict = {
 		"connections.provider.plex.blurb": "A saját filmjeid és sorozataid",
 		"connections.provider.owntracks.blurb": "Hol vagy — a saját telefonodról",
 		"connections.provider.github.blurb": "A tárolóid és hibajegyeid",
-		"connections.provider.onedrive.blurb": "OneDrive-fájlok és Outlook-naptár",
+		"connections.provider.onedrive.blurb":
+			"OneDrive-fájlok, Outlook-naptár, levelek és névjegyek",
 		"connections.provider.caldav.blurb":
 			"Bármely szabványos naptár vagy címjegyzék",
 		"connections.provider.contacts.blurb": "Egy CardDAV címjegyzék",

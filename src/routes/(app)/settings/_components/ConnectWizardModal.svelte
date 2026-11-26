@@ -54,6 +54,11 @@ import {
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import { t } from "$lib/i18n";
+import {
+	MICROSOFT_WRITE_SCOPES,
+	microsoftWriteCapability,
+	type MicrosoftWritePermission,
+} from "$lib/shared/microsoft-permissions";
 import { uiLanguage } from "$lib/stores/settings";
 import PasswordField from "./PasswordField.svelte";
 import Disclosure from "./connections/Disclosure.svelte";
@@ -68,6 +73,7 @@ let {
 	// asked for. Empty means "whatever this provider offers".
 	requestedCapabilities = [],
 	isAdmin = false,
+	canRequestGoogleCalendarEditing = false,
 	onOpenAdminIntegrations,
 	onClose,
 	onConnected,
@@ -89,6 +95,7 @@ let {
 	reconnectConnection?: ConnectionPublic | null;
 	requestedCapabilities?: string[];
 	isAdmin?: boolean;
+	canRequestGoogleCalendarEditing?: boolean;
 	onOpenAdminIntegrations?: () => void;
 	onClose: () => void;
 	onConnected: () => void;
@@ -195,12 +202,40 @@ let selectedCapabilities = $state<Set<Capability>>(
 				: (providerEntry?.capabilities ?? []),
 	),
 );
+const microsoftWriteChoices = Object.keys(
+	MICROSOFT_WRITE_SCOPES,
+) as MicrosoftWritePermission[];
+let selectedWrites = $state(
+	new Set(
+		microsoftWriteChoices.filter(
+			(permission) =>
+				initialReconnectConnection?.allowWrites &&
+				initialReconnectConnection.oauthScopes.includes(
+					MICROSOFT_WRITE_SCOPES[permission],
+				),
+		),
+	),
+);
+function toggleMicrosoftWrite(permission: MicrosoftWritePermission) {
+	const next = new Set(selectedWrites);
+	if (next.has(permission)) next.delete(permission);
+	else next.add(permission);
+	selectedWrites = next;
+}
+let requestCalendarEditing = $state(false);
 let oauthNotConfigured = $state(false);
 
 function toggleCapability(capability: Capability) {
 	const next = new Set(selectedCapabilities);
-	if (next.has(capability)) next.delete(capability);
-	else next.add(capability);
+	if (next.has(capability)) {
+		next.delete(capability);
+		if (capability === "calendar") requestCalendarEditing = false;
+		selectedWrites = new Set(
+			[...selectedWrites].filter(
+				(permission) => microsoftWriteCapability(permission) !== capability,
+			),
+		);
+	} else next.add(capability);
 	selectedCapabilities = next;
 }
 
@@ -210,11 +245,26 @@ async function submitOAuth() {
 	clearError();
 	oauthNotConfigured = false;
 	const requested = [...selectedCapabilities];
+	const writes = [...selectedWrites].filter((p) =>
+		selectedCapabilities.has(microsoftWriteCapability(p)),
+	);
 	try {
 		const { authUrl } =
 			initialProvider === "onedrive"
-				? await startOneDriveConnect(requested)
-				: await startGoogleConnect(requested);
+				? initialReconnectConnectionId || writes.length
+					? await startOneDriveConnect(requested, {
+							...(initialReconnectConnectionId
+								? { connectionId: initialReconnectConnectionId }
+								: {}),
+							...(writes.length ? { writePermissions: writes } : {}),
+						})
+					: await startOneDriveConnect(requested)
+				: canRequestGoogleCalendarEditing &&
+						!initialReconnectConnectionId &&
+						selectedCapabilities.has("calendar") &&
+						requestCalendarEditing
+					? await startGoogleConnect(requested, undefined, true)
+					: await startGoogleConnect(requested);
 		// Written down BEFORE the browser leaves, because after the round trip
 		// nothing else knows what was asked for — only what was granted.
 		rememberRequestedCapabilities(initialProvider, requested);
@@ -757,6 +807,28 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 							</label>
 						{/each}
 					</fieldset>
+					{#if initialProvider === 'google' && canRequestGoogleCalendarEditing && !initialReconnectConnectionId && selectedCapabilities.has('calendar')}
+						<label class="capability-choice">
+							<input type="checkbox" class="sr-only" bind:checked={requestCalendarEditing} aria-label={$t('connections.google.optionalEditing')} />
+							<span class="capability-box" class:checked={requestCalendarEditing} aria-hidden="true">{#if requestCalendarEditing}<Check size={12} strokeWidth={3} />{/if}</span>
+							<span class="capability-copy">
+								<span class="capability-name">{$t('connections.google.optionalEditing')}</span>
+								<span class="capability-about">{$t('connections.google.optionalEditingAbout')}</span>
+							</span>
+						</label>
+					{/if}
+					{#if initialProvider === 'onedrive' && microsoftWriteChoices.some(permission => selectedCapabilities.has(microsoftWriteCapability(permission)))}
+						<fieldset class="capability-choices">
+							<legend>{$t('connections.microsoft.optionalWrites')}</legend>
+							{#each microsoftWriteChoices.filter(permission => selectedCapabilities.has(microsoftWriteCapability(permission))) as permission (permission)}
+								<label class="capability-choice">
+									<input type="checkbox" class="sr-only" checked={selectedWrites.has(permission)} onchange={() => toggleMicrosoftWrite(permission)} />
+									<span class="capability-box" class:checked={selectedWrites.has(permission)} aria-hidden="true">{#if selectedWrites.has(permission)}<Check size={12} strokeWidth={3} />{/if}</span>
+									<span class="capability-copy"><span class="capability-name">{$t(`connections.microsoft.write.${permission}`)}</span></span>
+								</label>
+							{/each}
+						</fieldset>
+					{/if}
 					{#if selectedCapabilities.size === 0}
 						<p class="wizard-inline-error">{$t('connections.wizard.selectAtLeastOne')}</p>
 					{/if}

@@ -564,6 +564,105 @@ describe("googleAdapter.checkHealth", () => {
 });
 
 describe("Google Calendar incremental write consent", () => {
+	it("offers initial editing consent to an unlisted user only on opt-in during general rollout", async () => {
+		setConfiguredEnv();
+		process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS = "";
+		process.env.GOOGLE_CALENDAR_EVENT_EDITING_ENABLED = "true";
+		const { googleConnectStart, verifyOAuthState } = await import("./google");
+		const request = {
+			userId: "general-rollout-user",
+			origin: "https://app.example.com",
+			capabilities: ["calendar" as const],
+		};
+		const write = "https://www.googleapis.com/auth/calendar.events";
+		const ordinary = new URL((await googleConnectStart(request)).authUrl);
+		expect(ordinary.searchParams.get("scope")?.split(" ")).not.toContain(write);
+		const optedIn = new URL(
+			(await googleConnectStart({ ...request, requestCalendarEditing: true }))
+				.authUrl,
+		);
+		expect(optedIn.searchParams.get("scope")?.split(" ")).toContain(write);
+		const state = verifyOAuthState(optedIn.searchParams.get("state") ?? "");
+		expect(state).toMatchObject({
+			userId: request.userId,
+			requestCalendarEditing: true,
+		});
+		expect(state.calendarWriteConnectionId).toBeUndefined();
+	});
+	it("can request calendar editing with first consent but enables only explicitly granted reads and keeps local writes off", async () => {
+		setConfiguredEnv();
+		seedUser("userA");
+		const { googleConnectStart, googleConnectFinish, verifyOAuthState } =
+			await import("./google");
+		const read = "https://www.googleapis.com/auth/calendar.readonly",
+			write = "https://www.googleapis.com/auth/calendar.events",
+			contacts = "https://www.googleapis.com/auth/contacts.readonly";
+		const request = {
+			userId: "userA",
+			origin: "https://app.example.com",
+			capabilities: ["calendar", "contacts"] as ("calendar" | "contacts")[],
+			requestCalendarEditing: true,
+		};
+		await expect(googleConnectStart(request)).rejects.toMatchObject({
+			code: "write_review_unavailable",
+		});
+		process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS = "userA";
+		await expect(
+			googleConnectStart({ ...request, capabilities: ["contacts"] }),
+		).rejects.toMatchObject({ code: "invalid_write_target" });
+		const auth = new URL((await googleConnectStart(request)).authUrl);
+		expect(auth.searchParams.get("scope")?.split(" ")).toEqual(
+			expect.arrayContaining([read, write, contacts]),
+		);
+		const state = auth.searchParams.get("state") || "";
+		expect(verifyOAuthState(state).requestCalendarEditing).toBe(true);
+		const finish = async (email: string, scope: string) =>
+			googleConnectFinish({
+				code: "code",
+				origin: request.origin,
+				state,
+				fetch: async (url) =>
+					String(url) === TOKEN_URL
+						? jsonResponse(200, {
+								access_token: "token",
+								refresh_token: "rt",
+								expires_in: 3600,
+								scope,
+								token_type: "Bearer",
+							})
+						: jsonResponse(200, { email }),
+			});
+		const full = await finish(
+			"accepted@example.com",
+			[read, write, contacts].join(" "),
+		);
+		expect(full.connection.allowWrites).toBe(false);
+		expect(full.connection.oauthScopes).toContain(write);
+		const partial = await finish("partial@example.com", read);
+		expect(partial.connection.allowWrites).toBe(false);
+		expect(partial.connection.oauthScopes).not.toContain(write);
+		expect(partial.connection.capabilities).toEqual(["calendar"]);
+		const { updateConnection } = await import("../store");
+		await updateConnection("userA", full.connection.id, {
+			allowWrites: true,
+			capabilities: ["calendar"],
+		});
+		const again = await finish(
+			"accepted@example.com",
+			[read, write, contacts].join(" "),
+		);
+		expect(again.connection.allowWrites).toBe(true);
+		expect(again.connection.capabilities).toEqual(["calendar"]);
+		await expect(finish("accepted@example.com", read)).rejects.toMatchObject({
+			code: "write_grant_missing",
+		});
+		delete process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS;
+		const disabled = await finish(
+			"rollout-disabled@example.com",
+			[read, write].join(" "),
+		);
+		expect(disabled.connection.oauthScopes).not.toContain(write);
+	});
 	it("binds opt-in to the enabled, owned calendar and preserves the account on denied or misdirected consent", async () => {
 		setConfiguredEnv();
 		seedUser("userA");

@@ -38,6 +38,11 @@ import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import { t } from "$lib/i18n";
+import {
+	MICROSOFT_WRITE_SCOPES,
+	microsoftCanWrite,
+	type MicrosoftWritePermission,
+} from "$lib/shared/microsoft-permissions";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
 import CapabilityRow from "./connections/CapabilityRow.svelte";
@@ -156,6 +161,16 @@ function closeWriteKeyForm() {
 }
 
 async function onWritesSwitch(conn: ConnectionPublic, next: boolean) {
+	if (
+		conn.provider === "onedrive" &&
+		next &&
+		!(Object.keys(MICROSOFT_WRITE_SCOPES) as MicrosoftWritePermission[]).some(
+			(p) => microsoftCanWrite({ ...conn, allowWrites: true }, p),
+		)
+	) {
+		onReconnect?.(conn.id);
+		return;
+	}
 	if (next && needsGoogleCalendarConsent && onRequestGoogleCalendarWrites) {
 		const requestConsent = onRequestGoogleCalendarWrites;
 		await withPending("allowWrites", () => requestConsent(conn.id));
@@ -646,7 +661,7 @@ function capabilityAbout(capability: string): string {
 					{/if}
 
 					{#if conn.allowWrites}
-						{#if entry.pathBasedWrites}
+						{#if entry.pathBasedWrites && (conn.provider !== 'onedrive' || microsoftCanWrite(conn, 'files'))}
 							<div class="folder-box">
 								<p class="folder-label">{$t('connections.detail.foldersLabel')}</p>
 								{#if conn.writeAllowlist.length === 0}

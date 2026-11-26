@@ -114,11 +114,11 @@ and back-end module seams are defined by
 - **IMAP email** (with write)
 - **Apple CalDAV** and **CalDAV tasks**
 - **GitHub** (read-only)
-- **Nextcloud files**, **OneDrive files** and **Outlook Calendar** (Microsoft OAuth reads)
+- **Nextcloud files**, **OneDrive files**, **Outlook Calendar**, **Outlook mail** and **Outlook contacts**
 - **Immich** (with write) and **Plex**
 - **OwnTracks** (location)
 
-OAuth callback routes live under `src/routes/api/oauth/` (`google`, `onedrive`). Microsoft uses the existing `ONEDRIVE_CLIENT_ID` and `ONEDRIVE_CLIENT_SECRET` for both OneDrive and Outlook. In the Microsoft app registration use a Web redirect URI of `{origin}/api/oauth/onedrive/callback`. The delegated Graph permissions are `User.Read` to identify the account, `Files.Read` when files are selected, and `Calendars.ReadBasic` when calendar is selected. A file-only account can opt into Calendar in Settings → Connections. Google uses `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`.
+OAuth callback routes live under `src/routes/api/oauth/` (`google`, `onedrive`). Microsoft uses the existing `ONEDRIVE_CLIENT_ID` and `ONEDRIVE_CLIENT_SECRET` for both OneDrive and Outlook. In the Microsoft app registration use a Web redirect URI of `{origin}/api/oauth/onedrive/callback`. Use the Microsoft account audience that supports organizational directories and personal Microsoft accounts. AlfyAI signs in through `/common` and requests delegated permissions for the selected user only. The read choices map to `Files.Read`, `Calendars.ReadBasic`, `Mail.Read` and `Contacts.Read`, alongside `User.Read` for account identity. Optional confirmed changes request `Files.ReadWrite`, `Calendars.ReadWrite`, `Mail.ReadWrite` and `Mail.Send` separately. Existing connections keep their grants until the person changes their selection. Work or school tenant policies can require administrator approval. Google uses `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`.
 
 ## Document extraction (MinerU)
 
