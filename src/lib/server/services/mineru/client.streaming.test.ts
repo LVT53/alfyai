@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 /**
  * The upload never materialises the file, and the download never materialises
  * the ZIP.

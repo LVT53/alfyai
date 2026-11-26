@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The other half of the incognito promise: the CONVERSATION itself.
 //
 // The composer says "Incognito · nothing here is remembered", and the privacy

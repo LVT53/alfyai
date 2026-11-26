@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";

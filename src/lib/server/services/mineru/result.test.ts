@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Fixture-driven proof that the block model loses nothing.
 //
 // Every assertion here reads a real `fixtures/mineru-v1/<input>/result.zip`

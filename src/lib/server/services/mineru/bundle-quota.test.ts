@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Parse bundles had a per-DOCUMENT cap (`MINERU_BUNDLE_MAX_BYTES`, 32 MiB) and
 // no total at all: a user could park unbounded gigabytes on the box one 32 MiB
 // bundle at a time, and nothing anywhere would notice.

@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The `indexing` phase, against a real database and real parsed fixtures.
 //
 // Everything here runs on a migrated SQLite file and on

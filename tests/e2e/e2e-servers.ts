@@ -38,6 +38,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 export type SlotServer = {
+	sharesGateGroup?: boolean;
 	slot: number;
 	port: number;
 	pid: number;
@@ -363,11 +364,13 @@ export async function startSlotServer(
 	const logPath = join(logDir, `slot-${slot}.log`);
 	const log = createWriteStream(logPath);
 	const { args, env } = serverCommand(slot, mode);
+	const sharesGateGroup =
+		process.env.ALFYAI_GATE_WORKER_GROUP === "1" && mode === "build";
 	const child = spawn(process.execPath, args, {
 		cwd: ROOT(),
 		env,
 		// Its own process group, so stopping it stops what it started (vite's workers) too.
-		detached: true,
+		detached: !sharesGateGroup,
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	// Each line of the server's output with the seconds since it started: a failing
@@ -393,6 +396,7 @@ export async function startSlotServer(
 		throw new Error(`[e2e] Could not start the server for slot ${slot}`);
 	}
 	const server: SlotServer = {
+		sharesGateGroup,
 		slot,
 		port: e2ePort(slot),
 		pid: child.pid,
@@ -408,9 +412,9 @@ export async function startSlotServer(
 	return server;
 }
 
-function killGroup(pid: number, signal: NodeJS.Signals): void {
+function stopServer(server: SlotServer, signal: NodeJS.Signals): void {
 	try {
-		process.kill(-pid, signal);
+		process.kill(server.sharesGateGroup ? server.pid : -server.pid, signal);
 	} catch {
 		// already gone
 	}
@@ -426,16 +430,16 @@ export async function stopSlotServers(servers: SlotServer[]): Promise<void> {
 						return;
 					}
 					const timer = setTimeout(() => {
-						killGroup(server.pid, "SIGKILL");
+						stopServer(server, "SIGKILL");
 						resolve();
 					}, 5000);
 					server.child.once("exit", () => {
 						clearTimeout(timer);
 						// The group may outlive its leader (vite's helpers): make sure.
-						killGroup(server.pid, "SIGKILL");
+						stopServer(server, "SIGKILL");
 						resolve();
 					});
-					killGroup(server.pid, "SIGTERM");
+					stopServer(server, "SIGTERM");
 				}),
 		),
 	);
@@ -452,14 +456,14 @@ export function killServersOnExit(
 	onSignal: () => void = () => {},
 ): void {
 	process.once("exit", () => {
-		for (const server of servers) killGroup(server.pid, "SIGKILL");
+		for (const server of servers) stopServer(server, "SIGKILL");
 	});
 	for (const [signal, code] of [
 		["SIGTERM", 143],
 		["SIGHUP", 129],
 	] as const) {
 		process.once(signal, () => {
-			for (const server of servers) killGroup(server.pid, "SIGKILL");
+			for (const server of servers) stopServer(server, "SIGKILL");
 			onSignal();
 			process.exit(code);
 		});

@@ -48,6 +48,7 @@ const quarantinedTitles = quarantinedTitlePattern(quarantine);
 // @smoke tests of every other file, in one run on the same workers.
 const fullSpecs = e2eFullSpecs();
 const desktop = { ...devices['Desktop Chrome'] };
+const agentGate = process.env.E2E_AGENT_GATE === '1' || fullSpecs.length > 0;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -73,7 +74,7 @@ export default defineConfig({
   },
   timeout: 60000,
   projects:
-    fullSpecs.length === 0
+    !agentGate
       ? [
           {
             name: 'chromium',
@@ -84,7 +85,7 @@ export default defineConfig({
         ]
       : [
           // What was named: all of it, quarantined or not.
-          { name: 'chromium', use: desktop, testMatch: fullSpecs },
+          ...(fullSpecs.length ? [{ name: 'chromium', use: desktop, testMatch: fullSpecs }] : []),
           {
             name: 'chromium-smoke',
             use: desktop,

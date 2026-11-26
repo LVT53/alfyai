@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The §4.5 outline table, asserted per format against the real fixtures.
 //
 // `level` means something different in every backend: faithful for HTML/EPUB,

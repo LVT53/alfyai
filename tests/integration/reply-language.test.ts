@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The reply language is the model's to choose (owner decision, 2026-10-13).
 //
 // No code reads the person's message, their history or their account and turns a

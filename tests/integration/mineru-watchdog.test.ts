@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The MinerU watchdog kept in `deploy/mineru/` and run on the GPU box by
 // `mineru42-watchdog.timer`. MinerU 4.2.3's hang guard (`--task-timeout`)
 // leaves the server answering 503 `task_timeout` on `/v1/health` and on every

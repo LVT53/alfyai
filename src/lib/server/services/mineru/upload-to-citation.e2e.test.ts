@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The whole phase, end to end, with nothing faked below the HTTP handler
 // except MinerU itself — and MinerU is a real server on a real socket
 // speaking the 4.1 protocol and serving recorded results.

@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The MinerU 4.1 extractor, against the in-process 4.1 server.
 //
 // The ledger is not involved here: `mineru/integration.test.ts` runs the same

@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 /**
  * The fake MinerU 4.1 server, held to the captured answers.
  *

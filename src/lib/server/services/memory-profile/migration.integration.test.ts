@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { bootEngine, type EngineHarness } from "../jobs/testing/harness";
 

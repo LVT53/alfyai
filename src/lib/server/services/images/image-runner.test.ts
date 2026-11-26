@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 //
 // The image kind through the engine's own `drain`, against a real fake ComfyUI
 // on a loopback port. The database is a migrated file; the picture files go to

@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 /**
  * Every schema, against every recorded MinerU 4.1 answer.
  *

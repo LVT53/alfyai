@@ -1,3 +1,4 @@
+// @always-run: reads the committed Fallow baseline and Playwright spec inventory.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -858,6 +859,61 @@ describe("the schedule", () => {
 // Release hides vitest behind the e2e run (8.5 minutes in three green runs against 10.7 phased);
 // an agent's run is a few spec files that finish in a minute, so vitest on three threads would be
 // its longest step (7 minutes against 2.5): there the static gates go first.
+describe("gate scope", () => {
+	it("sets agent selection flags and leaves release on the full suite", () => {
+		const agent = parseArgs([
+			"agent",
+			"/tmp/gates-test",
+			"--base",
+			"develop",
+			"--all-unit-tests",
+			"--no-fail-fast",
+		]);
+		expect(agent).toMatchObject({
+			base: "develop",
+			allUnitTests: true,
+			failFast: false,
+		});
+		const release = parseArgs(["release", "/tmp/gates-test"]);
+		expect(release.failFast).toBe(false);
+		const e2e = defineSteps(release).playwright;
+		expect(e2e.env).toMatchObject({
+			E2E_AGENT_GATE: "0",
+			E2E_FULL_SPECS: "",
+			E2E_SERVER: "build",
+		});
+	});
+
+	it("passes explicit related files as absolute CLI arguments in agent mode", () => {
+		const args = parseArgs(["agent", "/tmp/gates-test"]);
+		args.unitSelection = {
+			kind: "related",
+			paths: ["scripts/gates.test.ts", "-literal.ts"],
+		};
+		const cmd = defineSteps(args).vitest.cmd;
+		expect(cmd).toContain("related");
+		expect(cmd.at(-1)).toMatch(/\/-literal\.ts$/);
+	});
+
+	it("reports a valid empty related run separately from a crash", () => {
+		const selection = {
+			kind: "related",
+			changed: 1,
+			alwaysRun: 0,
+			mergeBase: "123456789",
+		};
+		expect(
+			parseVitestLog("No test files found", 0, { selection, total: 1507 }),
+		).toMatchObject({
+			ok: true,
+			text: "files 0 of 1,507; chose: 1 changed since 1234567 and 0 always-run",
+		});
+		expect(parseVitestLog("No test files found", 1, { selection }).ok).toBe(
+			false,
+		);
+	});
+});
+
 describe("the default schedule", () => {
 	it("is overlap for the release gate and phased for an agent's run", () => {
 		expect(parseArgs(["release", "/tmp/gates-test"]).schedule).toBe("overlap");
@@ -934,15 +990,22 @@ describe("running the steps", () => {
 			exits = {},
 			logs = {},
 			real = [],
+			failFast = false,
 		}: {
 			exits?: Record<string, number>;
 			logs?: Record<string, string>;
 			real?: string[];
+			failFast?: boolean;
 		} = {},
 	) {
 		const outDir = mkdtempSync(join(tmpdir(), "gates-run-"));
 		dirs.push(outDir);
-		const args = parseArgs(["agent", outDir, ...argv]);
+		const args = parseArgs([
+			"agent",
+			outDir,
+			...(failFast ? [] : ["--no-fail-fast"]),
+			...argv,
+		]);
 		const steps: Record<string, { parse: unknown }> = defineSteps(args);
 		for (const [name, step] of Object.entries(steps)) {
 			if (!real.includes(name)) {
@@ -950,10 +1013,22 @@ describe("running the steps", () => {
 			}
 		}
 		const started: string[] = [];
-		const run = async (_step: unknown, name: string, dir: string) => {
+		const run = async (
+			_step: unknown,
+			name: string,
+			dir: string,
+			signal: AbortSignal,
+		) => {
 			started.push(name);
 			const logPath = join(dir, `${name}.log`);
 			writeFileSync(logPath, logs[name] ?? "");
+			if (failFast && name === "vitest" && exits.check) {
+				if (!signal.aborted)
+					await new Promise<void>((resolve) =>
+						signal.addEventListener("abort", () => resolve(), { once: true }),
+					);
+				return { stopped: true };
+			}
 			const now = Date.now();
 			return { code: exits[name] ?? 0, startedAt: now, endedAt: now, logPath };
 		};
@@ -969,6 +1044,58 @@ describe("running the steps", () => {
 		);
 		return { started, results, summary, lines: summary.split("\n"), passed };
 	}
+	it("reports the first failing static check and stops independent lanes", async () => {
+		const { results, started, summary } = await gate([], {
+			failFast: true,
+			exits: { build: 1 },
+		});
+		expect(results.build.ok).toBe(false);
+		expect(results.vitest).toEqual({ blocked: "not run: build failed" });
+		expect(started).not.toContain("playwright");
+		expect(summary).toContain("(stopped:");
+	});
+
+	it("aborts a running test when typecheck fails", async () => {
+		const { started, results } = await gate([], {
+			failFast: true,
+			exits: { check: 1 },
+		});
+		expect(started).toContain("vitest");
+		expect(results.vitest).toEqual({ stopped: "check failed" });
+		expect(results.playwright).toEqual({ stopped: "check failed" });
+	});
+
+	it("warns on a release over ten minutes without changing the verdict", async () => {
+		const { results } = await gate([]);
+		const render = (mode: string, counts: boolean) =>
+			summarise({
+				header: [],
+				results,
+				startedAt: 0,
+				endedAt: 600_001,
+				outDir: "/tmp/gates-test",
+				mode,
+				measured: { counts },
+			});
+		expect(render("release", true)).toMatchObject({
+			passed: true,
+			summary: expect.stringContaining("OVER THE 10-MINUTE TARGET"),
+		});
+		expect(render("release", false).summary).toContain(
+			"over 10 minutes, but not a measured run",
+		);
+		expect(render("agent", true).summary).not.toContain("10-MINUTE TARGET");
+	});
+
+	it("keeps running other lanes after a unit-test failure", async () => {
+		const { started, results } = await gate([], {
+			failFast: true,
+			exits: { vitest: 1 },
+		});
+		expect(started).toContain("playwright");
+		expect(results.playwright.ok).toBe(true);
+	});
+
 	const everyStep = Object.keys(defineSteps(options));
 	const needsTheBuild = ["check", "vitest", "chunks", "playwright"];
 

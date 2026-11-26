@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Unified tool activity rows — coverage for the states this redesign adds on
 // top of ThinkingBlock's existing behaviour (which ThinkingBlock.test.ts
 // covers): the collapsed summary strip, pinned deliverables surviving the

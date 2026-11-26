@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The engine's public face: a small, fixed set of functions, and a file that
 // imports no kind. The surface may not grow without a reason written in the plan.
 

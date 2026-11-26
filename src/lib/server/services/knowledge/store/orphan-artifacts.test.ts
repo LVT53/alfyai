@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // What "unreachable" means, and every way a row escapes that verdict.
 //
 // This predicate authorises a DELETE of data no UI can show, so the only

@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,

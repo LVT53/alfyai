@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 //
 // The picture check's classifier. The flagged path is held only through the
 // stub (marker colours), never with a real explicit picture: none is kept,

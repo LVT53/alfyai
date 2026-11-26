@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { readFileSync, unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";

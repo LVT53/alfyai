@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The LTX ComfyUI's daily sweep (review I-5): the units kept in
 // `deploy/comfyui/` and installed on the GPU box beside the Qwen and H3
 // servers' own sweeps. Every take leaves its clip (blocked and incognito ones

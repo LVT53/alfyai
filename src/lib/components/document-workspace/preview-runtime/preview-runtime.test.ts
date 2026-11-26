@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { describe, expect, it, vi } from "vitest";
 
 // `$lib/client/api/http` raises the shell's signed-out row on an expired

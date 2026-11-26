@@ -1,3 +1,4 @@
+// @always-run: runs the dictionary validation script against repository sources.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";

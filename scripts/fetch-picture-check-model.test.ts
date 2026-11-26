@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";

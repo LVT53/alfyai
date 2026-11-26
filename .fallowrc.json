@@ -3,6 +3,8 @@
 	"entry": [
 		// Vitest loads this reporter from the gate runner's CLI argument.
 		"scripts/gates-vitest-reporter.mjs",
+		// The gate launches this supervisor directly through Node.
+		"scripts/gates-queue-keeper.mjs",
 		"scripts/repair-orphaned-generated-files.ts",
 		"scripts/seed-admin.ts",
 		"scripts/seed-test-user.ts",

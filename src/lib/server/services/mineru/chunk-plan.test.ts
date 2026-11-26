@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The structure-aware chunk planner.
 //
 // `planStructuredChunks` is pure: it turns rendered blocks into planned

@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Import-graph guards.
 //
 // The kind's definition and its read model are imported from request paths that

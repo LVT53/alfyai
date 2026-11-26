@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 //
 // Node and not the default jsdom, as the server runs. The decoder is no longer
 // the reason: it runs in a worker thread, which is plain Node whatever the

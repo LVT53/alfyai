@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // One writer.
 //
 // Every state change of a job and every scheduling decision lives in

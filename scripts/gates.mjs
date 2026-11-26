@@ -1,26 +1,24 @@
-// The gate runner: every release gate in one command, the independent ones in
-// parallel, one screen of summary at the end. `scripts/gates.sh` is the entry.
+// AlfyAI gate runner. Invoke it through scripts/gates.sh.
 //
-//   scripts/gates.sh release <out-dir> [options]
-//       Every static gate, then the WHOLE Playwright suite minus the quarantine
-//       list (tests/e2e/quarantine.json), so a new spec joins the gate by existing.
-//   scripts/gates.sh agent <out-dir> [options] [spec ...]
-//       Every static gate, then the specs it is given in full plus the @smoke
-//       tests of every other file: what an agent runs once, at the end.
+//   release <out-dir> [options] runs every check, all Vitest files, and all
+//   Playwright specs outside the documented quarantine. The ten-minute target
+//   is reported independently of the test verdict.
+//   agent <out-dir> [options] [spec ...] runs static checks, targeted unit
+//   tests, named specs and @smoke. A static failure stops remaining work.
 //
-// Options
-//   --workers N            Playwright workers (default: E2E_WORKERS, else the config's default)
-//   --port P               first port of the e2e servers (default: E2E_PORT, else 5175); slot N uses P+N
-//   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright.
-//                          Every step left in runs, the build too (a step of its own, not only what check,
-//                          vitest, chunks and playwright wait for); a run that leaves none in fails
-//   --fallow-baseline F    Fallow baseline to compare against (default: .fallow/baseline.json, in the repo)
-//   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
-//                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
-//                          done and vitest runs beside it on a few threads. Default: overlap for release
-//                          (8.5 minutes in three green runs against 10.7 phased: vitest hides behind the
-//                          e2e run), phased for agent (a few spec files finish in a minute, and vitest on
-//                          three threads would be the longest step: 7 minutes against 2.5)
+// Heavy gates take turns on this Mac. A local worktree lock protects generated
+// files. The shared Git directory holds the Mac lock and history. Use
+// `node scripts/gates-history.mjs report --days 7` to inspect the history.
+// A measured run held the shared queue, started without swap, and recorded
+// neither another test run nor reduced process priority.
+//
+//   --workers N, --port P       Browser workers and first server port.
+//   --skip a,b                  Agent-only: omit the named steps. Build is a step.
+//   --base ref                  Compare an agent change with this ref (origin/main).
+//   --all-unit-tests            Override agent selection.
+//   --no-fail-fast              Collect all independent agent results.
+//   --schedule phased|overlap   Run Vitest before Playwright or alongside it.
+//   --fallow-baseline F         Fallow snapshot (default: .fallow/baseline.json).
 //
 // THE BUILD GOES FIRST. `npm run check` (`svelte-kit sync`) and vitest (its SvelteKit plugin
 // syncs when it starts) both rewrite `.svelte-kit/`, which `vite build` reads. Run side by
@@ -41,16 +39,41 @@ import {
 	openSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	writeFileSync,
 } from "node:fs";
 import { cpus, loadavg } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+	appendHistory,
+	comparisonLines,
+	historyEntry,
+	previousRelease,
+	readHistory,
+} from "./gates-history.mjs";
+import {
+	machineLines,
+	measuredVerdict,
+	startMachineSampler,
+} from "./gates-machine.mjs";
+import {
 	playwrightTimings,
 	slowestUnitFiles,
 	vitestSplit,
 } from "./gates-measure.mjs";
+import {
+	acquireGateLock,
+	gateStateDir,
+	takesTheQueue,
+} from "./gates-queue.mjs";
+
+import {
+	alwaysRunFiles,
+	changedSince,
+	chooseUnitTests,
+	unitTestFiles,
+} from "./unit-test-selection.mjs";
 
 // The repo this script lives in, wherever it is run from; `<out-dir>` is the caller's.
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -95,6 +118,15 @@ export function fallowVersion() {
 	);
 }
 
+const RELEASE_TARGET_MS = 10 * 60_000;
+const FAIL_FAST_STEPS = new Set([
+	"check",
+	"biome",
+	"migrations",
+	"fallow",
+	"build",
+]);
+
 const STEP_ORDER = [
 	"check",
 	"biome",
@@ -133,7 +165,7 @@ function git(args) {
 function usage(message) {
 	if (message) console.error(message);
 	console.error(
-		"usage: scripts/gates.sh <release|agent> <out-dir> [--workers N] [--port P] [--skip a,b] [--fallow-baseline F] [--schedule phased|overlap] [spec ...]",
+		"usage: scripts/gates.sh <release|agent> <out-dir> [--workers N] [--port P] [--skip a,b] [--fallow-baseline F] [--schedule phased|overlap] [--base ref] [--all-unit-tests] [--no-fail-fast] [spec ...]",
 	);
 	process.exit(2);
 }
@@ -149,6 +181,9 @@ export function parseArgs(argv) {
 		skip: new Set(),
 		fallowBaseline: BASELINE.fallowFile,
 		schedule: undefined,
+		base: "origin/main",
+		allUnitTests: false,
+		failFast: mode === "agent",
 		specs: [],
 	};
 	for (let i = 0; i < rest.length; i += 1) {
@@ -164,6 +199,9 @@ export function parseArgs(argv) {
 			for (const name of value().split(",")) args.skip.add(name.trim());
 		else if (flag === "--fallow-baseline") args.fallowBaseline = value();
 		else if (flag === "--schedule") args.schedule = value();
+		else if (flag === "--base") args.base = value();
+		else if (flag === "--all-unit-tests") args.allUnitTests = true;
+		else if (flag === "--no-fail-fast") args.failFast = false;
 		else if (flag.startsWith("--")) usage(`unknown option ${flag}`);
 		else args.specs.push(flag);
 	}
@@ -176,8 +214,10 @@ export function parseArgs(argv) {
 	if (!["phased", "overlap"].includes(args.schedule)) {
 		usage('--schedule must be "phased" or "overlap"');
 	}
-	if (mode === "release" && args.specs.length > 0) {
-		usage("release mode runs the whole suite; it takes no spec files");
+	if (mode === "release" && (args.specs.length || args.skip.size)) {
+		usage(
+			"release mode runs every check and spec; use agent mode for a partial run",
+		);
 	}
 	return args;
 }
@@ -206,16 +246,30 @@ export function defineSteps(args) {
 		...(args.workers ? { E2E_WORKERS: String(args.workers) } : {}),
 		E2E_JSON_REPORT: jsonReport,
 		E2E_APPLY_QUARANTINE: "1",
+		E2E_AGENT_GATE: args.mode === "agent" ? "1" : "0",
+		E2E_FULL_SPECS: args.mode === "agent" ? args.specs.join(",") : "",
+		E2E_SERVER: "build",
+		PLAYWRIGHT_REUSE_EXISTING_SERVER: "false",
 	};
 	if (args.mode === "agent") {
 		// One Playwright run, two projects (playwright.config.ts): the named files in
 		// full, and the @smoke tests of every other file, sharing the same workers.
-		if (args.specs.length > 0) e2eEnv.E2E_FULL_SPECS = args.specs.join(",");
 		e2eArgs.push(...args.specs, ...filesWithSmokeTests());
 	}
 	// Beside the e2e run, vitest gets a few threads so the browsers keep the cores
 	// their timing-sensitive specs were written on; on its own it takes them all.
 	const vitestThreads = Math.max(2, Math.floor(cpus().length / 4));
+	const selection = args.unitSelection;
+	const related = selection?.kind === "related" && selection.paths.length > 0;
+	const vitestCommand = [
+		"npx",
+		"vitest",
+		...(related ? ["related", "--run"] : ["run"]),
+		...(args.schedule === "overlap" ? [`--maxWorkers=${vitestThreads}`] : []),
+		"--reporter=default",
+		"--reporter=./scripts/gates-vitest-reporter.mjs",
+		...(related ? selection.paths.map((path) => resolve(ROOT, path)) : []),
+	];
 	return {
 		// `check` and `vitest` sync `.svelte-kit/`: never while the build is reading it.
 		check: {
@@ -233,19 +287,11 @@ export function defineSteps(args) {
 			parse: (log) => ({ ok: true, text: lastLine(log) }),
 		},
 		vitest: {
-			cmd: [
-				"npx",
-				"vitest",
-				"run",
-				...(args.schedule === "overlap"
-					? [`--maxWorkers=${vitestThreads}`]
-					: []),
-				"--reporter=default",
-				"--reporter=./scripts/gates-vitest-reporter.mjs",
-			],
+			cmd: vitestCommand,
 			env: { ALFYAI_VITEST_REPORT: join(reportDir, "vitest.json") },
 			after: ["build"],
-			parse: parseVitestLog,
+			parse: (log, code) =>
+				parseVitestLog(log, code, { selection, total: args.unitFileCount }),
 		},
 		// SvelteKit's post-build `analyse` pass imports every server module, and
 		// src/lib/server/db/index.ts opens DATABASE_PATH when it is imported. A fresh checkout has
@@ -328,7 +374,11 @@ export function parseCheckLog(log) {
 	return { ok: false, text: lastLine(log) };
 }
 
-export function parseVitestLog(log) {
+export function parseVitestLog(
+	log,
+	code = 0,
+	{ selection, total: available } = {},
+) {
 	const text = stripAnsi(log);
 	const files = text.match(/Test Files\s+(.*)/)?.[1]?.trim();
 	const tests = text.match(/\n\s*Tests\s+(.*)/)?.[1]?.trim();
@@ -341,13 +391,32 @@ export function parseVitestLog(log) {
 				.map(([name, seconds]) => `${name} ${Math.floor(seconds)}s`)
 				.join(", ")
 		: "";
+	const availableText =
+		available === undefined ? "" : ` of ${available.toLocaleString("en-US")}`;
+	const chosen =
+		selection?.kind === "all"
+			? `; chose: all (${selection.reason})`
+			: selection?.kind === "related"
+				? `; chose: ${selection.changed} changed since ${selection.mergeBase.slice(0, 7)} and ${selection.alwaysRun} always-run`
+				: "";
+	if (
+		code === 0 &&
+		selection?.kind === "related" &&
+		/No test files found/.test(text)
+	) {
+		return {
+			ok: true,
+			text: `files 0${availableText}${chosen}`,
+			counts: { files: 0, tests: 0 },
+		};
+	}
 	const total = (line) => {
 		const count = line?.match(/\((\d+)\)$/)?.[1];
 		return count === undefined ? null : Number(count);
 	};
 	return {
 		ok: Boolean(tests) && !failed,
-		text: `files ${files ?? "?"}; tests ${tests ?? "?"}${workerTime}`,
+		text: `files ${files ?? "?"}${availableText}; tests ${tests ?? "?"}${chosen}${workerTime}`,
 		counts: { files: total(files), tests: total(tests) },
 	};
 }
@@ -615,13 +684,27 @@ function childEnv() {
 }
 
 const active = new Set();
+const workerGroups = new Set();
+let releaseQueue;
+let queueWorkers;
+let shuttingDown = false;
+
 function signalGroups(signal) {
-	for (const child of active) {
+	for (const pid of workerGroups) {
 		try {
-			process.kill(-child.pid, signal);
-		} catch {
-			// already gone
+			process.kill(-pid, signal);
+		} catch (error) {
+			if (error.code === "ESRCH") workerGroups.delete(pid);
 		}
+	}
+}
+
+async function forceStopGroups() {
+	signalGroups("SIGKILL");
+	const deadline = performance.now() + 1500;
+	while (workerGroups.size && performance.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		signalGroups(0);
 	}
 }
 /**
@@ -630,18 +713,21 @@ function signalGroups(signal) {
  * after the grace period is killed.
  */
 async function shutDown(code) {
+	if (shuttingDown) return;
+	shuttingDown = true;
 	signalGroups("SIGINT");
 	const deadline = Date.now() + 8000;
 	while (active.size > 0 && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
-	signalGroups("SIGKILL");
+	await forceStopGroups();
+	await releaseQueue?.(forceStopGroups);
 	process.exit(code);
 }
 process.on("SIGINT", () => shutDown(130));
 process.on("SIGTERM", () => shutDown(143));
 
-function runCommand(step, name, outDir) {
+function runCommand(step, name, outDir, signal) {
 	const logPath = join(outDir, `${name}.log`);
 	const startedAt = Date.now();
 	return new Promise((done) => {
@@ -649,28 +735,75 @@ function runCommand(step, name, outDir) {
 		// A step whose result is its stdout (Fallow's JSON report) gets a file for it, and the
 		// log keeps stderr.
 		const out = step.stdout ? openSync(step.stdout, "w") : fd;
-		const child = spawn(step.cmd[0], step.cmd.slice(1), {
+		const command = queueWorkers
+			? [
+					"/bin/sh",
+					"-c",
+					'IFS= read -r instruction && [ "$instruction" = start ] && exec "$@" </dev/null',
+					"gate-worker",
+					...step.cmd,
+				]
+			: step.cmd;
+		const child = spawn(command[0], command.slice(1), {
 			cwd: ROOT,
-			env: { ...childEnv(), ...(step.env ?? {}) },
-			stdio: ["ignore", out, fd],
+			env: {
+				...childEnv(),
+				...(step.env ?? {}),
+				ALFYAI_GATE_WORKER_GROUP: "1",
+			},
+			stdio: [queueWorkers ? "pipe" : "ignore", out, fd],
 			detached: true,
 		});
 		closeSync(fd);
 		if (out !== fd) closeSync(out);
 		active.add(child);
+		if (child.pid) workerGroups.add(child.pid);
+		let killTimer;
+		const signalGroup = (kind) => {
+			if (!child.pid) return;
+			try {
+				process.kill(-child.pid, kind);
+			} catch {
+				// The process group may already have exited.
+			}
+		};
+		const abort = () => {
+			signalGroup("SIGINT");
+			killTimer = setTimeout(() => signalGroup("SIGKILL"), 8000);
+			killTimer.unref();
+		};
+		const clearAbort = () => {
+			signal.removeEventListener("abort", abort);
+			if (!workerGroups.has(child.pid)) clearTimeout(killTimer);
+		};
+		signal.addEventListener("abort", abort, { once: true });
+		if (signal.aborted) abort();
 		child.on("error", () => {
+			clearAbort();
 			active.delete(child);
 			done({ code: 127, startedAt, endedAt: Date.now(), logPath });
 		});
-		child.on("exit", (code, signal) => {
+		child.on("exit", (code, exitSignal) => {
+			signalGroups(0);
+			if (!workerGroups.has(child.pid)) queueWorkers?.unregister(child.pid);
+			clearAbort();
 			active.delete(child);
 			done({
-				code: code ?? (signal ? 128 : 1),
+				code: code ?? (exitSignal ? 128 : 1),
+				stopped: signal.aborted,
 				startedAt,
 				endedAt: Date.now(),
 				logPath,
 			});
 		});
+		if (queueWorkers && child.pid) {
+			child.stdin.on("error", () => {});
+			queueWorkers.register(child.pid, (error) => {
+				child.stdin.end(
+					error || shuttingDown || signal.aborted ? undefined : "start\n",
+				);
+			});
+		}
 	});
 }
 
@@ -687,18 +820,25 @@ export async function runSteps(
 ) {
 	const results = {};
 	const memo = new Map();
+	const controller = new AbortController();
+	const { signal } = controller;
 	const runStep = (name) => {
 		if (memo.has(name)) return memo.get(name);
 		const promise = (async () => {
 			const step = steps[name];
 			if (args.skip.has(name)) return { skipped: true };
+			if (signal.aborted) return { stopped: signal.reason };
+			if (shuttingDown) return { blocked: "stopped during shutdown" };
 			for (const dependency of step.after ?? []) {
 				const before = await runStep(dependency);
-				if (!before.skipped && !before.ok) {
+				if (!before.skipped && !before.ok && !before.stopped) {
 					return { blocked: `not run: ${dependency} failed` };
 				}
 			}
-			const ran = await run(step, name, args.outDir);
+			if (signal.aborted) return { stopped: signal.reason };
+			if (shuttingDown) return { blocked: "stopped during shutdown" };
+			const ran = await run(step, name, args.outDir, signal);
+			if (ran.stopped || signal.aborted) return { stopped: signal.reason };
 			const verdict = step.parse(readFileSync(ran.logPath, "utf8"), ran.code);
 			const result = {
 				code: ran.code,
@@ -708,6 +848,14 @@ export async function runSteps(
 				text: verdict.text,
 				...(verdict.counts && { counts: verdict.counts }),
 			};
+			if (
+				!result.ok &&
+				args.mode === "agent" &&
+				args.failFast &&
+				FAIL_FAST_STEPS.has(name)
+			) {
+				controller.abort(`${name} failed`);
+			}
 			log(
 				`  ${name.padEnd(10)} ${result.ok ? "ok  " : "FAIL"} ${minutes(result.ms)}`,
 			);
@@ -744,15 +892,29 @@ export async function runSteps(
  * the total and the verdict. A run passes when at least one step ran and none failed. A run that
  * skipped every step checked nothing, and says so instead of passing.
  */
-export function summarise({ header, results, startedAt, endedAt, outDir }) {
+export function summarise({
+	header,
+	results,
+	startedAt,
+	endedAt,
+	outDir,
+	extraLines = [],
+	cleanupError,
+	mode,
+	measured,
+}) {
 	const out = [...header];
 	const failed = [];
+	const stopped = [];
 	// Every step has a result, skipped or run, and so a line: one that is missing is a bug in the
 	// runner and stops it here, where it once dropped off the screen without a word.
 	for (const name of STEP_ORDER) {
 		const r = results[name];
 		if (r.skipped) {
 			out.push(`${name.padEnd(10)} skip`);
+		} else if (r.stopped) {
+			stopped.push(name);
+			out.push(`${name.padEnd(10)} stop not finished: ${r.stopped}`);
 		} else if (r.blocked) {
 			failed.push(name);
 			out.push(`${name.padEnd(10)} FAIL ${r.blocked}`);
@@ -763,39 +925,155 @@ export function summarise({ header, results, startedAt, endedAt, outDir }) {
 			);
 		}
 	}
+	if (cleanupError) failed.push("queue cleanup");
+	out.push(...extraLines);
 	const nothingRan = STEP_ORDER.every((name) => results[name].skipped);
 	let verdict = "ALL GATES PASSED";
 	if (nothingRan) {
 		verdict =
 			"FAILED: nothing ran (every step was skipped), so nothing was checked";
-	} else if (failed.length > 0) {
-		verdict = `FAILED: ${failed.join(", ")}`;
+	} else if (failed.length || stopped.length) {
+		verdict = `FAILED: ${failed.join(", ") || "incomplete run"}${stopped.length ? ` (stopped: ${stopped.join(", ")})` : ""}`;
 	}
+	const elapsed = endedAt - startedAt;
+	const target =
+		mode === "release" && elapsed > RELEASE_TARGET_MS
+			? measured?.counts
+				? "; OVER THE 10-MINUTE TARGET"
+				: "; over 10 minutes, but not a measured run"
+			: "";
 	out.push(
-		`total ${minutes(endedAt - startedAt)}; load at end ${loadNow()}; ${verdict}`,
+		`total ${minutes(elapsed)}; load at end ${loadNow()}; ${verdict}${target}`,
 		`logs: ${relative(ROOT, outDir) || outDir}`,
 	);
 	return {
 		summary: out.join("\n"),
-		passed: !nothingRan && failed.length === 0,
+		passed: !nothingRan && failed.length === 0 && stopped.length === 0,
 	};
+}
+
+function unitSelectionFor(args) {
+	if (args.mode === "release") return { kind: "all", reason: "release gate" };
+	if (args.allUnitTests) return { kind: "all", reason: "--all-unit-tests" };
+	try {
+		const changes = changedSince(ROOT, args.base);
+		const selection = chooseUnitTests({
+			changes,
+			alwaysRun: alwaysRunFiles(ROOT),
+			base: args.base,
+		});
+		if (selection.kind === "related" && selection.paths.length === 0) {
+			return { kind: "all", reason: "no selectable paths" };
+		}
+		return selection;
+	} catch (error) {
+		return { kind: "all", reason: `selection unavailable (${error.message})` };
+	}
 }
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
-	mkdirSync(args.outDir, { recursive: true });
-	args.reportDir = mkdtempSync(join(args.outDir, "reports-"));
+	const outputRoot = args.outDir;
+	mkdirSync(outputRoot, { recursive: true });
+	args.outDir = mkdtempSync(join(outputRoot, "run-"));
+	args.reportDir = args.outDir;
+	if (!args.skip.has("vitest")) {
+		args.unitSelection = unitSelectionFor(args);
+		try {
+			args.unitFileCount = unitTestFiles(ROOT).length;
+		} catch {
+			// The full run still owns discovery if Git cannot list files.
+		}
+		writeFileSync(
+			join(args.outDir, "unit-selection.json"),
+			JSON.stringify(args.unitSelection, null, 2),
+		);
+	}
 	const steps = defineSteps(args);
+	const stateDir = gateStateDir(ROOT);
+	const head = git(["rev-parse", "HEAD"]);
+	const heavy = takesTheQueue(args);
+	const holder = {
+		pid: process.pid,
+		mode: args.mode,
+		worktree: ROOT,
+		head,
+		since: Date.now(),
+	};
+	const locks = [];
+	const stopIfLost = (lock) => {
+		if (!lock.held) return;
+		locks.push(lock);
+		void lock.lost.then((reason) => {
+			if (reason) {
+				console.error(`queue: ${reason}. Stopping the gate.`);
+				void shutDown(1);
+			}
+		});
+	};
+	releaseQueue = async (stopWorkers) => {
+		const errors = await Promise.all(
+			locks.map((lock) => lock.release(stopWorkers)),
+		);
+		return errors.filter(Boolean).join(", ") || null;
+	};
+	if (heavy && process.platform === "darwin") {
+		const local = await acquireGateLock({
+			dir: join(ROOT, "data", "gate-worktree"),
+			holder,
+			pollMs: 500,
+			maxWaitMs: 5000,
+			log: (line) => {
+				if (line.startsWith("queue: waiting"))
+					console.log(line.replace("queue:", "worktree queue:"));
+			},
+		});
+		if (!local.held)
+			throw new Error(`worktree queue unavailable: ${local.reason}`);
+		stopIfLost(local);
+	}
+	const shared = heavy
+		? await acquireGateLock({ dir: stateDir, holder })
+		: { held: false, waitedMs: 0, reason: "no heavy step" };
+	stopIfLost(shared);
+	const queue = {
+		held: shared.held,
+		waitedMs: shared.waitedMs,
+		reason: shared.reason,
+	};
+	if (locks.length) {
+		queueWorkers = {
+			register(pid, callback) {
+				Promise.all(
+					locks.map(
+						(lock) => new Promise((resolve) => lock.register(pid, resolve)),
+					),
+				).then((errors) => callback(errors.find(Boolean)));
+			},
+			unregister(pid) {
+				for (const lock of locks) lock.unregister(pid);
+			},
+		};
+	}
 	const startedAt = Date.now();
 	const header = [
 		`gates ${args.mode} at ${git(["log", "--oneline", "-1"]).slice(0, 72)} — ${new Date(startedAt).toTimeString().slice(0, 8)}`,
 		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${args.workers ?? "default"}; schedule ${args.schedule}`,
+		queue.held
+			? `queue: held${queue.waitedMs >= 1000 ? ` (waited ${minutes(queue.waitedMs)})` : ""}`
+			: queue.reason === "no heavy step"
+				? "queue: not needed (no heavy step)"
+				: `queue: not taken: ${queue.reason}`,
 	];
 	for (const line of header) console.log(line);
 
+	const sampler = startMachineSampler();
 	const results = await runSteps(args, steps, { startedAt });
+	const machine = sampler.stop();
+	const measured = measuredVerdict(machine, queue);
 
 	const endedAt = Date.now();
+	const cleanupError = await releaseQueue?.(forceStopGroups);
 	const cost = {};
 	for (const suite of ["playwright", "vitest"]) {
 		if (!("code" in results[suite])) continue;
@@ -817,30 +1095,82 @@ async function main() {
 			// Timing is diagnostic and a crashed test process may have no report.
 		}
 	}
-	const { summary, passed } = summarise({
+	const { passed } = summarise({
 		header,
 		results,
 		startedAt,
 		endedAt,
 		outDir: args.outDir,
+		cleanupError,
+	});
+	const entry = historyEntry({
+		mode: args.mode,
+		head,
+		branch: git(["rev-parse", "--abbrev-ref", "HEAD"]),
+		worktree: ROOT,
+		startedAt,
+		endedAt,
+		passed,
+		results,
+		cost,
+		machine,
+		measured,
+		queue,
+		selection: args.unitSelection,
+	});
+	const extraLines = machineLines(machine, measured);
+	if (cleanupError) extraLines.push(`queue: ${cleanupError}`);
+	if (args.mode === "release") {
+		extraLines.push(
+			...comparisonLines(
+				entry,
+				previousRelease(readHistory(stateDir), entry.at),
+			),
+		);
+	}
+	const historyWarning = appendHistory(stateDir, entry);
+	if (historyWarning) extraLines.push(historyWarning);
+	const { summary } = summarise({
+		header,
+		results,
+		startedAt,
+		endedAt,
+		outDir: args.outDir,
+		extraLines,
+		cleanupError,
+		mode: args.mode,
+		measured,
 	});
 	console.log(`\n${summary}`);
-	writeFileSync(join(args.outDir, "summary.txt"), `${summary}\n`);
-	writeFileSync(
-		join(args.outDir, "summary.json"),
-		JSON.stringify(
-			{
-				mode: args.mode,
-				head: git(["rev-parse", "HEAD"]),
-				results,
-				cost,
-				reportDir: args.reportDir,
-				totalMs: endedAt - startedAt,
-			},
-			null,
-			2,
-		),
+	const summaryJson = JSON.stringify(
+		{
+			mode: args.mode,
+			head,
+			results,
+			cost,
+			reportDir: args.reportDir,
+			queue,
+			machine,
+			measured,
+			selection: args.unitSelection,
+			totalMs: endedAt - startedAt,
+		},
+		null,
+		2,
 	);
+	for (const [name, body] of [
+		["summary.txt", `${summary}\n`],
+		["summary.json", `${summaryJson}\n`],
+	]) {
+		writeFileSync(join(args.outDir, name), body);
+		// The output root exposes the latest complete summary; its reportDir
+		// identifies this run's immutable logs, even if a caller reuses the root.
+		const pending = join(outputRoot, `.${name}.${process.pid}.tmp`);
+		writeFileSync(pending, body);
+		renameSync(pending, join(outputRoot, name));
+	}
+
+	if (shuttingDown) return;
 	process.exit(passed ? 0 : 1);
 }
 
@@ -849,8 +1179,9 @@ if (
 	process.argv[1] &&
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-	main().catch((error) => {
-		signalGroups("SIGKILL");
+	main().catch(async (error) => {
+		await forceStopGroups();
+		await releaseQueue?.(forceStopGroups);
 		console.error(error);
 		process.exit(1);
 	});

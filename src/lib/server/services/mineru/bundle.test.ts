@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The on-disk parse bundle.
 //
 // Every case runs against a real `fixtures/mineru-v1/pdf/result.zip` and a

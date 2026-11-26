@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";

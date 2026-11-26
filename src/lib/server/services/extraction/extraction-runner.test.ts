@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 //
 // Node and not the default jsdom: the HEIC cases run the real decoder, which
 // refuses a Node Buffer under jsdom ("Cannot pass non-string to std::string")

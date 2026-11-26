@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { describe, expect, it } from "vitest";
 import {
 	assertNoDuplicateCaseIds,

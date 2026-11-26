@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // What an incognito conversation's output is allowed to reach: nothing.
 //
 // The promise is made in the composer's own words — "Incognito · nothing here

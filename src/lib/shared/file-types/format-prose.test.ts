@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Model-facing prose consistency (spec section 6.4, slice E).
 //
 // The `produce_file` / `read_generated_file` tool descriptions and the

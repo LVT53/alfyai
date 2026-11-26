@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 /**
  * The error map, driven by every error the 4.1 spike recorded.
  *

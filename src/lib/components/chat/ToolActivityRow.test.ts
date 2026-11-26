@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { readFileSync } from "node:fs";
 import { fireEvent, render, within } from "@testing-library/svelte";
 import { get } from "svelte/store";

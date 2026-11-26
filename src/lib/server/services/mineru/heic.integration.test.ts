@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 //
 // A HEIC or HEIF photo through MinerU 4.1: the real job engine, the real
 // extraction handler, the real extractor registry and an in-process 4.1 server on

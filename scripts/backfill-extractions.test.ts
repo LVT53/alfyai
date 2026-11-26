@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // scripts/backfill-extractions.ts, exercised against a real migrated SQLite
 // fixture — the same `createLedgerFixture` helper the extraction job's own
 // integration tests use. Each test owns a throwaway cwd (for

@@ -1,0 +1,24 @@
+2026-11-26 exploratory Mac gate
+
+This run does not qualify as the comparison baseline. Swap was already in use, and the worktree changed while Vitest was running. The process sampler also mistook a shell command mentioning Vitest for a second test runner.
+
+The video failure was an outdated expectation for two renders. origin/main had already replaced it with one 241-frame render and a real duration check (da503f8ea). The Tool Activity Row clock fix was also already on origin/main (c47025c91). The queue import failed under jsdom and now resolves its keeper through the Node path API.
+
+gates release at 1a4f225b6 Measure suite costs before tuning the development gate — 16:16:28
+machine: 14 cores, load at start 3.6 3.9 3.4; e2e workers default; schedule overlap
+queue: held
+check      exit=0 ok    1m03s (+22s) :: 0 errors, 0 warnings in 10426 files
+biome      exit=0 ok       2s (+0s) :: Found 1 info.
+migrations exit=0 ok       1s (+0s) :: All schema tables have corresponding migrations.
+vitest     exit=1 FAIL 14m22s (+22s) :: files 3 failed | 1505 passed | 2 skipped (1510); tests 1 failed | 29359 passed | 4 skipped (29364); worker time: tests 1214s, import 578s, environment 560s, transform 65s, setup 45s
+build      exit=0 ok      22s (+0s) :: unused-css=0 aria=0 (baseline 0/0)
+chunks     exit=0 ok       2s (+22s) :: editor closure 70.3 kB gzip; chat route first paint 730305 B gzip in 106 chunks (information only)
+fallow     exit=0 ok       5s (+0s) :: total=1 circular=1 new_vs_baseline=0 gone_vs_baseline=3; fallow 3.33.1: health 86.9 (A), duplication 3.7%, 1,451,738 LOC (information only)
+playwright exit=1 FAIL 15m59s (+22s) :: 1730 passed, 77 skipped, 1 failed, 0 flaky on 6 workers
+      FAILED images-video.spec.ts:280 a 10 second take renders two chained segments and stores ten seconds
+      slowest: images-motion.spec.ts 6m40s, artifact-canvas.spec.ts 2m53s, artifact-canvas-charts.spec.ts 2m11s, artifact-canvas-multi-select.spec.ts 1m55s, artifact-canvas-review.spec.ts 1m54s
+      workers: 6, the first idle 3m30s before the end; sign-in 10m14s in all
+mac: priority 31 or higher throughout; swap 363.19 MB at start, 1962.94 MB at peak; free memory down to 0.1 GB
+measured: no (another test run was going: /bin/zsh -lc cat > scripts/gates-history.mjs <<'EOF'\012impo; 363.19 MB of swap in use at the start)
+total 16m21s; load at end 4.1 9.4 8.9; FAILED: vitest, playwright
+logs: ../../../../../../../../../../tmp/alfyai-speed-baseline.uyKzQe

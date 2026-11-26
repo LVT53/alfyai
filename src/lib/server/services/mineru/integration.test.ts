@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // MinerU 4.1, end to end: the real job engine, the real extraction handler, the
 // real extractor registry and an in-process 4.1 server on a real socket.
 //

@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 //
 // The GIF a clip downloads as (video plan, slice 8). The command is asserted on
 // its own, so a change to the filter — 12 fps, a 480 long edge that never

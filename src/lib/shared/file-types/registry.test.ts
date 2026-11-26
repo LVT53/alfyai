@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Structural invariants of the file-type table (spec section 6.1).
 //
 // These are the rules a future entry has to satisfy. They are deliberately

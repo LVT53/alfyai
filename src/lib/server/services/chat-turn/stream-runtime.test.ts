@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";

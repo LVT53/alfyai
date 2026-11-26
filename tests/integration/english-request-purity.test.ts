@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Everything the app writes into a model request is one English scaffold, and the
 // account's UI language reaches none of it but the status-line call.
 //

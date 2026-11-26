@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The guards that keep extraction where it belongs.
 //
 // Two separate claims are pinned here.

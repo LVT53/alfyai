@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // The architecture guard (spec section 6.3).
 //
 // Modelled on `file-production/obsolete-surfaces.test.ts`: source-text

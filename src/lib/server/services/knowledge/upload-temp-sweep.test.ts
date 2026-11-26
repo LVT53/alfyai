@@ -1,3 +1,4 @@
+// @always-run: exercises file or process inputs outside Vitest’s import graph.
 // Bug B2, the sweep half: nothing ever removed an abandoned `.incoming` entry,
 // so a chunked upload whose final part never arrived stayed on disk forever.
 
