@@ -447,8 +447,16 @@ describe("settledWriteNote", () => {
 		expect(settledWriteNote(write({ status: "executed" }), en)).toBeNull();
 		expect(settledWriteNote(write({ status: "cancelled" }), en)).toBeNull();
 		expect(settledWriteNote(write({ status: "failed" }), en)).toContain(
-			"may not have gone through",
+			"Check Google Calendar",
 		);
+		for (const failed of [
+			write({ status: "failed", provider: "apple" }),
+			write({ status: "failed", card: null }),
+		]) {
+			expect(settledWriteNote(failed, en)).toContain(
+				"may not have gone through",
+			);
+		}
 		expect(settledWriteNote(write({ status: "expired" }), en)).toContain(
 			"Ask again",
 		);
