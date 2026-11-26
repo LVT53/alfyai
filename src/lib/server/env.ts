@@ -1346,9 +1346,10 @@ function getConfig(): Config {
 export function googleCalendarWriteReviewEnabled(userId: string): boolean {
 	return (
 		!!userId &&
-		(process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS ?? "")
-			.split(",")
-			.some((id) => id.trim() === userId)
+		(process.env.GOOGLE_CALENDAR_EVENT_EDITING_ENABLED === "true" ||
+			(process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS ?? "")
+				.split(",")
+				.some((id) => id.trim() === userId))
 	);
 }
 

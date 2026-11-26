@@ -35,6 +35,7 @@ const ENV_KEYS = [
 	"GOOGLE_OAUTH_CLIENT_SECRET",
 	"ALFYAI_API_SIGNING_KEY",
 	"GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS",
+	"GOOGLE_CALENDAR_EVENT_EDITING_ENABLED",
 ];
 
 function setConfiguredEnv() {
@@ -599,6 +600,25 @@ describe("Google Calendar incremental write consent", () => {
 		await expect(googleConnectStart(request)).rejects.toMatchObject({
 			code: "write_review_unavailable",
 		});
+		process.env.GOOGLE_CALENDAR_EVENT_EDITING_ENABLED = "true";
+		expect(
+			new URL((await googleConnectStart(request)).authUrl).searchParams
+				.get("scope")
+				?.split(" "),
+		).toContain(write);
+		expect(
+			new URL(
+				(
+					await googleConnectStart({
+						...request,
+						calendarWriteConnectionId: undefined,
+					})
+				).authUrl,
+			).searchParams
+				.get("scope")
+				?.split(" "),
+		).not.toContain(write);
+		delete process.env.GOOGLE_CALENDAR_EVENT_EDITING_ENABLED;
 		process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS = " userA , userB ";
 		await expect(
 			googleConnectStart({ ...request, userId: "userB" }),
