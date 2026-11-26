@@ -294,6 +294,37 @@ describe("buildProactiveConnectorContext", () => {
 		expect(result?.block).toContain("Calendar");
 		expect(result?.block).toContain("Recent unread email");
 	});
+	it("keeps the inbox result when the calendar exceeds the five-second briefing budget", async () => {
+		vi.useFakeTimers();
+		try {
+			mocks.resolveConnectionsForCapability.mockImplementation(
+				async (_userId: string, capability: string) => [
+					capability === "calendar"
+						? connection()
+						: connection({
+								id: "mail",
+								provider: "imap",
+								capabilities: ["email"],
+							}),
+				],
+			);
+			mocks.googleListEvents.mockImplementation(() => new Promise(() => {}));
+			mocks.imapListRecent.mockResolvedValue([
+				{ from: "Alex", subject: "Gate change" },
+			]);
+			const pending = buildProactiveConnectorContext({
+				...baseParams,
+				message: "Any meetings or emails today?",
+				activeCapabilities: new Set(["calendar", "email"]),
+			});
+			await vi.advanceTimersByTimeAsync(5000);
+			const result = await pending;
+			expect(result?.block).toContain("Gate change");
+			expect(result?.block).not.toContain("Calendar (next");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
 
 describe("buildProactiveConnectorContext locality (Option A)", () => {
