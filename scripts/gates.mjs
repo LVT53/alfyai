@@ -120,6 +120,10 @@ export function fallowVersion() {
 	);
 }
 
+// The six-browser/three-Vitest baseline grew swap by 311 MB on this Mac.
+// Allow eight test workers across an overlapping run and keep phased
+// Vitest below that ceiling. Recheck the defaults with the final timings.
+const CAPS = { browser: 8, vitest: 6, overlap: 8 };
 const RELEASE_TARGET_MS = 10 * 60_000;
 const FAIL_FAST_STEPS = new Set([
 	"check",
@@ -237,6 +241,31 @@ function filesWithSmokeTests() {
 
 // -------------------------------------------------------------- the steps
 
+function gateWorkers(args) {
+	const available = Math.max(2, Math.min(CAPS.overlap, cpus().length - 2));
+	const requested = Number(args.workers || 6);
+	if (!Number.isSafeInteger(requested) || requested < 1) {
+		throw new Error("Browser worker count must be a positive whole number");
+	}
+	const overlap = args.schedule === "overlap";
+	const sharesMachine =
+		overlap && !args.skip.has("vitest") && !args.skip.has("playwright");
+	const browser = Math.min(
+		requested,
+		CAPS.browser,
+		available - Number(sharesMachine),
+	);
+	const preferred = overlap
+		? Math.max(1, Math.floor(cpus().length / 4))
+		: CAPS.vitest;
+	const vitest = Math.min(
+		preferred,
+		CAPS.vitest,
+		available - (sharesMachine ? browser : 0),
+	);
+	return { browser, vitest };
+}
+
 /**
  * One step: how to run it and how to read its log. `parse(log, code)` takes the log and the exit
  * code and returns `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
@@ -245,9 +274,10 @@ export function defineSteps(args) {
 	const reportDir = args.reportDir ?? args.outDir;
 	const jsonReport = join(reportDir, "playwright.json");
 	const e2eArgs = [];
+	const workers = gateWorkers(args);
 	const e2eEnv = {
 		...(args.port ? { E2E_PORT: String(args.port) } : {}),
-		...(args.workers ? { E2E_WORKERS: String(args.workers) } : {}),
+		E2E_WORKERS: String(workers.browser),
 		E2E_JSON_REPORT: jsonReport,
 		E2E_APPLY_QUARANTINE: "1",
 		E2E_AGENT_GATE: args.mode === "agent" ? "1" : "0",
@@ -260,16 +290,13 @@ export function defineSteps(args) {
 		// full, and the @smoke tests of every other file, sharing the same workers.
 		e2eArgs.push(...args.specs, ...filesWithSmokeTests());
 	}
-	// Beside the e2e run, vitest gets a few threads so the browsers keep the cores
-	// their timing-sensitive specs were written on; on its own it takes them all.
-	const vitestThreads = Math.max(2, Math.floor(cpus().length / 4));
 	const selection = args.unitSelection;
 	const related = selection?.kind === "related" && selection.paths.length > 0;
 	const vitestCommand = [
 		"npx",
 		"vitest",
 		...(related ? ["related", "--run"] : ["run"]),
-		...(args.schedule === "overlap" ? [`--maxWorkers=${vitestThreads}`] : []),
+		`--maxWorkers=${workers.vitest}`,
 		"--reporter=default",
 		"--reporter=./scripts/gates-vitest-reporter.mjs",
 		...(related ? selection.paths.map((path) => resolve(ROOT, path)) : []),
@@ -1053,6 +1080,7 @@ async function main() {
 			JSON.stringify(args.unitSelection, null, 2),
 		);
 	}
+	const workers = gateWorkers(args);
 	const steps = defineSteps(args);
 	const stateDir = gateStateDir(ROOT);
 	const head = git(["rev-parse", "HEAD"]);
@@ -1122,7 +1150,7 @@ async function main() {
 	const startedAt = Date.now();
 	const header = [
 		`gates ${args.mode} at ${git(["log", "--oneline", "-1"]).slice(0, 72)} — ${new Date(startedAt).toTimeString().slice(0, 8)}`,
-		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${args.workers ?? "default"}; schedule ${args.schedule}`,
+		`machine: ${cpus().length} cores, load at start ${loadNow()}; e2e workers ${workers.browser}, vitest workers ${workers.vitest}; schedule ${args.schedule}`,
 		queue.held
 			? `queue: held${queue.waitedMs >= 1000 ? ` (waited ${minutes(queue.waitedMs)})` : ""}`
 			: queue.reason === "no heavy step"
@@ -1213,6 +1241,7 @@ async function main() {
 			results,
 			cost,
 			reportDir: args.reportDir,
+			workers,
 			queue,
 			machine,
 			measured,

@@ -1078,6 +1078,32 @@ describe("gate scope", () => {
 	});
 });
 
+describe("worker limits", () => {
+	it("caps Vitest in either schedule and limits the combined test concurrency", () => {
+		for (const schedule of ["phased", "overlap"]) {
+			const args = parseArgs([
+				"release",
+				"/tmp/gates-test",
+				"--schedule",
+				schedule,
+				"--workers",
+				"100",
+			]);
+			const steps = defineSteps(args);
+			const unitArg = steps.vitest.cmd.find((arg: string) =>
+				arg.startsWith("--maxWorkers="),
+			);
+			const unit = Number(unitArg?.split("=")[1]);
+			const browser = Number(steps.playwright.env.E2E_WORKERS);
+			expect(unit).toBeGreaterThanOrEqual(1);
+			expect(unit).toBeLessThanOrEqual(6);
+			expect(browser).toBeGreaterThanOrEqual(1);
+			expect(browser).toBeLessThanOrEqual(8);
+			if (schedule === "overlap") expect(unit + browser).toBeLessThanOrEqual(8);
+		}
+	});
+});
+
 describe("the default schedule", () => {
 	it("is overlap for the release gate and phased for an agent's run", () => {
 		expect(parseArgs(["release", "/tmp/gates-test"]).schedule).toBe("overlap");
