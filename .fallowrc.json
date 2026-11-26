@@ -40,6 +40,10 @@
 		"scripts/memory-drain.ts",
 		// The label migration's command (docs/plans/hindsight-memory/migration-runbook.md, "Label migration").
 		"scripts/memory-label-migration.ts",
+		// The read-only Memory quality report and its judge's check on synthetic entries, run by hand
+		// on the box (docs/plans/hindsight-memory/migration-runbook.md).
+		"scripts/memory-quality-report.ts",
+		"scripts/memory-quality-judge-check.ts",
 		// Workspace Search Stage B's speed check and fill timing, run by hand on synthetic data.
 		"scripts/workspace-search-speed.ts",
 		"scripts/seed-campaign-data.ts",

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, within } from "@testing-library/svelte";
 import { get } from "svelte/store";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
 import {
@@ -359,6 +359,13 @@ describe("ToolActivityRow", () => {
 	});
 
 	it("draws an account run as each call in plain words with what it found, the things by name, and the reason a call did not work", () => {
+		// A day within the last week is named by its weekday: "now" is pinned to
+		// the day after the events, or the test fails once a week has passed.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-11-20T12:00:00Z"));
+		onTestFinished(() => {
+			vi.useRealTimers();
+		});
 		const { getAllByTestId, getByTestId, container } = render(ToolActivityRow, {
 			item: buildConnectorActivityItem(
 				[
