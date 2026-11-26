@@ -310,6 +310,13 @@ test.describe("the permission card in a reply", () => {
 		await expect(
 			card.getByRole("button", { name: /Save changes/ }),
 		).toBeVisible();
+		// Cancelling succeeds even when the subsequent list refresh is unavailable.
+		await page.route(
+			`**/api/conversations/${id}/pending-writes`,
+			(route) =>
+				route.fulfill({ status: 503, body: "Temporarily unavailable" }),
+			{ times: 1 },
+		);
 		await card.getByTestId("write-confirm-decline").click();
 		await expect(page.getByTestId("write-confirm-settled")).toHaveAttribute(
 			"data-status",

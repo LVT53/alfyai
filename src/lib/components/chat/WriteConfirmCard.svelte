@@ -26,12 +26,14 @@ import {
 let {
 	write,
 	busy = false,
+	cancelling = false,
 	error = null,
 	onConfirm = undefined,
 	onCancel = undefined,
 }: {
 	write: PendingWrite;
 	busy?: boolean;
+	cancelling?: boolean;
 	error?: string | null;
 	onConfirm?: ((id: string) => void | Promise<void>) | undefined;
 	onCancel?: ((id: string) => void | Promise<void>) | undefined;
@@ -71,6 +73,7 @@ const open = $derived(userOpen ?? note !== null);
 			<WriteConfirmActions
 				{view}
 				busy={busy || write.status === "executing"}
+				{cancelling}
 				onApprove={() => onConfirm?.(write.id)}
 				onDecline={() => onCancel?.(write.id)}
 			/>

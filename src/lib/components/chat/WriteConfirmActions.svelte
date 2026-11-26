@@ -8,17 +8,29 @@ import type { WriteCardView } from "./write-card-view";
 let {
 	view,
 	busy = false,
+	cancelling = false,
 	locked = false,
 	onApprove,
 	onDecline,
 }: {
 	view: WriteCardView;
 	busy?: boolean;
+	cancelling?: boolean;
 	/** Not answerable just now, for a reason that is not work under way. */
 	locked?: boolean;
 	onApprove: () => void;
 	onDecline: () => void;
 } = $props();
+const declineLabel = $derived(
+	busy && cancelling
+		? $t("connections.writeConfirm.progress.cancel")
+		: $t("connections.writeConfirm.cancel"),
+);
+const approveLabel = $derived(
+	busy && !cancelling
+		? (view.progressLabel ?? $t("connections.writeConfirm.busy"))
+		: view.approveLabel,
+);
 </script>
 
 <button
@@ -27,12 +39,12 @@ let {
 	disabled={busy || locked}
 	data-testid="write-confirm-decline"
 	aria-label={$t('connections.writeConfirm.actionA11y', {
-		action: $t('connections.writeConfirm.cancel'),
+		action: declineLabel,
 		title: view.subject,
 	})}
 	onclick={onDecline}
 >
-	{$t('connections.writeConfirm.cancel')}
+	{declineLabel}
 </button>
 <button
 	type="button"
@@ -42,10 +54,10 @@ let {
 	disabled={busy || locked}
 	data-testid="write-confirm-approve"
 	aria-label={$t('connections.writeConfirm.actionA11y', {
-		action: view.approveLabel,
+		action: approveLabel,
 		title: view.subject,
 	})}
 	onclick={onApprove}
 >
-	{busy ? $t('connections.writeConfirm.busy') : view.approveLabel}
+	{approveLabel}
 </button>

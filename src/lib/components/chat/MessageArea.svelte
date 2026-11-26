@@ -33,6 +33,7 @@ import type { VideoCardActionHandler } from "$lib/components/artifacts/video/vid
 import type { ImageCardView } from "$lib/server/services/images/read-model";
 import type { VideoCardView } from "$lib/server/services/images/video/read-model";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
+import type { WriteAnswerState } from "$lib/components/chat/write-card-view";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
@@ -229,7 +230,7 @@ let {
 	onRetryContextCompression?:
 		| ((payload: { markerId: string }) => void | Promise<void>)
 		| undefined;
-	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	writeActionState?: Record<string, WriteAnswerState>;
 	onConfirmWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 	onCancelWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 	/** `ConversationDetail.artifacts` (Feature 2), forwarded to every message's in-chat card for its preview. See ThinkingBlock's own prop doc. */

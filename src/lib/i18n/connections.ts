@@ -226,6 +226,14 @@ const connectionsDict = {
 		"connections.writeConfirm.confirm": "Confirm",
 		"connections.writeConfirm.cancel": "Cancel",
 		"connections.writeConfirm.actionA11y": "{action}: {title}",
+		"connections.writeConfirm.writesDisabled":
+			"Changes are turned off for this account. Turn them on in Connections, then confirm again.",
+		"connections.writeConfirm.progress.cancel": "Cancelling…",
+		"connections.writeConfirm.progress.calendarCreate": "Adding event…",
+		"connections.writeConfirm.progress.calendarUpdate": "Saving changes…",
+		"connections.writeConfirm.progress.calendarDelete": "Deleting event…",
+		"connections.writeConfirm.note.googleCalendarFailed":
+			"Check Google Calendar to see whether the change went through. If you still need it, ask again.",
 		"connections.writeConfirm.busy": "Working…",
 		"connections.writeConfirm.moreWaiting": "{count} more waiting",
 		"connections.writeConfirm.showAll": "Show all",
@@ -859,6 +867,14 @@ const connectionsDict = {
 		"connections.writeConfirm.confirm": "Jóváhagyás",
 		"connections.writeConfirm.cancel": "Mégse",
 		"connections.writeConfirm.actionA11y": "{action}: {title}",
+		"connections.writeConfirm.writesDisabled":
+			"A módosítás le van tiltva ennél a fióknál. Kapcsold be a Kapcsolatok beállításaiban, majd erősítsd meg a kérést.",
+		"connections.writeConfirm.progress.cancel": "Megszakítás…",
+		"connections.writeConfirm.progress.calendarCreate": "Esemény hozzáadása…",
+		"connections.writeConfirm.progress.calendarUpdate": "Módosítások mentése…",
+		"connections.writeConfirm.progress.calendarDelete": "Esemény törlése…",
+		"connections.writeConfirm.note.googleCalendarFailed":
+			"Nézd meg a Google Naptárban, hogy megtörtént-e a módosítás. Ha még szükséges, kérd újra.",
 		"connections.writeConfirm.busy": "Feldolgozás…",
 		"connections.writeConfirm.moreWaiting": "Még {count} vár",
 		"connections.writeConfirm.showAll": "Mutasd mind",

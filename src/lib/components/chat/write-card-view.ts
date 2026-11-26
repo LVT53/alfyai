@@ -24,6 +24,7 @@ import type { Translate } from "$lib/utils/tool-evidence-presentation";
 type KindCopy = {
 	question: I18nKey;
 	approve: I18nKey;
+	progress?: I18nKey;
 	done: I18nKey;
 	icon: ToolCallIconType;
 };
@@ -68,18 +69,21 @@ const KIND_COPY: Record<WriteCardKind, KindCopy> = {
 	"calendar.create_event": {
 		question: "connections.writeConfirm.question.calendarCreate",
 		approve: "connections.writeConfirm.approve.calendarCreate",
+		progress: "connections.writeConfirm.progress.calendarCreate",
 		done: "connections.writeConfirm.done.calendarCreate",
 		icon: "calendar",
 	},
 	"calendar.update_event": {
 		question: "connections.writeConfirm.question.calendarUpdate",
 		approve: "connections.writeConfirm.approve.calendarUpdate",
+		progress: "connections.writeConfirm.progress.calendarUpdate",
 		done: "connections.writeConfirm.done.calendarUpdate",
 		icon: "calendar",
 	},
 	"calendar.delete_event": {
 		question: "connections.writeConfirm.question.calendarDelete",
 		approve: "connections.writeConfirm.approve.calendarDelete",
+		progress: "connections.writeConfirm.progress.calendarDelete",
 		done: "connections.writeConfirm.done.calendarDelete",
 		icon: "calendar",
 	},
@@ -200,6 +204,12 @@ export type WriteCardFactLine = {
 	quiet: boolean;
 };
 
+export type WriteAnswerState = {
+	busy?: boolean;
+	cancelling?: boolean;
+	error?: string | null;
+};
+
 export type WriteCardView = {
 	/** What Alfy is asking, in the reader's language. */
 	question: string;
@@ -216,6 +226,7 @@ export type WriteCardView = {
 	/** One sentence at most: a second warning only makes the first one easier to skip. */
 	risk: { tone: WriteRiskTone; text: string } | null;
 	approveLabel: string;
+	progressLabel?: string;
 	doneLabel: string;
 	danger: boolean;
 	iconType: ToolCallIconType;
@@ -310,6 +321,7 @@ export function buildWriteCardView(
 
 	const copy = KIND_COPY[card.kind];
 	const approveLabel = t(copy.approve);
+
 	return {
 		question: t(copy.question),
 		qualifier,
@@ -332,6 +344,7 @@ export function buildWriteCardView(
 		thumbnails: (card.thumbnails ?? []).filter(isPhotoProxyPath),
 		risk: gravestRisk(card.risks, t),
 		approveLabel,
+		...(copy.progress ? { progressLabel: t(copy.progress) } : {}),
 		doneLabel: t(copy.done),
 		danger: card.danger,
 		iconType: copy.icon,
@@ -347,7 +360,10 @@ export function settledWriteNote(
 		return t("connections.writeConfirm.note.expired");
 	}
 	if (write.status === "failed") {
-		return t("connections.writeConfirm.note.failed");
+		return write.provider === "google" &&
+			write.card?.kind.startsWith("calendar.")
+			? t("connections.writeConfirm.note.googleCalendarFailed")
+			: t("connections.writeConfirm.note.failed");
 	}
 	return null;
 }
