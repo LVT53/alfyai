@@ -2,7 +2,7 @@
 // @always-run: exercises the separately launched queue keeper and worker cleanup.
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,7 +21,7 @@ const holder = {
 	mode: "release",
 	worktree: "/test",
 	head: "abc",
-	since: Date.now(),
+	since: Date.now() - 600_000,
 };
 
 afterEach(() => {
@@ -36,6 +36,10 @@ test.skipIf(process.platform !== "darwin")(
 		const first = await queue.acquireGateLock({ dir, holder });
 		expect(first.held).toBe(true);
 		try {
+			const metadata = JSON.parse(
+				readFileSync(join(dir, "holder.json"), "utf8"),
+			);
+			expect(metadata.since).toBeGreaterThan(holder.since);
 			const log: string[] = [];
 			const second = await queue.acquireGateLock({
 				dir,

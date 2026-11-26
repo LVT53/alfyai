@@ -154,7 +154,7 @@ export async function acquireGateLock({
 		if (lock.release) {
 			try {
 				const temp = join(dir, `holder-${process.pid}.tmp`);
-				writeFileSync(temp, JSON.stringify(holder));
+				writeFileSync(temp, JSON.stringify({ ...holder, since: Date.now() }));
 				renameSync(temp, ownerPath);
 			} catch (error) {
 				log(

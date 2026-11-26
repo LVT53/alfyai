@@ -106,6 +106,12 @@ describe("the check step", () => {
 	});
 });
 
+it("rejects focused tests in both release suites", () => {
+	const release = defineSteps({ ...options, mode: "release" });
+	expect(release.vitest.cmd).toContain("--allowOnly=false");
+	expect(release.playwright.cmd).toContain("--forbid-only");
+});
+
 describe("the vitest step", () => {
 	const PASSED = `
  Test Files  1035 passed | 1 skipped (1036)

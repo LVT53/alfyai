@@ -273,7 +273,7 @@ function gateWorkers(args) {
 export function defineSteps(args) {
 	const reportDir = args.reportDir ?? args.outDir;
 	const jsonReport = join(reportDir, "playwright.json");
-	const e2eArgs = [];
+	const e2eArgs = args.mode === "release" ? ["--forbid-only"] : [];
 	const workers = gateWorkers(args);
 	const e2eEnv = {
 		...(args.port ? { E2E_PORT: String(args.port) } : {}),
@@ -297,6 +297,7 @@ export function defineSteps(args) {
 		"vitest",
 		...(related ? ["related", "--run"] : ["run"]),
 		`--maxWorkers=${workers.vitest}`,
+		...(args.mode === "release" ? ["--allowOnly=false"] : []),
 		"--reporter=default",
 		"--reporter=./scripts/gates-vitest-reporter.mjs",
 		...(related ? selection.paths.map((path) => resolve(ROOT, path)) : []),
@@ -1090,7 +1091,6 @@ async function main() {
 		mode: args.mode,
 		worktree: ROOT,
 		head,
-		since: Date.now(),
 	};
 	const locks = [];
 	const stopIfLost = (lock) => {
