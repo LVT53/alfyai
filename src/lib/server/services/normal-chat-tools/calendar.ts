@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { googleCalendarWriteReviewEnabled } from "$lib/server/env";
+import { resolveTurnTimeZone } from "$lib/server/services/chat-turn/turn-time-zone";
 import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
@@ -22,6 +23,7 @@ import {
 	googleListCalendars,
 	validGoogleEventTimes,
 } from "$lib/server/services/connections/providers/google-calendar";
+import { outlookGetEvent } from "$lib/server/services/connections/providers/outlook-calendar-writes";
 import { matchingConnections } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
@@ -33,6 +35,8 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
+import { microsoftCanWrite } from "$lib/shared/microsoft-permissions";
+import { isValidTimeZone } from "$lib/shared/time-zone";
 import {
 	CONNECTOR_PLACEHOLDER_TITLES,
 	type ConnectorReasonCode,
@@ -76,6 +80,7 @@ export const calendarToolInputSchema = z.object({
 	location: z.string().optional(),
 	description: z.string().optional(),
 	eventId: z.string().optional(),
+	timeZone: z.string().optional(),
 	calendarId: z.string().optional(),
 	recurringScope: z.enum(["this_event", "series"]).optional(),
 	// Multi-connection disambiguation — target ONE specific Calendar
@@ -102,6 +107,7 @@ export function sanitizeCalendarToolInput(
 		...(input.location ? { location: input.location.trim() } : {}),
 		...(input.description ? { description: input.description.trim() } : {}),
 		...(input.eventId ? { eventId: input.eventId.trim() } : {}),
+		...(input.timeZone ? { timeZone: input.timeZone.trim() } : {}),
 		...(input.calendarId ? { calendarId: input.calendarId.trim() } : {}),
 		...(input.recurringScope ? { recurringScope: input.recurringScope } : {}),
 		...(input.account ? { account: input.account.trim() } : {}),
@@ -259,7 +265,8 @@ function buildPayload(params: {
 	reason?:
 		| ConnectorReasonCode
 		| "availability_incomplete"
-		| "calendar_edit_consent";
+		| "calendar_edit_consent"
+		| "online_meeting_notes";
 }): CalendarToolOutcome {
 	const citations = params.citations ?? [];
 	const events = params.events ?? [];
@@ -625,7 +632,7 @@ async function listCalendarsOutcome(
 			...(entry.primary ? { primary: true } : {}),
 		}));
 		const message = calendars.length
-			? `Found ${calendars.length} ${calendars.length === 1 ? "calendar" : "calendars"}. Pass a calendar's id as calendarId to scope a ${microsoft ? "read" : "read or write"} to it.`
+			? `Found ${calendars.length} ${calendars.length === 1 ? "calendar" : "calendars"}. Pass a calendar's id as calendarId to scope a read or write to it.`
 			: `No calendars found on your ${microsoft ? "Outlook" : "Google"} account.`;
 		return buildPayload({
 			success: true,
@@ -855,8 +862,25 @@ async function proposeCreateEvent(
 		});
 	}
 
+	const timeZone =
+		conn.provider === "onedrive" && input.start.length === 10
+			? (input.timeZone ?? (await resolveTurnTimeZone(userId)))
+			: undefined;
+	if (
+		conn.provider === "onedrive" &&
+		input.start.length === 10 &&
+		!isValidTimeZone(timeZone)
+	)
+		return buildPayload({
+			success: false,
+			action: "create_event",
+			reason: "request_adjusted",
+			message:
+				"Provide the IANA timeZone for this all-day Outlook event. Use the person's stated or known local zone.",
+		});
 	const calendarId = input.calendarId ?? "primary";
 	const eventFields = {
+		...(timeZone ? { timeZone } : {}),
 		summary: input.title,
 		start: input.start,
 		end: input.end,
@@ -868,7 +892,7 @@ async function proposeCreateEvent(
 		provider: conn.provider,
 		connectionId: conn.id,
 		action: "calendar.create_event",
-		summary: `Create "${input.title}" on your Google Calendar`,
+		summary: `Create "${input.title}" on your ${conn.provider === "onedrive" ? "Outlook Calendar" : "Google Calendar"}`,
 		reversible: true, // Google keeps history/trash for created events.
 		destructive: false,
 		target: { label: input.title },
@@ -893,7 +917,7 @@ async function proposeCreateEvent(
 	});
 
 	const message = withAmbiguityPrefix(
-		`I've prepared "${input.title}" to be added to your Google Calendar, but it has NOT been created yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		`I've prepared "${input.title}" to be added to your ${conn.provider === "onedrive" ? "Outlook Calendar" : "Google Calendar"}, but it has NOT been created yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
 		ambiguous,
 		conn,
 		connections,
@@ -930,10 +954,26 @@ async function proposeUpdateOrDeleteEvent(
 	const calendarId = input.calendarId ?? "primary";
 	let existing: CalendarEvent | null;
 	try {
-		existing = await googleGetEvent(userId, conn.id, {
-			calendarId,
-			eventId: input.eventId,
-		});
+		existing =
+			conn.provider === "onedrive"
+				? await outlookGetEvent(conn, calendarId, input.eventId)
+				: await googleGetEvent(userId, conn.id, {
+						calendarId,
+						eventId: input.eventId,
+					});
+		if (
+			conn.provider === "onedrive" &&
+			existing?.recurringEventId &&
+			input.recurringScope === "series"
+		) {
+			existing = await outlookGetEvent(
+				conn,
+				calendarId,
+				existing.recurringEventId,
+			);
+			if (existing && !isRecurringMaster(existing))
+				throw new Error("Outlook series master unavailable");
+		}
 	} catch (err) {
 		const failure = mapAdapterError(err);
 		return buildPayload({
@@ -983,6 +1023,54 @@ async function proposeUpdateOrDeleteEvent(
 		});
 	}
 
+	if (
+		conn.provider === "onedrive" &&
+		action === "update_event" &&
+		(input.start !== undefined || input.end !== undefined) &&
+		!validGoogleEventTimes(
+			input.start ?? existing.start,
+			input.end ?? existing.end,
+		)
+	)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "request_adjusted",
+			message:
+				"The updated start and end must form a valid timed or all-day event.",
+		});
+	if (
+		conn.provider === "onedrive" &&
+		action === "update_event" &&
+		input.description !== undefined &&
+		!("isOnlineMeeting" in existing && existing.isOnlineMeeting === false)
+	)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "online_meeting_notes",
+			message:
+				"Edit this meeting’s notes in Outlook to preserve its meeting link. You can still change its title, time or location here.",
+		});
+	const allDayUpdate =
+		conn.provider === "onedrive" && (input.start ?? input.end)?.length === 10;
+	const existingZone =
+		"allDayTimeZone" in existing && typeof existing.allDayTimeZone === "string"
+			? existing.allDayTimeZone
+			: undefined;
+	const timeZone = allDayUpdate
+		? (input.timeZone ?? existingZone ?? (await resolveTurnTimeZone(userId)))
+		: undefined;
+	if (
+		allDayUpdate &&
+		(!timeZone || (input.timeZone && !isValidTimeZone(input.timeZone)))
+	)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "request_adjusted",
+			message: "Provide the IANA timeZone for this all-day Outlook event.",
+		});
 	const isUpdate = action === "update_event";
 	const label =
 		input.title ??
@@ -993,20 +1081,35 @@ async function proposeUpdateOrDeleteEvent(
 		connectionId: conn.id,
 		action: isUpdate ? "calendar.update_event" : "calendar.delete_event",
 		summary: isUpdate
-			? `Update "${label}" on your Google Calendar`
-			: `Delete "${label}" from your Google Calendar`,
+			? `Update "${label}" on your ${conn.provider === "onedrive" ? "Outlook Calendar" : "Google Calendar"}`
+			: `Delete "${label}" from your ${conn.provider === "onedrive" ? "Outlook Calendar" : "Google Calendar"}`,
 		reversible: true, // Google keeps history/trash for updated/deleted events.
 		destructive: true, // update-that-overwrites and delete are both destructive.
-		target: { id: input.eventId, label },
+		target: {
+			id: conn.provider === "onedrive" ? existing.id : input.eventId,
+			label,
+		},
 	};
 	const rawPreview = buildWritePreview(op);
 
 	const content = {
 		calendarId,
-		eventId: input.eventId,
+		eventId: conn.provider === "onedrive" ? existing.id : input.eventId,
+		...(conn.provider === "onedrive"
+			? {
+					etag: existing.etag,
+					...("isOnlineMeeting" in existing
+						? { isOnlineMeeting: existing.isOnlineMeeting }
+						: {}),
+					...(!isUpdate && "cancellationRecipients" in existing
+						? { cancellationRecipients: existing.cancellationRecipients }
+						: {}),
+				}
+			: {}),
 		...(isUpdate
 			? {
 					event: {
+						...(timeZone ? { timeZone } : {}),
 						...(input.title !== undefined ? { summary: input.title } : {}),
 						...(input.start !== undefined ? { start: input.start } : {}),
 						...(input.end !== undefined ? { end: input.end } : {}),
@@ -1435,12 +1538,16 @@ async function calendarWriteOutcome(
 ): Promise<CalendarToolOutcome> {
 	// Google and Apple only for v1. No pending write for a connection this
 	// tool can't act on.
-	if (conn.provider !== "google" && conn.provider !== "apple") {
+	if (
+		conn.provider !== "google" &&
+		conn.provider !== "apple" &&
+		conn.provider !== "onedrive"
+	) {
 		return buildPayload({
 			success: false,
 			action,
 			message:
-				"Calendar writes are only supported for Google and Apple iCloud connections right now.",
+				"Calendar writes are only supported for Google, Outlook and Apple iCloud connections.",
 			reason: "not_supported",
 		});
 	}
@@ -1471,6 +1578,14 @@ async function calendarWriteOutcome(
 		});
 	}
 
+	if (conn.provider === "onedrive" && !microsoftCanWrite(conn, "calendar"))
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				"Grant Outlook Calendar editing in Settings → Connections and try again.",
+			reason: "read_only_account",
+		});
 	if (conn.provider === "apple") {
 		return action === "create_event"
 			? proposeAppleCreateEvent(
@@ -1551,6 +1666,22 @@ export async function runCalendarTool(
 			includeUnavailable: input.action === "check_availability",
 		},
 		async (conn, { ambiguous, connections }): Promise<CalendarToolOutcome> => {
+			if (isCalendarWriteAction(input.action)) {
+				const matching = input.account
+					? matchingConnections(connections, input.account)
+					: connections;
+				if (
+					matching.length > 1 &&
+					matching.some((account) => account.provider === "onedrive")
+				)
+					return buildPayload({
+						success: false,
+						action: input.action,
+						reason: "request_adjusted",
+						message:
+							"Specify the individual calendar account by its email before proposing a change.",
+					});
+			}
 			// Write actions (6.1) are proposal-only and branch here — before the
 			// read-side range resolution below — same posture as files.ts's "save"
 			// branching ahead of its shared secret-fetch flow.

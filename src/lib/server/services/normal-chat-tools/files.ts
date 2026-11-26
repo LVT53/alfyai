@@ -32,8 +32,10 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import type { ToolCallFilesData } from "$lib/server/services/messages-types";
 import { getEntryByMimeType, resolveEntry } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
+import { microsoftCanWrite } from "$lib/shared/microsoft-permissions";
 import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 import { FILE_CARD_LIMIT } from "$lib/utils/tool-calls";
+import { prepareOneDriveFileWrite } from "../connections/providers/onedrive-file-writes";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import {
@@ -48,6 +50,7 @@ export const filesToolInputSchema = z.object({
 		"list",
 		"search",
 		"read",
+		"stat",
 		"save",
 		"move",
 		"delete",
@@ -138,15 +141,14 @@ export type FilesToolOutcome = {
 	modelPayload: FilesToolModelPayload;
 	candidates: ToolEvidenceCandidate[];
 	// What the reply's file cards need (messages-types.ts's ToolCallFilesData),
-	// or null when this connection cannot serve previews (OneDrive) or the
+	// or null when this connection does not supply file cards or the
 	// outcome has no results to show. Built inside runFilesTool, where the
 	// resolved connection is known. Deliberately NOT part of modelPayload: the
 	// model keeps seeing `results`, never the card data.
 	cards: ToolCallFilesData | null;
 };
 
-// Write actions stay Nextcloud-only for v1 (see the onedrive guard in
-// runFilesTool) — module-scope so the Set literal isn't rebuilt per call.
+// Every mutation requires a confirmed pending write.
 const WRITE_ACTIONS = new Set<FilesToolInput["action"]>([
 	"save",
 	"move",
@@ -242,20 +244,7 @@ export function nextcloudWebUiUrl(
 }
 
 // ---------------------------------------------------------------------------
-// Provider dispatch (Task 8) — the files tool now serves two "files"-capability
-// providers: Nextcloud (WebDAV, unchanged behavior) and OneDrive (Microsoft
-// Graph, read-only). READ actions (list/search/read + the stat/metadata used
-// internally for the folder-guard) dispatch on `conn.provider` through the
-// small wrapper functions below rather than each call site branching itself
-// — every existing Nextcloud call keeps calling nextcloudXxx(conn, secret,
-// ...) with the exact same arguments it always has (see files.test.ts, which
-// asserts on those exact calls), so Nextcloud behavior is byte-for-byte
-// unchanged. WRITE actions (save/move/delete/create_folder/share_link) are
-// NOT part of this dispatch — they stay Nextcloud-only for v1; a write
-// against a onedrive connection is refused up front in runFilesTool, before
-// any of the Nextcloud write-outcome functions ever run (see the
-// `onedrive` guard near the top of runFilesTool below).
-//
+// Read operations dispatch to the selected account here. Write proposals are provider-specific.
 // FileEntry is a superset of nextcloud-files.ts's NcFile shape (it adds an
 // optional `webUrl`, populated only by OneDrive) — NcFile is structurally
 // assignable to it since the extra field is optional, so nothing in
@@ -429,16 +418,19 @@ function toResultItems(
 	};
 }
 
-// The reply's file cards, from the results the model was also given. Null is
-// the OneDrive gate in one place: only Nextcloud can serve a preview, so a
-// OneDrive result never grows a card. Directories are not files to open, and
-// the list is bounded so a broad search stays a card strip, not a wall.
+// File cards open the provider document. Only Nextcloud serves an app-relative preview.
 export function buildFilesCards(
 	conn: ConnectionPublic,
 	results: FilesToolResultItem[],
 ): ToolCallFilesData | null {
-	if (conn.provider !== "nextcloud") return null;
-	const files = results.filter((result) => !result.isDir);
+	if (conn.provider !== "nextcloud" && conn.provider !== "onedrive")
+		return null;
+	const files = results.filter(
+		(result) =>
+			!result.isDir &&
+			(conn.provider !== "onedrive" ||
+				(!!result.webUrl && result.webUrl !== "https://onedrive.live.com/")),
+	);
 	return {
 		connectionId: conn.id,
 		cards: files.slice(0, FILE_CARD_LIMIT).map((result) => {
@@ -460,6 +452,9 @@ export function buildFilesCards(
 							FILE_VIEW_SIZE,
 						) ?? null);
 			return {
+				...(conn.provider === "onedrive"
+					? { provider: "onedrive" as const }
+					: {}),
 				name: result.name,
 				path: result.path,
 				size: result.size,
@@ -1455,19 +1450,65 @@ export async function runFilesTool(
 		"files",
 		{ account: input.account, forWrite: WRITE_ACTIONS.has(input.action) },
 		async (conn, { ambiguous, connections }): Promise<FilesToolOutcome> => {
-			// Task 8 — writes stay Nextcloud-only for v1. OneDrive is a read-only
-			// connector (see providers/onedrive.ts's module doc): a write action
-			// against a onedrive connection is refused here, before ANY of the
-			// write-outcome functions below run (so no pending row is ever created
-			// and no Nextcloud-shaped write assumption — resolveWriteTarget,
-			// wouldOverwrite's nextcloudStat call, etc. — is ever exercised against a
-			// non-Nextcloud connection).
+			if (WRITE_ACTIONS.has(input.action) && conn.provider === "onedrive") {
+				if (!microsoftCanWrite(conn, "files"))
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message:
+							"OneDrive is read-only. Enable file changes for this Microsoft account in Connections.",
+						reason: conn.allowWrites
+							? "read_only_account"
+							: "writes_turned_off",
+					});
+				try {
+					const token = await onedriveGetAccessTokenForRead(conn);
+					const { op, content, preview } = await prepareOneDriveFileWrite(
+						conn.id,
+						conn.writeAllowlist,
+						token,
+						input,
+					);
+					const { id } = await createPendingWrite(userId, {
+						connectionId: conn.id,
+						provider: conn.provider,
+						op,
+						content,
+						preview,
+						idempotencyKey: idempotencyKey(op),
+						conversationId,
+					});
+					return buildPayload({
+						success: true,
+						action: input.action,
+						pendingWriteId: id,
+						preview,
+						message: withAmbiguityPrefix(
+							`${op.summary} is pending your confirmation. ${preview.warnings.join(" ")}`,
+							ambiguous,
+							conn,
+							connections,
+						),
+					});
+				} catch (err) {
+					const failure = mapAdapterError(err);
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message:
+							err instanceof OneDriveError && err.code === "invalid_path"
+								? err.message
+								: failure.message,
+						reason: failure.code,
+					});
+				}
+			}
 			if (WRITE_ACTIONS.has(input.action) && conn.provider !== "nextcloud") {
 				return buildPayload({
 					success: false,
 					action: input.action,
-					message: `Writing to ${conn.label} isn't supported yet — OneDrive connections are currently read-only. I can list, search, and read files, but not save, move, delete, create folders, or share links.`,
-					reason: "read_only_account",
+					message: "This account does not support file changes.",
+					reason: "not_supported",
 				});
 			}
 
@@ -1581,6 +1622,37 @@ export async function runFilesTool(
 					);
 				}
 
+				if (input.action === "stat") {
+					if (!input.path)
+						return buildPayload({
+							success: false,
+							action: input.action,
+							message: "Provide the file or folder path to inspect.",
+							reason: "request_adjusted",
+						});
+					const entry = await statForConn(conn, secret, input.path);
+					if (!entry)
+						return buildPayload({
+							success: false,
+							action: input.action,
+							message: "That file or folder could not be found.",
+							reason: "item_not_found",
+						});
+					return withFileCards(
+						conn,
+						buildPayload({
+							success: true,
+							action: input.action,
+							message: withAmbiguityPrefix(
+								`Found ${entry.name}.`,
+								ambiguous,
+								conn,
+								connections,
+							),
+							...toResultItems(conn, [entry]),
+						}),
+					);
+				}
 				if (!input.path) {
 					return buildPayload({
 						success: false,

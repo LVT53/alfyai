@@ -1,3 +1,18 @@
+import {
+	outlookMailMetadata,
+	outlookReadMail,
+	outlookSendDraftSnapshot,
+} from "../connections/providers/outlook-mail";
+
+vi.mock("../connections/providers/outlook-mail", () => ({
+	outlookReadMail: vi.fn(),
+	outlookMailMetadata: vi.fn(),
+	outlookSendDraftSnapshot: vi.fn(),
+	outlookMailList: vi.fn(),
+	outlookMailCount: vi.fn(),
+	outlookMailFolders: vi.fn(),
+}));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -1567,5 +1582,108 @@ describe("runEmailTool — folder scoping + attachments (B4/B5)", () => {
 			{ path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
 			{ path: "Sent Items", name: "Sent Items", specialUse: "\\Sent" },
 		]);
+	});
+});
+
+describe("Outlook email tool routing", () => {
+	beforeEach(resetAllMocks);
+	const ms = (scopes: string[]) =>
+		makeConn({
+			provider: "onedrive",
+			label: "Work Outlook",
+			allowWrites: true,
+			oauthScopes: scopes,
+			config: { microsoftWritePermissions: ["email", "send"] },
+		});
+	it("accepts an opaque Outlook message ID and preserves its text and headers", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([ms(["Mail.Read"])]);
+		vi.mocked(outlookReadMail).mockResolvedValueOnce({
+			header: {
+				uid: "AAM-opaque",
+				subject: "Subject",
+				date: "2026-12-01T10:00:00Z",
+				seen: false,
+				from: "a@b.com",
+				snippet: "",
+			},
+			text: "Body",
+			attachments: [],
+			isDraft: false,
+			etag: "v1",
+		});
+		const result = await runEmailTool(
+			"user-1",
+			{ action: "read", uid: "AAM-opaque" },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			text: "Body",
+			messages: [{ uid: "AAM-opaque" }],
+		});
+		expect(imapReadMessageMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps approved Outlook recipients and draft contents only in the person's confirmation card", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			ms(["Mail.Read", "Mail.Send"]),
+		]);
+		const snapshot = {
+			uid: "opaque",
+			etag: "v2",
+			subject: "Private finance",
+			body: "Secret full text",
+			to: "a@example.com",
+			cc: "",
+			bcc: "private@example.com",
+			attachments: [],
+		};
+		vi.mocked(outlookSendDraftSnapshot).mockResolvedValueOnce(snapshot);
+		const result = await runEmailTool(
+			"user-1",
+			{ action: "send_draft", uid: "opaque" },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload.pendingWriteId).toBeTruthy();
+		expect(JSON.stringify(result.modelPayload)).not.toMatch(
+			/Private finance|Secret full text|private@example/,
+		);
+		const row = createPendingWriteMock.mock.calls.at(-1)?.[1];
+		expect(row?.op.payloadFingerprint).toBe("v2");
+		expect(JSON.parse(row?.content ?? "{}")).toEqual(snapshot);
+	});
+	it("proposes Outlook draft edits only for an existing draft and keeps the version in the pending operation", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			ms(["Mail.ReadWrite"]),
+		]);
+		vi.mocked(outlookMailMetadata).mockResolvedValueOnce({
+			header: {
+				uid: "draft",
+				subject: "Old",
+				date: "",
+				seen: true,
+				from: "",
+				snippet: "",
+			},
+
+			isDraft: true,
+			etag: "v1",
+		});
+		const result = await runEmailTool(
+			"user-1",
+			{
+				action: "edit_draft",
+				uid: "draft",
+				subject: "New",
+			},
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload.pendingWriteId).toBeTruthy();
+		const pending = createPendingWriteMock.mock.calls.at(-1)?.[1];
+		expect(pending?.op.action).toBe("email.edit_draft");
+		expect(JSON.parse(pending?.content ?? "{}")).toMatchObject({
+			uid: "draft",
+			etag: "v1",
+		});
 	});
 });

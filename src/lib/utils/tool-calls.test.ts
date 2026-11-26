@@ -285,6 +285,13 @@ describe("tool-calls utils", () => {
 			).toBe(true);
 		});
 
+		it("keeps two accounts' different documents at the same relative path", () => {
+			const rows = capFileCards([
+				row(["report.pdf"]),
+				{ ...row(["report.pdf"]), connectionId: "conn-2" },
+			]);
+			expect(rows.map((entry) => entry.cards.length)).toEqual([1, 1]);
+		});
 		it("shows a repeated path once across two calls", () => {
 			const capped = capFileCards([
 				row(["same", "first"]),

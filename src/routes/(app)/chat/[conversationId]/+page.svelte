@@ -4477,9 +4477,11 @@ function setWriteActionState(writeId: string, state: WriteAnswerState) {
 async function handleConfirmWrite(writeId: string) {
 	setWriteActionState(writeId, { busy: true, error: null });
 	try {
-		await confirmWriteRequest(writeId);
+		const result = await confirmWriteRequest(writeId);
 		pendingWrites = pendingWrites.map((write) =>
-			write.id === writeId ? { ...write, status: "executed" } : write,
+			write.id === writeId
+				? { ...write, status: "executed", resultUrl: result.resultUrl }
+				: write,
 		);
 		setWriteActionState(writeId, { busy: false, error: null });
 	} catch (error) {

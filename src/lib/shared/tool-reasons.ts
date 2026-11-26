@@ -100,6 +100,7 @@ export const TOOL_REASON_CODES = {
 		...CONNECTOR_REASON_CODES,
 		"availability_incomplete",
 		"calendar_edit_consent",
+		"online_meeting_notes",
 	],
 	contacts: CONNECTOR_REASON_CODES,
 	email: CONNECTOR_REASON_CODES,

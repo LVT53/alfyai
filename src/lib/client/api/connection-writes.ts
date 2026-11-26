@@ -10,6 +10,7 @@ export interface ConfirmWriteResult {
 	ok: true;
 	alreadyExecuted: boolean;
 	etag: string | null;
+	resultUrl?: string;
 }
 
 export interface CancelWriteResult {

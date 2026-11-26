@@ -48,6 +48,46 @@ function card(overrides: Partial<WriteCard>): WriteCard {
 	};
 }
 
+it.each([
+	["en", "Open shared link"],
+	["hu", "Megosztott link megnyitása"],
+] as const)(
+	"shows the link returned by OneDrive after a share succeeds in %s",
+	(lang, label) => {
+		uiLanguage.set(lang);
+		const url = "https://1drv.ms/demo";
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "onedrive",
+				status: "executed",
+				resultUrl: url,
+				card: card({ kind: "files.share_link" }),
+			}),
+		});
+		expect(screen.getByRole("link", { name: label })).toHaveAttribute(
+			"href",
+			url,
+		);
+	},
+);
+it.each([
+	["pending", "https://1drv.ms/demo"],
+	["failed", "https://1drv.ms/demo"],
+	["executed", "https://example.com/"],
+] as const)(
+	"hides unconfirmed or invalid OneDrive results",
+	(status, resultUrl) => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "onedrive",
+				status,
+				resultUrl,
+				card: card({ kind: "files.share_link" }),
+			}),
+		});
+		expect(screen.queryByRole("link")).toBeNull();
+	},
+);
 describe("WriteConfirmCard while it asks", () => {
 	beforeEach(() => {
 		uiLanguage.set("en");
@@ -245,6 +285,26 @@ describe("WriteConfirmCard while it asks", () => {
 		);
 	});
 
+	it.each([
+		["en", "Attendees Outlook will send cancellation notices to"],
+		["hu", "Résztvevők száma, akiknek az Outlook lemondási értesítést küld"],
+	] as const)(
+		"explains meeting cancellation delivery in %s",
+		(language, notice) => {
+			uiLanguage.set(language);
+			render(WriteConfirmCard, {
+				write: makeWrite({
+					provider: "onedrive",
+					card: card({
+						kind: "calendar.delete_event",
+						subject: "Team meeting",
+						facts: [{ key: "cancellation_recipients", value: "3" }],
+					}),
+				}),
+			});
+			expect(screen.getByText(notice)).toBeVisible();
+		},
+	);
 	it("does not fold a message that fits", () => {
 		render(WriteConfirmCard, {
 			write: makeWrite({

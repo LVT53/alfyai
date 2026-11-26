@@ -26,6 +26,7 @@ type SeededWrite = {
 	provider: string;
 	warnings?: string[];
 	status?: "pending" | "executed";
+	resultUrl?: string;
 };
 
 const EVENT: SeededWrite = {
@@ -207,6 +208,7 @@ async function seedReply(page: Page, writes: SeededWrite[]): Promise<string> {
 				destructive: write.op.destructive,
 				withinAllowlist: null,
 				warnings: write.warnings ?? [],
+				resultUrl: write.resultUrl,
 			}),
 			conversationId,
 			assistantMessageId: assistantId,
@@ -328,6 +330,32 @@ test.describe("the permission card in a reply", () => {
 		);
 	});
 
+	test("retains the confirmed OneDrive sharing link when the reply is reopened", async ({
+		page,
+	}) => {
+		const resultUrl = "https://1drv.ms/s/alfyai-test";
+		const id = await seedReply(page, [
+			{
+				provider: "onedrive",
+				status: "executed",
+				resultUrl,
+				content: "",
+				op: {
+					provider: "onedrive",
+					action: "files.share_link",
+					destructive: false,
+					reversible: true,
+					target: { path: "/Reports/Forecast.pdf" },
+				},
+			},
+		]);
+		await page.goto(`/chat/${id}`);
+		const link = page.getByRole("link", { name: "Open shared link" });
+		await expect(link).toBeVisible();
+		await expect(link).toHaveAttribute("href", resultUrl);
+		await page.reload();
+		await expect(link).toHaveAttribute("href", resultUrl);
+	});
 	test("shows completed Google Calendar changes as past actions", async ({
 		page,
 	}) => {

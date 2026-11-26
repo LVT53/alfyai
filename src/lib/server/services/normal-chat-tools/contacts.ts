@@ -210,16 +210,7 @@ function distillContactsReadOutcome(params: {
 	});
 }
 
-// Restricts an already-merged ContactMatch[] down to the ones that came
-// from `selectedConn` — matched on (source === provider, account ===
-// accountIdentifier), the two fields every provider (google/apple/caldav)
-// already stamps onto a ContactMatch (see googleSearchContacts/
-// appleSearchContacts/caldavSearchContacts in providers/contacts.ts and
-// friends). Used when an explicit `account` selector narrowed the lookup to
-// one connection (see runContactsTool) — resolveContacts/
-// resolveContactsByGroup always query every contacts-capable connection
-// internally, so filtering their merged result is how a single-connection
-// selector is honored without changing those functions' signatures.
+// The requested connection is selected before lookup. Check the returned attribution too.
 function filterMatchesByConnection(
 	matches: ContactMatch[],
 	selectedConn: ConnectionPublic,
@@ -248,6 +239,7 @@ async function runGroupLookup(
 		matches = await resolveContactsByGroup(userId, {
 			groupName: input.query,
 			limit: MAX_MATCHES,
+			...(selectedConn ? { connectionId: selectedConn.id } : {}),
 		});
 		if (selectedConn)
 			matches = filterMatchesByConnection(matches, selectedConn);
@@ -293,6 +285,7 @@ async function runNameLookup(
 		matches = await resolveContacts(userId, {
 			query: input.query,
 			limit: MAX_MATCHES,
+			...(selectedConn ? { connectionId: selectedConn.id } : {}),
 		});
 		if (selectedConn)
 			matches = filterMatchesByConnection(matches, selectedConn);
@@ -374,6 +367,13 @@ export async function runContactsTool(
 	}
 
 	if (input.action === "group") {
+		if (selectedConn && selectedConn.provider !== "google")
+			return buildPayload({
+				success: false,
+				action: "group",
+				reason: "not_supported",
+				message: "Contact group lookup is available for Google accounts.",
+			});
 		return runGroupLookup(userId, input, modelId, selectedConn);
 	}
 	return runNameLookup(userId, input, modelId, selectedConn);

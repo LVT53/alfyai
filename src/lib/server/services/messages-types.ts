@@ -203,6 +203,7 @@ export interface ToolCallMapData {
 // builds it (it owns the connection and the preview route), the client only
 // draws: no URL is assembled in the browser.
 export interface ToolCallFileCard {
+	provider?: "onedrive";
 	name: string;
 	path: string;
 	size: number;

@@ -23,7 +23,7 @@ describe("pending-writes write-executor registration set", () => {
 	it("registers exactly the expected providers as a side effect of loading pending-writes", () => {
 		const providers = new Set(listRegisteredWriteExecutorProviders());
 		expect(providers).toEqual(
-			new Set(["nextcloud", "google", "apple", "imap", "immich"]),
+			new Set(["nextcloud", "google", "apple", "imap", "immich", "onedrive"]),
 		);
 	});
 });

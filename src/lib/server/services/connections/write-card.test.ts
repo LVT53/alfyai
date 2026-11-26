@@ -43,7 +43,74 @@ const AT_REPORT = {
 	withinAllowlist: true,
 };
 
+it("keeps the folder identity on a OneDrive trash confirmation", () => {
+	expect(
+		cardFor(
+			operation({
+				provider: "onedrive",
+				action: "files.delete",
+				target: { path: "/Work", isFolder: true },
+			}),
+		),
+	).toMatchObject({ kind: "files.delete", subject: "Work", isFolder: true });
+});
 describe("buildWriteCard: email", () => {
+	it("shows that Outlook sends meeting cancellations to all attendees on the delete card", () => {
+		const card = cardFor(
+			operation({ action: "calendar.delete_event", provider: "onedrive" }),
+			JSON.stringify({
+				current: { summary: "Meeting" },
+				cancellationRecipients: 3,
+			}),
+		);
+		expect(card?.facts).toContainEqual({
+			key: "cancellation_recipients",
+			value: "3",
+		});
+	});
+	it("shows every saved draft recipient and attachment and the complete message before sending", () => {
+		const body = "message ".repeat(1600);
+		const card = cardFor(
+			operation({ action: "email.send_draft", reversible: false }),
+			JSON.stringify({
+				to: "to@ex.com",
+				cc: "cc@ex.com",
+				bcc: "hidden@ex.com",
+				subject: "Subject",
+				body,
+				attachments: [
+					{ name: "budget.pdf", size: 300, id: "file" },
+					{ name: "summary.txt", size: 8, id: "file2" },
+				],
+			}),
+		);
+		expect(card).toMatchObject({
+			kind: "email.send_draft",
+			subject: "Subject",
+			message: body,
+			facts: [
+				{ key: "to", value: "to@ex.com" },
+				{ key: "cc", value: "cc@ex.com" },
+				{ key: "bcc", value: "hidden@ex.com" },
+				{ key: "attachments", value: "budget.pdf · summary.txt" },
+			],
+		});
+	});
+	it("displays only amended fields on the draft-edit card", () => {
+		const card = cardFor(
+			operation({
+				action: "email.edit_draft",
+				target: { id: "item", label: "My draft" },
+			}),
+			JSON.stringify({ body: "Updated body" }),
+		);
+		expect(card).toMatchObject({
+			kind: "email.edit_draft",
+			subject: "My draft",
+			message: "Updated body",
+			facts: [],
+		});
+	});
 	it("names the subject and says who gets it, with the text that goes out", () => {
 		const card = cardFor(
 			operation({ action: "email.send", reversible: false }),

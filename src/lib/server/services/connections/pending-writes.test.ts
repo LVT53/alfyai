@@ -427,6 +427,34 @@ describe("confirmPendingWrite", () => {
 // claim-before-execute fix deterministically, without relying on real
 // event-loop interleaving of two in-flight confirms.
 describe("claimPendingWrite (atomic claim-before-execute)", () => {
+	it("prevents two independent approval cards from submitting the same saved draft revision, even after an uncertain failure", async () => {
+		const { createPendingWrite, claimPendingWrite, markPendingWriteFailed } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		const input = {
+			connectionId,
+			provider: "onedrive" as const,
+			op: { ...makeOp(connectionId), action: "email.send_draft" },
+			content: "{}",
+			idempotencyKey: "same-revision",
+			preview: PREVIEW,
+		};
+		const [first, second] = await Promise.all([
+			createPendingWrite("user-1", input),
+			createPendingWrite("user-1", input),
+		]);
+		expect(
+			await claimPendingWrite("user-1", first.id, input.idempotencyKey),
+		).toBe(true);
+		expect(
+			await claimPendingWrite("user-1", second.id, input.idempotencyKey),
+		).toBe(false);
+		await markPendingWriteFailed("user-1", first.id);
+		expect(
+			await claimPendingWrite("user-1", second.id, input.idempotencyKey),
+		).toBe(false);
+	});
+
 	it("the first claim on a pending row succeeds; a second claim on the same row fails (changes === 0)", async () => {
 		const { createPendingWrite, claimPendingWrite, getPendingWrite } =
 			await import("./pending-writes");

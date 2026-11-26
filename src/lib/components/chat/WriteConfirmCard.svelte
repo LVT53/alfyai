@@ -1,4 +1,5 @@
 <script lang="ts">
+import { oneDriveDocumentUrl } from "$lib/shared/onedrive-links";
 import { t } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import { uiLanguage } from "$lib/stores/settings";
@@ -44,6 +45,13 @@ const view = $derived(buildWriteCardView(write, $t, $uiLanguage));
 const isSettled = $derived(
 	write.status !== "pending" && write.status !== "executing",
 );
+const shareUrl = $derived(
+	write.status === "executed" &&
+		write.provider === "onedrive" &&
+		write.card?.kind === "files.share_link"
+		? oneDriveDocumentUrl(write.resultUrl)
+		: undefined,
+);
 const note = $derived(settledWriteNote(write, $t));
 const item = $derived(buildSettledWriteItem(write, view, $t));
 
@@ -60,6 +68,11 @@ const open = $derived(userOpen ?? note !== null);
 				<WriteConfirmDetails {view} {note} settled />
 			{/snippet}
 		</ToolActivityRow>
+		{#if shareUrl}
+			<a href={shareUrl} target="_blank" rel="noopener noreferrer" class="write-share-link">
+				{$t("connections.writeConfirm.openShare")}
+			</a>
+		{/if}
 	</div>
 {:else}
 	<article
@@ -82,7 +95,14 @@ const open = $derived(userOpen ?? note !== null);
 {/if}
 
 <style>
-	/* ArtifactCard's shell. */
+	.write-share-link {
+		align-self: flex-start;
+		padding: 0.25rem 0.75rem;
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-underline-offset: 0.15em;
+	}
+ /* ArtifactCard's shell. */
 	.write-card {
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg, 12px);

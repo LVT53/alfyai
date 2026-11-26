@@ -1,4 +1,16 @@
 import { z } from "zod";
+import {
+	outlookMailCount,
+	outlookMailFolders,
+	outlookMailList,
+	outlookMailMetadata,
+	outlookReadMail,
+	outlookSendDraftSnapshot,
+} from "$lib/server/services/connections/providers/outlook-mail";
+import { microsoftCanWrite } from "$lib/shared/microsoft-permissions";
+
+type MailHeader = Omit<EmailHeader, "uid"> & { uid: number | string };
+
 import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
@@ -13,6 +25,7 @@ import {
 	imapReadMessage,
 	imapSearch,
 } from "$lib/server/services/connections/providers/imap";
+import { matchingConnections } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
 	buildWritePreview,
@@ -41,12 +54,15 @@ export const emailToolInputSchema = z.object({
 		"read",
 		"list_folders",
 		"send",
+		"draft",
+		"edit_draft",
+		"send_draft",
 		"trash",
 		"flag",
 	]),
 	query: z.string().optional(),
 	unseenOnly: z.boolean().optional(),
-	uid: z.number().optional(),
+	uid: z.union([z.number(), z.string().min(1)]).optional(),
 	// Folder scoping (B4): which mailbox the read actions (recent/search/read/
 	// count) operate on. Optional — defaults to INBOX. Resolved SPECIAL-USE-first
 	// then by name, so "Sent"/"Archive"/a custom folder name all work; call the
@@ -112,7 +128,7 @@ export type EmailCitation = { label: string; url: string };
 // stripping `content`. `uid`/`date`/`seen` are structural metadata, not
 // message content, and are never stripped.
 export type EmailToolHeaderItem = {
-	uid: number;
+	uid: number | string;
 	from?: string;
 	subject?: string;
 	date: string;
@@ -169,7 +185,7 @@ export type EmailToolOutcome = {
 	candidates: ToolEvidenceCandidate[];
 };
 
-function toToolHeaderItem(header: EmailHeader): EmailToolHeaderItem {
+function toToolHeaderItem(header: MailHeader): EmailToolHeaderItem {
 	return {
 		uid: header.uid,
 		...(header.from ? { from: header.from } : {}),
@@ -190,7 +206,7 @@ function subjectLabel(item: EmailToolHeaderItem): string {
 // deep link) — citations carry an empty `url` (non-linking) per the issue
 // brief; the Sources tab shows the label without making it clickable.
 function toCandidate(
-	uid: number | undefined,
+	uid: number | string | undefined,
 	citation: EmailCitation,
 ): ToolEvidenceCandidate {
 	return {
@@ -306,7 +322,7 @@ function mapAdapterError(err: unknown): {
 function listOutcome(
 	conn: ConnectionPublic,
 	action: "recent" | "search",
-	headers: EmailHeader[],
+	headers: MailHeader[],
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): EmailToolOutcome {
@@ -363,7 +379,7 @@ function toAttachmentItem(att: ImapAttachment): EmailToolAttachmentItem {
 
 function readOutcome(
 	conn: ConnectionPublic,
-	header: EmailHeader,
+	header: MailHeader,
 	text: string,
 	attachments: ImapAttachment[],
 	ambiguous: boolean,
@@ -533,12 +549,25 @@ function distillEmailReadOutcome(params: {
 // (providers/imap-write.ts) registered in Issue 6.3.
 // ---------------------------------------------------------------------------
 
-type EmailWriteAction = "send" | "trash" | "flag";
+type EmailWriteAction =
+	| "send"
+	| "trash"
+	| "flag"
+	| "draft"
+	| "edit_draft"
+	| "send_draft";
 
 function isEmailWriteAction(
 	action: EmailToolInput["action"],
 ): action is EmailWriteAction {
-	return action === "send" || action === "trash" || action === "flag";
+	return (
+		action === "send" ||
+		action === "draft" ||
+		action === "edit_draft" ||
+		action === "send_draft" ||
+		action === "trash" ||
+		action === "flag"
+	);
 }
 
 // title/to/subject/body are the user's own compose input this turn, not
@@ -547,6 +576,35 @@ function isEmailWriteAction(
 // subject is fetched purely to surface a human "Replying to ..." sentence —
 // THAT fetched subject IS connector-read data, so it goes through the same
 // Option-A gate as calendar.ts's update/delete preview redaction.
+async function previewMail(
+	userId: string,
+	conn: ConnectionPublic,
+	uid: string | number,
+	folder?: string,
+) {
+	if (conn.provider === "onedrive" && typeof uid === "string")
+		return outlookMailMetadata(conn, uid, folder);
+	return readMail(userId, conn, uid, folder);
+}
+async function readMail(
+	userId: string,
+	conn: ConnectionPublic,
+	uid: number | string,
+	folder?: string,
+) {
+	if (conn.provider === "onedrive" && typeof uid === "string")
+		return outlookReadMail(conn, uid, folder);
+	if (conn.provider === "imap" && typeof uid === "number")
+		return imapReadMessage(userId, conn.id, {
+			uid,
+			...(folder ? { folder } : {}),
+		});
+	throw new ImapError(
+		"Message ID belongs to a different mailbox",
+		"message_not_found",
+	);
+}
+
 async function proposeSend(
 	userId: string,
 	conversationId: string | undefined,
@@ -556,23 +614,77 @@ async function proposeSend(
 	connections: ConnectionPublic[],
 	modelId: string,
 ): Promise<EmailToolOutcome> {
-	if (!input.to || !input.subject || !input.body) {
+	const action =
+		input.action === "draft" || input.action === "edit_draft"
+			? input.action
+			: "send";
+	if (action === "send" && (!input.to || !input.subject || !input.body)) {
 		return buildPayload({
 			success: false,
-			action: "send",
+			action,
 			message: "A recipient, subject, and body are required to send an email.",
 			reason: "request_adjusted",
 		});
 	}
 
 	let rawReplySubject: string | undefined;
+	if (
+		action !== "send" &&
+		!input.subject &&
+		!input.body &&
+		!input.to &&
+		!input.cc
+	)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "request_adjusted",
+			message: "Supply at least one draft field to create or edit.",
+		});
+	let etag: string | undefined;
+	let draftName: string | undefined;
+	if (action === "edit_draft" && typeof input.uid !== "string")
+		return buildPayload({
+			success: false,
+			action,
+			reason: "request_adjusted",
+			message: "Choose an Outlook draft by its uid before editing it.",
+		});
 	if (input.uid !== undefined) {
 		try {
-			const { header } = await imapReadMessage(userId, conn.id, {
-				uid: input.uid,
-			});
-			rawReplySubject = header.subject;
-		} catch {
+			const result = await previewMail(userId, conn, input.uid, input.folder);
+			if (action === "edit_draft") {
+				if (!("isDraft" in result) || !result.isDraft || !result.etag)
+					return buildPayload({
+						success: false,
+						action,
+						reason: "request_adjusted",
+						message: "Choose an existing Outlook draft to edit.",
+					});
+				etag = result.etag;
+				draftName = result.header.subject;
+			}
+			if (action === "send") {
+				if ("isDraft" in result && result.isDraft)
+					return buildPayload({
+						success: false,
+						action,
+						reason: "request_adjusted",
+						message:
+							"That uid identifies an unsent draft. Use send_draft with this uid to send the saved draft.",
+					});
+				rawReplySubject = result.header.subject;
+			}
+		} catch (err) {
+			if (conn.provider === "onedrive") {
+				const failure = mapAdapterError(err);
+				return buildPayload({
+					success: false,
+					action,
+					message: failure.message,
+					reason: failure.code,
+				});
+			}
 			// Best-effort only — a missing/unreadable original message never
 			// blocks sending the reply itself.
 		}
@@ -580,20 +692,33 @@ async function proposeSend(
 
 	const content = {
 		to: input.to,
+		...(conn.provider === "onedrive" && input.uid !== undefined
+			? { uid: input.uid }
+			: {}),
+		...(etag ? { etag } : {}),
 		...(input.cc ? { cc: input.cc } : {}),
 		subject: input.subject,
 		body: input.body,
 		...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
 	};
 
+	const title = input.subject || draftName || "Outlook draft";
+	const recipient = input.to ? ` to ${input.to}` : "";
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
-		action: "email.send",
-		summary: `Send "${input.subject}" to ${input.to}`,
-		target: { label: `${input.subject} → ${input.to}` },
-		reversible: false, // A sent email cannot be unsent.
-		destructive: false,
+		action: `email.${action}`,
+		summary: `${action === "send" ? "Send" : action === "draft" ? "Create draft" : "Edit draft"} "${title}"${recipient}`,
+		target: {
+			...(conn.provider === "onedrive" &&
+			input.uid !== undefined &&
+			action !== "draft"
+				? { id: String(input.uid) }
+				: {}),
+			label: input.to ? `${title} → ${input.to}` : title,
+		},
+		reversible: action !== "send", // A sent email cannot be unsent.
+		destructive: action === "edit_draft",
 		// Folds the FULL send payload (to/cc/subject/body/inReplyTo) into the
 		// idempotency hash — same rationale as calendar.ts's create_event:
 		// target.label above only carries "subject → to", so two genuinely
@@ -628,7 +753,7 @@ async function proposeSend(
 			userId,
 			modelId,
 			capability: "email",
-			userQuestion: input.subject,
+			userQuestion: input.subject ?? "",
 			rawText: rawReplySubject,
 		});
 		if (decision.shouldDistill) {
@@ -642,8 +767,21 @@ async function proposeSend(
 		}
 	}
 
+	const draftPreview =
+		action === "edit_draft" && !input.subject && draftName
+			? await modelFacingPreview({
+					userId,
+					modelId,
+					op,
+					rawPreview: preview,
+					subject: draftName,
+					withheldTitle: "Edit an Outlook draft",
+				})
+			: undefined;
 	const message = withAmbiguityPrefix(
-		`I've prepared an email to ${input.to} with subject "${input.subject}", but it has NOT been sent yet — it is PENDING and awaiting your explicit confirmation. Sending cannot be undone once confirmed.${replySegment}`,
+		action !== "send"
+			? `The Outlook draft is ready for your confirmation. Approving saves it without sending.`
+			: `I've prepared an email to ${input.to} with subject "${input.subject}", but it has NOT been sent yet — it is PENDING and awaiting your explicit confirmation. Sending cannot be undone once confirmed.${replySegment}`,
 		ambiguous,
 		conn,
 		connections,
@@ -651,11 +789,13 @@ async function proposeSend(
 
 	return buildPayload({
 		success: true,
-		action: "send",
+		action,
 		message,
 		pendingWriteId,
-		preview,
-		...(replyWithheld ? { reason: "details_withheld" as const } : {}),
+		preview: draftPreview?.preview ?? preview,
+		...(replyWithheld || draftPreview?.unavailable
+			? { reason: "details_withheld" as const }
+			: {}),
 	});
 }
 
@@ -679,11 +819,13 @@ type TargetMessage = {
 async function readTargetMessage(
 	userId: string,
 	conn: ConnectionPublic,
-	uid: number,
+	uid: number | string,
 ): Promise<TargetMessage> {
 	const [{ header }, uidValidity] = await Promise.all([
-		imapReadMessage(userId, conn.id, { uid }),
-		imapGetInboxUidValidity(userId, conn.id),
+		previewMail(userId, conn, uid),
+		conn.provider === "onedrive"
+			? null
+			: imapGetInboxUidValidity(userId, conn.id),
 	]);
 	return {
 		subject: header.subject || CONNECTOR_PLACEHOLDER_TITLES.noSubject,
@@ -945,7 +1087,87 @@ async function emailWriteOutcome(
 		});
 	}
 
-	if (action === "send") {
+	if (
+		(action === "draft" ||
+			action === "edit_draft" ||
+			action === "send_draft") &&
+		conn.provider !== "onedrive"
+	)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "not_supported",
+			message: "Saving or editing drafts is available for Outlook mailboxes.",
+		});
+	if (
+		conn.provider === "onedrive" &&
+		!microsoftCanWrite(
+			conn,
+			action === "send" || action === "send_draft" ? "send" : "email",
+		)
+	)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "read_only_account",
+			message:
+				"Enable the requested Outlook mail permission in Settings → Connections.",
+		});
+	if (action === "send_draft") {
+		if (
+			typeof input.uid !== "string" ||
+			[input.to, input.cc, input.subject, input.body, input.inReplyTo].some(
+				(v) => v !== undefined,
+			)
+		)
+			return buildPayload({
+				action,
+				success: false,
+				reason: "request_adjusted",
+				message:
+					"Supply the saved draft uid only. Edit the draft first to change recipients or content.",
+			});
+		try {
+			const snapshot = await outlookSendDraftSnapshot(conn, input.uid);
+			const op: WriteOperation = {
+				provider: conn.provider,
+				connectionId: conn.id,
+				action: "email.send_draft",
+				summary: "Send the saved Outlook draft",
+				target: { id: input.uid, label: "Saved Outlook draft" },
+				payloadFingerprint: snapshot.etag,
+				reversible: false,
+				destructive: false,
+			};
+			const preview = buildWritePreview(op);
+			const { id: pendingWriteId } = await createPendingWrite(userId, {
+				connectionId: conn.id,
+				provider: conn.provider,
+				op,
+				content: JSON.stringify(snapshot),
+				idempotencyKey: idempotencyKey(op),
+				preview,
+				conversationId,
+			});
+			return buildPayload({
+				action,
+				success: true,
+				pendingWriteId,
+				preview,
+				message:
+					"Review this saved Outlook draft’s recipients, attachments and message in the confirmation card before sending.",
+			});
+		} catch (err) {
+			const failure = mapAdapterError(err);
+			return buildPayload({
+				action,
+				success: false,
+				reason: failure.code,
+				message: failure.message,
+			});
+		}
+	}
+	if (action === "send" || action === "draft" || action === "edit_draft") {
 		return proposeSend(
 			userId,
 			conversationId,
@@ -1017,6 +1239,34 @@ export async function runEmailTool(
 		"email",
 		{ account: input.account, forWrite: isEmailWriteAction(input.action) },
 		async (conn, { ambiguous, connections }): Promise<EmailToolOutcome> => {
+			const matching = input.account
+				? matchingConnections(connections, input.account)
+				: connections;
+			if (
+				(isEmailWriteAction(input.action) || input.uid !== undefined) &&
+				matching.length > 1 &&
+				matching.some((account) => account.provider === "onedrive")
+			) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					reason: "request_adjusted",
+					message:
+						"Specify the individual mailbox by its account email before choosing a message or proposing a change.",
+				});
+			}
+			if (
+				conn.provider === "onedrive" &&
+				input.inReplyTo &&
+				typeof input.uid !== "string"
+			)
+				return buildPayload({
+					success: false,
+					action: input.action,
+					reason: "request_adjusted",
+					message:
+						"Use the original Outlook message uid to send a threaded reply.",
+				});
 			// Write actions (6.3) are proposal-only and branch here — before the
 			// read-side try/catch below — same posture as calendar.ts's write branch
 			// ahead of its shared range-resolution flow.
@@ -1037,15 +1287,24 @@ export async function runEmailTool(
 				// B4: enumerate the account's mailboxes so the model can discover folder
 				// names and resolve "Sent"/"Archive"/… — pure structure, no message read.
 				if (input.action === "list_folders") {
-					const folders = await imapListFolders(userId, conn.id);
+					const folders =
+						conn.provider === "onedrive"
+							? await outlookMailFolders(conn)
+							: await imapListFolders(userId, conn.id);
 					return foldersOutcome(conn, folders, ambiguous, connections);
 				}
 
 				if (input.action === "recent") {
-					const headers = await imapListRecent(userId, conn.id, {
-						unseenOnly: input.unseenOnly,
-						...(input.folder ? { folder: input.folder } : {}),
-					});
+					const headers =
+						conn.provider === "onedrive"
+							? await outlookMailList(conn, {
+									unseenOnly: input.unseenOnly,
+									folder: input.folder,
+								})
+							: await imapListRecent(userId, conn.id, {
+									unseenOnly: input.unseenOnly,
+									...(input.folder ? { folder: input.folder } : {}),
+								});
 					const outcome = listOutcome(
 						conn,
 						"recent",
@@ -1069,10 +1328,17 @@ export async function runEmailTool(
 							reason: "request_adjusted",
 						});
 					}
-					const headers = await imapSearch(userId, conn.id, {
-						...criteria,
-						...(input.folder ? { folder: input.folder } : {}),
-					});
+					const headers =
+						conn.provider === "onedrive"
+							? await outlookMailList(conn, {
+									...criteria,
+									unseenOnly: input.unseenOnly,
+									folder: input.folder,
+								})
+							: await imapSearch(userId, conn.id, {
+									...criteria,
+									...(input.folder ? { folder: input.folder } : {}),
+								});
 					const outcome = listOutcome(
 						conn,
 						"search",
@@ -1092,11 +1358,18 @@ export async function runEmailTool(
 					const criteria = searchCriteria(input);
 					const filtered = Object.keys(criteria).length > 0;
 					const unseenOnly = input.unseenOnly ?? (filtered ? undefined : true);
-					const count = await imapCount(userId, conn.id, {
-						...criteria,
-						...(unseenOnly !== undefined ? { unseenOnly } : {}),
-						...(input.folder ? { folder: input.folder } : {}),
-					});
+					const count =
+						conn.provider === "onedrive"
+							? await outlookMailCount(conn, {
+									...criteria,
+									unseenOnly,
+									folder: input.folder,
+								})
+							: await imapCount(userId, conn.id, {
+									...criteria,
+									...(unseenOnly !== undefined ? { unseenOnly } : {}),
+									...(input.folder ? { folder: input.folder } : {}),
+								});
 					return countOutcome(
 						conn,
 						count,
@@ -1114,13 +1387,11 @@ export async function runEmailTool(
 						reason: "request_adjusted",
 					});
 				}
-				const { header, text, attachments } = await imapReadMessage(
+				const { header, text, attachments } = await readMail(
 					userId,
-					conn.id,
-					{
-						uid: input.uid,
-						...(input.folder ? { folder: input.folder } : {}),
-					},
+					conn,
+					input.uid,
+					input.folder,
 				);
 				const outcome = readOutcome(
 					conn,

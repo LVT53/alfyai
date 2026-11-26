@@ -115,6 +115,28 @@ async function viewerLoaded() {
 }
 
 describe("FilesStrip", () => {
+	it.each([
+		["en", "Open in OneDrive"],
+		["hu", "Megnyitás a OneDrive-ban"],
+	] as const)(
+		"opens a Microsoft document with provider-specific words in %s",
+		(lang, label) => {
+			uiLanguage.set(lang);
+			const card = {
+				...documentCard("Report.pdf", 42),
+				provider: "onedrive" as const,
+				webUrl: "https://tenant.sharepoint.com/Report.pdf",
+			};
+			render(FilesStrip, { props: { cards: [card] } });
+			expect(
+				screen
+					.getByRole("link", { name: new RegExp(label) })
+					.getAttribute("href"),
+			).toBe(card.webUrl);
+			expect(screen.queryByRole("img")).toBeNull();
+		},
+	);
+
 	beforeEach(() => {
 		uiLanguage.set("en");
 		loader.loadImageLightbox.mockClear();

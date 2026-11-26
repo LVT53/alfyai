@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { connectionPendingWrites } from "$lib/server/db/schema";
+import { oneDriveDocumentUrl } from "$lib/shared/onedrive-links";
 
 // ---------------------------------------------------------------------------
 // Pending-write store (Issue 4.3) — the "explicit confirm" chokepoint between
@@ -40,6 +41,7 @@ import { connectionPendingWrites } from "$lib/server/db/schema";
 // in every path that reaches confirmPendingWrite (prod request handling AND
 // every *.test.ts here that exercises confirm without importing the provider
 // module itself).
+import "./providers/microsoft-writes";
 import "./providers/nextcloud-files";
 import "./providers/google-calendar";
 import "./providers/apple-caldav";
@@ -84,6 +86,7 @@ export type PendingWriteRecord = {
 	status: PendingWriteStatus;
 	preview: WritePreview;
 	etag: string | null;
+	resultUrl?: string;
 	// Issue 7.5 — nullable association to the conversation/assistant message
 	// that proposed this write. conversationId is set at creation time (the
 	// write tool already has it via ctx); assistantMessageId is unknown
@@ -105,8 +108,25 @@ export type PendingWriteRecord = {
 // payloads are explicitly out of scope for this table.
 type PendingWriteOpJson = { op: WriteOperation; content: string };
 
+function shareResult(
+	provider: string,
+	op: WriteOperation,
+	value: unknown,
+): { resultUrl?: string } {
+	const url =
+		provider === "onedrive" &&
+		op.provider === provider &&
+		op.action === "files.share_link"
+			? oneDriveDocumentUrl(value)
+			: undefined;
+	return url ? { resultUrl: url } : {};
+}
+
 function toRecord(row: PendingWriteRow): PendingWriteRecord {
 	const parsed = JSON.parse(row.opJson) as PendingWriteOpJson;
+	const { resultUrl, ...preview } = JSON.parse(
+		row.previewJson,
+	) as WritePreview & { resultUrl?: unknown };
 	return {
 		id: row.id,
 		userId: row.userId,
@@ -116,7 +136,10 @@ function toRecord(row: PendingWriteRow): PendingWriteRecord {
 		content: parsed.content,
 		idempotencyKey: row.idempotencyKey,
 		status: row.status as PendingWriteStatus,
-		preview: JSON.parse(row.previewJson) as WritePreview,
+		preview,
+		...(row.status === "executed"
+			? shareResult(row.provider, parsed.op, resultUrl)
+			: {}),
 		etag: row.etag ?? null,
 		conversationId: row.conversationId ?? null,
 		assistantMessageId: row.assistantMessageId ?? null,
@@ -181,7 +204,7 @@ export async function createPendingWrite(
 		opJson: JSON.stringify(opJson),
 		idempotencyKey: params.idempotencyKey,
 		status: "pending",
-		previewJson: JSON.stringify(params.preview),
+		previewJson: JSON.stringify({ ...params.preview, resultUrl: undefined }),
 		conversationId: params.conversationId ?? null,
 		createdAt: now,
 		// Fix 1 — every new row gets a TTL; only rows created before this
@@ -273,12 +296,19 @@ export async function getPendingWrite(
 export async function claimPendingWrite(
 	userId: string,
 	id: string,
+	draftSendKey?: string,
 ): Promise<boolean> {
 	const result = await db
 		.update(connectionPendingWrites)
 		.set({ status: "executing" })
 		.where(
-			and(scoped(userId, id), eq(connectionPendingWrites.status, "pending")),
+			and(
+				scoped(userId, id),
+				eq(connectionPendingWrites.status, "pending"),
+				draftSendKey
+					? sql`not exists (select 1 from connection_pending_writes prior where prior.user_id = ${userId} and prior.idempotency_key = ${draftSendKey} and prior.status in ('executing','executed','failed') and prior.id <> ${id})`
+					: undefined,
+			),
 		);
 	return result.changes > 0;
 }
@@ -294,10 +324,19 @@ export async function markPendingWriteExecuted(
 	userId: string,
 	id: string,
 	etag: string | null = null,
+	resultUrl?: string,
 ): Promise<boolean> {
 	const result = await db
 		.update(connectionPendingWrites)
-		.set({ status: "executed", etag })
+		.set({
+			status: "executed",
+			etag,
+			...(resultUrl
+				? {
+						previewJson: sql`json_set(${connectionPendingWrites.previewJson}, '$.resultUrl', ${resultUrl})`,
+					}
+				: {}),
+		})
 		.where(
 			and(scoped(userId, id), eq(connectionPendingWrites.status, "executing")),
 		);
@@ -370,8 +409,24 @@ export async function cancelPendingWrite(
 }
 
 export type ConfirmPendingWriteResult =
-	| { ok: true; alreadyExecuted: boolean; etag?: string | null }
+	| {
+			ok: true;
+			alreadyExecuted: boolean;
+			etag?: string | null;
+			resultUrl?: string;
+	  }
 	| { ok: false; status: 404 | 409; reason: string };
+
+function previousSuccess(
+	record: PendingWriteRecord,
+): ConfirmPendingWriteResult {
+	return {
+		ok: true,
+		alreadyExecuted: true,
+		etag: record.etag,
+		...(record.resultUrl ? { resultUrl: record.resultUrl } : {}),
+	};
+}
 
 // The single chokepoint that turns a confirmed pending write into a real
 // mutation, dispatched by `record.provider` to whichever WriteExecutor is
@@ -396,7 +451,7 @@ export async function confirmPendingWrite(
 		return { ok: false, status: 404, reason: "not_found" };
 	}
 	if (record.status === "executed") {
-		return { ok: true, alreadyExecuted: true, etag: record.etag };
+		return previousSuccess(record);
 	}
 	if (record.status === "cancelled") {
 		return { ok: false, status: 409, reason: "cancelled" };
@@ -434,7 +489,7 @@ export async function confirmPendingWrite(
 			// posture as the claim-loss fallback below.
 			const latest = await getPendingWrite(userId, id);
 			if (latest?.status === "executed") {
-				return { ok: true, alreadyExecuted: true, etag: latest.etag };
+				return previousSuccess(latest);
 			}
 			return { ok: false, status: 409, reason: "in_progress" };
 		}
@@ -464,15 +519,31 @@ export async function confirmPendingWrite(
 	// `record.status` (read above) and only updated the row AFTER awaiting
 	// the write, so two concurrent confirms could both pass the check and
 	// both issue a real write.
-	const claimed = await claimPendingWrite(userId, id);
+	const draftSendKey =
+		record.op.action === "email.send_draft" && record.provider === "onedrive"
+			? record.idempotencyKey
+			: undefined;
+	const claimed = await claimPendingWrite(userId, id, draftSendKey);
 	if (!claimed) {
 		// Lost the race: something else (another confirm) claimed or
 		// resolved this row between our read and our claim attempt.
 		// Re-fetch to report the current, authoritative state rather than
 		// guessing from the stale `record` we already have.
 		const latest = await getPendingWrite(userId, id);
+		if (latest?.status === "pending" && draftSendKey) {
+			await db
+				.update(connectionPendingWrites)
+				.set({ status: "failed" })
+				.where(
+					and(
+						scoped(userId, id),
+						eq(connectionPendingWrites.status, "pending"),
+					),
+				);
+			return { ok: false, status: 409, reason: "may_not_have_gone_through" };
+		}
 		if (latest?.status === "executed") {
-			return { ok: true, alreadyExecuted: true, etag: latest.etag };
+			return previousSuccess(latest);
 		}
 		return { ok: false, status: 409, reason: "in_progress" };
 	}
@@ -521,6 +592,20 @@ export async function confirmPendingWrite(
 		return { ok: false, status: 409, reason: result.reason };
 	}
 
-	await markPendingWriteExecuted(userId, id, result.etag ?? null);
-	return { ok: true, alreadyExecuted: false, etag: result.etag ?? null };
+	const share =
+		conn.provider === record.provider
+			? shareResult(conn.provider, record.op, result.resultUrl)
+			: {};
+	await markPendingWriteExecuted(
+		userId,
+		id,
+		result.etag ?? null,
+		share.resultUrl,
+	);
+	return {
+		ok: true,
+		alreadyExecuted: false,
+		etag: result.etag ?? null,
+		...share,
+	};
 }

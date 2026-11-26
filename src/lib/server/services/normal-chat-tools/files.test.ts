@@ -986,6 +986,73 @@ describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", (
 		onedriveGetAccessTokenForReadMock.mockResolvedValue("resolved-token");
 	});
 
+	it("inspects OneDrive metadata without reading file contents", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveStatMock.mockResolvedValue({
+			name: "Work",
+			path: "Work",
+			size: 0,
+			isDir: true,
+			mtime: null,
+			contentType: null,
+			etag: null,
+			webUrl: null,
+		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "stat", path: "Work" },
+			LOCAL_MODEL_ID,
+		);
+		expect(outcome.modelPayload.results).toMatchObject([
+			{ name: "Work", isDir: true },
+		]);
+		expect(onedriveReadFileMock).not.toHaveBeenCalled();
+	});
+	it("saves a proposal for a granted OneDrive account without modifying the file", async () => {
+		const conn = makeOneDriveConn({
+			allowWrites: true,
+			oauthScopes: ["Files.ReadWrite"],
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		createPendingWriteMock.mockImplementation(async (_userId, input) => ({
+			id: "pending",
+			preview: input.preview,
+		}));
+		const graphFetch = vi.fn(async () =>
+			Response.json({ id: "existing", file: {}, eTag: "v1" }),
+		);
+		vi.stubGlobal("fetch", graphFetch);
+		try {
+			const outcome = await runFilesTool(
+				"user-1",
+				{ action: "save", path: "/notes.txt", content: "text" },
+				LOCAL_MODEL_ID,
+			);
+			expect(outcome.modelPayload).toMatchObject({
+				success: true,
+				pendingWriteId: "pending",
+			});
+			expect(graphFetch).toHaveBeenCalledTimes(1);
+			expect(graphFetch).toHaveBeenCalledWith(
+				expect.stringContaining("/me/drive/root:/notes.txt"),
+				expect.objectContaining({ method: "GET" }),
+			);
+			expect(createPendingWriteMock).toHaveBeenCalledWith(
+				"user-1",
+				expect.objectContaining({
+					provider: "onedrive",
+					connectionId: conn.id,
+					op: expect.objectContaining({
+						action: "files.put",
+						destructive: true,
+					}),
+				}),
+			);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
 	it("search on a onedrive connection calls onedriveSearch, never nextcloudSearch", async () => {
 		const conn = makeOneDriveConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -2427,7 +2494,12 @@ describe("runFilesTool — file cards and previews (Task 5)", () => {
 		expect(outcome.modelPayload.results[0]?.webUrl).toBe(
 			"https://onedrive.live.com/lake.jpg",
 		);
-		expect(outcome.cards).toBeNull();
+		expect(outcome.cards?.cards[0]).toMatchObject({
+			provider: "onedrive",
+			webUrl: "https://onedrive.live.com/lake.jpg",
+			previewUrl: null,
+			viewUrl: null,
+		});
 	});
 
 	it("keeps six cards and counts the rest", async () => {

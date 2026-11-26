@@ -24,5 +24,6 @@ export const POST: RequestHandler = async (event) => {
 		ok: true,
 		alreadyExecuted: result.alreadyExecuted,
 		etag: result.etag ?? null,
+		...(result.resultUrl ? { resultUrl: result.resultUrl } : {}),
 	});
 };

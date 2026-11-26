@@ -57,6 +57,22 @@ function write(overrides: Partial<PendingWrite> = {}): PendingWrite {
 }
 
 describe("buildWriteCardView", () => {
+	it.each([
+		["files.delete", "trash", "kukába"],
+		["files.share_link", "everything in it", "tartalmához"],
+	] as const)(
+		"names the folder impact for %s in both languages",
+		(kind, english, hungarian) => {
+			const item = write({
+				provider: "onedrive",
+				card: { ...CARD, kind, isFolder: true },
+			});
+			expect(buildWriteCardView(item, en, "en").question).toContain(english);
+			expect(
+				buildWriteCardView(item, hu, "hu").question.toLowerCase(),
+			).toContain(hungarian);
+		},
+	);
 	it("names the account a write lands in, when it is one a person knows by name", () => {
 		expect(
 			buildWriteCardView(write({ account: "me@example.com" }), en, "en")
@@ -235,6 +251,10 @@ describe("buildWriteCardView", () => {
 	it("has every kind and risk in both languages", () => {
 		const kinds: WriteCardKind[] = [
 			"email.send",
+			"email.draft",
+			"email.edit_draft",
+			"email.send_draft",
+
 			"email.trash",
 			"email.mark_read",
 			"email.mark_unread",

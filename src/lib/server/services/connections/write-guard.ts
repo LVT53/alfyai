@@ -12,6 +12,9 @@ import { createHash } from "node:crypto";
 export type WriteTarget = {
 	path?: string;
 	id?: string;
+	etag?: string;
+	parentId?: string;
+	isFolder?: boolean;
 	label?: string;
 	// Populated by the caller from resolveWriteTarget's result when the
 	// target is path-based. Absent (or undefined) means either the target
@@ -59,6 +62,10 @@ export const WRITE_WARNING = {
 		"Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
 	wholeSeries:
 		"This deletes the ENTIRE recurring series, not a single occurrence.",
+	publicOneDriveLink:
+		"Anyone with this link can view the item without signing in.",
+	oneDriveVersionHistoryUnknown:
+		"Previous versions of this OneDrive file may be unavailable.",
 	publicLink:
 		"This creates a PUBLIC link that anyone with the URL can open — no Nextcloud login required.",
 } as const;

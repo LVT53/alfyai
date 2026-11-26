@@ -863,6 +863,30 @@ describe("resolveContacts", () => {
 </d:multistatus>`;
 	}
 
+	it("limits provider reads to the explicitly selected account before merging", async () => {
+		seedUser("userA");
+		await seedGoogleConnection();
+		const selected = await seedAppleConnection(
+			"bob@icloud.com",
+			"https://p1-contacts.icloud.com/card/",
+		);
+		const { resolveContacts } = await import("./contacts");
+		const fetch = vi.fn(
+			async () =>
+				new Response(vcardXml("Bob Smith", "bob@example.com"), { status: 207 }),
+		);
+		const result = await resolveContacts(
+			"userA",
+			{ query: "Bob", limit: 1, connectionId: selected.id },
+			{ fetch },
+		);
+		expect(result[0].source).toBe("apple");
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(fetch).toHaveBeenCalledWith(
+			"https://p1-contacts.icloud.com/card/",
+			expect.objectContaining({ method: "REPORT" }),
+		);
+	});
 	it("merges + de-dupes matches across a google AND an apple connection (by lowercased name + first email)", async () => {
 		seedUser("userA");
 		await seedGoogleConnection();

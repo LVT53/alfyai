@@ -55,6 +55,10 @@ export const CONNECTOR_PHRASES: Readonly<
 			read: "toolRows.connector.email.read",
 			list_folders: "toolRows.connector.email.list_folders",
 			send: "toolRows.connector.email.send",
+			draft: "toolRows.connector.email.draft",
+			edit_draft: "toolRows.connector.email.edit_draft",
+			send_draft: "toolRows.connector.email.send_draft",
+
 			trash: "toolRows.connector.email.trash",
 			flag: "toolRows.connector.email.flag",
 		},
@@ -63,6 +67,7 @@ export const CONNECTOR_PHRASES: Readonly<
 	files: {
 		actions: {
 			list: "toolRows.connector.files.list",
+			stat: "toolRows.connector.files.stat",
 			search: "toolRows.connector.files.search",
 			read: "toolRows.connector.files.read",
 			save: "toolRows.connector.files.save",

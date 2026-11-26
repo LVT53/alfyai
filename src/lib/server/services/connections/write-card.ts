@@ -92,6 +92,32 @@ function emailCard(
 	content: string,
 ): Omit<WriteCard, "risks" | "danger"> | null {
 	const payload = parseObject(content);
+	if (
+		op.action === "email.draft" ||
+		op.action === "email.edit_draft" ||
+		op.action === "email.send_draft"
+	) {
+		const attachments = Array.isArray(payload?.attachments)
+			? fact(
+					"attachments",
+					payload.attachments
+						.map((a) => text(a?.name))
+						.filter(Boolean)
+						.join(" · "),
+				)
+			: [];
+		return {
+			kind: op.action,
+			subject: text(payload?.subject) ?? text(op.target?.label) ?? "",
+			facts: [
+				...fact("to", payload?.to),
+				...fact("cc", payload?.cc),
+				...fact("bcc", payload?.bcc),
+				...attachments,
+			],
+			message: text(payload?.body),
+		};
+	}
 	if (op.action === "email.send") {
 		const subject = text(payload?.subject);
 		if (!subject || !text(payload?.to)) return null;
@@ -218,7 +244,17 @@ function calendarCard(
 		subject: text(current.summary) ?? label,
 		facts:
 			kind === "calendar.delete_event"
-				? [...eventWhen(current), ...fact("where", current.location)]
+				? [
+						...eventWhen(current),
+						...fact("where", current.location),
+						...(typeof payload.cancellationRecipients === "number" &&
+						payload.cancellationRecipients > 0
+							? fact(
+									"cancellation_recipients",
+									String(payload.cancellationRecipients),
+								)
+							: []),
+					]
 				: [...eventWhen(current), ...eventChanges(current, event)],
 		message: null,
 	};
@@ -332,6 +368,8 @@ const RISK_BY_WARNING = new Map<string, WriteCardRisk>([
 	[WRITE_WARNING.noVersionHistory, "replaces_file_for_good"],
 	[WRITE_WARNING.versionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.publicLink, "public_link"],
+	[WRITE_WARNING.publicOneDriveLink, "public_link"],
+	[WRITE_WARNING.oneDriveVersionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.outsideArea, "outside_allowed_folders"],
 ]);
 
@@ -384,7 +422,14 @@ export function buildWriteCard(
 		filesCard(op, content) ??
 		photosCard(op, content, record.connectionId);
 	if (!card) return null;
-	return { ...card, risks: risksOf(record), danger: isDanger(op) };
+	return {
+		...card,
+		...(op.action.startsWith("files.") && op.target?.isFolder
+			? { isFolder: true }
+			: {}),
+		risks: risksOf(record),
+		danger: isDanger(op),
+	};
 }
 
 /** A stored write as the person's page reads it. */
@@ -410,6 +455,9 @@ export function toPendingWriteDto(
 		card: buildWriteCard(record),
 		account: accountByConnectionId.get(record.connectionId) ?? null,
 		provider: record.provider,
+		...(record.status === "executed" && record.resultUrl
+			? { resultUrl: record.resultUrl }
+			: {}),
 		// PendingWriteRecord.createdAt is UNIX seconds (pending-writes.ts's
 		// toRecord); every other client-facing timestamp (ChatMessage,
 		// FileProductionJob) is epoch milliseconds — MessageArea's

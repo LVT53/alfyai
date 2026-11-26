@@ -5,7 +5,7 @@
  * one file as the single card, two or more as a strip of 78px tiles and a
  * chevron. A tile is a FILE: a picture draws its picture, a document draws its
  * type. A picture tile and the single card's picture open the app's viewer; a
- * document tile opens that file in Nextcloud; the chevron and the count tile
+ * document tile opens that file in its provider; the chevron and the count tile
  * open the compact file list. The viewer is loaded on the first press
  * (`image-lightbox-loader.ts`) and never in the chat's first paint.
  *
@@ -14,7 +14,7 @@
  * not stack two strips.
  *
  * Everything is a sibling, never nested: a tile is a `<button>` (or an `<a>` for
- * a document), a list row is one `<a>` to the file in Nextcloud (its 40px
+ * a document), a list row is one `<a>` to the provider file (its 40px
  * picture included), and the single card's picture button stands beside its
  * link.
  */
@@ -141,8 +141,13 @@ const tileViews = $derived.by((): StripTileView[] =>
 			if (tile.pictureIndex === null) {
 				return {
 					kind: "document",
-					key: tile.card.path,
-					label: $t("toolActivity.filesOpenFile", { name: tile.card.name }),
+					key: JSON.stringify([tile.card.webUrl, tile.card.path]),
+					label: $t(
+						tile.card.provider === "onedrive"
+							? "toolActivity.filesOpenFileOneDrive"
+							: "toolActivity.filesOpenFile",
+						{ name: tile.card.name },
+					),
 					fileType,
 					webUrl: tile.card.webUrl,
 					ext: fileExtension(tile.card.name),
@@ -150,7 +155,7 @@ const tileViews = $derived.by((): StripTileView[] =>
 			}
 			return {
 				kind: "picture",
-				key: tile.card.path,
+				key: JSON.stringify([tile.card.webUrl, tile.card.path]),
 				pictureIndex: tile.pictureIndex,
 				label: $t("toolActivity.filesOpenPicture", {
 					name: tile.card.name,
@@ -278,14 +283,14 @@ async function closeViewer() {
 		>
 			<span class="fs-card-name" title={card.name}>{card.name}</span>
 			<span class="fs-card-facts">{singleCard.facts}</span>
-			<span class="fs-card-open">{$t("toolActivity.filesOpen")}</span>
+			<span class="fs-card-open">{$t(card.provider === "onedrive" ? "toolActivity.filesOpenOneDrive" : "toolActivity.filesOpen")}</span>
 		</a>
 	</div>
 {:else}
 	<div class="fs-block" data-testid="files-strip">
 		<div class="fs-head">
 			<div class="fs-strip">
-				{#each tileViews as tile (tile.key)}
+				{#each tileViews as tile, index (JSON.stringify([tile.key, index]))}
 					{#if tile.kind === "picture"}
 							<button
 								type="button"
@@ -365,7 +370,7 @@ async function closeViewer() {
 		</div>
 		{#if listOpen}
 			<ul id={listId} class="fs-list" data-testid="files-strip-list">
-				{#each rowViews as row (row.card.path)}
+				{#each rowViews as row, index (JSON.stringify([row.card.webUrl, index]))}
 					<li class="fs-list-item">
 						<a
 							class="fs-row"
@@ -396,7 +401,7 @@ async function closeViewer() {
 								>
 								<span class="fs-row-facts">{row.facts}</span>
 							</span>
-							<span class="fs-row-open">{$t("toolActivity.filesOpen")}</span>
+							<span class="fs-row-open">{$t(row.card.provider === "onedrive" ? "toolActivity.filesOpenOneDrive" : "toolActivity.filesOpen")}</span>
 						</a>
 					</li>
 				{/each}

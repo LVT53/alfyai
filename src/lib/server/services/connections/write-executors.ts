@@ -12,7 +12,7 @@ import type { WriteOperation } from "./write-guard";
 // ---------------------------------------------------------------------------
 
 export type WriteExecutionResult =
-	| { ok: true; etag?: string | null; detail?: string }
+	| { ok: true; etag?: string | null; detail?: string; resultUrl?: string }
 	| { ok: false; reason: string };
 
 export interface WriteExecutor {

@@ -219,6 +219,9 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		...calendarWords,
 		codes: {
 			...calendarWords.codes,
+			online_meeting_notes: stop(
+				"toolRows.connector.calendar.online_meeting_notes",
+			),
 			calendar_edit_consent: stop(
 				"toolRows.connector.calendar.calendar_edit_consent",
 			),

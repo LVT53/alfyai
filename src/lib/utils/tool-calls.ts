@@ -233,8 +233,9 @@ export function capFileCards(
 		for (const card of row.cards) {
 			// A repeated path is one card: the same file found by two calls is
 			// still that one file.
-			if (shown >= limit || seen.has(card.path)) continue;
-			seen.add(card.path);
+			const key = JSON.stringify([row.connectionId, card.path]);
+			if (shown >= limit || seen.has(key)) continue;
+			seen.add(key);
 			cards.push(card);
 			shown += 1;
 		}

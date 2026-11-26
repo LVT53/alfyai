@@ -35,6 +35,9 @@ export interface WritePreview {
 /** What the permission card asks. Finer than the operation: replacing a file and saving a new one are the same `files.put`. */
 export type WriteCardKind =
 	| "email.send"
+	| "email.draft"
+	| "email.edit_draft"
+	| "email.send_draft"
 	| "email.trash"
 	| "email.mark_read"
 	| "email.mark_unread"
@@ -55,6 +58,9 @@ export type WriteCardKind =
 export type WriteCardFactKey =
 	| "to"
 	| "cc"
+	| "bcc"
+	| "attachments"
+	| "cancellation_recipients"
 	| "from"
 	| "sent"
 	| "when"
@@ -85,6 +91,7 @@ export type WriteCardRisk =
 
 export interface WriteCard {
 	kind: WriteCardKind;
+	isFolder?: boolean;
 	/** The name of the thing this is about, which the card draws large. Empty when it has none: a flag change stored before it named its email knows only the email's number. */
 	subject: string;
 	facts: WriteCardFact[];
@@ -110,4 +117,5 @@ export interface PendingWrite {
 	provider: string;
 	createdAt: number;
 	etag?: string | null;
+	resultUrl?: string;
 }

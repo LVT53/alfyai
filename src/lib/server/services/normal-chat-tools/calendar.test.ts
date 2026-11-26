@@ -1,3 +1,9 @@
+import { outlookGetEvent } from "../connections/providers/outlook-calendar-writes";
+
+vi.mock("../connections/providers/outlook-calendar-writes", () => ({
+	outlookGetEvent: vi.fn(),
+}));
+
 import { davFreeBusy } from "../connections/dav/free-busy";
 import {
 	outlookBusyIntervals,
@@ -1320,6 +1326,94 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 	// reads were generalized) — a caldav connection must keep degrading
 	// gracefully through the existing "Google and Apple only for v1" gate
 	// rather than creating a pending write.
+	it("preserves Teams meeting links and warns about attendee cancellations on organizer deletes", async () => {
+		const conn = makeWritableGoogleConn({
+			provider: "onedrive",
+			oauthScopes: ["Calendars.ReadWrite"],
+			config: { microsoftWritePermissions: ["calendar"] },
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		const meeting = {
+			id: "teams",
+			summary: "Team meeting",
+			start: "2026-12-01T09:00:00Z",
+			end: "2026-12-01T10:00:00Z",
+			htmlLink: "",
+			etag: "v1",
+			isOnlineMeeting: true,
+			cancellationRecipients: 2,
+		};
+		vi.mocked(outlookGetEvent).mockResolvedValue(meeting);
+		const notes = await runCalendarTool(
+			"user-1",
+			{ action: "update_event", eventId: "teams", description: "New agenda" },
+			LOCAL_MODEL_ID,
+		);
+		expect(notes.modelPayload.pendingWriteId).toBeUndefined();
+		expect(notes.modelPayload.message).toContain("meeting link");
+		await runCalendarTool(
+			"user-1",
+			{ action: "update_event", eventId: "teams", title: "Revised name" },
+			LOCAL_MODEL_ID,
+		);
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		await runCalendarTool(
+			"user-1",
+			{ action: "delete_event", eventId: "teams" },
+			LOCAL_MODEL_ID,
+		);
+		expect(
+			JSON.parse(createPendingWriteMock.mock.calls.at(-1)?.[1].content ?? "{}"),
+		).toMatchObject({ cancellationRecipients: 2 });
+		vi.mocked(outlookGetEvent).mockReset();
+	});
+	it("binds an Outlook series edit to the confirmed master and version, without mutating Outlook", async () => {
+		const conn = makeWritableGoogleConn({
+			provider: "onedrive",
+			label: "Work Outlook",
+			oauthScopes: ["Calendars.ReadWrite"],
+			config: { microsoftWritePermissions: ["calendar"] },
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		vi.mocked(outlookGetEvent)
+			.mockResolvedValueOnce({
+				id: "instance",
+				summary: "Weekly",
+				start: "2026-12-01T09:00:00Z",
+				end: "2026-12-01T10:00:00Z",
+				htmlLink: "",
+				recurringEventId: "master",
+				etag: "i",
+			})
+			.mockResolvedValueOnce({
+				id: "master",
+				summary: "Weekly",
+				start: "2026-12-01T09:00:00Z",
+				end: "2026-12-01T10:00:00Z",
+				htmlLink: "",
+				recurrence: ["seriesMaster"],
+				etag: "m",
+			});
+		const outcome = await runCalendarTool(
+			"user-1",
+			{
+				action: "update_event",
+				eventId: "instance",
+				recurringScope: "series",
+				title: "Weekly team",
+			},
+			LOCAL_MODEL_ID,
+		);
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+		const pending = createPendingWriteMock.mock.calls.at(-1)?.[1];
+		expect(pending?.op.target?.id).toBe("master");
+		expect(JSON.parse(pending?.content ?? "{}")).toMatchObject({
+			eventId: "master",
+			etag: "m",
+			event: { summary: "Weekly team" },
+		});
+	});
+
 	it("create_event on a caldav connection returns a graceful not-supported note and creates no pending write", async () => {
 		const conn = makeConn({
 			provider: "caldav",
@@ -1343,7 +1437,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain(
-			"only supported for Google and Apple",
+			"only supported for Google, Outlook and Apple",
 		);
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 		expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
@@ -1573,7 +1667,9 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			);
 
 			expect(outcome.modelPayload.success).toBe(false);
-			expect(outcome.modelPayload.message).toContain("Google and Apple iCloud");
+			expect(outcome.modelPayload.message).toContain(
+				"Google, Outlook and Apple iCloud",
+			);
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 			expect(reasonCodeOf(outcome.modelPayload)).toBe("not_supported");
 		});

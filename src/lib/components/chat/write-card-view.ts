@@ -29,7 +29,31 @@ type KindCopy = {
 	icon: ToolCallIconType;
 };
 
+const FOLDER_QUESTIONS: Partial<Record<WriteCardKind, I18nKey>> = {
+	"files.move": "connections.writeConfirm.question.folderMove",
+	"files.rename": "connections.writeConfirm.question.folderRename",
+	"files.delete": "connections.writeConfirm.question.folderDelete",
+	"files.share_link": "connections.writeConfirm.question.folderShare",
+};
 const KIND_COPY: Record<WriteCardKind, KindCopy> = {
+	"email.draft": {
+		question: "connections.writeConfirm.question.emailDraft",
+		approve: "connections.writeConfirm.approve.emailDraft",
+		done: "connections.writeConfirm.done.emailDraft",
+		icon: "email",
+	},
+	"email.edit_draft": {
+		question: "connections.writeConfirm.question.emailEditDraft",
+		approve: "connections.writeConfirm.approve.emailEditDraft",
+		done: "connections.writeConfirm.done.emailEditDraft",
+		icon: "email",
+	},
+	"email.send_draft": {
+		question: "connections.writeConfirm.question.emailSendDraft",
+		approve: "connections.writeConfirm.approve.emailSendDraft",
+		done: "connections.writeConfirm.done.emailSendDraft",
+		icon: "email",
+	},
 	"email.send": {
 		question: "connections.writeConfirm.question.emailSend",
 		approve: "connections.writeConfirm.approve.emailSend",
@@ -144,6 +168,15 @@ const KIND_COPY: Record<WriteCardKind, KindCopy> = {
 const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 	{
 		to: { label: "connections.writeConfirm.fact.to", quiet: false },
+		cancellation_recipients: {
+			label: "connections.writeConfirm.fact.cancellationRecipients",
+			quiet: false,
+		},
+		bcc: { label: "connections.writeConfirm.fact.bcc", quiet: false },
+		attachments: {
+			label: "connections.writeConfirm.fact.attachments",
+			quiet: false,
+		},
 		cc: { label: "connections.writeConfirm.fact.cc", quiet: false },
 		from: { label: "connections.writeConfirm.fact.from", quiet: false },
 		sent: { quiet: true },
@@ -323,7 +356,11 @@ export function buildWriteCardView(
 	const approveLabel = t(copy.approve);
 
 	return {
-		question: t(copy.question),
+		question: t(
+			card.isFolder
+				? (FOLDER_QUESTIONS[card.kind] ?? copy.question)
+				: copy.question,
+		),
 		qualifier,
 		name: card.subject || null,
 		// A flag change stored before it named its email has no name: the row
@@ -360,6 +397,12 @@ export function settledWriteNote(
 		return t("connections.writeConfirm.note.expired");
 	}
 	if (write.status === "failed") {
+		if (
+			write.provider === "onedrive" &&
+			(write.card?.kind === "email.send" ||
+				write.card?.kind === "email.send_draft")
+		)
+			return t("connections.writeConfirm.note.outlookSendFailed");
 		return write.provider === "google" &&
 			write.card?.kind.startsWith("calendar.")
 			? t("connections.writeConfirm.note.googleCalendarFailed")

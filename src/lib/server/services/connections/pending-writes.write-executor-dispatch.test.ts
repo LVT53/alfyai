@@ -63,11 +63,13 @@ afterEach(() => {
 // used purely to look up a registered executor), so a fixed "nextcloud"
 // connection works as the backing row for every fake/unregistered provider
 // below.
-async function seedConnection(): Promise<string> {
+async function seedConnection(
+	provider: "nextcloud" | "onedrive" = "nextcloud",
+): Promise<string> {
 	const { createConnection } = await import("./store");
 	const conn = await createConnection({
 		userId: "user-1",
-		provider: "nextcloud",
+		provider,
 		label: "Nextcloud",
 		accountIdentifier: "alice",
 		status: "connected",
@@ -97,6 +99,52 @@ const PREVIEW: WritePreview = {
 };
 
 describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
+	it("returns a scoped share URL once, on repeated confirmation, and after reloading the card", async () => {
+		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+		const { registerWriteExecutor, getWriteExecutor } = await import(
+			"./write-executors"
+		);
+		const { toPendingWriteDto } = await import("./write-card");
+		const prior = getWriteExecutor("onedrive");
+		const url = "https://1drv.ms/example";
+		const execute = vi.fn().mockResolvedValue({ ok: true, resultUrl: url });
+		registerWriteExecutor({ provider: "onedrive", execute });
+		try {
+			const cid = await seedConnection("onedrive");
+			const { id } = await createPendingWrite("user-1", {
+				connectionId: cid,
+				provider: "onedrive",
+				op: {
+					...makeOp("onedrive", cid),
+					action: "files.share_link",
+					target: { path: "/report.pdf" },
+				},
+				content: "",
+				idempotencyKey: "share",
+				preview: PREVIEW,
+			});
+			expect((await getPendingWrite("user-1", id))?.resultUrl).toBeUndefined();
+			expect(await confirmPendingWrite("user-1", id)).toMatchObject({
+				ok: true,
+				resultUrl: url,
+				alreadyExecuted: false,
+			});
+			expect(await confirmPendingWrite("user-1", id)).toMatchObject({
+				ok: true,
+				resultUrl: url,
+				alreadyExecuted: true,
+			});
+			expect(execute).toHaveBeenCalledTimes(1);
+			const saved = await getPendingWrite("user-1", id);
+			if (!saved) throw new Error("missing persisted write");
+			expect(toPendingWriteDto(saved, new Map()).resultUrl).toBe(url);
+			expect(saved.preview).not.toHaveProperty("resultUrl");
+		} finally {
+			if (prior) registerWriteExecutor(prior);
+		}
+	});
+
 	it("a pending write whose provider has no registered executor fails with unsupported_operation and the row is marked failed (no execution)", async () => {
 		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
 			await import("./pending-writes");

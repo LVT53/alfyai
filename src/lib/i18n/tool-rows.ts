@@ -90,9 +90,13 @@ const toolRowsDict = {
 		"toolRows.connector.email.read": "Read an email",
 		"toolRows.connector.email.list_folders": "Looked at your mail folders",
 		"toolRows.connector.email.send": "Proposed sending an email",
+		"toolRows.connector.email.draft": "Proposed saving a draft",
+		"toolRows.connector.email.edit_draft": "Proposed editing a draft",
+		"toolRows.connector.email.send_draft": "Proposed sending a saved draft",
 		"toolRows.connector.email.trash": "Proposed moving an email to Trash",
 		"toolRows.connector.email.flag": "Proposed flagging an email",
 		"toolRows.connector.email.other": "Used your email",
+		"toolRows.connector.files.stat": "Checked file details",
 		"toolRows.connector.files.list": "Looked in a folder",
 		"toolRows.connector.files.search": "Searched your files",
 		"toolRows.connector.files.read": "Opened a file",
@@ -221,6 +225,8 @@ const toolRowsDict = {
 			"Your calendar didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.calendar.writes_turned_off":
 			"Changing your calendar is turned off. You can turn it on in Settings › Connections.",
+		"toolRows.connector.calendar.online_meeting_notes":
+			"Edit the notes in Outlook to preserve the meeting link.",
 		"toolRows.connector.calendar.calendar_edit_consent":
 			"Google Calendar is read-only. Open your Google account in Connections to allow event changes, then ask again.",
 		"toolRows.connector.calendar.openConnections": "Open Connections",
@@ -566,9 +572,14 @@ const toolRowsDict = {
 		"toolRows.connector.email.read": "Elolvasott egy levelet",
 		"toolRows.connector.email.list_folders": "Megnézte a levelezőmappáidat",
 		"toolRows.connector.email.send": "Levél küldését javasolta",
+		"toolRows.connector.email.draft": "Piszkozat mentését javasolta",
+		"toolRows.connector.email.edit_draft": "Piszkozat módosítását javasolta",
+		"toolRows.connector.email.send_draft":
+			"Mentett piszkozat küldését javasolta",
 		"toolRows.connector.email.trash": "Egy levél kukába helyezését javasolta",
 		"toolRows.connector.email.flag": "Egy levél megjelölését javasolta",
 		"toolRows.connector.email.other": "Használta az e-mail-fiókodat",
+		"toolRows.connector.files.stat": "Megnézte a fájl adatait",
 		"toolRows.connector.files.list": "Megnézett egy mappát",
 		"toolRows.connector.files.search": "Keresett a fájljaid között",
 		"toolRows.connector.files.read": "Megnyitott egy fájlt",
@@ -695,6 +706,8 @@ const toolRowsDict = {
 			"A naptár nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.calendar.writes_turned_off":
 			"A naptár módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+		"toolRows.connector.calendar.online_meeting_notes":
+			"A megbeszélés hivatkozásának megőrzéséhez az Outlookban módosítsd a jegyzeteket.",
 		"toolRows.connector.calendar.calendar_edit_consent":
 			"A Google Naptár jelenleg csak olvasható. Nyisd meg a Google-fiókodat a Kapcsolatok között, és engedélyezd az események módosítását. Ezután kérd újra a módosítást.",
 		"toolRows.connector.calendar.openConnections": "Kapcsolatok megnyitása",

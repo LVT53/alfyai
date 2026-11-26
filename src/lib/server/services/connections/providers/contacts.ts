@@ -28,6 +28,7 @@ import {
 import { appleSearchContacts } from "./apple-caldav";
 import { caldavSearchContacts } from "./caldav-tasks";
 import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
+import { outlookSearchContacts } from "./outlook-contacts";
 
 type FetchOpt = { fetch?: typeof fetch };
 
@@ -50,7 +51,7 @@ export type ContactMatch = {
 	// in providers/apple-caldav.ts) even though both are CardDAV under the
 	// hood — kept as separate source tags so the model-facing payload can
 	// still say which connection a match came from.
-	source: "google" | "apple" | "caldav";
+	source: "google" | "apple" | "caldav" | "onedrive";
 	account?: string;
 	organization?: ContactOrganization;
 };
@@ -529,13 +530,15 @@ function dedupeKey(match: ContactMatch): string {
 async function searchConnection(
 	userId: string,
 	conn: ConnectionPublic,
-	params: { query: string; limit?: number },
+	params: { query: string; limit?: number; connectionId?: string },
 	opts?: FetchOpt,
 ): Promise<ContactMatch[]> {
 	try {
 		if (conn.provider === "google") {
 			return await googleSearchContacts(userId, conn.id, params, opts);
 		}
+		if (conn.provider === "onedrive")
+			return await outlookSearchContacts(conn, params, opts);
 		if (conn.provider === "apple") {
 			return await appleSearchContacts(userId, conn.id, params, opts);
 		}
@@ -548,6 +551,7 @@ async function searchConnection(
 		// them yet, so they're silently skipped rather than dispatched.
 		return [];
 	} catch (err) {
+		if (params.connectionId) throw err;
 		console.warn(
 			`[contacts] ${conn.provider} connection ${conn.id} failed to resolve: ${
 				err instanceof Error ? err.message : String(err)
@@ -563,14 +567,16 @@ async function searchConnection(
 // matches are still returned.
 export async function resolveContacts(
 	userId: string,
-	params: { query: string; limit?: number },
+	params: { query: string; limit?: number; connectionId?: string },
 	opts?: FetchOpt,
 ): Promise<ContactMatch[]> {
 	const limit = params.limit ?? DEFAULT_LIMIT;
 	const connections = await resolveConnectionsForCapability(userId, "contacts");
 
 	const perSourceResults = await Promise.all(
-		connections.map((conn) => searchConnection(userId, conn, params, opts)),
+		connections
+			.filter((conn) => !params.connectionId || params.connectionId === conn.id)
+			.map((conn) => searchConnection(userId, conn, params, opts)),
 	);
 
 	const merged: ContactMatch[] = [];
@@ -599,7 +605,7 @@ export async function resolveContacts(
 async function searchConnectionByGroup(
 	userId: string,
 	conn: ConnectionPublic,
-	params: { groupName: string; limit?: number },
+	params: { groupName: string; limit?: number; connectionId?: string },
 	opts?: FetchOpt,
 ): Promise<ContactMatch[]> {
 	try {
@@ -612,6 +618,7 @@ async function searchConnectionByGroup(
 		// same as Nextcloud CardDAV in searchConnection above.
 		return [];
 	} catch (err) {
+		if (params.connectionId) throw err;
 		console.warn(
 			`[contacts] ${conn.provider} connection ${conn.id} failed to resolve group "${params.groupName}": ${
 				err instanceof Error ? err.message : String(err)
@@ -629,16 +636,16 @@ async function searchConnectionByGroup(
 // sources found, same graceful-degradation contract as resolveContacts.
 export async function resolveContactsByGroup(
 	userId: string,
-	params: { groupName: string; limit?: number },
+	params: { groupName: string; limit?: number; connectionId?: string },
 	opts?: FetchOpt,
 ): Promise<ContactMatch[]> {
 	const limit = params.limit ?? DEFAULT_LIMIT;
 	const connections = await resolveConnectionsForCapability(userId, "contacts");
 
 	const perSourceResults = await Promise.all(
-		connections.map((conn) =>
-			searchConnectionByGroup(userId, conn, params, opts),
-		),
+		connections
+			.filter((conn) => !params.connectionId || params.connectionId === conn.id)
+			.map((conn) => searchConnectionByGroup(userId, conn, params, opts)),
 	);
 
 	const merged: ContactMatch[] = [];
