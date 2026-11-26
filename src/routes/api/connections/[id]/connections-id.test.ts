@@ -123,7 +123,18 @@ describe("/api/connections/[id]", () => {
 			expect(mockSetEnabledCapabilities).not.toHaveBeenCalled();
 		});
 
+		it("requires an existing Google grant to enable calendar editing by PATCH, including legacy grants", async () => {
+			expect((await PATCH(makeEvent({ allowWrites: true }))).status).toBe(403);
+			expect(mockSetAllowWrites).not.toHaveBeenCalled();
+			mockGetConnection.mockResolvedValue({
+				...googleConnection,
+				oauthScopes: ["https://www.googleapis.com/auth/calendar.events"],
+			});
+			expect((await PATCH(makeEvent({ allowWrites: true }))).status).toBe(200);
+		});
+
 		it("updates only the supplied fields", async () => {
+			mockGetConnection.mockResolvedValue(nextcloudConnection);
 			const response = await PATCH(makeEvent({ allowWrites: true }));
 
 			expect(response.status).toBe(200);
@@ -169,6 +180,7 @@ describe("/api/connections/[id]", () => {
 		});
 
 		it("never includes a secret field in the response body", async () => {
+			mockGetConnection.mockResolvedValue(nextcloudConnection);
 			const response = await PATCH(makeEvent({ allowWrites: true }));
 			const text = await response.text();
 

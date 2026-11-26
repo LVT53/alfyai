@@ -179,6 +179,8 @@ const connectionsDict = {
 
 		"connections.oauthReturn.success": "Connected to {provider}.",
 		"connections.oauthReturn.error": "Couldn't connect: {reason}",
+		"connections.oauthReturn.reason.google_oauth_wrong_account":
+			"Choose the same Google account you connected to AlfyAI.",
 		"connections.oauthReturn.reason.google_oauth_denied":
 			"You declined the Google permission request.",
 		"connections.oauthReturn.reason.google_oauth_invalid_request":
@@ -475,6 +477,8 @@ const connectionsDict = {
 			"Couldn't create the key. Check that Immich is reachable, then try again.",
 		"connections.detail.writeConfirmNote":
 			"Every change is confirmed individually before it happens.",
+		"connections.detail.googleWriteConsent":
+			"Google will ask for permission to edit events. You confirm each change in chat.",
 		"connections.detail.writeConfirmNoteCalendar":
 			"Calendar changes only, and each one needs your OK.",
 		"connections.detail.foldersLabel": "Folders Alfy may write to",
@@ -809,6 +813,8 @@ const connectionsDict = {
 
 		"connections.oauthReturn.success": "Csatlakoztatva: {provider}.",
 		"connections.oauthReturn.error": "Nem sikerült csatlakozni: {reason}",
+		"connections.oauthReturn.reason.google_oauth_wrong_account":
+			"Azt a Google-fiókot válaszd, amelyet az AlfyAI-hoz csatlakoztattál.",
 		"connections.oauthReturn.reason.google_oauth_denied":
 			"Elutasítottad a Google jogosultságkérését.",
 		"connections.oauthReturn.reason.google_oauth_invalid_request":
@@ -1075,6 +1081,8 @@ const connectionsDict = {
 			"Nem sikerült létrehozni a kulcsot. Nézd meg, elérhető-e az Immich, és próbáld újra.",
 		"connections.detail.writeConfirmNote":
 			"Minden változtatást egyenként hagysz jóvá, mielőtt megtörténik.",
+		"connections.detail.googleWriteConsent":
+			"A Google engedélyt kér az események szerkesztésére. Minden módosítást te hagysz jóvá a csevegésben.",
 		"connections.detail.writeConfirmNoteCalendar":
 			"Csak naptárváltozások, és mindegyikhez kell a jóváhagyásod.",
 		"connections.detail.foldersLabel": "Mappák, ahová az Alfy írhat",

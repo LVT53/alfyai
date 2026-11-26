@@ -38,6 +38,7 @@ import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import { t } from "$lib/i18n";
+import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
 import CapabilityRow from "./connections/CapabilityRow.svelte";
 import ConnectionStatusCell from "./connections/ConnectionStatusCell.svelte";
@@ -57,6 +58,7 @@ let {
 	onClose,
 	onToggleCapability,
 	onToggleAllowWrites,
+	onRequestGoogleCalendarWrites,
 	onEnableImmichWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
@@ -83,6 +85,7 @@ let {
 		next: boolean,
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
+	onRequestGoogleCalendarWrites?: (id: string) => void | Promise<void>;
 	// Makes the key an Immich account writes with, from its password. Rejects
 	// when Immich turns the password away or cannot be reached.
 	onEnableImmichWrites?: (id: string, password: string) => void | Promise<void>;
@@ -139,6 +142,12 @@ const needsWriteKey = $derived(
 		!!onEnableImmichWrites,
 );
 
+const needsGoogleCalendarConsent = $derived(
+	connection?.provider === "google" &&
+		connection.capabilities.includes("calendar") &&
+		!connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE),
+);
+
 function closeWriteKeyForm() {
 	writeKeyOpen = false;
 	writeKeyPassword = "";
@@ -147,6 +156,11 @@ function closeWriteKeyForm() {
 }
 
 async function onWritesSwitch(conn: ConnectionPublic, next: boolean) {
+	if (next && needsGoogleCalendarConsent && onRequestGoogleCalendarWrites) {
+		const requestConsent = onRequestGoogleCalendarWrites;
+		await withPending("allowWrites", () => requestConsent(conn.id));
+		return;
+	}
 	if (needsWriteKey) {
 		if (next) {
 			writeKeyOpen = true;
@@ -576,14 +590,16 @@ function capabilityAbout(capability: string): string {
 						withPending('defaultOn', () => onToggleDefaultOn(conn.id, next))}
 				/>
 
-				{#if entry.writable}
+				{#if entry.writable && (!needsGoogleCalendarConsent || onRequestGoogleCalendarWrites)}
 					<BehaviourRow
 						label={$t('connections.detail.letAlfyWrite')}
-						description={conn.provider === 'google' || conn.provider === 'apple'
+						description={needsGoogleCalendarConsent
+							? $t('connections.detail.googleWriteConsent')
+							: conn.provider === 'google' || conn.provider === 'apple'
 							? $t('connections.detail.writeConfirmNoteCalendar')
 							: $t('connections.detail.letAlfyWriteSub')}
 						help={$t('connections.detail.letAlfyWriteHelp')}
-						checked={conn.allowWrites || (needsWriteKey && writeKeyOpen)}
+						checked={!needsGoogleCalendarConsent && (conn.allowWrites || (needsWriteKey && writeKeyOpen))}
 						busy={isPending('allowWrites') || writeKeyBusy}
 						testId="behaviour-allow-writes"
 						onChange={(next) => onWritesSwitch(conn, next)}

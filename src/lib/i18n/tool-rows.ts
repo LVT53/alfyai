@@ -221,6 +221,9 @@ const toolRowsDict = {
 			"Your calendar didn't answer, so Alfy couldn't look.",
 		"toolRows.connector.calendar.writes_turned_off":
 			"Changing your calendar is turned off. You can turn it on in Settings › Connections.",
+		"toolRows.connector.calendar.calendar_edit_consent":
+			"Google Calendar is read-only. Open your Google account in Connections to allow event changes, then ask again.",
+		"toolRows.connector.calendar.openConnections": "Open Connections",
 		"toolRows.connector.calendar.read_only_account":
 			"This calendar can only be read, not changed.",
 		"toolRows.connector.calendar.item_not_found":
@@ -692,6 +695,9 @@ const toolRowsDict = {
 			"A naptár nem válaszolt, ezért Alfy nem tudott belenézni.",
 		"toolRows.connector.calendar.writes_turned_off":
 			"A naptár módosítása ki van kapcsolva. A Beállítások › Kapcsolatok alatt bekapcsolhatod.",
+		"toolRows.connector.calendar.calendar_edit_consent":
+			"A Google Naptár jelenleg csak olvasható. Nyisd meg a Google-fiókodat a Kapcsolatok között, és engedélyezd az események módosítását. Ezután kérd újra a módosítást.",
+		"toolRows.connector.calendar.openConnections": "Kapcsolatok megnyitása",
 		"toolRows.connector.calendar.read_only_account":
 			"Ez a naptár csak olvasható, nem módosítható.",
 		"toolRows.connector.calendar.item_not_found":

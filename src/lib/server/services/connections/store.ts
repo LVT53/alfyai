@@ -217,6 +217,7 @@ export async function updateConnection(
 	userId: string,
 	id: string,
 	patch: Partial<{
+		secret: string;
 		label: string;
 		accountIdentifier: string;
 		status: ConnectionStatus;
@@ -234,6 +235,12 @@ export async function updateConnection(
 	const set: Partial<typeof userConnections.$inferInsert> = {
 		updatedAt: now,
 	};
+	if (patch.secret !== undefined) {
+		const encrypted = encryptConnectionSecret(patch.secret);
+		set.secretCiphertext = encrypted.ciphertext;
+		set.secretIv = encrypted.iv;
+		set.secretAuthTag = encrypted.authTag;
+	}
 	if (patch.label !== undefined) set.label = patch.label;
 	if (patch.accountIdentifier !== undefined) {
 		set.accountIdentifier = patch.accountIdentifier;

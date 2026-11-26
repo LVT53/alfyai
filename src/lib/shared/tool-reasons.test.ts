@@ -61,7 +61,7 @@ describe("tool reason codes", () => {
 		}
 	});
 
-	it("gives the nine account tools one list", () => {
+	it("keeps the shared account reasons and the Calendar-specific reasons", () => {
 		expect(CONNECTOR_TOOL_NAMES).toEqual([
 			"calendar",
 			"contacts",
@@ -73,8 +73,14 @@ describe("tool reason codes", () => {
 			"repos",
 			"tasks",
 		]);
+		expect(TOOL_REASON_CODES.calendar).toEqual([
+			...CONNECTOR_REASON_CODES,
+			"availability_incomplete",
+			"calendar_edit_consent",
+		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {
-			expect(TOOL_REASON_CODES[name]).toBe(CONNECTOR_REASON_CODES);
+			if (name !== "calendar")
+				expect(TOOL_REASON_CODES[name]).toBe(CONNECTOR_REASON_CODES);
 		}
 	});
 

@@ -36,6 +36,7 @@ import {
 	fetchLocality,
 	recheckConnection,
 	setLocalDistill,
+	startGoogleConnect,
 	updateConnection,
 	updateOwnTracksHome,
 	type ConnectionPublic,
@@ -91,6 +92,7 @@ import type { PageProps } from "./$types";
 
 // Extended data interface for admin-specific properties
 interface SettingsPageData {
+	googleCalendarWriteReviewEnabled?: boolean;
 	/** The Read aloud card's voices (null while read aloud is off). */
 	readAloudVoices?: ReadAloudVoiceSettings | null;
 	userSettings: {
@@ -944,6 +946,11 @@ async function toggleConnectionCapability(
 	}
 }
 
+async function requestGoogleCalendarWrites(id: string) {
+	const { authUrl } = await startGoogleConnect(["calendar"], id);
+	window.location.assign(authUrl);
+}
+
 async function toggleConnectionAllowWrites(id: string, next: boolean) {
 	const previous = connections.find((conn) => conn.id === id)?.allowWrites;
 	if (previous === undefined) return;
@@ -1404,6 +1411,7 @@ $effect(() => {
 				onRetryLoad={loadConnections}
 				onToggleCapability={toggleConnectionCapability}
 				onToggleAllowWrites={toggleConnectionAllowWrites}
+				onRequestGoogleCalendarWrites={(data as SettingsPageData).googleCalendarWriteReviewEnabled ? requestGoogleCalendarWrites : undefined}
 				onEnableImmichWrites={enableConnectionWriteKey}
 				onToggleDefaultOn={toggleConnectionDefaultOn}
 				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}

@@ -52,6 +52,7 @@ let {
 	onRetryLoad,
 	onToggleCapability,
 	onToggleAllowWrites,
+	onRequestGoogleCalendarWrites,
 	// Immich only: makes the write key from the account's password. Not wrapped
 	// in runChange, because the dialog says on the spot what went wrong (a wrong
 	// password is not a change that "didn't save"); the switch that follows it is.
@@ -91,6 +92,7 @@ let {
 		next: boolean,
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
+	onRequestGoogleCalendarWrites?: (id: string) => Promise<void>;
 	onEnableImmichWrites?: (id: string, password: string) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
@@ -204,6 +206,13 @@ const guardedToggleAllowWrites = (id: string, next: boolean) =>
 			: "connections.states.saveFailed.writesOff",
 		{ provider: providerNameOf(id) },
 		() => onToggleAllowWrites(id, next),
+	);
+
+const guardedRequestGoogleCalendarWrites = (id: string) =>
+	runChange(
+		"connections.states.saveFailed.writesOn",
+		{ provider: providerNameOf(id) },
+		() => onRequestGoogleCalendarWrites?.(id),
 	);
 
 const guardedUpdateAllowlist = (id: string, next: string[]) =>
@@ -406,6 +415,7 @@ function nameList(capabilities: string[]): string {
 	onClose={() => (selectedConnectionId = null)}
 	onToggleCapability={guardedToggleCapability}
 	onToggleAllowWrites={guardedToggleAllowWrites}
+	onRequestGoogleCalendarWrites={onRequestGoogleCalendarWrites ? guardedRequestGoogleCalendarWrites : undefined}
 	{onEnableImmichWrites}
 	onToggleDefaultOn={guardedToggleDefaultOn}
 	onUpdateWriteAllowlist={guardedUpdateAllowlist}

@@ -7,6 +7,8 @@
 import type { I18nKey } from "$lib/i18n";
 
 const OAUTH_ERROR_REASON_KEYS: Record<string, I18nKey> = {
+	google_oauth_wrong_account:
+		"connections.oauthReturn.reason.google_oauth_wrong_account",
 	google_oauth_denied: "connections.oauthReturn.reason.google_oauth_denied",
 	google_oauth_invalid_request:
 		"connections.oauthReturn.reason.google_oauth_invalid_request",

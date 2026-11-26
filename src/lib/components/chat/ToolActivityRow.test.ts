@@ -56,6 +56,38 @@ describe("ToolActivityRow", () => {
 		uiLanguage.set("en");
 	});
 
+	it.each([
+		["en", "Open Connections"],
+		["hu", "Kapcsolatok megnyitása"],
+	] as const)(
+		"links to Connections only when the server offered calendar consent (%s)",
+		async (lang, label) => {
+			uiLanguage.set(lang);
+			const consent = toolCall({
+				name: "calendar",
+				input: { action: "update_event" },
+				status: "done",
+				metadata: { reasonCode: "calendar_edit_consent" },
+			});
+			const ordinary = {
+				...consent,
+				metadata: { reasonCode: "read_only_account" },
+			};
+			const view = render(ToolActivityRow, {
+				item: buildConnectorActivityItem([consent], "calendar", get(t)),
+				open: true,
+			});
+			expect(view.getByRole("link", { name: label }).getAttribute("href")).toBe(
+				"/settings?section=connections",
+			);
+			await view.rerender({
+				item: buildConnectorActivityItem([ordinary], "calendar", get(t)),
+				open: true,
+			});
+			expect(view.queryByRole("link")).toBeNull();
+		},
+	);
+
 	it("renders the row anatomy: status glyph, tool icon, verb, object and right-hand meta", () => {
 		const { getByTestId } = render(ToolActivityRow, {
 			item: item(searchSegment),
