@@ -310,6 +310,13 @@ test.describe("the Document's Download", () => {
 		});
 		// The poll is held while the reader closes the popover; then it answers that
 		// the job failed. The popover is gone by then: nothing else could say so.
+		const started = page.waitForResponse(
+			(response) =>
+				response.request().method() === "POST" &&
+				/\/api\/artifacts\/[^/]+\/export$/.test(
+					new URL(response.url()).pathname,
+				),
+		);
 		let fail!: () => void;
 		const failing = new Promise<void>((resolve) => {
 			fail = resolve;
@@ -317,13 +324,18 @@ test.describe("the Document's Download", () => {
 		await page.route("**/api/chat/files/jobs/*", async (route) => {
 			if (route.request().method() !== "GET") return route.fallback();
 			await failing;
-			const real = (await (await route.fetch()).json()) as {
-				job: Record<string, unknown>;
-			};
+			// Use the real export's job rather than making another HTTP request
+			// from the interceptor to obtain the payload we are replacing.
+			const response = await started;
+			expect(response.ok()).toBe(true);
+			const { job } = (await response.json()) as { job: { id: string } };
+			expect(new URL(route.request().url()).pathname).toBe(
+				`/api/chat/files/jobs/${job.id}`,
+			);
 			await route.fulfill({
 				json: {
 					job: {
-						...real.job,
+						...job,
 						status: "failed",
 						files: [],
 						error: { code: "render_failed", message: "x", retryable: true },
