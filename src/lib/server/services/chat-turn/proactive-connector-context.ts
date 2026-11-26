@@ -35,11 +35,7 @@
 import { isConversationIncognito } from "$lib/server/services/memory-controls";
 import { decideLocalDistillForPrompt } from "$lib/server/services/normal-chat-tools/connector-distill";
 import { truncateToTokenBudget } from "$lib/server/utils/prompt-context";
-import { appleListEvents } from "../connections/providers/apple-caldav";
-import {
-	type CalendarEvent,
-	googleListEvents,
-} from "../connections/providers/google-calendar";
+import { listConnectionEvents } from "../connections/calendar-read";
 import {
 	type EmailHeader,
 	imapListRecent,
@@ -144,17 +140,11 @@ async function fetchCalendarLines(
 	const timeMax = new Date(
 		now + CALENDAR_LOOKAHEAD_HOURS * 60 * 60 * 1000,
 	).toISOString();
-	const events: CalendarEvent[] =
-		conn.provider === "apple"
-			? (await appleListEvents(userId, conn.id, { timeMin, timeMax })).slice(
-					0,
-					CALENDAR_MAX_EVENTS,
-				)
-			: await googleListEvents(userId, conn.id, {
-					timeMin,
-					timeMax,
-					maxResults: CALENDAR_MAX_EVENTS,
-				});
+	const events = await listConnectionEvents(userId, conn, {
+		timeMin,
+		timeMax,
+		maxResults: CALENDAR_MAX_EVENTS,
+	});
 	return events.map((event) => {
 		const title =
 			event.summary && event.summary.length > 0
@@ -299,29 +289,19 @@ export async function buildProactiveConnectorContext(
 		() => false,
 	);
 
-	const sections: string[] = [];
-	if (wantsCalendar) {
-		const section = await buildCapabilitySection({
-			userId: params.userId,
-			modelId: params.modelId,
-			message: params.message,
-			capability: "calendar",
-			incognito,
-			now,
-		});
-		if (section) sections.push(section);
-	}
-	if (wantsEmail) {
-		const section = await buildCapabilitySection({
-			userId: params.userId,
-			modelId: params.modelId,
-			message: params.message,
-			capability: "email",
-			incognito,
-			now,
-		});
-		if (section) sections.push(section);
-	}
+	const capabilities: Array<"calendar" | "email"> = [];
+	if (wantsCalendar) capabilities.push("calendar");
+	if (wantsEmail) capabilities.push("email");
+	const sections = (
+		await Promise.all(
+			capabilities.map((capability) =>
+				withTimeout(
+					buildCapabilitySection({ ...params, capability, incognito, now }),
+					CONNECTOR_FETCH_TIMEOUT_MS,
+				).catch(() => null),
+			),
+		)
+	).filter((section) => section !== null);
 
 	if (sections.length === 0) return null;
 

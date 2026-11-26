@@ -4,7 +4,6 @@ import { createPendingWrite } from "$lib/server/services/connections/pending-wri
 import {
 	AppleCalDavError,
 	appleGetEventByUid,
-	appleListEvents,
 } from "$lib/server/services/connections/providers/apple-caldav";
 import {
 	// caldavGetEventByUid is NOT wired up here — caldav writes (update/delete
@@ -14,7 +13,6 @@ import {
 	// exists and is exported from caldav-tasks.ts (with its own test
 	// coverage there) for a future write task to wire up.
 	CalDavError,
-	caldavListEvents,
 } from "$lib/server/services/connections/providers/caldav-tasks";
 import {
 	type CalendarEvent,
@@ -22,7 +20,6 @@ import {
 	googleFreeBusy,
 	googleGetEvent,
 	googleListCalendars,
-	googleListEvents,
 } from "$lib/server/services/connections/providers/google-calendar";
 import {
 	needsDisambiguation,
@@ -42,6 +39,7 @@ import {
 	CONNECTOR_PLACEHOLDER_TITLES,
 	type ConnectorReasonCode,
 } from "$lib/shared/tool-reasons";
+import { listConnectionEvents } from "../connections/calendar-read";
 
 import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
 import {
@@ -398,52 +396,6 @@ function toToolEventItem(event: CalendarEvent): CalendarToolEventItem {
 		...(event.location ? { location: event.location } : {}),
 		htmlLink: event.htmlLink,
 	};
-}
-
-// Dispatches list_events to the right provider adapter based on
-// `conn.provider` — google -> googleListEvents (server-side `q` search +
-// `maxResults`), apple -> appleListEvents, caldav (Task 9b, the generic
-// CalDAV connector) -> caldavListEvents. Neither CalDAV path has an
-// equivalent free-text search, so `query` is not applied server-side for
-// either; results are still capped at MAX_EVENTS client-side to match
-// Google's bound.
-async function listEventsForConnection(
-	userId: string,
-	conn: ConnectionPublic,
-	params: {
-		timeMin: string;
-		timeMax: string;
-		query?: string;
-		calendarId?: string;
-	},
-): Promise<CalendarToolEventItem[]> {
-	if (conn.provider === "apple" || conn.provider === "caldav") {
-		// Neither appleListEvents nor caldavListEvents has a per-calendar
-		// scoping parameter — both always REPORT across every calendar
-		// collection in the connection's config. `calendarId` is therefore
-		// intentionally NOT forwarded here; runCalendarTool surfaces a "using
-		// your default calendar(s)" note in the message (see
-		// providerCalendarIdIgnored) rather than silently pretending a
-		// non-primary calendarId was honored (Trap C1).
-		const read = conn.provider === "apple" ? appleListEvents : caldavListEvents;
-		const events = await read(userId, conn.id, {
-			timeMin: params.timeMin,
-			timeMax: params.timeMax,
-		});
-		return events.slice(0, MAX_EVENTS).map(toToolEventItem);
-	}
-	// Trap C1 fix: `calendarId` now flows into googleListEvents so a scoped read
-	// actually hits the requested calendar. Omitted -> undefined -> the adapter
-	// falls back to "primary" (google-calendar.ts), preserving the prior
-	// default-primary behavior exactly.
-	const events = await googleListEvents(userId, conn.id, {
-		timeMin: params.timeMin,
-		timeMax: params.timeMax,
-		q: params.query,
-		maxResults: MAX_EVENTS,
-		...(params.calendarId ? { calendarId: params.calendarId } : {}),
-	});
-	return events.map(toToolEventItem);
 }
 
 // True when a non-primary `calendarId` was requested against an Apple or
@@ -1559,7 +1511,8 @@ export async function runCalendarTool(
 				const { timeMin, timeMax } = resolveRange(input);
 
 				if (input.action === "list_events") {
-					const events = await listEventsForConnection(userId, conn, {
+					const events = await listConnectionEvents(userId, conn, {
+						maxResults: MAX_EVENTS,
 						timeMin,
 						timeMax,
 						query: input.query,
@@ -1567,7 +1520,7 @@ export async function runCalendarTool(
 					});
 					const outcome = listEventsOutcome(
 						conn,
-						events,
+						events.map(toToolEventItem),
 						ambiguous,
 						connections,
 						providerCalendarIdIgnored(conn, input),
