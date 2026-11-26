@@ -15,6 +15,7 @@ import {
 	setWriteAllowlist,
 } from "$lib/server/services/connections/store";
 import { normalizeAllowlistPath } from "$lib/server/services/connections/write-guard";
+import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import type { RequestHandler } from "./$types";
 
 interface PatchBody {
@@ -57,6 +58,19 @@ export const PATCH: RequestHandler = async (event) => {
 
 	if (body.allowWrites !== undefined && typeof body.allowWrites !== "boolean") {
 		return createJsonErrorResponse("allowWrites must be a boolean", 400);
+	}
+	if (
+		body.allowWrites === true &&
+		connection.provider === "google" &&
+		(connection.capabilities.includes("calendar") ||
+			(Array.isArray(body.capabilities) &&
+				body.capabilities.includes("calendar"))) &&
+		!connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)
+	) {
+		return createJsonErrorResponse(
+			"Google Calendar event editing requires Google’s consent",
+			403,
+		);
 	}
 	if (body.defaultOn !== undefined && typeof body.defaultOn !== "boolean") {
 		return createJsonErrorResponse("defaultOn must be a boolean", 400);

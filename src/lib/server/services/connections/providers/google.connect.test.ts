@@ -34,6 +34,7 @@ const ENV_KEYS = [
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
 	"ALFYAI_API_SIGNING_KEY",
+	"GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS",
 ];
 
 function setConfiguredEnv() {
@@ -136,6 +137,9 @@ describe("googleConnectStart", () => {
 		);
 		expect(scope).toContain("https://www.googleapis.com/auth/userinfo.email");
 		expect(scope).toContain("openid");
+		expect(scope.split(" ")).not.toContain(
+			"https://www.googleapis.com/auth/calendar.events",
+		);
 
 		expect(url.searchParams.get("state")).toBeTruthy();
 	});
@@ -555,5 +559,102 @@ describe("googleAdapter.checkHealth", () => {
 
 		expect(health.status).toBe("connected");
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("Google Calendar incremental write consent", () => {
+	it("binds opt-in to the enabled, owned calendar and preserves the account on denied or misdirected consent", async () => {
+		setConfiguredEnv();
+		seedUser("userA");
+		const { googleConnectStart, googleConnectFinish, verifyOAuthState } =
+			await import("./google");
+		const {
+			createConnection,
+			getConnection,
+			getConnectionSecret,
+			listConnectionsForUser,
+		} = await import("../store");
+		const read = "https://www.googleapis.com/auth/calendar.readonly";
+		const write = "https://www.googleapis.com/auth/calendar.events";
+		const contacts = "https://www.googleapis.com/auth/contacts.readonly";
+		const originalSecret = JSON.stringify({
+			refreshToken: "retained",
+			accessToken: "original",
+		});
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Work",
+			accountIdentifier: "work@example.com",
+			capabilities: ["calendar"],
+			oauthScopes: [read, contacts],
+			secret: originalSecret,
+		});
+		const request = {
+			userId: "userA",
+			origin: "https://app.example.com",
+			capabilities: ["calendar" as const],
+			calendarWriteConnectionId: conn.id,
+		};
+		await expect(googleConnectStart(request)).rejects.toMatchObject({
+			code: "write_review_unavailable",
+		});
+		process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS = " userA , userB ";
+		await expect(
+			googleConnectStart({ ...request, userId: "userB" }),
+		).rejects.toMatchObject({ code: "invalid_write_target" });
+		await expect(
+			googleConnectStart({ ...request, capabilities: ["contacts"] }),
+		).rejects.toMatchObject({ code: "invalid_write_target" });
+		const { authUrl } = await googleConnectStart(request);
+		const params = new URL(authUrl).searchParams;
+		expect(params.get("login_hint")).toBe(conn.accountIdentifier);
+		expect(params.get("scope")?.split(" ")).toContain(write);
+		const state = params.get("state") ?? "";
+		expect(verifyOAuthState(state).calendarWriteConnectionId).toBe(conn.id);
+		const finish = (email: string, scope: string) =>
+			googleConnectFinish({
+				code: "test",
+				state,
+				origin: request.origin,
+				fetch: async (input) =>
+					String(input) === TOKEN_URL
+						? jsonResponse(200, {
+								access_token: "upgraded",
+								expires_in: 3600,
+								scope,
+								token_type: "Bearer",
+							})
+						: jsonResponse(200, { email }),
+			});
+		const granted = [read, contacts, write].join(" ");
+		await expect(finish("personal@example.com", granted)).rejects.toMatchObject(
+			{ code: "wrong_account" },
+		);
+		await expect(finish(conn.accountIdentifier, read)).rejects.toMatchObject({
+			code: "write_grant_missing",
+		});
+		await expect(
+			finish(conn.accountIdentifier, [read, write].join(" ")),
+		).rejects.toMatchObject({ code: "write_grant_missing" });
+		expect(await listConnectionsForUser("userA")).toHaveLength(1);
+		expect((await getConnection("userA", conn.id))?.allowWrites).toBe(false);
+		expect(await getConnectionSecret("userA", conn.id)).toBe(originalSecret);
+		process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS = "";
+		await expect(finish(conn.accountIdentifier, granted)).rejects.toMatchObject(
+			{ code: "write_review_unavailable" },
+		);
+		process.env.GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS = "userA";
+		const { connection } = await finish(conn.accountIdentifier, granted);
+		expect(connection).toMatchObject({
+			id: conn.id,
+			label: "Work",
+			allowWrites: true,
+			capabilities: ["calendar"],
+		});
+		expect(connection.oauthScopes).toContain(write);
+		expect(
+			JSON.parse((await getConnectionSecret("userA", conn.id)) ?? "{}"),
+		).toEqual({ refreshToken: "retained", accessToken: "upgraded" });
 	});
 });

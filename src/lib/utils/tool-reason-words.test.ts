@@ -154,6 +154,7 @@ describe("the words of every tool outcome", () => {
 			"empty_text",
 			"text_too_long",
 			"writes_turned_off",
+			"calendar_edit_consent",
 			"read_only_account",
 			"not_supported",
 			"not_set_up",

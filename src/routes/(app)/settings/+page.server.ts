@@ -11,6 +11,7 @@ import {
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { adminConfig, users } from "$lib/server/db/schema";
+import { googleCalendarWriteReviewEnabled } from "$lib/server/env";
 import type { UserSettings } from "$lib/server/services/auth-types";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
 import {
@@ -91,6 +92,9 @@ export const load: ServerLoad = async (event) => {
 	if (!isAdmin) {
 		return {
 			userSettings,
+			googleCalendarWriteReviewEnabled: googleCalendarWriteReviewEnabled(
+				userRow.id,
+			),
 			twoStep,
 			modelNames,
 			availableModels,
@@ -110,6 +114,9 @@ export const load: ServerLoad = async (event) => {
 
 	return {
 		userSettings,
+		googleCalendarWriteReviewEnabled: googleCalendarWriteReviewEnabled(
+			userRow.id,
+		),
 		twoStep,
 		adminConfigKeys: ADMIN_CONFIG_KEYS,
 		currentConfigValues,

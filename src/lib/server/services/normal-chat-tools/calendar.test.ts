@@ -1281,7 +1281,29 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(reasonCodeOf(outcome.modelPayload)).toBe("writes_turned_off");
 		});
 
-		it("missing calendar.events write scope: returns a note asking to reconnect and grant write access, creates NO pending row", async () => {
+		it("points eligible read-only accounts to Google consent without proposing a change", async () => {
+			vi.stubEnv("GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS", "user-1");
+			try {
+				resolveConnectionsForCapabilityMock.mockResolvedValue([
+					makeWritableGoogleConn({ allowWrites: false, oauthScopes: [] }),
+				]);
+				const outcome = await runCalendarTool(
+					"user-1",
+					{ action: "delete_event", eventId: "event" },
+					LOCAL_MODEL_ID,
+				);
+				expect(reasonCodeOf(outcome.modelPayload)).toBe(
+					"calendar_edit_consent",
+				);
+				expect(outcome.modelPayload.message).toContain("Connections");
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(googleGetEventMock).not.toHaveBeenCalled();
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		});
+
+		it("ordinary read-only Google accounts get no invitation to grant write access or pending row", async () => {
 			const conn = makeWritableGoogleConn({ oauthScopes: [] });
 			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 
@@ -1297,8 +1319,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			);
 
 			expect(outcome.modelPayload.success).toBe(false);
-			expect(outcome.modelPayload.message).toContain("reconnect Google");
-			expect(outcome.modelPayload.message).toContain("write access");
+			expect(outcome.modelPayload.message).toContain("can only read events");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 			expect(reasonCodeOf(outcome.modelPayload)).toBe("read_only_account");
 		});

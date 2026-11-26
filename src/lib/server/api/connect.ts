@@ -25,8 +25,6 @@ export type ApiEvent = {
 // mapConnectError reads. (ImapError extends Error rather than
 // ConnectionHttpError, but still has a `code`, so a structural read works for
 // every provider uniformly.)
-type CodedError = { code: string };
-
 function errorCode(err: unknown): string | undefined {
 	if (err instanceof Error) {
 		const code = (err as { code?: unknown }).code;
@@ -120,24 +118,26 @@ export async function handleCredentialConnect<T, R>(opts: {
 // then map `not_configured -> 501 : else 502`. This owns that shape once.
 export async function handleOAuthConnectStart<R>(opts: {
 	event: ApiEvent;
+	acceptsCalendarWriteTarget?: boolean;
 	connectStart: (input: {
 		userId: string;
 		origin: string;
 		capabilities: Capability[];
+		calendarWriteConnectionId?: string;
 	}) => Promise<R>;
 	errorType: ErrorClass;
 	fallbackError: string;
 }): Promise<Response> {
 	const user = requireApiUser(opts.event);
 
-	let body: { capabilities?: unknown };
+	let body: { capabilities?: unknown; calendarWriteConnectionId?: unknown };
 	try {
 		body = await opts.event.request.json();
 	} catch {
 		return createJsonErrorResponse("Invalid JSON", 400);
 	}
 
-	const capabilities = Array.isArray(body.capabilities)
+	const capabilities = Array.isArray(body?.capabilities)
 		? body.capabilities.filter(isCapability)
 		: [];
 	if (capabilities.length === 0) {
@@ -147,18 +147,34 @@ export async function handleOAuthConnectStart<R>(opts: {
 		);
 	}
 
+	const writeId = opts.acceptsCalendarWriteTarget
+		? body.calendarWriteConnectionId
+		: undefined;
+	if (
+		writeId !== undefined &&
+		(typeof writeId !== "string" || !writeId.trim())
+	) {
+		return createJsonErrorResponse("Invalid calendar write connection ID", 400);
+	}
+
 	try {
 		const result = await opts.connectStart({
 			userId: user.id,
 			origin: opts.event.url.origin,
 			capabilities,
+			...(typeof writeId === "string"
+				? { calendarWriteConnectionId: writeId }
+				: {}),
 		});
 		return json(result);
 	} catch (err) {
 		const status =
-			err instanceof opts.errorType &&
-			(err as unknown as CodedError).code === "not_configured"
-				? 501
+			err instanceof opts.errorType
+				? mapConnectError(err, {
+						not_configured: 501,
+						invalid_write_target: 400,
+						write_review_unavailable: 403,
+					})
 				: 502;
 		return createJsonErrorResponse(
 			err instanceof Error ? err.message : opts.fallbackError,

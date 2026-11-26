@@ -11,6 +11,7 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = (event) =>
 	handleOAuthConnectStart({
 		event,
+		acceptsCalendarWriteTarget: true,
 		errorType: GoogleOAuthError,
 		fallbackError: "Failed to start Google connect",
 		connectStart: googleConnectStart,

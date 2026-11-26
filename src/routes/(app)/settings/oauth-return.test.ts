@@ -3,6 +3,9 @@ import { getOAuthErrorReasonKey } from "./oauth-return";
 
 describe("getOAuthErrorReasonKey", () => {
 	it("maps known Google OAuth callback error codes to their reason key", () => {
+		expect(getOAuthErrorReasonKey("google_oauth_wrong_account")).toBe(
+			"connections.oauthReturn.reason.google_oauth_wrong_account",
+		);
 		expect(getOAuthErrorReasonKey("google_oauth_denied")).toBe(
 			"connections.oauthReturn.reason.google_oauth_denied",
 		);

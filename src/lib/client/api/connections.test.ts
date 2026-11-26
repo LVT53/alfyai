@@ -102,6 +102,23 @@ describe("startGoogleConnect", () => {
 		expect(result).toEqual({ authUrl: "https://accounts.google.com/x" });
 	});
 
+	it("binds the incremental calendar edit request to its connection", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ authUrl: "https://accounts.google.com/x" }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		await startGoogleConnect(["calendar"], "chosen-google-account");
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/google/start",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					capabilities: ["calendar"],
+					calendarWriteConnectionId: "chosen-google-account",
+				}),
+			}),
+		);
+	});
 	it("throws with the not-configured status on a 501", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse({ error: "Google OAuth is not configured" }, 501),

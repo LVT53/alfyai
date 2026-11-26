@@ -1,6 +1,7 @@
 import { redirect } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	GoogleOAuthError,
 	googleConnectFinish,
 	verifyOAuthState,
 } from "$lib/server/services/connections/providers/google";
@@ -46,7 +47,11 @@ export const GET: RequestHandler = async (event) => {
 
 	try {
 		await googleConnectFinish({ code, state, origin: event.url.origin });
-	} catch {
+	} catch (err) {
+		if (err instanceof GoogleOAuthError && err.code === "wrong_account")
+			throw redirect(302, errorRedirectPath("google_oauth_wrong_account"));
+		if (err instanceof GoogleOAuthError && err.code === "write_grant_missing")
+			throw redirect(302, errorRedirectPath("google_oauth_denied"));
 		throw redirect(302, errorRedirectPath("google_oauth_failed"));
 	}
 

@@ -176,10 +176,14 @@ export type GoogleConnectStartResponse = OAuthConnectStartResponse;
 // POST /api/connections/google/start — src/routes/api/connections/google/start/+server.ts
 export async function startGoogleConnect(
 	capabilities: string[],
+	calendarWriteConnectionId?: string,
 ): Promise<OAuthConnectStartResponse> {
 	return postJson<OAuthConnectStartResponse>(
 		"/api/connections/google/start",
-		{ capabilities },
+		{
+			capabilities,
+			...(calendarWriteConnectionId ? { calendarWriteConnectionId } : {}),
+		},
 		"Failed to start Google connect",
 	);
 }

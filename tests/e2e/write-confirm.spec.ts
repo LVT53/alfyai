@@ -25,6 +25,7 @@ type SeededWrite = {
 	content: string;
 	provider: string;
 	warnings?: string[];
+	status?: "pending" | "executed";
 };
 
 const EVENT: SeededWrite = {
@@ -116,6 +117,27 @@ const EVENT_DELETE: SeededWrite = {
 	}),
 };
 
+const EVENT_UPDATE: SeededWrite = {
+	provider: "google",
+	op: {
+		action: "calendar.update_event",
+		destructive: true,
+		reversible: true,
+		target: { id: "ev-1", label: "Dentist" },
+	},
+	content: JSON.stringify({
+		calendarId: "primary",
+		eventId: "ev-1",
+		current: {
+			summary: "Dentist",
+			start: "2026-11-03T09:00:00",
+			end: "2026-11-03T09:30:00",
+			location: "Kossuth tér 1",
+		},
+		event: { location: "Clinic B" },
+	}),
+};
+
 const ALBUM: SeededWrite = {
 	provider: "immich",
 	op: {
@@ -177,7 +199,7 @@ async function seedReply(page: Page, writes: SeededWrite[]): Promise<string> {
 			provider: write.provider,
 			opJson: JSON.stringify({ op: write.op, content: write.content }),
 			idempotencyKey: randomUUID(),
-			status: "pending",
+			status: write.status ?? "pending",
 			previewJson: JSON.stringify({
 				title: "Proposed in English",
 				detail: "internal.action — target",
@@ -272,6 +294,50 @@ test.describe("the permission card in a reply", () => {
 		).toBeVisible();
 		await expect(card).toContainText("3 November");
 		await expect(card).toContainText("Kossuth tér 1");
+	});
+
+	test("shows the proposed Google Calendar edit and records a cancellation after reload", async ({
+		page,
+	}) => {
+		const id = await seedReply(page, [EVENT_UPDATE]);
+		await page.goto(`/chat/${id}`);
+		const card = page.getByRole("article", { name: "Needs your OK: Dentist" });
+		await expect(
+			card.getByRole("heading", { name: "Change this event?" }),
+		).toBeVisible();
+		await expect(card).toContainText("New place");
+		await expect(card).toContainText("Clinic B");
+		await expect(
+			card.getByRole("button", { name: /Save changes/ }),
+		).toBeVisible();
+		await card.getByTestId("write-confirm-decline").click();
+		await expect(page.getByTestId("write-confirm-settled")).toHaveAttribute(
+			"data-status",
+			"cancelled",
+		);
+		await page.reload();
+		await expect(page.getByTestId("write-confirm-settled")).toContainText(
+			"Cancelled",
+		);
+	});
+
+	test("shows completed Google Calendar changes as past actions", async ({
+		page,
+	}) => {
+		const id = await seedReply(
+			page,
+			[EVENT, EVENT_UPDATE, EVENT_DELETE].map((write) => ({
+				...write,
+				status: "executed",
+			})),
+		);
+		await page.goto(`/chat/${id}`);
+		const rows = page.getByTestId("write-confirm-settled");
+		await expect(rows).toHaveCount(3);
+		for (const word of ["Added", "Changed", "Deleted"]) {
+			await expect(rows.filter({ hasText: word })).toContainText("Dentist");
+		}
+		await expect(page.getByTestId("write-confirm-approve")).toHaveCount(0);
 	});
 
 	test("shows the photos an album write adds", async ({ page }) => {

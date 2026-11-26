@@ -140,12 +140,13 @@ export type ToolActivityBody =
 				things?: { items: { title: string; sub?: string }[]; more: number };
 				/** Why it did not work, or one line of information: a sentence, never a code. */
 				reason?: string;
+				openConnections?: true;
 			}[];
 	  }
 	// One sentence, in the person's language, from a reason code's words (never
 	// from `outputSummary`, `metadata.error` or anything else written for the model
 	// or the log): what happened, once.
-	| { kind: "reason"; text: string }
+	| { kind: "reason"; text: string; openConnections?: true }
 	// The file-production body is rendered by FileProductionCard.svelte (the
 	// reduced, body-only component); the job itself is threaded through the
 	// component prop rather than flattened here.
@@ -683,7 +684,13 @@ function withReason(
 	translate: Translate,
 ): ToolActivityItem {
 	const sentence: ToolActivityBody | null = reason.text
-		? { kind: "reason", text: reason.text }
+		? {
+				kind: "reason",
+				text: reason.text,
+				...(reason.code === "calendar_edit_consent"
+					? { openConnections: true }
+					: {}),
+			}
 		: null;
 	// A failed create or edit already says so in its own verb ("Couldn't edit").
 	const saysItself = Boolean(item.artifact?.failed);
@@ -1963,6 +1970,9 @@ export function buildConnectorActivityItem(
 				...(call.sub ? { sub: call.sub } : {}),
 				...(call.things ? { things: call.things } : {}),
 				...(call.reason ? { reason: call.reason } : {}),
+				...(call.code === "calendar_edit_consent"
+					? { openConnections: true as const }
+					: {}),
 			})),
 		},
 	};
