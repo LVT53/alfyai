@@ -37,7 +37,11 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 **E2E selectors**: Use `data-testid` attributes. Prefer `page.getByTestId('name')` or `page.getByRole()` over CSS selectors.
 
-**E2E helpers**: Reuse `tests/e2e/helpers.ts` for login, logout, sendMessage, createConversation.
+**E2E helpers**: Import helpers from `tests/e2e/helpers.ts`. Use `login(page)` when the test needs a signed-in person. It uses the isolated worker database and opens the ready composer. Use the real form or `loginThroughForm(page)` when the test needs to exercise authentication, including the login endpoint, password changes, sign-out, two-step sign-in and session expiry. Keep the real login smoke test. Reuse `logout`, `sendMessage` and `createEmptyConversation` for their respective flows.
+
+**New browser tests**: Use browser tests for layout and geometry, focus and keyboard, motion, and user flows across pages. Put logic, parsing, formatting and server behaviour in unit tests. Extend an existing flow when it can cover the new assertion with the same sign-in and page load.
+
+**Splitting slow specs**: Use the measured worker timeline. When a worker sits idle more than 90 seconds and a spec on the remaining workers takes more than three minutes, split that spec along top-level suites into files of about three minutes or less. Keep shared setup in a helper. Compare the sorted Playwright test titles and counts before and after, preserve every assertion, move any snapshots with their tests, and update quarantine entries and live references to the original file.
 
 **Mocking**: Use `page.route()` to intercept API calls in E2E. Mock servers live in `tests/mocks/`.
 
