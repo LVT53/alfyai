@@ -608,7 +608,7 @@ The spec leaves a choice: per-file comments or two Vitest projects. This plan pi
 **Files:**
 - Modify: `tests/e2e/e2e-env.ts` (`DEFAULT_BUILD_WORKERS`), `scripts/gates.mjs` (the schedule defaults in `parseArgs`, and `vitestThreads`), `scripts/gates.test.ts` (`"the default schedule"`)
 
-- [ ] **Step 1: Workers.** Run one measured release gate with `--workers 8`, and compare it with Task 13's last run on 6. Keep 8 only if the run is faster, passes, and swap stays at 0.
+- [ ] **Step 1: Workers.** Compare six-browser, two-Vitest overlap with five-browser, three-Vitest overlap first. Use a seven-browser, one-Vitest overlap or eight-browser phased trial if the timing of the two lanes makes it a candidate. Record the effective allocations from each summary. Raise the default only if the run is faster, passes, and swap stays at 0.
 - [ ] **Step 2: The release schedule.** Keep `overlap` if, in Task 13's runs and this one, vitest finished within the e2e step and no unit test timed out. Otherwise choose `phased`.
 - [ ] **Step 3: The agent schedule.** Make three scratch changes: a server-only change, a component change, and an i18n string change. Run each under `phased` and under `overlap`, and make the faster the default.
 - [ ] **Step 4:** Update the defaults and the `"the default schedule"` tests. Above each changed default, a comment gives the measurements it rests on. Run `npx vitest run scripts/gates.test.ts`. Expected: PASS.
